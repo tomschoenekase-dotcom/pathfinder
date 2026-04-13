@@ -13,7 +13,8 @@ async function createCaller() {
 export default async function OperationalUpdatesPage() {
   const caller = await createCaller()
   const updates = await caller.operationalUpdate.list()
-  const serializedUpdates = updates.map((update) => ({
+  type UpdateItem = (typeof updates)[number]
+  const serializedUpdates = updates.map((update: UpdateItem) => ({
     ...update,
     expiresAt: update.expiresAt.toISOString(),
     createdAt: update.createdAt.toISOString(),
