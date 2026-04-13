@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { Webhook } from 'svix'
 
 import { env, logger } from '@pathfinder/config'
