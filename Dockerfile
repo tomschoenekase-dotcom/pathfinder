@@ -9,6 +9,7 @@ RUN pnpm install --frozen-lockfile
 FROM base AS builder
 WORKDIR /app
 COPY --from=installer /app ./
+RUN pnpm --filter @pathfinder/db exec prisma generate
 RUN pnpm --filter @pathfinder/dashboard build
 
 FROM base AS runner
