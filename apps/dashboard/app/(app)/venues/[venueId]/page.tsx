@@ -111,7 +111,7 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
                     </tr>
                   </thead>
                   <tbody>
-                    {places.map((place) => (
+                    {places.map((place: (typeof places)[number]) => (
                       <PlaceRow key={place.id} place={place} />
                     ))}
                   </tbody>

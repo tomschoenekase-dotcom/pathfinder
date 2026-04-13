@@ -61,7 +61,7 @@ export default async function VenuesPage() {
           </section>
         ) : (
           <div className="grid gap-6 lg:grid-cols-2">
-            {venuesWithCounts.map((venue) => (
+            {venuesWithCounts.map((venue: (typeof venuesWithCounts)[number]) => (
               <VenueCard key={venue.id} venue={venue} />
             ))}
           </div>
