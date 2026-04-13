@@ -90,7 +90,7 @@ export async function searchPlacesByEmbedding(params: {
     LIMIT ${limitSafe}
   `
 
-  return rows.map((row) => ({
+  return rows.map((row: RawPlaceRow) => ({
     id: row.id,
     name: row.name,
     type: row.type,
