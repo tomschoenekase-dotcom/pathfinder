@@ -33,7 +33,7 @@ export default async function NewOperationalUpdatePage() {
             </Link>
           </section>
         ) : (
-          <OperationalUpdateForm venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))} />
+          <OperationalUpdateForm venues={venues.map((venue: { id: string; name: string }) => ({ id: venue.id, name: venue.name }))} />
         )}
       </div>
     </div>
