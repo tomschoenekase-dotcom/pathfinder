@@ -12,10 +12,12 @@ import {
   LogOut,
   Megaphone,
   Settings,
+  Users,
 } from 'lucide-react'
 
 type DashboardShellProps = {
   children: ReactNode
+  isPlatformAdmin?: boolean
 }
 
 const navigationItems = [
@@ -35,7 +37,7 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function DashboardShell({ children }: DashboardShellProps) {
+export function DashboardShell({ children, isPlatformAdmin }: DashboardShellProps) {
   const pathname = usePathname()
   const { organization } = useOrganization()
   const orgName = organization?.name ?? 'Your organization'
@@ -56,6 +58,20 @@ export function DashboardShell({ children }: DashboardShellProps) {
             </div>
 
             <nav className="mt-6 flex-1 space-y-2" aria-label="Dashboard navigation">
+              {isPlatformAdmin && (
+                <Link
+                  href="/clients"
+                  className={[
+                    'flex min-h-11 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition',
+                    isActivePath(pathname, '/clients')
+                      ? 'bg-cyan-400 text-slate-950'
+                      : 'text-slate-300 hover:bg-slate-900 hover:text-white',
+                  ].join(' ')}
+                >
+                  <Users className="h-4 w-4" aria-hidden="true" />
+                  <span>Clients</span>
+                </Link>
+              )}
               {navigationItems.map((item) => {
                 const Icon = item.icon
                 const active = isActivePath(pathname, item.href)

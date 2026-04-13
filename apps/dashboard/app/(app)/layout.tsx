@@ -11,7 +11,7 @@ type AppLayoutProps = {
 }
 
 export default async function DashboardAppLayout({ children }: AppLayoutProps) {
-  const { userId, orgId } = await auth()
+  const { userId, orgId, sessionClaims } = await auth()
 
   if (!userId) {
     redirect('/sign-in')
@@ -21,5 +21,8 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
     redirect('/onboarding')
   }
 
-  return <DashboardShell>{children}</DashboardShell>
+  const isPlatformAdmin =
+    (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.platform_role === 'PLATFORM_ADMIN'
+
+  return <DashboardShell isPlatformAdmin={isPlatformAdmin}>{children}</DashboardShell>
 }
