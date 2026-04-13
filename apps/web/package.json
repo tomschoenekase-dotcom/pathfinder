@@ -1,0 +1,33 @@
+{
+  "name": "@pathfinder/web",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev --port 3000",
+    "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"lib/**/*.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  },
+  "dependencies": {
+    "@pathfinder/api": "workspace:*",
+    "@tanstack/react-query": "^5.59.20",
+    "@trpc/client": "^11.0.0",
+    "@trpc/react-query": "^11.0.0",
+    "@trpc/server": "^11.0.0",
+    "autoprefixer": "10.4.21",
+    "next": "15.5.15",
+    "postcss": "8.5.6",
+    "react": "19.1.4",
+    "react-dom": "19.1.4",
+    "superjson": "^2.2.2",
+    "tailwindcss": "3.4.17"
+  },
+  "devDependencies": {
+    "@pathfinder/config": "workspace:*",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "19.1.16",
+    "@types/react-dom": "19.1.9",
+    "jsdom": "^26.1.0"
+  }
+}

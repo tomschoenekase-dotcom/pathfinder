@@ -1,0 +1,28 @@
+{
+  "name": "@pathfinder/api",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit --project tsconfig.json",
+    "dev": "echo dev:api",
+    "lint": "echo lint:api",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "openai": "^4.0.0",
+    "@pathfinder/analytics": "workspace:*",
+    "@pathfinder/auth": "workspace:*",
+    "@pathfinder/config": "workspace:*",
+    "@pathfinder/db": "workspace:*",
+    "@trpc/server": "^11.0.0",
+    "superjson": "^2.2.2",
+    "zod": "^3.0.0"
+  }
+}

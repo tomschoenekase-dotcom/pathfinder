@@ -1,0 +1,15 @@
+{
+  "extends": "../config/typescript/base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "prisma/seed.ts",
+    "node_modules/.prisma/client/index.d.ts",
+    "src/**/*.test.ts"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la pnpm-lock.yaml)",
+      "Bash(head -5 pnpm-lock.yaml)",
+      "Bash(npm root:*)",
+      "Bash(xargs ls:*)",
+      "Bash(npm --version)",
+      "Read(//c/Users/tomsc/AppData/Roaming/npm/**)",
+      "Read(//c/Users/tomsc/AppData/Local/**)",
+      "Bash(cmd.exe /c \"where pnpm\")",
+      "Bash(cmd.exe /c \"npm list -g pnpm 2>&1\")",
+      "Bash(cmd.exe /c \"corepack --version 2>&1\")",
+      "Bash(cmd.exe /c \"pnpm --version 2>&1\")",
+      "Bash(cmd.exe /c \"npx pnpm --version 2>&1\")",
+      "Bash(cmd.exe /c \"echo %PATH%\")",
+      "Bash(cmd.exe /c \"npm exec -- pnpm@9 --version 2>&1\")",
+      "Bash(ls -la .env*)",
+      "Bash(cat .env.local)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm turbo:*)",
+      "Bash(pnpm add:*)",
+      "Bash(ls packages/auth/src/*.test.ts)",
+      "Bash(pnpm --filter @pathfinder/db exec prisma generate)",
+      "Bash(pnpm --filter @pathfinder/db test)",
+      "Bash(pnpm --filter @pathfinder/api exec tsc --noEmit)",
+      "Bash(pnpm --filter @pathfinder/api test)",
+      "Bash(pnpm --filter=@pathfinder/db run typecheck)",
+      "Bash(pnpm --filter=@pathfinder/db run test)",
+      "Bash(pnpm --filter=@pathfinder/auth run test)",
+      "Bash(pnpm --filter=@pathfinder/api run typecheck)",
+      "Bash(pnpm --filter=@pathfinder/db --filter=@pathfinder/api run test)",
+      "Bash(pnpm --filter=@pathfinder/api run test)",
+      "Bash(pnpm --filter=@pathfinder/db --filter=@pathfinder/api run typecheck)",
+      "Bash(pnpm db:generate)",
+      "Bash(xargs grep:*)",
+      "Bash(ls c:/Users/tomsc/Downloads/PathFinder/.env*)",
+      "Bash(ls c:/Users/tomsc/Downloads/PathFinder/apps/dashboard/.env*)"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@pathfinder/jobs",
+  "private": true,
+  "scripts": {
+    "build": "echo build:jobs",
+    "dev": "echo dev:jobs",
+    "lint": "echo lint:jobs",
+    "typecheck": "echo typecheck:jobs",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  }
+}

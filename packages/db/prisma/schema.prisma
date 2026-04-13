@@ -1,0 +1,316 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id          String             @id
+  email       String             @unique
+  fullName    String?            @map("full_name")
+  avatarUrl   String?            @map("avatar_url")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  memberships TenantMembership[]
+
+  @@map("users")
+}
+
+model Tenant {
+  id          String             @id
+  name        String
+  slug        String             @unique
+  planTier    String             @default("free") @map("plan_tier")
+  status      TenantStatus       @default(ACTIVE)
+  config      Json               @default("{}")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  memberships  TenantMembership[]
+  featureFlags TenantFeatureFlag[]
+  venues       Venue[]
+  operationalUpdates OperationalUpdate[]
+  analyticsEvents AnalyticsEvent[]
+  guestSessions GuestSession[]
+  dailyRollups DailyRollup[]
+
+  @@map("tenants")
+}
+
+model TenantMembership {
+  id        String           @id @default(cuid())
+  tenantId  String           @map("tenant_id")
+  userId    String           @map("user_id")
+  role      TenantRole
+  status    MembershipStatus @default(ACTIVE)
+  invitedBy String?          @map("invited_by")
+  joinedAt  DateTime?        @map("joined_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("tenant_memberships")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String?  @map("tenant_id")
+  actorId     String   @map("actor_id")
+  actorRole   String   @map("actor_role")
+  action      String
+  targetType  String   @map("target_type")
+  targetId    String   @map("target_id")
+  beforeState Json?    @map("before_state")
+  afterState  Json?    @map("after_state")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+model TenantFeatureFlag {
+  id       String   @id @default(cuid())
+  tenantId String   @map("tenant_id")
+  flagKey  String   @map("flag_key")
+  enabled  Boolean  @default(false)
+  metadata Json     @default("{}")
+  setBy    String   @map("set_by")
+  setAt    DateTime @default(now()) @map("set_at")
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, flagKey])
+  @@index([tenantId])
+  @@map("tenant_feature_flags")
+}
+
+model PlatformConfig {
+  key       String   @id
+  value     Json
+  updatedBy String   @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_config")
+}
+
+enum TenantRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  REMOVED
+}
+
+model Venue {
+  id               String           @id @default(cuid())
+  tenantId         String           @map("tenant_id")
+  name             String
+  slug             String
+  description      String?
+  guideNotes       String?          @map("guide_notes")
+  category         String?
+  defaultCenterLat Float?           @map("default_center_lat")
+  defaultCenterLng Float?           @map("default_center_lng")
+  geoBoundary      Json?            @map("geo_boundary")
+  isActive         Boolean          @default(true) @map("is_active")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  places           Place[]
+  sessions         VisitorSession[]
+  adapters         DataAdapter[]
+  operationalUpdates OperationalUpdate[]
+  analyticsEvents AnalyticsEvent[]
+  guestSessions GuestSession[]
+  dailyRollups DailyRollup[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("venues")
+}
+
+model Place {
+  id               String    @id @default(cuid())
+  tenantId         String    @map("tenant_id")
+  venueId          String    @map("venue_id")
+  name             String
+  type             String
+  shortDescription String?   @map("short_description")
+  longDescription  String?   @map("long_description")
+  lat              Float
+  lng              Float
+  tags             String[]
+  importanceScore  Int       @default(0) @map("importance_score")
+  areaName         String?   @map("area_name")
+  hours            String?
+  photoUrl         String?   @map("photo_url")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  venue            Venue     @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  operationalUpdates OperationalUpdate[]
+  analyticsEvents AnalyticsEvent[]
+  dailyRollups     DailyRollup[]
+
+  @@index([tenantId])
+  @@index([venueId])
+  @@map("places")
+}
+
+model VisitorSession {
+  id             String    @id @default(cuid())
+  tenantId       String    @map("tenant_id")
+  venueId        String    @map("venue_id")
+  anonymousToken String    @unique @map("anonymous_token")
+  latestLat      Float?    @map("latest_lat")
+  latestLng      Float?    @map("latest_lng")
+  startedAt      DateTime  @default(now()) @map("started_at")
+  lastActiveAt   DateTime  @default(now()) @map("last_active_at")
+  venue          Venue     @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  messages       Message[]
+
+  @@index([tenantId])
+  @@index([venueId])
+  @@index([anonymousToken])
+  @@map("visitor_sessions")
+}
+
+model Message {
+  id        String         @id @default(cuid())
+  tenantId  String         @map("tenant_id")
+  sessionId String         @map("session_id")
+  role      MessageRole
+  content   String
+  createdAt DateTime       @default(now()) @map("created_at")
+  session   VisitorSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([sessionId])
+  @@map("messages")
+}
+
+model DataAdapter {
+  id          String    @id @default(cuid())
+  tenantId    String    @map("tenant_id")
+  venueId     String    @map("venue_id")
+  adapterType String    @map("adapter_type")
+  configBlob  Json      @default("{}") @map("config_blob")
+  lastSyncAt  DateTime? @map("last_sync_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  venue       Venue     @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([venueId])
+  @@map("data_adapters")
+}
+
+model OperationalUpdate {
+  id         String                    @id @default(cuid())
+  tenantId   String                    @map("tenant_id")
+  venueId    String                    @map("venue_id")
+  placeId    String?                   @map("place_id")
+  severity   OperationalUpdateSeverity
+  title      String
+  body       String?
+  redirectTo String?                   @map("redirect_to")
+  expiresAt  DateTime                  @map("expires_at")
+  isActive   Boolean                   @default(true) @map("is_active")
+  createdBy  String                    @map("created_by")
+  createdAt  DateTime                  @default(now()) @map("created_at")
+  tenant     Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue      Venue                     @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  place      Place?                    @relation(fields: [placeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([venueId, isActive, expiresAt])
+  @@index([placeId])
+  @@index([severity, createdAt])
+  @@map("operational_updates")
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  venueId    String   @map("venue_id")
+  sessionId  String   @map("session_id")
+  eventType  String   @map("event_type")
+  placeId    String?  @map("place_id")
+  metadata   Json?
+  occurredAt DateTime @map("occurred_at")
+  receivedAt DateTime @default(now()) @map("received_at")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue      Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  place      Place?   @relation(fields: [placeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, venueId, occurredAt])
+  @@index([sessionId])
+  @@index([eventType, occurredAt])
+  @@index([placeId])
+  @@map("analytics_events")
+}
+
+model GuestSession {
+  id           String   @id
+  tenantId     String   @map("tenant_id")
+  venueId      String   @map("venue_id")
+  startedAt    DateTime @default(now()) @map("started_at")
+  lastSeenAt   DateTime @default(now()) @map("last_seen_at")
+  messageCount Int      @default(0) @map("message_count")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue        Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, venueId])
+  @@index([lastSeenAt])
+  @@map("guest_sessions")
+}
+
+model DailyRollup {
+  id       String   @id @default(cuid())
+  tenantId String   @map("tenant_id")
+  venueId  String   @map("venue_id")
+  date     DateTime
+  metric   String
+  placeId  String?  @map("place_id")
+  category String?
+  value    Int
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue    Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  place    Place?   @relation(fields: [placeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, venueId, date])
+  @@index([metric, date])
+  @@index([placeId])
+  @@map("daily_rollups")
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+enum OperationalUpdateSeverity {
+  INFO
+  WARNING
+  CLOSURE
+  REDIRECT
+}

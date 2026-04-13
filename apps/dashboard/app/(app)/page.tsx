@@ -1,0 +1,26 @@
+import { appRouter, createTRPCContext } from '@pathfinder/api'
+
+import { DashboardOverview } from '../../components/DashboardOverview'
+
+async function createCaller() {
+  const ctx = await createTRPCContext({
+    req: new Request('https://dashboard.pathfinder.local/'),
+  })
+
+  return appRouter.createCaller(ctx)
+}
+
+export default async function DashboardIndexPage() {
+  const caller = await createCaller()
+  const venues = await caller.venue.list()
+  const venueDetails = await Promise.all(venues.map((venue) => caller.venue.getById({ id: venue.id })))
+
+  const stats = {
+    activeAlerts: 0,
+    sessionsThisWeek: 0,
+    totalPlaces: venueDetails.reduce((sum, venue) => sum + venue._count.places, 0),
+    venues: venues.length,
+  }
+
+  return <DashboardOverview stats={stats} />
+}

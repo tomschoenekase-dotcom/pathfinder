@@ -1,0 +1,23 @@
+{
+  "name": "@pathfinder/config",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./feature-flags": "./src/feature-flags.ts",
+    "./logger": "./src/logger.ts",
+    "./typescript/base.json": "./typescript/base.json",
+    "./typescript/nextjs.json": "./typescript/nextjs.json"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit --project tsconfig.json",
+    "dev": "echo dev:config",
+    "lint": "eslint --config ./eslint/base.js \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  },
+  "dependencies": {
+    "zod": "^3.0.0"
+  }
+}

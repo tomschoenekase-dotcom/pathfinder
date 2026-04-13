@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: pathfinder_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_test
+      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_test
+      REDIS_URL: redis://localhost:6379
+      CLERK_SECRET_KEY: test_clerk_secret
+      CLERK_PUBLISHABLE_KEY: test_clerk_pub
+      CLERK_WEBHOOK_SECRET: test_webhook_secret
+      INTEGRATION_ENCRYPTION_KEY: test_encryption_key_32_chars_long!
+      STORAGE_BUCKET: test-bucket
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY_ID: test
+      STORAGE_SECRET_ACCESS_KEY: test
+      POSTHOG_API_KEY: test
+      RESEND_API_KEY: test
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run typecheck
+      - run: pnpm turbo run lint
+      - run: pnpm turbo run test

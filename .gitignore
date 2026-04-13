@@ -1,0 +1,11 @@
+.next/
+dist/
+node_modules/
+.env
+.env.local
+*.env
+*.env.local
+.turbo/
+.corepack/
+.corepack-bin/
+coverage/

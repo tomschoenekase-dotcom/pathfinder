@@ -1,0 +1,12 @@
+{
+  "name": "@pathfinder/ui",
+  "private": true,
+  "scripts": {
+    "build": "echo build:ui",
+    "dev": "echo dev:ui",
+    "lint": "echo lint:ui",
+    "typecheck": "echo typecheck:ui",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  }
+}

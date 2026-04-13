@@ -1,0 +1,12 @@
+{
+  "name": "@pathfinder/integrations",
+  "private": true,
+  "scripts": {
+    "build": "echo build:integrations",
+    "dev": "echo dev:integrations",
+    "lint": "echo lint:integrations",
+    "typecheck": "echo typecheck:integrations",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@pathfinder/workers",
+  "private": true,
+  "scripts": {
+    "build": "echo build:workers",
+    "dev": "echo dev:workers",
+    "lint": "echo lint:workers",
+    "typecheck": "echo typecheck:workers",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
+  }
+}
