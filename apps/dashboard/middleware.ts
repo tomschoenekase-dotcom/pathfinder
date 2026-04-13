@@ -2,12 +2,17 @@ import { clerkMiddleware } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
 const AUTH_ROUTES = ['/sign-in', '/sign-up']
+const PUBLIC_ROUTES = ['/api/webhooks/clerk']
 
 export default clerkMiddleware(async (auth, req) => {
   try {
     const { pathname } = req.nextUrl
 
     if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
+      return NextResponse.next()
+    }
+
+    if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
       return NextResponse.next()
     }
 
