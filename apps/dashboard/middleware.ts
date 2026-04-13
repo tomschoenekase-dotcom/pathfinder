@@ -4,24 +4,29 @@ import { NextResponse } from 'next/server'
 const AUTH_ROUTES = ['/sign-in', '/sign-up']
 
 export default clerkMiddleware(async (auth, req) => {
-  const { pathname } = req.nextUrl
+  try {
+    const { pathname } = req.nextUrl
 
-  if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
+    if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
+      return NextResponse.next()
+    }
+
+    const authState = await auth()
+
+    if (!authState.userId) {
+      return authState.redirectToSignIn()
+    }
+
+    if (!authState.orgId && pathname !== '/onboarding') {
+      const onboardingUrl = new URL('/onboarding', req.url)
+      return NextResponse.redirect(onboardingUrl)
+    }
+
+    return NextResponse.next()
+  } catch (err) {
+    console.error('[middleware error]', err)
     return NextResponse.next()
   }
-
-  const authState = await auth()
-
-  if (!authState.userId) {
-    return authState.redirectToSignIn()
-  }
-
-  if (!authState.orgId && pathname !== '/onboarding') {
-    const onboardingUrl = new URL('/onboarding', req.url)
-    return NextResponse.redirect(onboardingUrl)
-  }
-
-  return NextResponse.next()
 })
 
 export const config = {
