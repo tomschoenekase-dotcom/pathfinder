@@ -9,7 +9,7 @@ function createClient() {
   }).$extends({
     query: {
       $allModels: {
-        async $allOperations({ model, operation, args, query }) {
+        async $allOperations({ model, operation, args, query }: { model: string | undefined; operation: string; args: unknown; query: (args: unknown) => Promise<unknown> }) {
           // Raw operations ($queryRaw, $executeRaw, etc.) have no model.
           // Pass them directly — the middleware cannot inspect them and the
           // args format for raw SQL must not be round-tripped through params.
