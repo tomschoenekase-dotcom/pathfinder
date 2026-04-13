@@ -17,8 +17,9 @@ export default function DashboardOnboardingPage() {
 
     const memberships = userMemberships.data
 
-    if (memberships.length === 1 && setActive) {
-      void setActive({ organization: memberships[0].organization.id }).then(() => {
+    const first = memberships[0]
+    if (memberships.length === 1 && setActive && first) {
+      void setActive({ organization: first.organization.id }).then(() => {
         router.replace('/')
       })
     }
