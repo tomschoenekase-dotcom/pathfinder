@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import type { ReactNode } from 'react'
 import { ClerkProvider } from '@clerk/nextjs'
 
