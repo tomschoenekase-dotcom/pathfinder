@@ -226,7 +226,7 @@ export const chatRouter = router({
         max_tokens: MAX_TOKENS,
         system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         messages: [
-          ...history.map((m) => ({
+          ...history.map((m: { role: string; content: string }) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
           })),

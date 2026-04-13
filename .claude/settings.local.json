@@ -35,7 +35,8 @@
       "Bash(pnpm db:generate)",
       "Bash(xargs grep:*)",
       "Bash(ls c:/Users/tomsc/Downloads/PathFinder/.env*)",
-      "Bash(ls c:/Users/tomsc/Downloads/PathFinder/apps/dashboard/.env*)"
+      "Bash(ls c:/Users/tomsc/Downloads/PathFinder/apps/dashboard/.env*)",
+      "Bash(pnpm --filter @pathfinder/dashboard build)"
     ]
   }
 }
