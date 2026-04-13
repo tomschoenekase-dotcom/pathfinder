@@ -37,4 +37,10 @@ export const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
 })
 
-export const env = envSchema.parse(process.env)
+// During Next.js build (NEXT_PHASE=phase-production-build) env vars may not
+// be available. Skip strict validation then; the app will crash at runtime if
+// a required var is missing, which is the correct behaviour.
+export const env =
+  process.env.NEXT_PHASE === 'phase-production-build'
+    ? (process.env as unknown as z.infer<typeof envSchema>)
+    : envSchema.parse(process.env)
