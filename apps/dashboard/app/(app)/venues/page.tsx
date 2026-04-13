@@ -15,8 +15,9 @@ async function createCaller() {
 export default async function VenuesPage() {
   const caller = await createCaller()
   const venues = await caller.venue.list()
+  type VenueItem = (typeof venues)[number]
   const venuesWithCounts = await Promise.all(
-    venues.map(async (venue) => {
+    venues.map(async (venue: VenueItem) => {
       const detail = await caller.venue.getById({ id: venue.id })
 
       return {

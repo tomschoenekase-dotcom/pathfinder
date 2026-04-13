@@ -13,7 +13,8 @@ async function createCaller() {
 export default async function DashboardIndexPage() {
   const caller = await createCaller()
   const venues = await caller.venue.list()
-  const venueDetails = await Promise.all(venues.map((venue) => caller.venue.getById({ id: venue.id })))
+  type VenueItem = (typeof venues)[number]
+  const venueDetails = await Promise.all(venues.map((venue: VenueItem) => caller.venue.getById({ id: venue.id })))
 
   const stats = {
     activeAlerts: 0,
