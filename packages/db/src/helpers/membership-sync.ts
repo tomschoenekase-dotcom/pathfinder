@@ -3,7 +3,7 @@ import { logger } from '@pathfinder/config/logger'
 import { db } from '../client'
 import { writeAuditLog } from './audit'
 
-import type { TenantRole } from '@prisma/client'
+type TenantRole = 'STAFF' | 'MANAGER' | 'OWNER'
 
 // Clerk role → TenantRole mapping.
 // org:admin → OWNER (full control)
