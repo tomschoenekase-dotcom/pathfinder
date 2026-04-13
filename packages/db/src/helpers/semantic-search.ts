@@ -1,5 +1,3 @@
-import { Prisma } from '@prisma/client'
-
 import { db } from '../client'
 
 // Inlined here because packages/db cannot import from packages/api where the
@@ -68,7 +66,7 @@ export async function searchPlacesByEmbedding(params: {
   const { queryEmbedding, venueId, tenantId, userLat, userLng, limit = DEFAULT_LIMIT } = params
 
   const vectorStr = `[${queryEmbedding.join(',')}]`
-  const limitSafe = Prisma.raw(String(Math.max(1, Math.min(50, Math.floor(limit)))))
+  const limitSafe = Math.max(1, Math.min(50, Math.floor(limit)))
 
   const rows = await db.$queryRaw<RawPlaceRow[]>`
     SELECT
