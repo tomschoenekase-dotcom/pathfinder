@@ -1,5 +1,6 @@
 {
   "name": "pathfinder",
+  "_bust": "1",
   "private": true,
   "scripts": {
     "build": "turbo run build",
