@@ -6,21 +6,12 @@ WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile
 
-FROM base AS builder
-WORKDIR /app
-COPY --from=installer /app ./
-RUN pnpm --filter @pathfinder/db exec prisma generate
-RUN pnpm --filter @pathfinder/workers build
-
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=builder /app/apps/workers/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages ./packages
+COPY --from=installer /app ./
+RUN pnpm --filter @pathfinder/db exec prisma generate
+RUN pnpm --filter @pathfinder/workers build
 
-# Copy Prisma engine binary for Alpine Linux
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client@6.19.3_prisma@6.19.3_magicast@0.3.5_typescript@5.9.3__typescript@5.9.3/node_modules/.prisma/client/*.node ./node_modules/.pnpm/@prisma+client@6.19.3_prisma@6.19.3_magicast@0.3.5_typescript@5.9.3__typescript@5.9.3/node_modules/.prisma/client/
-
-CMD ["node", "dist/index.js"]
+CMD ["node", "apps/workers/dist/index.js"]
