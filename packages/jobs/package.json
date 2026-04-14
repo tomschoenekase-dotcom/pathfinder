@@ -1,12 +1,24 @@
 {
   "name": "@pathfinder/jobs",
   "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
   "scripts": {
-    "build": "echo build:jobs",
+    "build": "tsc --noEmit --project tsconfig.json",
     "dev": "echo dev:jobs",
     "lint": "echo lint:jobs",
-    "typecheck": "echo typecheck:jobs",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"
+  },
+  "dependencies": {
+    "@pathfinder/config": "workspace:*",
+    "bullmq": "^5.61.0",
+    "ioredis": "^5.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
   }
 }

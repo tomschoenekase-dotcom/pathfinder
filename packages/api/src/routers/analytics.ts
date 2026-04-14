@@ -1,9 +1,10 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfinder/analytics'
 
 import { router } from '../core'
-import { publicProcedure } from '../trpc'
+import { publicProcedure, tenantProcedure } from '../trpc'
 
 const analyticsTrackEventInput = z
   .object({
@@ -15,6 +16,20 @@ const analyticsTrackEventInput = z
     occurredAt: z.coerce.date().optional(),
   })
   .strict()
+
+const getDailyStatsInput = z
+  .object({
+    days: z.number().int().min(7).max(90).default(30),
+  })
+  .default({ days: 30 })
+
+function startOfUtcDay(date: Date): Date {
+  const result = new Date(date)
+
+  result.setUTCHours(0, 0, 0, 0)
+
+  return result
+}
 
 async function resolveVenueTenant(
   db: Parameters<Parameters<typeof publicProcedure.mutation>[0]>[0]['ctx']['db'],
@@ -117,5 +132,107 @@ export const analyticsRouter = router({
     })
 
     return { ok: true as const }
+  }),
+
+  getLatestDigest: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.db.weeklyDigest.findFirst({
+      where: {
+        tenantId: ctx.session.activeTenantId,
+        status: 'COMPLETE',
+      },
+      orderBy: [{ weekStart: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        weekStart: true,
+        weekEnd: true,
+        status: true,
+        sessionCount: true,
+        messageCount: true,
+        insights: true,
+        generatedAt: true,
+        createdAt: true,
+      },
+    })
+  }),
+
+  listDigests: tenantProcedure.query(async ({ ctx }) => {
+    return ctx.db.weeklyDigest.findMany({
+      where: {
+        tenantId: ctx.session.activeTenantId,
+      },
+      orderBy: [{ weekStart: 'desc' }, { createdAt: 'desc' }],
+      take: 8,
+      select: {
+        id: true,
+        weekStart: true,
+        weekEnd: true,
+        status: true,
+        sessionCount: true,
+        messageCount: true,
+        generatedAt: true,
+      },
+    })
+  }),
+
+  getDigest: tenantProcedure
+    .input(
+      z
+        .object({
+          id: z.string(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      const digest = await ctx.db.weeklyDigest.findFirst({
+        where: {
+          id: input.id,
+          tenantId: ctx.session.activeTenantId,
+        },
+        select: {
+          id: true,
+          weekStart: true,
+          weekEnd: true,
+          status: true,
+          sessionCount: true,
+          messageCount: true,
+          insights: true,
+          generatedAt: true,
+          createdAt: true,
+        },
+      })
+
+      if (!digest) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Digest not found',
+        })
+      }
+
+      return digest
+    }),
+
+  getDailyStats: tenantProcedure.input(getDailyStatsInput).query(async ({ ctx, input }) => {
+    const startDate = startOfUtcDay(new Date())
+    startDate.setUTCDate(startDate.getUTCDate() - (input.days - 1))
+
+    return ctx.db.dailyRollup.findMany({
+      where: {
+        tenantId: ctx.session.activeTenantId,
+        date: {
+          gte: startDate,
+        },
+      },
+      orderBy: [{ date: 'asc' }, { metric: 'asc' }, { venueId: 'asc' }],
+      select: {
+        id: true,
+        tenantId: true,
+        venueId: true,
+        date: true,
+        metric: true,
+        placeId: true,
+        category: true,
+        value: true,
+      },
+    })
   }),
 })

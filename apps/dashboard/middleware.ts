@@ -2,6 +2,9 @@ import { clerkMiddleware } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
 const AUTH_ROUTES = ['/sign-in', '/sign-up']
+// /api/webhooks/clerk must remain here — Clerk sends webhook POST requests
+// without a session cookie, so auth() would redirect them with a 307 and break
+// automatic tenant creation on org signup.
 const PUBLIC_ROUTES = ['/api/webhooks/clerk']
 
 export default clerkMiddleware(async (auth, req) => {

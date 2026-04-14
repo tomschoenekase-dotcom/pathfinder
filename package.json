@@ -12,11 +12,7 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{ts,tsx}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md}": [
+    "*.{ts,tsx,json,md}": [
       "prettier --write"
     ]
   },
@@ -27,7 +23,7 @@
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.0.0",
     "husky": "^9.0.0",
-    "lint-staged": "^15.0.0",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.0.0",
     "turbo": "latest",
     "typescript": "^5.0.0",

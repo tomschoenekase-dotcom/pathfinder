@@ -2,11 +2,23 @@
   "name": "@pathfinder/workers",
   "private": true,
   "scripts": {
-    "build": "echo build:workers",
+    "build": "tsc --project tsconfig.json",
     "dev": "echo dev:workers",
     "lint": "echo lint:workers",
-    "typecheck": "echo typecheck:workers",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@pathfinder/config": "workspace:*",
+    "@pathfinder/db": "workspace:*",
+    "@pathfinder/jobs": "workspace:*",
+    "bullmq": "^5.61.0",
+    "zod": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
   }
 }

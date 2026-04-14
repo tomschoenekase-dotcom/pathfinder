@@ -37,6 +37,7 @@ model Tenant {
   analyticsEvents AnalyticsEvent[]
   guestSessions GuestSession[]
   dailyRollups DailyRollup[]
+  weeklyDigests WeeklyDigest[]
 
   @@map("tenants")
 }
@@ -304,6 +305,49 @@ model DailyRollup {
   @@map("daily_rollups")
 }
 
+model JobRecord {
+  id          String    @id @default(cuid())
+  queue       String
+  jobName     String    @map("job_name")
+  bullJobId   String?   @unique @map("bull_job_id")
+  tenantId    String?   @map("tenant_id")
+  status      JobStatus
+  payload     Json      @default("{}")
+  error       String?
+  startedAt   DateTime  @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([queue, status])
+  @@index([tenantId, createdAt])
+  @@index([createdAt])
+  @@map("job_records")
+}
+
+enum JobStatus {
+  RUNNING
+  COMPLETE
+  FAILED
+}
+
+model WeeklyDigest {
+  id           String             @id @default(cuid())
+  tenantId     String             @map("tenant_id")
+  weekStart    DateTime           @map("week_start")
+  weekEnd      DateTime           @map("week_end")
+  status       WeeklyDigestStatus @default(PENDING)
+  sessionCount Int                @default(0) @map("session_count")
+  messageCount Int                @default(0) @map("message_count")
+  insights     Json               @default("[]")
+  generatedAt  DateTime?          @map("generated_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, weekStart])
+  @@index([tenantId, weekStart])
+  @@map("weekly_digests")
+}
+
 enum MessageRole {
   user
   assistant
@@ -314,4 +358,11 @@ enum OperationalUpdateSeverity {
   WARNING
   CLOSURE
   REDIRECT
+}
+
+enum WeeklyDigestStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
 }

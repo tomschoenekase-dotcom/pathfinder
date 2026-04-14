@@ -1,8 +1,29 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import { enqueueWeeklyDigest } from '@pathfinder/jobs'
 import { adminProcedure } from '../../trpc'
 import { router } from '../../core'
+
+function startOfCurrentUtcWeek(date: Date): Date {
+  const result = new Date(date)
+  const day = result.getUTCDay()
+  const daysFromMonday = (day + 6) % 7
+
+  result.setUTCDate(result.getUTCDate() - daysFromMonday)
+  result.setUTCHours(0, 0, 0, 0)
+
+  return result
+}
+
+function endOfUtcWeek(weekStart: Date): Date {
+  const result = new Date(weekStart)
+
+  result.setUTCDate(result.getUTCDate() + 6)
+  result.setUTCHours(23, 59, 59, 999)
+
+  return result
+}
 
 export const adminRouter = router({
   ping: adminProcedure.query(() => ({
@@ -20,7 +41,7 @@ export const adminRouter = router({
             include: { user: true },
           },
         },
-      })
+      }),
     )
   }),
 
@@ -32,14 +53,17 @@ export const adminRouter = router({
         slug: z.string().min(1),
         userId: z.string().min(1),
         userEmail: z.string().email(),
-      })
+      }),
     )
     .mutation(async ({ input }) => {
       const existing = await withTenantIsolationBypass(() =>
-        db.tenant.findUnique({ where: { id: input.orgId } })
+        db.tenant.findUnique({ where: { id: input.orgId } }),
       )
       if (existing) {
-        throw new TRPCError({ code: 'CONFLICT', message: 'A client with this org ID already exists' })
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'A client with this org ID already exists',
+        })
       }
 
       await withTenantIsolationBypass(async () => {
@@ -74,15 +98,84 @@ export const adminRouter = router({
       z.object({
         tenantId: z.string(),
         status: z.enum(['ACTIVE', 'SUSPENDED', 'TRIAL']),
-      })
+      }),
     )
     .mutation(async ({ input }) => {
       await withTenantIsolationBypass(() =>
         db.tenant.update({
           where: { id: input.tenantId },
           data: { status: input.status },
-        })
+        }),
       )
       return { ok: true }
+    }),
+
+  triggerDigest: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date()
+      const weekStart = startOfCurrentUtcWeek(now)
+      const weekEnd = endOfUtcWeek(weekStart)
+
+      const digest = await withTenantIsolationBypass(async () => {
+        const tenant = await db.tenant.findUnique({
+          where: { id: input.tenantId },
+          select: { id: true },
+        })
+
+        if (!tenant) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+        }
+
+        const existing = await db.weeklyDigest.findUnique({
+          where: {
+            tenantId_weekStart: {
+              tenantId: input.tenantId,
+              weekStart,
+            },
+          },
+          select: {
+            id: true,
+          },
+        })
+
+        if (existing) {
+          return existing
+        }
+
+        return db.weeklyDigest.create({
+          data: {
+            tenantId: input.tenantId,
+            weekStart,
+            weekEnd,
+            status: 'PENDING',
+          },
+          select: {
+            id: true,
+          },
+        })
+      })
+
+      await enqueueWeeklyDigest({
+        tenantId: input.tenantId,
+        weekStart: weekStart.toISOString(),
+        weekEnd: weekEnd.toISOString(),
+        digestId: digest.id,
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.digest.triggered',
+        targetType: 'WeeklyDigest',
+        targetId: digest.id,
+      })
+
+      return { digestId: digest.id }
     }),
 })

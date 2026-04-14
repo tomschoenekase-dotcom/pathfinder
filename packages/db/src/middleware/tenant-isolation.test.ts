@@ -75,6 +75,7 @@ describe('tenantIsolationMiddleware', () => {
       'AnalyticsEvent',
       'GuestSession',
       'DailyRollup',
+      'WeeklyDigest',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual(['User', 'Tenant', 'AuditLog', 'PlatformConfig'])
   })
@@ -82,7 +83,9 @@ describe('tenantIsolationMiddleware', () => {
   it('findMany on a tenanted table with tenantId passes', async () => {
     const db = createMockDb()
 
-    await expect(db.tenantMembership.findMany({ where: { tenantId: 'org_1' } })).resolves.toMatchObject({
+    await expect(
+      db.tenantMembership.findMany({ where: { tenantId: 'org_1' } }),
+    ).resolves.toMatchObject({
       args: { where: { tenantId: 'org_1' } },
       model: 'TenantMembership',
     })
@@ -249,9 +252,9 @@ describe('tenantIsolationMiddleware', () => {
   it('create on Venue without tenantId throws TenantIsolationError', async () => {
     const db = createMockDb()
 
-    await expect(
-      db.venue.create({ data: { name: 'City Zoo', slug: 'city-zoo' } }),
-    ).rejects.toEqual(new TenantIsolationError('Venue', 'create'))
+    await expect(db.venue.create({ data: { name: 'City Zoo', slug: 'city-zoo' } })).rejects.toEqual(
+      new TenantIsolationError('Venue', 'create'),
+    )
   })
 
   it('findMany on Place without tenantId throws TenantIsolationError', async () => {
