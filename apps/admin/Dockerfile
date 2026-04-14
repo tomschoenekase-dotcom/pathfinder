@@ -10,6 +10,8 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=installer /app ./
 RUN pnpm --filter @pathfinder/db exec prisma generate
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 RUN pnpm --filter @pathfinder/admin build
 
 FROM base AS runner
@@ -20,9 +22,13 @@ COPY --from=builder /app/apps/admin/.next/standalone ./
 COPY --from=builder /app/apps/admin/.next/static ./apps/admin/.next/static
 COPY --from=builder /app/node_modules/.pnpm/@prisma+client@6.19.3_prisma@6.19.3_magicast@0.3.5_typescript@5.9.3__typescript@5.9.3/node_modules/.prisma/client/*.node ./node_modules/.pnpm/@prisma+client@6.19.3_prisma@6.19.3_magicast@0.3.5_typescript@5.9.3__typescript@5.9.3/node_modules/.prisma/client/
 COPY --from=builder /app/node_modules/.pnpm/@prisma+client@6.19.3_prisma@6.19.3_magicast@0.3.5_typescript@5.9.3__typescript@5.9.3/node_modules/.prisma/client/*.node ./apps/admin/.next/server/
+COPY apps/admin/docker/cd-compat.sh /usr/local/bin/cd
+COPY apps/admin/docker/server-compat.js /app/apps/admin/server.js
+
+RUN chmod +x /usr/local/bin/cd
 
 EXPOSE 8080
 ENV HOSTNAME=0.0.0.0
 
-WORKDIR /app/apps/admin
-CMD ["node", "server.js"]
+WORKDIR /app
+CMD ["node", "apps/admin/server.js"]
