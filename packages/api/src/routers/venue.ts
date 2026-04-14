@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { db } from '@pathfinder/db'
+import { emitEvent } from '@pathfinder/analytics'
 
 import { CreateVenueInput, UpdateVenueInput } from '../schemas/venue'
 
@@ -81,6 +82,12 @@ const venueDetailSelect = {
   _count: { select: { places: true } },
 } as const
 
+const venueAiConfigSelect = {
+  aiGuideNotes: true,
+  aiFeaturedPlaceId: true,
+  aiTone: true,
+} as const
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -92,14 +99,16 @@ export const venueRouter = router({
       // $queryRaw used here because this is a public cross-tenant lookup — the caller
       // only knows the slug, not the tenantId. No tenant_id bind needed in the
       // WHERE because we are resolving the venue for display, not filtering by tenant.
-      const [venue] = await ctx.db.$queryRaw<{
-        id: string
-        name: string
-        description: string | null
-        category: string | null
-        defaultCenterLat: number | null
-        defaultCenterLng: number | null
-      }[]>`
+      const [venue] = await ctx.db.$queryRaw<
+        {
+          id: string
+          name: string
+          description: string | null
+          category: string | null
+          defaultCenterLat: number | null
+          defaultCenterLng: number | null
+        }[]
+      >`
         SELECT id, name, description, category,
                default_center_lat AS "defaultCenterLat",
                default_center_lng AS "defaultCenterLng"
@@ -127,6 +136,27 @@ export const venueRouter = router({
       const venue = await ctx.db.venue.findFirst({
         where: { id: input.id, tenantId: ctx.session.activeTenantId },
         select: venueDetailSelect,
+      })
+
+      if (!venue) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
+      return venue
+    }),
+
+  getAiConfig: tenantProcedure
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId: ctx.session.activeTenantId },
+        select: venueAiConfigSelect,
       })
 
       if (!venue) {
@@ -190,9 +220,7 @@ export const venueRouter = router({
 
       const { id, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
-      const data = Object.fromEntries(
-        Object.entries(raw).filter(([, v]) => v !== undefined),
-      )
+      const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
 
       // updateMany accepts tenantId in where; update does not (Prisma unique-key constraint)
       await ctx.db.venue.updateMany({ where: { id, tenantId }, data })
@@ -203,6 +231,76 @@ export const venueRouter = router({
       })
 
       return updated!
+    }),
+
+  updateAiConfig: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+          aiGuideNotes: z.string().max(2000).nullable().optional(),
+          aiFeaturedPlaceId: z.string().cuid().nullable().optional(),
+          aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).optional(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: { id: true, tenantId: true },
+      })
+
+      if (!venue || venue.tenantId !== tenantId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
+      if (input.aiFeaturedPlaceId) {
+        const place = await ctx.db.place.findFirst({
+          where: {
+            id: input.aiFeaturedPlaceId,
+            venueId: input.venueId,
+            tenantId,
+          },
+          select: { id: true },
+        })
+
+        if (!place) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
+        }
+      }
+
+      const { venueId: _venueId, ...raw } = input
+      const data = Object.fromEntries(
+        Object.entries(raw).filter(([, value]) => value !== undefined),
+      )
+
+      await ctx.db.venue.updateMany({
+        where: { id: input.venueId, tenantId },
+        data,
+      })
+
+      const updated = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: venueAiConfigSelect,
+      })
+
+      if (!updated) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
+      try {
+        await emitEvent({
+          tenantId,
+          venueId: input.venueId,
+          sessionId: '',
+          eventType: 'venue.updated',
+        })
+      } catch {}
+
+      return updated
     }),
 
   delete: tenantProcedure

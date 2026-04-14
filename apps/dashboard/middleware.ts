@@ -31,8 +31,7 @@ export default clerkMiddleware(async (auth, req) => {
     }
 
     return NextResponse.next()
-  } catch (err) {
-    console.error('[middleware error]', err)
+  } catch {
     return NextResponse.next()
   }
 })

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { MessageBubble } from './MessageBubble'
 import { PlaceCard } from './PlaceCard'
+import { TypingIndicator } from './TypingIndicator'
 
 type PlaceSummary = {
   id: string
@@ -57,7 +58,7 @@ export function ChatWindow({
         behavior: 'smooth',
       })
     }
-  }, [messages])
+  }, [isLoading, messages])
 
   function submit() {
     const nextMessage = draft.trim()
@@ -72,16 +73,7 @@ export function ChatWindow({
 
   return (
     <section className="flex min-h-[50vh] flex-1 flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-slate-900/70 shadow-2xl shadow-cyan-950/20 backdrop-blur">
-      <div
-        ref={scrollRef}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-5 sm:px-5"
-      >
-        {messages.length === 0 ? (
-          <div className="rounded-[1.5rem] border border-dashed border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-300">
-            Start with a quick prompt or ask your own question.
-          </div>
-        ) : null}
-
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-5 sm:px-5">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>
             <MessageBubble role={message.role} content={message.content} />
@@ -105,6 +97,8 @@ export function ChatWindow({
             ) : null}
           </div>
         ))}
+
+        {isLoading ? <TypingIndicator /> : null}
       </div>
 
       <div className="border-t border-white/10 bg-slate-950/80 p-3 sm:p-4">

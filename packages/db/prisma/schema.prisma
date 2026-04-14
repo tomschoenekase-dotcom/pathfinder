@@ -129,6 +129,9 @@ model Venue {
   slug             String
   description      String?
   guideNotes       String?          @map("guide_notes")
+  aiGuideNotes     String?          @map("ai_guide_notes")
+  aiFeaturedPlaceId String?         @map("ai_featured_place_id")
+  aiTone           String?          @default("FRIENDLY") @map("ai_tone")
   category         String?
   defaultCenterLat Float?           @map("default_center_lat")
   defaultCenterLng Float?           @map("default_center_lng")

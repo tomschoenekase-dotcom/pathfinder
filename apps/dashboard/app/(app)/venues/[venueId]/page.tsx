@@ -4,8 +4,6 @@ import { TRPCError } from '@trpc/server'
 
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 
-import { PlaceRow } from '../../../../components/PlaceRow'
-
 type VenueDetailPageProps = {
   params: Promise<{
     venueId: string
@@ -20,28 +18,75 @@ async function createCaller() {
   return appRouter.createCaller(ctx)
 }
 
+function formatCoordinate(value: number | null): string {
+  if (value === null) {
+    return 'Not set'
+  }
+
+  return value.toFixed(5)
+}
+
+function TypeBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-700">
+      {label}
+    </span>
+  )
+}
+
+function GuideNotes({ notes }: { notes: string | null }) {
+  if (!notes) {
+    return <p className="text-sm leading-6 text-slate-500">No guide notes configured yet.</p>
+  }
+
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none text-sm font-medium text-cyan-700 marker:hidden">
+        <span className="group-open:hidden">Expand notes</span>
+        <span className="hidden group-open:inline">Collapse notes</span>
+      </summary>
+      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600 group-open:line-clamp-none">
+        {notes}
+      </p>
+    </details>
+  )
+}
+
 export default async function VenueDetailPage({ params }: VenueDetailPageProps) {
   const { venueId } = await params
   const caller = await createCaller()
 
   try {
-    const [venue, places] = await Promise.all([
-      caller.venue.getById({ id: venueId }),
+    const venue = await caller.venue.getById({ id: venueId })
+    const [aiConfig, places] = await Promise.all([
+      caller.venue.getAiConfig({ venueId }),
       caller.place.list({ venueId }),
     ])
 
+    const activePlacesCount = places.filter((place) => place.isActive).length
+    const featuredPlace =
+      aiConfig.aiFeaturedPlaceId !== null && aiConfig.aiFeaturedPlaceId !== undefined
+        ? (places.find((place) => place.id === aiConfig.aiFeaturedPlaceId) ?? null)
+        : null
+
     return (
       <main className="min-h-screen bg-slate-50 px-6 py-10">
-        <div className="mx-auto max-w-6xl space-y-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mx-auto max-w-7xl space-y-8">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
-              <Link href="/venues" className="text-sm font-medium text-cyan-700 hover:text-cyan-800">
+              <Link
+                href="/venues"
+                className="text-sm font-medium text-cyan-700 hover:text-cyan-800"
+              >
                 Back to venues
               </Link>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
-                  {venue.category ?? 'Venue'}
-                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+                    Venue management
+                  </p>
+                  <TypeBadge label={venue.category ?? 'Venue'} />
+                </div>
                 <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-900">
                   {venue.name}
                 </h1>
@@ -50,12 +95,18 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Link
                 href={`/venues/${venue.id}/edit`}
                 className="inline-flex min-h-11 items-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 Edit venue
+              </Link>
+              <Link
+                href="/ai-controls"
+                className="inline-flex min-h-11 items-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                AI Controls
               </Link>
               <Link
                 href={`/venues/${venue.id}/places/new`}
@@ -66,28 +117,54 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
             </div>
           </div>
 
-          <section className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Places</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{venue._count.places}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Latitude</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">
-                {venue.defaultCenterLat ?? 'Not set'}
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Slug</p>
+              <p className="mt-2 font-mono text-sm text-slate-700">{venue.slug}</p>
+            </article>
+            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">AI tone</p>
+              <p className="mt-2 text-lg font-semibold text-slate-900">
+                {aiConfig.aiTone ?? 'FRIENDLY'}
               </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Longitude</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">
-                {venue.defaultCenterLng ?? 'Not set'}
+            </article>
+            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Active places</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-900">{activePlacesCount}</p>
+            </article>
+            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Center latitude</p>
+              <p className="mt-2 font-mono text-sm text-slate-700">
+                {formatCoordinate(venue.defaultCenterLat)}
               </p>
+            </article>
+            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Center longitude</p>
+              <p className="mt-2 font-mono text-sm text-slate-700">
+                {formatCoordinate(venue.defaultCenterLng)}
+              </p>
+            </article>
+            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Featured place</p>
+              <p className="mt-2 text-lg font-semibold text-slate-900">
+                {featuredPlace?.name ?? 'Not selected'}
+              </p>
+            </article>
+          </section>
+
+          <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Guide notes</h2>
+            <div className="mt-4">
+              <GuideNotes notes={aiConfig.aiGuideNotes ?? null} />
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-xl font-semibold text-slate-900">Places</h2>
+          <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Places</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Review the landmarks and amenities powering the venue guide.
+              </p>
             </div>
 
             {places.length === 0 ? (
@@ -102,17 +179,38 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
                 <table className="min-w-full text-sm">
                   <thead className="bg-slate-50 text-left text-slate-500">
                     <tr>
-                      <th className="px-4 py-3 font-medium">Name</th>
-                      <th className="px-4 py-3 font-medium">Type</th>
-                      <th className="px-4 py-3 font-medium">Area</th>
-                      <th className="px-4 py-3 font-medium">Distance</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Action</th>
+                      <th className="px-6 py-3 font-medium">Name</th>
+                      <th className="px-6 py-3 font-medium">Category</th>
+                      <th className="px-6 py-3 font-medium">Coordinates</th>
+                      <th className="px-6 py-3 text-right font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {places.map((place: (typeof places)[number]) => (
-                      <PlaceRow key={place.id} place={place} />
+                    {places.map((place) => (
+                      <tr key={place.id} className="border-t border-slate-200">
+                        <td className="px-6 py-4 align-top">
+                          <div className="font-medium text-slate-900">{place.name}</div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {place.areaName ?? 'Unknown area'}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4 align-top">
+                          <TypeBadge label={place.type} />
+                        </td>
+                        <td className="px-6 py-4 align-top">
+                          <p className="font-mono text-xs text-slate-600">
+                            {place.lat.toFixed(5)}, {place.lng.toFixed(5)}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4 text-right align-top">
+                          <Link
+                            href={`/venues/${place.venueId}/places/${place.id}/edit`}
+                            className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                          >
+                            Edit
+                          </Link>
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>

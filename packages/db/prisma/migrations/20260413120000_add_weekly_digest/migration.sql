@@ -1,5 +1,9 @@
 -- CreateEnum
-CREATE TYPE "WeeklyDigestStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETE', 'FAILED');
+DO $$ BEGIN
+    CREATE TYPE "WeeklyDigestStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETE', 'FAILED');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- CreateTable
 CREATE TABLE "weekly_digests" (

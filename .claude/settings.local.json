@@ -36,7 +36,18 @@
       "Bash(xargs grep:*)",
       "Bash(ls c:/Users/tomsc/Downloads/PathFinder/.env*)",
       "Bash(ls c:/Users/tomsc/Downloads/PathFinder/apps/dashboard/.env*)",
-      "Bash(pnpm --filter @pathfinder/dashboard build)"
+      "Bash(pnpm --filter @pathfinder/dashboard build)",
+      "Bash(node -e ':*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(pnpm prisma:*)",
+      "Bash(npm test:*)",
+      "Bash(pnpm --filter @pathfinder/workers build)",
+      "Bash(ls c:/Users/tomsc/Downloads/PathFinder/Dockerfile*)",
+      "Bash(ls c:/Users/tomsc/Downloads/PathFinder/.eslint*)",
+      "Bash(ls c:/Users/tomsc/Downloads/PathFinder/apps/dashboard/.eslint*)",
+      "Bash(node -e \"require\\('./dist/index.js'\\)\")",
+      "Bash(find . -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec wc -l {} +)",
+      "Bash(grep -l \"export const\" packages/api/src/routers/*.ts)"
     ]
   }
 }

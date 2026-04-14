@@ -23,6 +23,12 @@ const getDailyStatsInput = z
   })
   .default({ days: 30 })
 
+const getTopQuestionsInput = z
+  .object({
+    days: z.number().int().min(1).max(90).default(7),
+  })
+  .default({ days: 7 })
+
 function startOfUtcDay(date: Date): Date {
   const result = new Date(date)
 
@@ -234,5 +240,70 @@ export const analyticsRouter = router({
         value: true,
       },
     })
+  }),
+
+  getTopQuestions: tenantProcedure.input(getTopQuestionsInput).query(async ({ ctx, input }) => {
+    const startDate = new Date()
+    startDate.setUTCDate(startDate.getUTCDate() - input.days)
+
+    const events = await ctx.db.analyticsEvent.findMany({
+      where: {
+        tenantId: ctx.session.activeTenantId,
+        eventType: 'message.sent',
+        occurredAt: {
+          gte: startDate,
+        },
+      },
+      orderBy: {
+        occurredAt: 'desc',
+      },
+      take: 200,
+      select: {
+        metadata: true,
+      },
+    })
+
+    const grouped = new Map<string, { question: string; count: number }>()
+
+    for (const event of events) {
+      if (!event.metadata || typeof event.metadata !== 'object' || Array.isArray(event.metadata)) {
+        continue
+      }
+
+      const message = event.metadata.message
+
+      if (typeof message !== 'string') {
+        continue
+      }
+
+      const trimmed = message.trim()
+
+      if (!trimmed) {
+        continue
+      }
+
+      const normalized = trimmed.toLowerCase()
+      const existing = grouped.get(normalized)
+
+      if (existing) {
+        existing.count += 1
+        continue
+      }
+
+      grouped.set(normalized, {
+        question: trimmed,
+        count: 1,
+      })
+    }
+
+    return Array.from(grouped.values())
+      .sort((left, right) => {
+        if (right.count !== left.count) {
+          return right.count - left.count
+        }
+
+        return left.question.localeCompare(right.question)
+      })
+      .slice(0, 10)
   }),
 })

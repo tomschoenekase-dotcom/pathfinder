@@ -1,4 +1,5 @@
 import { appRouter, createTRPCContext } from '@pathfinder/api'
+import { redirect } from 'next/navigation'
 
 import { DashboardOverview } from '../../components/DashboardOverview'
 
@@ -12,15 +13,36 @@ async function createCaller() {
 
 export default async function DashboardIndexPage() {
   const caller = await createCaller()
-  const venues = await caller.venue.list()
+  const [venues, operationalUpdates, dailyStats] = await Promise.all([
+    caller.venue.list(),
+    caller.operationalUpdate.list(),
+    caller.analytics.getDailyStats({ days: 7 }),
+  ])
+
+  if (venues.length === 0) {
+    redirect('/onboarding/setup')
+  }
+
   type VenueItem = (typeof venues)[number]
   const venueDetails = await Promise.all(
     venues.map((venue: VenueItem) => caller.venue.getById({ id: venue.id })),
   )
+  type OperationalUpdateItem = (typeof operationalUpdates)[number]
+  type DailyStatItem = (typeof dailyStats)[number]
+  const activeAlerts = operationalUpdates.filter(
+    (update: OperationalUpdateItem) => update.isActive,
+  ).length
+  const sessionsThisWeek = dailyStats.reduce((sum: number, row: DailyStatItem) => {
+    if (row.metric !== 'sessions') {
+      return sum
+    }
+
+    return sum + row.value
+  }, 0)
 
   const stats = {
-    activeAlerts: 0,
-    sessionsThisWeek: 0,
+    activeAlerts,
+    sessionsThisWeek,
     totalPlaces: venueDetails.reduce(
       (sum: number, venue: (typeof venueDetails)[number]) => sum + venue._count.places,
       0,

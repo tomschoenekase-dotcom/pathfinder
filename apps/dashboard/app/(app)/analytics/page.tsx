@@ -207,14 +207,60 @@ function SessionTrendChart({
   )
 }
 
+function TopQuestionsList({
+  questions,
+}: {
+  questions: Array<{
+    question: string
+    count: number
+  }>
+}) {
+  return (
+    <section className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+          Conversation Themes
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+          Top questions this week
+        </h2>
+      </div>
+
+      {questions.length === 0 ? (
+        <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-sm text-slate-600">
+          No guest questions recorded yet.
+        </div>
+      ) : (
+        <ol className="space-y-3">
+          {questions.map((item, index) => (
+            <li
+              key={`${item.question}-${index}`}
+              className="flex items-start justify-between gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-4"
+            >
+              <div className="flex min-w-0 items-start gap-4">
+                <span className="mt-0.5 text-sm font-semibold text-cyan-700">{index + 1}.</span>
+                <p className="text-sm leading-6 text-slate-700">{item.question}</p>
+              </div>
+              <span className="inline-flex shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
+                {item.count}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
 export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps) {
   const caller = await createCaller()
   const resolvedSearchParams = searchParams ? await searchParams : undefined
 
-  const [latestDigest, digests, dailyStats] = await Promise.all([
+  const [latestDigest, digests, dailyStats, topQuestions] = await Promise.all([
     caller.analytics.getLatestDigest(),
     caller.analytics.listDigests(),
     caller.analytics.getDailyStats({ days: 30 }),
+    caller.analytics.getTopQuestions({ days: 7 }),
   ])
 
   const selectedDigestId = resolvedSearchParams?.digest
@@ -387,6 +433,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
         </section>
 
         <SessionTrendChart rows={dailyStats} />
+        <TopQuestionsList questions={topQuestions} />
       </div>
     </main>
   )

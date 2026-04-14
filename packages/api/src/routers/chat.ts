@@ -108,20 +108,33 @@ export const chatRouter = router({
    * Send a message and receive an AI response grounded in venue + location data.
    */
   send: publicProcedure.input(sendMessageSchema).mutation(async ({ ctx, input }) => {
-    const sendStartedAt = Date.now()
+    const trimmedInput = input.message.trim()
     // 1. Validate venue
     // $queryRaw used here because this is a public cross-tenant lookup — the caller
     // only knows the venueId, not the tenantId. No tenant_id bind needed in the
     // WHERE because we are resolving the tenant FROM this row, not filtering by it.
-    const [venue] = await ctx.db.$queryRaw<{
-      id: string
-      tenantId: string
-      name: string
-      description: string | null
-      guideNotes: string | null
-      category: string | null
-    }[]>`
-      SELECT id, tenant_id AS "tenantId", name, description, guide_notes AS "guideNotes", category
+    const [venue] = await ctx.db.$queryRaw<
+      {
+        id: string
+        tenantId: string
+        name: string
+        description: string | null
+        guideNotes: string | null
+        aiGuideNotes: string | null
+        aiFeaturedPlaceId: string | null
+        aiTone: string | null
+        category: string | null
+      }[]
+    >`
+      SELECT id,
+             tenant_id AS "tenantId",
+             name,
+             description,
+             guide_notes AS "guideNotes",
+             ai_guide_notes AS "aiGuideNotes",
+             ai_featured_place_id AS "aiFeaturedPlaceId",
+             ai_tone AS "aiTone",
+             category
       FROM venues WHERE id = ${input.venueId} AND is_active = true LIMIT 1
     `
 
@@ -151,7 +164,7 @@ export const chatRouter = router({
     // 3. Embed the user query and load history in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
     const [queryEmbedding, historyDesc] = await Promise.all([
-      generateEmbedding(input.message).catch(() => null),
+      generateEmbedding(trimmedInput).catch(() => null),
       ctx.db.message.findMany({
         where: { sessionId: session.id, tenantId: venue.tenantId },
         orderBy: { createdAt: 'desc' },
@@ -159,21 +172,6 @@ export const chatRouter = router({
         select: { role: true, content: true },
       }),
     ])
-
-    const isFirstMessage = historyDesc.length === 0
-
-    try {
-      await emitEvent({
-        tenantId: venue.tenantId,
-        venueId: input.venueId,
-        sessionId: input.anonymousToken,
-        eventType: 'message.sent',
-        metadata: {
-          isFirstMessage,
-          messageLength: input.message.length,
-        },
-      })
-    } catch {}
 
     // 4. Retrieve relevant places.
     //    Semantic search when embeddings are available; geo-nearest fallback otherwise.
@@ -208,12 +206,47 @@ export const chatRouter = router({
       relevantPlaces = findNearestPlaces(input.lat, input.lng, allPlaces, NEAREST_PLACES_LIMIT)
     }
 
+    let featuredPlace: {
+      name: string
+      blurb: string
+    } | null = null
+
+    if (venue.aiFeaturedPlaceId) {
+      const matchingPlace = relevantPlaces.find((place) => place.id === venue.aiFeaturedPlaceId)
+      const featuredPlaceSource =
+        matchingPlace ??
+        (await ctx.db.place.findFirst({
+          where: {
+            id: venue.aiFeaturedPlaceId,
+            venueId: input.venueId,
+            tenantId: venue.tenantId,
+            isActive: true,
+          },
+          select: {
+            name: true,
+            shortDescription: true,
+            longDescription: true,
+          },
+        }))
+
+      if (featuredPlaceSource) {
+        featuredPlace = {
+          name: featuredPlaceSource.name,
+          blurb:
+            featuredPlaceSource.longDescription ??
+            featuredPlaceSource.shortDescription ??
+            'a featured stop for guests at this venue',
+        }
+      }
+    }
+
     // 5. Build context — history arrives newest-first, reverse to oldest-first for Claude
     const systemPrompt = buildVenueSystemPrompt({
       venue,
       relevantPlaces,
       userLat: input.lat,
       userLng: input.lng,
+      featuredPlace,
     })
     const history = historyDesc.reverse()
 
@@ -230,7 +263,7 @@ export const chatRouter = router({
             role: m.role as 'user' | 'assistant',
             content: m.content,
           })),
-          { role: 'user', content: input.message },
+          { role: 'user', content: trimmedInput },
         ],
       })
 
@@ -254,7 +287,7 @@ export const chatRouter = router({
           tenantId: venue.tenantId,
           sessionId: session.id,
           role: 'user',
-          content: input.message,
+          content: trimmedInput,
         },
       }),
       ctx.db.message.create({
@@ -272,10 +305,22 @@ export const chatRouter = router({
         tenantId: venue.tenantId,
         venueId: input.venueId,
         sessionId: input.anonymousToken,
+        eventType: 'message.sent',
+        metadata: {
+          message: trimmedInput,
+        },
+      })
+    } catch {}
+
+    try {
+      await emitEvent({
+        tenantId: venue.tenantId,
+        venueId: input.venueId,
+        sessionId: input.anonymousToken,
         eventType: 'message.received',
         metadata: {
-          placeIdsReturned: relevantPlaces.map((place) => place.id),
-          responseMs: Date.now() - sendStartedAt,
+          responseLength: assistantResponse.length,
+          placesReturned: relevantPlaces.length,
         },
       })
     } catch {}

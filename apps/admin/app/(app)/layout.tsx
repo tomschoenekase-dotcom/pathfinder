@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 
+import { AdminShell } from '../../components/AdminShell'
+
 type AppLayoutProps = {
   children: ReactNode
 }
@@ -23,5 +25,5 @@ export default async function AdminAppLayout({ children }: AppLayoutProps) {
     redirect('/sign-in')
   }
 
-  return <>{children}</>
+  return <AdminShell>{children}</AdminShell>
 }

@@ -58,8 +58,8 @@ export default function VenueChatPage() {
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const viewedPlaceIdsRef = useRef<Set<string>>(new Set())
-  const { lat, lng, error: locationError, permission, refresh } = useGeolocation()
-  const { anonymousToken, sessionId, setSessionId } = useSession(venue?.id ?? '')
+  const { lat, lng, permission, refresh } = useGeolocation()
+  const { anonymousToken, setSessionId } = useSession(venue?.id ?? '')
 
   useEffect(() => {
     let disposed = false
@@ -248,9 +248,14 @@ export default function VenueChatPage() {
   if (isBooting) {
     return (
       <main className="flex min-h-screen items-center justify-center px-6">
-        <div className="space-y-3 text-center">
+        <div className="max-w-md space-y-4 rounded-3xl border border-white/10 bg-slate-900/70 p-8 text-center text-slate-100 shadow-2xl shadow-cyan-950/30">
           <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">PathFinder</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-white">Loading venue chat...</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-white">
+            Loading venue chat...
+          </h1>
+          <p className="text-sm leading-6 text-slate-300">
+            Getting the venue assistant ready for your visit.
+          </p>
         </div>
       </main>
     )
@@ -262,7 +267,9 @@ export default function VenueChatPage() {
         <div className="max-w-md space-y-4 rounded-3xl border border-white/10 bg-slate-900/70 p-8 text-center text-slate-100 shadow-2xl shadow-cyan-950/30">
           <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">PathFinder</p>
           <h1 className="text-3xl font-semibold tracking-tight">Venue unavailable</h1>
-          <p className="text-sm leading-6 text-slate-300">{pageError ?? 'This venue link is not active.'}</p>
+          <p className="text-sm leading-6 text-slate-300">
+            {pageError ?? 'This venue link is not active.'}
+          </p>
           <Link
             href="/"
             className="inline-flex min-h-11 items-center justify-center rounded-full border border-cyan-400/40 px-5 text-sm font-medium text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-400/10"
@@ -275,7 +282,7 @@ export default function VenueChatPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-4 pt-6 sm:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-[env(safe-area-inset-bottom,1.5rem)] pt-6 sm:px-6">
       <header className="mb-4 rounded-[2rem] border border-white/10 bg-slate-900/65 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur">
         <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">
           {venue.category ?? 'Venue assistant'}
@@ -284,19 +291,28 @@ export default function VenueChatPage() {
         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
           {venue.description ?? 'Ask where things are, what to do next, or what is nearby.'}
         </p>
-        <p className="mt-3 text-xs text-slate-400">
-          Session {sessionId ?? 'starting'} {locationError ? `- ${locationError}` : ''}
-        </p>
       </header>
 
       <LocationBanner permission={permission} onRefresh={refresh} />
 
       {messages.length === 0 ? (
-        <QuickPromptChips
-          onSend={(prompt) => {
-            void handleSend(prompt)
-          }}
-        />
+        <>
+          <section className="mb-4 rounded-[2rem] border border-white/10 bg-slate-900/65 p-5 shadow-xl backdrop-blur">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-100">
+              Hi! I&apos;m your {venue.name} guide.
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Ask me anything about the venue — I&apos;ll point you in the right direction.
+            </p>
+          </section>
+          <QuickPromptChips
+            venueName={venue.name}
+            venueCategory={venue.category ?? undefined}
+            onSend={(prompt) => {
+              void handleSend(prompt)
+            }}
+          />
+        </>
       ) : null}
 
       <ChatWindow

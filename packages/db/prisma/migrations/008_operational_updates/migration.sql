@@ -1,5 +1,9 @@
--- CreateEnum (skipped — type already exists from a prior migration)
--- CREATE TYPE "OperationalUpdateSeverity" AS ENUM ('INFO', 'WARNING', 'CLOSURE', 'REDIRECT');
+-- CreateEnum
+DO $$ BEGIN
+    CREATE TYPE "OperationalUpdateSeverity" AS ENUM ('INFO', 'WARNING', 'CLOSURE', 'REDIRECT');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- CreateTable
 CREATE TABLE "operational_updates" (

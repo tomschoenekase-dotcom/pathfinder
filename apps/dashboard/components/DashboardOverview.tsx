@@ -42,7 +42,9 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
     <div className="min-h-screen px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-7xl space-y-8">
         <section className="rounded-[2rem] bg-slate-950 px-8 py-10 text-white shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">Overview</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">
+            Overview
+          </p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">{orgName}</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
             Monitor your venue footprint, keep place content current, and prepare for analytics and
@@ -53,8 +55,12 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-medium text-slate-500">Venues</p>
-            <p className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">{stats.venues}</p>
-            <p className="mt-3 text-sm text-slate-600">Venue records currently active in your workspace.</p>
+            <p className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
+              {stats.venues}
+            </p>
+            <p className="mt-3 text-sm text-slate-600">
+              Venue records currently active in your workspace.
+            </p>
           </article>
 
           <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -62,7 +68,9 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
             <p className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
               {stats.totalPlaces}
             </p>
-            <p className="mt-3 text-sm text-slate-600">Points of interest mapped across your venues.</p>
+            <p className="mt-3 text-sm text-slate-600">
+              Points of interest mapped across your venues.
+            </p>
           </article>
 
           <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -70,7 +78,9 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
             <p className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
               {stats.activeAlerts}
             </p>
-            <p className="mt-3 text-sm text-slate-600">Analytics coming soon.</p>
+            <p className="mt-3 text-sm text-slate-600">
+              Closures and redirects currently published to guests.
+            </p>
           </article>
 
           <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -78,7 +88,9 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
             <p className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
               {stats.sessionsThisWeek}
             </p>
-            <p className="mt-3 text-sm text-slate-600">Analytics coming soon.</p>
+            <p className="mt-3 text-sm text-slate-600">
+              Unique guest chat sessions opened in the last 7 days.
+            </p>
           </article>
         </section>
 
