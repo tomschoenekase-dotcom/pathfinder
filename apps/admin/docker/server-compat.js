@@ -1,5 +1,4 @@
-// Railway's stale start command cds into a different directory before running
-// this file. The Next.js standalone server uses process.cwd() to resolve
-// asset paths, so we must reset it to /app before requiring.
-process.chdir('/app');
-require('/app/server.js');
+// Railway's stale start command: cd /app/apps/dashboard && node server.js
+// This file lives at /app/apps/dashboard/server.js and proxies to the real
+// Next.js standalone server at /app/apps/admin/server.js.
+require('/app/apps/admin/server.js');

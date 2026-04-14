@@ -15,6 +15,7 @@ ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 RUN pnpm --filter @pathfinder/admin build
 
 FROM base AS runner
+ARG CACHE_BUST=1
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -26,12 +27,15 @@ COPY --from=builder /app/node_modules/.pnpm/@prisma+client@6.19.3_prisma@6.19.3_
 # The shell built-in cd runs (our /usr/local/bin/cd shim is bypassed by shells).
 # Fix: create /app/apps/dashboard with a server.js that boots the real admin server,
 # so the Railway command succeeds without any shim at all.
+# Railway's stale start command: cd /app/apps/dashboard && node server.js
+# The standalone COPY above already places the real server at /app/apps/admin/server.js.
+# We create /app/apps/dashboard/server.js as a shim that requires the real server.
+# Do NOT overwrite /app/apps/admin/server.js — that is the real Next.js server.
 RUN mkdir -p /app/apps/dashboard
 COPY apps/admin/docker/server-compat.js /app/apps/dashboard/server.js
-COPY apps/admin/docker/server-compat.js /app/apps/admin/server.js
 
 EXPOSE 8080
 ENV HOSTNAME=0.0.0.0
 
-WORKDIR /app
-CMD ["node", "apps/admin/server.js"]
+WORKDIR /app/apps/admin
+CMD ["node", "server.js"]
