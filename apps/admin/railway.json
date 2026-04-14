@@ -3,5 +3,8 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "apps/admin/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node server.js"
   }
 }
