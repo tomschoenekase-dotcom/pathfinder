@@ -339,7 +339,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
                   No weekly digests have been generated yet.
                 </div>
               ) : (
-                digests.map((digest) => {
+                digests.map((digest: (typeof digests)[number]) => {
                   const isSelected =
                     selectedDigestId === digest.id ||
                     (!selectedDigestId && latestDigest?.id === digest.id)

@@ -6,7 +6,7 @@ import { trpc as api } from '../lib/trpc'
 
 type User = { id: string; email: string; fullName: string | null }
 type Membership = { id: string; role: string; user: User }
-type Client = {
+export type Client = {
   id: string
   name: string
   slug: string

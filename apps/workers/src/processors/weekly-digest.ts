@@ -208,20 +208,23 @@ async function loadPromptSessions(payload: WeeklyDigestJobPayload) {
       },
     })
 
+    type RawSession = (typeof sessions)[number]
+    type RawMessage = RawSession['messages'][number]
+
     const promptSessions: PromptSession[] = sessions
-      .map((session) => ({
+      .map((session: RawSession) => ({
         sessionId: session.id,
         venueName: session.venue.name,
         venueType: session.venue.category,
         startedAt: session.startedAt.toISOString(),
         lastActiveAt: session.lastActiveAt.toISOString(),
-        messages: session.messages.map((message) => ({
+        messages: session.messages.map((message: RawMessage) => ({
           role: message.role,
           content: trimMessageContent(message.content),
           createdAt: message.createdAt.toISOString(),
         })),
       }))
-      .filter((session) => session.messages.length > 0)
+      .filter((session: PromptSession) => session.messages.length > 0)
 
     const venuesInSessions = Array.from(
       new Map(

@@ -31,7 +31,15 @@ function mapClerkOrgRole(orgRole: string | null): TenantRole | null {
 }
 
 export async function resolveSession(_request: Request): Promise<SessionContext | null> {
-  const authState = await auth()
+  let authState: Awaited<ReturnType<typeof auth>>
+
+  try {
+    authState = await auth()
+  } catch {
+    // Guest-facing apps (e.g. apps/web) may not have Clerk middleware on every
+    // route. Return null so the caller falls back to an anonymous session.
+    return null
+  }
 
   if (authState.userId === null) {
     return null

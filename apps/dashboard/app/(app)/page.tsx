@@ -14,12 +14,17 @@ export default async function DashboardIndexPage() {
   const caller = await createCaller()
   const venues = await caller.venue.list()
   type VenueItem = (typeof venues)[number]
-  const venueDetails = await Promise.all(venues.map((venue: VenueItem) => caller.venue.getById({ id: venue.id })))
+  const venueDetails = await Promise.all(
+    venues.map((venue: VenueItem) => caller.venue.getById({ id: venue.id })),
+  )
 
   const stats = {
     activeAlerts: 0,
     sessionsThisWeek: 0,
-    totalPlaces: venueDetails.reduce((sum, venue) => sum + venue._count.places, 0),
+    totalPlaces: venueDetails.reduce(
+      (sum: number, venue: (typeof venueDetails)[number]) => sum + venue._count.places,
+      0,
+    ),
     venues: venues.length,
   }
 
