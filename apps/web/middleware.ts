@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server'
+import { clerkMiddleware } from '@clerk/nextjs/server'
 
-export default function middleware() {
-  return NextResponse.next()
-}
+// clerkMiddleware() is required for auth() to work in server components.
+// The web app is guest-facing — no routes are protected.
+export default clerkMiddleware()
 
 export const config = {
   matcher: [
