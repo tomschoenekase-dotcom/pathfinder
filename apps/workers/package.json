@@ -2,7 +2,7 @@
   "name": "@pathfinder/workers",
   "private": true,
   "scripts": {
-    "build": "tsc --project tsconfig.json",
+    "build": "tsup",
     "dev": "echo dev:workers",
     "lint": "echo lint:workers",
     "start": "node dist/index.js",
@@ -19,6 +19,7 @@
     "zod": "^3.0.0"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.1"
   }
 }
