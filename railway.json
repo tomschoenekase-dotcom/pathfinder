@@ -5,7 +5,6 @@
     "buildCommand": "pnpm install --frozen-lockfile && pnpm --filter @pathfinder/dashboard build"
   },
   "deploy": {
-    "startCommand": "cd /app/apps/dashboard && node server.js",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
