@@ -4,6 +4,12 @@ import { appRouter, createTRPCContext } from '@pathfinder/api'
 
 import { AiControlsForm } from '../../../components/AiControlsForm'
 
+type AiControlsPageProps = {
+  searchParams: Promise<{
+    venue?: string | string[]
+  }>
+}
+
 async function createCaller() {
   const ctx = await createTRPCContext({
     req: new Request('https://dashboard.pathfinder.local/ai-controls'),
@@ -12,7 +18,8 @@ async function createCaller() {
   return appRouter.createCaller(ctx)
 }
 
-export default async function AiControlsPage() {
+export default async function AiControlsPage({ searchParams }: AiControlsPageProps) {
+  const { venue: requestedVenue } = await searchParams
   const caller = await createCaller()
   const venues = await caller.venue.list()
 
@@ -46,10 +53,13 @@ export default async function AiControlsPage() {
     )
   }
 
-  const firstVenue = venues[0]!
+  const venueQuery = Array.isArray(requestedVenue) ? requestedVenue[0] : requestedVenue
+  const initialVenueId = venues.some((venue) => venue.id === venueQuery)
+    ? venueQuery!
+    : venues[0]!.id
   const [initialConfig, initialPlaces] = await Promise.all([
-    caller.venue.getAiConfig({ venueId: firstVenue.id }),
-    caller.place.list({ venueId: firstVenue.id }),
+    caller.venue.getAiConfig({ venueId: initialVenueId }),
+    caller.place.list({ venueId: initialVenueId }),
   ])
 
   return (
@@ -68,7 +78,7 @@ export default async function AiControlsPage() {
 
         <AiControlsForm
           venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
-          initialVenueId={firstVenue.id}
+          initialVenueId={initialVenueId}
           initialConfig={initialConfig}
           initialPlaces={initialPlaces.map((place) => ({ id: place.id, name: place.name }))}
         />

@@ -144,6 +144,11 @@ function SessionTrendChart({
   const max = Math.max(...values, 1)
   const total = values.reduce((sum, value) => sum + value, 0)
   const points = buildPolylinePoints(values)
+  const yLabels = [
+    { value: max, pct: 0 },
+    { value: Math.round(max / 2), pct: 50 },
+    { value: 0, pct: 100 },
+  ]
 
   return (
     <div className="space-y-6 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -156,7 +161,7 @@ function SessionTrendChart({
             Sessions per day
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Pre-aggregated daily session counts from DailyRollup.
+            Daily guest chat sessions over the last 30 days.
           </p>
         </div>
         <div className="rounded-[1.25rem] bg-slate-950 px-4 py-3 text-white">
@@ -166,32 +171,47 @@ function SessionTrendChart({
       </div>
 
       <div className="rounded-[1.5rem] border border-slate-100 bg-slate-50 p-4">
-        <div className="h-56">
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-            <line x1="0" y1="100" x2="100" y2="100" stroke="#cbd5e1" strokeWidth="1" />
-            <polyline
-              fill="none"
-              stroke="#0891b2"
-              strokeWidth="3"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              points={points}
-            />
-            {values.map((value, index) => {
-              const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 100
-              const y = 100 - (value / max) * 100
+        <div className="relative h-56">
+          <div className="absolute inset-y-0 left-0 w-8">
+            {yLabels.map(({ value, pct }) => (
+              <span
+                key={pct}
+                className="absolute right-0 text-[10px] leading-none text-slate-400"
+                style={{ top: `${pct}%`, transform: 'translateY(-50%)' }}
+              >
+                {value}
+              </span>
+            ))}
+          </div>
+          <div className="absolute inset-y-0 left-8 right-0">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
+              <line x1="0" y1="0" x2="100" y2="0" stroke="#e2e8f0" strokeWidth="0.5" />
+              <line x1="0" y1="50" x2="100" y2="50" stroke="#e2e8f0" strokeWidth="0.5" />
+              <line x1="0" y1="100" x2="100" y2="100" stroke="#cbd5e1" strokeWidth="1" />
+              <polyline
+                fill="none"
+                stroke="#0891b2"
+                strokeWidth="3"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                points={points}
+              />
+              {values.map((value, index) => {
+                const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 100
+                const y = 100 - (value / max) * 100
 
-              return (
-                <circle
-                  key={`${series[index]?.date ?? index}`}
-                  cx={x}
-                  cy={y}
-                  r="2.2"
-                  fill="#0f172a"
-                />
-              )
-            })}
-          </svg>
+                return (
+                  <circle
+                    key={`${series[index]?.date ?? index}`}
+                    cx={x}
+                    cy={y}
+                    r="2.2"
+                    fill="#0f172a"
+                  />
+                )
+              })}
+            </svg>
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-500 sm:grid-cols-5 xl:grid-cols-10">
@@ -276,14 +296,11 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-7xl space-y-8">
-        <section className="rounded-[2rem] bg-slate-950 px-8 py-10 text-white shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">
-            Analytics
-          </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight">
+        <section>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
             Guest behavior and weekly insight digests
           </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
             Review AI-generated weekly takeaways and the supporting daily session trend line without
             querying live conversation tables.
           </p>

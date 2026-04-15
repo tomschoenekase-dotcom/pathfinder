@@ -12,6 +12,15 @@ import { createTRPCClient } from '../lib/trpc'
 type VenueFormProps = {
   mode: 'create' | 'edit'
   venueId?: string
+  initialValues?: {
+    name: string
+    slug: string
+    description: string
+    guideNotes: string
+    category: string
+    defaultCenterLat: number | undefined
+    defaultCenterLng: number | undefined
+  }
 }
 
 type VenueFormValues = {
@@ -36,19 +45,22 @@ function getErrorMessage(error: unknown): string {
   return 'Something went wrong. Please try again.'
 }
 
-export function VenueForm({ mode, venueId }: VenueFormProps) {
+export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
   const router = useRouter()
   const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
   if (clientRef.current === null) clientRef.current = createTRPCClient()
   const client = clientRef.current
   const [formError, setFormError] = useState<string | null>(null)
-  const [isLoadingVenue, setIsLoadingVenue] = useState(mode === 'edit')
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isLoadingVenue, setIsLoadingVenue] = useState(mode === 'edit' && !initialValues)
 
   const resolver =
     mode === 'create'
       ? (zodResolver(CreateVenueInput.passthrough()) as unknown as Resolver<VenueFormValues>)
       : // id comes from the venueId prop, not the form — omit it from validation
-        (zodResolver(UpdateVenueInput.omit({ id: true }).passthrough()) as unknown as Resolver<VenueFormValues>)
+        (zodResolver(
+          UpdateVenueInput.omit({ id: true }).passthrough(),
+        ) as unknown as Resolver<VenueFormValues>)
 
   const {
     control,
@@ -58,7 +70,7 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
     reset,
   } = useForm<VenueFormValues>({
     resolver,
-    defaultValues: {
+    defaultValues: initialValues ?? {
       name: '',
       slug: '',
       description: '',
@@ -73,6 +85,12 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
     let disposed = false
 
     async function loadVenue() {
+      if (initialValues) {
+        reset(initialValues)
+        setIsLoadingVenue(false)
+        return
+      }
+
       if (mode !== 'edit' || !venueId) return
       setIsLoadingVenue(true)
       setFormError(null)
@@ -97,8 +115,10 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
     }
 
     void loadVenue()
-    return () => { disposed = true }
-  }, [client, mode, venueId, reset])
+    return () => {
+      disposed = true
+    }
+  }, [client, initialValues, mode, venueId, reset])
 
   async function onSubmit(values: VenueFormValues) {
     setFormError(null)
@@ -129,6 +149,27 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
       router.refresh()
     } catch (error) {
       setFormError(getErrorMessage(error))
+    }
+  }
+
+  async function handleDelete() {
+    if (mode !== 'edit' || !venueId) return
+
+    const confirmed = window.confirm('Delete this venue? This cannot be undone.')
+
+    if (!confirmed) return
+
+    setIsDeleting(true)
+    setFormError(null)
+
+    try {
+      await client.venue.delete.mutate({ id: venueId })
+      router.push('/venues')
+      router.refresh()
+    } catch (error) {
+      setFormError(getErrorMessage(error))
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -168,12 +209,17 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
                 className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
                 {...register('name')}
               />
-              {errors.name ? <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p> : null}
+              {errors.name ? (
+                <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p>
+              ) : null}
             </div>
 
             {mode === 'create' && (
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="venue-slug">
+                <label
+                  className="mb-2 block text-sm font-medium text-slate-700"
+                  htmlFor="venue-slug"
+                >
                   Slug
                 </label>
                 <input
@@ -181,12 +227,17 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
                   className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
                   {...register('slug')}
                 />
-                {errors.slug ? <p className="mt-2 text-sm text-rose-600">{errors.slug.message}</p> : null}
+                {errors.slug ? (
+                  <p className="mt-2 text-sm text-rose-600">{errors.slug.message}</p>
+                ) : null}
               </div>
             )}
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="venue-category">
+              <label
+                className="mb-2 block text-sm font-medium text-slate-700"
+                htmlFor="venue-category"
+              >
                 Category
               </label>
               <input
@@ -197,7 +248,10 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
             </div>
 
             <div className="sm:col-span-2">
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="venue-description">
+              <label
+                className="mb-2 block text-sm font-medium text-slate-700"
+                htmlFor="venue-description"
+              >
                 Description
               </label>
               <textarea
@@ -208,11 +262,15 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
             </div>
 
             <div className="sm:col-span-2">
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="venue-guide-notes">
+              <label
+                className="mb-2 block text-sm font-medium text-slate-700"
+                htmlFor="venue-guide-notes"
+              >
                 Guide notes
               </label>
               <p className="mb-2 text-xs text-slate-500">
-                2–3 sentences describing how the venue is laid out and how zones relate to each other. Goes directly to the AI on every chat.
+                2–3 sentences describing how the venue is laid out and how zones relate to each
+                other. Goes directly to the AI on every chat.
               </p>
               <textarea
                 id="venue-guide-notes"
@@ -234,7 +292,9 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
                     className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
                     inputMode="decimal"
                     value={field.value ?? ''}
-                    onChange={(event) => { field.onChange(parseOptionalNumber(event.target.value)) }}
+                    onChange={(event) => {
+                      field.onChange(parseOptionalNumber(event.target.value))
+                    }}
                   />
                 )}
               />
@@ -253,7 +313,9 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
                     className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
                     inputMode="decimal"
                     value={field.value ?? ''}
-                    onChange={(event) => { field.onChange(parseOptionalNumber(event.target.value)) }}
+                    onChange={(event) => {
+                      field.onChange(parseOptionalNumber(event.target.value))
+                    }}
                   />
                 )}
               />
@@ -266,13 +328,36 @@ export function VenueForm({ mode, venueId }: VenueFormProps) {
             </p>
           ) : null}
 
-          <button
-            className="inline-flex min-h-11 items-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            disabled={isSubmitting}
-            type="submit"
-          >
-            {isSubmitting ? 'Saving...' : mode === 'create' ? 'Create venue' : 'Save changes'}
-          </button>
+          {mode === 'edit' ? (
+            <p className="text-xs text-slate-500">
+              Venues with places cannot be deleted. Remove all places first.
+            </p>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-4">
+            {mode === 'edit' ? (
+              <button
+                type="button"
+                disabled={isDeleting || isSubmitting}
+                onClick={() => {
+                  void handleDelete()
+                }}
+                className="inline-flex min-h-11 items-center rounded-full border border-rose-200 px-5 text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete venue'}
+              </button>
+            ) : (
+              <div />
+            )}
+
+            <button
+              className="inline-flex min-h-11 items-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              disabled={isSubmitting || isDeleting}
+              type="submit"
+            >
+              {isSubmitting ? 'Saving...' : mode === 'create' ? 'Create venue' : 'Save changes'}
+            </button>
+          </div>
         </form>
       )}
     </section>

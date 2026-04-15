@@ -8,24 +8,29 @@ export function LocationBanner({ permission, onRefresh }: LocationBannerProps) {
     return null
   }
 
+  if (permission === 'loading') {
+    return (
+      <section className="mb-4 rounded-[1.75rem] border border-slate-600/30 bg-slate-800/40 p-4 text-slate-300 shadow-lg">
+        <p className="text-sm font-semibold">Checking location…</p>
+        <p className="mt-1 text-sm leading-6 text-slate-400">
+          Waiting for your device to share its position.
+        </p>
+      </section>
+    )
+  }
+
   const content =
     permission === 'denied'
       ? {
-          title: 'Location denied',
-          description: 'Answers may be less precise until location access is restored.',
+          title: 'Location access denied',
+          description: 'Enable location in your browser settings to get distance-aware answers.',
           action: 'Try again',
         }
-      : permission === 'loading'
-        ? {
-            title: 'Checking location',
-            description: 'PathFinder is preparing live wayfinding for this venue.',
-            action: 'Retry',
-          }
-        : {
-            title: 'Allow location for better answers',
-            description: 'This helps PathFinder tell you what is nearby in the venue.',
-            action: 'Share location',
-          }
+      : {
+          title: 'Allow location for better answers',
+          description: 'PathFinder uses your position to tell you what is nearby.',
+          action: 'Share location',
+        }
 
   return (
     <section className="mb-4 rounded-[1.75rem] border border-amber-300/20 bg-amber-300/10 p-4 text-amber-50 shadow-lg shadow-amber-950/10">

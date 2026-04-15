@@ -9,6 +9,7 @@ import { TypingIndicator } from './TypingIndicator'
 type PlaceSummary = {
   id: string
   name: string
+  type: string
   photoUrl: string | null
   distanceMeters: number
   lat: number
@@ -84,6 +85,7 @@ export function ChatWindow({
                     key={place.id}
                     id={place.id}
                     name={place.name}
+                    type={place.type}
                     photoUrl={place.photoUrl}
                     distanceMeters={place.distanceMeters}
                     lat={place.lat}
@@ -135,7 +137,31 @@ export function ChatWindow({
             type="button"
             onClick={submit}
           >
-            {isLoading ? '...' : 'Send'}
+            {isLoading ? (
+              <svg
+                className="h-4 w-4 animate-spin"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                />
+              </svg>
+            ) : (
+              'Send'
+            )}
           </button>
         </div>
       </div>

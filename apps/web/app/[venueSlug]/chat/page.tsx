@@ -23,6 +23,7 @@ type VenueSummary = {
 type PlaceSummary = {
   id: string
   name: string
+  type: string
   photoUrl: string | null
   distanceMeters: number
   lat: number
@@ -57,6 +58,7 @@ export default function VenueChatPage() {
   const [sendError, setSendError] = useState<string | null>(null)
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
+  const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const viewedPlaceIdsRef = useRef<Set<string>>(new Set())
   const { lat, lng, permission, refresh } = useGeolocation()
   const { anonymousToken, setSessionId } = useSession(venue?.id ?? '')
@@ -75,8 +77,28 @@ export default function VenueChatPage() {
       try {
         const result = await client.venue.getBySlug.query({ slug: venueSlug })
 
-        if (!disposed) {
-          setVenue(result)
+        if (disposed) {
+          return
+        }
+
+        setVenue(result)
+
+        // Load history in the same boot pass so the UI never flashes empty.
+        // Read the token directly from sessionStorage — same key useSession writes.
+        const storedToken =
+          typeof window !== 'undefined'
+            ? window.sessionStorage.getItem(`pathfinder_session_${result.id}`)
+            : null
+
+        if (storedToken) {
+          const { messages: historicMessages } = await client.chat.history.query({
+            venueId: result.id,
+            anonymousToken: storedToken,
+          })
+
+          if (!disposed && historicMessages.length > 0) {
+            setMessages(historicMessages)
+          }
         }
       } catch {
         if (!disposed) {
@@ -105,6 +127,16 @@ export default function VenueChatPage() {
         return
       }
 
+      // Skip if position hasn't moved meaningfully since last sync (within ~10m).
+      if (lat !== null && lng !== null && lastSyncedPosRef.current !== null) {
+        const dLat = Math.abs(lat - lastSyncedPosRef.current.lat)
+        const dLng = Math.abs(lng - lastSyncedPosRef.current.lng)
+        // ~10m ≈ 0.0001 degrees at mid-latitudes
+        if (dLat < 0.0001 && dLng < 0.0001) {
+          return
+        }
+      }
+
       try {
         const result = await client.chat.session.mutate({
           venueId: venue.id,
@@ -115,6 +147,9 @@ export default function VenueChatPage() {
 
         if (!disposed) {
           setSessionId(result.sessionId)
+          if (lat !== null && lng !== null) {
+            lastSyncedPosRef.current = { lat, lng }
+          }
         }
       } catch {
         if (!disposed) {
@@ -284,6 +319,25 @@ export default function VenueChatPage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-[env(safe-area-inset-bottom,1.5rem)] pt-6 sm:px-6">
       <header className="mb-4 rounded-[2rem] border border-white/10 bg-slate-900/65 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur">
+        <Link
+          href={`/${venueSlug}`}
+          className="mb-3 inline-flex items-center gap-1.5 text-xs text-slate-400 transition hover:text-slate-200"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-3 w-3"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              fillRule="evenodd"
+              d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+              clipRule="evenodd"
+            />
+          </svg>
+          Back
+        </Link>
         <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">
           {venue.category ?? 'Venue assistant'}
         </p>
@@ -299,10 +353,10 @@ export default function VenueChatPage() {
         <>
           <section className="mb-4 rounded-[2rem] border border-white/10 bg-slate-900/65 p-5 shadow-xl backdrop-blur">
             <h2 className="text-2xl font-semibold tracking-tight text-slate-100">
-              Hi! I&apos;m your {venue.name} guide.
+              What can I help you find?
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              Ask me anything about the venue — I&apos;ll point you in the right direction.
+              Ask about exhibits, food, restrooms, directions, or anything else at the venue.
             </p>
           </section>
           <QuickPromptChips

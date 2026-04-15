@@ -74,6 +74,7 @@ const venueListSelect = {
   isActive: true,
   createdAt: true,
   updatedAt: true,
+  _count: { select: { places: true } },
   // geoBoundary intentionally excluded from list views
 } as const
 

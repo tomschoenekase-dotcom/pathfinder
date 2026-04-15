@@ -3,10 +3,14 @@ import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
 import { appRouter, createTRPCContext } from '@pathfinder/api'
+import { CopyUrlButton } from '../../../../components/CopyUrlButton'
 
 type VenueDetailPageProps = {
   params: Promise<{
     venueId: string
+  }>
+  searchParams: Promise<{
+    onboarded?: string
   }>
 }
 
@@ -16,6 +20,12 @@ async function createCaller() {
   })
 
   return appRouter.createCaller(ctx)
+}
+
+const TONE_LABELS: Record<string, string> = {
+  FRIENDLY: 'Friendly',
+  PROFESSIONAL: 'Professional',
+  PLAYFUL: 'Playful',
 }
 
 function formatCoordinate(value: number | null): string {
@@ -52,8 +62,10 @@ function GuideNotes({ notes }: { notes: string | null }) {
   )
 }
 
-export default async function VenueDetailPage({ params }: VenueDetailPageProps) {
+export default async function VenueDetailPage({ params, searchParams }: VenueDetailPageProps) {
   const { venueId } = await params
+  const { onboarded } = await searchParams
+  const justOnboarded = onboarded === '1'
   const caller = await createCaller()
 
   try {
@@ -62,6 +74,10 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
       caller.venue.getAiConfig({ venueId }),
       caller.place.list({ venueId }),
     ])
+    const webUrl = process.env.NEXT_PUBLIC_WEB_URL
+    const guestChatUrl = webUrl
+      ? `${webUrl}/${venue.slug}/chat`
+      : `your-domain.com/${venue.slug}/chat`
 
     const activePlacesCount = places.filter((place) => place.isActive).length
     const featuredPlace =
@@ -103,7 +119,7 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
                 Edit venue
               </Link>
               <Link
-                href="/ai-controls"
+                href={`/ai-controls?venue=${venue.id}`}
                 className="inline-flex min-h-11 items-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 AI Controls
@@ -117,7 +133,37 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
             </div>
           </div>
 
+          {justOnboarded ? (
+            <section className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-6 py-5">
+              <p className="text-sm font-semibold text-emerald-800">Your venue is set up.</p>
+              <p className="mt-1 text-sm leading-6 text-emerald-700">
+                Add more places to improve the AI guide, then share the chat URL with your guests.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  href={`/venues/${venueId}/places/new`}
+                  className="inline-flex min-h-9 items-center rounded-full bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800"
+                >
+                  Add more places
+                </Link>
+                <Link
+                  href="/ai-controls"
+                  className="inline-flex min-h-9 items-center rounded-full border border-emerald-300 bg-white px-4 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50"
+                >
+                  Configure AI guide
+                </Link>
+              </div>
+            </section>
+          ) : null}
+
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm md:col-span-2 xl:col-span-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Guest chat URL</p>
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="break-all font-mono text-sm text-slate-700">{guestChatUrl}</p>
+                {webUrl ? <CopyUrlButton url={guestChatUrl} /> : null}
+              </div>
+            </article>
             <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Slug</p>
               <p className="mt-2 font-mono text-sm text-slate-700">{venue.slug}</p>
@@ -125,7 +171,7 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
             <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">AI tone</p>
               <p className="mt-2 text-lg font-semibold text-slate-900">
-                {aiConfig.aiTone ?? 'FRIENDLY'}
+                {TONE_LABELS[aiConfig.aiTone ?? 'FRIENDLY'] ?? 'Friendly'}
               </p>
             </article>
             <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
@@ -181,13 +227,17 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
                     <tr>
                       <th className="px-6 py-3 font-medium">Name</th>
                       <th className="px-6 py-3 font-medium">Category</th>
+                      <th className="px-6 py-3 font-medium">Status</th>
                       <th className="px-6 py-3 font-medium">Coordinates</th>
                       <th className="px-6 py-3 text-right font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {places.map((place) => (
-                      <tr key={place.id} className="border-t border-slate-200">
+                      <tr
+                        key={place.id}
+                        className="border-t border-slate-200 transition-colors hover:bg-slate-50"
+                      >
                         <td className="px-6 py-4 align-top">
                           <div className="font-medium text-slate-900">{place.name}</div>
                           <p className="mt-1 text-xs text-slate-500">
@@ -196,6 +246,17 @@ export default async function VenueDetailPage({ params }: VenueDetailPageProps) 
                         </td>
                         <td className="px-6 py-4 align-top">
                           <TypeBadge label={place.type} />
+                        </td>
+                        <td className="px-6 py-4 align-top">
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                              place.isActive
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {place.isActive ? 'Active' : 'Inactive'}
+                          </span>
                         </td>
                         <td className="px-6 py-4 align-top">
                           <p className="font-mono text-xs text-slate-600">

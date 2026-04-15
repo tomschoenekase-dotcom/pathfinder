@@ -526,7 +526,7 @@ export default function OnboardingSetupPage() {
         importanceScore: 0,
       })
 
-      router.push(`/venues/${venue.id}`)
+      router.push(`/venues/${venue.id}?onboarded=1`)
       router.refresh()
     } catch (error) {
       setFormError(getErrorMessage(error))

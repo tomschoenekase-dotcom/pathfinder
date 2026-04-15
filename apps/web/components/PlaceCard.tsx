@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 type PlaceCardProps = {
   id: string
   name: string
+  type: string
   photoUrl: string | null
   distanceMeters: number
   lat: number
@@ -22,6 +23,7 @@ function formatDistance(meters: number): string {
 export function PlaceCard({
   id,
   name,
+  type,
   photoUrl,
   distanceMeters,
   lat,
@@ -44,11 +46,7 @@ export function PlaceCard({
       }}
     >
       {photoUrl ? (
-        <img
-          src={photoUrl}
-          alt={name}
-          className="h-16 w-16 shrink-0 object-cover"
-        />
+        <img src={photoUrl} alt={name} loading="lazy" className="h-16 w-16 shrink-0 object-cover" />
       ) : (
         <div className="flex h-16 w-16 shrink-0 items-center justify-center bg-slate-800 text-2xl">
           📍
@@ -56,6 +54,7 @@ export function PlaceCard({
       )}
       <div className="min-w-0 flex-1 py-2 pr-3">
         <p className="truncate text-sm font-semibold text-white">{name}</p>
+        <p className="text-xs text-slate-400 capitalize">{type.toLowerCase().replace(/_/g, ' ')}</p>
         <p className="text-xs text-cyan-300">{formatDistance(distanceMeters)}</p>
       </div>
       <a

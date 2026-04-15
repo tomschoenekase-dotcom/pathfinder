@@ -23,10 +23,6 @@ export default async function DashboardIndexPage() {
     redirect('/onboarding/setup')
   }
 
-  type VenueItem = (typeof venues)[number]
-  const venueDetails = await Promise.all(
-    venues.map((venue: VenueItem) => caller.venue.getById({ id: venue.id })),
-  )
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
   type DailyStatItem = (typeof dailyStats)[number]
   const activeAlerts = operationalUpdates.filter(
@@ -43,10 +39,7 @@ export default async function DashboardIndexPage() {
   const stats = {
     activeAlerts,
     sessionsThisWeek,
-    totalPlaces: venueDetails.reduce(
-      (sum: number, venue: (typeof venueDetails)[number]) => sum + venue._count.places,
-      0,
-    ),
+    totalPlaces: venues.reduce((sum: number, venue) => sum + venue._count.places, 0),
     venues: venues.length,
   }
 

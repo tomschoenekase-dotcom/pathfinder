@@ -4,16 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SignOutButton, useOrganization } from '@clerk/nextjs'
-import {
-  Bot,
-  Building2,
-  ChartColumn,
-  Home,
-  LogOut,
-  Megaphone,
-  Settings,
-  Users,
-} from 'lucide-react'
+import { Bot, Building2, ChartColumn, Home, LogOut, Megaphone, Users } from 'lucide-react'
 
 type DashboardShellProps = {
   children: ReactNode
@@ -26,7 +17,6 @@ const navigationItems = [
   { href: '/analytics', label: 'Analytics', icon: ChartColumn },
   { href: '/ai-controls', label: 'AI Controls', icon: Bot },
   { href: '/operational-updates', label: 'Operational Updates', icon: Megaphone },
-  { href: '/settings', label: 'Settings', icon: Settings },
 ] as const
 
 function isActivePath(pathname: string, href: string) {
@@ -48,9 +38,7 @@ export function DashboardShell({ children, isPlatformAdmin }: DashboardShellProp
         <aside className="border-r border-slate-800 bg-slate-950 text-slate-100">
           <div className="flex h-full flex-col p-6">
             <div className="space-y-3 border-b border-slate-800 pb-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-400">
-                PathFinder
-              </p>
+              <p className="text-sm font-semibold text-white">PathFinder</p>
               <div>
                 <h1 className="text-lg font-semibold text-white">{orgName}</h1>
                 <p className="mt-1 text-sm text-slate-400">Tenant dashboard</p>
@@ -64,7 +52,7 @@ export function DashboardShell({ children, isPlatformAdmin }: DashboardShellProp
                   className={[
                     'flex min-h-11 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition',
                     isActivePath(pathname, '/clients')
-                      ? 'bg-cyan-400 text-slate-950'
+                      ? 'border-l-2 border-cyan-400 bg-slate-800 text-white'
                       : 'text-slate-300 hover:bg-slate-900 hover:text-white',
                   ].join(' ')}
                 >
@@ -83,7 +71,7 @@ export function DashboardShell({ children, isPlatformAdmin }: DashboardShellProp
                     className={[
                       'flex min-h-11 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition',
                       active
-                        ? 'bg-cyan-400 text-slate-950'
+                        ? 'border-l-2 border-cyan-400 bg-slate-800 text-white'
                         : 'text-slate-300 hover:bg-slate-900 hover:text-white',
                     ].join(' ')}
                   >

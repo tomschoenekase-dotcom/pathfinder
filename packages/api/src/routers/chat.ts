@@ -59,6 +59,7 @@ const sendMessageSchema = z
 
 const NEAREST_PLACES_LIMIT = 8
 const HISTORY_LIMIT = 10
+const HISTORY_LOAD_LIMIT = 40
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 512
 
@@ -325,12 +326,19 @@ export const chatRouter = router({
       })
     } catch {}
 
+    // Filter places to only those Claude actually mentioned in the response.
+    // Cap at 3 — more than that in a single turn is visual noise.
+    const mentionedPlaces = relevantPlaces
+      .filter((p) => assistantResponse.toLowerCase().includes(p.name.toLowerCase()))
+      .slice(0, 3)
+
     return {
       response: assistantResponse,
       sessionId: session.id,
-      places: relevantPlaces.map((p) => ({
+      places: mentionedPlaces.map((p) => ({
         id: p.id,
         name: p.name,
+        type: p.type,
         photoUrl: p.photoUrl ?? null,
         distanceMeters: p.distanceMeters,
         lat: p.lat,
@@ -338,4 +346,44 @@ export const chatRouter = router({
       })),
     }
   }),
+
+  /**
+   * Load the message history for an existing session by anonymous token.
+   * Returns messages oldest-first. Returns an empty array if no session exists
+   * yet — the chat page treats that as a fresh conversation.
+   */
+  history: publicProcedure
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+          anonymousToken: z.string().uuid(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db.visitorSession.findUnique({
+        where: { anonymousToken: input.anonymousToken },
+        select: { id: true, venueId: true },
+      })
+
+      // No session yet — fresh visitor, return empty history
+      if (!session || session.venueId !== input.venueId) {
+        return { messages: [] }
+      }
+
+      const rows = await ctx.db.message.findMany({
+        where: { sessionId: session.id },
+        orderBy: { createdAt: 'asc' },
+        take: HISTORY_LOAD_LIMIT,
+        select: { role: true, content: true },
+      })
+
+      return {
+        messages: rows.map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+      }
+    }),
 })

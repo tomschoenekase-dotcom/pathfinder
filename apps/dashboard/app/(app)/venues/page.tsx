@@ -15,24 +15,19 @@ async function createCaller() {
 export default async function VenuesPage() {
   const caller = await createCaller()
   const venues = await caller.venue.list()
-  type VenueItem = (typeof venues)[number]
-  const venuesWithCounts = await Promise.all(
-    venues.map(async (venue: VenueItem) => {
-      const detail = await caller.venue.getById({ id: venue.id })
-
-      return {
-        ...venue,
-        placeCount: detail._count.places,
-      }
-    }),
-  )
+  const venuesWithCounts = venues.map((venue) => ({
+    ...venue,
+    placeCount: venue._count.places,
+  }))
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10">
       <div className="mx-auto max-w-6xl space-y-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">Dashboard</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+              Dashboard
+            </p>
             <h1 className="text-4xl font-semibold tracking-tight text-slate-900">Venues</h1>
             <p className="max-w-2xl text-sm leading-6 text-slate-600">
               Manage the venue records and place data that power the public chat experience.

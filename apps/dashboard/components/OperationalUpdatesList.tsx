@@ -110,8 +110,12 @@ export function OperationalUpdatesList({ initialUpdates }: OperationalUpdatesLis
   }, [])
 
   const visibleUpdates = useMemo(
+    () => updates.filter((update) => update.isActive && new Date(update.expiresAt).getTime() > now),
+    [now, updates],
+  )
+  const pastUpdates = useMemo(
     () =>
-      updates.filter((update) => update.isActive && new Date(update.expiresAt).getTime() > now),
+      updates.filter((update) => !update.isActive || new Date(update.expiresAt).getTime() <= now),
     [now, updates],
   )
 
@@ -139,9 +143,12 @@ export function OperationalUpdatesList({ initialUpdates }: OperationalUpdatesLis
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
             Operational Updates
           </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Active Alerts</h1>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            Active Alerts
+          </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            Publish short-lived venue notices that staff can deactivate the moment conditions change.
+            Publish short-lived venue notices that staff can deactivate the moment conditions
+            change.
           </p>
         </div>
         <Link
@@ -199,7 +206,8 @@ export function OperationalUpdatesList({ initialUpdates }: OperationalUpdatesLis
                       ) : null}
                       {update.redirectTo ? (
                         <p className="mt-2 text-sm text-slate-600">
-                          Redirect target: <span className="font-medium text-slate-900">{update.redirectTo}</span>
+                          Redirect target:{' '}
+                          <span className="font-medium text-slate-900">{update.redirectTo}</span>
                         </p>
                       ) : null}
                     </div>
@@ -229,6 +237,45 @@ export function OperationalUpdatesList({ initialUpdates }: OperationalUpdatesLis
           })}
         </div>
       )}
+
+      {pastUpdates.length > 0 ? (
+        <details className="mt-8 group">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-[1.75rem] border border-slate-200 bg-slate-50 px-5 py-4">
+            <span className="text-sm font-medium text-slate-700">
+              Past alerts ({pastUpdates.length})
+            </span>
+            <span className="text-xs text-slate-400 group-open:hidden">Show</span>
+            <span className="hidden text-xs text-slate-400 group-open:inline">Hide</span>
+          </summary>
+          <div className="mt-3 space-y-3">
+            {pastUpdates.map((update) => {
+              const config = severityConfig[update.severity]
+              const Icon = config.icon
+
+              return (
+                <article
+                  key={update.id}
+                  className="rounded-[1.75rem] border border-slate-200 bg-white p-5 opacity-60"
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${config.badge}`}
+                    >
+                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                      {config.label}
+                    </span>
+                    <span className="text-sm text-slate-500">{update.venue.name}</span>
+                  </div>
+                  <p className="mt-3 text-sm font-medium text-slate-700">{update.title}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Expired {new Date(update.expiresAt).toLocaleString()}
+                  </p>
+                </article>
+              )
+            })}
+          </div>
+        </details>
+      ) : null}
     </section>
   )
 }

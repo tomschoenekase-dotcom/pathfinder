@@ -150,9 +150,7 @@ export const placeRouter = router({
 
       const { id, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
-      const data = Object.fromEntries(
-        Object.entries(raw).filter(([, v]) => v !== undefined),
-      )
+      const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
 
       // updateMany accepts tenantId in where; update does not (Prisma unique-key constraint)
       await ctx.db.place.updateMany({ where: { id, tenantId }, data })
@@ -172,21 +170,20 @@ export const placeRouter = router({
     }),
 
   delete: tenantProcedure
-    .use(requireRole('OWNER'))
+    .use(requireRole('MANAGER'))
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
-      const existing = await ctx.db.place.findFirst({
+      const place = await ctx.db.place.findFirst({
         where: { id: input.id, tenantId },
         select: { id: true },
       })
 
-      if (!existing) {
+      if (!place) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
       }
 
-      // deleteMany accepts tenantId in where; delete does not (Prisma unique-key constraint)
       await ctx.db.place.deleteMany({ where: { id: input.id, tenantId } })
 
       return { id: input.id }
@@ -226,9 +223,7 @@ export const placeRouter = router({
               lng: p.lng,
               tags: p.tags,
               importanceScore: p.importanceScore,
-              ...(p.shortDescription !== undefined
-                ? { shortDescription: p.shortDescription }
-                : {}),
+              ...(p.shortDescription !== undefined ? { shortDescription: p.shortDescription } : {}),
               ...(p.longDescription !== undefined ? { longDescription: p.longDescription } : {}),
               ...(p.areaName !== undefined ? { areaName: p.areaName } : {}),
               ...(p.hours !== undefined ? { hours: p.hours } : {}),

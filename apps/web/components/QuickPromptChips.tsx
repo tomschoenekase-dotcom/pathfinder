@@ -12,7 +12,7 @@ export function buildPrompts(venueName?: string, venueCategory?: string): string
     'Where should I go next?',
     'Where are the restrooms?',
     "What's good to eat or drink here?",
-    venueName ? `What makes ${venueName} special?` : "What's the best part of this venue?",
+    venueName ? `Tell me about ${venueName}` : "What's this venue all about?",
     venueCategory === 'ZOO' || venueCategory === 'AQUARIUM'
       ? 'What animals can I see today?'
       : "What's good to do with kids?",
@@ -29,11 +29,11 @@ export function QuickPromptChips({ onSend, venueName, venueCategory }: QuickProm
           Start with a question
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
+      <div className="flex flex-wrap gap-2">
         {prompts.map((prompt) => (
           <button
             key={prompt}
-            className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/10 bg-white/5 px-4 text-center text-sm font-medium text-slate-100 transition hover:border-cyan-400/40 hover:bg-cyan-400/10 sm:justify-start sm:text-left"
+            className="inline-flex min-h-10 items-center justify-center rounded-full border border-white/10 bg-white/5 px-3 text-center text-sm font-medium text-slate-100 transition hover:border-cyan-400/40 hover:bg-cyan-400/10"
             type="button"
             onClick={() => {
               onSend(prompt)
