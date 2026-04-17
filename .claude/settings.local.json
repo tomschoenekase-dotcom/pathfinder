@@ -47,7 +47,8 @@
       "Bash(ls c:/Users/tomsc/Downloads/PathFinder/apps/dashboard/.eslint*)",
       "Bash(node -e \"require\\('./dist/index.js'\\)\")",
       "Bash(find . -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec wc -l {} +)",
-      "Bash(grep -l \"export const\" packages/api/src/routers/*.ts)"
+      "Bash(grep -l \"export const\" packages/api/src/routers/*.ts)",
+      "Bash(npx turbo:*)"
     ]
   }
 }

@@ -9,7 +9,15 @@ import { CreatePlaceInput, CreateVenueInput } from '@pathfinder/api/schemas'
 
 import { createTRPCClient } from '../../../../lib/trpc'
 
-const VENUE_CATEGORIES = ['ZOO', 'AQUARIUM', 'MUSEUM', 'MALL', 'SPORTS_VENUE', 'OTHER'] as const
+const VENUE_CATEGORIES = [
+  'ZOO',
+  'AQUARIUM',
+  'MUSEUM',
+  'MALL',
+  'SPORTS_VENUE',
+  'PARK',
+  'OTHER',
+] as const
 
 const PLACE_CATEGORIES = [
   'EXHIBIT',
@@ -552,7 +560,11 @@ export default function OnboardingSetupPage() {
         <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
           {currentStep === 0 ? (
             <VenueBasicsStep
-              defaultValues={setupState.venue}
+              defaultValues={{
+                name: setupState.venue.name,
+                slug: setupState.venue.slug,
+                category: setupState.venue.category,
+              }}
               onBack={() => {}}
               onNext={(values) => {
                 setSetupState((current) => ({
@@ -569,7 +581,10 @@ export default function OnboardingSetupPage() {
 
           {currentStep === 1 ? (
             <VenueLocationStep
-              defaultValues={setupState.venue}
+              defaultValues={{
+                defaultCenterLat: setupState.venue.defaultCenterLat,
+                defaultCenterLng: setupState.venue.defaultCenterLng,
+              }}
               onBack={() => {
                 setCurrentStep(0)
               }}
