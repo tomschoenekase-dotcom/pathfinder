@@ -515,10 +515,21 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                 ) : null}
               </div>
 
-              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 sm:col-span-2">
-                <input className="h-4 w-4" type="checkbox" {...register('isActive')} />
-                Place is active
-              </label>
+              <Controller
+                control={control}
+                name="isActive"
+                render={({ field }) => (
+                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 sm:col-span-2">
+                    <input
+                      className="h-4 w-4"
+                      type="checkbox"
+                      checked={field.value ?? true}
+                      onChange={(e) => field.onChange(e.target.checked)}
+                    />
+                    Place is active
+                  </label>
+                )}
+              />
             </div>
           </details>
 

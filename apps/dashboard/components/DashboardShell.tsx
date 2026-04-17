@@ -4,11 +4,10 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SignOutButton, useOrganization } from '@clerk/nextjs'
-import { Bot, Building2, ChartColumn, Home, LogOut, Megaphone, Users } from 'lucide-react'
+import { Bot, Building2, ChartColumn, Home, LogOut, Megaphone } from 'lucide-react'
 
 type DashboardShellProps = {
   children: ReactNode
-  isPlatformAdmin?: boolean
 }
 
 const navigationItems = [
@@ -27,7 +26,7 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function DashboardShell({ children, isPlatformAdmin }: DashboardShellProps) {
+export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname()
   const { organization } = useOrganization()
   const orgName = organization?.name ?? 'Your organization'
@@ -46,20 +45,6 @@ export function DashboardShell({ children, isPlatformAdmin }: DashboardShellProp
             </div>
 
             <nav className="mt-6 flex-1 space-y-2" aria-label="Dashboard navigation">
-              {isPlatformAdmin && (
-                <Link
-                  href="/clients"
-                  className={[
-                    'flex min-h-11 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition',
-                    isActivePath(pathname, '/clients')
-                      ? 'border-l-2 border-cyan-400 bg-slate-800 text-white'
-                      : 'text-slate-300 hover:bg-slate-900 hover:text-white',
-                  ].join(' ')}
-                >
-                  <Users className="h-4 w-4" aria-hidden="true" />
-                  <span>Clients</span>
-                </Link>
-              )}
               {navigationItems.map((item) => {
                 const Icon = item.icon
                 const active = isActivePath(pathname, item.href)
