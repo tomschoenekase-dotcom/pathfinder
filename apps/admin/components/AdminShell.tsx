@@ -9,10 +9,7 @@ type AdminShellProps = {
   children: ReactNode
 }
 
-const navigationItems = [
-  { href: '/clients', label: 'Clients' },
-  { href: '/platform', label: 'Platform' },
-] as const
+const navigationItems = [{ href: '/clients', label: 'Clients' }] as const
 
 function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
