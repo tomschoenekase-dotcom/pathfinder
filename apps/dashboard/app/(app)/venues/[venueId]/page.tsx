@@ -124,6 +124,16 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
               >
                 AI Controls
               </Link>
+              {webUrl ? (
+                <a
+                  href={guestChatUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center rounded-full border border-cyan-300 bg-cyan-50 px-5 text-sm font-medium text-cyan-700 transition hover:bg-cyan-100"
+                >
+                  Test AI chat
+                </a>
+              ) : null}
               <Link
                 href={`/venues/${venue.id}/places/new`}
                 className="inline-flex min-h-11 items-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800"
