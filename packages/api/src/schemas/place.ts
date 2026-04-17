@@ -12,7 +12,10 @@ export const PlaceInput = z
     importanceScore: z.number().int().min(0).max(100).default(0),
     areaName: z.string().max(200).optional(),
     hours: z.string().max(200).optional(),
-    photoUrl: z.string().url().max(2000).optional(),
+    photoUrl: z
+      .union([z.string().url().max(2000), z.literal('')])
+      .optional()
+      .transform((v) => (v === '' ? undefined : v)),
   })
   .strict()
 
@@ -33,7 +36,10 @@ export const UpdatePlaceInput = z
     importanceScore: z.number().int().min(0).max(100).optional(),
     areaName: z.string().max(200).optional(),
     hours: z.string().max(200).optional(),
-    photoUrl: z.string().url().max(2000).optional().nullable(),
+    photoUrl: z
+      .union([z.string().url().max(2000), z.literal(''), z.null()])
+      .optional()
+      .transform((v) => (!v || v === '' ? null : v)),
     isActive: z.boolean().optional(),
   })
   .strict()
