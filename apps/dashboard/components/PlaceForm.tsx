@@ -502,7 +502,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                 </label>
                 <input
                   id="place-photo-url"
-                  type="url"
+                  type="text"
                   placeholder="https://..."
                   className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
                   {...register('photoUrl')}
