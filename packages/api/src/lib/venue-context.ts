@@ -24,6 +24,19 @@ type FeaturedPlace = {
   blurb: string
 }
 
+/**
+ * Converts a distance in meters to a natural-language phrase.
+ * Keeps language approximate and conversational — exact numbers are noise
+ * when someone is walking around on a phone.
+ */
+export function formatDistance(meters: number): string {
+  const feet = meters * 3.28084
+  if (feet < 60) return 'right nearby'
+  if (feet < 500) return `about ${Math.round(feet / 25) * 25} feet away`
+  const minutes = Math.round(meters / 80) // ~80 m/min walking pace
+  return `about a ${minutes}-minute walk`
+}
+
 export function buildVenueSystemPrompt(params: {
   venue: VenueInfo
   relevantPlaces: RelevantPlace[]
@@ -31,7 +44,7 @@ export function buildVenueSystemPrompt(params: {
   userLng: number
   featuredPlace?: FeaturedPlace | null
 }): string {
-  const { venue, relevantPlaces, userLat, userLng, featuredPlace } = params
+  const { venue, relevantPlaces, featuredPlace } = params
 
   const venueDescription = venue.description ?? 'A venue with many things to explore.'
   const guideNotesSection = venue.guideNotes ? `\nVenue guide notes:\n${venue.guideNotes}` : ''
@@ -54,13 +67,13 @@ export function buildVenueSystemPrompt(params: {
       ? 'No specific points of interest have been configured yet.'
       : relevantPlaces
           .map((p, i) => {
-            const distance = Math.round(p.distanceMeters)
+            const distance = formatDistance(p.distanceMeters)
             const area = p.areaName ? ` in ${p.areaName}` : ''
             const desc = p.shortDescription ? `\n   ${p.shortDescription}` : ''
             const detail = p.longDescription ? `\n   Details: ${p.longDescription}` : ''
             const tags = p.tags.length > 0 ? `\n   Tags: ${p.tags.join(', ')}` : ''
             const hours = `\n   Hours: ${p.hours ?? 'not specified'}`
-            return `${i + 1}. ${p.name} (${p.type}) — ${distance}m away${area}${desc}${detail}${tags}${hours}`
+            return `${i + 1}. ${p.name} (${p.type}) — ${distance}${area}${desc}${detail}${tags}${hours}`
           })
           .join('\n\n')
 
@@ -74,17 +87,17 @@ export function buildVenueSystemPrompt(params: {
 About this venue:
 ${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}
 
-The visitor is currently at coordinates (${userLat}, ${userLng}).
-
 MOST RELEVANT PLACES FOR THIS QUERY:
 ${placesSection}
 
 Rules:
 - Ground every answer in the venue data above. Do not invent places or distances.
-- Always mention proximity when relevant ("You're about 50 meters from...").
+- Lead with what makes a place worth visiting — its character, experience, or purpose. Distance is secondary context, not the headline.
+- Only mention distance when the visitor is asking how to find something or needs directions ("where is", "how far", "near me"). For questions about what to do or see, skip the distance entirely.
+- When distance is relevant, use the natural phrasing from the place data above ("about 200 feet away", "right nearby"). Never convert to metric or use raw numbers.
 - Keep answers short — 2 to 3 sentences max. Visitors are on foot reading on a phone.
-- For practical questions (bathroom, food, seating), give the nearest match and nothing else.
-- For exploratory questions, suggest one or two options with a brief reason.
+- For practical navigation questions (bathroom, exit, specific location), give the nearest match with distance and nothing else.
+- For exploratory questions ("what's good here", "what should I see"), suggest one or two options with a brief reason — no distances unless asked.
 - Never use markdown, bullet points, asterisks, or headers. Plain conversational text only.
 - Never reveal internal data like scores or IDs.
 - ${toneInstruction}

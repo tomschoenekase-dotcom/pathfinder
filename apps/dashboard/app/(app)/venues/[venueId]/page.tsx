@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
 import { appRouter, createTRPCContext } from '@pathfinder/api'
-import { CopyUrlButton } from '../../../../components/CopyUrlButton'
 
 type VenueDetailPageProps = {
   params: Promise<{
@@ -129,7 +128,7 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                   href={guestChatUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-11 items-center rounded-full border border-cyan-300 bg-cyan-50 px-5 text-sm font-medium text-cyan-700 transition hover:bg-cyan-100"
+                  className="inline-flex min-h-11 items-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                 >
                   Test AI chat
                 </a>
@@ -167,13 +166,6 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
           ) : null}
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm md:col-span-2 xl:col-span-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Guest chat URL</p>
-              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="break-all font-mono text-sm text-slate-700">{guestChatUrl}</p>
-                {webUrl ? <CopyUrlButton url={guestChatUrl} /> : null}
-              </div>
-            </article>
             <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Slug</p>
               <p className="mt-2 font-mono text-sm text-slate-700">{venue.slug}</p>
