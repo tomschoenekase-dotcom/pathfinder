@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, useForm } from 'react-hook-form'
+import { CheckCircle2 } from 'lucide-react'
 
 import { CreatePlaceInput, CreateVenueInput } from '@pathfinder/api/schemas'
 
@@ -85,10 +86,12 @@ type SetupState = {
   place: FirstPlaceValues
 }
 
-const STEP_LABELS = [
-  '1. Name your venue',
-  '2. Set your location',
-  '3. Add your first place',
+const STEP_LABELS = ['Venue info', 'Venue location', 'First place'] as const
+
+const STEP_TITLES = [
+  'Tell us about your venue',
+  'Set your venue center',
+  'Add your first place',
 ] as const
 
 const INITIAL_STATE: SetupState = {
@@ -135,27 +138,47 @@ function getErrorMessage(error: unknown): string {
 }
 
 function StepIndicator({ currentStep }: { currentStep: number }) {
-  return (
-    <div className="mt-8 grid gap-3 md:grid-cols-3">
-      {STEP_LABELS.map((label, index) => {
-        const isActive = index === currentStep
-        const isComplete = index < currentStep
+  const currentTitle = STEP_TITLES[currentStep] ?? STEP_TITLES[0]
 
-        return (
-          <div
-            key={label}
-            className={`rounded-[1.5rem] border px-4 py-4 text-sm ${
-              isActive
-                ? 'border-cyan-400/50 bg-cyan-400/10 text-white'
-                : isComplete
-                  ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-100'
-                  : 'border-white/10 bg-white/5 text-slate-300'
-            }`}
-          >
-            {label}
-          </div>
-        )
-      })}
+  return (
+    <div className="mt-8">
+      <p className="text-sm font-medium text-slate-200">
+        Step {currentStep + 1} of 3 - {currentTitle}
+      </p>
+      <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
+        {STEP_LABELS.map((label, index) => {
+          const isActive = index === currentStep
+          const isComplete = index < currentStep
+
+          return (
+            <div key={label} className="flex items-center gap-3 text-sm">
+              <span
+                className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
+                  isActive || isComplete
+                    ? 'border-cyan-300 bg-cyan-300 text-slate-950'
+                    : 'border-white/25 text-slate-400'
+                }`}
+              >
+                {isActive || isComplete ? '' : index + 1}
+              </span>
+              <span
+                className={
+                  isActive
+                    ? 'font-semibold text-white'
+                    : isComplete
+                      ? 'text-cyan-100'
+                      : 'text-slate-400'
+                }
+              >
+                {label}
+              </span>
+              {index < STEP_LABELS.length - 1 ? (
+                <span className="hidden h-px w-12 bg-white/20 md:block" aria-hidden="true" />
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -214,6 +237,9 @@ function VenueBasicsStep({
               className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
               {...register('name')}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              This is what guests will see in the chat header.
+            </p>
             {errors.name ? (
               <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p>
             ) : null}
@@ -255,6 +281,9 @@ function VenueBasicsStep({
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Helps PathFinder tailor responses for your venue type.
+            </p>
             {errors.category ? (
               <p className="mt-2 text-sm text-rose-600">{errors.category.message}</p>
             ) : null}
@@ -332,6 +361,11 @@ function VenueLocationStep({
                 />
               )}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              The center point of your venue - guests&apos; distances are measured from here. Use
+              Google Maps to find coordinates: right-click any point on the map and copy the
+              coordinates shown.
+            </p>
             {errors.defaultCenterLat ? (
               <p className="mt-2 text-sm text-rose-600">{errors.defaultCenterLat.message}</p>
             ) : null}
@@ -356,6 +390,11 @@ function VenueLocationStep({
                 />
               )}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              The center point of your venue - guests&apos; distances are measured from here. Use
+              Google Maps to find coordinates: right-click any point on the map and copy the
+              coordinates shown.
+            </p>
             {errors.defaultCenterLng ? (
               <p className="mt-2 text-sm text-rose-600">{errors.defaultCenterLng.message}</p>
             ) : null}
@@ -416,6 +455,12 @@ function FirstPlaceStep({
           </p>
         </div>
 
+        {formError ? (
+          <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {formError}
+          </p>
+        ) : null}
+
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="place-name">
@@ -426,6 +471,9 @@ function FirstPlaceStep({
               className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
               {...register('name')}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Add your most popular or iconic location first - you can add more after setup.
+            </p>
             {errors.name ? (
               <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p>
             ) : null}
@@ -468,13 +516,11 @@ function FirstPlaceStep({
             ) : null}
           </div>
         </div>
-      </div>
-
-      {formError ? (
-        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {formError}
+        <p className="rounded-2xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
+          Place coordinates start at your venue center for setup. Right-click in Google Maps to copy
+          coordinates for this specific location, then fine-tune this place after setup.
         </p>
-      ) : null}
+      </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
         <button
@@ -509,6 +555,7 @@ export default function OnboardingSetupPage() {
   const [setupState, setSetupState] = useState<SetupState>(INITIAL_STATE)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isComplete, setIsComplete] = useState(false)
 
   async function handleCreateVenue(placeValues: FirstPlaceValues) {
     setFormError(null)
@@ -534,13 +581,37 @@ export default function OnboardingSetupPage() {
         importanceScore: 0,
       })
 
-      router.push(`/venues/${venue.id}?onboarded=1`)
-      router.refresh()
+      setCurrentStep(2)
+      setIsComplete(true)
+      window.setTimeout(() => {
+        router.push(`/venues/${venue.id}?onboarded=1`)
+        router.refresh()
+      }, 2000)
     } catch (error) {
       setFormError(getErrorMessage(error))
-    } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (isComplete) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-10">
+        <section className="w-full max-w-xl rounded-[2rem] border border-emerald-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <CheckCircle2 className="h-8 w-8" aria-hidden="true" />
+          </div>
+          <h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-950">
+            Your venue is live.
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            PathFinder is ready to guide your guests.
+          </p>
+          <p className="mt-6 text-sm font-medium text-emerald-700">
+            Taking you to your dashboard...
+          </p>
+        </section>
+      </main>
+    )
   }
 
   return (

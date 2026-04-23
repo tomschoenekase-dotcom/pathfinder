@@ -242,8 +242,11 @@ function TopQuestionsList({
           Conversation Themes
         </p>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-          Top questions this week
+          Guest Questions (Last 7 Days)
         </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          Showing most-asked questions across all your venues in the last 7 days.
+        </p>
       </div>
 
       {questions.length === 0 ? (
@@ -259,10 +262,10 @@ function TopQuestionsList({
             >
               <div className="flex min-w-0 items-start gap-4">
                 <span className="mt-0.5 text-sm font-semibold text-cyan-700">{index + 1}.</span>
-                <p className="text-sm leading-6 text-slate-700">{item.question}</p>
+                <p className="text-sm leading-6 text-slate-900">{item.question}</p>
               </div>
-              <span className="inline-flex shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-                {item.count}
+              <span className="inline-flex shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                {item.count}x
               </span>
             </li>
           ))}
@@ -280,7 +283,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
     caller.analytics.getLatestDigest(),
     caller.analytics.listDigests(),
     caller.analytics.getDailyStats({ days: 30 }),
-    caller.analytics.getTopQuestions({ days: 7 }),
+    caller.analytics.getTopQuestions({}),
   ])
 
   const selectedDigestId = resolvedSearchParams?.digest

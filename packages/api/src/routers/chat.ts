@@ -10,6 +10,7 @@ import { env, logger } from '@pathfinder/config'
 import { router } from '../core'
 import { generateEmbedding } from '../lib/embeddings'
 import { findNearestPlaces } from '../lib/geo'
+import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPrompt } from '../lib/venue-context'
 import { publicProcedure } from '../trpc'
 
@@ -141,6 +142,20 @@ export const chatRouter = router({
 
     if (!venue) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+    }
+
+    const [sessionAllowed, venueAllowed] = await Promise.all([
+      checkRateLimit(`ratelimit:chat:session:${input.anonymousToken}`, 60, 3600),
+      checkRateLimit(`ratelimit:chat:venue:${input.venueId}`, 30, 60),
+    ])
+
+    if (!sessionAllowed || !venueAllowed) {
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: sessionAllowed
+          ? 'This venue is receiving too many requests. Please try again in a moment.'
+          : 'You have reached the message limit. Please try again later.',
+      })
     }
 
     // 2. Upsert session, update location
