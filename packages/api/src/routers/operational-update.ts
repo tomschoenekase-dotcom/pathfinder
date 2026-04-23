@@ -1,5 +1,4 @@
 import { TRPCError } from '@trpc/server'
-import { requireTenantRole, type SessionContext } from '@pathfinder/auth'
 import { writeAuditLog } from '@pathfinder/db'
 
 import {
@@ -68,11 +67,7 @@ function toAuditState(update: {
   }
 }
 
-async function assertVenueBelongsToTenant(
-  db: DbClient,
-  venueId: string,
-  tenantId: string,
-) {
+async function assertVenueBelongsToTenant(db: DbClient, venueId: string, tenantId: string) {
   const venue = await db.venue.findFirst({
     where: { id: venueId, tenantId },
     select: { id: true },
@@ -99,15 +94,6 @@ async function assertPlaceBelongsToVenue(
   }
 }
 
-function requireSeverityRole(session: SessionContext, severity: 'INFO' | 'WARNING' | 'CLOSURE' | 'REDIRECT') {
-  if (severity === 'CLOSURE' || severity === 'REDIRECT') {
-    requireTenantRole(session, 'MANAGER')
-    return
-  }
-
-  requireTenantRole(session, 'STAFF')
-}
-
 export const operationalUpdateRouter = router({
   list: tenantProcedure.query(async ({ ctx }) => {
     return ctx.db.operationalUpdate.findMany({
@@ -124,10 +110,10 @@ export const operationalUpdateRouter = router({
   }),
 
   create: tenantProcedure
+    .use(requireRole('MANAGER'))
     .input(CreateOperationalUpdateInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-      requireSeverityRole(ctx.session as SessionContext, input.severity)
 
       await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
 

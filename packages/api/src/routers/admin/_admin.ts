@@ -55,7 +55,7 @@ export const adminRouter = router({
         userEmail: z.string().email(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const existing = await withTenantIsolationBypass(() =>
         db.tenant.findUnique({ where: { id: input.orgId } }),
       )
@@ -90,6 +90,21 @@ export const adminRouter = router({
         })
       })
 
+      await writeAuditLog({
+        tenantId: input.orgId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.client.created',
+        targetType: 'Tenant',
+        targetId: input.orgId,
+        afterState: {
+          id: input.orgId,
+          name: input.name,
+          slug: input.slug,
+          ownerUserId: input.userId,
+        },
+      })
+
       return { ok: true }
     }),
 
@@ -100,13 +115,37 @@ export const adminRouter = router({
         status: z.enum(['ACTIVE', 'SUSPENDED', 'TRIAL']),
       }),
     )
-    .mutation(async ({ input }) => {
-      await withTenantIsolationBypass(() =>
-        db.tenant.update({
+    .mutation(async ({ ctx, input }) => {
+      const updated = await withTenantIsolationBypass(async () => {
+        const existing = await db.tenant.findUnique({
+          where: { id: input.tenantId },
+          select: { id: true, status: true },
+        })
+
+        if (!existing) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+        }
+
+        const tenant = await db.tenant.update({
           where: { id: input.tenantId },
           data: { status: input.status },
-        }),
-      )
+          select: { id: true, status: true },
+        })
+
+        return { existing, tenant }
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.client.status_updated',
+        targetType: 'Tenant',
+        targetId: input.tenantId,
+        beforeState: updated.existing,
+        afterState: updated.tenant,
+      })
+
       return { ok: true }
     }),
 

@@ -1,14 +1,28 @@
 import { z } from 'zod'
 
-export const OperationalUpdateSeverityInput = z.enum([
-  'INFO',
-  'WARNING',
-  'CLOSURE',
-  'REDIRECT',
-])
+export const OperationalUpdateSeverityInput = z.enum(['INFO', 'WARNING', 'CLOSURE', 'REDIRECT'])
 
 const MIN_EXPIRY_MS = 15 * 60 * 1000
 const MAX_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000
+const redirectToInput = z
+  .string()
+  .trim()
+  .max(200)
+  .refine(
+    (value) => {
+      if (value.startsWith('/')) {
+        return true
+      }
+
+      try {
+        new URL(value)
+        return true
+      } catch {
+        return false
+      }
+    },
+    { message: 'Redirect must be a valid URL or a relative path starting with /' },
+  )
 
 export const CreateOperationalUpdateInputBase = z
   .object({
@@ -17,13 +31,13 @@ export const CreateOperationalUpdateInputBase = z
     severity: OperationalUpdateSeverityInput,
     title: z.string().trim().min(1).max(60),
     body: z.string().trim().max(300).optional(),
-    redirectTo: z.string().trim().max(200).optional(),
+    redirectTo: redirectToInput.optional(),
     expiresAt: z.coerce.date(),
   })
   .strict()
 
-export const CreateOperationalUpdateInput = CreateOperationalUpdateInputBase
-  .superRefine((input, ctx) => {
+export const CreateOperationalUpdateInput = CreateOperationalUpdateInputBase.superRefine(
+  (input, ctx) => {
     const now = Date.now()
     const expiresAt = input.expiresAt.getTime()
 
@@ -42,7 +56,8 @@ export const CreateOperationalUpdateInput = CreateOperationalUpdateInputBase
         path: ['expiresAt'],
       })
     }
-  })
+  },
+)
 
 export const DeactivateOperationalUpdateInput = z
   .object({

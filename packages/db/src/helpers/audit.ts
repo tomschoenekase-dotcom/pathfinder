@@ -3,7 +3,7 @@ import { logger } from '@pathfinder/config/logger'
 import { db } from '../client'
 
 export type WriteAuditLogParams = {
-  tenantId?: string
+  tenantId?: string | null
   actorId: string
   actorRole: string
   action: string
