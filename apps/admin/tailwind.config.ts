@@ -8,7 +8,21 @@ const config: Config = {
     '../../packages/ui/src/**/*.{ts,tsx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        jakarta: ['var(--font-jakarta)', 'sans-serif'],
+      },
+      colors: {
+        pf: {
+          deep: '#0F2A4A',
+          primary: '#1F4E8C',
+          accent: '#3A7BD5',
+          light: '#C9D4E3',
+          surface: '#F2F5F9',
+          white: '#FFFFFF',
+        },
+      },
+    },
   },
   plugins: [],
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
@@ -83,8 +84,6 @@ export default function VenueChatPage() {
 
         setVenue(result)
 
-        // Load history in the same boot pass so the UI never flashes empty.
-        // Read the token directly from sessionStorage — same key useSession writes.
         const storedToken =
           typeof window !== 'undefined'
             ? window.sessionStorage.getItem(`pathfinder_session_${result.id}`)
@@ -127,11 +126,9 @@ export default function VenueChatPage() {
         return
       }
 
-      // Skip if position hasn't moved meaningfully since last sync (within ~10m).
       if (lat !== null && lng !== null && lastSyncedPosRef.current !== null) {
         const dLat = Math.abs(lat - lastSyncedPosRef.current.lat)
         const dLng = Math.abs(lng - lastSyncedPosRef.current.lng)
-        // ~10m ≈ 0.0001 degrees at mid-latitudes
         if (dLat < 0.0001 && dLng < 0.0001) {
           return
         }
@@ -282,15 +279,16 @@ export default function VenueChatPage() {
 
   if (isBooting) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-6">
-        <div className="max-w-md space-y-4 rounded-3xl border border-white/10 bg-slate-900/70 p-8 text-center text-slate-100 shadow-2xl shadow-cyan-950/30">
-          <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">PathFinder</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-white">
-            Loading venue chat...
-          </h1>
-          <p className="text-sm leading-6 text-slate-300">
-            Getting the venue assistant ready for your visit.
-          </p>
+      <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6">
+        <div className="flex flex-col items-center gap-5 text-center">
+          <Image
+            src="/pathfinder-icon.svg"
+            alt=""
+            width={40}
+            height={40}
+            className="animate-pulse"
+          />
+          <p className="text-sm font-medium text-pf-deep/60">Loading your guide...</p>
         </div>
       </main>
     )
@@ -298,16 +296,15 @@ export default function VenueChatPage() {
 
   if (!venue) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-6">
-        <div className="max-w-md space-y-4 rounded-3xl border border-white/10 bg-slate-900/70 p-8 text-center text-slate-100 shadow-2xl shadow-cyan-950/30">
-          <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">PathFinder</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Venue unavailable</h1>
-          <p className="text-sm leading-6 text-slate-300">
+      <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6">
+        <div className="w-full max-w-md rounded-3xl border border-pf-light bg-pf-white p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-semibold text-pf-deep">Venue unavailable</h1>
+          <p className="mt-3 text-sm leading-6 text-pf-deep/60">
             {pageError ?? 'This venue link is not active.'}
           </p>
           <Link
             href="/"
-            className="inline-flex min-h-11 items-center justify-center rounded-full border border-cyan-400/40 px-5 text-sm font-medium text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-400/10"
+            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent"
           >
             Back to home
           </Link>
@@ -317,48 +314,46 @@ export default function VenueChatPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-[env(safe-area-inset-bottom,1.5rem)] pt-6 sm:px-6">
-      <header className="mb-4 rounded-[2rem] border border-white/10 bg-slate-900/65 p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur">
-        <Link
-          href={`/${venueSlug}`}
-          className="mb-3 inline-flex items-center gap-1.5 text-xs text-slate-400 transition hover:text-slate-200"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-3 w-3"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            aria-hidden="true"
+    <div className="flex min-h-screen flex-col bg-pf-surface">
+      <header className="border-b border-pf-light bg-pf-white px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6">
+        <div className="mx-auto max-w-2xl py-4">
+          <Link
+            href={`/${venueSlug}`}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-pf-deep/40 transition hover:text-pf-primary"
           >
-            <path
-              fillRule="evenodd"
-              d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Back
-        </Link>
-        <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">
-          {venue.category ?? 'Venue assistant'}
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">{venue.name}</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-          {venue.description ?? 'Ask where things are, what to do next, or what is nearby.'}
-        </p>
+            <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path
+                fillRule="evenodd"
+                d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Back
+          </Link>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+            {venue.name} Guide
+          </h1>
+          {venue.category ? (
+            <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-pf-accent">
+              {venue.category.toLowerCase().replace(/_/g, ' ')}
+            </p>
+          ) : null}
+        </div>
       </header>
 
-      <LocationBanner permission={permission} onRefresh={refresh} />
+      <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
+        <LocationBanner permission={permission} onRefresh={refresh} />
+      </div>
 
       {messages.length === 0 ? (
-        <>
-          <section className="mb-4 rounded-[2rem] border border-white/10 bg-slate-900/65 p-5 shadow-xl backdrop-blur">
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-100">
-              What can I help you find?
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              Ask about exhibits, food, restrooms, directions, or anything else at the venue.
+        <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
+          <div className="mb-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-pf-deep">What can I help you find?</h2>
+            <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+              {venue.description ??
+                'Ask about exhibits, food, restrooms, directions, or anything nearby.'}
             </p>
-          </section>
+          </div>
           <QuickPromptChips
             venueName={venue.name}
             venueCategory={venue.category ?? undefined}
@@ -366,31 +361,39 @@ export default function VenueChatPage() {
               void handleSend(prompt)
             }}
           />
-        </>
+        </div>
       ) : null}
 
-      <ChatWindow
-        messages={messages}
-        onSend={(message) => {
-          void handleSend(message)
-        }}
-        isLoading={isSending}
-        errorMessage={sendError}
-        onPlaceCardView={(placeId) => {
-          if (viewedPlaceIdsRef.current.has(placeId)) {
-            return
-          }
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
+        <ChatWindow
+          messages={messages}
+          onSend={(message) => {
+            void handleSend(message)
+          }}
+          isLoading={isSending}
+          errorMessage={sendError}
+          onPlaceCardView={(placeId) => {
+            if (viewedPlaceIdsRef.current.has(placeId)) return
+            viewedPlaceIdsRef.current.add(placeId)
+            trackPlaceEvent('place_card.viewed', placeId)
+          }}
+          onPlaceCardClick={(placeId) => {
+            trackPlaceEvent('place_card.clicked', placeId)
+          }}
+          onDirectionsClick={(placeId) => {
+            trackPlaceEvent('directions.opened', placeId)
+          }}
+        />
+      </div>
 
-          viewedPlaceIdsRef.current.add(placeId)
-          trackPlaceEvent('place_card.viewed', placeId)
-        }}
-        onPlaceCardClick={(placeId) => {
-          trackPlaceEvent('place_card.clicked', placeId)
-        }}
-        onDirectionsClick={(placeId) => {
-          trackPlaceEvent('directions.opened', placeId)
-        }}
-      />
-    </main>
+      <div className="pb-[env(safe-area-inset-bottom,1rem)] pt-2 text-center">
+        <p className="text-[10px] text-pf-deep/25">
+          Powered by{' '}
+          <a href="https://pathfinder.app" className="hover:text-pf-primary">
+            PathFinder
+          </a>
+        </p>
+      </div>
+    </div>
   )
 }

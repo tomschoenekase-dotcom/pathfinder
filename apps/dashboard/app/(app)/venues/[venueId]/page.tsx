@@ -37,7 +37,7 @@ function formatCoordinate(value: number | null): string {
 
 function TypeBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-700">
+    <span className="inline-flex rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary">
       {label}
     </span>
   )
@@ -45,16 +45,16 @@ function TypeBadge({ label }: { label: string }) {
 
 function GuideNotes({ notes }: { notes: string | null }) {
   if (!notes) {
-    return <p className="text-sm leading-6 text-slate-500">No guide notes configured yet.</p>
+    return <p className="text-sm leading-6 text-pf-deep/50">No guide notes configured yet.</p>
   }
 
   return (
     <details className="group">
-      <summary className="cursor-pointer list-none text-sm font-medium text-cyan-700 marker:hidden">
+      <summary className="cursor-pointer list-none text-sm font-medium text-pf-primary marker:hidden">
         <span className="group-open:hidden">Expand notes</span>
         <span className="hidden group-open:inline">Collapse notes</span>
       </summary>
-      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600 group-open:line-clamp-none">
+      <p className="mt-3 line-clamp-3 text-sm leading-6 text-pf-deep/60 group-open:line-clamp-none">
         {notes}
       </p>
     </details>
@@ -85,27 +85,27 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
         : null
 
     return (
-      <main className="min-h-screen bg-slate-50 px-6 py-10">
+      <main className="min-h-screen bg-pf-surface px-6 py-10">
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
               <Link
                 href="/venues"
-                className="text-sm font-medium text-cyan-700 hover:text-cyan-800"
+                className="text-sm font-medium text-pf-primary hover:text-pf-accent"
               >
                 Back to venues
               </Link>
               <div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-pf-accent">
                     Venue management
                   </p>
                   <TypeBadge label={venue.category ?? 'Venue'} />
                 </div>
-                <h1 className="mt-2 text-4xl font-semibold tracking-tight text-slate-900">
+                <h1 className="mt-2 text-4xl font-semibold tracking-tight text-pf-deep">
                   {venue.name}
                 </h1>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-deep/60">
                   {venue.description ?? 'No description added yet.'}
                 </p>
               </div>
@@ -113,13 +113,13 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             <div className="flex flex-wrap gap-3">
               <Link
                 href={`/venues/${venue.id}/edit`}
-                className="inline-flex min-h-11 items-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
               >
                 Edit venue
               </Link>
               <Link
                 href={`/ai-controls?venue=${venue.id}`}
-                className="inline-flex min-h-11 items-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
               >
                 AI Controls
               </Link>
@@ -128,14 +128,14 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                   href={guestChatUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-11 items-center rounded-full border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
                 >
                   Test AI chat
                 </a>
               ) : null}
               <Link
                 href={`/venues/${venue.id}/places/new`}
-                className="inline-flex min-h-11 items-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800"
+                className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
               >
                 Add place
               </Link>
@@ -166,66 +166,68 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
           ) : null}
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Slug</p>
-              <p className="mt-2 font-mono text-sm text-slate-700">{venue.slug}</p>
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">Slug</p>
+              <p className="mt-2 font-mono text-sm text-pf-deep">{venue.slug}</p>
             </article>
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">AI tone</p>
-              <p className="mt-2 text-lg font-semibold text-slate-900">
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">AI tone</p>
+              <p className="mt-2 text-lg font-semibold text-pf-deep">
                 {TONE_LABELS[aiConfig.aiTone ?? 'FRIENDLY'] ?? 'Friendly'}
               </p>
             </article>
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Active places</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-900">{activePlacesCount}</p>
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">Active places</p>
+              <p className="mt-2 text-2xl font-semibold text-pf-deep">{activePlacesCount}</p>
             </article>
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Center latitude</p>
-              <p className="mt-2 font-mono text-sm text-slate-700">
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">Center latitude</p>
+              <p className="mt-2 font-mono text-sm text-pf-deep">
                 {formatCoordinate(venue.defaultCenterLat)}
               </p>
             </article>
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Center longitude</p>
-              <p className="mt-2 font-mono text-sm text-slate-700">
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
+                Center longitude
+              </p>
+              <p className="mt-2 font-mono text-sm text-pf-deep">
                 {formatCoordinate(venue.defaultCenterLng)}
               </p>
             </article>
-            <article className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Featured place</p>
-              <p className="mt-2 text-lg font-semibold text-slate-900">
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">Featured place</p>
+              <p className="mt-2 text-lg font-semibold text-pf-deep">
                 {featuredPlace?.name ?? 'Not selected'}
               </p>
             </article>
           </section>
 
-          <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Guide notes</h2>
+          <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+            <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Guide notes</h2>
             <div className="mt-4">
               <GuideNotes notes={aiConfig.aiGuideNotes ?? null} />
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-6 py-5">
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Places</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+          <section className="overflow-hidden rounded-[2rem] border border-pf-light bg-pf-white shadow-sm">
+            <div className="border-b border-pf-light px-6 py-5">
+              <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Places</h2>
+              <p className="mt-2 text-sm leading-6 text-pf-deep/60">
                 Review the landmarks and amenities powering the venue guide.
               </p>
             </div>
 
             {places.length === 0 ? (
               <div className="px-6 py-10 text-center">
-                <p className="text-lg font-medium text-slate-900">No places yet</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
+                <p className="text-lg font-medium text-pf-deep">No places yet</p>
+                <p className="mt-2 text-sm leading-6 text-pf-deep/60">
                   Add POIs, amenities, and landmarks so the public chat can answer venue questions.
                 </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-slate-500">
+                  <thead className="bg-pf-surface text-left text-pf-deep/50">
                     <tr>
                       <th className="px-6 py-3 font-medium">Name</th>
                       <th className="px-6 py-3 font-medium">Category</th>
@@ -238,11 +240,11 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                     {places.map((place) => (
                       <tr
                         key={place.id}
-                        className="border-t border-slate-200 transition-colors hover:bg-slate-50"
+                        className="border-t border-pf-light transition-colors hover:bg-pf-surface"
                       >
                         <td className="px-6 py-4 align-top">
-                          <div className="font-medium text-slate-900">{place.name}</div>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <div className="font-medium text-pf-deep">{place.name}</div>
+                          <p className="mt-1 text-xs text-pf-deep/50">
                             {place.areaName ?? 'Unknown area'}
                           </p>
                         </td>
@@ -254,21 +256,21 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                             className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
                               place.isActive
                                 ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-slate-100 text-slate-600'
+                                : 'bg-pf-surface text-pf-deep/40'
                             }`}
                           >
                             {place.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td className="px-6 py-4 align-top">
-                          <p className="font-mono text-xs text-slate-600">
+                          <p className="font-mono text-xs text-pf-deep/60">
                             {place.lat.toFixed(5)}, {place.lng.toFixed(5)}
                           </p>
                         </td>
                         <td className="px-6 py-4 text-right align-top">
                           <Link
                             href={`/venues/${place.venueId}/places/${place.id}/edit`}
-                            className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                            className="inline-flex min-h-11 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
                           >
                             Edit
                           </Link>

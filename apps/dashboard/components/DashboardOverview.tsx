@@ -76,7 +76,7 @@ const statCards: StatCard[] = [
   {
     href: '/venues',
     icon: Building2,
-    iconClassName: 'text-slate-400',
+    iconClassName: 'text-pf-accent',
     label: 'Venues',
     valueKey: 'venues',
     description: 'Venue records currently active in your workspace.',
@@ -84,7 +84,7 @@ const statCards: StatCard[] = [
   {
     href: '/venues',
     icon: MapPin,
-    iconClassName: 'text-slate-400',
+    iconClassName: 'text-pf-accent',
     label: 'Total Places',
     valueKey: 'totalPlaces',
     description: 'Points of interest mapped across your venues.',
@@ -99,7 +99,7 @@ const statCards: StatCard[] = [
   {
     href: '/analytics',
     icon: Users,
-    iconClassName: 'text-slate-400',
+    iconClassName: 'text-pf-accent',
     label: 'Sessions this week',
     valueKey: 'sessionsThisWeek',
     description: 'Unique guest chat sessions opened in the last 7 days.',
@@ -115,8 +115,8 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
     <div className="min-h-screen px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-7xl space-y-8">
         <section>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">{orgName}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+          <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">{orgName}</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-pf-deep/50">
             Monitor guest activity, publish operational alerts, and fine-tune the AI guide for each
             of your venues.
           </p>
@@ -128,31 +128,31 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
             const iconClassName =
               card.valueKey === 'activeAlerts' && stats.activeAlerts > 0
                 ? 'text-amber-500'
-                : (card.iconClassName ?? 'text-slate-400')
+                : (card.iconClassName ?? 'text-pf-accent')
 
             return (
               <Link
                 key={card.label}
                 href={card.href}
-                className="block rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm transition hover:border-cyan-200 hover:shadow-md"
+                className="block rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm transition hover:border-pf-accent/40 hover:shadow-md"
               >
                 <Icon className={`h-5 w-5 ${iconClassName}`} aria-hidden="true" />
-                <p className="mt-4 text-sm font-medium text-slate-500">{card.label}</p>
-                <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-4 text-sm font-medium text-pf-deep/50">{card.label}</p>
+                <p className="mt-3 text-3xl font-semibold tracking-tight text-pf-deep">
                   {stats[card.valueKey]}
                 </p>
-                <p className="mt-3 text-sm text-slate-600">{card.description}</p>
+                <p className="mt-3 text-sm text-pf-deep/60">{card.description}</p>
               </Link>
             )
           })}
         </section>
 
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
-            <Sparkles className="h-5 w-5 text-cyan-700" aria-hidden="true" />
+            <Sparkles className="h-5 w-5 text-pf-accent" aria-hidden="true" />
             <div>
-              <h2 className="text-xl font-semibold text-slate-950">Quick Actions</h2>
-              <p className="text-sm text-slate-600">
+              <h2 className="text-xl font-semibold text-pf-deep">Quick Actions</h2>
+              <p className="text-sm leading-6 text-pf-deep/50">
                 Jump into the next setup steps for your tenant workspace.
               </p>
             </div>
@@ -166,13 +166,13 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
                 <Link
                   key={action.href}
                   href={action.href}
-                  className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 transition hover:border-cyan-200 hover:bg-cyan-50"
+                  className="rounded-3xl border border-pf-light bg-pf-surface p-5 transition hover:border-pf-accent/40 hover:bg-pf-white"
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-cyan-700 shadow-sm">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pf-white text-pf-primary shadow-sm">
                     <Icon className="h-5 w-5" aria-hidden="true" />
                   </div>
-                  <h3 className="mt-5 text-lg font-semibold text-slate-950">{action.label}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{action.description}</p>
+                  <h3 className="mt-5 text-lg font-semibold text-pf-deep">{action.label}</h3>
+                  <p className="mt-2 text-sm leading-6 text-pf-deep/60">{action.description}</p>
                 </Link>
               )
             })}

@@ -73,13 +73,13 @@ export function ChatWindow({
   }
 
   return (
-    <section className="flex min-h-[50vh] flex-1 flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-slate-900/70 shadow-2xl shadow-cyan-950/20 backdrop-blur">
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-5 sm:px-5">
+    <section className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm">
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>
             <MessageBubble role={message.role} content={message.content} />
             {message.places && message.places.length > 0 ? (
-              <div className="mt-2 space-y-2 pl-1">
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {message.places.map((place) => (
                   <PlaceCard
                     key={place.id}
@@ -103,9 +103,9 @@ export function ChatWindow({
         {isLoading ? <TypingIndicator /> : null}
       </div>
 
-      <div className="border-t border-white/10 bg-slate-950/80 p-3 sm:p-4">
+      <div className="border-t border-pf-light bg-pf-surface p-3 sm:p-4">
         {errorMessage ? (
-          <p className="mb-3 rounded-2xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">
+          <p className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {errorMessage}
           </p>
         ) : null}
@@ -116,7 +116,7 @@ export function ChatWindow({
           </label>
           <textarea
             id="chat-input"
-            className="min-h-14 flex-1 resize-none rounded-[1.5rem] border border-white/10 bg-slate-900/80 px-4 py-3 text-[16px] leading-6 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/20"
+            className="min-h-14 flex-1 resize-none rounded-2xl border border-pf-light bg-pf-white px-4 py-3 text-[16px] leading-6 text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
             disabled={isLoading}
             placeholder="Ask what is nearby, where to go next, or where to find amenities."
             rows={2}
@@ -132,7 +132,7 @@ export function ChatWindow({
             }}
           />
           <button
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-cyan-400 px-5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light disabled:text-pf-deep/30"
             disabled={isLoading || draft.trim().length === 0}
             type="button"
             onClick={submit}

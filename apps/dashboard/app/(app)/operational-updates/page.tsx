@@ -21,7 +21,7 @@ export default async function OperationalUpdatesPage() {
   }))
 
   return (
-    <div className="px-6 py-10 lg:px-10">
+    <div className="bg-pf-surface px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-7xl">
         <OperationalUpdatesList initialUpdates={serializedUpdates} />
       </div>

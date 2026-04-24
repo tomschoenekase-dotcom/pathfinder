@@ -9,10 +9,10 @@ export function MessageBubble({ role, content }: MessageBubbleProps) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[85%] rounded-[1.75rem] px-4 py-3 text-sm leading-6 shadow-lg ${
+        className={`max-w-[85%] rounded-[1.75rem] px-4 py-3 text-sm leading-6 ${
           isUser
-            ? 'bg-cyan-400 text-slate-950'
-            : 'border border-white/10 bg-white/8 text-slate-100'
+            ? 'rounded-br-md bg-pf-primary text-white'
+            : 'rounded-bl-md border border-pf-light bg-pf-surface text-pf-deep'
         }`}
       >
         <p className="whitespace-pre-wrap break-words">{content}</p>

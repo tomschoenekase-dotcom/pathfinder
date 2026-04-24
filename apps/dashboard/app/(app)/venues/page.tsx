@@ -21,35 +21,35 @@ export default async function VenuesPage() {
   }))
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
+    <main className="min-h-screen bg-pf-surface px-6 py-10">
       <div className="mx-auto max-w-6xl space-y-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+            <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
               Dashboard
             </p>
-            <h1 className="text-4xl font-semibold tracking-tight text-slate-900">Venues</h1>
-            <p className="max-w-2xl text-sm leading-6 text-slate-600">
+            <h1 className="text-4xl font-semibold tracking-tight text-pf-deep">Venues</h1>
+            <p className="max-w-2xl text-sm leading-6 text-pf-deep/60">
               Manage the venue records and place data that power the public chat experience.
             </p>
           </div>
           <Link
             href="/venues/new"
-            className="inline-flex min-h-11 items-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800"
+            className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent"
           >
             New venue
           </Link>
         </div>
 
         {venuesWithCounts.length === 0 ? (
-          <section className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
-            <h2 className="text-2xl font-semibold text-slate-900">No venues yet</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+          <section className="rounded-3xl border border-dashed border-pf-light bg-pf-white p-10 text-center shadow-sm">
+            <h2 className="text-2xl font-semibold text-pf-deep">No venues yet</h2>
+            <p className="mt-3 text-sm leading-6 text-pf-deep/60">
               Create your first one to start loading places for the chatbot.
             </p>
             <Link
               href="/venues/new"
-              className="mt-6 inline-flex min-h-11 items-center rounded-full border border-slate-300 px-5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              className="mt-6 inline-flex min-h-11 items-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
             >
               Create your first venue
             </Link>

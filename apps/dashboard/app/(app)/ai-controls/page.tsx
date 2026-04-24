@@ -25,25 +25,25 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
 
   if (venues.length === 0) {
     return (
-      <main className="min-h-screen bg-slate-50 px-6 py-10 lg:px-10">
+      <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
         <div className="mx-auto max-w-6xl space-y-8">
-          <section className="rounded-[2rem] bg-slate-950 px-8 py-10 text-white shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">
+          <section className="rounded-[2rem] bg-pf-deep px-8 py-10 text-white shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
               AI Controls
             </p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight">Venue AI configuration</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
               Control how your venue&apos;s AI assistant behaves for guests.
             </p>
           </section>
 
-          <section className="rounded-[2rem] border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
-            <h2 className="text-2xl font-semibold text-slate-900">
+          <section className="rounded-[2rem] border border-dashed border-pf-light bg-pf-white p-10 text-center shadow-sm">
+            <h2 className="text-2xl font-semibold text-pf-deep">
               You need to create a venue before configuring AI controls.
             </h2>
             <Link
               href="/venues/new"
-              className="mt-6 inline-flex min-h-11 items-center rounded-full border border-slate-300 px-5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+              className="mt-6 inline-flex min-h-11 items-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
             >
               Create a venue
             </Link>
@@ -63,14 +63,14 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
   ])
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10 lg:px-10">
+    <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-6xl space-y-8">
-        <section className="rounded-[2rem] bg-slate-950 px-8 py-10 text-white shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">
+        <section className="rounded-[2rem] bg-pf-deep px-8 py-10 text-white shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
             AI Controls
           </p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">Venue AI configuration</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
             Shape how your venue&apos;s AI assistant responds to guests, what it promotes, and how
             it should sound.
           </p>

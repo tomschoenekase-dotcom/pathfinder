@@ -9,11 +9,11 @@ export default function NewPlacePage() {
   const params = useParams<{ venueId: string }>()
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10">
+    <main className="min-h-screen bg-pf-surface px-6 py-10">
       <div className="mx-auto max-w-4xl space-y-6">
         <Link
           href={`/venues/${params.venueId}`}
-          className="text-sm font-medium text-cyan-700 hover:text-cyan-800"
+          className="text-sm font-medium text-pf-primary hover:text-pf-accent"
         >
           Back to venue
         </Link>

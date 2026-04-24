@@ -18,7 +18,7 @@ export function CopyUrlButton({ url }: { url: string }) {
       onClick={() => {
         void handleCopy()
       }}
-      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-pf-light bg-pf-white px-4 py-2 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
     >
       {copied ? (
         <Check className="h-4 w-4 text-emerald-600" aria-hidden="true" />

@@ -19,14 +19,21 @@ export function AdminShell({ children }: AdminShellProps) {
   const pathname = usePathname()
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
-      <header className="border-b border-slate-800 bg-slate-950 text-white">
+    <div className="min-h-screen bg-pf-deep text-pf-light">
+      <header className="border-b border-pf-primary/20 bg-[#07192C] text-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-4 lg:px-10">
           <div className="flex items-center gap-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white">
-              PathFinder Admin
-            </p>
-            <div className="h-5 w-px bg-slate-700" aria-hidden="true" />
+            <div className="flex flex-col gap-2">
+              <img
+                src="/pathfinder-logo.svg"
+                alt="PathFinder Admin"
+                className="h-6 w-auto brightness-0 invert"
+              />
+              <span className="w-fit rounded-full bg-pf-accent/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-pf-accent">
+                Admin
+              </span>
+            </div>
+            <div className="h-5 w-px bg-pf-primary/30" aria-hidden="true" />
             <nav className="flex items-center gap-2" aria-label="Admin navigation">
               {navigationItems.map((item) => {
                 const active = isActivePath(pathname, item.href)
@@ -38,8 +45,8 @@ export function AdminShell({ children }: AdminShellProps) {
                     className={[
                       'rounded-full px-4 py-2 text-sm font-medium transition',
                       active
-                        ? 'bg-cyan-400 text-slate-950'
-                        : 'text-slate-300 hover:bg-slate-900 hover:text-white',
+                        ? 'border-l-2 border-pf-accent bg-pf-primary/30 text-white'
+                        : 'text-pf-light/60 hover:bg-pf-primary/20 hover:text-white',
                     ].join(' ')}
                   >
                     {item.label}
@@ -53,7 +60,7 @@ export function AdminShell({ children }: AdminShellProps) {
         </div>
       </header>
 
-      <main className="px-6 py-8 lg:px-10">{children}</main>
+      <main className="bg-pf-deep px-6 py-8 lg:px-10">{children}</main>
     </div>
   )
 }

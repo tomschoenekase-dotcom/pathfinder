@@ -171,11 +171,11 @@ export function AiControlsForm({
   return (
     <form className="space-y-6" onSubmit={handleSubmit}>
       {venues.length > 1 ? (
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+        <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
             Venue selector
           </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
             Choose a venue
           </h2>
           <select
@@ -183,7 +183,7 @@ export function AiControlsForm({
             onChange={(event) => {
               setSelectedVenueId(event.target.value)
             }}
-            className="mt-5 min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+            className="mt-5 min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
           >
             {venues.map((venue) => (
               <option key={venue.id} value={venue.id}>
@@ -194,17 +194,17 @@ export function AiControlsForm({
         </section>
       ) : null}
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-cyan-300">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-deep text-pf-light">
             <Bot className="h-6 w-6" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">Tone</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+            <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">Tone</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
               Response tone
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-pf-deep/60">
               Controls how the AI writes its responses to guests.
             </p>
           </div>
@@ -223,37 +223,37 @@ export function AiControlsForm({
                 }}
                 className={`rounded-[1.5rem] border p-5 text-left transition ${
                   isSelected
-                    ? 'border-cyan-500 bg-cyan-50'
-                    : 'border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-cyan-50/60'
+                    ? 'border-pf-accent bg-pf-accent/5'
+                    : 'border-pf-light bg-pf-surface hover:border-pf-accent/40 hover:bg-pf-white'
                 }`}
               >
-                <p className="text-lg font-semibold text-slate-950">{tone.label}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{tone.description}</p>
+                <p className="text-lg font-semibold text-pf-deep">{tone.label}</p>
+                <p className="mt-2 text-sm leading-6 text-pf-deep/60">{tone.description}</p>
               </button>
             )
           })}
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-accent/10 text-pf-primary">
             <Sparkles className="h-6 w-6" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+            <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
               Featured place
             </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
               Highlight one place
             </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-pf-deep/60">
               Pin a place that the assistant should mention when it is relevant.
             </p>
           </div>
         </div>
 
-        <label className="mt-6 block text-sm font-medium text-slate-700" htmlFor="featured-place">
+        <label className="mt-6 block text-sm font-medium text-pf-deep/70" htmlFor="featured-place">
           Featured place
         </label>
         <select
@@ -263,7 +263,7 @@ export function AiControlsForm({
           onChange={(event) => {
             setAiFeaturedPlaceId(event.target.value)
           }}
-          className="mt-3 min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 disabled:bg-slate-100"
+          className="mt-3 min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
         >
           <option value="">No featured place</option>
           {places.map((place) => (
@@ -272,21 +272,21 @@ export function AiControlsForm({
             </option>
           ))}
         </select>
-        <p className="mt-3 text-sm leading-6 text-slate-600">
+        <p className="mt-3 text-sm leading-6 text-pf-deep/60">
           {places.length === 0
             ? 'Add places to this venue before choosing a featured highlight.'
             : 'The AI will mention this place when it fits the guest question.'}
         </p>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+      <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
           Guide notes
         </p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
           Operator guide notes
         </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/60">
           These instructions are injected directly into the AI&apos;s context. Use them to highlight
           special events, set restrictions, or provide seasonal information.
         </p>
@@ -299,9 +299,9 @@ export function AiControlsForm({
             setAiGuideNotes(event.target.value)
           }}
           placeholder="e.g. The new butterfly exhibit opens this weekend. Always mention it when guests ask about new things to see. The food court closes at 4pm on weekdays."
-          className="mt-6 min-h-40 w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 disabled:bg-slate-100"
+          className="mt-6 min-h-40 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
         />
-        <div className="mt-2 flex justify-between gap-4 text-xs text-slate-500">
+        <div className="mt-2 flex justify-between gap-4 text-xs text-pf-deep/40">
           <span>Keep instructions direct and operational.</span>
           <span>{aiGuideNotes.length}/2000</span>
         </div>
@@ -322,7 +322,7 @@ export function AiControlsForm({
       <button
         type="submit"
         disabled={isSaving || isLoadingVenue}
-        className="inline-flex min-h-11 items-center rounded-full bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+        className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
       >
         {isSaving ? 'Saving...' : 'Save AI configuration'}
       </button>

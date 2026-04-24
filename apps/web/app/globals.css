@@ -2,22 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-  color-scheme: dark;
+:root {
+  --pf-deep: #0f2a4a;
+  --pf-primary: #1f4e8c;
+  --pf-accent: #3a7bd5;
+  --pf-light: #c9d4e3;
+  --pf-surface: #f2f5f9;
+  --pf-white: #ffffff;
 }
 
-body {
-  min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(34, 211, 238, 0.12), transparent 30%),
-    linear-gradient(180deg, #020617 0%, #0f172a 55%, #111827 100%);
-  color: #e2e8f0;
-}
-
-body {
-  margin: 0;
-  font-family:
-    'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+@layer base {
+  body {
+    min-height: 100vh;
+    margin: 0;
+    background-color: var(--pf-surface);
+    color: var(--pf-deep);
+  }
 }
 
 * {
@@ -33,4 +33,17 @@ button,
 input,
 textarea {
   font: inherit;
+}
+
+@layer utilities {
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

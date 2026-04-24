@@ -50,7 +50,7 @@ export function TriggerDigestButton({ tenantId }: TriggerDigestButtonProps) {
         onClick={() => {
           void handleTrigger()
         }}
-        className="inline-flex min-h-11 items-center rounded-full bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+        className="inline-flex min-h-11 items-center rounded-full bg-pf-accent px-5 text-sm font-medium text-white transition hover:bg-[#4d8de0] disabled:cursor-not-allowed disabled:bg-pf-primary/40"
       >
         {isLoading ? 'Queueing...' : 'Trigger weekly digest'}
       </button>

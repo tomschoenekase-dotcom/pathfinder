@@ -6,7 +6,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { type Resolver, useForm } from 'react-hook-form'
 
-import { CreateOperationalUpdateInput, CreateOperationalUpdateInputBase } from '@pathfinder/api/schemas'
+import {
+  CreateOperationalUpdateInput,
+  CreateOperationalUpdateInputBase,
+} from '@pathfinder/api/schemas'
 
 import { createTRPCClient } from '../lib/trpc'
 
@@ -105,7 +108,10 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
 
   const title = watch('title')
   const body = watch('body')
-  const resolvedExpiry = useMemo(() => computeExpiryFromPreset(preset, customExpiry), [customExpiry, preset])
+  const resolvedExpiry = useMemo(
+    () => computeExpiryFromPreset(preset, customExpiry),
+    [customExpiry, preset],
+  )
 
   async function onSubmit(values: FormValues) {
     setFormError(null)
@@ -134,13 +140,16 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
   }
 
   return (
-    <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
       <div className="mb-6 space-y-2">
-        <Link href="/operational-updates" className="text-sm font-medium text-cyan-700 hover:text-cyan-800">
+        <Link
+          href="/operational-updates"
+          className="text-sm font-medium text-pf-primary hover:text-pf-accent"
+        >
           Back to active alerts
         </Link>
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Create Alert</h1>
-        <p className="text-sm leading-6 text-slate-600">
+        <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">Create Alert</h1>
+        <p className="text-sm leading-6 text-pf-deep/60">
           Publish a short-lived notice for guests and staff. Alerts automatically expire.
         </p>
       </div>
@@ -148,12 +157,15 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
       <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="update-venue">
+            <label
+              className="mb-2 block text-sm font-medium text-pf-deep/70"
+              htmlFor="update-venue"
+            >
               Venue
             </label>
             <select
               id="update-venue"
-              className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               {...register('venueId')}
             >
               {venues.map((venue) => (
@@ -162,16 +174,21 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
                 </option>
               ))}
             </select>
-            {errors.venueId ? <p className="mt-2 text-sm text-rose-600">{errors.venueId.message}</p> : null}
+            {errors.venueId ? (
+              <p className="mt-2 text-sm text-rose-600">{errors.venueId.message}</p>
+            ) : null}
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="update-severity">
+            <label
+              className="mb-2 block text-sm font-medium text-pf-deep/70"
+              htmlFor="update-severity"
+            >
               Severity
             </label>
             <select
               id="update-severity"
-              className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               {...register('severity')}
             >
               <option value="INFO">INFO</option>
@@ -179,43 +196,49 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
               <option value="CLOSURE">CLOSURE</option>
               <option value="REDIRECT">REDIRECT</option>
             </select>
-            {errors.severity ? <p className="mt-2 text-sm text-rose-600">{errors.severity.message}</p> : null}
+            {errors.severity ? (
+              <p className="mt-2 text-sm text-rose-600">{errors.severity.message}</p>
+            ) : null}
           </div>
 
           <div className="sm:col-span-2">
             <div className="mb-2 flex items-center justify-between gap-4">
-              <label className="block text-sm font-medium text-slate-700" htmlFor="update-title">
+              <label className="block text-sm font-medium text-pf-deep/70" htmlFor="update-title">
                 Title
               </label>
-              <span className="text-xs text-slate-500">{title.length}/60</span>
+              <span className="text-xs text-pf-deep/40">{title.length}/60</span>
             </div>
             <input
               id="update-title"
               maxLength={60}
-              className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               {...register('title')}
             />
-            {errors.title ? <p className="mt-2 text-sm text-rose-600">{errors.title.message}</p> : null}
+            {errors.title ? (
+              <p className="mt-2 text-sm text-rose-600">{errors.title.message}</p>
+            ) : null}
           </div>
 
           <div className="sm:col-span-2">
             <div className="mb-2 flex items-center justify-between gap-4">
-              <label className="block text-sm font-medium text-slate-700" htmlFor="update-body">
+              <label className="block text-sm font-medium text-pf-deep/70" htmlFor="update-body">
                 Body
               </label>
-              <span className="text-xs text-slate-500">{body?.length ?? 0}/300</span>
+              <span className="text-xs text-pf-deep/40">{body?.length ?? 0}/300</span>
             </div>
             <textarea
               id="update-body"
               maxLength={300}
-              className="min-h-32 w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+              className="min-h-32 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               {...register('body')}
             />
-            {errors.body ? <p className="mt-2 text-sm text-rose-600">{errors.body.message}</p> : null}
+            {errors.body ? (
+              <p className="mt-2 text-sm text-rose-600">{errors.body.message}</p>
+            ) : null}
           </div>
 
           <div className="sm:col-span-2">
-            <label className="mb-3 block text-sm font-medium text-slate-700">Expiry</label>
+            <label className="mb-3 block text-sm font-medium text-pf-deep/70">Expiry</label>
             <div className="flex flex-wrap gap-3">
               {[
                 ['1h', '1 hour'],
@@ -232,8 +255,8 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
                   className={[
                     'rounded-full border px-4 py-2 text-sm font-medium transition',
                     preset === value
-                      ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                      : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400',
+                      ? 'border-pf-accent bg-pf-accent/5 text-pf-primary'
+                      : 'border-pf-light bg-pf-white text-pf-deep/70 hover:border-pf-accent',
                   ].join(' ')}
                 >
                   {label}
@@ -249,12 +272,12 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
                   onChange={(event) => {
                     setCustomExpiry(event.target.value)
                   }}
-                  className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 />
               </div>
             ) : (
-              <p className="mt-4 text-sm text-slate-600">
-                Expires {resolvedExpiry ? resolvedExpiry.toLocaleString() : '—'}
+              <p className="mt-4 text-sm text-pf-deep/60">
+                Expires {resolvedExpiry ? resolvedExpiry.toLocaleString() : '-'}
               </p>
             )}
           </div>
@@ -269,7 +292,7 @@ export function OperationalUpdateForm({ venues }: OperationalUpdateFormProps) {
         <button
           type="submit"
           disabled={isSubmitting || venues.length === 0}
-          className="inline-flex min-h-11 items-center rounded-full bg-slate-950 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
         >
           {isSubmitting ? 'Creating...' : 'Create Alert'}
         </button>

@@ -2,7 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: sans-serif;
+:root {
+  --pf-deep: #0f2a4a;
+  --pf-primary: #1f4e8c;
+  --pf-accent: #3a7bd5;
+  --pf-light: #c9d4e3;
+  --pf-surface: #f2f5f9;
+  --pf-white: #ffffff;
+}
+
+@layer base {
+  body {
+    min-height: 100vh;
+    margin: 0;
+    background-color: var(--pf-surface);
+    color: var(--pf-deep);
+  }
+}
+
+@layer utilities {
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

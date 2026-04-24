@@ -24,16 +24,14 @@ export function QuickPromptChips({ onSend, venueName, venueCategory }: QuickProm
 
   return (
     <section className="mb-4">
-      <div className="mb-3">
-        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-300">
-          Start with a question
-        </p>
-      </div>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-pf-deep/40">
+        Start with a question
+      </p>
       <div className="flex flex-wrap gap-2">
         {prompts.map((prompt) => (
           <button
             key={prompt}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-white/10 bg-white/5 px-3 text-center text-sm font-medium text-slate-100 transition hover:border-cyan-400/40 hover:bg-cyan-400/10"
+            className="inline-flex min-h-10 items-center justify-center rounded-full border border-pf-light bg-pf-white px-4 text-center text-sm font-medium text-pf-primary shadow-sm transition hover:border-pf-accent hover:bg-pf-accent/5"
             type="button"
             onClick={() => {
               onSend(prompt)

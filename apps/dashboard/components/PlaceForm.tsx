@@ -281,12 +281,12 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
   }
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
       <div className="mb-6 space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">
           {mode === 'create' ? 'Add place' : 'Edit place'}
         </h1>
-        <p className="text-sm leading-6 text-slate-600">
+        <p className="text-sm leading-6 text-pf-deep/60">
           {mode === 'create'
             ? 'Create a new point of interest for this venue.'
             : 'Update the place data that powers the public chat experience.'}
@@ -294,7 +294,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
       </div>
 
       {isLoadingPlace ? (
-        <p className="text-sm text-slate-500">Loading place...</p>
+        <p className="text-sm text-pf-deep/50">Loading place...</p>
       ) : (
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
           <input type="hidden" {...register('venueId')} value={venueId} />
@@ -302,12 +302,15 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
 
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="place-name">
+              <label
+                className="mb-2 block text-sm font-medium text-pf-deep/70"
+                htmlFor="place-name"
+              >
                 Name
               </label>
               <input
                 id="place-name"
-                className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('name')}
               />
               {errors.name ? (
@@ -316,13 +319,16 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="place-type">
+              <label
+                className="mb-2 block text-sm font-medium text-pf-deep/70"
+                htmlFor="place-type"
+              >
                 Type
               </label>
               <input
                 id="place-type"
                 list="place-type-suggestions"
-                className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('type')}
               />
               <datalist id="place-type-suggestions">
@@ -337,20 +343,20 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
 
             <div className="sm:col-span-2">
               <label
-                className="mb-2 block text-sm font-medium text-slate-700"
+                className="mb-2 block text-sm font-medium text-pf-deep/70"
                 htmlFor="place-short-description"
               >
                 Short description
               </label>
               <textarea
                 id="place-short-description"
-                className="min-h-24 w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                className="min-h-24 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('shortDescription')}
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="place-lat">
+              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-lat">
                 Latitude
               </label>
               <Controller
@@ -360,7 +366,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                   <input
                     id="place-lat"
                     inputMode="decimal"
-                    className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                     value={field.value}
                     onChange={(event) => {
                       field.onChange(parseNumber(event.target.value, field.value))
@@ -371,7 +377,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="place-lng">
+              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-lng">
                 Longitude
               </label>
               <Controller
@@ -381,7 +387,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                   <input
                     id="place-lng"
                     inputMode="decimal"
-                    className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                     value={field.value}
                     onChange={(event) => {
                       field.onChange(parseNumber(event.target.value, field.value))
@@ -393,33 +399,33 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
           </div>
 
           <details
-            className="group rounded-2xl border border-slate-200"
+            className="group rounded-2xl border border-pf-light"
             open={showAdvanced}
             onToggle={(event) => setShowAdvanced((event.target as HTMLDetailsElement).open)}
           >
-            <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-medium text-slate-700">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-medium text-pf-deep/70">
               <span>Advanced options</span>
-              <span className="text-xs text-slate-400 group-open:hidden">Show</span>
-              <span className="hidden text-xs text-slate-400 group-open:inline">Hide</span>
+              <span className="text-xs text-pf-deep/40 group-open:hidden">Show</span>
+              <span className="hidden text-xs text-pf-deep/40 group-open:inline">Hide</span>
             </summary>
-            <div className="grid gap-5 border-t border-slate-200 px-5 pb-5 pt-5 sm:grid-cols-2">
+            <div className="grid gap-5 border-t border-pf-light px-5 pb-5 pt-5 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label
-                  className="mb-2 block text-sm font-medium text-slate-700"
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
                   htmlFor="place-long-description"
                 >
                   Long description
                 </label>
                 <textarea
                   id="place-long-description"
-                  className="min-h-32 w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  className="min-h-32 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('longDescription')}
                 />
               </div>
 
               <div>
                 <label
-                  className="mb-2 block text-sm font-medium text-slate-700"
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
                   htmlFor="place-tags"
                 >
                   Tags
@@ -430,7 +436,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                   render={({ field }) => (
                     <input
                       id="place-tags"
-                      className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                      className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                       placeholder="family, indoor, water"
                       value={field.value.join(', ')}
                       onChange={(event) => {
@@ -443,7 +449,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
 
               <div>
                 <label
-                  className="mb-2 block text-sm font-medium text-slate-700"
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
                   htmlFor="place-importance"
                 >
                   Importance score
@@ -455,7 +461,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                     <input
                       id="place-importance"
                       inputMode="numeric"
-                      className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                      className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                       value={field.value}
                       onChange={(event) => {
                         field.onChange(parseNumber(event.target.value, field.value))
@@ -467,35 +473,35 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
 
               <div>
                 <label
-                  className="mb-2 block text-sm font-medium text-slate-700"
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
                   htmlFor="place-area"
                 >
                   Area name
                 </label>
                 <input
                   id="place-area"
-                  className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('areaName')}
                 />
               </div>
 
               <div>
                 <label
-                  className="mb-2 block text-sm font-medium text-slate-700"
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
                   htmlFor="place-hours"
                 >
                   Hours
                 </label>
                 <input
                   id="place-hours"
-                  className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('hours')}
                 />
               </div>
 
               <div className="sm:col-span-2">
                 <label
-                  className="mb-2 block text-sm font-medium text-slate-700"
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
                   htmlFor="place-photo-url"
                 >
                   Photo URL
@@ -504,10 +510,10 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                   id="place-photo-url"
                   type="text"
                   placeholder="https://..."
-                  className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('photoUrl')}
                 />
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-pf-deep/40">
                   Shown as a card in the visitor chat when this place is recommended.
                 </p>
                 {errors.photoUrl ? (
@@ -519,7 +525,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                 control={control}
                 name="isActive"
                 render={({ field }) => (
-                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 sm:col-span-2">
+                  <label className="flex items-center gap-3 rounded-2xl border border-pf-light px-4 py-3 text-sm text-pf-deep/70 sm:col-span-2">
                     <input
                       className="h-4 w-4"
                       type="checkbox"
@@ -556,7 +562,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
             )}
 
             <button
-              className="inline-flex min-h-11 items-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
               disabled={isSubmitting || isDeleting}
               type="submit"
             >

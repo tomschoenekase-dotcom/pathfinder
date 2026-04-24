@@ -93,7 +93,7 @@ function buildPolylinePoints(values: number[]) {
 function InsightCards({ insights }: { insights: DigestInsight[] }) {
   if (insights.length === 0) {
     return (
-      <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-sm text-slate-600">
+      <div className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/60">
         Insufficient conversation volume this week to produce a meaningful digest yet.
       </div>
     )
@@ -104,15 +104,15 @@ function InsightCards({ insights }: { insights: DigestInsight[] }) {
       {insights.map((insight, index) => (
         <article
           key={`${insight.title}-${index}`}
-          className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5"
+          className="rounded-[1.5rem] border border-pf-light bg-pf-white p-5 shadow-sm"
         >
           <span
             className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${insightStyles[insight.type]}`}
           >
             {insight.type}
           </span>
-          <h3 className="mt-4 text-lg font-semibold text-slate-950">{insight.title}</h3>
-          <p className="mt-3 text-sm leading-6 text-slate-600">{insight.body}</p>
+          <h3 className="mt-4 text-lg font-semibold text-pf-deep">{insight.title}</h3>
+          <p className="mt-3 text-sm leading-6 text-pf-deep/60">{insight.body}</p>
         </article>
       ))}
     </div>
@@ -132,8 +132,8 @@ function SessionTrendChart({
 
   if (series.length === 0) {
     return (
-      <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-        <p className="text-lg font-semibold text-slate-950">
+      <div className="rounded-[1.75rem] border border-dashed border-pf-light bg-pf-surface px-6 py-10 text-center">
+        <p className="text-lg font-semibold text-pf-deep">
           Analytics data will appear once guests start using PathFinder.
         </p>
       </div>
@@ -151,32 +151,32 @@ function SessionTrendChart({
   ]
 
   return (
-    <div className="space-y-6 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="space-y-6 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+          <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
             Tier 1 Metrics
           </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
             Sessions per day
           </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
+          <p className="mt-2 text-sm leading-6 text-pf-deep/60">
             Daily guest chat sessions over the last 30 days.
           </p>
         </div>
-        <div className="rounded-[1.25rem] bg-slate-950 px-4 py-3 text-white">
-          <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">30 day total</p>
+        <div className="rounded-2xl bg-pf-primary px-4 py-3 text-white">
+          <p className="text-xs uppercase tracking-[0.2em] text-pf-light/60">30 day total</p>
           <p className="mt-2 text-2xl font-semibold">{total}</p>
         </div>
       </div>
 
-      <div className="rounded-[1.5rem] border border-slate-100 bg-slate-50 p-4">
+      <div className="rounded-[1.5rem] border border-pf-light bg-pf-surface p-4">
         <div className="relative h-56">
           <div className="absolute inset-y-0 left-0 w-8">
             {yLabels.map(({ value, pct }) => (
               <span
                 key={pct}
-                className="absolute right-0 text-[10px] leading-none text-slate-400"
+                className="absolute right-0 text-[10px] leading-none text-pf-deep/40"
                 style={{ top: `${pct}%`, transform: 'translateY(-50%)' }}
               >
                 {value}
@@ -185,12 +185,12 @@ function SessionTrendChart({
           </div>
           <div className="absolute inset-y-0 left-8 right-0">
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-              <line x1="0" y1="0" x2="100" y2="0" stroke="#e2e8f0" strokeWidth="0.5" />
-              <line x1="0" y1="50" x2="100" y2="50" stroke="#e2e8f0" strokeWidth="0.5" />
-              <line x1="0" y1="100" x2="100" y2="100" stroke="#cbd5e1" strokeWidth="1" />
+              <line x1="0" y1="0" x2="100" y2="0" stroke="#C9D4E3" strokeWidth="0.5" />
+              <line x1="0" y1="50" x2="100" y2="50" stroke="#C9D4E3" strokeWidth="0.5" />
+              <line x1="0" y1="100" x2="100" y2="100" stroke="#C9D4E3" strokeWidth="1" />
               <polyline
                 fill="none"
-                stroke="#0891b2"
+                stroke="#3A7BD5"
                 strokeWidth="3"
                 strokeLinejoin="round"
                 strokeLinecap="round"
@@ -206,7 +206,7 @@ function SessionTrendChart({
                     cx={x}
                     cy={y}
                     r="2.2"
-                    fill="#0f172a"
+                    fill="#1F4E8C"
                   />
                 )
               })}
@@ -214,11 +214,11 @@ function SessionTrendChart({
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-500 sm:grid-cols-5 xl:grid-cols-10">
+        <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-pf-deep/50 sm:grid-cols-5 xl:grid-cols-10">
           {series.map((point) => (
-            <div key={point.date} className="rounded-xl bg-white px-3 py-2">
-              <p className="font-medium text-slate-700">{point.label}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-950">{point.value}</p>
+            <div key={point.date} className="rounded-xl bg-pf-white px-3 py-2">
+              <p className="font-medium text-pf-deep">{point.label}</p>
+              <p className="mt-1 text-sm font-semibold text-pf-deep">{point.value}</p>
             </div>
           ))}
         </div>
@@ -236,21 +236,21 @@ function TopQuestionsList({
   }>
 }) {
   return (
-    <section className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+        <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
           Conversation Themes
         </p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
           Guest Questions (Last 7 Days)
         </h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
+        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
           Showing most-asked questions across all your venues in the last 7 days.
         </p>
       </div>
 
       {questions.length === 0 ? (
-        <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-sm text-slate-600">
+        <div className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/60">
           No guest questions recorded yet.
         </div>
       ) : (
@@ -258,13 +258,13 @@ function TopQuestionsList({
           {questions.map((item, index) => (
             <li
               key={`${item.question}-${index}`}
-              className="flex items-start justify-between gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-4"
+              className="flex items-start justify-between gap-4 rounded-[1.5rem] border border-pf-light bg-pf-surface px-5 py-4"
             >
               <div className="flex min-w-0 items-start gap-4">
-                <span className="mt-0.5 text-sm font-semibold text-cyan-700">{index + 1}.</span>
-                <p className="text-sm leading-6 text-slate-900">{item.question}</p>
+                <span className="mt-0.5 text-sm font-semibold text-pf-accent">{index + 1}.</span>
+                <p className="text-sm leading-6 text-pf-deep">{item.question}</p>
               </div>
-              <span className="inline-flex shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              <span className="inline-flex shrink-0 rounded-full bg-pf-white px-3 py-1 text-xs font-semibold text-pf-deep">
                 {item.count}x
               </span>
             </li>
@@ -297,39 +297,39 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
     latestDigest === null && latestDigestSummary?.status === 'PROCESSING'
 
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-10 lg:px-10">
+    <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-7xl space-y-8">
         <section>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
+          <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">
             Guest behavior and weekly insight digests
           </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-deep/60">
             Review AI-generated weekly takeaways and the supporting daily session trend line without
             querying live conversation tables.
           </p>
         </section>
 
-        <section className="space-y-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="space-y-6 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+              <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
                 Weekly Digest
               </p>
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+              <h2 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep">
                 Latest manager summary
               </h2>
             </div>
             {selectedDigest ? (
               <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center">
-                <div className="rounded-[1.25rem] bg-slate-100 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Sessions</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                <div className="rounded-[1.25rem] bg-pf-surface px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/50">Sessions</p>
+                  <p className="mt-2 text-2xl font-semibold text-pf-deep">
                     {selectedDigest.sessionCount}
                   </p>
                 </div>
-                <div className="rounded-[1.25rem] bg-slate-100 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Messages</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                <div className="rounded-[1.25rem] bg-pf-surface px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/50">Messages</p>
+                  <p className="mt-2 text-2xl font-semibold text-pf-deep">
                     {selectedDigest.messageCount}
                   </p>
                 </div>
@@ -339,20 +339,20 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
 
           {selectedDigest ? (
             <div className="space-y-5">
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-5 py-4">
+              <div className="rounded-[1.5rem] border border-pf-light bg-pf-surface px-5 py-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-lg font-semibold text-slate-950">
+                    <p className="text-lg font-semibold text-pf-deep">
                       {formatWeekRange(selectedDigest.weekStart, selectedDigest.weekEnd)}
                     </p>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-pf-deep/60">
                       Generated{' '}
                       {selectedDigest.generatedAt
                         ? selectedDigest.generatedAt.toLocaleString()
                         : 'when processing completes'}
                     </p>
                   </div>
-                  <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
+                  <span className="inline-flex rounded-full border border-pf-light bg-pf-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-pf-deep/60">
                     {formatDigestStatus(selectedDigest.status)}
                   </span>
                 </div>
@@ -361,21 +361,21 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
               <InsightCards insights={selectedDigest.insights as DigestInsight[]} />
             </div>
           ) : isProcessingCurrentDigest ? (
-            <div className="rounded-[1.75rem] border border-cyan-200 bg-cyan-50 px-6 py-10 text-center">
-              <p className="text-lg font-semibold text-slate-950">
+            <div className="rounded-[1.75rem] border border-pf-light bg-pf-surface px-6 py-10 text-center">
+              <p className="text-lg font-semibold text-pf-deep">
                 This week&apos;s digest is being generated...
               </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-pf-deep/60">
                 The worker has queued the current summary and it will appear here once processing
                 completes.
               </p>
             </div>
           ) : (
-            <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center">
-              <p className="text-lg font-semibold text-slate-950">
+            <div className="rounded-[1.75rem] border border-dashed border-pf-light bg-pf-surface px-6 py-10 text-center">
+              <p className="text-lg font-semibold text-pf-deep">
                 Your first weekly digest will appear here after Sunday night.
               </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-pf-deep/60">
                 Once enough guest conversations accumulate, PathFinder will generate a
                 manager-friendly digest automatically.
               </p>
@@ -383,25 +383,25 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
           )}
         </section>
 
-        <section className="space-y-4 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
           <details className="group" open={Boolean(digests.length)}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
+                <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
                   History
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
                   Past digests
                 </h2>
               </div>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+              <span className="rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-medium text-pf-deep/60">
                 {digests.length} available
               </span>
             </summary>
 
             <div className="mt-6 space-y-3">
               {digests.length === 0 ? (
-                <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-sm text-slate-600">
+                <div className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/60">
                   No weekly digests have been generated yet.
                 </div>
               ) : (
@@ -413,26 +413,26 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
                   return (
                     <div
                       key={digest.id}
-                      className="rounded-[1.5rem] border border-slate-200 bg-slate-50"
+                      className="rounded-[1.5rem] border border-pf-light bg-pf-surface"
                     >
                       <Link
                         href={`/analytics?digest=${digest.id}`}
                         className="flex flex-col gap-3 px-5 py-4 transition hover:bg-white sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div>
-                          <p className="text-base font-semibold text-slate-950">
+                          <p className="text-base font-semibold text-pf-deep">
                             {formatWeekRange(digest.weekStart, digest.weekEnd)}
                           </p>
-                          <p className="mt-1 text-sm text-slate-600">
+                          <p className="mt-1 text-sm text-pf-deep/60">
                             {digest.sessionCount} sessions · {digest.messageCount} messages
                           </p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
+                          <span className="rounded-full border border-pf-light bg-pf-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-pf-deep/60">
                             {formatDigestStatus(digest.status)}
                           </span>
                           {isSelected ? (
-                            <span className="rounded-full bg-cyan-500 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+                            <span className="rounded-full bg-pf-accent px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
                               Viewing
                             </span>
                           ) : null}
@@ -440,7 +440,7 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
                       </Link>
 
                       {isSelected && selectedDigest && selectedDigest.id === digest.id ? (
-                        <div className="border-t border-slate-200 px-5 py-5">
+                        <div className="border-t border-pf-light px-5 py-5">
                           <InsightCards insights={selectedDigest.insights as DigestInsight[]} />
                         </div>
                       ) : null}

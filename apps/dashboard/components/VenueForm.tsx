@@ -174,12 +174,12 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
   }
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
       <div className="mb-6 space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">
           {mode === 'create' ? 'Create venue' : 'Edit venue'}
         </h1>
-        <p className="text-sm leading-6 text-slate-600">
+        <p className="text-sm leading-6 text-pf-deep/60">
           {mode === 'create'
             ? 'Set up a new venue for the Path Finder chat experience.'
             : 'Update venue details and guide context.'}
@@ -187,7 +187,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
       </div>
 
       {isLoadingVenue ? (
-        <p className="text-sm text-slate-500">Loading venue...</p>
+        <p className="text-sm text-pf-deep/50">Loading venue...</p>
       ) : (
         <form
           className="space-y-5"
@@ -201,12 +201,15 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
         >
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="venue-name">
+              <label
+                className="mb-2 block text-sm font-medium text-pf-deep/70"
+                htmlFor="venue-name"
+              >
                 Name
               </label>
               <input
                 id="venue-name"
-                className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('name')}
               />
               {errors.name ? (
@@ -217,14 +220,14 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
             {mode === 'create' && (
               <div>
                 <label
-                  className="mb-2 block text-sm font-medium text-slate-700"
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
                   htmlFor="venue-slug"
                 >
                   Slug
                 </label>
                 <input
                   id="venue-slug"
-                  className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('slug')}
                 />
                 {errors.slug ? (
@@ -235,52 +238,52 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
 
             <div>
               <label
-                className="mb-2 block text-sm font-medium text-slate-700"
+                className="mb-2 block text-sm font-medium text-pf-deep/70"
                 htmlFor="venue-category"
               >
                 Category
               </label>
               <input
                 id="venue-category"
-                className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('category')}
               />
             </div>
 
             <div className="sm:col-span-2">
               <label
-                className="mb-2 block text-sm font-medium text-slate-700"
+                className="mb-2 block text-sm font-medium text-pf-deep/70"
                 htmlFor="venue-description"
               >
                 Description
               </label>
               <textarea
                 id="venue-description"
-                className="min-h-28 w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                className="min-h-28 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('description')}
               />
             </div>
 
             <div className="sm:col-span-2">
               <label
-                className="mb-2 block text-sm font-medium text-slate-700"
+                className="mb-2 block text-sm font-medium text-pf-deep/70"
                 htmlFor="venue-guide-notes"
               >
                 Guide notes
               </label>
-              <p className="mb-2 text-xs text-slate-500">
+              <p className="mb-2 text-xs text-pf-deep/40">
                 2–3 sentences describing how the venue is laid out and how zones relate to each
                 other. Goes directly to the AI on every chat.
               </p>
               <textarea
                 id="venue-guide-notes"
-                className="min-h-28 w-full rounded-2xl border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                className="min-h-28 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('guideNotes')}
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="venue-lat">
+              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="venue-lat">
                 Default center latitude
               </label>
               <Controller
@@ -289,7 +292,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
                 render={({ field }) => (
                   <input
                     id="venue-lat"
-                    className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                     inputMode="decimal"
                     value={field.value ?? ''}
                     onChange={(event) => {
@@ -301,7 +304,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700" htmlFor="venue-lng">
+              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="venue-lng">
                 Default center longitude
               </label>
               <Controller
@@ -310,7 +313,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
                 render={({ field }) => (
                   <input
                     id="venue-lng"
-                    className="min-h-11 w-full rounded-2xl border border-slate-300 px-4 text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                     inputMode="decimal"
                     value={field.value ?? ''}
                     onChange={(event) => {
@@ -329,7 +332,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           ) : null}
 
           {mode === 'edit' ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-pf-deep/40">
               Venues with places cannot be deleted. Remove all places first.
             </p>
           ) : null}
@@ -351,7 +354,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
             )}
 
             <button
-              className="inline-flex min-h-11 items-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
               disabled={isSubmitting || isDeleting}
               type="submit"
             >

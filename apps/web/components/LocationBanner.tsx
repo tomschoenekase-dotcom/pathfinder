@@ -10,9 +10,9 @@ export function LocationBanner({ permission, onRefresh }: LocationBannerProps) {
 
   if (permission === 'loading') {
     return (
-      <section className="mb-4 rounded-[1.75rem] border border-slate-600/30 bg-slate-800/40 p-4 text-slate-300 shadow-lg">
-        <p className="text-sm font-semibold">Checking location…</p>
-        <p className="mt-1 text-sm leading-6 text-slate-400">
+      <section className="mb-4 rounded-3xl border border-pf-light bg-pf-white p-4 text-pf-deep/60 shadow-sm">
+        <p className="text-sm font-semibold text-pf-deep">Checking location...</p>
+        <p className="mt-1 text-sm leading-6 text-pf-deep/60">
           Waiting for your device to share its position.
         </p>
       </section>
@@ -33,14 +33,14 @@ export function LocationBanner({ permission, onRefresh }: LocationBannerProps) {
         }
 
   return (
-    <section className="mb-4 rounded-[1.75rem] border border-amber-300/20 bg-amber-300/10 p-4 text-amber-50 shadow-lg shadow-amber-950/10">
+    <section className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold">{content.title}</p>
-          <p className="mt-1 text-sm leading-6 text-amber-50/80">{content.description}</p>
+          <p className="text-sm font-semibold text-pf-deep">{content.title}</p>
+          <p className="mt-1 text-sm leading-6 text-pf-deep/60">{content.description}</p>
         </div>
         <button
-          className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-100/30 px-4 text-sm font-medium text-amber-50 transition hover:bg-amber-50/10"
+          className="inline-flex min-h-10 items-center justify-center rounded-full border border-amber-300 bg-pf-white px-4 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
           type="button"
           onClick={onRefresh}
         >

@@ -2,7 +2,12 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { CreateOrganization, OrganizationList, SignOutButton, useOrganizationList } from '@clerk/nextjs'
+import {
+  CreateOrganization,
+  OrganizationList,
+  SignOutButton,
+  useOrganizationList,
+} from '@clerk/nextjs'
 
 export default function DashboardOnboardingPage() {
   const router = useRouter()
@@ -27,11 +32,14 @@ export default function DashboardOnboardingPage() {
 
   if (!isLoaded || (userMemberships.data && userMemberships.data.length === 1)) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-gray-50">
+      <main className="flex min-h-screen items-center justify-center bg-pf-surface">
         <div className="flex flex-col items-center gap-4">
-          <p className="text-sm text-gray-500">Loading your dashboard...</p>
+          <p className="text-sm text-pf-deep/60">Loading your dashboard...</p>
           <SignOutButton>
-            <button type="button" className="text-xs text-gray-400 underline hover:text-gray-600">
+            <button
+              type="button"
+              className="text-xs text-pf-deep/30 underline hover:text-pf-primary"
+            >
               Sign out
             </button>
           </SignOutButton>
@@ -44,25 +52,29 @@ export default function DashboardOnboardingPage() {
   const hasMemberships = userMemberships.data && userMemberships.data.length > 0
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50">
+    <main className="flex min-h-screen items-center justify-center bg-pf-surface">
       <div className="flex flex-col items-center gap-8">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900">Welcome to PathFinder</h1>
-          <p className="mt-2 text-gray-600">
-            {hasMemberships ? 'Select your organization.' : 'Create an organization to get started.'}
+          <h1 className="text-2xl font-semibold text-pf-deep">Welcome to PathFinder</h1>
+          <p className="mt-2 text-pf-deep/60">
+            {hasMemberships
+              ? 'Select your organization.'
+              : 'Create an organization to get started.'}
           </p>
         </div>
-        {hasMemberships ? (
-          <OrganizationList
-            hidePersonal
-            afterSelectOrganizationUrl="/"
-            afterCreateOrganizationUrl="/"
-          />
-        ) : (
-          <CreateOrganization afterCreateOrganizationUrl="/" />
-        )}
+        <div className="rounded-3xl border border-pf-light bg-pf-white p-8 shadow-sm">
+          {hasMemberships ? (
+            <OrganizationList
+              hidePersonal
+              afterSelectOrganizationUrl="/"
+              afterCreateOrganizationUrl="/"
+            />
+          ) : (
+            <CreateOrganization afterCreateOrganizationUrl="/" />
+          )}
+        </div>
         <SignOutButton>
-          <button type="button" className="text-xs text-gray-400 underline hover:text-gray-600">
+          <button type="button" className="text-xs text-pf-deep/30 underline hover:text-pf-primary">
             Sign out
           </button>
         </SignOutButton>

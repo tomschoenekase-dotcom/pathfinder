@@ -48,7 +48,7 @@ export function ClientStatusForm({ tenantId, currentStatus }: ClientStatusFormPr
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">Current status: {currentStatus}</p>
+      <p className="text-sm text-pf-light/60">Current status: {currentStatus}</p>
 
       <div className="flex flex-wrap gap-3">
         {(
@@ -65,7 +65,7 @@ export function ClientStatusForm({ tenantId, currentStatus }: ClientStatusFormPr
             onClick={() => {
               void handleStatusChange(status)
             }}
-            className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+            className="inline-flex min-h-11 items-center rounded-full border border-pf-primary/20 px-5 text-sm font-medium text-pf-light/70 transition hover:bg-pf-primary/20 hover:text-white disabled:cursor-not-allowed disabled:border-pf-primary/10 disabled:bg-pf-primary/10 disabled:text-pf-light/30"
           >
             {pendingStatus === status ? 'Saving...' : label}
           </button>

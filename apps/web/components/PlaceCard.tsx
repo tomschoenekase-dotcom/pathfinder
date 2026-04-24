@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { MapPin, Navigation } from 'lucide-react'
 
 type PlaceCardProps = {
   id: string
@@ -40,35 +41,48 @@ export function PlaceCard({
 
   return (
     <div
-      className="flex items-center gap-3 overflow-hidden rounded-2xl border border-white/10 bg-white/8 shadow-lg"
+      className="overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm transition hover:border-pf-accent/40 hover:shadow-md"
       onClick={() => {
         onCardClick?.(id)
       }}
     >
       {photoUrl ? (
-        <img src={photoUrl} alt={name} loading="lazy" className="h-16 w-16 shrink-0 object-cover" />
+        <div className="h-36 w-full overflow-hidden bg-pf-surface">
+          <img src={photoUrl} alt={name} loading="lazy" className="h-full w-full object-cover" />
+        </div>
       ) : (
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center bg-slate-800 text-2xl">
-          📍
+        <div className="flex h-28 w-full items-center justify-center bg-pf-surface">
+          <MapPin className="h-8 w-8 text-pf-light" aria-hidden="true" />
         </div>
       )}
-      <div className="min-w-0 flex-1 py-2 pr-3">
-        <p className="truncate text-sm font-semibold text-white">{name}</p>
-        <p className="text-xs text-slate-400 capitalize">{type.toLowerCase().replace(/_/g, ' ')}</p>
-        <p className="text-xs text-cyan-300">{formatDistance(distanceMeters)}</p>
+
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-pf-deep">{name}</p>
+            <p className="mt-0.5 text-xs capitalize text-pf-deep/50">
+              {type.toLowerCase().replace(/_/g, ' ')}
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full bg-pf-surface px-2.5 py-1 text-xs font-semibold text-pf-primary">
+            {formatDistance(distanceMeters)}
+          </span>
+        </div>
+
+        <a
+          href={directionsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-pf-light bg-pf-surface px-4 text-xs font-semibold text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+          onClick={(event) => {
+            event.stopPropagation()
+            onDirectionsClick?.(id)
+          }}
+        >
+          <Navigation className="h-3.5 w-3.5" aria-hidden="true" />
+          Get directions
+        </a>
       </div>
-      <a
-        href={directionsUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mr-3 shrink-0 rounded-full border border-cyan-400/40 px-3 py-1.5 text-xs font-medium text-cyan-300 transition hover:border-cyan-300 hover:bg-cyan-400/10"
-        onClick={(event) => {
-          event.stopPropagation()
-          onDirectionsClick?.(id)
-        }}
-      >
-        Directions
-      </a>
     </div>
   )
 }

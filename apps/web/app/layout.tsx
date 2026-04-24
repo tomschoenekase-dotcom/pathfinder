@@ -1,7 +1,14 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { Plus_Jakarta_Sans } from 'next/font/google'
 
 import './globals.css'
+
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  variable: '--font-jakarta',
+  display: 'swap',
+})
 
 type RootLayoutProps = {
   children: ReactNode
@@ -9,20 +16,20 @@ type RootLayoutProps = {
 
 export const metadata: Metadata = {
   title: 'PathFinder',
-  description: 'Public venue wayfinding and visitor chat.',
+  description: 'The AI guide built for your venue.',
 }
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en">
+    <html lang="en" className={jakarta.variable}>
       <head>
-        <meta name="theme-color" content="#0f172a" />
+        <meta name="theme-color" content="#1F4E8C" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <link rel="manifest" href="/manifest.webmanifest" />
       </head>
-      <body>
+      <body className="font-jakarta antialiased">
         {children}
         <script
           dangerouslySetInnerHTML={{
