@@ -34,7 +34,10 @@ export default function WebHomePage() {
     <div className="min-h-screen bg-pf-surface font-jakarta text-pf-deep">
       <header className="sticky top-0 z-50 border-b border-pf-light/60 bg-pf-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
-          <Image src="/pathfinder-logo.svg" alt="PathFinder" width={140} height={36} priority />
+          <div className="flex items-center gap-2.5">
+            <Image src="/pathfinder-icon.svg" alt="" width={28} height={28} priority />
+            <span className="text-lg font-semibold tracking-tight text-pf-deep">PathFinder</span>
+          </div>
           <a
             href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
             className="inline-flex min-h-10 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent"
@@ -153,8 +156,8 @@ export default function WebHomePage() {
                 body: 'Via QR code or link, on any phone, no app download required. It just works.',
               },
             ].map((item, index) => (
-              <FadeIn key={item.step} delay={index * 100}>
-                <article className="rounded-3xl border border-pf-light bg-pf-white p-7 shadow-sm">
+              <FadeIn key={item.step} delay={index * 100} className="h-full">
+                <article className="h-full rounded-3xl border border-pf-light bg-pf-white p-7 shadow-sm">
                   <span className="text-4xl font-light text-pf-light">{item.step}</span>
                   <h3 className="mt-5 text-xl font-semibold tracking-tight">{item.title}</h3>
                   <p className="mt-3 text-sm leading-7 text-pf-deep/60">{item.body}</p>
@@ -209,8 +212,8 @@ export default function WebHomePage() {
 
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {venueTypes.map(({ label, icon: Icon }, index) => (
-              <FadeIn key={label} delay={index * 80}>
-                <article className="rounded-3xl border border-pf-light bg-pf-white p-5 shadow-sm">
+              <FadeIn key={label} delay={index * 80} className="h-full">
+                <article className="h-full rounded-3xl border border-pf-light bg-pf-white p-5 shadow-sm">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-accent/10 text-pf-primary">
                     <Icon className="h-5 w-5" aria-hidden="true" />
                   </div>

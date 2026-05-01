@@ -125,6 +125,7 @@ export const chatRouter = router({
         aiGuideNotes: string | null
         aiFeaturedPlaceId: string | null
         aiTone: string | null
+        aiGuideName: string | null
         category: string | null
       }[]
     >`
@@ -136,6 +137,7 @@ export const chatRouter = router({
              ai_guide_notes AS "aiGuideNotes",
              ai_featured_place_id AS "aiFeaturedPlaceId",
              ai_tone AS "aiTone",
+             ai_guide_name AS "aiGuideName",
              category
       FROM venues WHERE id = ${input.venueId} AND is_active = true LIMIT 1
     `

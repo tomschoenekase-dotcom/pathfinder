@@ -17,6 +17,7 @@ type VenueInfo = {
   guideNotes?: string | null
   aiGuideNotes?: string | null
   aiTone?: string | null
+  aiGuideName?: string | null
 }
 
 type FeaturedPlace = {
@@ -47,6 +48,7 @@ export function buildVenueSystemPrompt(params: {
   const { venue, relevantPlaces, featuredPlace } = params
 
   const venueDescription = venue.description ?? 'A venue with many things to explore.'
+  const guideName = venue.aiGuideName?.trim() || 'Path Finder'
   const guideNotesSection = venue.guideNotes ? `\nVenue guide notes:\n${venue.guideNotes}` : ''
   const operatorGuidanceSection =
     venue.aiGuideNotes && venue.aiGuideNotes.trim().length > 0
@@ -82,7 +84,7 @@ export function buildVenueSystemPrompt(params: {
   const languageRule =
     "LANGUAGE RULE: Detect the language of the guest's message. Always reply in the same language the guest uses. If the guest writes in Spanish, reply in Spanish. If French, reply in French. Do not switch languages mid-conversation unless the guest switches first. Default to English if the language is unclear."
 
-  return `You are Path Finder, a helpful on-site guide for ${venue.name}.
+  return `You are ${guideName}, a helpful on-site guide for ${venue.name}.
 
 About this venue:
 ${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}

@@ -19,6 +19,11 @@ type VenueSummary = {
   category: string | null
   defaultCenterLat: number | null
   defaultCenterLng: number | null
+  aiGuideName: string | null
+  chatTheme: string | null
+  chatAccentColor: string | null
+  chatLogoUrl: string | null
+  chatBannerUrl: string | null
 }
 
 type PlaceSummary = {
@@ -35,6 +40,29 @@ type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
   places?: PlaceSummary[]
+}
+
+const THEME_PRESETS: Record<string, { accent: string; surface: string }> = {
+  default: { accent: '#3A7BD5', surface: '#F2F5F9' },
+  forest: { accent: '#2D6A4F', surface: '#F0F7F4' },
+  sunset: { accent: '#E07B39', surface: '#FBF4EF' },
+  midnight: { accent: '#4361EE', surface: '#EEF0F8' },
+  rose: { accent: '#D4607A', surface: '#FDF0F3' },
+}
+
+function isHexColor(value: string | null | undefined): value is string {
+  return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value)
+}
+
+function getThemeColors(venue: VenueSummary) {
+  const preset = THEME_PRESETS[venue.chatTheme ?? 'default'] ?? {
+    accent: '#3A7BD5',
+    surface: '#F2F5F9',
+  }
+  return {
+    accent: isHexColor(venue.chatAccentColor) ? venue.chatAccentColor : preset.accent,
+    surface: preset.surface,
+  }
 }
 
 function useApiClient() {
@@ -302,24 +330,57 @@ export default function VenueChatPage() {
           <p className="mt-3 text-sm leading-6 text-pf-deep/60">
             {pageError ?? 'This venue link is not active.'}
           </p>
-          <Link
-            href="/"
-            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent"
-          >
-            Back to home
-          </Link>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
+            >
+              Try again
+            </button>
+            <Link
+              href="/"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent"
+            >
+              Back to home
+            </Link>
+          </div>
         </div>
       </main>
     )
   }
 
+  const { accent, surface } = getThemeColors(venue)
+  const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
+  const headerTextClass = venue.chatBannerUrl ? 'text-white drop-shadow-sm' : 'text-pf-deep'
+  const backTextClass = venue.chatBannerUrl
+    ? 'text-white/75 hover:text-white'
+    : 'text-pf-deep/40 hover:text-pf-primary'
+
   return (
-    <div className="flex min-h-screen flex-col bg-pf-surface">
-      <header className="border-b border-pf-light bg-pf-white px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6">
+    <div className="flex min-h-screen flex-col bg-pf-surface" style={{ backgroundColor: surface }}>
+      <style>{`
+        :root {
+          --chat-accent: ${accent};
+          --chat-surface: ${surface};
+        }
+      `}</style>
+      <header
+        className="border-b border-black/10 bg-pf-white px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6"
+        style={
+          venue.chatBannerUrl
+            ? {
+                backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35)), url(${venue.chatBannerUrl})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }
+            : undefined
+        }
+      >
         <div className="mx-auto max-w-2xl py-4">
           <Link
             href={`/${venueSlug}`}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-pf-deep/40 transition hover:text-pf-primary"
+            className={`inline-flex items-center gap-1.5 text-xs font-medium transition ${backTextClass}`}
           >
             <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path
@@ -330,11 +391,22 @@ export default function VenueChatPage() {
             </svg>
             Back
           </Link>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
-            {venue.name} Guide
-          </h1>
+          <div className="mt-2 flex items-center gap-3">
+            {venue.chatLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
+            ) : (
+              <Image src="/pathfinder-icon.svg" alt="" width={28} height={28} />
+            )}
+            <h1 className={`text-2xl font-semibold tracking-tight ${headerTextClass}`}>
+              {guideName}
+            </h1>
+          </div>
           {venue.category ? (
-            <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-pf-accent">
+            <p
+              className="mt-1 text-xs font-semibold uppercase tracking-widest"
+              style={{ color: venue.chatBannerUrl ? '#FFFFFF' : accent }}
+            >
               {venue.category.toLowerCase().replace(/_/g, ' ')}
             </p>
           ) : null}
@@ -372,6 +444,7 @@ export default function VenueChatPage() {
           }}
           isLoading={isSending}
           errorMessage={sendError}
+          accentColor={accent}
           onPlaceCardView={(placeId) => {
             if (viewedPlaceIdsRef.current.has(placeId)) return
             viewedPlaceIdsRef.current.add(placeId)

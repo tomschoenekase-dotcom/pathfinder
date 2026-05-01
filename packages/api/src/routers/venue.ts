@@ -72,6 +72,11 @@ const venueListSelect = {
   category: true,
   defaultCenterLat: true,
   defaultCenterLng: true,
+  aiGuideName: true,
+  chatTheme: true,
+  chatAccentColor: true,
+  chatLogoUrl: true,
+  chatBannerUrl: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -88,6 +93,7 @@ const venueAiConfigSelect = {
   aiGuideNotes: true,
   aiFeaturedPlaceId: true,
   aiTone: true,
+  aiGuideName: true,
 } as const
 
 // ---------------------------------------------------------------------------
@@ -109,11 +115,21 @@ export const venueRouter = router({
           category: string | null
           defaultCenterLat: number | null
           defaultCenterLng: number | null
+          aiGuideName: string | null
+          chatTheme: string | null
+          chatAccentColor: string | null
+          chatLogoUrl: string | null
+          chatBannerUrl: string | null
         }[]
       >`
         SELECT id, name, description, category,
-               default_center_lat AS "defaultCenterLat",
-               default_center_lng AS "defaultCenterLng"
+               default_center_lat    AS "defaultCenterLat",
+               default_center_lng    AS "defaultCenterLng",
+               ai_guide_name         AS "aiGuideName",
+               chat_theme            AS "chatTheme",
+               chat_accent_color     AS "chatAccentColor",
+               chat_logo_url         AS "chatLogoUrl",
+               chat_banner_url       AS "chatBannerUrl"
         FROM venues WHERE slug = ${input.slug} AND is_active = true LIMIT 1
       `
 
@@ -244,6 +260,7 @@ export const venueRouter = router({
           aiGuideNotes: z.string().max(2000).nullable().optional(),
           aiFeaturedPlaceId: z.string().cuid().nullable().optional(),
           aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).optional(),
+          aiGuideName: z.string().max(80).nullable().optional(),
         })
         .strict(),
     )
@@ -330,6 +347,71 @@ export const venueRouter = router({
             }),
           ),
         )
+      }
+
+      try {
+        await emitEvent({
+          tenantId,
+          venueId: input.venueId,
+          sessionId: '',
+          eventType: 'venue.updated',
+        })
+      } catch {}
+
+      return updated
+    }),
+
+  updateChatDesign: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+          chatTheme: z.enum(['default', 'forest', 'sunset', 'midnight', 'rose']).optional(),
+          chatAccentColor: z
+            .string()
+            .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a hex colour e.g. #3A7BD5')
+            .nullable()
+            .optional(),
+          chatLogoUrl: z.string().url().max(500).nullable().optional(),
+          chatBannerUrl: z.string().url().max(500).nullable().optional(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: { id: true },
+      })
+
+      if (!venue) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
+      const { venueId: _venueId, ...raw } = input
+      const data = Object.fromEntries(
+        Object.entries(raw).filter(([, value]) => value !== undefined),
+      )
+
+      await ctx.db.venue.updateMany({
+        where: { id: input.venueId, tenantId },
+        data,
+      })
+
+      const updated = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: {
+          chatTheme: true,
+          chatAccentColor: true,
+          chatLogoUrl: true,
+          chatBannerUrl: true,
+        },
+      })
+
+      if (!updated) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
 
       try {

@@ -14,6 +14,9 @@ export function createQueryClient() {
 }
 
 export function createTRPCClient() {
+  const base =
+    typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_WEB_URL ?? '')
+
   return createTRPCCoreClient<AppRouter>({
     links: [
       loggerLink({
@@ -23,7 +26,7 @@ export function createTRPCClient() {
       }),
       httpBatchLink({
         transformer: superjson,
-        url: TRPC_ENDPOINT,
+        url: `${base}${TRPC_ENDPOINT}`,
       }),
     ],
   })

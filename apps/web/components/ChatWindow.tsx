@@ -27,6 +27,7 @@ type ChatWindowProps = {
   onSend: (message: string) => void
   isLoading: boolean
   errorMessage?: string | null
+  accentColor?: string
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
@@ -37,6 +38,7 @@ export function ChatWindow({
   onSend,
   isLoading,
   errorMessage = null,
+  accentColor,
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
@@ -77,7 +79,11 @@ export function ChatWindow({
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>
-            <MessageBubble role={message.role} content={message.content} />
+            <MessageBubble
+              role={message.role}
+              content={message.content}
+              {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
+            />
             {message.places && message.places.length > 0 ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {message.places.map((place) => (
@@ -132,7 +138,10 @@ export function ChatWindow({
             }}
           />
           <button
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light disabled:text-pf-deep/30"
+            style={{
+              backgroundColor: !isLoading && draft.trim().length > 0 ? accentColor : undefined,
+            }}
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-pf-light disabled:text-pf-deep/30"
             disabled={isLoading || draft.trim().length === 0}
             type="button"
             onClick={submit}

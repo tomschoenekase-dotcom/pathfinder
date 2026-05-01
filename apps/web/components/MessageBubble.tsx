@@ -1,9 +1,10 @@
 type MessageBubbleProps = {
   role: 'user' | 'assistant'
   content: string
+  bubbleColor?: string
 }
 
-export function MessageBubble({ role, content }: MessageBubbleProps) {
+export function MessageBubble({ role, content, bubbleColor }: MessageBubbleProps) {
   const isUser = role === 'user'
 
   return (
@@ -14,6 +15,7 @@ export function MessageBubble({ role, content }: MessageBubbleProps) {
             ? 'rounded-br-md bg-pf-primary text-white'
             : 'rounded-bl-md border border-pf-light bg-pf-surface text-pf-deep'
         }`}
+        style={{ backgroundColor: isUser ? bubbleColor : undefined }}
       >
         <p className="whitespace-pre-wrap break-words">{content}</p>
       </div>

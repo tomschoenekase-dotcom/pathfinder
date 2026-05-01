@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SignOutButton, useOrganization } from '@clerk/nextjs'
-import { Bot, Building2, ChartColumn, Home, LogOut, Megaphone } from 'lucide-react'
+import { Bot, Building2, ChartColumn, Home, LogOut, Megaphone, Palette } from 'lucide-react'
 
 type DashboardShellProps = {
   children: ReactNode
@@ -15,6 +15,7 @@ const navigationItems = [
   { href: '/venues', label: 'Venues', icon: Building2 },
   { href: '/analytics', label: 'Analytics', icon: ChartColumn },
   { href: '/ai-controls', label: 'AI Controls', icon: Bot },
+  { href: '/chat-design', label: 'Chatbot Design', icon: Palette },
   { href: '/operational-updates', label: 'Operational Updates', icon: Megaphone },
 ] as const
 
@@ -37,7 +38,10 @@ export function DashboardShell({ children }: DashboardShellProps) {
         <aside className="border-r border-pf-primary/30 bg-pf-deep text-slate-100">
           <div className="flex h-full flex-col p-6">
             <div className="space-y-3 border-b border-pf-primary/20 pb-6">
-              <img src="/pathfinder-logo.svg" alt="PathFinder" className="h-7 w-auto" />
+              <div className="flex items-center gap-2">
+                <img src="/pathfinder-icon.svg" alt="" className="h-7 w-7" />
+                <span className="text-base font-semibold text-pf-white">PathFinder</span>
+              </div>
               <div>
                 <h1 className="text-lg font-semibold text-pf-white">{orgName}</h1>
                 <p className="mt-1 text-sm text-pf-light/50">Tenant dashboard</p>

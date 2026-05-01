@@ -19,6 +19,7 @@ type AiConfig = {
   aiGuideNotes: string | null
   aiFeaturedPlaceId: string | null
   aiTone: string | null
+  aiGuideName: string | null
 }
 
 type AiControlsFormProps = {
@@ -77,6 +78,7 @@ export function AiControlsForm({
     (initialConfig.aiTone as ToneValue | null) ?? 'FRIENDLY',
   )
   const [aiGuideNotes, setAiGuideNotes] = useState(initialConfig.aiGuideNotes ?? '')
+  const [aiGuideName, setAiGuideName] = useState(initialConfig.aiGuideName ?? '')
   const [aiFeaturedPlaceId, setAiFeaturedPlaceId] = useState(initialConfig.aiFeaturedPlaceId ?? '')
   const [places, setPlaces] = useState<PlaceOption[]>(initialPlaces)
   const [isLoadingVenue, setIsLoadingVenue] = useState(false)
@@ -105,6 +107,7 @@ export function AiControlsForm({
       if (selectedVenueId === initialVenueId) {
         setAiTone((initialConfig.aiTone as ToneValue | null) ?? 'FRIENDLY')
         setAiGuideNotes(initialConfig.aiGuideNotes ?? '')
+        setAiGuideName(initialConfig.aiGuideName ?? '')
         setAiFeaturedPlaceId(initialConfig.aiFeaturedPlaceId ?? '')
         setPlaces(initialPlaces)
         return
@@ -126,6 +129,7 @@ export function AiControlsForm({
 
         setAiTone((config.aiTone as ToneValue | null) ?? 'FRIENDLY')
         setAiGuideNotes(config.aiGuideNotes ?? '')
+        setAiGuideName(config.aiGuideName ?? '')
         setAiFeaturedPlaceId(config.aiFeaturedPlaceId ?? '')
         setPlaces(venuePlaces.map((place) => ({ id: place.id, name: place.name })))
       } catch (error) {
@@ -156,6 +160,7 @@ export function AiControlsForm({
       await client.venue.updateAiConfig.mutate({
         venueId: selectedVenueId,
         aiTone,
+        aiGuideName: aiGuideName.trim() || null,
         aiGuideNotes: aiGuideNotes.trim() ? aiGuideNotes.trim() : null,
         aiFeaturedPlaceId: aiFeaturedPlaceId || null,
       })
@@ -290,6 +295,27 @@ export function AiControlsForm({
           These instructions are injected directly into the AI&apos;s context. Use them to highlight
           special events, set restrictions, or provide seasonal information.
         </p>
+
+        <div className="mt-6">
+          <label htmlFor="ai-guide-name" className="block text-sm font-semibold text-pf-deep">
+            Guide name
+          </label>
+          <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+            What the AI calls itself when guests chat. Leave blank to use the default "Path Finder".
+          </p>
+          <input
+            id="ai-guide-name"
+            type="text"
+            maxLength={80}
+            placeholder="e.g. Riverside Zoo Guide"
+            value={aiGuideName}
+            disabled={isLoadingVenue}
+            onChange={(event) => {
+              setAiGuideName(event.target.value)
+            }}
+            className="mt-3 w-full rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
+          />
+        </div>
 
         <textarea
           value={aiGuideNotes}
