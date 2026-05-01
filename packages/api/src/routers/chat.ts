@@ -296,25 +296,25 @@ export const chatRouter = router({
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
     }
 
-    // 7. Persist both messages in a transaction
-    await ctx.db.$transaction([
-      ctx.db.message.create({
-        data: {
-          tenantId: venue.tenantId,
-          sessionId: session.id,
-          role: 'user',
-          content: trimmedInput,
-        },
-      }),
-      ctx.db.message.create({
-        data: {
-          tenantId: venue.tenantId,
-          sessionId: session.id,
-          role: 'assistant',
-          content: assistantResponse,
-        },
-      }),
-    ])
+    // 7. Persist messages in two separate statements so they get distinct createdAt
+    //    timestamps. A single $transaction gives both rows the same now() value,
+    //    making orderBy: { createdAt: 'desc' } non-deterministic on the next request.
+    await ctx.db.message.create({
+      data: {
+        tenantId: venue.tenantId,
+        sessionId: session.id,
+        role: 'user',
+        content: trimmedInput,
+      },
+    })
+    await ctx.db.message.create({
+      data: {
+        tenantId: venue.tenantId,
+        sessionId: session.id,
+        role: 'assistant',
+        content: assistantResponse,
+      },
+    })
 
     try {
       await emitEvent({
