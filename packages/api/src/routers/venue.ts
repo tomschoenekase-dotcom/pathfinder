@@ -7,6 +7,7 @@ import { emitEvent } from '@pathfinder/analytics'
 import { CreateVenueInput, UpdateVenueInput } from '../schemas/venue'
 
 import { router } from '../core'
+import { embedPlace } from '../lib/embeddings'
 import { requireRole } from '../middleware/require-role'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
@@ -290,6 +291,45 @@ export const venueRouter = router({
 
       if (!updated) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
+      // Re-embed any places that didn't get embeddings at creation time (e.g. OpenAI was
+      // unavailable). Failures are swallowed inside embedPlace — they won't block the save.
+      const unembedded = await ctx.db.$queryRaw<
+        {
+          id: string
+          name: string
+          type: string
+          short_description: string | null
+          long_description: string | null
+          tags: string[]
+          area_name: string | null
+          hours: string | null
+        }[]
+      >`
+        SELECT id, name, type, short_description, long_description, tags, area_name, hours
+        FROM places
+        WHERE venue_id  = ${input.venueId}
+          AND tenant_id = ${tenantId}
+          AND is_active = true
+          AND embedding IS NULL
+      `
+
+      if (unembedded.length > 0) {
+        await Promise.all(
+          unembedded.map((r) =>
+            embedPlace({
+              id: r.id,
+              name: r.name,
+              type: r.type,
+              shortDescription: r.short_description,
+              longDescription: r.long_description,
+              tags: r.tags ?? [],
+              areaName: r.area_name,
+              hours: r.hours,
+            }),
+          ),
+        )
       }
 
       try {
