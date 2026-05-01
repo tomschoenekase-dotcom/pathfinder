@@ -1,12 +1,12 @@
 'use client'
 
-import Image from 'next/image'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 
 import { ChatWindow } from '../../../components/ChatWindow'
 import { LocationBanner } from '../../../components/LocationBanner'
+import { PathFinderIcon } from '../../../components/PathFinderBrand'
 import { QuickPromptChips } from '../../../components/QuickPromptChips'
 import { useGeolocation } from '../../../hooks/useGeolocation'
 import { useSession } from '../../../hooks/useSession'
@@ -309,13 +309,7 @@ export default function VenueChatPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6">
         <div className="flex flex-col items-center gap-5 text-center">
-          <Image
-            src="/pathfinder-icon.svg"
-            alt=""
-            width={40}
-            height={40}
-            className="animate-pulse"
-          />
+          <PathFinderIcon className="h-10 w-10 animate-pulse" />
           <p className="text-sm font-medium text-pf-deep/60">Loading your guide...</p>
         </div>
       </main>
@@ -396,7 +390,7 @@ export default function VenueChatPage() {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
             ) : (
-              <Image src="/pathfinder-icon.svg" alt="" width={28} height={28} />
+              <PathFinderIcon className="h-7 w-7 flex-shrink-0" />
             )}
             <h1 className={`text-2xl font-semibold tracking-tight ${headerTextClass}`}>
               {guideName}

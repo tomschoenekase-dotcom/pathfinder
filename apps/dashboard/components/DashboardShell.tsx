@@ -6,6 +6,8 @@ import { usePathname } from 'next/navigation'
 import { SignOutButton, useOrganization } from '@clerk/nextjs'
 import { Bot, Building2, ChartColumn, Home, LogOut, Megaphone, Palette } from 'lucide-react'
 
+import { PathFinderBrand } from './PathFinderBrand'
+
 type DashboardShellProps = {
   children: ReactNode
 }
@@ -38,10 +40,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
         <aside className="border-r border-pf-primary/30 bg-pf-deep text-slate-100">
           <div className="flex h-full flex-col p-6">
             <div className="space-y-3 border-b border-pf-primary/20 pb-6">
-              <div className="flex items-center gap-2">
-                <img src="/pathfinder-icon.svg" alt="" className="h-7 w-7" />
-                <span className="text-base font-semibold text-pf-white">PathFinder</span>
-              </div>
+              <PathFinderBrand textClassName="text-pf-white" />
               <div>
                 <h1 className="text-lg font-semibold text-pf-white">{orgName}</h1>
                 <p className="mt-1 text-sm text-pf-light/50">Tenant dashboard</p>

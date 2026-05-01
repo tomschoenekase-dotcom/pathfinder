@@ -48,7 +48,16 @@
       "Bash(node -e \"require\\('./dist/index.js'\\)\")",
       "Bash(find . -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec wc -l {} +)",
       "Bash(grep -l \"export const\" packages/api/src/routers/*.ts)",
-      "Bash(npx turbo:*)"
+      "Bash(npx turbo:*)",
+      "Bash(find packages/api/src -name \"venue-context*\" -exec cat {} \\\\;)",
+      "Bash(node -e ' *)",
+      "Bash(pnpm --filter @pathfinder/api test --run)",
+      "Bash(pnpm --filter @pathfinder/api exec vitest run)",
+      "Bash(pnpm --filter @pathfinder/api exec vitest run src/lib/venue-context.test.ts)",
+      "Bash(pnpm --filter @pathfinder/web exec tsc --noEmit)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(Get-ChildItem \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\dashboard\\\\app\" -Directory)"
     ]
   }
 }

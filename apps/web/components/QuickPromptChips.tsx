@@ -12,7 +12,7 @@ export function buildPrompts(venueName?: string, venueCategory?: string): string
     'Where should I go next?',
     'Where are the restrooms?',
     "What's good to eat or drink here?",
-    venueName ? `Tell me about ${venueName}` : "What's this venue all about?",
+    venueName ? `What makes ${venueName} special?` : "What's this venue all about?",
     venueCategory === 'ZOO' || venueCategory === 'AQUARIUM'
       ? 'What animals can I see today?'
       : "What's good to do with kids?",

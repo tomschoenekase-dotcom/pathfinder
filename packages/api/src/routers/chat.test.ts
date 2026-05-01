@@ -34,14 +34,12 @@ const sessionUpsert = vi.fn()
 const placeFindMany = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
-const dbTransaction = vi.fn()
 
 const mockDb = {
   venue: {},
   visitorSession: { upsert: sessionUpsert },
   place: { findMany: placeFindMany },
   message: { findMany: messageFindMany, create: messageCreate },
-  $transaction: dbTransaction,
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
 
@@ -85,7 +83,17 @@ const venueRow = {
 }
 
 const placeRows = [
-  { id: 'p1', name: 'Elephants', type: 'attraction', shortDescription: null, lat: 40.7, lng: -74.0, tags: [], areaName: null, hours: null },
+  {
+    id: 'p1',
+    name: 'Elephants',
+    type: 'attraction',
+    shortDescription: null,
+    lat: 40.7,
+    lng: -74.0,
+    tags: [],
+    areaName: null,
+    hours: null,
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -159,7 +167,7 @@ describe('chat router', () => {
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: assistantText }],
       })
-      dbTransaction.mockResolvedValueOnce([{}, {}])
+      messageCreate.mockResolvedValue({})
     }
 
     it('returns a non-empty response string and sessionId', async () => {
@@ -185,15 +193,24 @@ describe('chat router', () => {
       )
     })
 
-    it('persists user and assistant messages in a transaction', async () => {
+    it('persists user and assistant messages in order', async () => {
       setupHappyPath('Near the entrance.')
 
       await caller.chat.send(sendInput)
 
-      // $transaction is called once with an array of two operations
-      expect(dbTransaction).toHaveBeenCalledTimes(1)
-      const transactionArg = dbTransaction.mock.calls[0]?.[0] as unknown[]
-      expect(transactionArg).toHaveLength(2)
+      expect(messageCreate).toHaveBeenCalledTimes(2)
+      expect(messageCreate).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'user', content: sendInput.message }),
+        }),
+      )
+      expect(messageCreate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'assistant', content: 'Near the entrance.' }),
+        }),
+      )
     })
 
     it('returns fallback string on Claude API failure — does not throw TRPCError', async () => {
@@ -202,7 +219,7 @@ describe('chat router', () => {
       placeFindMany.mockResolvedValueOnce(placeRows)
       messageFindMany.mockResolvedValueOnce([])
       anthropicCreate.mockRejectedValueOnce(new Error('Claude API unavailable'))
-      dbTransaction.mockResolvedValueOnce([{}, {}])
+      messageCreate.mockResolvedValue({})
 
       const result = await caller.chat.send(sendInput)
 
@@ -222,7 +239,7 @@ describe('chat router', () => {
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Reply.' }],
       })
-      dbTransaction.mockResolvedValueOnce([{}, {}])
+      messageCreate.mockResolvedValue({})
 
       await caller.chat.send(sendInput)
 
@@ -242,7 +259,10 @@ describe('chat router', () => {
       const callArgs = anthropicCreate.mock.calls[0]?.[0] as Parameters<
         Anthropic['messages']['create']
       >[0]
-      const systemBlocks = callArgs.system as Array<{ type: string; cache_control?: { type: string } }>
+      const systemBlocks = callArgs.system as Array<{
+        type: string
+        cache_control?: { type: string }
+      }>
       expect(systemBlocks[0]).toMatchObject({
         type: 'text',
         cache_control: { type: 'ephemeral' },

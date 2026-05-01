@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
 import { usePathname } from 'next/navigation'
 
+import { PathFinderBrand } from './PathFinderBrand'
+
 type AdminShellProps = {
   children: ReactNode
 }
@@ -24,11 +26,7 @@ export function AdminShell({ children }: AdminShellProps) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-4 lg:px-10">
           <div className="flex items-center gap-4">
             <div className="flex flex-col gap-2">
-              <img
-                src="/pathfinder-logo.svg"
-                alt="PathFinder Admin"
-                className="h-6 w-auto brightness-0 invert"
-              />
+              <PathFinderBrand textClassName="text-white" />
               <span className="w-fit rounded-full bg-pf-accent/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-pf-accent">
                 Admin
               </span>

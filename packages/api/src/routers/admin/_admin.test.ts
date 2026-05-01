@@ -10,6 +10,7 @@ const {
   weeklyDigestCreate,
   userUpsert,
   tenantMembershipUpsert,
+  writeAuditLogMock,
   enqueueWeeklyDigest,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
@@ -20,6 +21,7 @@ const {
   weeklyDigestCreate: vi.fn(),
   userUpsert: vi.fn(),
   tenantMembershipUpsert: vi.fn(),
+  writeAuditLogMock: vi.fn(),
   enqueueWeeklyDigest: vi.fn(),
 }))
 
@@ -42,6 +44,7 @@ vi.mock('@pathfinder/db', () => ({
       upsert: tenantMembershipUpsert,
     },
   },
+  writeAuditLog: writeAuditLogMock,
   withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
 }))
 
@@ -110,6 +113,13 @@ describe('admin router', () => {
       expect.objectContaining({
         tenantId: 'tenant_1',
         digestId: 'digest_1',
+      }),
+    )
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin.digest.triggered',
+        actorId: 'admin_1',
+        targetId: 'digest_1',
       }),
     )
   })

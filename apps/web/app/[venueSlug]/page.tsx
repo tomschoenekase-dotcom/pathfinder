@@ -1,7 +1,8 @@
-import Image from 'next/image'
 import Link from 'next/link'
 import { TRPCError } from '@trpc/server'
 import { appRouter, createTRPCContext } from '@pathfinder/api'
+
+import { PathFinderIcon } from '../../components/PathFinderBrand'
 
 type VenueLandingPageProps = {
   params: Promise<{
@@ -42,7 +43,7 @@ export default async function VenueLandingPage({ params }: VenueLandingPageProps
     return (
       <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6">
         <section className="w-full max-w-md rounded-3xl border border-pf-light bg-pf-white p-10 text-center shadow-sm">
-          <Image src="/pathfinder-icon.svg" alt="" width={48} height={48} className="mx-auto" />
+          <PathFinderIcon className="mx-auto h-12 w-12" />
           <h1 className="mt-5 text-2xl font-semibold tracking-tight text-pf-deep">
             Venue not found
           </h1>
@@ -65,7 +66,7 @@ export default async function VenueLandingPage({ params }: VenueLandingPageProps
       <section className="w-full max-w-lg">
         <div className="rounded-3xl border border-pf-light bg-pf-white p-8 shadow-sm sm:p-10">
           <div className="flex flex-wrap items-center gap-3">
-            <Image src="/pathfinder-icon.svg" alt="PathFinder" width={32} height={32} />
+            <PathFinderIcon className="h-8 w-8" />
             {venue.category ? (
               <span className="rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-semibold uppercase tracking-widest text-pf-primary">
                 {venue.category}

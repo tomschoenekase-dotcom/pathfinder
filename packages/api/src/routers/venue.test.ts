@@ -1,6 +1,20 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@pathfinder/config', () => ({
+  env: { OPENAI_API_KEY: 'test-key' },
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}))
+
+vi.mock('@pathfinder/analytics', () => ({
+  emitEvent: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { venueRouter } from './venue'
@@ -39,21 +53,36 @@ const baseCtx = {
 function ownerCtx(): TRPCContext {
   return {
     ...baseCtx,
-    session: { userId: 'user_1', activeTenantId: 'tenant_1', role: 'OWNER', isPlatformAdmin: false },
+    session: {
+      userId: 'user_1',
+      activeTenantId: 'tenant_1',
+      role: 'OWNER',
+      isPlatformAdmin: false,
+    },
   }
 }
 
 function managerCtx(): TRPCContext {
   return {
     ...baseCtx,
-    session: { userId: 'user_1', activeTenantId: 'tenant_1', role: 'MANAGER', isPlatformAdmin: false },
+    session: {
+      userId: 'user_1',
+      activeTenantId: 'tenant_1',
+      role: 'MANAGER',
+      isPlatformAdmin: false,
+    },
   }
 }
 
 function staffCtx(): TRPCContext {
   return {
     ...baseCtx,
-    session: { userId: 'user_1', activeTenantId: 'tenant_1', role: 'STAFF', isPlatformAdmin: false },
+    session: {
+      userId: 'user_1',
+      activeTenantId: 'tenant_1',
+      role: 'STAFF',
+      isPlatformAdmin: false,
+    },
   }
 }
 
@@ -99,14 +128,21 @@ describe('venue router', () => {
   // --- venue.getById ---
 
   it('venue.getBySlug returns active public venue details', async () => {
-    dbQueryRaw.mockResolvedValueOnce([{
-      id: 'cuid1234567890abcdef',
-      name: 'City Zoo',
-      description: 'A great day out.',
-      category: 'zoo',
-      defaultCenterLat: 39.7684,
-      defaultCenterLng: -86.1581,
-    }])
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        id: 'cuid1234567890abcdef',
+        name: 'City Zoo',
+        description: 'A great day out.',
+        category: 'zoo',
+        defaultCenterLat: 39.7684,
+        defaultCenterLng: -86.1581,
+        aiGuideName: null,
+        chatTheme: 'default',
+        chatAccentColor: null,
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+      },
+    ])
 
     const caller = testRouter.createCaller({
       ...baseCtx,
@@ -122,6 +158,11 @@ describe('venue router', () => {
       category: 'zoo',
       defaultCenterLat: 39.7684,
       defaultCenterLng: -86.1581,
+      aiGuideName: null,
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatLogoUrl: null,
+      chatBannerUrl: null,
     })
     expect(dbQueryRaw).toHaveBeenCalled()
   })

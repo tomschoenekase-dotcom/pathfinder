@@ -1,4 +1,3 @@
-import Image from 'next/image'
 import {
   Binoculars,
   Building2,
@@ -11,6 +10,7 @@ import {
 } from 'lucide-react'
 
 import { FadeIn } from '../components/FadeIn'
+import { PathFinderBrand } from '../components/PathFinderBrand'
 
 const exampleQuestions = [
   "Where's the closest bathroom?",
@@ -34,10 +34,7 @@ export default function WebHomePage() {
     <div className="min-h-screen bg-pf-surface font-jakarta text-pf-deep">
       <header className="sticky top-0 z-50 border-b border-pf-light/60 bg-pf-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
-          <div className="flex items-center gap-2.5">
-            <Image src="/pathfinder-icon.svg" alt="" width={28} height={28} priority />
-            <span className="text-lg font-semibold tracking-tight text-pf-deep">PathFinder</span>
-          </div>
+          <PathFinderBrand textClassName="text-pf-deep" />
           <a
             href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
             className="inline-flex min-h-10 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent"

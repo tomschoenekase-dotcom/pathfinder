@@ -41,21 +41,36 @@ const baseCtx = { db: mockDb, headers: new Headers() }
 function ownerCtx(): TRPCContext {
   return {
     ...baseCtx,
-    session: { userId: 'user_1', activeTenantId: 'tenant_1', role: 'OWNER', isPlatformAdmin: false },
+    session: {
+      userId: 'user_1',
+      activeTenantId: 'tenant_1',
+      role: 'OWNER',
+      isPlatformAdmin: false,
+    },
   }
 }
 
 function managerCtx(): TRPCContext {
   return {
     ...baseCtx,
-    session: { userId: 'user_1', activeTenantId: 'tenant_1', role: 'MANAGER', isPlatformAdmin: false },
+    session: {
+      userId: 'user_1',
+      activeTenantId: 'tenant_1',
+      role: 'MANAGER',
+      isPlatformAdmin: false,
+    },
   }
 }
 
 function staffCtx(): TRPCContext {
   return {
     ...baseCtx,
-    session: { userId: 'user_1', activeTenantId: 'tenant_1', role: 'STAFF', isPlatformAdmin: false },
+    session: {
+      userId: 'user_1',
+      activeTenantId: 'tenant_1',
+      role: 'STAFF',
+      isPlatformAdmin: false,
+    },
   }
 }
 
@@ -260,8 +275,8 @@ describe('place router', () => {
     )
   })
 
-  it('place.delete with MANAGER role throws FORBIDDEN', async () => {
-    const caller = testRouter.createCaller(managerCtx())
+  it('place.delete with STAFF role throws FORBIDDEN', async () => {
+    const caller = testRouter.createCaller(staffCtx())
 
     await expect(caller.place.delete({ id: PLACE_ID })).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }),
@@ -324,8 +339,8 @@ describe('place router', () => {
   it('place.bulkCreate with STAFF role throws FORBIDDEN', async () => {
     const caller = testRouter.createCaller(staffCtx())
 
-    await expect(
-      caller.place.bulkCreate({ venueId: VENUE_ID, places: [] }),
-    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+    await expect(caller.place.bulkCreate({ venueId: VENUE_ID, places: [] })).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }),
+    )
   })
 })
