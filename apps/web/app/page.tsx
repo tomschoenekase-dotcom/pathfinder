@@ -37,7 +37,7 @@ export default function WebHomePage() {
         className="sticky top-0 z-50 overflow-hidden border-b border-white/10 bg-pf-deep"
         style={{ height: '80px' }}
       >
-        <div className="mx-auto max-w-7xl px-6 lg:px-10" style={{ marginTop: '20px' }}>
+        <div className="mx-auto max-w-7xl px-6 lg:px-10" style={{ marginTop: '-55px' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/pathfinder-logo.png"
@@ -77,7 +77,7 @@ export default function WebHomePage() {
               </p>
               <div className="mt-10 flex flex-col gap-4 sm:flex-row">
                 <a
-                  href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
+                  href="mailto:pathfinderreach@gmail.com?subject=PathFinder%20demo%20request"
                   className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-accent px-7 text-sm font-semibold text-white transition hover:bg-[#4d8de0]"
                 >
                   Request a demo
@@ -238,7 +238,7 @@ export default function WebHomePage() {
               </h2>
             </div>
             <a
-              href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
+              href="mailto:pathfinderreach@gmail.com?subject=PathFinder%20demo%20request"
               className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-white px-6 text-sm font-semibold text-pf-primary transition hover:bg-pf-surface"
             >
               Get in touch
@@ -254,7 +254,7 @@ export default function WebHomePage() {
           </p>
           <div className="flex items-center gap-6">
             <a
-              href="mailto:tomschoenekase@gmail.com"
+              href="mailto:pathfinderreach@gmail.com"
               className="text-xs text-white/30 transition hover:text-white"
             >
               Contact
