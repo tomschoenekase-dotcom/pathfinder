@@ -37,7 +37,7 @@ export default function WebHomePage() {
         className="sticky top-0 z-50 overflow-hidden border-b border-white/10 bg-pf-deep"
         style={{ height: '80px' }}
       >
-        <div className="mx-auto max-w-7xl px-6 lg:px-10" style={{ marginTop: '-80px' }}>
+        <div className="mx-auto max-w-7xl px-6 lg:px-10" style={{ marginTop: '20px' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/pathfinder-logo.png"
