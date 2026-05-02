@@ -57,7 +57,10 @@
       "Bash(pnpm --filter @pathfinder/web exec tsc --noEmit)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\" -Directory)",
       "Bash(Select-Object Name)",
-      "Bash(Get-ChildItem \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\dashboard\\\\app\" -Directory)"
+      "Bash(Get-ChildItem \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\dashboard\\\\app\" -Directory)",
+      "Bash(Get-Item \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\AssetsFiles\\\\PathfinderLogo.png\")",
+      "Bash(Select-Object Name, Length)",
+      "Bash(git -C \"/c/Users/tomsc/Downloads/PathFinder\" remote -v)"
     ]
   }
 }

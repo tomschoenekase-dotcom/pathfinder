@@ -25,11 +25,10 @@ export function PathFinderIcon({ className = 'h-7 w-7' }: PathFinderIconProps) {
   )
 }
 
-export function PathFinderBrand({ className = '', textClassName = '' }: PathFinderBrandProps) {
+export function PathFinderBrand({ className = '' }: PathFinderBrandProps) {
   return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
-      <PathFinderIcon className="h-7 w-7 flex-shrink-0" />
-      <span className={`text-lg font-semibold tracking-tight ${textClassName}`}>PathFinder</span>
+    <div className={`flex items-center ${className}`}>
+      <img src="/pathfinder-logo.png" alt="PathFinder" className="h-9 w-auto" />
     </div>
   )
 }
