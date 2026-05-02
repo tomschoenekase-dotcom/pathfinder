@@ -33,15 +33,10 @@ const venueTypes = [
 export default function WebHomePage() {
   return (
     <div className="min-h-screen bg-pf-surface font-jakarta text-pf-deep">
-      <header className="sticky top-0 z-50 border-b border-pf-light/60 bg-pf-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
-          <PathFinderBrand textClassName="text-pf-deep" />
-          <a
-            href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
-            className="inline-flex min-h-10 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent"
-          >
-            Request a demo
-          </a>
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-pf-deep">
+        <div className="mx-auto flex max-w-7xl items-center px-6 py-3 lg:px-10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/pathfinder-logo.png" alt="PathFinder" className="h-10 w-auto" />
         </div>
       </header>
 
@@ -59,12 +54,7 @@ export default function WebHomePage() {
           aria-hidden="true"
         />
 
-        <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-16 lg:px-10 lg:pb-32 lg:pt-20">
-          <div className="flex justify-center pb-12">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/pathfinder-logo.png" alt="PathFinder" className="h-64 w-auto" />
-          </div>
-
+        <div className="relative mx-auto max-w-7xl px-6 py-24 lg:px-10 lg:py-32">
           <div className="grid gap-12 lg:grid-cols-[1fr_0.85fr] lg:items-center">
             <div>
               <h1 className="text-5xl font-light leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
