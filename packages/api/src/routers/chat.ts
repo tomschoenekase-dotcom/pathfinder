@@ -55,6 +55,7 @@ const sendMessageSchema = z
     message: z.string().min(1).max(1000),
     lat: z.number(),
     lng: z.number(),
+    language: z.string().max(50).optional(),
   })
   .strict()
 
@@ -265,6 +266,7 @@ export const chatRouter = router({
       userLat: input.lat,
       userLng: input.lng,
       featuredPlace,
+      ...(input.language ? { language: input.language } : {}),
     })
     const history = historyDesc.reverse()
 

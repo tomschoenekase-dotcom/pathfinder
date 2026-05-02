@@ -5,6 +5,11 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 
 import { ChatWindow } from '../../../components/ChatWindow'
+import {
+  getStoredLanguage,
+  LanguagePicker,
+  SUPPORTED_LANGUAGES,
+} from '../../../components/LanguagePicker'
 import { LocationBanner } from '../../../components/LocationBanner'
 import { PathFinderIcon } from '../../../components/PathFinderBrand'
 import { QuickPromptChips } from '../../../components/QuickPromptChips'
@@ -85,6 +90,13 @@ export default function VenueChatPage() {
   const [isSending, setIsSending] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [language, setLanguage] = useState<string>(() => {
+    const stored = getStoredLanguage()
+    const match = SUPPORTED_LANGUAGES.find(
+      (supportedLanguage) => supportedLanguage.label === stored,
+    )
+    return match ? match.label : 'English'
+  })
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
@@ -291,6 +303,7 @@ export default function VenueChatPage() {
         message: trimmed,
         lat: fallbackLat,
         lng: fallbackLng,
+        ...(language === 'English' ? {} : { language }),
       })
 
       setMessages((current) => [
@@ -395,6 +408,9 @@ export default function VenueChatPage() {
             <h1 className={`text-2xl font-semibold tracking-tight ${headerTextClass}`}>
               {guideName}
             </h1>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <LanguagePicker value={language} onChange={setLanguage} accentColor={accent} />
           </div>
           {venue.category ? (
             <p

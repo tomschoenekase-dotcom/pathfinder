@@ -44,8 +44,9 @@ export function buildVenueSystemPrompt(params: {
   userLat: number
   userLng: number
   featuredPlace?: FeaturedPlace | null
+  language?: string | null
 }): string {
-  const { venue, relevantPlaces, featuredPlace } = params
+  const { venue, relevantPlaces, featuredPlace, language } = params
 
   const venueDescription = venue.description ?? 'A venue with many things to explore.'
   const guideName = venue.aiGuideName?.trim() || 'Path Finder'
@@ -79,10 +80,10 @@ export function buildVenueSystemPrompt(params: {
           })
           .join('\n\n')
 
-  // Keep Claude aligned with the guest's language so multilingual visitors get
-  // a natural response without any extra translation layer in the application.
   const languageRule =
-    "LANGUAGE RULE: Detect the language of the guest's message. Always reply in the same language the guest uses. If the guest writes in Spanish, reply in Spanish. If French, reply in French. Do not switch languages mid-conversation unless the guest switches first. Default to English if the language is unclear."
+    language && language.trim().length > 0
+      ? `LANGUAGE RULE: The guest has selected ${language} as their preferred language. Always respond in ${language}, regardless of what language the guest types in.`
+      : "LANGUAGE RULE: Detect the language of the guest's message. Always reply in the same language the guest uses. If the guest writes in Spanish, reply in Spanish. If French, reply in French. Do not switch languages mid-conversation unless the guest switches first. Default to English if the language is unclear."
 
   return `You are ${guideName}, a helpful on-site guide for ${venue.name}.
 
