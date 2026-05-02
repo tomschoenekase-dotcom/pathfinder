@@ -76,9 +76,8 @@ export default function WebHomePage() {
 
         <div className="relative mx-auto grid max-w-7xl gap-12 px-6 py-24 lg:grid-cols-[1fr_0.85fr] lg:items-center lg:px-10 lg:py-32">
           <div>
-            <span className="inline-flex rounded-full border border-pf-light/30 bg-pf-light/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-pf-light">
-              PathFinder
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/pathfinder-logo.png" alt="PathFinder" className="h-20 w-auto" />
             <h1 className="mt-6 text-5xl font-light leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
               Your venue guide,
               <br />
