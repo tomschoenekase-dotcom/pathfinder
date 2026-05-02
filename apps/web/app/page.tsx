@@ -8,6 +8,7 @@ import {
   ScanLine,
   Trophy,
 } from 'lucide-react'
+import Link from 'next/link'
 
 import { FadeIn } from '../components/FadeIn'
 import { PathFinderBrand } from '../components/PathFinderBrand'
@@ -27,6 +28,21 @@ const venueTypes = [
   { label: 'Malls & Retail Centers', icon: Building2 },
   { label: 'Sports Venues & Stadiums', icon: Trophy },
   { label: 'Parks & Botanical Gardens', icon: Leaf },
+]
+
+const benefits = [
+  {
+    stat: '< 1 afternoon',
+    label: 'Average setup time from signup to live QR code',
+  },
+  {
+    stat: '24 / 7',
+    label: 'Always on — no shift changes, no hold times, no missed questions',
+  },
+  {
+    stat: 'Zero downloads',
+    label: 'Guests scan and chat instantly — no app, no login, no friction',
+  },
 ]
 
 export default function WebHomePage() {
@@ -120,6 +136,21 @@ export default function WebHomePage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-pf-light bg-pf-white px-6 py-16 lg:px-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid gap-8 sm:grid-cols-3">
+            {benefits.map((b) => (
+              <div key={b.stat} className="flex flex-col gap-2">
+                <span className="text-4xl font-semibold tracking-tight text-pf-primary">
+                  {b.stat}
+                </span>
+                <p className="text-sm leading-6 text-pf-deep/60">{b.label}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -240,6 +271,28 @@ export default function WebHomePage() {
           </div>
         </FadeIn>
       </section>
+
+      <footer className="border-t border-pf-light bg-pf-white px-6 py-10 lg:px-10">
+        <div className="mx-auto flex max-w-7xl flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-pf-deep/40">
+            © {new Date().getFullYear()} PathFinder. All rights reserved.
+          </p>
+          <div className="flex items-center gap-6">
+            <a
+              href="mailto:tomschoenekase@gmail.com"
+              className="text-xs text-pf-deep/40 transition hover:text-pf-primary"
+            >
+              Contact
+            </a>
+            <Link
+              href="/privacy"
+              className="text-xs text-pf-deep/40 transition hover:text-pf-primary"
+            >
+              Privacy Policy
+            </Link>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }

@@ -28,6 +28,7 @@ type ChatWindowProps = {
   isLoading: boolean
   errorMessage?: string | null
   accentColor?: string
+  placeholder?: string
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
@@ -39,6 +40,7 @@ export function ChatWindow({
   isLoading,
   errorMessage = null,
   accentColor,
+  placeholder = 'Ask what is nearby, where to go next, or where to find amenities.',
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
@@ -124,7 +126,7 @@ export function ChatWindow({
             id="chat-input"
             className="min-h-14 flex-1 resize-none rounded-2xl border border-pf-light bg-pf-white px-4 py-3 text-[16px] leading-6 text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
             disabled={isLoading}
-            placeholder="Ask what is nearby, where to go next, or where to find amenities."
+            placeholder={placeholder}
             rows={2}
             value={draft}
             onChange={(event) => {

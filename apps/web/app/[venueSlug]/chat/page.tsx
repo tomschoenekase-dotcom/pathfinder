@@ -7,6 +7,7 @@ import { useParams } from 'next/navigation'
 import { ChatWindow } from '../../../components/ChatWindow'
 import {
   getStoredLanguage,
+  LANGUAGE_PLACEHOLDERS,
   LanguagePicker,
   SUPPORTED_LANGUAGES,
 } from '../../../components/LanguagePicker'
@@ -97,6 +98,9 @@ export default function VenueChatPage() {
     )
     return match ? match.label : 'English'
   })
+  const chatPlaceholder =
+    LANGUAGE_PLACEHOLDERS[language] ??
+    'Ask what is nearby, where to go next, or where to find amenities.'
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
@@ -410,16 +414,8 @@ export default function VenueChatPage() {
             </h1>
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <LanguagePicker value={language} onChange={setLanguage} accentColor={accent} />
+            <LanguagePicker value={language} onChange={setLanguage} />
           </div>
-          {venue.category ? (
-            <p
-              className="mt-1 text-xs font-semibold uppercase tracking-widest"
-              style={{ color: venue.chatBannerUrl ? '#FFFFFF' : accent }}
-            >
-              {venue.category.toLowerCase().replace(/_/g, ' ')}
-            </p>
-          ) : null}
         </div>
       </header>
 
@@ -427,7 +423,7 @@ export default function VenueChatPage() {
         <LocationBanner permission={permission} onRefresh={refresh} />
       </div>
 
-      {messages.length === 0 ? (
+      {messages.length === 0 && language === 'English' ? (
         <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
           <div className="mb-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
             <h2 className="text-xl font-semibold text-pf-deep">What can I help you find?</h2>
@@ -455,6 +451,7 @@ export default function VenueChatPage() {
           isLoading={isSending}
           errorMessage={sendError}
           accentColor={accent}
+          placeholder={chatPlaceholder}
           onPlaceCardView={(placeId) => {
             if (viewedPlaceIdsRef.current.has(placeId)) return
             viewedPlaceIdsRef.current.add(placeId)
