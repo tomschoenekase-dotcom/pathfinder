@@ -2,7 +2,7 @@
   "name": "@pathfinder/dashboard",
   "private": true,
   "scripts": {
-    "build": "next build && cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static",
+    "build": "next build && cp -r public .next/standalone/public && mkdir -p .next/standalone/.next && cp -r .next/static .next/standalone/.next/static",
     "dev": "next dev --port 3001",
     "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"lib/**/*.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
     "typecheck": "tsc --noEmit",
