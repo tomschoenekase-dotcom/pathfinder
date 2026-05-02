@@ -23,6 +23,7 @@ type VenueSummary = {
   name: string
   description: string | null
   category: string | null
+  guideMode: string
   defaultCenterLat: number | null
   defaultCenterLng: number | null
   aiGuideName: string | null
@@ -37,9 +38,9 @@ type PlaceSummary = {
   name: string
   type: string
   photoUrl: string | null
-  distanceMeters: number
-  lat: number
-  lng: number
+  distanceMeters: number | undefined
+  lat: number | null
+  lng: number | null
 }
 
 type ChatMessage = {
@@ -100,7 +101,9 @@ export default function VenueChatPage() {
   })
   const chatPlaceholder =
     LANGUAGE_PLACEHOLDERS[language] ??
-    'Ask what is nearby, where to go next, or where to find amenities.'
+    (venue?.guideMode === 'non_location'
+      ? 'Ask what to know, how it works, or what to do next.'
+      : 'Ask what is nearby, where to go next, or where to find amenities.')
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
@@ -291,7 +294,7 @@ export default function VenueChatPage() {
     const fallbackLat = lat ?? venue.defaultCenterLat
     const fallbackLng = lng ?? venue.defaultCenterLng
 
-    if (fallbackLat === null || fallbackLng === null) {
+    if (venue.guideMode !== 'non_location' && (fallbackLat === null || fallbackLng === null)) {
       setSendError('Location is still unavailable for this venue. Try allowing location first.')
       return
     }
@@ -305,8 +308,8 @@ export default function VenueChatPage() {
         venueId: venue.id,
         anonymousToken,
         message: trimmed,
-        lat: fallbackLat,
-        lng: fallbackLng,
+        ...(fallbackLat !== null ? { lat: fallbackLat } : {}),
+        ...(fallbackLng !== null ? { lng: fallbackLng } : {}),
         ...(language === 'English' ? {} : { language }),
       })
 
@@ -420,7 +423,11 @@ export default function VenueChatPage() {
       </header>
 
       <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
-        <LocationBanner permission={permission} onRefresh={refresh} />
+        <LocationBanner
+          permission={permission}
+          onRefresh={refresh}
+          show={venue.guideMode !== 'non_location'}
+        />
       </div>
 
       {messages.length === 0 && language === 'English' ? (
@@ -435,6 +442,7 @@ export default function VenueChatPage() {
           <QuickPromptChips
             venueName={venue.name}
             venueCategory={venue.category ?? undefined}
+            guideMode={venue.guideMode}
             onSend={(prompt) => {
               void handleSend(prompt)
             }}

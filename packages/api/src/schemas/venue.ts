@@ -7,6 +7,7 @@ export const CreateVenueInput = z
     description: z.string().max(1000).optional(),
     guideNotes: z.string().max(2000).optional(),
     category: z.string().max(100).optional(),
+    guideMode: z.enum(['location_aware', 'non_location']).default('location_aware').optional(),
     defaultCenterLat: z.number().optional(),
     defaultCenterLng: z.number().optional(),
   })
@@ -19,6 +20,7 @@ export const UpdateVenueInput = z
     description: z.string().max(1000).optional(),
     guideNotes: z.string().max(2000).optional(),
     category: z.string().max(100).optional(),
+    guideMode: z.enum(['location_aware', 'non_location']).optional(),
     defaultCenterLat: z.number().optional(),
     defaultCenterLng: z.number().optional(),
     isActive: z.boolean().optional(),

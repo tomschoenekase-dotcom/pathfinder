@@ -23,7 +23,11 @@ export default async function EditPlacePage({ params }: EditPlacePageProps) {
   const caller = await createCaller()
 
   try {
-    const place = await caller.place.getById({ id: placeId })
+    const [place, venue] = await Promise.all([
+      caller.place.getById({ id: placeId }),
+      caller.venue.getById({ id: venueId }),
+    ])
+    const venueGuideMode = venue.guideMode === 'non_location' ? 'non_location' : 'location_aware'
 
     return (
       <main className="min-h-screen bg-pf-surface px-6 py-10">
@@ -38,15 +42,30 @@ export default async function EditPlacePage({ params }: EditPlacePageProps) {
             mode="edit"
             placeId={placeId}
             venueId={venueId}
+            venueGuideMode={venueGuideMode}
             initialValues={{
               id: place.id,
               venueId: place.venueId,
               name: place.name,
               type: place.type,
+              itemType:
+                place.itemType === null || place.itemType === undefined
+                  ? ''
+                  : (place.itemType as
+                      | 'physical_place'
+                      | 'exhibit'
+                      | 'room'
+                      | 'sculpture'
+                      | 'service_step'
+                      | 'faq'
+                      | 'amenity'
+                      | 'policy'
+                      | 'activity'
+                      | 'general_info'),
               shortDescription: place.shortDescription ?? '',
               longDescription: place.longDescription ?? '',
-              lat: place.lat,
-              lng: place.lng,
+              lat: place.lat ?? undefined,
+              lng: place.lng ?? undefined,
               tags: place.tags,
               importanceScore: place.importanceScore,
               areaName: place.areaName ?? '',

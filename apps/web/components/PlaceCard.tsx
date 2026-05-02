@@ -6,9 +6,9 @@ type PlaceCardProps = {
   name: string
   type: string
   photoUrl: string | null
-  distanceMeters: number
-  lat: number
-  lng: number
+  distanceMeters: number | undefined
+  lat: number | null
+  lng: number | null
   onCardClick?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onView?: (placeId: string) => void
@@ -33,7 +33,10 @@ export function PlaceCard({
   onDirectionsClick,
   onView,
 }: PlaceCardProps) {
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+  const directionsUrl =
+    lat != null && lng != null
+      ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+      : null
 
   useEffect(() => {
     onView?.(id)
@@ -64,24 +67,28 @@ export function PlaceCard({
               {type.toLowerCase().replace(/_/g, ' ')}
             </p>
           </div>
-          <span className="shrink-0 rounded-full bg-pf-surface px-2.5 py-1 text-xs font-semibold text-pf-primary">
-            {formatDistance(distanceMeters)}
-          </span>
+          {distanceMeters !== undefined ? (
+            <span className="shrink-0 rounded-full bg-pf-surface px-2.5 py-1 text-xs font-semibold text-pf-primary">
+              {formatDistance(distanceMeters)}
+            </span>
+          ) : null}
         </div>
 
-        <a
-          href={directionsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-pf-light bg-pf-surface px-4 text-xs font-semibold text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
-          onClick={(event) => {
-            event.stopPropagation()
-            onDirectionsClick?.(id)
-          }}
-        >
-          <Navigation className="h-3.5 w-3.5" aria-hidden="true" />
-          Get directions
-        </a>
+        {directionsUrl ? (
+          <a
+            href={directionsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-pf-light bg-pf-surface px-4 text-xs font-semibold text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+            onClick={(event) => {
+              event.stopPropagation()
+              onDirectionsClick?.(id)
+            }}
+          >
+            <Navigation className="h-3.5 w-3.5" aria-hidden="true" />
+            Get directions
+          </a>
+        ) : null}
       </div>
     </div>
   )

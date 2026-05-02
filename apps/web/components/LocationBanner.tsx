@@ -1,9 +1,14 @@
 type LocationBannerProps = {
   permission: 'granted' | 'denied' | 'prompt' | 'loading'
   onRefresh: () => void
+  show?: boolean
 }
 
-export function LocationBanner({ permission, onRefresh }: LocationBannerProps) {
+export function LocationBanner({ permission, onRefresh, show = true }: LocationBannerProps) {
+  if (show === false) {
+    return null
+  }
+
   if (permission === 'granted') {
     return null
   }

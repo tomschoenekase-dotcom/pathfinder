@@ -247,19 +247,19 @@ export function AiControlsForm({
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
-              Featured place
+              Featured guide item
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
-              Highlight one place
+              Highlight one guide item
             </h2>
             <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-              Pin a place that the assistant should mention when it is relevant.
+              Pin a guide item that the assistant should mention when it is relevant.
             </p>
           </div>
         </div>
 
         <label className="mt-6 block text-sm font-medium text-pf-deep/70" htmlFor="featured-place">
-          Featured place
+          Featured guide item
         </label>
         <select
           id="featured-place"
@@ -270,7 +270,7 @@ export function AiControlsForm({
           }}
           className="mt-3 min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
         >
-          <option value="">No featured place</option>
+          <option value="">No featured guide item</option>
           {places.map((place) => (
             <option key={place.id} value={place.id}>
               {place.name}
@@ -279,8 +279,8 @@ export function AiControlsForm({
         </select>
         <p className="mt-3 text-sm leading-6 text-pf-deep/60">
           {places.length === 0
-            ? 'Add places to this venue before choosing a featured highlight.'
-            : 'The AI will mention this place when it fits the guest question.'}
+            ? 'Add guide items to this venue before choosing a featured highlight.'
+            : 'The AI will mention this guide item when it fits the guest question.'}
         </p>
       </section>
 

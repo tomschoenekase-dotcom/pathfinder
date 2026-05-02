@@ -43,6 +43,7 @@ export default async function EditVenuePage({ params }: EditVenuePageProps) {
               description: venue.description ?? '',
               guideNotes: venue.guideNotes ?? '',
               category: venue.category ?? '',
+              guideMode: venue.guideMode === 'non_location' ? 'non_location' : 'location_aware',
               defaultCenterLat: venue.defaultCenterLat ?? undefined,
               defaultCenterLng: venue.defaultCenterLng ?? undefined,
             }}

@@ -30,7 +30,7 @@ export default async function VenuesPage() {
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-pf-deep">Venues</h1>
             <p className="max-w-2xl text-sm leading-6 text-pf-deep/60">
-              Manage the venue records and place data that power the public chat experience.
+              Manage the venue records and guide item data that power the public chat experience.
             </p>
           </div>
           <Link
@@ -45,7 +45,7 @@ export default async function VenuesPage() {
           <section className="rounded-3xl border border-dashed border-pf-light bg-pf-white p-10 text-center shadow-sm">
             <h2 className="text-2xl font-semibold text-pf-deep">No venues yet</h2>
             <p className="mt-3 text-sm leading-6 text-pf-deep/60">
-              Create your first one to start loading places for the chatbot.
+              Create your first one to start loading guide items for the chatbot.
             </p>
             <Link
               href="/venues/new"

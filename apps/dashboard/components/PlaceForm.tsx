@@ -10,15 +10,30 @@ import type { Place } from '@pathfinder/db'
 
 import { createTRPCClient } from '../lib/trpc'
 
+type VenueGuideMode = 'location_aware' | 'non_location'
+
+type ItemType =
+  | 'physical_place'
+  | 'exhibit'
+  | 'room'
+  | 'sculpture'
+  | 'service_step'
+  | 'faq'
+  | 'amenity'
+  | 'policy'
+  | 'activity'
+  | 'general_info'
+
 type PlaceFormValues = {
   id: string | undefined
   venueId: string | undefined
   name: string
   type: string
+  itemType: ItemType | ''
   shortDescription: string | undefined
   longDescription: string | undefined
-  lat: number
-  lng: number
+  lat: number | undefined
+  lng: number | undefined
   tags: string[]
   importanceScore: number
   areaName: string | undefined
@@ -30,6 +45,7 @@ type PlaceFormValues = {
 type PlaceFormProps = {
   mode: 'create' | 'edit'
   venueId: string
+  venueGuideMode: VenueGuideMode
   placeId?: string
   initialValues?: PlaceFormValues
 }
@@ -45,9 +61,29 @@ const PLACE_TYPE_SUGGESTIONS = [
   'entrance',
 ] as const
 
+const ITEM_TYPE_OPTIONS: { value: ItemType; label: string }[] = [
+  { value: 'physical_place', label: 'Physical place' },
+  { value: 'exhibit', label: 'Exhibit' },
+  { value: 'room', label: 'Room' },
+  { value: 'sculpture', label: 'Sculpture' },
+  { value: 'service_step', label: 'Service step' },
+  { value: 'faq', label: 'FAQ' },
+  { value: 'amenity', label: 'Amenity' },
+  { value: 'policy', label: 'Policy' },
+  { value: 'activity', label: 'Activity' },
+  { value: 'general_info', label: 'General info' },
+]
+
 function parseNumber(value: string, fallback?: number): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : (fallback ?? 0)
+}
+
+function parseOptionalNumber(value: string): number | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 function splitTags(value: string): string[] {
@@ -68,10 +104,21 @@ function getErrorMessage(error: unknown): string {
 function hasAdvancedFields(
   values: Pick<
     PlaceFormValues,
-    'longDescription' | 'tags' | 'importanceScore' | 'areaName' | 'hours' | 'photoUrl'
+    | 'itemType'
+    | 'longDescription'
+    | 'lat'
+    | 'lng'
+    | 'tags'
+    | 'importanceScore'
+    | 'areaName'
+    | 'hours'
+    | 'photoUrl'
   >,
+  venueGuideMode: VenueGuideMode,
 ): boolean {
   return Boolean(
+    (venueGuideMode === 'location_aware' && values.itemType) ||
+    (venueGuideMode === 'non_location' && (values.lat !== undefined || values.lng !== undefined)) ||
     values.longDescription ||
     values.tags.length > 0 ||
     values.importanceScore !== 0 ||
@@ -88,6 +135,7 @@ function mapPlaceToValues(
     | 'venueId'
     | 'name'
     | 'type'
+    | 'itemType'
     | 'shortDescription'
     | 'longDescription'
     | 'lat'
@@ -105,10 +153,11 @@ function mapPlaceToValues(
     venueId: place.venueId,
     name: place.name,
     type: place.type,
+    itemType: (place.itemType as ItemType | null) ?? '',
     shortDescription: place.shortDescription ?? '',
     longDescription: place.longDescription ?? '',
-    lat: place.lat,
-    lng: place.lng,
+    lat: place.lat ?? undefined,
+    lng: place.lng ?? undefined,
     tags: place.tags,
     importanceScore: place.importanceScore,
     areaName: place.areaName ?? '',
@@ -118,7 +167,17 @@ function mapPlaceToValues(
   }
 }
 
-export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormProps) {
+function normalizeItemType(value: ItemType | ''): ItemType | undefined {
+  return value || undefined
+}
+
+export function PlaceForm({
+  mode,
+  venueId,
+  venueGuideMode,
+  placeId,
+  initialValues,
+}: PlaceFormProps) {
   const router = useRouter()
   const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
   if (clientRef.current === null) clientRef.current = createTRPCClient()
@@ -126,7 +185,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
   const [formError, setFormError] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(
-    initialValues ? hasAdvancedFields(initialValues) : false,
+    initialValues ? hasAdvancedFields(initialValues, venueGuideMode) : false,
   )
   const [isLoadingPlace, setIsLoadingPlace] = useState(mode === 'edit' && !initialValues)
   const resolver =
@@ -145,11 +204,12 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
       id: placeId,
       venueId,
       name: '',
-      type: 'attraction',
+      type: venueGuideMode === 'non_location' ? 'general_info' : 'attraction',
+      itemType: '',
       shortDescription: '',
       longDescription: '',
-      lat: 0,
-      lng: 0,
+      lat: venueGuideMode === 'location_aware' ? 0 : undefined,
+      lng: venueGuideMode === 'location_aware' ? 0 : undefined,
       tags: [],
       importanceScore: 0,
       areaName: '',
@@ -165,7 +225,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
     async function loadPlace() {
       if (initialValues) {
         reset(initialValues)
-        setShowAdvanced(hasAdvancedFields(initialValues))
+        setShowAdvanced(hasAdvancedFields(initialValues, venueGuideMode))
         setIsLoadingPlace(false)
         return
       }
@@ -183,7 +243,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
 
         if (!disposed) {
           reset(nextValues)
-          setShowAdvanced(hasAdvancedFields(nextValues))
+          setShowAdvanced(hasAdvancedFields(nextValues, venueGuideMode))
         }
       } catch (error) {
         if (!disposed) {
@@ -201,7 +261,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
     return () => {
       disposed = true
     }
-  }, [client, initialValues, mode, placeId, reset])
+  }, [client, initialValues, mode, placeId, reset, venueGuideMode])
 
   useEffect(() => {
     if (mode === 'create') {
@@ -212,36 +272,40 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
   async function onSubmit(values: PlaceFormValues) {
     setFormError(null)
 
+    if (
+      venueGuideMode === 'location_aware' &&
+      (values.lat === undefined || values.lng === undefined)
+    ) {
+      setFormError('Latitude and longitude are required for location-aware venues.')
+      return
+    }
+
+    const payload = {
+      name: values.name,
+      type: values.type,
+      itemType: normalizeItemType(values.itemType),
+      lat: values.lat,
+      lng: values.lng,
+      tags: values.tags,
+      importanceScore: values.importanceScore,
+      shortDescription: values.shortDescription?.trim() || undefined,
+      longDescription: values.longDescription?.trim() || undefined,
+      areaName: values.areaName?.trim() || undefined,
+      hours: values.hours?.trim() || undefined,
+      photoUrl: values.photoUrl?.trim() || undefined,
+    }
+
     try {
       if (mode === 'create') {
         await client.place.create.mutate({
           venueId,
-          name: values.name,
-          type: values.type,
-          lat: values.lat,
-          lng: values.lng,
-          tags: values.tags,
-          importanceScore: values.importanceScore,
-          shortDescription: values.shortDescription?.trim() || undefined,
-          longDescription: values.longDescription?.trim() || undefined,
-          areaName: values.areaName?.trim() || undefined,
-          hours: values.hours?.trim() || undefined,
-          photoUrl: values.photoUrl?.trim() || undefined,
+          ...payload,
         })
       } else {
         await client.place.update.mutate(
           UpdatePlaceInput.parse({
             id: placeId,
-            name: values.name,
-            type: values.type,
-            lat: values.lat,
-            lng: values.lng,
-            tags: values.tags,
-            importanceScore: values.importanceScore,
-            shortDescription: values.shortDescription?.trim() || undefined,
-            longDescription: values.longDescription?.trim() || undefined,
-            areaName: values.areaName?.trim() || undefined,
-            hours: values.hours?.trim() || undefined,
+            ...payload,
             photoUrl: values.photoUrl?.trim() || null,
             isActive: values.isActive,
           }),
@@ -260,7 +324,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
       return
     }
 
-    const confirmed = window.confirm('Delete this place? This cannot be undone.')
+    const confirmed = window.confirm('Delete this guide item? This cannot be undone.')
 
     if (!confirmed) {
       return
@@ -280,21 +344,100 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
     }
   }
 
+  const itemTypeField = (
+    <div>
+      <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-item-type">
+        Item type (optional)
+      </label>
+      <select
+        id="place-item-type"
+        className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+        {...register('itemType')}
+      >
+        <option value="">No selection</option>
+        {ITEM_TYPE_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+
+  const coordinateFields = (
+    <>
+      <div>
+        <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-lat">
+          Latitude{venueGuideMode === 'non_location' ? ' (optional)' : ''}
+        </label>
+        <Controller
+          control={control}
+          name="lat"
+          render={({ field }) => (
+            <input
+              id="place-lat"
+              inputMode="decimal"
+              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+              value={field.value ?? ''}
+              onChange={(event) => {
+                field.onChange(
+                  venueGuideMode === 'non_location'
+                    ? parseOptionalNumber(event.target.value)
+                    : parseNumber(event.target.value, field.value),
+                )
+              }}
+            />
+          )}
+        />
+      </div>
+
+      <div>
+        <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-lng">
+          Longitude{venueGuideMode === 'non_location' ? ' (optional)' : ''}
+        </label>
+        <Controller
+          control={control}
+          name="lng"
+          render={({ field }) => (
+            <input
+              id="place-lng"
+              inputMode="decimal"
+              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+              value={field.value ?? ''}
+              onChange={(event) => {
+                field.onChange(
+                  venueGuideMode === 'non_location'
+                    ? parseOptionalNumber(event.target.value)
+                    : parseNumber(event.target.value, field.value),
+                )
+              }}
+            />
+          )}
+        />
+        {venueGuideMode === 'non_location' ? (
+          <p className="mt-1 text-xs text-pf-deep/40">
+            Optional - only needed if this item has a physical location.
+          </p>
+        ) : null}
+      </div>
+    </>
+  )
+
   return (
     <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
       <div className="mb-6 space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">
-          {mode === 'create' ? 'Add place' : 'Edit place'}
+          {mode === 'create' ? 'Add guide item' : 'Edit guide item'}
         </h1>
         <p className="text-sm leading-6 text-pf-deep/60">
           {mode === 'create'
-            ? 'Create a new point of interest for this venue.'
-            : 'Update the place data that powers the public chat experience.'}
+            ? 'Create a new guide item for this venue.'
+            : 'Update the guide item data that powers the public chat experience.'}
         </p>
       </div>
 
       {isLoadingPlace ? (
-        <p className="text-sm text-pf-deep/50">Loading place...</p>
+        <p className="text-sm text-pf-deep/50">Loading guide item...</p>
       ) : (
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
           <input type="hidden" {...register('venueId')} value={venueId} />
@@ -318,12 +461,14 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
               ) : null}
             </div>
 
+            {venueGuideMode === 'non_location' ? itemTypeField : null}
+
             <div>
               <label
                 className="mb-2 block text-sm font-medium text-pf-deep/70"
                 htmlFor="place-type"
               >
-                Type
+                Category
               </label>
               <input
                 id="place-type"
@@ -355,47 +500,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
               />
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-lat">
-                Latitude
-              </label>
-              <Controller
-                control={control}
-                name="lat"
-                render={({ field }) => (
-                  <input
-                    id="place-lat"
-                    inputMode="decimal"
-                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-                    value={field.value}
-                    onChange={(event) => {
-                      field.onChange(parseNumber(event.target.value, field.value))
-                    }}
-                  />
-                )}
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-lng">
-                Longitude
-              </label>
-              <Controller
-                control={control}
-                name="lng"
-                render={({ field }) => (
-                  <input
-                    id="place-lng"
-                    inputMode="decimal"
-                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-                    value={field.value}
-                    onChange={(event) => {
-                      field.onChange(parseNumber(event.target.value, field.value))
-                    }}
-                  />
-                )}
-              />
-            </div>
+            {venueGuideMode === 'location_aware' ? coordinateFields : null}
           </div>
 
           <details
@@ -409,6 +514,9 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
               <span className="hidden text-xs text-pf-deep/40 group-open:inline">Hide</span>
             </summary>
             <div className="grid gap-5 border-t border-pf-light px-5 pb-5 pt-5 sm:grid-cols-2">
+              {venueGuideMode === 'location_aware' ? itemTypeField : null}
+              {venueGuideMode === 'non_location' ? coordinateFields : null}
+
               <div className="sm:col-span-2">
                 <label
                   className="mb-2 block text-sm font-medium text-pf-deep/70"
@@ -514,7 +622,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                   {...register('photoUrl')}
                 />
                 <p className="mt-1 text-xs text-pf-deep/40">
-                  Shown as a card in the visitor chat when this place is recommended.
+                  Shown as a card in the visitor chat when this guide item is recommended.
                 </p>
                 {errors.photoUrl ? (
                   <p className="mt-2 text-sm text-rose-600">{errors.photoUrl.message}</p>
@@ -532,7 +640,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                       checked={field.value ?? true}
                       onChange={(e) => field.onChange(e.target.checked)}
                     />
-                    Place is active
+                    Guide item is active
                   </label>
                 )}
               />
@@ -555,7 +663,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
                 }}
                 className="inline-flex min-h-11 items-center rounded-full border border-rose-200 px-5 text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isDeleting ? 'Deleting...' : 'Delete place'}
+                {isDeleting ? 'Deleting...' : 'Delete guide item'}
               </button>
             ) : (
               <div />
@@ -566,7 +674,7 @@ export function PlaceForm({ mode, venueId, placeId, initialValues }: PlaceFormPr
               disabled={isSubmitting || isDeleting}
               type="submit"
             >
-              {isSubmitting ? 'Saving...' : mode === 'create' ? 'Add place' : 'Save changes'}
+              {isSubmitting ? 'Saving...' : mode === 'create' ? 'Add guide item' : 'Save changes'}
             </button>
           </div>
         </form>

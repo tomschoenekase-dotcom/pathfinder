@@ -42,8 +42,8 @@ function getQuickActions(stats: DashboardOverviewProps['stats']) {
   } else if (stats.totalPlaces < 5) {
     actions.push({
       href: '/venues',
-      label: 'Add places to your venue',
-      description: 'The more places you add, the better the chatbot answers.',
+      label: 'Add guide items to your venue',
+      description: 'The more guide items you add, the better the chatbot answers.',
       icon: MapPin,
     })
   } else {
@@ -65,7 +65,7 @@ function getQuickActions(stats: DashboardOverviewProps['stats']) {
   actions.push({
     href: '/ai-controls',
     label: 'Tune the AI guide',
-    description: 'Adjust tone, featured places, and guide notes.',
+    description: 'Adjust tone, featured guide items, and guide notes.',
     icon: Bot,
   })
 
@@ -85,9 +85,9 @@ const statCards: StatCard[] = [
     href: '/venues',
     icon: MapPin,
     iconClassName: 'text-pf-accent',
-    label: 'Total Places',
+    label: 'Total Guide Items',
     valueKey: 'totalPlaces',
-    description: 'Points of interest mapped across your venues.',
+    description: 'Guide items configured across your venues.',
   },
   {
     href: '/operational-updates',

@@ -10,6 +10,7 @@ const venueSeed = {
   name: 'Riverside Aquarium',
   slug: 'riverside-aquarium',
   category: 'AQUARIUM',
+  guideMode: 'location_aware',
   description: 'A world-class aquarium in the heart of the city.',
   defaultCenterLat: 38.627,
   defaultCenterLng: -90.197,
@@ -269,6 +270,112 @@ async function main() {
         ...place,
         tenantId: DEMO_TENANT_ID,
         venueId: venue.id,
+      },
+    })
+  }
+
+  const historicVenue = await db.venue.upsert({
+    where: {
+      tenantId_slug: {
+        tenantId: DEMO_TENANT_ID,
+        slug: 'sappington-house',
+      },
+    },
+    update: {
+      name: 'Historic Sappington House',
+      category: 'MUSEUM',
+      description: 'A historic 19th-century home offering guided and self-guided tours.',
+      guideMode: 'non_location',
+      aiTone: 'FRIENDLY',
+      aiGuideName: 'Clara',
+      guideNotes:
+        'A single-story historic house with rooms organized roughly front to back from public to private.',
+      aiGuideNotes:
+        'Focus on the Sappington family history and 1800s daily life. Always mention the kitchen hearth as a highlight.',
+      isActive: true,
+    },
+    create: {
+      id: 'demo-venue-sappington-house',
+      tenantId: DEMO_TENANT_ID,
+      name: 'Historic Sappington House',
+      slug: 'sappington-house',
+      category: 'MUSEUM',
+      description: 'A historic 19th-century home offering guided and self-guided tours.',
+      guideMode: 'non_location',
+      aiTone: 'FRIENDLY',
+      aiGuideName: 'Clara',
+      guideNotes:
+        'A single-story historic house with rooms organized roughly front to back from public to private.',
+      aiGuideNotes:
+        'Focus on the Sappington family history and 1800s daily life. Always mention the kitchen hearth as a highlight.',
+      isActive: true,
+    },
+  })
+
+  const sappingtonItems = [
+    {
+      id: 'demo-sappington-overview',
+      name: 'Overview of the House',
+      type: 'general_info',
+      itemType: 'general_info',
+      shortDescription:
+        'Introduction to the house, its history, and what visitors will experience.',
+    },
+    {
+      id: 'demo-sappington-family',
+      name: 'Sappington Family History',
+      type: 'exhibit',
+      itemType: 'exhibit',
+      shortDescription: 'The story of the Sappington family who built and lived in this home.',
+    },
+    {
+      id: 'demo-sappington-kitchen',
+      name: 'The Kitchen',
+      type: 'room',
+      itemType: 'room',
+      shortDescription: 'The working kitchen featuring a large hearth used for all cooking.',
+    },
+    {
+      id: 'demo-sappington-parlor',
+      name: 'The Parlor',
+      type: 'room',
+      itemType: 'room',
+      shortDescription: 'The formal parlor where guests were received.',
+    },
+    {
+      id: 'demo-sappington-daily-life',
+      name: 'Time Period and Daily Life',
+      type: 'exhibit',
+      itemType: 'exhibit',
+      shortDescription: 'What life was like in this household in the 1800s.',
+    },
+    {
+      id: 'demo-sappington-visitor-info',
+      name: 'Tours and Visitor Info',
+      type: 'faq',
+      itemType: 'faq',
+      shortDescription: 'Tour schedules, admission, accessibility, and visitor policies.',
+    },
+  ]
+
+  for (const item of sappingtonItems) {
+    await db.place.upsert({
+      where: { id: item.id },
+      update: {
+        ...item,
+        tenantId: DEMO_TENANT_ID,
+        venueId: historicVenue.id,
+        lat: null,
+        lng: null,
+        importanceScore: 5,
+        isActive: true,
+      },
+      create: {
+        ...item,
+        tenantId: DEMO_TENANT_ID,
+        venueId: historicVenue.id,
+        importanceScore: 5,
+        isActive: true,
       },
     })
   }

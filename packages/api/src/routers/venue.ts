@@ -70,6 +70,7 @@ const venueListSelect = {
   description: true,
   guideNotes: true,
   category: true,
+  guideMode: true,
   defaultCenterLat: true,
   defaultCenterLng: true,
   aiGuideName: true,
@@ -113,6 +114,7 @@ export const venueRouter = router({
           name: string
           description: string | null
           category: string | null
+          guideMode: string
           defaultCenterLat: number | null
           defaultCenterLng: number | null
           aiGuideName: string | null
@@ -123,6 +125,7 @@ export const venueRouter = router({
         }[]
       >`
         SELECT id, name, description, category,
+               guide_mode            AS "guideMode",
                default_center_lat    AS "defaultCenterLat",
                default_center_lng    AS "defaultCenterLng",
                ai_guide_name         AS "aiGuideName",
@@ -200,6 +203,7 @@ export const venueRouter = router({
             slug,
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.category !== undefined ? { category: input.category } : {}),
+            guideMode: input.guideMode ?? 'location_aware',
             ...(input.defaultCenterLat !== undefined
               ? { defaultCenterLat: input.defaultCenterLat }
               : {}),

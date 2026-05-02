@@ -86,12 +86,12 @@ type SetupState = {
   place: FirstPlaceValues
 }
 
-const STEP_LABELS = ['Venue info', 'Venue location', 'First place'] as const
+const STEP_LABELS = ['Venue info', 'Venue location', 'First guide item'] as const
 
 const STEP_TITLES = [
   'Tell us about your venue',
   'Set your venue center',
-  'Add your first place',
+  'Add your first guide item',
 ] as const
 
 const INITIAL_STATE: SetupState = {
@@ -446,10 +446,10 @@ function FirstPlaceStep({
       <div className="space-y-5">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
-            Add your first place
+            Add your first guide item
           </h2>
           <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Add at least one place so your AI guide has something to talk about.
+            Add at least one guide item so your AI guide has something to talk about.
           </p>
         </div>
 
@@ -462,7 +462,7 @@ function FirstPlaceStep({
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="place-name">
-              Place name
+              Guide item name
             </label>
             <input
               id="place-name"
@@ -470,7 +470,7 @@ function FirstPlaceStep({
               {...register('name')}
             />
             <p className="mt-1 text-xs text-pf-deep/40">
-              Add your most popular or iconic location first - you can add more after setup.
+              Add your most popular or iconic item first - you can add more after setup.
             </p>
             {errors.name ? (
               <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p>
@@ -515,8 +515,8 @@ function FirstPlaceStep({
           </div>
         </div>
         <p className="rounded-2xl bg-pf-surface px-4 py-3 text-xs leading-5 text-pf-deep/40">
-          Place coordinates start at your venue center for setup. Right-click in Google Maps to copy
-          coordinates for this specific location, then fine-tune this place after setup.
+          Guide item coordinates start at your venue center for setup. Right-click in Google Maps to
+          copy coordinates for this specific location, then fine-tune this item after setup.
         </p>
       </div>
 

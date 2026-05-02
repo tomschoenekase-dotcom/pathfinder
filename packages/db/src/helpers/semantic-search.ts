@@ -21,13 +21,13 @@ export type SemanticPlace = {
   type: string
   shortDescription: string | null
   longDescription: string | null
-  lat: number
-  lng: number
+  lat: number | null
+  lng: number | null
   tags: string[]
   areaName: string | null
   hours: string | null
   photoUrl: string | null
-  distanceMeters: number
+  distanceMeters?: number
 }
 
 type RawPlaceRow = {
@@ -36,8 +36,8 @@ type RawPlaceRow = {
   type: string
   short_description: string | null
   long_description: string | null
-  lat: number
-  lng: number
+  lat: number | null
+  lng: number | null
   tags: string[]
   area_name: string | null
   hours: string | null
@@ -96,13 +96,15 @@ export async function searchPlacesByEmbedding(params: {
     type: row.type,
     shortDescription: row.short_description,
     longDescription: row.long_description,
-    lat: Number(row.lat),
-    lng: Number(row.lng),
+    lat: row.lat,
+    lng: row.lng,
     tags: row.tags ?? [],
     areaName: row.area_name,
     hours: row.hours,
     photoUrl: row.photo_url,
-    distanceMeters: haversineDistanceMeters(userLat, userLng, Number(row.lat), Number(row.lng)),
+    ...(row.lat != null && row.lng != null
+      ? { distanceMeters: haversineDistanceMeters(userLat, userLng, row.lat, row.lng) }
+      : {}),
   }))
 }
 
@@ -115,5 +117,6 @@ export async function searchPlacesByEmbedding(params: {
 export async function storePlaceEmbedding(placeId: string, embedding: number[]): Promise<void> {
   const vectorStr = `[${embedding.join(',')}]`
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (db as any).$executeRaw`UPDATE places SET embedding = ${vectorStr}::vector WHERE id = ${placeId}`
+  await (db as any)
+    .$executeRaw`UPDATE places SET embedding = ${vectorStr}::vector WHERE id = ${placeId}`
 }

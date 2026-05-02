@@ -11,9 +11,9 @@ type PlaceSummary = {
   name: string
   type: string
   photoUrl: string | null
-  distanceMeters: number
-  lat: number
-  lng: number
+  distanceMeters: number | undefined
+  lat: number | null
+  lng: number | null
 }
 
 type Message = {

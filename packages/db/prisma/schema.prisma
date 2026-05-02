@@ -138,6 +138,7 @@ model Venue {
   chatLogoUrl      String?          @map("chat_logo_url")
   chatBannerUrl    String?          @map("chat_banner_url")
   category         String?
+  guideMode        String           @default("location_aware") @map("guide_mode")
   defaultCenterLat Float?           @map("default_center_lat")
   defaultCenterLng Float?           @map("default_center_lng")
   geoBoundary      Json?            @map("geo_boundary")
@@ -164,10 +165,11 @@ model Place {
   venueId          String    @map("venue_id")
   name             String
   type             String
+  itemType         String?   @map("item_type")
   shortDescription String?   @map("short_description")
   longDescription  String?   @map("long_description")
-  lat              Float
-  lng              Float
+  lat              Float?
+  lng              Float?
   tags             String[]
   importanceScore  Int       @default(0) @map("importance_score")
   areaName         String?   @map("area_name")

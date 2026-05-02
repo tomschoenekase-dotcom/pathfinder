@@ -137,7 +137,7 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                 href={`/venues/${venue.id}/places/new`}
                 className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
               >
-                Add place
+                Add guide item
               </Link>
             </div>
           </div>
@@ -146,14 +146,15 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             <section className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-6 py-5">
               <p className="text-sm font-semibold text-emerald-800">Your venue is set up.</p>
               <p className="mt-1 text-sm leading-6 text-emerald-700">
-                Add more places to improve the AI guide, then share the chat URL with your guests.
+                Add more guide items to improve the AI guide, then share the chat URL with your
+                guests.
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   href={`/venues/${venueId}/places/new`}
                   className="inline-flex min-h-9 items-center rounded-full bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800"
                 >
-                  Add more places
+                  Add more guide items
                 </Link>
                 <Link
                   href="/ai-controls"
@@ -177,7 +178,9 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
               </p>
             </article>
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">Active places</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
+                Active guide items
+              </p>
               <p className="mt-2 text-2xl font-semibold text-pf-deep">{activePlacesCount}</p>
             </article>
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
@@ -195,7 +198,9 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
               </p>
             </article>
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">Featured place</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
+                Featured guide item
+              </p>
               <p className="mt-2 text-lg font-semibold text-pf-deep">
                 {featuredPlace?.name ?? 'Not selected'}
               </p>
@@ -211,17 +216,17 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
 
           <section className="overflow-hidden rounded-[2rem] border border-pf-light bg-pf-white shadow-sm">
             <div className="border-b border-pf-light px-6 py-5">
-              <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Places</h2>
+              <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Guide Items</h2>
               <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-                Review the landmarks and amenities powering the venue guide.
+                Review the guide items powering the venue guide.
               </p>
             </div>
 
             {places.length === 0 ? (
               <div className="px-6 py-10 text-center">
-                <p className="text-lg font-medium text-pf-deep">No places yet</p>
+                <p className="text-lg font-medium text-pf-deep">No guide items yet</p>
                 <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-                  Add POIs, amenities, and landmarks so the public chat can answer venue questions.
+                  Add guide items so the public chat can answer venue questions.
                 </p>
               </div>
             ) : (
@@ -264,7 +269,9 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                         </td>
                         <td className="px-6 py-4 align-top">
                           <p className="font-mono text-xs text-pf-deep/60">
-                            {place.lat.toFixed(5)}, {place.lng.toFixed(5)}
+                            {place.lat != null && place.lng != null
+                              ? `${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}`
+                              : 'Not set'}
                           </p>
                         </td>
                         <td className="px-6 py-4 text-right align-top">

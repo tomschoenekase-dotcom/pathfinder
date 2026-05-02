@@ -41,7 +41,7 @@ export function _setAnthropicClientForTesting(client: Anthropic | null): void {
 
 const sessionSchema = z
   .object({
-    venueId: z.string().cuid(),
+    venueId: z.string().min(1),
     anonymousToken: z.string().uuid(),
     lat: z.number().optional(),
     lng: z.number().optional(),
@@ -50,11 +50,11 @@ const sessionSchema = z
 
 const sendMessageSchema = z
   .object({
-    venueId: z.string().cuid(),
+    venueId: z.string().min(1),
     anonymousToken: z.string().uuid(),
     message: z.string().min(1).max(1000),
-    lat: z.number(),
-    lng: z.number(),
+    lat: z.number().optional(),
+    lng: z.number().optional(),
     language: z.string().max(50).optional(),
   })
   .strict()
@@ -128,6 +128,9 @@ export const chatRouter = router({
         aiTone: string | null
         aiGuideName: string | null
         category: string | null
+        guideMode: string | null
+        defaultCenterLat: number | null
+        defaultCenterLng: number | null
       }[]
     >`
       SELECT id,
@@ -139,13 +142,30 @@ export const chatRouter = router({
              ai_featured_place_id AS "aiFeaturedPlaceId",
              ai_tone AS "aiTone",
              ai_guide_name AS "aiGuideName",
-             category
+             category,
+             guide_mode AS "guideMode",
+             default_center_lat AS "defaultCenterLat",
+             default_center_lng AS "defaultCenterLng"
       FROM venues WHERE id = ${input.venueId} AND is_active = true LIMIT 1
     `
 
     if (!venue) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
     }
+
+    const guideMode = venue.guideMode ?? 'location_aware'
+    const userLat = input.lat ?? venue.defaultCenterLat
+    const userLng = input.lng ?? venue.defaultCenterLng
+
+    if (guideMode === 'location_aware' && (userLat == null || userLng == null)) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Location is still unavailable for this venue.',
+      })
+    }
+
+    const contextLat = userLat ?? 0
+    const contextLng = userLng ?? 0
 
     const [sessionAllowed, venueAllowed] = await Promise.all([
       checkRateLimit(`ratelimit:chat:session:${input.anonymousToken}`, 60, 3600),
@@ -168,13 +188,13 @@ export const chatRouter = router({
         tenantId: venue.tenantId,
         venueId: input.venueId,
         anonymousToken: input.anonymousToken,
-        latestLat: input.lat,
-        latestLng: input.lng,
+        latestLat: input.lat ?? null,
+        latestLng: input.lng ?? null,
         lastActiveAt: new Date(),
       },
       update: {
-        latestLat: input.lat,
-        latestLng: input.lng,
+        latestLat: input.lat ?? null,
+        latestLng: input.lng ?? null,
         lastActiveAt: new Date(),
       },
       select: { id: true },
@@ -200,13 +220,12 @@ export const chatRouter = router({
         queryEmbedding,
         venueId: input.venueId,
         tenantId: venue.tenantId,
-        userLat: input.lat,
-        userLng: input.lng,
+        userLat: contextLat,
+        userLng: contextLng,
         limit: NEAREST_PLACES_LIMIT,
       })
     } else {
-      // Fallback: load all active places and pick the nearest by distance
-      const allPlaces = await ctx.db.place.findMany({
+      const fallbackPlaces = await ctx.db.place.findMany({
         where: { venueId: input.venueId, tenantId: venue.tenantId, isActive: true },
         select: {
           id: true,
@@ -220,9 +239,18 @@ export const chatRouter = router({
           areaName: true,
           hours: true,
           photoUrl: true,
+          importanceScore: true,
         },
+        orderBy: { importanceScore: 'desc' },
+        take: NEAREST_PLACES_LIMIT,
       })
-      relevantPlaces = findNearestPlaces(input.lat, input.lng, allPlaces, NEAREST_PLACES_LIMIT)
+      relevantPlaces =
+        guideMode === 'location_aware' && userLat != null && userLng != null
+          ? findNearestPlaces(userLat, userLng, fallbackPlaces, NEAREST_PLACES_LIMIT)
+          : fallbackPlaces.map(({ importanceScore: _importanceScore, ...place }) => ({
+              ...place,
+              distanceMeters: 0,
+            }))
     }
 
     let featuredPlace: {
@@ -263,10 +291,11 @@ export const chatRouter = router({
     const systemPrompt = buildVenueSystemPrompt({
       venue,
       relevantPlaces,
-      userLat: input.lat,
-      userLng: input.lng,
+      userLat: contextLat,
+      userLng: contextLng,
       featuredPlace,
       ...(input.language ? { language: input.language } : {}),
+      guideMode,
     })
     const history = historyDesc.reverse()
 
@@ -347,9 +376,17 @@ export const chatRouter = router({
 
     // Filter places to only those Claude actually mentioned in the response.
     // Cap at 3 — more than that in a single turn is visual noise.
-    const mentionedPlaces = relevantPlaces
-      .filter((p) => assistantResponse.toLowerCase().includes(p.name.toLowerCase()))
-      .slice(0, 3)
+    const mentionedPlaces =
+      guideMode === 'non_location'
+        ? []
+        : relevantPlaces
+            .filter(
+              (p) =>
+                p.lat != null &&
+                p.lng != null &&
+                assistantResponse.toLowerCase().includes(p.name.toLowerCase()),
+            )
+            .slice(0, 3)
 
     return {
       response: assistantResponse,
@@ -375,7 +412,7 @@ export const chatRouter = router({
     .input(
       z
         .object({
-          venueId: z.string().cuid(),
+          venueId: z.string().min(1),
           anonymousToken: z.string().uuid(),
         })
         .strict(),

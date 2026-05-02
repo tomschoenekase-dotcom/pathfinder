@@ -50,7 +50,7 @@ export function VenueCard({ venue }: VenueCardProps) {
             <dd className="mt-1 font-medium text-pf-deep">{venue.slug}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-widest text-pf-deep/30">Places</dt>
+            <dt className="text-xs uppercase tracking-widest text-pf-deep/30">Guide Items</dt>
             <dd className="mt-1 font-medium text-pf-deep">{venue.placeCount}</dd>
           </div>
           <div>

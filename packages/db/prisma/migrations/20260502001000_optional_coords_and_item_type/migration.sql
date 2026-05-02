@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "places" ALTER COLUMN "lat" DROP NOT NULL;
+ALTER TABLE "places" ALTER COLUMN "lng" DROP NOT NULL;
+ALTER TABLE "places" ADD COLUMN "item_type" TEXT;

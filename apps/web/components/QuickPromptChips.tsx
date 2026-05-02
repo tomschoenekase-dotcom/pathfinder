@@ -4,9 +4,25 @@ type QuickPromptChipsProps = {
   onSend: (message: string) => void
   venueName?: string | undefined
   venueCategory?: string | undefined
+  guideMode?: string | undefined
 }
 
-export function buildPrompts(venueName?: string, venueCategory?: string): string[] {
+export function buildPrompts(
+  venueName?: string,
+  venueCategory?: string,
+  guideMode?: string,
+): string[] {
+  if (guideMode === 'non_location') {
+    return [
+      'What should I know first?',
+      'Explain this place to me.',
+      'Walk me through what to do when I arrive.',
+      'What is the most important thing to know here?',
+      venueName ? `Tell me about ${venueName}.` : 'Tell me about this place.',
+      'Can you explain something in simpler terms?',
+    ]
+  }
+
   return [
     "What's worth seeing near me right now?",
     'Where should I go next?',
@@ -19,8 +35,13 @@ export function buildPrompts(venueName?: string, venueCategory?: string): string
   ]
 }
 
-export function QuickPromptChips({ onSend, venueName, venueCategory }: QuickPromptChipsProps) {
-  const prompts = buildPrompts(venueName, venueCategory)
+export function QuickPromptChips({
+  onSend,
+  venueName,
+  venueCategory,
+  guideMode,
+}: QuickPromptChipsProps) {
+  const prompts = buildPrompts(venueName, venueCategory, guideMode)
 
   return (
     <section className="mb-4">

@@ -18,6 +18,7 @@ type VenueFormProps = {
     description: string
     guideNotes: string
     category: string
+    guideMode: 'location_aware' | 'non_location'
     defaultCenterLat: number | undefined
     defaultCenterLng: number | undefined
   }
@@ -29,6 +30,7 @@ type VenueFormValues = {
   description: string | undefined
   guideNotes: string | undefined
   category: string | undefined
+  guideMode: 'location_aware' | 'non_location'
   defaultCenterLat: number | undefined
   defaultCenterLng: number | undefined
 }
@@ -68,6 +70,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
     handleSubmit,
     register,
     reset,
+    watch,
   } = useForm<VenueFormValues>({
     resolver,
     defaultValues: initialValues ?? {
@@ -76,10 +79,12 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
       description: '',
       guideNotes: '',
       category: '',
+      guideMode: 'location_aware',
       defaultCenterLat: undefined,
       defaultCenterLng: undefined,
     },
   })
+  const guideMode = watch('guideMode')
 
   useEffect(() => {
     let disposed = false
@@ -103,6 +108,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
             description: venue.description ?? '',
             guideNotes: venue.guideNotes ?? '',
             category: venue.category ?? '',
+            guideMode: venue.guideMode === 'non_location' ? 'non_location' : 'location_aware',
             defaultCenterLat: venue.defaultCenterLat ?? undefined,
             defaultCenterLng: venue.defaultCenterLng ?? undefined,
           })
@@ -130,6 +136,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           description: values.description?.trim() || undefined,
           guideNotes: values.guideNotes?.trim() || undefined,
           category: values.category?.trim() || undefined,
+          guideMode: values.guideMode,
           defaultCenterLat: values.defaultCenterLat,
           defaultCenterLng: values.defaultCenterLng,
         })
@@ -141,6 +148,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           description: values.description?.trim() || undefined,
           guideNotes: values.guideNotes?.trim() || undefined,
           category: values.category?.trim() || undefined,
+          guideMode: values.guideMode,
           defaultCenterLat: values.defaultCenterLat,
           defaultCenterLng: values.defaultCenterLng,
         })
@@ -250,6 +258,42 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
               />
             </div>
 
+            <fieldset className="sm:col-span-2 rounded-2xl border border-pf-light p-4">
+              <legend className="px-1 text-sm font-medium text-pf-deep/70">
+                Use location features?
+              </legend>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <label className="flex cursor-pointer gap-3 rounded-2xl border border-pf-light p-4 transition hover:border-pf-accent">
+                  <input
+                    type="radio"
+                    value="location_aware"
+                    className="mt-1"
+                    {...register('guideMode')}
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-pf-deep">Yes</span>
+                    <span className="mt-1 block text-sm leading-6 text-pf-deep/60">
+                      This venue uses physical guide items with coordinates.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer gap-3 rounded-2xl border border-pf-light p-4 transition hover:border-pf-accent">
+                  <input
+                    type="radio"
+                    value="non_location"
+                    className="mt-1"
+                    {...register('guideMode')}
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-pf-deep">No</span>
+                    <span className="mt-1 block text-sm leading-6 text-pf-deep/60">
+                      This venue is an exhibit, service, or informational guide.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
             <div className="sm:col-span-2">
               <label
                 className="mb-2 block text-sm font-medium text-pf-deep/70"
@@ -282,47 +326,57 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
               />
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="venue-lat">
-                Default center latitude
-              </label>
-              <Controller
-                control={control}
-                name="defaultCenterLat"
-                render={({ field }) => (
-                  <input
-                    id="venue-lat"
-                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-                    inputMode="decimal"
-                    value={field.value ?? ''}
-                    onChange={(event) => {
-                      field.onChange(parseOptionalNumber(event.target.value))
-                    }}
+            {guideMode !== 'non_location' ? (
+              <>
+                <div>
+                  <label
+                    className="mb-2 block text-sm font-medium text-pf-deep/70"
+                    htmlFor="venue-lat"
+                  >
+                    Default center latitude
+                  </label>
+                  <Controller
+                    control={control}
+                    name="defaultCenterLat"
+                    render={({ field }) => (
+                      <input
+                        id="venue-lat"
+                        className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+                        inputMode="decimal"
+                        value={field.value ?? ''}
+                        onChange={(event) => {
+                          field.onChange(parseOptionalNumber(event.target.value))
+                        }}
+                      />
+                    )}
                   />
-                )}
-              />
-            </div>
+                </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="venue-lng">
-                Default center longitude
-              </label>
-              <Controller
-                control={control}
-                name="defaultCenterLng"
-                render={({ field }) => (
-                  <input
-                    id="venue-lng"
-                    className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-                    inputMode="decimal"
-                    value={field.value ?? ''}
-                    onChange={(event) => {
-                      field.onChange(parseOptionalNumber(event.target.value))
-                    }}
+                <div>
+                  <label
+                    className="mb-2 block text-sm font-medium text-pf-deep/70"
+                    htmlFor="venue-lng"
+                  >
+                    Default center longitude
+                  </label>
+                  <Controller
+                    control={control}
+                    name="defaultCenterLng"
+                    render={({ field }) => (
+                      <input
+                        id="venue-lng"
+                        className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+                        inputMode="decimal"
+                        value={field.value ?? ''}
+                        onChange={(event) => {
+                          field.onChange(parseOptionalNumber(event.target.value))
+                        }}
+                      />
+                    )}
                   />
-                )}
-              />
-            </div>
+                </div>
+              </>
+            ) : null}
           </div>
 
           {formError ? (
@@ -333,7 +387,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
 
           {mode === 'edit' ? (
             <p className="text-xs text-pf-deep/40">
-              Venues with places cannot be deleted. Remove all places first.
+              Venues with guide items cannot be deleted. Remove all guide items first.
             </p>
           ) : null}
 
