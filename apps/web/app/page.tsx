@@ -30,21 +30,6 @@ const venueTypes = [
   { label: 'Parks & Botanical Gardens', icon: Leaf },
 ]
 
-const benefits = [
-  {
-    stat: '< 1 afternoon',
-    label: 'Average setup time from signup to live QR code',
-  },
-  {
-    stat: '24 / 7',
-    label: 'Always on — no shift changes, no hold times, no missed questions',
-  },
-  {
-    stat: 'Zero downloads',
-    label: 'Guests scan and chat instantly — no app, no login, no friction',
-  },
-]
-
 export default function WebHomePage() {
   return (
     <div className="min-h-screen bg-pf-surface font-jakarta text-pf-deep">
@@ -74,82 +59,72 @@ export default function WebHomePage() {
           aria-hidden="true"
         />
 
-        <div className="relative mx-auto grid max-w-7xl gap-12 px-6 py-24 lg:grid-cols-[1fr_0.85fr] lg:items-center lg:px-10 lg:py-32">
-          <div>
+        <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-16 lg:px-10 lg:pb-32 lg:pt-20">
+          <div className="flex justify-center pb-12">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/pathfinder-logo.png" alt="PathFinder" className="h-20 w-auto" />
-            <h1 className="mt-6 text-5xl font-light leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
-              Your venue guide,
-              <br />
-              <span className="font-semibold text-pf-light">built on your places.</span>
-            </h1>
-            <p className="mt-6 max-w-xl text-lg leading-8 text-pf-light/80">
-              Guests ask questions. PathFinder answers with real directions, hours, and
-              recommendations specific to your venue. Set up in an afternoon. No app download
-              required.
-            </p>
-            <div className="mt-10 flex flex-col gap-4 sm:flex-row">
-              <a
-                href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
-                className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-accent px-7 text-sm font-semibold text-white transition hover:bg-[#4d8de0]"
-              >
-                Request a demo
-              </a>
-              <a
-                href="#how-it-works"
-                className="inline-flex min-h-12 items-center justify-center rounded-full border border-pf-light/30 px-7 text-sm font-semibold text-pf-light transition hover:border-pf-light hover:bg-pf-light/10"
-              >
-                See how it works
-              </a>
-            </div>
+            <img src="/pathfinder-logo.png" alt="PathFinder" className="h-64 w-auto" />
           </div>
 
-          <div className="rounded-3xl border border-pf-light/20 bg-pf-white/8 p-4 shadow-2xl backdrop-blur">
-            <div className="rounded-2xl bg-pf-deep/80 p-5">
-              <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pf-accent">
-                  <MapPinned className="h-5 w-5 text-white" aria-hidden="true" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">Riverside Zoo Guide</p>
-                  <p className="text-xs text-pf-light/60">Powered by PathFinder</p>
-                </div>
+          <div className="grid gap-12 lg:grid-cols-[1fr_0.85fr] lg:items-center">
+            <div>
+              <h1 className="text-5xl font-light leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
+                Your venue guide,
+                <br />
+                <span className="font-semibold text-pf-light">built on your places.</span>
+              </h1>
+              <p className="mt-6 max-w-xl text-lg leading-8 text-pf-light/80">
+                Guests ask questions. PathFinder answers with real directions, hours, and
+                recommendations specific to your venue. Set up in an afternoon. No app download
+                required.
+              </p>
+              <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+                <a
+                  href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
+                  className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-accent px-7 text-sm font-semibold text-white transition hover:bg-[#4d8de0]"
+                >
+                  Request a demo
+                </a>
+                <a
+                  href="#how-it-works"
+                  className="inline-flex min-h-12 items-center justify-center rounded-full border border-pf-light/30 px-7 text-sm font-semibold text-pf-light transition hover:border-pf-light hover:bg-pf-light/10"
+                >
+                  See how it works
+                </a>
               </div>
-              <div className="mt-5 space-y-4">
-                <div className="ml-auto max-w-[80%] rounded-3xl rounded-br-md bg-pf-accent px-4 py-3 text-sm font-medium text-white">
-                  What should we see first with two kids?
-                </div>
-                <div className="max-w-[88%] rounded-3xl rounded-bl-md bg-pf-white px-4 py-3 text-sm leading-6 text-pf-deep">
-                  Start at River Otters. It opens at 9 AM and draws the biggest crowds by noon. From
-                  there, the east path takes you to the touch pool in about 4 minutes.
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
-                  <div className="rounded-2xl border border-pf-light/20 bg-pf-light/10 p-3 text-pf-light">
-                    <MapPinned className="mb-2 h-4 w-4" aria-hidden="true" />
-                    Directions-aware
+            </div>
+
+            <div className="rounded-3xl border border-pf-light/20 bg-pf-white/8 p-4 shadow-2xl backdrop-blur">
+              <div className="rounded-2xl bg-pf-deep/80 p-5">
+                <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pf-accent">
+                    <MapPinned className="h-5 w-5 text-white" aria-hidden="true" />
                   </div>
-                  <div className="rounded-2xl border border-pf-light/20 bg-pf-light/10 p-3 text-pf-light">
-                    <ScanLine className="mb-2 h-4 w-4" aria-hidden="true" />
-                    No app download
+                  <div>
+                    <p className="text-sm font-semibold text-white">Riverside Zoo Guide</p>
+                    <p className="text-xs text-pf-light/60">Powered by PathFinder</p>
+                  </div>
+                </div>
+                <div className="mt-5 space-y-4">
+                  <div className="ml-auto max-w-[80%] rounded-3xl rounded-br-md bg-pf-accent px-4 py-3 text-sm font-medium text-white">
+                    What should we see first with two kids?
+                  </div>
+                  <div className="max-w-[88%] rounded-3xl rounded-bl-md bg-pf-white px-4 py-3 text-sm leading-6 text-pf-deep">
+                    Start at River Otters. It opens at 9 AM and draws the biggest crowds by noon.
+                    From there, the east path takes you to the touch pool in about 4 minutes.
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
+                    <div className="rounded-2xl border border-pf-light/20 bg-pf-light/10 p-3 text-pf-light">
+                      <MapPinned className="mb-2 h-4 w-4" aria-hidden="true" />
+                      Directions-aware
+                    </div>
+                    <div className="rounded-2xl border border-pf-light/20 bg-pf-light/10 p-3 text-pf-light">
+                      <ScanLine className="mb-2 h-4 w-4" aria-hidden="true" />
+                      No app download
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="border-b border-pf-light bg-pf-white px-6 py-16 lg:px-10">
-        <div className="mx-auto max-w-7xl">
-          <div className="grid gap-8 sm:grid-cols-3">
-            {benefits.map((b) => (
-              <div key={b.stat} className="flex flex-col gap-2">
-                <span className="text-4xl font-semibold tracking-tight text-pf-primary">
-                  {b.stat}
-                </span>
-                <p className="text-sm leading-6 text-pf-deep/60">{b.label}</p>
-              </div>
-            ))}
           </div>
         </div>
       </section>
