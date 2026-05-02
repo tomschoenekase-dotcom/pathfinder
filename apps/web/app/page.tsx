@@ -36,7 +36,7 @@ export default function WebHomePage() {
       <header className="sticky top-0 z-50 border-b border-white/10 bg-pf-deep">
         <div className="mx-auto flex max-w-7xl items-center px-6 py-3 lg:px-10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/pathfinder-logo.png" alt="PathFinder" className="h-10 w-auto" />
+          <img src="/pathfinder-logo.png" alt="PathFinder" className="h-[200px] w-auto" />
         </div>
       </header>
 
@@ -160,13 +160,16 @@ export default function WebHomePage() {
         </div>
       </section>
 
-      <section className="bg-pf-white px-6 py-24 lg:px-10">
+      <section
+        className="px-6 py-24 lg:px-10"
+        style={{ background: 'linear-gradient(135deg, #0F2A4A 0%, #1F4E8C 60%, #3A7BD5 100%)' }}
+      >
         <div className="mx-auto max-w-7xl">
           <FadeIn>
-            <span className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
+            <span className="text-xs font-semibold uppercase tracking-widest text-pf-light/60">
               What guests ask
             </span>
-            <h2 className="mt-4 max-w-2xl text-3xl font-semibold leading-snug tracking-tight sm:text-4xl">
+            <h2 className="mt-4 max-w-2xl text-3xl font-semibold leading-snug tracking-tight text-white sm:text-4xl">
               Answers that sound like your best floor staff.
             </h2>
           </FadeIn>
@@ -177,10 +180,10 @@ export default function WebHomePage() {
                 <div
                   className={`rounded-3xl px-6 py-5 text-sm font-medium leading-6 ${
                     index % 3 === 0
-                      ? 'bg-pf-deep text-pf-light'
+                      ? 'bg-white/10 text-white backdrop-blur'
                       : index % 3 === 1
-                        ? 'border border-pf-light bg-pf-surface text-pf-deep'
-                        : 'border border-pf-accent/30 bg-pf-accent/5 text-pf-primary'
+                        ? 'border border-white/20 bg-white/5 text-pf-light'
+                        : 'border border-pf-accent/40 bg-pf-accent/20 text-pf-light'
                   }`}
                 >
                   &ldquo;{question}&rdquo;
@@ -236,22 +239,19 @@ export default function WebHomePage() {
         </FadeIn>
       </section>
 
-      <footer className="border-t border-pf-light bg-pf-white px-6 py-10 lg:px-10">
+      <footer className="border-t border-white/10 bg-pf-deep px-6 py-10 lg:px-10">
         <div className="mx-auto flex max-w-7xl flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-pf-deep/40">
+          <p className="text-xs text-white/30">
             © {new Date().getFullYear()} PathFinder. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <a
               href="mailto:tomschoenekase@gmail.com"
-              className="text-xs text-pf-deep/40 transition hover:text-pf-primary"
+              className="text-xs text-white/30 transition hover:text-white"
             >
               Contact
             </a>
-            <Link
-              href="/privacy"
-              className="text-xs text-pf-deep/40 transition hover:text-pf-primary"
-            >
+            <Link href="/privacy" className="text-xs text-white/30 transition hover:text-white">
               Privacy Policy
             </Link>
           </div>
