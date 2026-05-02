@@ -33,10 +33,18 @@ const venueTypes = [
 export default function WebHomePage() {
   return (
     <div className="min-h-screen bg-pf-surface font-jakarta text-pf-deep">
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-pf-deep">
-        <div className="mx-auto flex max-w-7xl items-center px-6 py-3 lg:px-10">
+      <header
+        className="sticky top-0 z-50 overflow-hidden border-b border-white/10 bg-pf-deep"
+        style={{ height: '80px' }}
+      >
+        <div className="mx-auto max-w-7xl px-6 lg:px-10" style={{ marginTop: '-80px' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/pathfinder-logo.png" alt="PathFinder" className="h-[200px] w-auto" />
+          <img
+            src="/pathfinder-logo.png"
+            alt="PathFinder"
+            className="w-auto"
+            style={{ height: '200px' }}
+          />
         </div>
       </header>
 
