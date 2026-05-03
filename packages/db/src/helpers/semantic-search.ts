@@ -19,6 +19,7 @@ export type SemanticPlace = {
   id: string
   name: string
   type: string
+  itemType: string | null
   shortDescription: string | null
   longDescription: string | null
   lat: number | null
@@ -34,6 +35,7 @@ type RawPlaceRow = {
   id: string
   name: string
   type: string
+  item_type: string | null
   short_description: string | null
   long_description: string | null
   lat: number | null
@@ -73,6 +75,7 @@ export async function searchPlacesByEmbedding(params: {
       id,
       name,
       type,
+      item_type,
       short_description,
       long_description,
       lat,
@@ -94,6 +97,7 @@ export async function searchPlacesByEmbedding(params: {
     id: row.id,
     name: row.name,
     type: row.type,
+    itemType: row.item_type,
     shortDescription: row.short_description,
     longDescription: row.long_description,
     lat: row.lat,

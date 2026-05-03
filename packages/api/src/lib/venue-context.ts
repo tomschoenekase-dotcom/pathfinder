@@ -2,12 +2,17 @@ type RelevantPlace = {
   id?: string
   name: string
   type: string
+  itemType?: string | null
   shortDescription: string | null
   longDescription: string | null
   distanceMeters?: number
   areaName: string | null
   tags: string[]
   hours: string | null
+}
+
+function formatItemType(itemType: string): string {
+  return itemType.replace(/_/g, ' ')
 }
 
 type VenueInfo = {
@@ -77,11 +82,12 @@ export function buildVenueSystemPrompt(params: {
                 ? ` - ${formatDistance(p.distanceMeters)}`
                 : ''
             const area = p.areaName ? ` in ${p.areaName}` : ''
+            const typeLabel = p.itemType ? formatItemType(p.itemType) : p.type
             const desc = p.shortDescription ? `\n   ${p.shortDescription}` : ''
             const detail = p.longDescription ? `\n   Details: ${p.longDescription}` : ''
             const tags = p.tags.length > 0 ? `\n   Tags: ${p.tags.join(', ')}` : ''
             const hours = `\n   Hours: ${p.hours ?? 'not specified'}`
-            return `${i + 1}. ${p.name} (${p.type})${distance}${area}${desc}${detail}${tags}${hours}`
+            return `${i + 1}. ${p.name} (${typeLabel})${distance}${area}${desc}${detail}${tags}${hours}`
           })
           .join('\n\n')
 

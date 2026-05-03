@@ -36,6 +36,7 @@ export function _setOpenAIClientForTesting(client: OpenAI | null): void {
 export function buildPlaceText(place: {
   name: string
   type: string
+  itemType?: string | null
   shortDescription: string | null
   longDescription: string | null
   tags: string[]
@@ -44,7 +45,7 @@ export function buildPlaceText(place: {
 }): string {
   return [
     place.name,
-    place.type,
+    place.itemType ?? place.type,
     place.areaName,
     place.shortDescription,
     place.longDescription,
@@ -91,6 +92,7 @@ export async function embedPlace(place: {
   id: string
   name: string
   type: string
+  itemType?: string | null
   shortDescription: string | null
   longDescription: string | null
   tags: string[]

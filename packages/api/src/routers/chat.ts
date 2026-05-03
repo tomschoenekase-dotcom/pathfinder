@@ -231,6 +231,7 @@ export const chatRouter = router({
           id: true,
           name: true,
           type: true,
+          itemType: true,
           shortDescription: true,
           longDescription: true,
           lat: true,
