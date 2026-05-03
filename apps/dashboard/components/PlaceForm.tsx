@@ -280,9 +280,14 @@ export function PlaceForm({
       return
     }
 
+    const resolvedType =
+      venueGuideMode === 'non_location'
+        ? (normalizeItemType(values.itemType) ?? 'general_info')
+        : values.type
+
     const payload = {
       name: values.name,
-      type: values.type,
+      type: resolvedType,
       itemType: normalizeItemType(values.itemType),
       lat: values.lat,
       lng: values.lng,
@@ -463,28 +468,30 @@ export function PlaceForm({
 
             {venueGuideMode === 'non_location' ? itemTypeField : null}
 
-            <div>
-              <label
-                className="mb-2 block text-sm font-medium text-pf-deep/70"
-                htmlFor="place-type"
-              >
-                Category
-              </label>
-              <input
-                id="place-type"
-                list="place-type-suggestions"
-                className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-                {...register('type')}
-              />
-              <datalist id="place-type-suggestions">
-                {PLACE_TYPE_SUGGESTIONS.map((value) => (
-                  <option key={value} value={value} />
-                ))}
-              </datalist>
-              {errors.type ? (
-                <p className="mt-2 text-sm text-rose-600">{errors.type.message}</p>
-              ) : null}
-            </div>
+            {venueGuideMode === 'location_aware' ? (
+              <div>
+                <label
+                  className="mb-2 block text-sm font-medium text-pf-deep/70"
+                  htmlFor="place-type"
+                >
+                  Category
+                </label>
+                <input
+                  id="place-type"
+                  list="place-type-suggestions"
+                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+                  {...register('type')}
+                />
+                <datalist id="place-type-suggestions">
+                  {PLACE_TYPE_SUGGESTIONS.map((value) => (
+                    <option key={value} value={value} />
+                  ))}
+                </datalist>
+                {errors.type ? (
+                  <p className="mt-2 text-sm text-rose-600">{errors.type.message}</p>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="sm:col-span-2">
               <label
