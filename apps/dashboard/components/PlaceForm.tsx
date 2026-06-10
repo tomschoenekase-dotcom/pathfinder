@@ -50,16 +50,30 @@ type PlaceFormProps = {
   initialValues?: PlaceFormValues
 }
 
-const PLACE_TYPE_SUGGESTIONS = [
-  'attraction',
-  'amenity',
-  'restroom',
-  'food',
-  'seating',
-  'exhibit',
-  'scenic_spot',
-  'entrance',
-] as const
+const LOCATION_AWARE_CATEGORY_OPTIONS: { value: string; label: string; hint: string }[] = [
+  {
+    value: 'attraction',
+    label: 'Attraction',
+    hint: 'A highlight or point of interest worth visiting',
+  },
+  {
+    value: 'exhibit',
+    label: 'Exhibit',
+    hint: 'A display or installation visitors view or experience',
+  },
+  { value: 'food', label: 'Food & Drink', hint: 'A dining, snack, or beverage location' },
+  {
+    value: 'utility',
+    label: 'Utility',
+    hint: 'Practical facility — restroom, water, first aid, ATM',
+  },
+  { value: 'entrance', label: 'Entrance / Exit', hint: 'An entry or exit point for navigation' },
+  {
+    value: 'location',
+    label: 'Location Marker',
+    hint: 'A spatial reference point (e.g. "northwest corner") used in directions',
+  },
+]
 
 const ITEM_TYPE_OPTIONS: { value: ItemType; label: string }[] = [
   { value: 'physical_place', label: 'Physical place' },
@@ -198,6 +212,7 @@ export function PlaceForm({
     handleSubmit,
     register,
     reset,
+    watch,
   } = useForm<PlaceFormValues>({
     resolver,
     defaultValues: initialValues ?? {
@@ -476,17 +491,24 @@ export function PlaceForm({
                 >
                   Category
                 </label>
-                <input
+                <select
                   id="place-type"
-                  list="place-type-suggestions"
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('type')}
-                />
-                <datalist id="place-type-suggestions">
-                  {PLACE_TYPE_SUGGESTIONS.map((value) => (
-                    <option key={value} value={value} />
+                >
+                  <option value="">— select a category —</option>
+                  {LOCATION_AWARE_CATEGORY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
                   ))}
-                </datalist>
+                </select>
+                {(() => {
+                  const hint = LOCATION_AWARE_CATEGORY_OPTIONS.find(
+                    (o) => o.value === watch('type'),
+                  )?.hint
+                  return hint ? <p className="mt-1 text-xs text-pf-deep/40">{hint}</p> : null
+                })()}
                 {errors.type ? (
                   <p className="mt-2 text-sm text-rose-600">{errors.type.message}</p>
                 ) : null}
