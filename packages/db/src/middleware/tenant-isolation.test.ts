@@ -75,6 +75,7 @@ describe('tenantIsolationMiddleware', () => {
       'AnalyticsEvent',
       'DailyRollup',
       'WeeklyDigest',
+      'QuestionCluster',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual(['User', 'Tenant', 'AuditLog', 'PlatformConfig'])
   })
