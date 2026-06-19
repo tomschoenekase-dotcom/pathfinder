@@ -1,3 +1,7 @@
+> STATUS: Historical design intent (v1). The shipped product pivoted to an AI venue-guide
+> chatbot - see docs/codebase-overview.md and CLAUDE.md for the current system. Sections
+> describing listings/bookings/integration framework are NOT implemented.
+
 # PathFinderOS — Platform Architecture
 
 > Version: 1.0  
@@ -17,6 +21,7 @@ PathFinderOS is a multi-tenant SaaS platform for venues, attractions, and local 
 ### Recommended Platform Shape
 
 A monorepo containing:
+
 - A **Next.js** public web app (SSR/SSG, SEO-optimized)
 - A **Next.js** client dashboard (SPA-style, authenticated)
 - A **Next.js** internal admin console (authenticated, platform-owner only)
@@ -49,74 +54,85 @@ All three surfaces share one backend but are deployed as separate Next.js apps t
 
 ### Inferred Assumptions (labeled — resolve if incorrect)
 
-| # | Assumption | Impact if Wrong |
-|---|-----------|----------------|
-| A1 | Tenants are businesses/venues, not end users. End users belong to a tenant's public audience. | Changes the auth model significantly |
-| A2 | Each tenant has their own staff (managers, staff roles) who log into the client dashboard | Roles-per-tenant design is required |
-| A3 | The public web app is tenant-branded or white-labeled per tenant (e.g., `venue.pathfinderos.com` or embedded widget) | Changes routing strategy |
-| A4 | Integrations connect tenant's external tools (e.g., Square POS, Eventbrite, Shopify) — not platform-level integrations | Integration is per-tenant scoped |
-| A5 | The platform owner (you) is the only internal admin user for now | Single-admin-org model for MVP |
-| A6 | File uploads (photos, assets) exist but are not a core product feature — they are supporting | Storage can be simple (S3 + signed URLs) |
-| A7 | Tenants are billed/subscribed, implying some form of plan/tier gating | Feature flags per tenant must support plan gating |
-| A8 | The public web app is primarily read-heavy (browsing/discovery) with some transactional flows (bookings, registrations) | SSR/SSG is the right default |
-| A9 | Initial scale: dozens to low hundreds of tenants, not thousands | Row-level isolation in Postgres is sufficient; no need for schema-per-tenant or separate DB-per-tenant at MVP |
-| A10 | No native mobile app at MVP | Web-only, responsive |
+| #   | Assumption                                                                                                              | Impact if Wrong                                                                                               |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| A1  | Tenants are businesses/venues, not end users. End users belong to a tenant's public audience.                           | Changes the auth model significantly                                                                          |
+| A2  | Each tenant has their own staff (managers, staff roles) who log into the client dashboard                               | Roles-per-tenant design is required                                                                           |
+| A3  | The public web app is tenant-branded or white-labeled per tenant (e.g., `venue.pathfinderos.com` or embedded widget)    | Changes routing strategy                                                                                      |
+| A4  | Integrations connect tenant's external tools (e.g., Square POS, Eventbrite, Shopify) — not platform-level integrations  | Integration is per-tenant scoped                                                                              |
+| A5  | The platform owner (you) is the only internal admin user for now                                                        | Single-admin-org model for MVP                                                                                |
+| A6  | File uploads (photos, assets) exist but are not a core product feature — they are supporting                            | Storage can be simple (S3 + signed URLs)                                                                      |
+| A7  | Tenants are billed/subscribed, implying some form of plan/tier gating                                                   | Feature flags per tenant must support plan gating                                                             |
+| A8  | The public web app is primarily read-heavy (browsing/discovery) with some transactional flows (bookings, registrations) | SSR/SSG is the right default                                                                                  |
+| A9  | Initial scale: dozens to low hundreds of tenants, not thousands                                                         | Row-level isolation in Postgres is sufficient; no need for schema-per-tenant or separate DB-per-tenant at MVP |
+| A10 | No native mobile app at MVP                                                                                             | Web-only, responsive                                                                                          |
 
 ---
 
 ## 3. Recommended Stack
 
 ### Frontend Framework
+
 **Next.js 14+ (App Router)**  
 All three surfaces. SSR for public app (SEO), app-router RSC for dashboard and admin. Shared component library via a `packages/ui` workspace.  
-*Tradeoff: App Router is newer and has rough edges, but RSC reduces client bundle size and aligns with the long-term React direction. Avoids migrating later.*
+_Tradeoff: App Router is newer and has rough edges, but RSC reduces client bundle size and aligns with the long-term React direction. Avoids migrating later._
 
 ### Backend Pattern
+
 **tRPC v11 + Prisma ORM**  
 tRPC provides end-to-end type-safe API calls between Next.js surfaces and the shared API layer without a REST or GraphQL layer. Prisma handles migrations and type-safe DB access.  
-*Tradeoff: tRPC is excellent within the monorepo but awkward for third-party API consumers. Acceptable — external webhooks can be handled by plain Next.js API routes.*
+_Tradeoff: tRPC is excellent within the monorepo but awkward for third-party API consumers. Acceptable — external webhooks can be handled by plain Next.js API routes._
 
 ### Database
+
 **PostgreSQL (via Supabase or Railway for hosting)**  
 Single database, row-level tenant isolation enforced via a `tenant_id` column on every multi-tenant table and a Prisma middleware that injects tenant context on every query.  
-*Tradeoff: Schema-per-tenant is safer for isolation but far more operationally complex. Row-level is sufficient at this scale and avoids migration nightmares.*
+_Tradeoff: Schema-per-tenant is safer for isolation but far more operationally complex. Row-level is sufficient at this scale and avoids migration nightmares._
 
 ### Auth
+
 **Clerk**  
 Handles multi-tenant orgs, team invites, user management, JWTs, MFA, and social login out of the box. Clerk's "organizations" map 1:1 to PathFinderOS tenants.  
-*Tradeoff: Clerk is opinionated and has monthly costs. The alternative (Auth.js/NextAuth) requires building org/membership logic manually — not worth it given the complexity of multi-tenant auth.*
+_Tradeoff: Clerk is opinionated and has monthly costs. The alternative (Auth.js/NextAuth) requires building org/membership logic manually — not worth it given the complexity of multi-tenant auth._
 
 ### File Storage
+
 **AWS S3 (or Cloudflare R2 for cost)**  
 Presigned uploads from the client, served via CDN. Never proxy files through the app server.  
-*Tradeoff: R2 has no egress fees, making it cheaper for image-heavy tenants. Use R2 unless AWS is already the deployment target.*
+_Tradeoff: R2 has no egress fees, making it cheaper for image-heavy tenants. Use R2 unless AWS is already the deployment target._
 
 ### Analytics Tooling
+
 **PostHog (self-hosted or cloud)**  
 Product analytics (events, funnels, feature flags, session replay). Runs alongside the platform's own analytics tables which power the client dashboard.  
-*Tradeoff: Mixpanel and Amplitude are more polished but cost more and don't support self-hosting. PostHog covers product analytics + feature flags in one tool.*
+_Tradeoff: Mixpanel and Amplitude are more polished but cost more and don't support self-hosting. PostHog covers product analytics + feature flags in one tool._
 
 ### Background Jobs
+
 **BullMQ (Redis-backed)**  
 Queues, retries, scheduling, and dead-letter visibility. Used for integrations, email, report generation, webhook dispatch.  
-*Tradeoff: Inngest is a good managed alternative and removes Redis dependency. Use BullMQ if self-hosting; Inngest if minimizing infra.*
+_Tradeoff: Inngest is a good managed alternative and removes Redis dependency. Use BullMQ if self-hosting; Inngest if minimizing infra._
 
 ### Admin Tooling
+
 **Custom Next.js admin surface** (no third-party admin panel like Retool)  
 Admin console is a first-class surface in the monorepo. This is not a nice-to-have — it is the platform owner's primary operational interface. Building it custom ensures it's always in sync with the data model.  
-*Tradeoff: Slower to build than Retool or Adminjs. Worth it because admin needs impersonation, audit logs, and tenant management — things off-the-shelf panels do poorly.*
+_Tradeoff: Slower to build than Retool or Adminjs. Worth it because admin needs impersonation, audit logs, and tenant management — things off-the-shelf panels do poorly._
 
 ### Deployment / Infrastructure
+
 **Vercel (app hosting) + Railway or Supabase (PostgreSQL) + Upstash (Redis for BullMQ)**  
 Vercel for Next.js apps (preview deploys, edge middleware, instant rollback). Railway for Postgres + Redis if not using Supabase. Upstash for serverless Redis.  
-*Tradeoff: Vercel adds cost at scale. Acceptable for MVP. Plan a migration path to self-hosted infra if margins require it later.*
+_Tradeoff: Vercel adds cost at scale. Acceptable for MVP. Plan a migration path to self-hosted infra if margins require it later._
 
 ### Integration Layer Strategy
+
 **Provider pattern with a shared adapter interface**  
 Each external integration (Square, Eventbrite, etc.) implements a typed `IntegrationAdapter` interface. Integration runs via background jobs. No live synchronous calls to external APIs in the request path.  
-*Tradeoff: More upfront design work, but prevents ad-hoc integration spaghetti that would require a full rewrite.*
+_Tradeoff: More upfront design work, but prevents ad-hoc integration spaghetti that would require a full rewrite._
 
 ### Testing / Tooling Baseline
+
 - **Vitest** — unit and integration tests (fast, ESM-native)
 - **Playwright** — E2E tests for critical user flows (auth, booking, dashboard)
 - **Prisma** test utilities with a separate test database
@@ -133,6 +149,7 @@ Each external integration (Square, Eventbrite, etc.) implements a typed `Integra
 **User type:** End customers / general public (unauthenticated or lightly authenticated)
 
 **Key capabilities:**
+
 - Browse venue/attraction listings (tenant-owned content)
 - View schedules, events, menus, hours
 - Make bookings or registrations (if tenant enables it)
@@ -140,14 +157,17 @@ Each external integration (Square, Eventbrite, etc.) implements a typed `Integra
 - Tenant-branded experience (subdomain or embedded)
 
 **Main data read/written:**
+
 - Reads: `Tenant`, `Listing`, `Event`, `Schedule`, `AvailabilitySlot`
 - Writes: `Booking`, `Registration`, `ContactSubmission`, `GuestUser`
 
 **Shared with other surfaces:**
+
 - Reads tenant configuration and content published from the client dashboard
 - Booking/registration data surfaces in the client dashboard
 
 **Must remain isolated:**
+
 - No access to tenant staff data, financials, integration credentials, or internal analytics
 - Cannot read cross-tenant data under any circumstances
 - Public routes must be rate-limited independently from dashboard routes
@@ -159,6 +179,7 @@ Each external integration (Square, Eventbrite, etc.) implements a typed `Integra
 **User type:** Tenant staff — owners, managers, front-line operators
 
 **Key capabilities:**
+
 - Manage listings, events, schedules, and published content
 - View bookings, registrations, and customer data
 - Configure integrations with external tools
@@ -167,15 +188,18 @@ Each external integration (Square, Eventbrite, etc.) implements a typed `Integra
 - Configure tenant settings (branding, notifications, hours)
 
 **Main data read/written:**
+
 - Reads/Writes: all tenant-scoped business objects
 - Reads: analytics events aggregated for this tenant
 - Writes: integration credentials (encrypted), team invitations
 
 **Shared with other surfaces:**
+
 - Published content flows to public web app
 - Operational data (bookings, events) is visible in admin console for support
 
 **Must remain isolated:**
+
 - Strictly scoped to the authenticated tenant — no cross-tenant reads
 - Integration credentials must never be returned to the client in plaintext
 - Tenant users must not access admin-only metadata (billing internals, platform config)
@@ -187,6 +211,7 @@ Each external integration (Square, Eventbrite, etc.) implements a typed `Integra
 **User type:** Platform owner (you) and any future internal team members
 
 **Key capabilities:**
+
 - View all tenants and their operational state
 - Impersonate tenant users for support (with full audit logging)
 - Manage tenant feature flags and plan limits
@@ -197,14 +222,17 @@ Each external integration (Square, Eventbrite, etc.) implements a typed `Integra
 - Manage platform configuration, announcements, and maintenance windows
 
 **Main data read/written:**
+
 - Reads: all platform data across all tenants
 - Writes: `FeatureFlag`, `TenantConfig`, `AuditLog`, `PlatformAnnouncement`
 
 **Shared with other surfaces:**
+
 - Feature flags set here propagate to client dashboard behavior
 - Audit logs are written by all surfaces and read here
 
 **Must remain isolated:**
+
 - Accessible only to users with `PLATFORM_ADMIN` role
 - Must not be deployed on the same domain as the public app
 - All admin actions must be audit-logged with actor identity, timestamp, and changed values
@@ -237,16 +265,16 @@ All user-generated content and operational data carries a `tenant_id` foreign ke
 
 Three tenant-level roles at MVP:
 
-| Role | Description |
-|------|-------------|
-| `OWNER` | Full tenant access, billing, team management |
+| Role      | Description                                                |
+| --------- | ---------------------------------------------------------- |
+| `OWNER`   | Full tenant access, billing, team management               |
 | `MANAGER` | Operational access, cannot modify billing or delete tenant |
-| `STAFF` | Read-only + limited operational actions (check-ins, etc.) |
+| `STAFF`   | Read-only + limited operational actions (check-ins, etc.)  |
 
 One platform-level role:
 
-| Role | Description |
-|------|-------------|
+| Role             | Description                                       |
+| ---------------- | ------------------------------------------------- |
 | `PLATFORM_ADMIN` | Full platform access — separate from tenant roles |
 
 Permissions are checked server-side in tRPC procedures via a `requireTenantRole(ctx, tenantId, minRole)` helper. Never trust client-sent role claims.
@@ -316,34 +344,40 @@ Audit logs are **append-only** — no updates or deletes, ever. Retained for min
 ### 6.1 Identity and Access
 
 **User**
+
 - Purpose: Platform-level identity, mirrors Clerk user
 - Fields: `id` (Clerk user ID), `email`, `full_name`, `avatar_url`, `created_at`, `last_seen_at`
 - Relations: has many `TenantMembership`
 - MVP criticality: **now**
 
 **Tenant**
+
 - Purpose: A business/venue on the platform
 - Fields: `id` (Clerk org ID), `name`, `slug`, `plan_tier`, `status` (active/suspended/trial), `created_at`, `config` (JSON)
 - Relations: has many `TenantMembership`, owns all business entities
 - MVP criticality: **now**
 
 **TenantMembership**
+
 - Purpose: Links user to tenant with a role
 - Fields: `id`, `tenant_id`, `user_id`, `role`, `invited_by`, `joined_at`, `status` (active/invited/removed)
 - Relations: belongs to `User`, belongs to `Tenant`
 - MVP criticality: **now**
 
 **TenantFeatureFlag**
+
 - Purpose: Per-tenant feature/plan gating
 - Fields: `id`, `tenant_id`, `flag_key`, `enabled`, `metadata` (JSON), `set_by`, `set_at`
 - MVP criticality: **now**
 
 **AuditLog**
+
 - Purpose: Immutable record of state-changing actions
 - Fields: see Section 5
 - MVP criticality: **now**
 
 **AdminImpersonationSession**
+
 - Purpose: Track admin impersonation events
 - Fields: `id`, `admin_user_id`, `tenant_id`, `impersonated_user_id`, `started_at`, `ended_at`, `reason`, `actions_count`
 - MVP criticality: **now**
@@ -353,35 +387,41 @@ Audit logs are **append-only** — no updates or deletes, ever. Retained for min
 ### 6.2 Business Domain
 
 **Listing**
+
 - Purpose: A venue, attraction, product, or service a tenant publishes
 - Fields: `id`, `tenant_id`, `name`, `type` (venue/event/service), `description`, `status` (draft/published/archived), `images` (JSON array of storage keys), `metadata` (JSON), `created_at`, `updated_at`
 - Relations: has many `Event`, `AvailabilitySlot`, `Booking`
 - MVP criticality: **now**
 
 **Event**
+
 - Purpose: A scheduled happening under a listing
 - Fields: `id`, `tenant_id`, `listing_id`, `title`, `starts_at`, `ends_at`, `capacity`, `status`, `external_id` (from integration), `metadata` (JSON)
 - Relations: belongs to `Listing`, has many `Booking`
 - MVP criticality: **now**
 
 **AvailabilitySlot**
+
 - Purpose: Bookable time blocks (for reservations, appointments)
 - Fields: `id`, `tenant_id`, `listing_id`, `starts_at`, `ends_at`, `capacity`, `booked_count`, `status`
 - MVP criticality: **soon**
 
 **Booking**
+
 - Purpose: A reservation or registration by an end user
 - Fields: `id`, `tenant_id`, `listing_id`, `event_id` (nullable), `slot_id` (nullable), `guest_user_id`, `status` (pending/confirmed/cancelled), `notes`, `created_at`, `source` (web/import/integration)
 - Relations: belongs to `Listing`, belongs to `GuestUser`
 - MVP criticality: **now**
 
 **GuestUser**
+
 - Purpose: Public end-user (not a staff member)
 - Fields: `id`, `tenant_id`, `email`, `full_name`, `phone`, `created_at`, `source`
 - Note: Guest users are scoped to a tenant — same email at two tenants is two different guest user records
 - MVP criticality: **now**
 
 **Location**
+
 - Purpose: Physical or logical sub-locations for a tenant (e.g., multiple venues)
 - Fields: `id`, `tenant_id`, `name`, `address` (JSON), `timezone`, `status`
 - MVP criticality: **soon**
@@ -391,18 +431,21 @@ Audit logs are **append-only** — no updates or deletes, ever. Retained for min
 ### 6.3 Analytics / Reporting
 
 **AnalyticsEvent**
+
 - Purpose: Append-only event log for business analytics (separate from PostHog product events)
 - Fields: `id`, `tenant_id`, `event_type` (e.g., `booking.created`, `listing.viewed`), `actor_id` (nullable), `subject_type`, `subject_id`, `properties` (JSON), `occurred_at`
 - Note: This table is the source of truth for the client dashboard's reports. Never query OLTP tables for aggregate reports.
 - MVP criticality: **now** (schema only; reports powered by it: **soon**)
 
 **DailyRollup**
+
 - Purpose: Pre-aggregated daily stats per tenant (for fast dashboard queries)
 - Fields: `id`, `tenant_id`, `date`, `metric_key`, `value`, `dimensions` (JSON)
 - Note: Populated by a nightly background job from `AnalyticsEvent`
 - MVP criticality: **soon**
 
 **ReportSnapshot**
+
 - Purpose: On-demand or scheduled report results cached for dashboard display
 - Fields: `id`, `tenant_id`, `report_type`, `parameters` (JSON), `result` (JSON), `generated_at`, `expires_at`
 - MVP criticality: **later**
@@ -412,16 +455,19 @@ Audit logs are **append-only** — no updates or deletes, ever. Retained for min
 ### 6.4 Integrations
 
 **IntegrationConnection**
+
 - Purpose: A tenant's authenticated connection to an external system
 - Fields: `id`, `tenant_id`, `provider` (e.g., `square`, `eventbrite`), `status` (active/error/disconnected), `credentials` (encrypted JSON), `config` (JSON), `last_synced_at`, `error_message`, `created_at`
 - MVP criticality: **soon**
 
 **IntegrationSyncLog**
+
 - Purpose: Record of each sync attempt
 - Fields: `id`, `connection_id`, `tenant_id`, `sync_type`, `status` (pending/success/partial/failed), `records_processed`, `records_failed`, `error_details` (JSON), `started_at`, `completed_at`
 - MVP criticality: **soon**
 
 **IntegrationWebhookEvent**
+
 - Purpose: Inbound webhook events from external providers before processing
 - Fields: `id`, `connection_id`, `provider`, `event_type`, `payload` (JSON), `signature_verified`, `status` (received/processed/failed), `received_at`, `processed_at`, `error`
 - MVP criticality: **soon**
@@ -431,16 +477,19 @@ Audit logs are **append-only** — no updates or deletes, ever. Retained for min
 ### 6.5 Operations / Admin / Support
 
 **PlatformConfig**
+
 - Purpose: Global platform settings
 - Fields: `key`, `value` (JSON), `updated_by`, `updated_at`
 - MVP criticality: **now**
 
 **PlatformAnnouncement**
+
 - Purpose: System notices shown to tenants in dashboard
 - Fields: `id`, `title`, `body`, `severity` (info/warning/critical), `active`, `starts_at`, `ends_at`, `created_by`
 - MVP criticality: **later**
 
 **JobRecord**
+
 - Purpose: Track scheduled/async job outcomes for admin visibility
 - Fields: `id`, `tenant_id` (nullable), `job_type`, `job_id` (BullMQ job ID), `status`, `payload` (JSON), `result` (JSON), `error`, `attempts`, `created_at`, `completed_at`
 - MVP criticality: **soon**
@@ -461,8 +510,8 @@ Every integration provider implements this interface:
 // pseudocode — not production code
 
 interface IntegrationAdapter {
-  provider: string                    // e.g., "square", "eventbrite"
-  version: string                     // e.g., "2024-01"
+  provider: string // e.g., "square", "eventbrite"
+  version: string // e.g., "2024-01"
 
   // Called when tenant connects the integration
   connect(config: ConnectConfig): Promise<ConnectionResult>
@@ -473,22 +522,18 @@ interface IntegrationAdapter {
   // Full sync of a resource type
   sync(
     connection: IntegrationConnection,
-    resourceType: ResourceType,        // e.g., "events", "orders"
-    options: SyncOptions
+    resourceType: ResourceType, // e.g., "events", "orders"
+    options: SyncOptions,
   ): Promise<SyncResult>
 
   // Handle inbound webhook from the provider
   handleWebhook(
     event: RawWebhookEvent,
-    connection: IntegrationConnection
+    connection: IntegrationConnection,
   ): Promise<WebhookHandleResult>
 
   // Verify webhook signature
-  verifyWebhookSignature(
-    rawBody: Buffer,
-    headers: Record<string, string>,
-    secret: string
-  ): boolean
+  verifyWebhookSignature(rawBody: Buffer, headers: Record<string, string>, secret: string): boolean
 
   // Map provider data to platform model
   mapToInternal<T>(providerRecord: unknown): T
@@ -529,13 +574,13 @@ Delta syncs use a `since` cursor (stored in `IntegrationConnection.config`).
 
 ### Retry Strategy
 
-| Attempt | Delay |
-|---------|-------|
-| 1 | Immediate |
-| 2 | 30 seconds |
-| 3 | 5 minutes |
-| 4 | 30 minutes |
-| 5 | 2 hours |
+| Attempt | Delay      |
+| ------- | ---------- |
+| 1       | Immediate  |
+| 2       | 30 seconds |
+| 3       | 5 minutes  |
+| 4       | 30 minutes |
+| 5       | 2 hours    |
 
 After 5 failures: job moves to dead-letter queue, `IntegrationConnection.status` set to `error`, tenant notified in dashboard, `JobRecord` flagged for admin visibility.
 
@@ -548,6 +593,7 @@ After 5 failures: job moves to dead-letter queue, `IntegrationConnection.status`
 ### Manual Admin Repair Flow
 
 Admin console exposes:
+
 - View all failed jobs for a connection
 - Re-enqueue a specific failed sync or webhook job
 - Force full re-sync for a connection
@@ -623,42 +669,49 @@ member.invited        { invited_user_id, role }
 ### Job Categories
 
 #### 1. Integration Syncs
+
 - **Trigger:** Scheduled (cron per connection) or manual (admin/tenant-triggered)
 - **Purpose:** Pull data from external providers into platform tables
 - **Failure modes:** Provider API down, expired credentials, rate limits, schema changes
 - **Admin visibility:** `IntegrationSyncLog`, `JobRecord` with error details, dead-letter queue
 
 #### 2. Webhook Processing
+
 - **Trigger:** Inbound POST to webhook endpoint
 - **Purpose:** Process inbound provider events asynchronously
 - **Failure modes:** Malformed payload, unmapped event type, DB write failure
 - **Admin visibility:** `IntegrationWebhookEvent` status, retry count, raw error
 
 #### 3. Analytics Rollups
+
 - **Trigger:** Nightly cron (00:30 UTC)
 - **Purpose:** Aggregate `AnalyticsEvent` rows into `DailyRollup` for fast dashboard queries
 - **Failure modes:** Query timeout on large tenant data, partial writes
 - **Admin visibility:** Job record per run; alert if last rollup is >26h old
 
 #### 4. Token Refresh
+
 - **Trigger:** Scheduled (every 30 minutes), checks credentials expiring within 1 hour
 - **Purpose:** Refresh OAuth tokens before expiry to avoid sync failures
 - **Failure modes:** Provider refresh endpoint down, revoked token, user disconnected app
 - **Admin visibility:** Connection status turns `error`, tenant sees reconnect prompt
 
 #### 5. Email / Notification Dispatch
+
 - **Trigger:** System events (booking confirmed, invitation sent, error alerts)
 - **Purpose:** Deliver transactional emails via SendGrid/Resend
 - **Failure modes:** Delivery failures, invalid address, provider rate limit
 - **Admin visibility:** Delivery status in `JobRecord`; failed emails are not silently dropped
 
 #### 6. Booking / Slot Expiry
+
 - **Trigger:** Scheduled (every 5 minutes)
 - **Purpose:** Cancel held/unconfirmed bookings after TTL expiry, release slots
 - **Failure modes:** Race conditions on slot availability
 - **Admin visibility:** Count of expired bookings per run in `JobRecord`
 
 #### 7. Report Generation
+
 - **Trigger:** Tenant-requested or scheduled (monthly report)
 - **Purpose:** Build `ReportSnapshot` from rollup data
 - **Failure modes:** Timeout on large date ranges
@@ -789,9 +842,11 @@ member.invited        { invited_user_id, role }
 ## 12. Build Order
 
 ### Phase 0 — Repo Foundation (Week 1)
+
 **Goal:** Working monorepo with tooling, CI, and deployable skeleton apps
 
 **Deliverables:**
+
 - Turborepo monorepo with `apps/web`, `apps/dashboard`, `apps/admin`, `packages/ui`, `packages/db`, `packages/config`
 - TypeScript strict mode, ESLint, Prettier, Husky configured across all packages
 - Prisma schema with `User`, `Tenant`, `TenantMembership` and initial migration
@@ -806,9 +861,11 @@ member.invited        { invited_user_id, role }
 ---
 
 ### Phase 1 — Auth and Tenancy (Week 2)
+
 **Goal:** Multi-tenant auth fully wired; permissions enforced
 
 **Deliverables:**
+
 - Tenant creation flow (sign up → Clerk org → `Tenant` row)
 - `TenantMembership` sync from Clerk webhooks
 - tRPC context resolves `activeTenantId` and `callerRole` on every request
@@ -824,9 +881,11 @@ member.invited        { invited_user_id, role }
 ---
 
 ### Phase 2 — Core Business Objects (Weeks 3–4)
+
 **Goal:** Listings and bookings functional end-to-end
 
 **Deliverables:**
+
 - `Listing`, `Event`, `GuestUser`, `Booking` schema + migrations
 - Listing CRUD in tRPC with role enforcement
 - Client dashboard: listings list, create/edit listing form, image upload
@@ -842,9 +901,11 @@ member.invited        { invited_user_id, role }
 ---
 
 ### Phase 3 — Admin Console and Observability (Week 5)
+
 **Goal:** Platform owner has operational visibility
 
 **Deliverables:**
+
 - Admin console: tenant list, tenant detail page, audit log viewer
 - Admin console: `JobRecord` list with status and error detail
 - Admin impersonation session (scoped, audited, expires)
@@ -858,9 +919,11 @@ member.invited        { invited_user_id, role }
 ---
 
 ### Phase 4 — Integration Framework (Weeks 6–7)
+
 **Goal:** Integration adapter pattern functional with one real provider
 
 **Deliverables:**
+
 - `IntegrationAdapter` interface (TypeScript) finalized
 - `IntegrationConnection`, `IntegrationSyncLog`, `IntegrationWebhookEvent` schema
 - Integration registry (maps `provider` string to adapter class)
@@ -877,9 +940,11 @@ member.invited        { invited_user_id, role }
 ---
 
 ### Phase 5 — Analytics and Polish (Week 8)
+
 **Goal:** Dashboard is useful; platform is stable enough for first tenants
 
 **Deliverables:**
+
 - Nightly rollup job producing `DailyRollup` rows
 - Client dashboard analytics widgets (bookings over time, listing views)
 - PostHog installed on all surfaces
@@ -896,50 +961,64 @@ member.invited        { invited_user_id, role }
 ## 13. Main Risks and How to Prevent Them
 
 ### Risk 1: Tenant Isolation Failure
+
 **Impact:** Critical — cross-tenant data leak destroys trust  
 **Prevention:**
+
 - Prisma middleware is the canonical enforcement point — test it in isolation with adversarial inputs
 - Integration tests must assert that querying as Tenant A never returns Tenant B data
 - Code review rule: any new tRPC procedure must demonstrate tenant context is used
 - Never pass raw SQL to Prisma's `$queryRaw` without explicit `tenant_id` in the WHERE clause
 
 ### Risk 2: Integration Framework Becomes Ad-Hoc
+
 **Impact:** High — each integration adds complexity without the adapter pattern; impossible to maintain at 10+ providers  
 **Prevention:**
+
 - Finalize and commit the `IntegrationAdapter` interface before writing any provider code
 - First integration must be a strict implementation of the interface — no shortcuts
 - Code review gate: any new integration that doesn't implement the interface is rejected
 
 ### Risk 3: Auth Token / Credential Leakage
+
 **Impact:** Critical — platform stores OAuth tokens for tenant integrations  
 **Prevention:**
+
 - Encryption-at-rest is non-negotiable; test the encrypt/decrypt cycle in unit tests
 - Audit all tRPC procedures that return connection data — none may return raw credentials
 - Add a CI check that scans for known credential field names in API responses
 
 ### Risk 4: Architectural Drift by Coding Agents
+
 **Impact:** High — Codex implementing tasks without understanding architecture will create inconsistency  
 **Prevention:**
+
 - This document is the authoritative reference; task packets for Codex must link to relevant sections
 - Each task packet must specify: which tRPC router to add procedures to, which Prisma models to touch, which middleware to apply
 - Codex must not create new patterns (new auth flows, new job patterns) without explicit instruction; it should extend existing ones
 
 ### Risk 5: Analytics Tables Overloaded with Ad-Hoc Queries
+
 **Impact:** Medium — OLTP tables queried for reports will degrade at scale  
 **Prevention:**
+
 - Establish the rule in Phase 2: dashboard components may only query `AnalyticsEvent` or `DailyRollup`, not `Booking` or `Listing` for aggregates
 - Code review gate: any dashboard query against OLTP tables for aggregate data is rejected
 
 ### Risk 6: BullMQ Jobs Failing Silently
+
 **Impact:** Medium — broken integrations go unnoticed, tenant data falls behind  
 **Prevention:**
+
 - Every job writes a `JobRecord` — this is not optional
 - Failed jobs after max retries must update `IntegrationConnection.status` to `error` and surface in admin console
 - Set up an alert on dead-letter queue depth > 0
 
 ### Risk 7: Admin Console Deployed Incorrectly (Public-Facing)
+
 **Impact:** High — admin console must never be accessible without platform-admin auth  
 **Prevention:**
+
 - Admin app deployed on a separate domain (e.g., `admin.pathfinderos.com`) with its own Vercel project
 - Root middleware on the admin app rejects any session without `PLATFORM_ADMIN` claim before rendering any page
 - CSP headers on admin app block embedding
