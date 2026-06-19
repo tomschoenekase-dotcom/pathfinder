@@ -9,3 +9,6 @@ node_modules/
 .corepack/
 .corepack-bin/
 coverage/
+
+# TypeScript incremental build info
+*.tsbuildinfo
