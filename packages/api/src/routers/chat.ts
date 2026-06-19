@@ -419,10 +419,15 @@ export const chatRouter = router({
         .strict(),
     )
     .query(async ({ ctx, input }) => {
-      const session = await ctx.db.visitorSession.findUnique({
-        where: { anonymousToken: input.anonymousToken },
-        select: { id: true, venueId: true },
-      })
+      // $queryRaw used here because this is a public cross-tenant lookup — the caller
+      // only knows the anonymousToken, not the tenantId. anonymous_token has a unique
+      // index so this lookup is safe without tenant scoping.
+      const [session] = await ctx.db.$queryRaw<{ id: string; venueId: string; tenantId: string }[]>`
+        SELECT id, venue_id AS "venueId", tenant_id AS "tenantId"
+        FROM visitor_sessions
+        WHERE anonymous_token = ${input.anonymousToken}
+        LIMIT 1
+      `
 
       // No session yet — fresh visitor, return empty history
       if (!session || session.venueId !== input.venueId) {
@@ -430,7 +435,7 @@ export const chatRouter = router({
       }
 
       const rows = await ctx.db.message.findMany({
-        where: { sessionId: session.id },
+        where: { sessionId: session.id, tenantId: session.tenantId },
         orderBy: { createdAt: 'asc' },
         take: HISTORY_LOAD_LIMIT,
         select: { role: true, content: true },

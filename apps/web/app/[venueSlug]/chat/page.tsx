@@ -137,13 +137,18 @@ export default function VenueChatPage() {
             : null
 
         if (storedToken) {
-          const { messages: historicMessages } = await client.chat.history.query({
-            venueId: result.id,
-            anonymousToken: storedToken,
-          })
+          try {
+            const { messages: historicMessages } = await client.chat.history.query({
+              venueId: result.id,
+              anonymousToken: storedToken,
+            })
 
-          if (!disposed && historicMessages.length > 0) {
-            setMessages(historicMessages)
+            if (!disposed && historicMessages.length > 0) {
+              setMessages(historicMessages)
+            }
+          } catch {
+            // History load failed — start the conversation fresh rather than
+            // blocking the page. The venue itself loaded successfully.
           }
         }
       } catch {
