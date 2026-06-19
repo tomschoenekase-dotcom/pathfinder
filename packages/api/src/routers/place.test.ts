@@ -1,9 +1,9 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Mock embeddings so the OpenAI client and env schema are never loaded in tests
-vi.mock('../lib/embeddings', () => ({ embedPlace: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
 
+import { enqueueEmbedPlace } from '@pathfinder/jobs'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { placeRouter } from './place'
@@ -75,6 +75,7 @@ function staffCtx(): TRPCContext {
 }
 
 const testRouter = router({ place: placeRouter })
+const enqueueEmbedPlaceMock = vi.mocked(enqueueEmbedPlace)
 
 const VENUE_ID = 'cvenueabc123456789012'
 const PLACE_ID = 'cplace123456789012345'
@@ -188,6 +189,10 @@ describe('place router', () => {
         data: expect.objectContaining({ tenantId: 'tenant_1', venueId: VENUE_ID }),
       }),
     )
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      placeId: PLACE_ID,
+    })
   })
 
   it('place.create throws NOT_FOUND when venueId belongs to different tenant', async () => {
@@ -223,6 +228,10 @@ describe('place router', () => {
     expect(placeUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant_1' }) }),
     )
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      placeId: PLACE_ID,
+    })
   })
 
   it('place.update accepts lat/lng of 0 (valid coordinate)', async () => {
@@ -300,6 +309,7 @@ describe('place router', () => {
 
     expect(result.count).toBe(2)
     expect(dbTransaction).toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledTimes(2)
   })
 
   it('place.bulkCreate throws BAD_REQUEST when over 500 places', async () => {

@@ -9,9 +9,13 @@ import {
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
   DAILY_ROLLUP_SCHEDULER_JOB,
+  EMBED_PLACE_PROCESS_JOB,
+  EMBED_PLACE_QUEUE,
+  EMBED_PLACE_RETRY_BACKOFF,
   enqueueDailyRollup,
   enqueueWeeklyDigest,
   getBullMQConnection,
+  type EmbedPlaceJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -21,6 +25,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { processDailyRollupJob } from './processors/daily-rollup'
+import { processEmbedPlaceJob } from './processors/embed-place'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
@@ -72,6 +77,23 @@ function startOfUtcDay(date: Date): Date {
 }
 
 function getDailyRollupBackoffDelay(attemptsMade: number): number {
+  switch (attemptsMade) {
+    case 1:
+      return 30_000
+    case 2:
+      return 60_000
+    case 3:
+      return 5 * 60_000
+    case 4:
+      return 30 * 60_000
+    case 5:
+      return 2 * 60 * 60_000
+    default:
+      return -1
+  }
+}
+
+function getEmbedPlaceBackoffDelay(attemptsMade: number): number {
   switch (attemptsMade) {
     case 1:
       return 30_000
@@ -221,10 +243,20 @@ async function handleDailyRollupQueueJob(job: Job<DailyRollupJobPayload | Record
   throw new Error(`Unsupported daily rollup job: ${job.name}`)
 }
 
+async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>) {
+  if (job.name === EMBED_PLACE_PROCESS_JOB) {
+    await processEmbedPlaceJob(job.data, job.id)
+    return
+  }
+
+  throw new Error(`Unsupported embed place job: ${job.name}`)
+}
+
 export async function startWorkers() {
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
+  const embedPlaceQueue = new Queue(EMBED_PLACE_QUEUE, { connection })
 
   await weeklyDigestQueue.upsertJobScheduler(
     WEEKLY_DIGEST_SCHEDULER_JOB,
@@ -284,6 +316,20 @@ export async function startWorkers() {
     },
   })
 
+  const embedPlaceWorker = new Worker(EMBED_PLACE_QUEUE, handleEmbedPlaceQueueJob, {
+    connection,
+    concurrency: 2,
+    settings: {
+      backoffStrategy: (attemptsMade, type) => {
+        if (type === EMBED_PLACE_RETRY_BACKOFF) {
+          return getEmbedPlaceBackoffDelay(attemptsMade)
+        }
+
+        return 0
+      },
+    },
+  })
+
   const handleCompletedJob = (job: Job) => {
     logger.info({
       action: 'workers.job.completed',
@@ -306,13 +352,15 @@ export async function startWorkers() {
 
   weeklyDigestWorker.on('completed', handleCompletedJob)
   dailyRollupWorker.on('completed', handleCompletedJob)
+  embedPlaceWorker.on('completed', handleCompletedJob)
 
   weeklyDigestWorker.on('failed', handleFailedJob)
   dailyRollupWorker.on('failed', handleFailedJob)
+  embedPlaceWorker.on('failed', handleFailedJob)
 
   logger.info({
     action: 'workers.started',
-    queues: [WEEKLY_DIGEST_QUEUE, DAILY_ROLLUP_QUEUE],
+    queues: [WEEKLY_DIGEST_QUEUE, DAILY_ROLLUP_QUEUE, EMBED_PLACE_QUEUE],
   })
 
   const shutdown = async () => {
@@ -321,8 +369,10 @@ export async function startWorkers() {
     await Promise.allSettled([
       weeklyDigestWorker.close(),
       dailyRollupWorker.close(),
+      embedPlaceWorker.close(),
       weeklyDigestQueue.close(),
       dailyRollupQueue.close(),
+      embedPlaceQueue.close(),
       closeJobQueues(),
       closeBullMQConnection(),
     ])
@@ -339,6 +389,8 @@ export async function startWorkers() {
   return {
     dailyRollupQueue,
     dailyRollupWorker,
+    embedPlaceQueue,
+    embedPlaceWorker,
     weeklyDigestQueue,
     weeklyDigestWorker,
     shutdown,

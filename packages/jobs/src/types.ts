@@ -9,3 +9,8 @@ export type DailyRollupJobPayload = {
   tenantId: string
   date: string
 }
+
+export type EmbedPlaceJobPayload = {
+  placeId: string
+  tenantId: string
+}

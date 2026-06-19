@@ -8,6 +8,12 @@ export { handleClerkEvent, mapClerkRoleToTenantRole } from './helpers/membership
 export type { ClerkWebhookEvent } from './helpers/membership-sync'
 export { searchPlacesByEmbedding, storePlaceEmbedding } from './helpers/semantic-search'
 export type { SemanticPlace } from './helpers/semantic-search'
+export {
+  buildPlaceText,
+  generateAndStorePlaceEmbedding,
+  generateEmbedding,
+  setOpenAIClientForTesting,
+} from './helpers/embeddings'
 
 export type {
   AnalyticsEvent,
@@ -16,7 +22,6 @@ export type {
   AuditLog,
   DataAdapter,
   DailyRollup,
-  GuestSession,
   MembershipStatus,
   Message,
   MessageRole,

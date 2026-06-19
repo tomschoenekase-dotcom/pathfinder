@@ -3,15 +3,32 @@ import { z } from 'zod'
 
 import { db } from '@pathfinder/db'
 import { emitEvent } from '@pathfinder/analytics'
+import { logger } from '@pathfinder/config/logger'
+import { enqueueEmbedPlace } from '@pathfinder/jobs'
 
 import { CreateVenueInput, UpdateVenueInput } from '../schemas/venue'
 
 import { router } from '../core'
-import { embedPlace } from '../lib/embeddings'
 import { requireRole } from '../middleware/require-role'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
 type Db = typeof db
+
+async function enqueuePlaceEmbedding(payload: {
+  placeId: string
+  tenantId: string
+}): Promise<void> {
+  try {
+    await enqueueEmbedPlace(payload)
+  } catch (err) {
+    logger.warn({
+      action: 'place.embed.enqueue.failed',
+      tenantId: payload.tenantId,
+      placeId: payload.placeId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Slug utility
@@ -314,21 +331,14 @@ export const venueRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
 
-      // Re-embed any places that didn't get embeddings at creation time (e.g. OpenAI was
-      // unavailable). Failures are swallowed inside embedPlace — they won't block the save.
+      // Re-embed any places that didn't get embeddings at creation time. Queue failures
+      // are logged and do not block the save.
       const unembedded = await ctx.db.$queryRaw<
         {
           id: string
-          name: string
-          type: string
-          short_description: string | null
-          long_description: string | null
-          tags: string[]
-          area_name: string | null
-          hours: string | null
         }[]
       >`
-        SELECT id, name, type, short_description, long_description, tags, area_name, hours
+        SELECT id
         FROM places
         WHERE venue_id  = ${input.venueId}
           AND tenant_id = ${tenantId}
@@ -338,18 +348,7 @@ export const venueRouter = router({
 
       if (unembedded.length > 0) {
         await Promise.all(
-          unembedded.map((r) =>
-            embedPlace({
-              id: r.id,
-              name: r.name,
-              type: r.type,
-              shortDescription: r.short_description,
-              longDescription: r.long_description,
-              tags: r.tags ?? [],
-              areaName: r.area_name,
-              hours: r.hours,
-            }),
-          ),
+          unembedded.map((place) => enqueuePlaceEmbedding({ placeId: place.id, tenantId })),
         )
       }
 

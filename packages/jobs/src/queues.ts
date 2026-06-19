@@ -7,3 +7,7 @@ export const DAILY_ROLLUP_QUEUE = 'daily-rollup'
 export const DAILY_ROLLUP_PROCESS_JOB = 'daily-rollup-process'
 export const DAILY_ROLLUP_SCHEDULER_JOB = 'daily-rollup-scheduler'
 export const DAILY_ROLLUP_RETRY_BACKOFF = 'daily-rollup-retry'
+
+export const EMBED_PLACE_QUEUE = 'embed-place'
+export const EMBED_PLACE_PROCESS_JOB = 'embed-place-process'
+export const EMBED_PLACE_RETRY_BACKOFF = 'embed-place-retry'

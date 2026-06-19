@@ -7,11 +7,14 @@ import {
   DAILY_ROLLUP_PROCESS_JOB,
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
+  EMBED_PLACE_PROCESS_JOB,
+  EMBED_PLACE_QUEUE,
+  EMBED_PLACE_RETRY_BACKOFF,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
 } from './queues'
-import type { DailyRollupJobPayload, WeeklyDigestJobPayload } from './types'
+import type { DailyRollupJobPayload, EmbedPlaceJobPayload, WeeklyDigestJobPayload } from './types'
 
 const queueCache = new Map<string, Queue>()
 
@@ -49,6 +52,15 @@ const dailyRollupJobOptions: JobsOptions = {
   removeOnFail: 5000,
 }
 
+const embedPlaceJobOptions: JobsOptions = {
+  attempts: 6,
+  backoff: {
+    type: EMBED_PLACE_RETRY_BACKOFF,
+  },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
 export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Promise<void> {
   await getQueue(WEEKLY_DIGEST_QUEUE).add(WEEKLY_DIGEST_PROCESS_JOB, payload, {
     ...weeklyDigestJobOptions,
@@ -74,6 +86,19 @@ export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promis
     action: 'jobs.daily-rollup.enqueued',
     tenantId: payload.tenantId,
     date: payload.date,
+  })
+}
+
+export async function enqueueEmbedPlace(payload: EmbedPlaceJobPayload): Promise<void> {
+  await getQueue(EMBED_PLACE_QUEUE).add(EMBED_PLACE_PROCESS_JOB, payload, {
+    ...embedPlaceJobOptions,
+    jobId: `embed-place:${payload.placeId}`,
+  })
+
+  logger.info({
+    action: 'jobs.embed-place.enqueued',
+    tenantId: payload.tenantId,
+    placeId: payload.placeId,
   })
 }
 

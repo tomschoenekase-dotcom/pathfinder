@@ -15,6 +15,10 @@ vi.mock('@pathfinder/analytics', () => ({
   emitEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@pathfinder/jobs', () => ({
+  enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { venueRouter } from './venue'
