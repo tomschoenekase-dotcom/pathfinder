@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
-import { logger } from '@pathfinder/config'
+import { assertServerEnv, logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
   closeBullMQConnection,
@@ -398,13 +398,20 @@ export async function startWorkers() {
 }
 
 if (require.main === module) {
-  void startWorkers().catch((error: unknown) => {
-    logger.error({
-      action: 'workers.start.failed',
-      error: error instanceof Error ? error.message : 'Unknown worker startup error',
-      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
-    })
+  void (async () => {
+    try {
+      // Fail fast on deploy if a key this process needs is missing, rather than
+      // letting a scheduled job silently break hours later.
+      assertServerEnv(['REDIS_URL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], 'workers')
+      await startWorkers()
+    } catch (error: unknown) {
+      logger.error({
+        action: 'workers.start.failed',
+        error: error instanceof Error ? error.message : 'Unknown worker startup error',
+        ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      })
 
-    process.exitCode = 1
-  })
+      process.exitCode = 1
+    }
+  })()
 }

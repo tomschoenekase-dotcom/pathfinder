@@ -5,12 +5,54 @@ import { env, logger } from '@pathfinder/config'
 let redis: IORedis | null = null
 let warnedMissingRedisUrl = false
 
+// ---------------------------------------------------------------------------
+// In-memory fallback limiter
+//
+// Used when Redis is unavailable (REDIS_URL unset, or a Redis command fails).
+// It is a per-process fixed-window counter — NOT shared across instances — so it
+// cannot enforce a precise global limit in a multi-instance deployment. It exists
+// so that a missing or broken Redis does not leave the public AI chat endpoint
+// completely unprotected (every Claude call costs money). Redis remains the
+// source of truth whenever it is reachable.
+// ---------------------------------------------------------------------------
+
+type MemoryBucket = { count: number; resetAt: number }
+
+const memoryBuckets = new Map<string, MemoryBucket>()
+const MEMORY_BUCKET_SWEEP_THRESHOLD = 10_000
+
+function sweepExpiredBuckets(now: number): void {
+  for (const [bucketKey, bucket] of memoryBuckets) {
+    if (bucket.resetAt <= now) {
+      memoryBuckets.delete(bucketKey)
+    }
+  }
+}
+
+function checkRateLimitInMemory(key: string, maxRequests: number, windowSeconds: number): boolean {
+  const now = Date.now()
+  const bucket = memoryBuckets.get(key)
+
+  if (!bucket || bucket.resetAt <= now) {
+    // Opportunistic cleanup so the map cannot grow unbounded under churn.
+    if (memoryBuckets.size > MEMORY_BUCKET_SWEEP_THRESHOLD) {
+      sweepExpiredBuckets(now)
+    }
+
+    memoryBuckets.set(key, { count: 1, resetAt: now + windowSeconds * 1000 })
+    return true
+  }
+
+  bucket.count += 1
+  return bucket.count <= maxRequests
+}
+
 function getRedisClient(): IORedis | null {
   if (!env.REDIS_URL) {
     if (!warnedMissingRedisUrl) {
       logger.warn({
         action: 'rate_limit.redis_url_missing',
-        error: 'REDIS_URL is not configured; allowing requests',
+        error: 'REDIS_URL is not configured; using in-memory per-process rate limiting',
       })
       warnedMissingRedisUrl = true
     }
@@ -35,20 +77,21 @@ function getRedisClient(): IORedis | null {
   return redis
 }
 
-// Returns true when the request is allowed. Redis failures fail open so guests
-// are not blocked by infrastructure issues.
+// Returns true when the request is allowed. Prefers Redis; falls back to a
+// per-process in-memory limiter when Redis is missing or erroring, so the
+// endpoint is never left entirely unprotected.
 export async function checkRateLimit(
   key: string,
   maxRequests: number,
   windowSeconds: number,
 ): Promise<boolean> {
+  const client = getRedisClient()
+
+  if (!client) {
+    return checkRateLimitInMemory(key, maxRequests, windowSeconds)
+  }
+
   try {
-    const client = getRedisClient()
-
-    if (!client) {
-      return true
-    }
-
     const count = await client.incr(key)
 
     if (count === 1) {
@@ -62,7 +105,8 @@ export async function checkRateLimit(
       error: error instanceof Error ? error.message : 'Unknown Redis error',
     })
 
-    return true
+    // Degrade to the in-memory limiter rather than failing fully open.
+    return checkRateLimitInMemory(key, maxRequests, windowSeconds)
   }
 }
 
@@ -70,4 +114,5 @@ export function _resetRateLimitForTesting(): void {
   redis?.disconnect()
   redis = null
   warnedMissingRedisUrl = false
+  memoryBuckets.clear()
 }

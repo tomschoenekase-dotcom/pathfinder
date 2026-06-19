@@ -94,4 +94,20 @@ describe('checkRateLimit', () => {
       }),
     )
   })
+
+  it('falls back to in-memory limiting when REDIS_URL is unset and blocks over the limit', async () => {
+    configState.env.REDIS_URL = undefined
+
+    await expect(checkRateLimit('ratelimit:mem', 2, 60)).resolves.toBe(true)
+    await expect(checkRateLimit('ratelimit:mem', 2, 60)).resolves.toBe(true)
+    await expect(checkRateLimit('ratelimit:mem', 2, 60)).resolves.toBe(false)
+    expect(redisMockState.instances).toHaveLength(0)
+  })
+
+  it('falls back to in-memory limiting when Redis errors and blocks over the limit', async () => {
+    redisMockState.nextIncrError = new Error('Redis unavailable')
+
+    await expect(checkRateLimit('ratelimit:err', 1, 60)).resolves.toBe(true)
+    await expect(checkRateLimit('ratelimit:err', 1, 60)).resolves.toBe(false)
+  })
 })
