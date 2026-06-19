@@ -11,6 +11,10 @@ const dailyRollupFindMany = vi.fn()
 const analyticsEventCreate = vi.fn()
 const visitorSessionUpsert = vi.fn()
 const visitorSessionUpdateMany = vi.fn()
+const visitorSessionFindMany = vi.fn()
+const visitorSessionCount = vi.fn()
+const questionClusterFindMany = vi.fn()
+const placeFindMany = vi.fn()
 const dbQueryRaw = vi.fn()
 
 const mockDb = {
@@ -27,6 +31,14 @@ const mockDb = {
   visitorSession: {
     upsert: visitorSessionUpsert,
     updateMany: visitorSessionUpdateMany,
+    findMany: visitorSessionFindMany,
+    count: visitorSessionCount,
+  },
+  questionCluster: {
+    findMany: questionClusterFindMany,
+  },
+  place: {
+    findMany: placeFindMany,
   },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
@@ -260,5 +272,161 @@ describe('analytics router', () => {
         }),
       }),
     )
+  })
+
+  it('analytics.trackEvent persists visitorId on the session when provided', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({})
+
+    const caller = testRouter.createCaller(anonymousCtx())
+    await caller.analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      visitorId: '11111111-1111-4111-8111-111111111111',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.started',
+    })
+
+    expect(visitorSessionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          visitorId: '11111111-1111-4111-8111-111111111111',
+        }),
+        update: expect.objectContaining({
+          visitorId: '11111111-1111-4111-8111-111111111111',
+        }),
+      }),
+    )
+  })
+
+  it('analytics.getVisitorStats counts unique and returning visitors over distinct days', async () => {
+    // v1 seen on two distinct days -> returning; v2 only one day -> not returning.
+    visitorSessionFindMany.mockResolvedValueOnce([
+      { visitorId: 'v1', startedAt: new Date('2026-06-10T08:00:00.000Z') },
+      { visitorId: 'v1', startedAt: new Date('2026-06-12T09:00:00.000Z') },
+      { visitorId: 'v2', startedAt: new Date('2026-06-11T10:00:00.000Z') },
+    ])
+    visitorSessionCount.mockResolvedValueOnce(5)
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.analytics.getVisitorStats({ days: 30 })
+
+    expect(result).toEqual({ uniqueVisitors: 2, returningVisitors: 1, totalSessions: 5 })
+  })
+
+  it('analytics.getVisitorStats throws UNAUTHORIZED without a session', async () => {
+    const caller = testRouter.createCaller(anonymousCtx())
+
+    await expect(caller.analytics.getVisitorStats({ days: 30 })).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }),
+    )
+  })
+
+  it('analytics.getTopTopics sums topic rollups and labels them', async () => {
+    dailyRollupFindMany.mockResolvedValueOnce([
+      { category: 'food_drink', value: 3 },
+      { category: 'food_drink', value: 2 },
+      { category: 'accessibility', value: 4 },
+    ])
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.analytics.getTopTopics({ days: 30 })
+
+    expect(result[0]).toEqual({ topic: 'food_drink', label: 'Food & drink', count: 5 })
+    expect(result[1]).toEqual({ topic: 'accessibility', label: 'Accessibility', count: 4 })
+  })
+
+  it('analytics.getTopTopics throws UNAUTHORIZED without a session', async () => {
+    const caller = testRouter.createCaller(anonymousCtx())
+
+    await expect(caller.analytics.getTopTopics({ days: 30 })).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }),
+    )
+  })
+
+  it('analytics.getTopQuestions reads top_question clusters and merges duplicates', async () => {
+    questionClusterFindMany.mockResolvedValueOnce([
+      { canonicalText: 'Where are the restrooms?', count: 5 },
+      { canonicalText: 'where are the restrooms?', count: 2 },
+      { canonicalText: 'What time do you close?', count: 4 },
+    ])
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.analytics.getTopQuestions({})
+
+    expect(questionClusterFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant_1', kind: 'top_question' },
+      }),
+    )
+    expect(result).toEqual([
+      { question: 'Where are the restrooms?', count: 7 },
+      { question: 'What time do you close?', count: 4 },
+    ])
+  })
+
+  it('analytics.getContentGaps reads content_gap clusters with examples', async () => {
+    questionClusterFindMany.mockResolvedValueOnce([
+      {
+        canonicalText: 'Do you have lockers?',
+        count: 3,
+        examples: ['Do you have lockers?', 'Where can I store my bag?'],
+      },
+    ])
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.analytics.getContentGaps({ days: 30 })
+
+    expect(questionClusterFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant_1', kind: 'content_gap' },
+      }),
+    )
+    expect(result).toEqual([
+      {
+        question: 'Do you have lockers?',
+        count: 3,
+        examples: ['Do you have lockers?', 'Where can I store my bag?'],
+      },
+    ])
+  })
+
+  it('analytics.getContentGaps throws UNAUTHORIZED without a session', async () => {
+    const caller = testRouter.createCaller(anonymousCtx())
+
+    await expect(caller.analytics.getContentGaps({ days: 30 })).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }),
+    )
+  })
+
+  it('analytics.getPlaceInterest ranks places by weighted score', async () => {
+    dailyRollupFindMany.mockResolvedValueOnce([
+      { placeId: 'p1', metric: 'place_mentions', value: 2 },
+      { placeId: 'p1', metric: 'place_directions', value: 1 }, // weight 3
+      { placeId: 'p2', metric: 'place_card_views', value: 10 }, // weight 1
+    ])
+    placeFindMany.mockResolvedValueOnce([
+      { id: 'p1', name: 'Elephants' },
+      { id: 'p2', name: 'Cafe' },
+    ])
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.analytics.getPlaceInterest({
+      venueId: 'cvenueabc123456789012',
+      days: 30,
+    })
+
+    // p2: 10*1 = 10; p1: 2*1 + 1*3 = 5
+    expect(result.map((place) => place.placeId)).toEqual(['p2', 'p1'])
+    expect(result[0]).toMatchObject({ placeId: 'p2', name: 'Cafe', score: 10 })
+    expect(result[1]).toMatchObject({ placeId: 'p1', name: 'Elephants', score: 5 })
+  })
+
+  it('analytics.getPlaceInterest throws UNAUTHORIZED without a session', async () => {
+    const caller = testRouter.createCaller(anonymousCtx())
+
+    await expect(
+      caller.analytics.getPlaceInterest({ venueId: 'cvenueabc123456789012', days: 30 }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }))
   })
 })

@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfinder/analytics/events'
-import { TOPIC_LABELS, type TopicKey } from '@pathfinder/analytics'
+import { TOPIC_LABELS, type TopicKey } from '@pathfinder/analytics/topics'
 
 import { router } from '../core'
 import { publicProcedure, tenantProcedure } from '../trpc'

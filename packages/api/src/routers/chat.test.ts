@@ -146,6 +146,21 @@ describe('chat router', () => {
         caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN }),
       ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
     })
+
+    it('persists visitorId on the session when provided', async () => {
+      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID }])
+      sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
+
+      const visitorId = '11111111-1111-4111-8111-111111111111'
+      await caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN, visitorId })
+
+      expect(sessionUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ visitorId }),
+          update: expect.objectContaining({ visitorId }),
+        }),
+      )
+    })
   })
 
   // --- chat.send ---
