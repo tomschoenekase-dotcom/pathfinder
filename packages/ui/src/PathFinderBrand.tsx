@@ -4,7 +4,10 @@ type PathFinderIconProps = {
 
 type PathFinderBrandProps = {
   className?: string
+  iconClassName?: string
   textClassName?: string
+  textSizeClassName?: string
+  gapClassName?: string
 }
 
 export function PathFinderIcon({ className = 'h-7 w-7' }: PathFinderIconProps) {
@@ -25,11 +28,19 @@ export function PathFinderIcon({ className = 'h-7 w-7' }: PathFinderIconProps) {
   )
 }
 
-export function PathFinderBrand({ className = '', textClassName = '' }: PathFinderBrandProps) {
+export function PathFinderBrand({
+  className = '',
+  iconClassName = 'h-7 w-7 flex-shrink-0',
+  textClassName = '',
+  textSizeClassName = 'text-lg',
+  gapClassName = 'gap-2.5',
+}: PathFinderBrandProps) {
   return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
-      <PathFinderIcon className="h-7 w-7 flex-shrink-0" />
-      <span className={`text-lg font-semibold tracking-tight ${textClassName}`}>PathFinder</span>
+    <div className={`flex items-center ${gapClassName} ${className}`}>
+      <PathFinderIcon className={iconClassName} />
+      <span className={`${textSizeClassName} font-semibold tracking-tight ${textClassName}`}>
+        PathFinder
+      </span>
     </div>
   )
 }

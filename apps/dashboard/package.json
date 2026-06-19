@@ -2,7 +2,7 @@
   "name": "@pathfinder/dashboard",
   "private": true,
   "scripts": {
-    "build": "next build && SDIR=$(find .next/standalone -name server.js -not -path '*/node_modules/*' | head -1 | xargs dirname) && cp -r public \"$SDIR/public\" && mkdir -p \"$SDIR/.next\" && cp -r .next/static \"$SDIR/.next/static\"",
+    "build": "next build && node ../../scripts/copy-next-standalone-assets.mjs",
     "dev": "next dev --port 3001",
     "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"lib/**/*.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
     "typecheck": "tsc --noEmit",
@@ -14,6 +14,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@pathfinder/api": "workspace:*",
     "@pathfinder/db": "workspace:*",
+    "@pathfinder/ui": "workspace:*",
     "@tanstack/react-query": "^5.59.20",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",

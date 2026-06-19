@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import { PathFinderIcon } from '../components/PathFinderBrand'
+import { PathFinderIcon } from '@pathfinder/ui'
 
 export default function NotFound() {
   return (

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
-import { FadeIn } from '../components/FadeIn'
+import { FadeIn } from '@pathfinder/ui'
 
 const exampleQuestions = [
   "Where's the closest bathroom?",

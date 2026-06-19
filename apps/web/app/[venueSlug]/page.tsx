@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { TRPCError } from '@trpc/server'
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 
-import { PathFinderIcon } from '../../components/PathFinderBrand'
+import { PathFinderIcon } from '@pathfinder/ui'
 
 type VenueLandingPageProps = {
   params: Promise<{

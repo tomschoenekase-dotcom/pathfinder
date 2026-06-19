@@ -4,6 +4,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./feature-flags": "./src/feature-flags.ts",
+    "./geo": "./src/geo.ts",
     "./logger": "./src/logger.ts",
     "./typescript/base.json": "./typescript/base.json",
     "./typescript/nextjs.json": "./typescript/nextjs.json"

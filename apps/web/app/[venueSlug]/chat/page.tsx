@@ -12,7 +12,7 @@ import {
   SUPPORTED_LANGUAGES,
 } from '../../../components/LanguagePicker'
 import { LocationBanner } from '../../../components/LocationBanner'
-import { PathFinderIcon } from '../../../components/PathFinderBrand'
+import { PathFinderIcon } from '@pathfinder/ui'
 import { QuickPromptChips } from '../../../components/QuickPromptChips'
 import { useGeolocation } from '../../../hooks/useGeolocation'
 import { useSession } from '../../../hooks/useSession'
