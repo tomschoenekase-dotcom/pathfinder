@@ -9,8 +9,8 @@ const weeklyDigestFindFirst = vi.fn()
 const weeklyDigestFindMany = vi.fn()
 const dailyRollupFindMany = vi.fn()
 const analyticsEventCreate = vi.fn()
-const guestSessionUpsert = vi.fn()
-const guestSessionUpdateMany = vi.fn()
+const visitorSessionUpsert = vi.fn()
+const visitorSessionUpdateMany = vi.fn()
 const dbQueryRaw = vi.fn()
 
 const mockDb = {
@@ -24,9 +24,9 @@ const mockDb = {
   analyticsEvent: {
     create: analyticsEventCreate,
   },
-  guestSession: {
-    upsert: guestSessionUpsert,
-    updateMany: guestSessionUpdateMany,
+  visitorSession: {
+    upsert: visitorSessionUpsert,
+    updateMany: visitorSessionUpdateMany,
   },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
@@ -219,6 +219,46 @@ describe('analytics router', () => {
 
     await expect(caller.analytics.getDailyStats({ days: 30 })).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }),
+    )
+  })
+
+  it('analytics.trackEvent records session activity on VisitorSession', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({})
+
+    const caller = testRouter.createCaller(anonymousCtx())
+    const result = await caller.analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'message.sent',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(analyticsEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'cvenueabc123456789012',
+          sessionId: '00000000-0000-4000-8000-000000000001',
+          eventType: 'message.sent',
+        }),
+      }),
+    )
+    expect(visitorSessionUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { anonymousToken: '00000000-0000-4000-8000-000000000001' },
+        create: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'cvenueabc123456789012',
+          anonymousToken: '00000000-0000-4000-8000-000000000001',
+          messageCount: 1,
+        }),
+        update: expect.objectContaining({
+          lastActiveAt: expect.any(Date),
+          messageCount: { increment: 1 },
+        }),
+      }),
     )
   })
 })

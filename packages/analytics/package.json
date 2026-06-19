@@ -2,7 +2,8 @@
   "name": "@pathfinder/analytics",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./events": "./src/events.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

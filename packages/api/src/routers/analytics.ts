@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfinder/analytics'
+import { ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfinder/analytics/events'
 
 import { router } from '../core'
 import { publicProcedure, tenantProcedure } from '../trpc'
@@ -50,7 +50,7 @@ async function resolveVenueTenant(
   return venue ?? null
 }
 
-async function syncGuestSession(
+async function syncVisitorSession(
   db: Parameters<Parameters<typeof publicProcedure.mutation>[0]>[0]['ctx']['db'],
   params: {
     eventType: AnalyticsEventType
@@ -60,15 +60,15 @@ async function syncGuestSession(
   },
 ) {
   if (params.eventType === 'session.started') {
-    await db.guestSession.upsert({
-      where: { id: params.sessionId },
+    await db.visitorSession.upsert({
+      where: { anonymousToken: params.sessionId },
       create: {
-        id: params.sessionId,
         tenantId: params.tenantId,
         venueId: params.venueId,
+        anonymousToken: params.sessionId,
       },
       update: {
-        lastSeenAt: new Date(),
+        lastActiveAt: new Date(),
       },
     })
 
@@ -76,25 +76,25 @@ async function syncGuestSession(
   }
 
   if (params.eventType === 'session.ended') {
-    await db.guestSession.updateMany({
-      where: { id: params.sessionId, tenantId: params.tenantId },
-      data: { lastSeenAt: new Date() },
+    await db.visitorSession.updateMany({
+      where: { anonymousToken: params.sessionId, tenantId: params.tenantId },
+      data: { lastActiveAt: new Date() },
     })
 
     return
   }
 
   if (params.eventType === 'message.sent') {
-    await db.guestSession.upsert({
-      where: { id: params.sessionId },
+    await db.visitorSession.upsert({
+      where: { anonymousToken: params.sessionId },
       create: {
-        id: params.sessionId,
         tenantId: params.tenantId,
         venueId: params.venueId,
+        anonymousToken: params.sessionId,
         messageCount: 1,
       },
       update: {
-        lastSeenAt: new Date(),
+        lastActiveAt: new Date(),
         messageCount: {
           increment: 1,
         },
@@ -104,9 +104,9 @@ async function syncGuestSession(
     return
   }
 
-  await db.guestSession.updateMany({
-    where: { id: params.sessionId, tenantId: params.tenantId },
-    data: { lastSeenAt: new Date() },
+  await db.visitorSession.updateMany({
+    where: { anonymousToken: params.sessionId, tenantId: params.tenantId },
+    data: { lastActiveAt: new Date() },
   })
 }
 
@@ -130,7 +130,7 @@ export const analyticsRouter = router({
       },
     })
 
-    await syncGuestSession(ctx.db, {
+    await syncVisitorSession(ctx.db, {
       eventType: input.eventType,
       sessionId: input.sessionId,
       tenantId: venue.tenantId,

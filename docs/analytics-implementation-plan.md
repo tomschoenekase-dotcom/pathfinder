@@ -26,7 +26,7 @@ The digest is the core product differentiator. Tier 1 metrics are the supporting
 - All business logic lives in `packages/api/src/routers/`. No exceptions.
 - All DB access goes through `{ db }` from `@pathfinder/db`. Never instantiate PrismaClient directly.
 - All async/background work is queued via `packages/jobs/src/enqueue.ts`. Never import BullMQ directly outside `apps/workers`.
-- Analytics dashboard queries read from `DailyRollup` or `WeeklyDigest` — never from `messages`, `guest_sessions`, or `venues` OLTP tables for aggregates.
+- Analytics dashboard queries read from `DailyRollup` or `WeeklyDigest` — never from `messages`, `visitor_sessions`, or `venues` OLTP tables for aggregates.
 - `emitEvent()` is called server-side only, after mutations succeed.
 - Every new tenanted table must be added to the tenant isolation middleware list in `packages/db/src/middleware/tenant-isolation.ts`.
 - Queue names are constants in `packages/jobs/src/queues.ts`. Never use string literals elsewhere.
@@ -72,9 +72,11 @@ enum WeeklyDigestStatus {
 2. Add `weeklyDigests WeeklyDigest[]` to the `Tenant` model relation list.
 
 3. Run the migration from `packages/db`:
+
 ```bash
 pnpm db:migrate
 ```
+
 Name it: `add_weekly_digest`
 
 4. Add `WeeklyDigest` and `WeeklyDigestStatus` to the tenanted tables list in `packages/db/src/middleware/tenant-isolation.ts`.
@@ -82,6 +84,7 @@ Name it: `add_weekly_digest`
 5. Export `WeeklyDigest` and `WeeklyDigestStatus` types from `packages/db/src/index.ts`.
 
 ### Acceptance criteria
+
 - `pnpm turbo run typecheck` passes with zero errors.
 - `pnpm db:migrate` applies cleanly.
 - `WeeklyDigest` appears in the tenant isolation middleware tenanted tables list.
@@ -95,33 +98,40 @@ Name it: `add_weekly_digest`
 ### Tasks
 
 1. In `packages/jobs/src/queues.ts`, add a constant:
+
 ```ts
 export const WEEKLY_DIGEST_QUEUE = 'weekly-digest'
 ```
 
 2. In `packages/jobs/src/types.ts`, add a job payload type:
+
 ```ts
 export type WeeklyDigestJobPayload = {
   tenantId: string
   weekStart: string // ISO date string — Monday 00:00:00 UTC
-  weekEnd: string   // ISO date string — Sunday 23:59:59 UTC
-  digestId: string  // WeeklyDigest row ID — created before job is enqueued
+  weekEnd: string // ISO date string — Sunday 23:59:59 UTC
+  digestId: string // WeeklyDigest row ID — created before job is enqueued
 }
 ```
 
 3. In `packages/jobs/src/enqueue.ts`, add an export:
+
 ```ts
 export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Promise<void>
 ```
+
 Follow the existing pattern in that file for other job types.
 
 4. In `apps/workers/src/index.ts`, register a repeatable BullMQ job that fires every Sunday at 23:00 UTC:
+
 ```ts
 cron: '0 23 * * 0'
 ```
+
 This job loops over all active tenants and enqueues one `WeeklyDigestJobPayload` per tenant.
 
 ### Acceptance criteria
+
 - `pnpm turbo run typecheck` passes.
 - No BullMQ imports outside `apps/workers` and `packages/jobs`.
 - Queue name used only via the constant, never as a string literal.
@@ -133,6 +143,7 @@ This job loops over all active tenants and enqueues one `WeeklyDigestJobPayload`
 **Goal:** Implement the worker that processes a `WeeklyDigestJobPayload` — queries conversation data, calls Claude, and writes the result.
 
 ### File to create
+
 `apps/workers/src/processors/weekly-digest.ts`
 
 ### Tasks
@@ -141,7 +152,7 @@ This job loops over all active tenants and enqueues one `WeeklyDigestJobPayload`
 
    a. Mark the `WeeklyDigest` row as `PROCESSING`.
 
-   b. Query all `GuestSession` rows for the tenant in the week range. For each session, include related `Message` rows (both user and assistant turns). Use `withTenantIsolationBypass` since this runs outside a tRPC request context.
+   b. Query all `VisitorSession` rows for the tenant in the week range. For each session, include related `Message` rows (both user and assistant turns). Use `withTenantIsolationBypass` since this runs outside a tRPC request context.
 
    c. If there are fewer than 5 sessions, write a digest with status `COMPLETE`, zero insights, and a note that there is insufficient data. Do not call Claude.
 
@@ -179,13 +190,16 @@ This job loops over all active tenants and enqueues one `WeeklyDigestJobPayload`
 3. Register this processor in `apps/workers/src/index.ts` on the `WEEKLY_DIGEST_QUEUE`.
 
 ### Prompt quality notes (important)
+
 The Claude prompt is the core product. These details matter:
+
 - Tell Claude the tenant's venue name and type (query it from the `Tenant` / `Venue` table) so insights are contextual ("guests at Auckland Zoo asked about...")
 - Cap the message content sent to Claude at 500 chars per message to control token usage
 - Tell Claude to produce insight `type` values from the fixed enum: `trend`, `confusion`, `interest`, `recommendation`
 - Ask Claude to order insights by importance (most actionable first)
 
 ### Acceptance criteria
+
 - Worker processes a job and writes a `COMPLETE` digest with valid JSON insights.
 - Worker handles < 5 sessions gracefully without calling Claude.
 - Worker marks digest `FAILED` on Claude API error and does not swallow the error.
@@ -198,6 +212,7 @@ The Claude prompt is the core product. These details matter:
 **Goal:** Expose digest and metrics data to the dashboard via tRPC.
 
 ### File to create or extend
+
 `packages/api/src/routers/analytics.ts` (already exists — add procedures to it)
 
 ### Tasks
@@ -211,6 +226,7 @@ The Claude prompt is the core product. These details matter:
 4. Add `analytics.getDailyStats` — `tenantProcedure`, input: `{ days: z.number().min(7).max(90).default(30) }`. Returns the last N days of `DailyRollup` rows for the tenant, ordered by date ascending. This powers the Tier 1 trend charts.
 
 ### Acceptance criteria
+
 - All four procedures exist and return correct types.
 - `getDigest` throws `FORBIDDEN` if the digest belongs to a different tenant.
 - `pnpm turbo run typecheck` passes.
@@ -223,6 +239,7 @@ The Claude prompt is the core product. These details matter:
 **Goal:** Build the analytics page on the client dashboard.
 
 ### Page location
+
 `apps/dashboard/app/(app)/analytics/page.tsx`
 
 ### Tasks
@@ -254,6 +271,7 @@ The Claude prompt is the core product. These details matter:
 5. Do not put any data fetching logic in `packages/ui` components. All data is fetched in the page and passed as props.
 
 ### Acceptance criteria
+
 - Page renders without error when no digest exists.
 - Page renders all insights correctly when a digest exists.
 - Page is not accessible to unauthenticated users (handled by existing layout).
@@ -276,6 +294,7 @@ The Claude prompt is the core product. These details matter:
 2. Add a "Generate Digest" button to the `ClientsPanel` component next to each client. On click, calls `admin.triggerDigest`. Shows a success toast or inline confirmation.
 
 ### Acceptance criteria
+
 - Clicking "Generate Digest" on the clients page enqueues a job.
 - The digest row appears in the tenant's analytics page within the worker's processing time.
 - `pnpm turbo run typecheck` passes.
@@ -287,6 +306,7 @@ The Claude prompt is the core product. These details matter:
 **Goal:** Populate the `DailyRollup` table nightly so Tier 1 charts have data.
 
 ### File to create
+
 `apps/workers/src/processors/daily-rollup.ts`
 
 ### Tasks
@@ -300,15 +320,17 @@ The Claude prompt is the core product. These details matter:
 4. Register a repeatable job in `apps/workers/src/index.ts` — fires daily at 01:00 UTC, cron: `'0 1 * * *'`. Loops all active tenants and enqueues one `DailyRollupJobPayload` per tenant for yesterday's date.
 
 5. The processor:
-   - Queries `GuestSession` for the tenant on the given date
+   - Queries `VisitorSession` for the tenant on the given date
    - Counts: total sessions, total messages, unique place mentions (extracted from message content by looking for place names that exist in the `Place` table for that tenant)
    - Upserts a `DailyRollup` row for that tenant + date
    - Writes a `JobRecord` on completion
 
 ### Note on place mention extraction
+
 Keep this simple in v1: do a case-insensitive substring search of message content against all place names for the tenant. Do not use embeddings or NLP. This can be improved later.
 
 ### Acceptance criteria
+
 - Worker runs and upserts `DailyRollup` rows without error.
 - Re-running for the same date upserts (does not duplicate).
 - `pnpm turbo run typecheck` passes.
@@ -319,15 +341,15 @@ Keep this simple in v1: do a case-insensitive substring search of message conten
 
 Do the phases in order. Each phase is a PR. Do not combine phases.
 
-| Phase | Depends on |
-|-------|-----------|
-| 1 — Schema | Nothing |
-| 2 — Job infrastructure | Phase 1 |
-| 3 — Digest worker | Phase 2 |
-| 4 — tRPC router | Phase 1 |
-| 5 — Dashboard UI | Phase 4 |
-| 6 — Manual trigger | Phase 3, Phase 4 |
-| 7 — Daily rollup | Phase 2 |
+| Phase                  | Depends on       |
+| ---------------------- | ---------------- |
+| 1 — Schema             | Nothing          |
+| 2 — Job infrastructure | Phase 1          |
+| 3 — Digest worker      | Phase 2          |
+| 4 — tRPC router        | Phase 1          |
+| 5 — Dashboard UI       | Phase 4          |
+| 6 — Manual trigger     | Phase 3, Phase 4 |
+| 7 — Daily rollup       | Phase 2          |
 
 Phases 4 and 2 can be done in parallel after Phase 1. Phase 5 can start after Phase 4 with stub data.
 
@@ -336,7 +358,7 @@ Phases 4 and 2 can be done in parallel after Phase 1. Phase 5 can start after Ph
 ## PR checklist for every phase
 
 - [ ] `pnpm turbo run typecheck` — zero errors
-- [ ] `pnpm turbo run lint` — zero errors  
+- [ ] `pnpm turbo run lint` — zero errors
 - [ ] New tenanted tables added to isolation middleware
 - [ ] No `PrismaClient` instantiated outside `packages/db`
 - [ ] No BullMQ imported outside `apps/workers` and `packages/jobs`
@@ -347,4 +369,4 @@ Phases 4 and 2 can be done in parallel after Phase 1. Phase 5 can start after Ph
 
 ---
 
-*End of analytics implementation plan.*
+_End of analytics implementation plan._

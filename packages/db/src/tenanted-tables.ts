@@ -8,7 +8,6 @@ export const TENANTED_TABLES = [
   'DataAdapter',
   'OperationalUpdate',
   'AnalyticsEvent',
-  'GuestSession',
   'DailyRollup',
   'WeeklyDigest',
 ] as const

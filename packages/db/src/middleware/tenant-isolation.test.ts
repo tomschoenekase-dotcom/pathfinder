@@ -73,7 +73,6 @@ describe('tenantIsolationMiddleware', () => {
       'DataAdapter',
       'OperationalUpdate',
       'AnalyticsEvent',
-      'GuestSession',
       'DailyRollup',
       'WeeklyDigest',
     ])
