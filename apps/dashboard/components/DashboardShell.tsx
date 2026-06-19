@@ -3,8 +3,17 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { SignOutButton, useOrganization } from '@clerk/nextjs'
-import { Bot, Building2, ChartColumn, Home, LogOut, Megaphone, Palette } from 'lucide-react'
+import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
+import {
+  Bot,
+  Building2,
+  ChartColumn,
+  Home,
+  LogOut,
+  Megaphone,
+  Palette,
+  ShieldCheck,
+} from 'lucide-react'
 
 import { PathFinderBrand } from '@pathfinder/ui'
 
@@ -32,7 +41,11 @@ function isActivePath(pathname: string, href: string) {
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname()
   const { organization } = useOrganization()
+  const { user } = useUser()
   const orgName = organization?.name ?? 'Your organization'
+  const isPlatformAdmin =
+    (user?.publicMetadata as { platform_role?: unknown } | undefined)?.platform_role ===
+    'PLATFORM_ADMIN'
 
   return (
     <div className="min-h-screen bg-pf-surface text-pf-deep">
@@ -72,6 +85,18 @@ export function DashboardShell({ children }: DashboardShellProps) {
                   </Link>
                 )
               })}
+
+              {isPlatformAdmin ? (
+                <div className="mt-2 border-t border-pf-primary/20 pt-2">
+                  <Link
+                    href="/admin"
+                    className="flex min-h-11 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-pf-light/70 transition hover:bg-pf-primary/10 hover:text-white"
+                  >
+                    <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                    <span>Admin</span>
+                  </Link>
+                </div>
+              ) : null}
             </nav>
 
             <div className="pt-6">
