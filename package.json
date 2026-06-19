@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --filter=@pathfinder/web --filter=@pathfinder/dashboard --filter=@pathfinder/admin",
+    "dev": "turbo run dev --filter=@pathfinder/web --filter=@pathfinder/dashboard",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
