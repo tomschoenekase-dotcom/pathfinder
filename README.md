@@ -12,7 +12,6 @@ PathFinderOS is a multi-tenant SaaS monorepo for a public web app, tenant dashbo
 - `packages/api`
 - `packages/auth`
 - `packages/ui`
-- `packages/integrations`
 - `packages/jobs`
 - `packages/analytics`
 - `packages/config`

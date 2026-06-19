@@ -1,12 +1,24 @@
 {
   "name": "@pathfinder/ui",
   "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
   "scripts": {
-    "build": "echo build:ui",
+    "build": "tsc --noEmit --project tsconfig.json",
     "dev": "echo dev:ui",
     "lint": "echo lint:ui",
-    "typecheck": "echo typecheck:ui",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"
+  },
+  "peerDependencies": {
+    "react": "19.1.4"
+  },
+  "devDependencies": {
+    "@pathfinder/config": "workspace:*",
+    "@types/react": "19.1.16",
+    "react": "19.1.4"
   }
 }
