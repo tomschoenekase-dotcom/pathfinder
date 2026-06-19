@@ -67,6 +67,18 @@ const HISTORY_LOAD_LIMIT = 40
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 512
 
+// Backend-only content-gap detection (no guest-facing change, no extra model call).
+// If even the best-matching place is semantically far from the question, the venue
+// probably has no content for it. Reuses the retrieval distance we already compute.
+// Cosine distance: 0 = identical, ~1 = orthogonal; ~0.55 ≈ similarity < ~0.45 for
+// normalized OpenAI embeddings. NEEDS TUNING on real data before trusting the counts.
+const LOW_CONFIDENCE_DISTANCE_THRESHOLD = 0.55
+
+// Fallback heuristic for the geo/importance path, where there is no semantic score.
+// Zero tokens — just pattern-matches the assistant reply for "no info" phrasing.
+const NO_INFO_REPLY_PATTERN =
+  /I don'?t have|I'?m not sure|check with (the )?(staff|front desk|reception)|couldn'?t find|don'?t have (that |any )?information|no information/i
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -380,6 +392,30 @@ export const chatRouter = router({
         },
       })
     } catch {}
+
+    // Backend-only low-confidence detection (decision E). Invisible to the guest —
+    // the reply above already projected confidence; this only feeds content-gap
+    // analytics. No extra model call: reuse the retrieval distance, or fall back to
+    // a zero-token reply heuristic when the geo path ran (no semantic score).
+    const topDistance = queryEmbedding ? (relevantPlaces[0]?.distance ?? null) : null
+    const isLowConfidence = queryEmbedding
+      ? topDistance === null || topDistance > LOW_CONFIDENCE_DISTANCE_THRESHOLD
+      : NO_INFO_REPLY_PATTERN.test(assistantResponse)
+
+    if (isLowConfidence) {
+      try {
+        await emitEvent({
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          sessionId: input.anonymousToken,
+          eventType: 'message.low_confidence',
+          metadata: {
+            question: trimmedInput,
+            score: topDistance,
+          },
+        })
+      } catch {}
+    }
 
     // Filter places to only those Claude actually mentioned in the response.
     // Cap at 3 — more than that in a single turn is visual noise.

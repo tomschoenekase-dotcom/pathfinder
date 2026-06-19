@@ -15,6 +15,10 @@ export type SemanticPlace = {
   hours: string | null
   photoUrl: string | null
   distanceMeters?: number
+  // pgvector cosine distance of this place's embedding from the query embedding
+  // (0 = identical, ~1 = orthogonal). Reused as a free retrieval-confidence proxy.
+  // Optional because the geo-importance fallback path has no semantic score.
+  distance?: number
 }
 
 type RawPlaceRow = {
@@ -30,6 +34,7 @@ type RawPlaceRow = {
   area_name: string | null
   hours: string | null
   photo_url: string | null
+  distance: number
 }
 
 const DEFAULT_LIMIT = 8
@@ -69,7 +74,8 @@ export async function searchPlacesByEmbedding(params: {
       tags,
       area_name,
       hours,
-      photo_url
+      photo_url,
+      embedding <=> ${vectorStr}::vector AS distance
     FROM places
     WHERE venue_id     = ${venueId}
       AND tenant_id    = ${tenantId}
@@ -92,6 +98,7 @@ export async function searchPlacesByEmbedding(params: {
     areaName: row.area_name,
     hours: row.hours,
     photoUrl: row.photo_url,
+    distance: Number(row.distance),
     ...(row.lat != null && row.lng != null
       ? { distanceMeters: haversineDistanceMeters(userLat, userLng, row.lat, row.lng) }
       : {}),
