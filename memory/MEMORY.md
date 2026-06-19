@@ -1,5 +1,5 @@
 # Memory Index
 
-- [User Profile](user_profile.md) — Tom, solo founder building PathFinderOS, comfortable with code but delegates implementation to Claude/Codex
-- [Project State](project_state.md) — Current deployment status, Railway services, what's live vs not
-- [Feedback](feedback_approach.md) — How Tom likes to work, communication preferences
+- [Project State](project_state.md) - Current deployment status, Railway services, and live-vs-not notes.
+- [User Profile](user_profile.md) - Tom's role, working style, and implementation preferences.
+- [Feedback Approach](feedback_approach.md) - Communication preferences and how to present tradeoffs.
