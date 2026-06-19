@@ -29,6 +29,7 @@ export type {
   OperationalUpdateSeverity,
   Place,
   PlatformConfig,
+  QuestionCluster,
   Tenant,
   TenantFeatureFlag,
   TenantMembership,

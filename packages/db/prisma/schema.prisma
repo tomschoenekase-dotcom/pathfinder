@@ -37,6 +37,7 @@ model Tenant {
   analyticsEvents AnalyticsEvent[]
   dailyRollups DailyRollup[]
   weeklyDigests WeeklyDigest[]
+  questionClusters QuestionCluster[]
 
   @@map("tenants")
 }
@@ -151,6 +152,7 @@ model Venue {
   operationalUpdates OperationalUpdate[]
   analyticsEvents AnalyticsEvent[]
   dailyRollups DailyRollup[]
+  questionClusters QuestionCluster[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -191,6 +193,10 @@ model VisitorSession {
   tenantId       String    @map("tenant_id")
   venueId        String    @map("venue_id")
   anonymousToken String    @unique @map("anonymous_token")
+  // Persistent per-browser identity (localStorage), distinct from the per-visit
+  // anonymousToken (sessionStorage). Drives unique/returning visitor counts.
+  // Optional so older clients that don't send it keep working.
+  visitorId      String?   @map("visitor_id")
   latestLat      Float?    @map("latest_lat")
   latestLng      Float?    @map("latest_lng")
   startedAt      DateTime  @default(now()) @map("started_at")
@@ -202,6 +208,7 @@ model VisitorSession {
   @@index([tenantId])
   @@index([venueId])
   @@index([anonymousToken])
+  @@index([visitorId])
   @@map("visitor_sessions")
 }
 
@@ -211,11 +218,15 @@ model Message {
   sessionId String         @map("session_id")
   role      MessageRole
   content   String
+  // Fixed-taxonomy topic label, filled nightly by the analytics-enrichment job.
+  // Nullable; null means "not yet classified".
+  topic     String?
   createdAt DateTime       @default(now()) @map("created_at")
   session   VisitorSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
   @@index([sessionId])
+  @@index([topic])
   @@map("messages")
 }
 
@@ -297,6 +308,28 @@ model DailyRollup {
   @@index([metric, date])
   @@index([placeId])
   @@map("daily_rollups")
+}
+
+// Nightly-computed question clusters per venue/window. Stores both the top-question
+// clusters (kind='top_question') and content-gap clusters (kind='content_gap',
+// derived from low-confidence flagged questions). The enrichment job replaces a
+// venue's rows for each kind/window on every run.
+model QuestionCluster {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  venueId       String   @map("venue_id")
+  kind          String // 'top_question' | 'content_gap'
+  windowStart   DateTime @map("window_start")
+  windowEnd     DateTime @map("window_end")
+  canonicalText String   @map("canonical_text")
+  count         Int
+  examples      Json     @default("[]")
+  createdAt     DateTime @default(now()) @map("created_at")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue         Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, venueId, kind, windowStart])
+  @@map("question_clusters")
 }
 
 model JobRecord {

@@ -10,6 +10,7 @@ export const TENANTED_TABLES = [
   'AnalyticsEvent',
   'DailyRollup',
   'WeeklyDigest',
+  'QuestionCluster',
 ] as const
 
 export const PLATFORM_TABLES = ['User', 'Tenant', 'AuditLog', 'PlatformConfig'] as const
