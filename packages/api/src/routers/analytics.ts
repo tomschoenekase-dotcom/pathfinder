@@ -10,6 +10,7 @@ const analyticsTrackEventInput = z
   .object({
     sessionId: z.string().uuid(),
     venueId: z.string().cuid(),
+    visitorId: z.string().uuid().optional(),
     eventType: z.enum(ANALYTICS_EVENT_TYPES),
     placeId: z.string().cuid().optional(),
     metadata: z.record(z.unknown()).optional(),
@@ -57,8 +58,13 @@ async function syncVisitorSession(
     sessionId: string
     tenantId: string
     venueId: string
+    visitorId?: string
   },
 ) {
+  // Set visitorId when provided so unique/returning visitor counts work even if
+  // the very first signal for a session arrives via analytics rather than chat.
+  const visitorIdData = params.visitorId !== undefined ? { visitorId: params.visitorId } : {}
+
   if (params.eventType === 'session.started') {
     await db.visitorSession.upsert({
       where: { anonymousToken: params.sessionId },
@@ -66,9 +72,11 @@ async function syncVisitorSession(
         tenantId: params.tenantId,
         venueId: params.venueId,
         anonymousToken: params.sessionId,
+        ...visitorIdData,
       },
       update: {
         lastActiveAt: new Date(),
+        ...visitorIdData,
       },
     })
 
@@ -92,12 +100,14 @@ async function syncVisitorSession(
         venueId: params.venueId,
         anonymousToken: params.sessionId,
         messageCount: 1,
+        ...visitorIdData,
       },
       update: {
         lastActiveAt: new Date(),
         messageCount: {
           increment: 1,
         },
+        ...visitorIdData,
       },
     })
 
@@ -135,6 +145,7 @@ export const analyticsRouter = router({
       sessionId: input.sessionId,
       tenantId: venue.tenantId,
       venueId: input.venueId,
+      ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
     })
 
     return { ok: true as const }

@@ -43,6 +43,7 @@ const sessionSchema = z
   .object({
     venueId: z.string().min(1),
     anonymousToken: z.string().uuid(),
+    visitorId: z.string().uuid().optional(),
     lat: z.number().optional(),
     lng: z.number().optional(),
   })
@@ -52,6 +53,7 @@ const sendMessageSchema = z
   .object({
     venueId: z.string().min(1),
     anonymousToken: z.string().uuid(),
+    visitorId: z.string().uuid().optional(),
     message: z.string().min(1).max(1000),
     lat: z.number().optional(),
     lng: z.number().optional(),
@@ -89,6 +91,7 @@ export const chatRouter = router({
     const updateData: Record<string, unknown> = { lastActiveAt: new Date() }
     if (input.lat !== undefined) updateData.latestLat = input.lat
     if (input.lng !== undefined) updateData.latestLng = input.lng
+    if (input.visitorId !== undefined) updateData.visitorId = input.visitorId
 
     const session = await ctx.db.visitorSession.upsert({
       where: { anonymousToken: input.anonymousToken },
@@ -99,6 +102,7 @@ export const chatRouter = router({
         latestLat: input.lat ?? null,
         latestLng: input.lng ?? null,
         lastActiveAt: new Date(),
+        ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
       update: updateData,
       select: { id: true },
@@ -191,11 +195,13 @@ export const chatRouter = router({
         latestLat: input.lat ?? null,
         latestLng: input.lng ?? null,
         lastActiveAt: new Date(),
+        ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
       update: {
         latestLat: input.lat ?? null,
         latestLng: input.lng ?? null,
         lastActiveAt: new Date(),
+        ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
       select: { id: true },
     })
