@@ -58,6 +58,28 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   return response.data[0]!.embedding
 }
 
+/**
+ * Batched embeddings for the nightly enrichment job (question clustering).
+ * OpenAI accepts an array input in a single request, so this is one call per
+ * batch rather than one per question. Returns vectors aligned to the input order.
+ */
+export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) {
+    return []
+  }
+
+  const response = await getOpenAIClient().embeddings.create({
+    model: EMBEDDING_MODEL,
+    input: texts,
+    dimensions: EMBEDDING_DIMENSIONS,
+  })
+
+  return response.data
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.embedding)
+}
+
 export async function generateAndStorePlaceEmbedding(place: {
   id: string
   name: string

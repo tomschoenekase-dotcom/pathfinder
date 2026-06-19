@@ -3,6 +3,10 @@ import { Queue, Worker, type Job } from 'bullmq'
 import { assertServerEnv, logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
+  ANALYTICS_ENRICHMENT_PROCESS_JOB,
+  ANALYTICS_ENRICHMENT_QUEUE,
+  ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
+  ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
   closeBullMQConnection,
   closeJobQueues,
   DAILY_ROLLUP_PROCESS_JOB,
@@ -12,9 +16,11 @@ import {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
+  enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
   enqueueWeeklyDigest,
   getBullMQConnection,
+  type AnalyticsEnrichmentJobPayload,
   type EmbedPlaceJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
@@ -24,12 +30,15 @@ import {
   type WeeklyDigestJobPayload,
 } from '@pathfinder/jobs'
 
+import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment'
 import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
+// Runs after the daily rollup (01:00) so its pure-SQL rows already exist.
+const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
 
 function startOfUtcWeek(date: Date): Date {
   const start = new Date(date)
@@ -94,6 +103,23 @@ function getDailyRollupBackoffDelay(attemptsMade: number): number {
 }
 
 function getEmbedPlaceBackoffDelay(attemptsMade: number): number {
+  switch (attemptsMade) {
+    case 1:
+      return 30_000
+    case 2:
+      return 60_000
+    case 3:
+      return 5 * 60_000
+    case 4:
+      return 30 * 60_000
+    case 5:
+      return 2 * 60 * 60_000
+    default:
+      return -1
+  }
+}
+
+function getAnalyticsEnrichmentBackoffDelay(attemptsMade: number): number {
   switch (attemptsMade) {
     case 1:
       return 30_000
@@ -213,6 +239,29 @@ async function enqueueScheduledDailyRollups(): Promise<void> {
   })
 }
 
+async function enqueueScheduledAnalyticsEnrichment(): Promise<void> {
+  const yesterday = startOfUtcDay(new Date())
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
+
+  const activeTenants = await db.tenant.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true },
+  })
+
+  for (const tenant of activeTenants) {
+    await enqueueAnalyticsEnrichment({
+      tenantId: tenant.id,
+      date: yesterday.toISOString(),
+    })
+  }
+
+  logger.info({
+    action: 'workers.analytics-enrichment.scheduler.completed',
+    date: yesterday.toISOString(),
+    tenantCount: activeTenants.length,
+  })
+}
+
 async function handleWeeklyDigestQueueJob(
   job: Job<WeeklyDigestJobPayload | Record<string, never>>,
 ) {
@@ -252,11 +301,28 @@ async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>) {
   throw new Error(`Unsupported embed place job: ${job.name}`)
 }
 
+async function handleAnalyticsEnrichmentQueueJob(
+  job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
+) {
+  if (job.name === ANALYTICS_ENRICHMENT_SCHEDULER_JOB) {
+    await enqueueScheduledAnalyticsEnrichment()
+    return
+  }
+
+  if (job.name === ANALYTICS_ENRICHMENT_PROCESS_JOB) {
+    await processAnalyticsEnrichmentJob(job.data as AnalyticsEnrichmentJobPayload, job.id)
+    return
+  }
+
+  throw new Error(`Unsupported analytics enrichment job: ${job.name}`)
+}
+
 export async function startWorkers() {
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
   const embedPlaceQueue = new Queue(EMBED_PLACE_QUEUE, { connection })
+  const analyticsEnrichmentQueue = new Queue(ANALYTICS_ENRICHMENT_QUEUE, { connection })
 
   await weeklyDigestQueue.upsertJobScheduler(
     WEEKLY_DIGEST_SCHEDULER_JOB,
@@ -280,6 +346,21 @@ export async function startWorkers() {
     },
     {
       name: DAILY_ROLLUP_SCHEDULER_JOB,
+      data: {},
+      opts: {
+        removeOnComplete: 10,
+        removeOnFail: 50,
+      },
+    },
+  )
+
+  await analyticsEnrichmentQueue.upsertJobScheduler(
+    ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
+    {
+      pattern: ANALYTICS_ENRICHMENT_CRON,
+    },
+    {
+      name: ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
       data: {},
       opts: {
         removeOnComplete: 10,
@@ -330,6 +411,24 @@ export async function startWorkers() {
     },
   })
 
+  const analyticsEnrichmentWorker = new Worker(
+    ANALYTICS_ENRICHMENT_QUEUE,
+    handleAnalyticsEnrichmentQueueJob,
+    {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === ANALYTICS_ENRICHMENT_RETRY_BACKOFF) {
+            return getAnalyticsEnrichmentBackoffDelay(attemptsMade)
+          }
+
+          return 0
+        },
+      },
+    },
+  )
+
   const handleCompletedJob = (job: Job) => {
     logger.info({
       action: 'workers.job.completed',
@@ -353,14 +452,21 @@ export async function startWorkers() {
   weeklyDigestWorker.on('completed', handleCompletedJob)
   dailyRollupWorker.on('completed', handleCompletedJob)
   embedPlaceWorker.on('completed', handleCompletedJob)
+  analyticsEnrichmentWorker.on('completed', handleCompletedJob)
 
   weeklyDigestWorker.on('failed', handleFailedJob)
   dailyRollupWorker.on('failed', handleFailedJob)
   embedPlaceWorker.on('failed', handleFailedJob)
+  analyticsEnrichmentWorker.on('failed', handleFailedJob)
 
   logger.info({
     action: 'workers.started',
-    queues: [WEEKLY_DIGEST_QUEUE, DAILY_ROLLUP_QUEUE, EMBED_PLACE_QUEUE],
+    queues: [
+      WEEKLY_DIGEST_QUEUE,
+      DAILY_ROLLUP_QUEUE,
+      EMBED_PLACE_QUEUE,
+      ANALYTICS_ENRICHMENT_QUEUE,
+    ],
   })
 
   const shutdown = async () => {
@@ -370,9 +476,11 @@ export async function startWorkers() {
       weeklyDigestWorker.close(),
       dailyRollupWorker.close(),
       embedPlaceWorker.close(),
+      analyticsEnrichmentWorker.close(),
       weeklyDigestQueue.close(),
       dailyRollupQueue.close(),
       embedPlaceQueue.close(),
+      analyticsEnrichmentQueue.close(),
       closeJobQueues(),
       closeBullMQConnection(),
     ])
@@ -387,6 +495,8 @@ export async function startWorkers() {
   })
 
   return {
+    analyticsEnrichmentQueue,
+    analyticsEnrichmentWorker,
     dailyRollupQueue,
     dailyRollupWorker,
     embedPlaceQueue,

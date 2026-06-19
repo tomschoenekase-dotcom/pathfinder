@@ -12,6 +12,7 @@ export {
   buildPlaceText,
   generateAndStorePlaceEmbedding,
   generateEmbedding,
+  generateEmbeddings,
   setOpenAIClientForTesting,
 } from './helpers/embeddings'
 

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
+    "@pathfinder/analytics": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/db": "workspace:*",
     "@pathfinder/jobs": "workspace:*",
