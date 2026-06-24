@@ -16,6 +16,7 @@ import { PathFinderIcon } from '@pathfinder/ui'
 import { QuickPromptChips } from '../../../components/QuickPromptChips'
 import { useGeolocation } from '../../../hooks/useGeolocation'
 import { useSession } from '../../../hooks/useSession'
+import { useVisitorId } from '../../../hooks/useVisitorId'
 import { createTRPCClient } from '../../../lib/trpc'
 
 type VenueSummary = {
@@ -110,6 +111,7 @@ export default function VenueChatPage() {
   const viewedPlaceIdsRef = useRef<Set<string>>(new Set())
   const { lat, lng, permission, refresh } = useGeolocation()
   const { anonymousToken, setSessionId } = useSession(venue?.id ?? '')
+  const visitorId = useVisitorId()
 
   useEffect(() => {
     let disposed = false
@@ -190,6 +192,7 @@ export default function VenueChatPage() {
         const result = await client.chat.session.mutate({
           venueId: venue.id,
           anonymousToken,
+          ...(visitorId ? { visitorId } : {}),
           ...(lat !== null ? { lat } : {}),
           ...(lng !== null ? { lng } : {}),
         })
@@ -212,7 +215,7 @@ export default function VenueChatPage() {
     return () => {
       disposed = true
     }
-  }, [anonymousToken, client, lat, lng, setSessionId, venue])
+  }, [anonymousToken, client, lat, lng, setSessionId, venue, visitorId])
 
   useEffect(() => {
     if (!venue || !anonymousToken) {
@@ -231,13 +234,14 @@ export default function VenueChatPage() {
       .mutate({
         venueId: venue.id,
         sessionId: anonymousToken,
+        ...(visitorId ? { visitorId } : {}),
         eventType: 'session.started',
         metadata: {
           timestamp: new Date().toISOString(),
         },
       })
       .catch(() => {})
-  }, [anonymousToken, client, venue])
+  }, [anonymousToken, client, venue, visitorId])
 
   useEffect(() => {
     if (!venue || !anonymousToken) {
@@ -256,6 +260,7 @@ export default function VenueChatPage() {
         .mutate({
           venueId,
           sessionId: anonymousToken,
+          ...(visitorId ? { visitorId } : {}),
           eventType: 'session.ended',
           metadata: {
             durationSeconds,
@@ -269,7 +274,7 @@ export default function VenueChatPage() {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
     }
-  }, [anonymousToken, client, venue])
+  }, [anonymousToken, client, venue, visitorId])
 
   function trackPlaceEvent(
     eventType: 'place_card.viewed' | 'place_card.clicked' | 'directions.opened',
@@ -283,6 +288,7 @@ export default function VenueChatPage() {
       .mutate({
         venueId: venue.id,
         sessionId: anonymousToken,
+        ...(visitorId ? { visitorId } : {}),
         eventType,
         placeId,
       })
@@ -312,6 +318,7 @@ export default function VenueChatPage() {
       const result = await client.chat.send.mutate({
         venueId: venue.id,
         anonymousToken,
+        ...(visitorId ? { visitorId } : {}),
         message: trimmed,
         ...(fallbackLat !== null ? { lat: fallbackLat } : {}),
         ...(fallbackLng !== null ? { lng: fallbackLng } : {}),

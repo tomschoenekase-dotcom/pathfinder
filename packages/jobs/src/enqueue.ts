@@ -4,6 +4,9 @@ import { logger } from '@pathfinder/config'
 
 import { getBullMQConnection } from './connection'
 import {
+  ANALYTICS_ENRICHMENT_PROCESS_JOB,
+  ANALYTICS_ENRICHMENT_QUEUE,
+  ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
   DAILY_ROLLUP_PROCESS_JOB,
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
@@ -14,7 +17,12 @@ import {
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
 } from './queues'
-import type { DailyRollupJobPayload, EmbedPlaceJobPayload, WeeklyDigestJobPayload } from './types'
+import type {
+  AnalyticsEnrichmentJobPayload,
+  DailyRollupJobPayload,
+  EmbedPlaceJobPayload,
+  WeeklyDigestJobPayload,
+} from './types'
 
 const queueCache = new Map<string, Queue>()
 
@@ -61,6 +69,15 @@ const embedPlaceJobOptions: JobsOptions = {
   removeOnFail: 5000,
 }
 
+const analyticsEnrichmentJobOptions: JobsOptions = {
+  attempts: 6,
+  backoff: {
+    type: ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
+  },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
 export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Promise<void> {
   await getQueue(WEEKLY_DIGEST_QUEUE).add(WEEKLY_DIGEST_PROCESS_JOB, payload, {
     ...weeklyDigestJobOptions,
@@ -99,6 +116,21 @@ export async function enqueueEmbedPlace(payload: EmbedPlaceJobPayload): Promise<
     action: 'jobs.embed-place.enqueued',
     tenantId: payload.tenantId,
     placeId: payload.placeId,
+  })
+}
+
+export async function enqueueAnalyticsEnrichment(
+  payload: AnalyticsEnrichmentJobPayload,
+): Promise<void> {
+  await getQueue(ANALYTICS_ENRICHMENT_QUEUE).add(ANALYTICS_ENRICHMENT_PROCESS_JOB, payload, {
+    ...analyticsEnrichmentJobOptions,
+    jobId: `analytics-enrichment:${payload.tenantId}:${payload.date}`,
+  })
+
+  logger.info({
+    action: 'jobs.analytics-enrichment.enqueued',
+    tenantId: payload.tenantId,
+    date: payload.date,
   })
 }
 

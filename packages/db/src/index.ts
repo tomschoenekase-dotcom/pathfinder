@@ -12,6 +12,7 @@ export {
   buildPlaceText,
   generateAndStorePlaceEmbedding,
   generateEmbedding,
+  generateEmbeddings,
   setOpenAIClientForTesting,
 } from './helpers/embeddings'
 
@@ -29,6 +30,7 @@ export type {
   OperationalUpdateSeverity,
   Place,
   PlatformConfig,
+  QuestionCluster,
   Tenant,
   TenantFeatureFlag,
   TenantMembership,

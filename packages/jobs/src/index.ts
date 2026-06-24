@@ -1,4 +1,8 @@
 export {
+  ANALYTICS_ENRICHMENT_PROCESS_JOB,
+  ANALYTICS_ENRICHMENT_QUEUE,
+  ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
+  ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
   DAILY_ROLLUP_PROCESS_JOB,
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
@@ -14,8 +18,14 @@ export {
 export { closeBullMQConnection, getBullMQConnection } from './connection'
 export {
   closeJobQueues,
+  enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
   enqueueEmbedPlace,
   enqueueWeeklyDigest,
 } from './enqueue'
-export type { DailyRollupJobPayload, EmbedPlaceJobPayload, WeeklyDigestJobPayload } from './types'
+export type {
+  AnalyticsEnrichmentJobPayload,
+  DailyRollupJobPayload,
+  EmbedPlaceJobPayload,
+  WeeklyDigestJobPayload,
+} from './types'

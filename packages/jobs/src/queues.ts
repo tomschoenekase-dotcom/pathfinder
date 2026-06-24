@@ -11,3 +11,8 @@ export const DAILY_ROLLUP_RETRY_BACKOFF = 'daily-rollup-retry'
 export const EMBED_PLACE_QUEUE = 'embed-place'
 export const EMBED_PLACE_PROCESS_JOB = 'embed-place-process'
 export const EMBED_PLACE_RETRY_BACKOFF = 'embed-place-retry'
+
+export const ANALYTICS_ENRICHMENT_QUEUE = 'analytics-enrichment'
+export const ANALYTICS_ENRICHMENT_PROCESS_JOB = 'analytics-enrichment-process'
+export const ANALYTICS_ENRICHMENT_SCHEDULER_JOB = 'analytics-enrichment-scheduler'
+export const ANALYTICS_ENRICHMENT_RETRY_BACKOFF = 'analytics-enrichment-retry'

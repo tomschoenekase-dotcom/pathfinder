@@ -275,16 +275,241 @@ function TopQuestionsList({
   )
 }
 
+function VisitorStatsCards({
+  stats,
+}: {
+  stats: { uniqueVisitors: number; returningVisitors: number; totalSessions: number }
+}) {
+  const cards = [
+    { label: 'Unique visitors', value: stats.uniqueVisitors, hint: 'Distinct devices (30 days)' },
+    {
+      label: 'Returning visitors',
+      value: stats.returningVisitors,
+      hint: 'Seen on 2+ days',
+    },
+    { label: 'Total sessions', value: stats.totalSessions, hint: 'Chat visits (30 days)' },
+  ]
+
+  return (
+    <section className="grid gap-4 sm:grid-cols-3">
+      {cards.map((card) => (
+        <div
+          key={card.label}
+          className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm"
+        >
+          <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
+            {card.label}
+          </p>
+          <p className="mt-3 text-3xl font-semibold text-pf-deep">{card.value}</p>
+          <p className="mt-1 text-xs text-pf-deep/50">{card.hint}</p>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function ContentGapsList({
+  gaps,
+}: {
+  gaps: Array<{ question: string; count: number; examples: string[] }>
+}) {
+  return (
+    <section className="space-y-4 rounded-3xl border border-amber-200 bg-amber-50/40 p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-amber-600">
+          Content Gaps
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+          Questions your guide couldn&apos;t confidently answer
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+          Add or improve venue content for these and your guide will start answering them well.
+        </p>
+      </div>
+
+      {gaps.length === 0 ? (
+        <div className="rounded-[1.5rem] border border-dashed border-amber-200 bg-pf-white px-5 py-6 text-sm text-pf-deep/60">
+          No content gaps detected yet. Gaps appear after the nightly analysis runs on real guest
+          questions.
+        </div>
+      ) : (
+        <ol className="space-y-3">
+          {gaps.map((gap, index) => (
+            <li
+              key={`${gap.question}-${index}`}
+              className="rounded-[1.5rem] border border-amber-200 bg-pf-white px-5 py-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-4">
+                  <span className="mt-0.5 text-sm font-semibold text-amber-600">{index + 1}.</span>
+                  <p className="text-sm font-medium leading-6 text-pf-deep">{gap.question}</p>
+                </div>
+                <span className="inline-flex shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                  {gap.count}x
+                </span>
+              </div>
+              {gap.examples.length > 1 ? (
+                <p className="mt-2 pl-8 text-xs text-pf-deep/50">
+                  Also asked as: {gap.examples.slice(1, 3).join(' · ')}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
+function TopTopicsList({
+  topics,
+}: {
+  topics: Array<{ topic: string; label: string; count: number }>
+}) {
+  const max = Math.max(...topics.map((topic) => topic.count), 1)
+
+  return (
+    <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">Topics</p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+          What guests ask about
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+          Questions grouped into topics over the last 30 days.
+        </p>
+      </div>
+
+      {topics.length === 0 ? (
+        <div className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/60">
+          Topic breakdown appears once the nightly analysis has classified some questions.
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {topics.map((topic) => (
+            <li key={topic.topic} className="flex items-center gap-4">
+              <span className="w-40 shrink-0 text-sm font-medium text-pf-deep">{topic.label}</span>
+              <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-pf-surface">
+                <div
+                  className="h-full rounded-full bg-pf-accent"
+                  style={{ width: `${Math.max(4, (topic.count / max) * 100)}%` }}
+                />
+              </div>
+              <span className="w-10 shrink-0 text-right text-sm font-semibold text-pf-deep">
+                {topic.count}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function PlaceInterestList({
+  groups,
+}: {
+  groups: Array<{
+    venue: { id: string; name: string }
+    places: Array<{
+      placeId: string
+      name: string
+      score: number
+      mentions: number
+      views: number
+      clicks: number
+      directions: number
+    }>
+  }>
+}) {
+  const groupsWithData = groups.filter((group) => group.places.length > 0)
+
+  return (
+    <section className="space-y-5 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
+          Place Interest
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+          Which spots guests care about
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+          A weighted blend of mentions, card views, clicks, and directions opened (last 30 days).
+        </p>
+      </div>
+
+      {groupsWithData.length === 0 ? (
+        <div className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/60">
+          Place interest appears once guests start exploring your points of interest.
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {groupsWithData.map((group) => (
+            <div key={group.venue.id} className="space-y-3">
+              {groups.length > 1 ? (
+                <p className="text-sm font-semibold text-pf-deep/70">{group.venue.name}</p>
+              ) : null}
+              <ol className="space-y-2">
+                {group.places.slice(0, 10).map((place, index) => (
+                  <li
+                    key={place.placeId}
+                    className="flex items-center justify-between gap-4 rounded-[1.25rem] border border-pf-light bg-pf-surface px-4 py-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="text-sm font-semibold text-pf-accent">{index + 1}.</span>
+                      <span className="truncate text-sm font-medium text-pf-deep">
+                        {place.name}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3 text-xs text-pf-deep/50">
+                      <span>{place.views} views</span>
+                      <span>{place.clicks} clicks</span>
+                      <span>{place.directions} directions</span>
+                      <span className="rounded-full bg-pf-white px-3 py-1 text-sm font-semibold text-pf-deep">
+                        {place.score}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps) {
   const caller = await createCaller()
   const resolvedSearchParams = searchParams ? await searchParams : undefined
 
-  const [latestDigest, digests, dailyStats, topQuestions] = await Promise.all([
+  const [
+    latestDigest,
+    digests,
+    dailyStats,
+    topQuestions,
+    visitorStats,
+    topTopics,
+    contentGaps,
+    venues,
+  ] = await Promise.all([
     caller.analytics.getLatestDigest(),
     caller.analytics.listDigests(),
     caller.analytics.getDailyStats({ days: 30 }),
     caller.analytics.getTopQuestions({}),
+    caller.analytics.getVisitorStats({ days: 30 }),
+    caller.analytics.getTopTopics({ days: 30 }),
+    caller.analytics.getContentGaps({ days: 30 }),
+    caller.venue.list(),
   ])
+
+  const placeInterestByVenue = await Promise.all(
+    venues.map(async (venue) => ({
+      venue,
+      places: await caller.analytics.getPlaceInterest({ venueId: venue.id, days: 30 }),
+    })),
+  )
 
   const selectedDigestId = resolvedSearchParams?.digest
   const selectedDigest =
@@ -308,6 +533,10 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
             querying live conversation tables.
           </p>
         </section>
+
+        <VisitorStatsCards stats={visitorStats} />
+
+        <ContentGapsList gaps={contentGaps} />
 
         <section className="space-y-6 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -453,7 +682,9 @@ export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps
         </section>
 
         <SessionTrendChart rows={dailyStats} />
+        <TopTopicsList topics={topTopics} />
         <TopQuestionsList questions={topQuestions} />
+        <PlaceInterestList groups={placeInterestByVenue} />
       </div>
     </main>
   )
