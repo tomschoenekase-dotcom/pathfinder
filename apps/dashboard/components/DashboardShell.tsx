@@ -2,8 +2,8 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
+import { usePathname, useRouter } from 'next/navigation'
+import { SignOutButton, useOrganization, useOrganizationList, useUser } from '@clerk/nextjs'
 import {
   Bot,
   Building2,
@@ -40,12 +40,20 @@ function isActivePath(pathname: string, href: string) {
 
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const { organization } = useOrganization()
+  const { setActive } = useOrganizationList()
   const { user } = useUser()
   const orgName = organization?.name ?? 'Your organization'
   const isPlatformAdmin =
     (user?.publicMetadata as { platform_role?: unknown } | undefined)?.platform_role ===
     'PLATFORM_ADMIN'
+
+  async function exitClientView() {
+    if (!setActive) return
+    await setActive({ organization: null })
+    router.push('/admin')
+  }
 
   return (
     <div className="min-h-screen bg-pf-surface text-pf-deep">
@@ -113,7 +121,23 @@ export function DashboardShell({ children }: DashboardShellProps) {
           </div>
         </aside>
 
-        <main className="min-w-0 bg-pf-surface">{children}</main>
+        <main className="min-w-0 bg-pf-surface">
+          {isPlatformAdmin ? (
+            <div className="flex items-center justify-between gap-4 border-b border-amber-200 bg-amber-50 px-6 py-2.5">
+              <p className="text-sm font-medium text-amber-800">
+                Admin view: <span className="font-semibold">{orgName}</span>
+              </p>
+              <button
+                type="button"
+                onClick={exitClientView}
+                className="text-sm font-semibold text-amber-700 transition hover:text-amber-900"
+              >
+                ← Back to Admin
+              </button>
+            </div>
+          ) : null}
+          {children}
+        </main>
       </div>
     </div>
   )

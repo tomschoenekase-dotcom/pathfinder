@@ -88,7 +88,11 @@
       "Bash(pnpm --filter @pathfinder/dashboard typecheck)",
       "Bash(pnpm --filter @pathfinder/workers test)",
       "Bash(pnpm lint *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(dir \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\web\\\\public\" /a)",
+      "Skill(code-review)",
+      "Skill(code-review:*)",
+      "Bash(dir \"C:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\dashboard\\\\app\\\\\\(app\\)\\\\venues\\\\[venueId]\" /b)"
     ]
   }
 }

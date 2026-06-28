@@ -6,10 +6,16 @@ export type { WriteJobRecordParams } from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'
 export { handleClerkEvent, mapClerkRoleToTenantRole } from './helpers/membership-sync'
 export type { ClerkWebhookEvent } from './helpers/membership-sync'
-export { searchPlacesByEmbedding, storePlaceEmbedding } from './helpers/semantic-search'
-export type { SemanticPlace } from './helpers/semantic-search'
+export {
+  searchKnowledgeByEmbedding,
+  searchPlacesByEmbedding,
+  storeKnowledgeEntryEmbedding,
+  storePlaceEmbedding,
+} from './helpers/semantic-search'
+export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'
 export {
   buildPlaceText,
+  generateAndStoreKnowledgeEntryEmbedding,
   generateAndStorePlaceEmbedding,
   generateEmbedding,
   generateEmbeddings,
@@ -38,6 +44,7 @@ export type {
   TenantStatus,
   User,
   Venue,
+  VenueKnowledgeEntry,
   VisitorSession,
   WeeklyDigest,
   WeeklyDigestStatus,

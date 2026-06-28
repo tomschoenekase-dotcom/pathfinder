@@ -11,8 +11,11 @@ const { emitEvent } = vi.hoisted(() => ({ emitEvent: vi.fn().mockResolvedValue(u
 vi.mock('@pathfinder/analytics', () => ({ emitEvent }))
 
 // Drive the semantic retrieval path with controllable distances.
-const { searchPlacesByEmbedding } = vi.hoisted(() => ({ searchPlacesByEmbedding: vi.fn() }))
-vi.mock('@pathfinder/db', () => ({ searchPlacesByEmbedding }))
+const { searchKnowledgeByEmbedding, searchPlacesByEmbedding } = vi.hoisted(() => ({
+  searchKnowledgeByEmbedding: vi.fn(),
+  searchPlacesByEmbedding: vi.fn(),
+}))
+vi.mock('@pathfinder/db', () => ({ searchKnowledgeByEmbedding, searchPlacesByEmbedding }))
 
 // Force an embedding to exist so chat.send takes the semantic branch.
 const { generateEmbedding } = vi.hoisted(() => ({ generateEmbedding: vi.fn() }))
@@ -77,6 +80,7 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
   generateEmbedding.mockResolvedValueOnce([0.1, 0.2, 0.3])
   messageFindMany.mockResolvedValueOnce([])
   searchPlacesByEmbedding.mockResolvedValueOnce(places)
+  searchKnowledgeByEmbedding.mockResolvedValueOnce([])
   anthropicCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: reply }] })
   messageCreate.mockResolvedValue({})
 }

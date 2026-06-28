@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { emitEvent } from '@pathfinder/analytics'
-import { searchPlacesByEmbedding } from '@pathfinder/db'
+import { searchKnowledgeByEmbedding, searchPlacesByEmbedding } from '@pathfinder/db'
 
 import { env, logger } from '@pathfinder/config'
 
@@ -62,6 +62,7 @@ const sendMessageSchema = z
   .strict()
 
 const NEAREST_PLACES_LIMIT = 8
+const KNOWLEDGE_ENTRIES_LIMIT = 5
 const HISTORY_LIMIT = 10
 const HISTORY_LOAD_LIMIT = 40
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
@@ -230,19 +231,33 @@ export const chatRouter = router({
       }),
     ])
 
-    // 4. Retrieve relevant places.
-    //    Semantic search when embeddings are available; geo-nearest fallback otherwise.
+    // 4. Retrieve relevant places and knowledge entries.
+    //    When an embedding is available both searches run in parallel (same query embedding,
+    //    no inter-dependency). Geo-nearest fallback for places when embedding is absent;
+    //    knowledge entries fall back to empty (no non-semantic fallback needed).
     let relevantPlaces: Awaited<ReturnType<typeof searchPlacesByEmbedding>>
+    let relevantKnowledgeEntries: Awaited<ReturnType<typeof searchKnowledgeByEmbedding>>
     if (queryEmbedding) {
-      relevantPlaces = await searchPlacesByEmbedding({
-        queryEmbedding,
-        venueId: input.venueId,
-        tenantId: venue.tenantId,
-        userLat: contextLat,
-        userLng: contextLng,
-        limit: NEAREST_PLACES_LIMIT,
-      })
+      const [places, knowledge] = await Promise.all([
+        searchPlacesByEmbedding({
+          queryEmbedding,
+          venueId: input.venueId,
+          tenantId: venue.tenantId,
+          userLat: contextLat,
+          userLng: contextLng,
+          limit: NEAREST_PLACES_LIMIT,
+        }),
+        searchKnowledgeByEmbedding({
+          queryEmbedding,
+          venueId: input.venueId,
+          tenantId: venue.tenantId,
+          limit: KNOWLEDGE_ENTRIES_LIMIT,
+        }).catch(() => []),
+      ])
+      relevantPlaces = places
+      relevantKnowledgeEntries = knowledge
     } else {
+      relevantKnowledgeEntries = []
       const fallbackPlaces = await ctx.db.place.findMany({
         where: { venueId: input.venueId, tenantId: venue.tenantId, isActive: true },
         select: {
@@ -310,6 +325,7 @@ export const chatRouter = router({
     const systemPrompt = buildVenueSystemPrompt({
       venue,
       relevantPlaces,
+      knowledgeEntries: relevantKnowledgeEntries,
       userLat: contextLat,
       userLng: contextLng,
       featuredPlace,

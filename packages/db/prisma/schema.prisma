@@ -153,6 +153,7 @@ model Venue {
   analyticsEvents AnalyticsEvent[]
   dailyRollups DailyRollup[]
   questionClusters QuestionCluster[]
+  knowledgeEntries VenueKnowledgeEntry[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -186,6 +187,23 @@ model Place {
   @@index([tenantId])
   @@index([venueId])
   @@map("places")
+}
+
+model VenueKnowledgeEntry {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  venueId   String   @map("venue_id")
+  title     String
+  category  String
+  content   String
+  isEnabled Boolean  @default(true) @map("is_enabled")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  venue     Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([venueId])
+  @@map("venue_knowledge_entries")
 }
 
 model VisitorSession {

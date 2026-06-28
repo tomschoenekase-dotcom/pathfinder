@@ -15,7 +15,9 @@ type RootLayoutProps = {
 }
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://sweet-luck-production-0037.up.railway.app'),
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL ?? 'https://sweet-luck-production-0037.up.railway.app',
+  ),
   title: 'PathFinder — The AI guide built for your venue',
   description:
     'Guests ask questions. PathFinder answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',

@@ -26,6 +26,12 @@ type VenueInfo = {
   guideMode?: string | null
 }
 
+type KnowledgeEntry = {
+  title: string
+  category: string
+  content: string
+}
+
 type FeaturedPlace = {
   name: string
   blurb: string
@@ -46,6 +52,7 @@ export function formatDistance(meters: number): string {
 export function buildVenueSystemPrompt(params: {
   venue: VenueInfo
   relevantPlaces: RelevantPlace[]
+  knowledgeEntries?: KnowledgeEntry[]
   userLat: number
   userLng: number
   featuredPlace?: FeaturedPlace | null
@@ -53,6 +60,7 @@ export function buildVenueSystemPrompt(params: {
   guideMode?: string | null
 }): string {
   const { venue, relevantPlaces, featuredPlace, language } = params
+  const knowledgeEntries = params.knowledgeEntries ?? []
   const guideMode = params.guideMode ?? venue.guideMode ?? 'location_aware'
 
   const venueDescription = venue.description ?? 'A venue with many things to explore.'
@@ -91,6 +99,13 @@ export function buildVenueSystemPrompt(params: {
           })
           .join('\n\n')
 
+  const knowledgeSection =
+    knowledgeEntries.length === 0
+      ? ''
+      : `\n\nKNOWLEDGE BASE:\n${knowledgeEntries
+          .map((entry) => `[${entry.category}] ${entry.title}\n${entry.content}`)
+          .join('\n\n')}`
+
   const languageRule =
     language && language.trim().length > 0
       ? `LANGUAGE RULE: The guest has selected ${language} as their preferred language. Always respond in ${language}, regardless of what language the guest types in.`
@@ -123,10 +138,11 @@ About this venue:
 ${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}
 
 MOST RELEVANT PLACES FOR THIS QUERY:
-${placesSection}
+${placesSection}${knowledgeSection}
 
 Rules:
 - Ground every answer in the venue data above. Do not invent places or distances.
+- Ground answers in the knowledge base entries above when relevant. Treat them as authoritative venue information.
 - Use the place data as background knowledge, not as text to quote. Paraphrase and summarize — never copy descriptions verbatim. Mention only what is relevant to the visitor's question.
 ${guideModeRules}
 - Match answer length to the question. Simple questions (where is, what is) get 1–2 sentences. Process or FAQ questions (what do I do, how does it work) can use up to 4–5 sentences if genuinely needed. Never pad a short answer to fill space.

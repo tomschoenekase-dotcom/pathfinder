@@ -13,6 +13,9 @@ import {
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
   DAILY_ROLLUP_SCHEDULER_JOB,
+  EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB,
+  EMBED_KNOWLEDGE_ENTRY_QUEUE,
+  EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
@@ -21,6 +24,7 @@ import {
   enqueueWeeklyDigest,
   getBullMQConnection,
   type AnalyticsEnrichmentJobPayload,
+  type EmbedKnowledgeEntryJobPayload,
   type EmbedPlaceJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
@@ -32,6 +36,7 @@ import {
 
 import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment'
 import { processDailyRollupJob } from './processors/daily-rollup'
+import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 
@@ -103,6 +108,23 @@ function getDailyRollupBackoffDelay(attemptsMade: number): number {
 }
 
 function getEmbedPlaceBackoffDelay(attemptsMade: number): number {
+  switch (attemptsMade) {
+    case 1:
+      return 30_000
+    case 2:
+      return 60_000
+    case 3:
+      return 5 * 60_000
+    case 4:
+      return 30 * 60_000
+    case 5:
+      return 2 * 60 * 60_000
+    default:
+      return -1
+  }
+}
+
+function getEmbedKnowledgeEntryBackoffDelay(attemptsMade: number): number {
   switch (attemptsMade) {
     case 1:
       return 30_000
@@ -301,6 +323,15 @@ async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>) {
   throw new Error(`Unsupported embed place job: ${job.name}`)
 }
 
+async function handleEmbedKnowledgeEntryQueueJob(job: Job<EmbedKnowledgeEntryJobPayload>) {
+  if (job.name === EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB) {
+    await processEmbedKnowledgeEntryJob(job.data, job.id)
+    return
+  }
+
+  throw new Error(`Unsupported embed knowledge entry job: ${job.name}`)
+}
+
 async function handleAnalyticsEnrichmentQueueJob(
   job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
 ) {
@@ -411,6 +442,24 @@ export async function startWorkers() {
     },
   })
 
+  const embedKnowledgeEntryWorker = new Worker(
+    EMBED_KNOWLEDGE_ENTRY_QUEUE,
+    handleEmbedKnowledgeEntryQueueJob,
+    {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF) {
+            return getEmbedKnowledgeEntryBackoffDelay(attemptsMade)
+          }
+
+          return 0
+        },
+      },
+    },
+  )
+
   const analyticsEnrichmentWorker = new Worker(
     ANALYTICS_ENRICHMENT_QUEUE,
     handleAnalyticsEnrichmentQueueJob,
@@ -452,11 +501,13 @@ export async function startWorkers() {
   weeklyDigestWorker.on('completed', handleCompletedJob)
   dailyRollupWorker.on('completed', handleCompletedJob)
   embedPlaceWorker.on('completed', handleCompletedJob)
+  embedKnowledgeEntryWorker.on('completed', handleCompletedJob)
   analyticsEnrichmentWorker.on('completed', handleCompletedJob)
 
   weeklyDigestWorker.on('failed', handleFailedJob)
   dailyRollupWorker.on('failed', handleFailedJob)
   embedPlaceWorker.on('failed', handleFailedJob)
+  embedKnowledgeEntryWorker.on('failed', handleFailedJob)
   analyticsEnrichmentWorker.on('failed', handleFailedJob)
 
   logger.info({
@@ -465,6 +516,7 @@ export async function startWorkers() {
       WEEKLY_DIGEST_QUEUE,
       DAILY_ROLLUP_QUEUE,
       EMBED_PLACE_QUEUE,
+      EMBED_KNOWLEDGE_ENTRY_QUEUE,
       ANALYTICS_ENRICHMENT_QUEUE,
     ],
   })
@@ -476,6 +528,7 @@ export async function startWorkers() {
       weeklyDigestWorker.close(),
       dailyRollupWorker.close(),
       embedPlaceWorker.close(),
+      embedKnowledgeEntryWorker.close(),
       analyticsEnrichmentWorker.close(),
       weeklyDigestQueue.close(),
       dailyRollupQueue.close(),
@@ -499,6 +552,7 @@ export async function startWorkers() {
     analyticsEnrichmentWorker,
     dailyRollupQueue,
     dailyRollupWorker,
+    embedKnowledgeEntryWorker,
     embedPlaceQueue,
     embedPlaceWorker,
     weeklyDigestQueue,

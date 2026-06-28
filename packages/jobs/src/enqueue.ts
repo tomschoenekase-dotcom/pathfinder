@@ -10,6 +10,9 @@ import {
   DAILY_ROLLUP_PROCESS_JOB,
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
+  EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB,
+  EMBED_KNOWLEDGE_ENTRY_QUEUE,
+  EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
@@ -20,6 +23,7 @@ import {
 import type {
   AnalyticsEnrichmentJobPayload,
   DailyRollupJobPayload,
+  EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
   WeeklyDigestJobPayload,
 } from './types'
@@ -64,6 +68,15 @@ const embedPlaceJobOptions: JobsOptions = {
   attempts: 6,
   backoff: {
     type: EMBED_PLACE_RETRY_BACKOFF,
+  },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+const embedKnowledgeEntryJobOptions: JobsOptions = {
+  attempts: 6,
+  backoff: {
+    type: EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   },
   removeOnComplete: 1000,
   removeOnFail: 5000,
@@ -116,6 +129,21 @@ export async function enqueueEmbedPlace(payload: EmbedPlaceJobPayload): Promise<
     action: 'jobs.embed-place.enqueued',
     tenantId: payload.tenantId,
     placeId: payload.placeId,
+  })
+}
+
+export async function enqueueEmbedKnowledgeEntry(
+  payload: EmbedKnowledgeEntryJobPayload,
+): Promise<void> {
+  await getQueue(EMBED_KNOWLEDGE_ENTRY_QUEUE).add(EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB, payload, {
+    ...embedKnowledgeEntryJobOptions,
+    jobId: `embed-knowledge-entry:${payload.entryId}`,
+  })
+
+  logger.info({
+    action: 'jobs.embed-knowledge-entry.enqueued',
+    tenantId: payload.tenantId,
+    entryId: payload.entryId,
   })
 }
 

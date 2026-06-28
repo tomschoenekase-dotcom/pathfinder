@@ -3,6 +3,7 @@ export const TENANTED_TABLES = [
   'TenantFeatureFlag',
   'Venue',
   'Place',
+  'VenueKnowledgeEntry',
   'VisitorSession',
   'Message',
   'DataAdapter',

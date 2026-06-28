@@ -7,6 +7,9 @@ export {
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
   DAILY_ROLLUP_SCHEDULER_JOB,
+  EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB,
+  EMBED_KNOWLEDGE_ENTRY_QUEUE,
+  EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
@@ -20,12 +23,14 @@ export {
   closeJobQueues,
   enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
+  enqueueEmbedKnowledgeEntry,
   enqueueEmbedPlace,
   enqueueWeeklyDigest,
 } from './enqueue'
 export type {
   AnalyticsEnrichmentJobPayload,
   DailyRollupJobPayload,
+  EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
   WeeklyDigestJobPayload,
 } from './types'

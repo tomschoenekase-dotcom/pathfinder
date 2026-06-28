@@ -25,7 +25,7 @@ export default clerkMiddleware(async (auth, req) => {
       return authState.redirectToSignIn()
     }
 
-    if (!authState.orgId && pathname !== '/onboarding') {
+    if (!authState.orgId && pathname !== '/onboarding' && !pathname.startsWith('/admin')) {
       const onboardingUrl = new URL('/onboarding', req.url)
       return NextResponse.redirect(onboardingUrl)
     }

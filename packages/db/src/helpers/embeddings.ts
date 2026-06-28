@@ -2,7 +2,7 @@ import OpenAI from 'openai'
 
 import { env } from '@pathfinder/config'
 
-import { storePlaceEmbedding } from './semantic-search'
+import { storeKnowledgeEntryEmbedding, storePlaceEmbedding } from './semantic-search'
 
 let openaiClient: OpenAI | null = null
 
@@ -95,4 +95,16 @@ export async function generateAndStorePlaceEmbedding(place: {
   const embedding = await generateEmbedding(text)
 
   await storePlaceEmbedding(place.id, embedding)
+}
+
+export async function generateAndStoreKnowledgeEntryEmbedding(entry: {
+  id: string
+  title: string
+  category: string
+  content: string
+}): Promise<void> {
+  const text = [entry.title, entry.category, entry.content].filter(Boolean).join('. ')
+  const embedding = await generateEmbedding(text)
+
+  await storeKnowledgeEntryEmbedding(entry.id, embedding)
 }

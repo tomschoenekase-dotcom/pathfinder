@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { AdminClientStatusForm } from '../../../../../components/admin/AdminClientStatusForm'
 import { AdminTriggerDigestButton } from '../../../../../components/admin/AdminTriggerDigestButton'
+import { ViewAsClientButton } from '../../../../../components/admin/ViewAsClientButton'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
 import { getStatusClasses } from '../../../../../lib/admin-status'
 
@@ -55,13 +56,16 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
       </Link>
 
       <header className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-4xl font-semibold tracking-tight text-pf-deep">{tenant.name}</h1>
-          <span
-            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${getStatusClasses(tenant.status)}`}
-          >
-            {tenant.status}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-4xl font-semibold tracking-tight text-pf-deep">{tenant.name}</h1>
+            <span
+              className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wider ${getStatusClasses(tenant.status)}`}
+            >
+              {tenant.status}
+            </span>
+          </div>
+          <ViewAsClientButton tenantId={tenant.id} tenantName={tenant.name} />
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-pf-deep/50">
           <span className="rounded-full bg-pf-surface px-2 py-0.5 font-mono">{tenant.slug}</span>

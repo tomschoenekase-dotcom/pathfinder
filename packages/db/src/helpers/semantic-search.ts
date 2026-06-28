@@ -38,6 +38,23 @@ type RawPlaceRow = {
 }
 
 const DEFAULT_LIMIT = 8
+const KNOWLEDGE_DEFAULT_LIMIT = 5
+
+export type SemanticKnowledgeEntry = {
+  id: string
+  title: string
+  category: string
+  content: string
+  distance: number
+}
+
+type RawKnowledgeRow = {
+  id: string
+  title: string
+  category: string
+  content: string
+  distance: number
+}
 
 /**
  * Searches places by cosine similarity against a pre-computed query embedding.
@@ -116,4 +133,63 @@ export async function storePlaceEmbedding(placeId: string, embedding: number[]):
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db as any)
     .$executeRaw`UPDATE places SET embedding = ${vectorStr}::vector WHERE id = ${placeId}`
+}
+
+/**
+ * Searches knowledge entries by cosine similarity against a pre-computed query embedding.
+ *
+ * Raw SQL required: pgvector cosine similarity operator (<=>).
+ * tenant_id is explicitly bound as a query parameter; isolation is manual here
+ * since $queryRaw bypasses the Prisma middleware.
+ */
+export async function searchKnowledgeByEmbedding(params: {
+  queryEmbedding: number[]
+  venueId: string
+  tenantId: string
+  limit?: number
+}): Promise<SemanticKnowledgeEntry[]> {
+  const { queryEmbedding, venueId, tenantId, limit = KNOWLEDGE_DEFAULT_LIMIT } = params
+
+  const vectorStr = `[${queryEmbedding.join(',')}]`
+  const limitSafe = Math.max(1, Math.min(20, Math.floor(limit)))
+
+  const rows = await db.$queryRaw<RawKnowledgeRow[]>`
+    SELECT
+      id,
+      title,
+      category,
+      content,
+      embedding <=> ${vectorStr}::vector AS distance
+    FROM venue_knowledge_entries
+    WHERE venue_id   = ${venueId}
+      AND tenant_id  = ${tenantId}
+      AND is_enabled = true
+      AND embedding  IS NOT NULL
+    ORDER BY embedding <=> ${vectorStr}::vector
+    LIMIT ${limitSafe}
+  `
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    content: row.content,
+    distance: Number(row.distance),
+  }))
+}
+
+/**
+ * Stores a pre-computed embedding vector for a knowledge entry.
+ *
+ * Raw SQL required: vector(1536) is unsupported by Prisma's typed API.
+ * The entryId must have been obtained from a prior tenant-isolated query.
+ */
+export async function storeKnowledgeEntryEmbedding(
+  entryId: string,
+  embedding: number[],
+): Promise<void> {
+  const vectorStr = `[${embedding.join(',')}]`
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (db as any)
+    .$executeRaw`UPDATE venue_knowledge_entries SET embedding = ${vectorStr}::vector WHERE id = ${entryId}`
 }

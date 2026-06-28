@@ -68,6 +68,7 @@ describe('tenantIsolationMiddleware', () => {
       'TenantFeatureFlag',
       'Venue',
       'Place',
+      'VenueKnowledgeEntry',
       'VisitorSession',
       'Message',
       'DataAdapter',

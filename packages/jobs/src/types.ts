@@ -15,6 +15,11 @@ export type EmbedPlaceJobPayload = {
   tenantId: string
 }
 
+export type EmbedKnowledgeEntryJobPayload = {
+  entryId: string
+  tenantId: string
+}
+
 export type AnalyticsEnrichmentJobPayload = {
   tenantId: string
   // UTC day to enrich (topic tagging, place interest, unique visitors). Clusters
