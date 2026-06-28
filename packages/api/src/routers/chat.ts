@@ -219,15 +219,25 @@ export const chatRouter = router({
       select: { id: true },
     })
 
-    // 3. Embed the user query and load history in parallel.
+    // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
-    const [queryEmbedding, historyDesc] = await Promise.all([
+    const [queryEmbedding, historyDesc, activeUpdates] = await Promise.all([
       generateEmbedding(trimmedInput).catch(() => null),
       ctx.db.message.findMany({
         where: { sessionId: session.id, tenantId: venue.tenantId },
         orderBy: { createdAt: 'desc' },
         take: HISTORY_LIMIT,
         select: { role: true, content: true },
+      }),
+      ctx.db.operationalUpdate.findMany({
+        where: {
+          venueId: input.venueId,
+          tenantId: venue.tenantId,
+          isActive: true,
+          expiresAt: { gt: new Date() },
+        },
+        select: { severity: true, title: true, body: true, redirectTo: true },
+        orderBy: { severity: 'asc' },
       }),
     ])
 
@@ -326,6 +336,7 @@ export const chatRouter = router({
       venue,
       relevantPlaces,
       knowledgeEntries: relevantKnowledgeEntries,
+      activeUpdates,
       userLat: contextLat,
       userLng: contextLng,
       featuredPlace,

@@ -32,6 +32,13 @@ type KnowledgeEntry = {
   content: string
 }
 
+type ActiveUpdate = {
+  severity: string
+  title: string
+  body: string | null
+  redirectTo: string | null
+}
+
 type FeaturedPlace = {
   name: string
   blurb: string
@@ -53,6 +60,7 @@ export function buildVenueSystemPrompt(params: {
   venue: VenueInfo
   relevantPlaces: RelevantPlace[]
   knowledgeEntries?: KnowledgeEntry[]
+  activeUpdates?: ActiveUpdate[]
   userLat: number
   userLng: number
   featuredPlace?: FeaturedPlace | null
@@ -61,6 +69,7 @@ export function buildVenueSystemPrompt(params: {
 }): string {
   const { venue, relevantPlaces, featuredPlace, language } = params
   const knowledgeEntries = params.knowledgeEntries ?? []
+  const activeUpdates = params.activeUpdates ?? []
   const guideMode = params.guideMode ?? venue.guideMode ?? 'location_aware'
 
   const venueDescription = venue.description ?? 'A venue with many things to explore.'
@@ -106,6 +115,17 @@ export function buildVenueSystemPrompt(params: {
           .map((entry) => `[${entry.category}] ${entry.title}\n${entry.content}`)
           .join('\n\n')}`
 
+  const alertsSection =
+    activeUpdates.length === 0
+      ? ''
+      : `\n\nACTIVE ALERTS (operator-posted, highest priority):\n${activeUpdates
+          .map((u) => {
+            const redirect = u.redirectTo ? ` → ${u.redirectTo}` : ''
+            const body = u.body ? `\n   ${u.body}` : ''
+            return `[${u.severity}] ${u.title}${redirect}${body}`
+          })
+          .join('\n')}`
+
   const languageRule =
     language && language.trim().length > 0
       ? `LANGUAGE RULE: The guest has selected ${language} as their preferred language. Always respond in ${language}, regardless of what language the guest types in.`
@@ -135,13 +155,14 @@ export function buildVenueSystemPrompt(params: {
   return `You are ${guideName}, ${roleDescription} for ${venue.name}.
 
 About this venue:
-${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}
+${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}${alertsSection}
 
 MOST RELEVANT PLACES FOR THIS QUERY:
 ${placesSection}${knowledgeSection}
 
 Rules:
 - Ground every answer in the venue data above. Do not invent places or distances.
+- Active alerts take priority over all other information. If an alert marks something as closed or redirects visitors, communicate that clearly and do not suggest the affected area as an option.
 - Ground answers in the knowledge base entries above when relevant. Treat them as authoritative venue information.
 - Use the place data as background knowledge, not as text to quote. Paraphrase and summarize — never copy descriptions verbatim. Mention only what is relevant to the visitor's question.
 ${guideModeRules}

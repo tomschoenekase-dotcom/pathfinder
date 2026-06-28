@@ -89,16 +89,13 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
         <div className="mx-auto max-w-7xl space-y-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-3">
-              <Link
-                href="/venues"
-                className="text-sm font-medium text-pf-primary hover:text-pf-accent"
-              >
-                Back to venues
+              <Link href="/" className="text-sm font-medium text-pf-primary hover:text-pf-accent">
+                ← Overview
               </Link>
               <div>
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-pf-accent">
-                    Venue management
+                    Your chatbot
                   </p>
                   <TypeBadge label={venue.category ?? 'Venue'} />
                 </div>

@@ -245,7 +245,7 @@ function TopQuestionsList({
           Guest Questions (Last 7 Days)
         </h2>
         <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-          Showing most-asked questions across all your venues in the last 7 days.
+          Showing most-asked questions in the last 7 days.
         </p>
       </div>
 

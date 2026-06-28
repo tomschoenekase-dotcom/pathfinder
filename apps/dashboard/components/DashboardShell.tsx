@@ -4,16 +4,7 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { SignOutButton, useOrganization, useOrganizationList, useUser } from '@clerk/nextjs'
-import {
-  Bot,
-  Building2,
-  ChartColumn,
-  Home,
-  LogOut,
-  Megaphone,
-  Palette,
-  ShieldCheck,
-} from 'lucide-react'
+import { Bot, ChartColumn, Home, LogOut, Megaphone, Palette, ShieldCheck } from 'lucide-react'
 
 import { PathFinderBrand } from '@pathfinder/ui'
 
@@ -23,7 +14,7 @@ type DashboardShellProps = {
 
 const navigationItems = [
   { href: '/', label: 'Overview', icon: Home },
-  { href: '/venues', label: 'Venues', icon: Building2 },
+  { href: '/venues', label: 'Your Chatbot', icon: Bot },
   { href: '/analytics', label: 'Analytics', icon: ChartColumn },
   { href: '/ai-controls', label: 'AI Controls', icon: Bot },
   { href: '/chat-design', label: 'Chatbot Design', icon: Palette },

@@ -32,7 +32,7 @@ export default async function EditVenuePage({ params }: EditVenuePageProps) {
             href={`/venues/${venueId}`}
             className="text-sm font-medium text-pf-primary hover:text-pf-accent"
           >
-            Back to venue
+            ← Back to chatbot
           </Link>
           <VenueForm
             mode="edit"

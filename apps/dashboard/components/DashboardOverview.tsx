@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useOrganization } from '@clerk/nextjs'
-import { Bot, Building2, MapPin, Megaphone, Sparkles, Users, type LucideIcon } from 'lucide-react'
+import { Bot, MapPin, Megaphone, Sparkles, Users, type LucideIcon } from 'lucide-react'
 
 type DashboardOverviewProps = {
   stats: {
@@ -35,23 +35,23 @@ function getQuickActions(stats: DashboardOverviewProps['stats']) {
   if (stats.venues === 0) {
     actions.push({
       href: '/venues/new',
-      label: 'Create your first venue',
-      description: 'Set up a venue to get started.',
-      icon: Building2,
+      label: 'Create your chatbot',
+      description: 'Set up your chatbot to get started.',
+      icon: Bot,
     })
   } else if (stats.totalPlaces < 5) {
     actions.push({
       href: '/venues',
-      label: 'Add guide items to your venue',
+      label: 'Add guide items',
       description: 'The more guide items you add, the better the chatbot answers.',
       icon: MapPin,
     })
   } else {
     actions.push({
-      href: '/venues/new',
-      label: 'Add another venue',
-      description: 'Expand your footprint with a new venue.',
-      icon: Building2,
+      href: '/ai-controls',
+      label: 'Tune the AI guide',
+      description: 'Adjust tone, featured guide items, and guide notes.',
+      icon: Bot,
     })
   }
 
@@ -75,19 +75,11 @@ function getQuickActions(stats: DashboardOverviewProps['stats']) {
 const statCards: StatCard[] = [
   {
     href: '/venues',
-    icon: Building2,
-    iconClassName: 'text-pf-accent',
-    label: 'Venues',
-    valueKey: 'venues',
-    description: 'Venue records currently active in your workspace.',
-  },
-  {
-    href: '/venues',
     icon: MapPin,
     iconClassName: 'text-pf-accent',
     label: 'Total Guide Items',
     valueKey: 'totalPlaces',
-    description: 'Guide items configured across your venues.',
+    description: 'Guide items configured for your chatbot.',
   },
   {
     href: '/operational-updates',
@@ -117,12 +109,11 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
         <section>
           <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">{orgName}</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-pf-deep/50">
-            Monitor guest activity, publish operational alerts, and fine-tune the AI guide for each
-            of your venues.
+            Monitor guest activity, publish operational alerts, and fine-tune your AI guide.
           </p>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {statCards.map((card) => {
             const Icon = card.icon
             const iconClassName =

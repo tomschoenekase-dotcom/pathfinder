@@ -31,9 +31,9 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
             <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
               AI Controls
             </p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight">Venue AI configuration</h1>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight">AI configuration</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
-              Control how your venue&apos;s AI assistant behaves for guests.
+              Control how your AI assistant behaves for guests.
             </p>
           </section>
 
@@ -69,10 +69,10 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
           <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
             AI Controls
           </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight">Venue AI configuration</h1>
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight">AI configuration</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
-            Shape how your venue&apos;s AI assistant responds to guests, what it promotes, and how
-            it should sound.
+            Shape how your AI assistant responds to guests, what it promotes, and how it should
+            sound.
           </p>
         </section>
 

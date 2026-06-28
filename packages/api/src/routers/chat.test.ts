@@ -35,11 +35,14 @@ const placeFindMany = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
 
+const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
+
 const mockDb = {
   venue: {},
   visitorSession: { upsert: sessionUpsert },
   place: { findMany: placeFindMany },
   message: { findMany: messageFindMany, create: messageCreate },
+  operationalUpdate: { findMany: operationalUpdateFindMany },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
 

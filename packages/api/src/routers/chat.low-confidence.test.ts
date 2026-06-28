@@ -37,6 +37,7 @@ const mockDb = {
   visitorSession: { upsert: sessionUpsert },
   place: { findMany: vi.fn() },
   message: { findMany: messageFindMany, create: messageCreate },
+  operationalUpdate: { findMany: vi.fn().mockResolvedValue([]) },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
 
