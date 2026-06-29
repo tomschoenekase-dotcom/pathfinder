@@ -10,3 +10,4 @@ export {
   DeactivateOperationalUpdateInput,
   OperationalUpdateSeverityInput,
 } from './schemas/operational-update'
+export { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from './schemas/knowledge'

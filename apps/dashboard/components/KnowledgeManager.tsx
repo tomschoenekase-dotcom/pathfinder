@@ -3,7 +3,7 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
-import { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from '@pathfinder/api'
+import { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from '@pathfinder/api/schemas'
 
 import { createTRPCClient } from '../lib/trpc'
 
