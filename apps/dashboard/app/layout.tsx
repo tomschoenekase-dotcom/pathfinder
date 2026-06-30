@@ -18,7 +18,7 @@ type RootLayoutProps = {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <ClerkProvider>
+    <ClerkProvider afterSignOutUrl="/sign-in">
       <html lang="en" className={jakarta.variable}>
         <body className="font-jakarta antialiased">{children}</body>
       </html>
