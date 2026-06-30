@@ -15,8 +15,8 @@ vi.mock('@pathfinder/analytics', () => ({
   emitEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@pathfinder/jobs', () => ({
-  enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined),
+vi.mock('@pathfinder/db', () => ({
+  generateAndStorePlaceEmbedding: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { router } from '../core'

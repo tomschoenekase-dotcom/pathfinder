@@ -2,8 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { logger } from '@pathfinder/config/logger'
-import { db } from '@pathfinder/db'
-import { enqueueEmbedPlace } from '@pathfinder/jobs'
+import { db, generateAndStorePlaceEmbedding } from '@pathfinder/db'
 
 import { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from '../schemas/place'
 
@@ -15,17 +14,25 @@ type Db = typeof db
 
 const BULK_CREATE_LIMIT = 500
 
-async function enqueuePlaceEmbedding(payload: {
-  placeId: string
+async function embedPlace(place: {
+  id: string
+  name: string
+  type: string
+  itemType?: string | null
+  shortDescription: string | null
+  longDescription: string | null
+  tags: string[]
+  areaName: string | null
+  hours: string | null
   tenantId: string
 }): Promise<void> {
   try {
-    await enqueueEmbedPlace(payload)
+    await generateAndStorePlaceEmbedding(place)
   } catch (err) {
     logger.warn({
-      action: 'place.embed.enqueue.failed',
-      tenantId: payload.tenantId,
-      placeId: payload.placeId,
+      action: 'place.embed.failed',
+      tenantId: place.tenantId,
+      placeId: place.id,
       error: err instanceof Error ? err.message : String(err),
     })
   }
@@ -147,7 +154,7 @@ export const placeRouter = router({
         select: placeSelect,
       })
 
-      await enqueuePlaceEmbedding({ placeId: place.id, tenantId })
+      await embedPlace({ ...place, tenantId })
 
       return place
     }),
@@ -183,7 +190,7 @@ export const placeRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
       }
 
-      await enqueuePlaceEmbedding({ placeId: updated.id, tenantId })
+      await embedPlace({ ...updated, tenantId })
 
       return updated
     }),
@@ -254,10 +261,7 @@ export const placeRouter = router({
         ),
       )
 
-      // Embed all created places concurrently — failures are swallowed inside embedPlace
-      await Promise.all(
-        created.map((place) => enqueuePlaceEmbedding({ placeId: place.id, tenantId })),
-      )
+      await Promise.all(created.map((place) => embedPlace({ ...place, tenantId })))
 
       return { count: created.length, places: created }
     }),

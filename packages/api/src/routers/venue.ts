@@ -1,10 +1,9 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db } from '@pathfinder/db'
+import { db, generateAndStorePlaceEmbedding } from '@pathfinder/db'
 import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
-import { enqueueEmbedPlace } from '@pathfinder/jobs'
 
 import { CreateVenueInput, UpdateVenueInput } from '../schemas/venue'
 
@@ -14,17 +13,25 @@ import { publicProcedure, tenantProcedure } from '../trpc'
 
 type Db = typeof db
 
-async function enqueuePlaceEmbedding(payload: {
-  placeId: string
+async function embedPlace(place: {
+  id: string
+  name: string
+  type: string
+  itemType?: string | null
+  shortDescription: string | null
+  longDescription: string | null
+  tags: string[]
+  areaName: string | null
+  hours: string | null
   tenantId: string
 }): Promise<void> {
   try {
-    await enqueueEmbedPlace(payload)
+    await generateAndStorePlaceEmbedding(place)
   } catch (err) {
     logger.warn({
-      action: 'place.embed.enqueue.failed',
-      tenantId: payload.tenantId,
-      placeId: payload.placeId,
+      action: 'place.embed.failed',
+      tenantId: place.tenantId,
+      placeId: place.id,
       error: err instanceof Error ? err.message : String(err),
     })
   }
@@ -331,25 +338,32 @@ export const venueRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
 
-      // Re-embed any places that didn't get embeddings at creation time. Queue failures
-      // are logged and do not block the save.
-      const unembedded = await ctx.db.$queryRaw<
-        {
-          id: string
-        }[]
-      >`
-        SELECT id
-        FROM places
+      // Re-embed any places that are missing an embedding. Failures are logged and do not block the save.
+      const unembeddedIds = await ctx.db.$queryRaw<{ id: string }[]>`
+        SELECT id FROM places
         WHERE venue_id  = ${input.venueId}
           AND tenant_id = ${tenantId}
           AND is_active = true
           AND embedding IS NULL
       `
 
-      if (unembedded.length > 0) {
-        await Promise.all(
-          unembedded.map((place) => enqueuePlaceEmbedding({ placeId: place.id, tenantId })),
-        )
+      if (unembeddedIds.length > 0) {
+        const ids = unembeddedIds.map((r) => r.id)
+        const places = await ctx.db.place.findMany({
+          where: { id: { in: ids }, tenantId },
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            itemType: true,
+            shortDescription: true,
+            longDescription: true,
+            tags: true,
+            areaName: true,
+            hours: true,
+          },
+        })
+        await Promise.all(places.map((place) => embedPlace({ ...place, tenantId })))
       }
 
       try {
