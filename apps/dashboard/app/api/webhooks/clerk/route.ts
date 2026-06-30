@@ -4,6 +4,7 @@ import { Webhook } from 'svix'
 
 import { env, logger } from '@pathfinder/config'
 import { handleClerkEvent } from '@pathfinder/db'
+import { enqueueWelcomeEmail } from '@pathfinder/jobs'
 
 import type { ClerkWebhookEvent } from '@pathfinder/db'
 
@@ -47,6 +48,24 @@ export async function POST(req: Request): Promise<Response> {
   // 4. Process event — return 200 even on DB errors to prevent Clerk retry loops
   try {
     await handleClerkEvent(event)
+
+    if (event.type === 'organizationMembership.created' && event.data.role === 'org:admin') {
+      const email = event.data.public_user_data.email_addresses?.[0]?.email_address
+
+      if (email) {
+        const recipientName =
+          [event.data.public_user_data.first_name, event.data.public_user_data.last_name]
+            .filter(Boolean)
+            .join(' ') || null
+
+        await enqueueWelcomeEmail({
+          tenantId: event.data.organization.id,
+          to: email,
+          recipientName,
+          orgName: event.data.organization.name ?? '',
+        })
+      }
+    }
   } catch (err) {
     logger.error({
       service: '@pathfinder/dashboard',

@@ -7,6 +7,8 @@ import { useParams } from 'next/navigation'
 import { ChatWindow } from '../../../components/ChatWindow'
 import {
   getStoredLanguage,
+  LANGUAGE_FALLBACK_DESCRIPTIONS,
+  LANGUAGE_HEADINGS,
   LANGUAGE_PLACEHOLDERS,
   LanguagePicker,
   SUPPORTED_LANGUAGES,
@@ -442,16 +444,20 @@ export default function VenueChatPage() {
         />
       </div>
 
-      {messages.length === 0 && language === 'English' ? (
+      {messages.length === 0 ? (
         <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
           <div className="mb-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-pf-deep">What can I help you find?</h2>
+            <h2 className="text-xl font-semibold text-pf-deep">
+              {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS['English']}
+            </h2>
             <p className="mt-2 text-sm leading-6 text-pf-deep/60">
               {venue.description ??
-                'Ask about exhibits, food, restrooms, directions, or anything nearby.'}
+                LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
+                LANGUAGE_FALLBACK_DESCRIPTIONS['English']}
             </p>
           </div>
           <QuickPromptChips
+            language={language}
             venueName={venue.name}
             venueCategory={venue.category ?? undefined}
             guideMode={venue.guideMode}

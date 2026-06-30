@@ -26,3 +26,10 @@ export type AnalyticsEnrichmentJobPayload = {
   // run over a rolling window ending on this day.
   date: string
 }
+
+export type SendWelcomeEmailJobPayload = {
+  tenantId: string
+  to: string
+  recipientName: string | null
+  orgName: string
+}

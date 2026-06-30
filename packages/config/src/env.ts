@@ -35,6 +35,8 @@ export const envSchema = z.object({
 
   // Required when email is wired (post-MVP scaffolding)
   RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().optional(),
+  DASHBOARD_URL: z.string().optional(),
 })
 
 // During Next.js build (NEXT_PHASE=phase-production-build) env vars may not

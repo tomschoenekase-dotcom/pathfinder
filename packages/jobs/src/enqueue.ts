@@ -16,6 +16,9 @@ import {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
+  SEND_EMAIL_QUEUE,
+  SEND_WELCOME_EMAIL_JOB,
+  SEND_WELCOME_EMAIL_RETRY_BACKOFF,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -25,6 +28,7 @@ import type {
   DailyRollupJobPayload,
   EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
+  SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
 } from './types'
 
@@ -86,6 +90,15 @@ const analyticsEnrichmentJobOptions: JobsOptions = {
   attempts: 6,
   backoff: {
     type: ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
+  },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+const sendWelcomeEmailJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: {
+    type: SEND_WELCOME_EMAIL_RETRY_BACKOFF,
   },
   removeOnComplete: 1000,
   removeOnFail: 5000,
@@ -159,6 +172,18 @@ export async function enqueueAnalyticsEnrichment(
     action: 'jobs.analytics-enrichment.enqueued',
     tenantId: payload.tenantId,
     date: payload.date,
+  })
+}
+
+export async function enqueueWelcomeEmail(payload: SendWelcomeEmailJobPayload): Promise<void> {
+  await getQueue(SEND_EMAIL_QUEUE).add(SEND_WELCOME_EMAIL_JOB, payload, {
+    ...sendWelcomeEmailJobOptions,
+    jobId: `send-welcome-email:${payload.tenantId}`,
+  })
+
+  logger.info({
+    action: 'jobs.send-welcome-email.enqueued',
+    tenantId: payload.tenantId,
   })
 }
 

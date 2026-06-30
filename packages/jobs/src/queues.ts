@@ -20,3 +20,7 @@ export const ANALYTICS_ENRICHMENT_QUEUE = 'analytics-enrichment'
 export const ANALYTICS_ENRICHMENT_PROCESS_JOB = 'analytics-enrichment-process'
 export const ANALYTICS_ENRICHMENT_SCHEDULER_JOB = 'analytics-enrichment-scheduler'
 export const ANALYTICS_ENRICHMENT_RETRY_BACKOFF = 'analytics-enrichment-retry'
+
+export const SEND_EMAIL_QUEUE = 'send-email'
+export const SEND_WELCOME_EMAIL_JOB = 'send-welcome-email'
+export const SEND_WELCOME_EMAIL_RETRY_BACKOFF = 'send-welcome-email-retry'

@@ -23,9 +23,13 @@ import {
   enqueueDailyRollup,
   enqueueWeeklyDigest,
   getBullMQConnection,
+  SEND_EMAIL_QUEUE,
+  SEND_WELCOME_EMAIL_JOB,
+  SEND_WELCOME_EMAIL_RETRY_BACKOFF,
   type AnalyticsEnrichmentJobPayload,
   type EmbedKnowledgeEntryJobPayload,
   type EmbedPlaceJobPayload,
+  type SendWelcomeEmailJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -38,6 +42,7 @@ import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment
 import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedPlaceJob } from './processors/embed-place'
+import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
@@ -153,6 +158,17 @@ function getAnalyticsEnrichmentBackoffDelay(attemptsMade: number): number {
       return 30 * 60_000
     case 5:
       return 2 * 60 * 60_000
+    default:
+      return -1
+  }
+}
+
+function getSendWelcomeEmailBackoffDelay(attemptsMade: number): number {
+  switch (attemptsMade) {
+    case 1:
+      return 30_000
+    case 2:
+      return 60_000
     default:
       return -1
   }
@@ -348,6 +364,15 @@ async function handleAnalyticsEnrichmentQueueJob(
   throw new Error(`Unsupported analytics enrichment job: ${job.name}`)
 }
 
+async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
+  if (job.name === SEND_WELCOME_EMAIL_JOB) {
+    await processSendWelcomeEmailJob(job.data, job.id)
+    return
+  }
+
+  throw new Error(`Unsupported send-email job: ${job.name}`)
+}
+
 export async function startWorkers() {
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
@@ -478,6 +503,20 @@ export async function startWorkers() {
     },
   )
 
+  const sendEmailWorker = new Worker(SEND_EMAIL_QUEUE, handleSendEmailQueueJob, {
+    connection,
+    concurrency: 4,
+    settings: {
+      backoffStrategy: (attemptsMade, type) => {
+        if (type === SEND_WELCOME_EMAIL_RETRY_BACKOFF) {
+          return getSendWelcomeEmailBackoffDelay(attemptsMade)
+        }
+
+        return 0
+      },
+    },
+  })
+
   const handleCompletedJob = (job: Job) => {
     logger.info({
       action: 'workers.job.completed',
@@ -503,12 +542,14 @@ export async function startWorkers() {
   embedPlaceWorker.on('completed', handleCompletedJob)
   embedKnowledgeEntryWorker.on('completed', handleCompletedJob)
   analyticsEnrichmentWorker.on('completed', handleCompletedJob)
+  sendEmailWorker.on('completed', handleCompletedJob)
 
   weeklyDigestWorker.on('failed', handleFailedJob)
   dailyRollupWorker.on('failed', handleFailedJob)
   embedPlaceWorker.on('failed', handleFailedJob)
   embedKnowledgeEntryWorker.on('failed', handleFailedJob)
   analyticsEnrichmentWorker.on('failed', handleFailedJob)
+  sendEmailWorker.on('failed', handleFailedJob)
 
   logger.info({
     action: 'workers.started',
@@ -518,6 +559,7 @@ export async function startWorkers() {
       EMBED_PLACE_QUEUE,
       EMBED_KNOWLEDGE_ENTRY_QUEUE,
       ANALYTICS_ENRICHMENT_QUEUE,
+      SEND_EMAIL_QUEUE,
     ],
   })
 
@@ -530,6 +572,7 @@ export async function startWorkers() {
       embedPlaceWorker.close(),
       embedKnowledgeEntryWorker.close(),
       analyticsEnrichmentWorker.close(),
+      sendEmailWorker.close(),
       weeklyDigestQueue.close(),
       dailyRollupQueue.close(),
       embedPlaceQueue.close(),
@@ -555,6 +598,7 @@ export async function startWorkers() {
     embedKnowledgeEntryWorker,
     embedPlaceQueue,
     embedPlaceWorker,
+    sendEmailWorker,
     weeklyDigestQueue,
     weeklyDigestWorker,
     shutdown,

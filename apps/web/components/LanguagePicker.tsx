@@ -29,6 +29,48 @@ export const LANGUAGE_PLACEHOLDERS: Record<string, string> = {
   العربية: 'اسأل عما هو قريب منك، وأين تذهب، وأين تجد المرافق.',
 }
 
+export const LANGUAGE_HEADINGS: Record<string, string> = {
+  English: 'What can I help you find?',
+  Español: '¿En qué te puedo ayudar?',
+  Français: 'Que puis-je vous aider à trouver ?',
+  Deutsch: 'Wobei kann ich Ihnen helfen?',
+  Italiano: 'Come posso aiutarti?',
+  Português: 'O que posso ajudá-lo a encontrar?',
+  中文: '我能帮您找什么？',
+  日本語: '何をお探しですか？',
+  한국어: '무엇을 찾아드릴까요?',
+  العربية: 'كيف يمكنني مساعدتك في البحث؟',
+}
+
+export const LANGUAGE_START_LABELS: Record<string, string> = {
+  English: 'Start with a question',
+  Español: 'Empieza con una pregunta',
+  Français: 'Commencez par une question',
+  Deutsch: 'Beginnen Sie mit einer Frage',
+  Italiano: 'Inizia con una domanda',
+  Português: 'Comece com uma pergunta',
+  中文: '从一个问题开始',
+  日本語: '質問から始めましょう',
+  한국어: '질문으로 시작하세요',
+  العربية: 'ابدأ بسؤال',
+}
+
+export const LANGUAGE_FALLBACK_DESCRIPTIONS: Record<string, string> = {
+  English: 'Ask about exhibits, food, restrooms, directions, or anything nearby.',
+  Español: 'Pregunta sobre exposiciones, comida, baños, direcciones o cualquier cosa cercana.',
+  Français:
+    'Renseignez-vous sur les expositions, la nourriture, les toilettes, les directions ou tout ce qui se trouve à proximité.',
+  Deutsch:
+    'Fragen Sie nach Ausstellungen, Essen, Toiletten, Wegbeschreibungen oder allem in der Nähe.',
+  Italiano: 'Chiedi di mostre, cibo, bagni, indicazioni o qualsiasi cosa nelle vicinanze.',
+  Português:
+    'Pergunte sobre exposições, comida, banheiros, direções ou qualquer coisa nas proximidades.',
+  中文: '询问展览、美食、洗手间、路线或附近的任何事物。',
+  日本語: '展示物、食事、トイレ、道案内、または近くのことなど何でもお聞きください。',
+  한국어: '전시, 음식, 화장실, 길 안내 또는 근처의 모든 것에 대해 물어보세요.',
+  العربية: 'اسأل عن المعارض والطعام والمراحيض والاتجاهات وأي شيء قريب.',
+}
+
 const STORAGE_KEY = 'pathfinder_language'
 
 export function getStoredLanguage(): string | null {

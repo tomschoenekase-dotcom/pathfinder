@@ -13,6 +13,9 @@ export {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
+  SEND_EMAIL_QUEUE,
+  SEND_WELCOME_EMAIL_JOB,
+  SEND_WELCOME_EMAIL_RETRY_BACKOFF,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -25,6 +28,7 @@ export {
   enqueueDailyRollup,
   enqueueEmbedKnowledgeEntry,
   enqueueEmbedPlace,
+  enqueueWelcomeEmail,
   enqueueWeeklyDigest,
 } from './enqueue'
 export type {
@@ -32,5 +36,6 @@ export type {
   DailyRollupJobPayload,
   EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
+  SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
 } from './types'

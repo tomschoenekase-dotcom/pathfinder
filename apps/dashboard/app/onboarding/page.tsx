@@ -1,19 +1,35 @@
 'use client'
 
-import { useEffect } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  CreateOrganization,
-  OrganizationList,
-  SignOutButton,
-  useOrganizationList,
-} from '@clerk/nextjs'
+import { OrganizationList, SignOutButton, useClerk, useOrganizationList } from '@clerk/nextjs'
 
 export default function DashboardOnboardingPage() {
   const router = useRouter()
+  const clerk = useClerk()
   const { isLoaded, userMemberships, setActive } = useOrganizationList({
     userMemberships: { infinite: true },
   })
+  const [orgName, setOrgName] = useState('')
+  const [isCreating, setIsCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  async function handleCreate(e: FormEvent) {
+    e.preventDefault()
+    if (!orgName.trim() || !setActive) return
+
+    setIsCreating(true)
+    setCreateError(null)
+
+    try {
+      const org = await clerk.createOrganization({ name: orgName.trim() })
+      await setActive({ organization: org.id })
+      router.replace('/')
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      setIsCreating(false)
+    }
+  }
 
   // If the user belongs to exactly one org, activate it automatically and
   // skip the picker entirely. Clients will always have exactly one org.
@@ -70,7 +86,37 @@ export default function DashboardOnboardingPage() {
               afterCreateOrganizationUrl="/"
             />
           ) : (
-            <CreateOrganization afterCreateOrganizationUrl="/" />
+            <form className="w-80 max-w-full space-y-5" onSubmit={handleCreate}>
+              <div className="space-y-2">
+                <label htmlFor="organization-name" className="text-sm font-medium text-pf-deep">
+                  Organization name
+                </label>
+                <input
+                  id="organization-name"
+                  name="organizationName"
+                  type="text"
+                  value={orgName}
+                  onChange={(event) => setOrgName(event.target.value)}
+                  autoFocus
+                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+                />
+                <p className="text-xs text-pf-deep/50">
+                  This is typically your company or venue operator name.
+                </p>
+              </div>
+              {createError ? <p className="text-sm text-rose-600">{createError}</p> : null}
+              <button
+                type="submit"
+                disabled={isCreating || !orgName.trim()}
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isCreating ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                ) : (
+                  'Get started →'
+                )}
+              </button>
+            </form>
           )}
         </div>
         <SignOutButton>
