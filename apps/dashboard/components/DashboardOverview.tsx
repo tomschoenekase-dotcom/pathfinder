@@ -63,10 +63,10 @@ function getQuickActions(stats: DashboardOverviewProps['stats']) {
   })
 
   actions.push({
-    href: '/ai-controls',
-    label: 'Tune the AI guide',
-    description: 'Adjust tone, featured guide items, and guide notes.',
-    icon: Bot,
+    href: '/chat-design',
+    label: 'Customise chat design',
+    description: 'Change colours, logo, and header image for your guest chat.',
+    icon: Sparkles,
   })
 
   return actions

@@ -77,7 +77,6 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
         </section>
 
         <AiControlsForm
-          venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
           initialVenueId={initialVenueId}
           initialConfig={initialConfig}
           initialPlaces={initialPlaces.map((place) => ({ id: place.id, name: place.name }))}

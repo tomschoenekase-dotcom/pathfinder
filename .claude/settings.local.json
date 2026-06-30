@@ -92,7 +92,16 @@
       "Bash(dir \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\web\\\\public\" /a)",
       "Skill(code-review)",
       "Skill(code-review:*)",
-      "Bash(dir \"C:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\dashboard\\\\app\\\\\\(app\\)\\\\venues\\\\[venueId]\" /b)"
+      "Bash(dir \"C:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\dashboard\\\\app\\\\\\(app\\)\\\\venues\\\\[venueId]\" /b)",
+      "Bash(ls packages/integrations)",
+      "Bash(ls packages/ui/src)",
+      "Bash(cat packages/integrations/src/index.ts)",
+      "Bash(cat packages/integrations/index.ts)",
+      "Bash(dir \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\")",
+      "Bash(dir \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\admin\")",
+      "Bash(dir \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\\\\apps\\\\admin\" /a)",
+      "Bash(git -C \"c:\\\\Users\\\\tomsc\\\\Downloads\\\\PathFinder\" rm -r --cached apps/admin)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

@@ -5,11 +5,6 @@ import { Bot, Sparkles } from 'lucide-react'
 
 import { createTRPCClient } from '../lib/trpc'
 
-type VenueOption = {
-  id: string
-  name: string
-}
-
 type PlaceOption = {
   id: string
   name: string
@@ -23,7 +18,6 @@ type AiConfig = {
 }
 
 type AiControlsFormProps = {
-  venues: VenueOption[]
   initialVenueId: string
   initialConfig: AiConfig
   initialPlaces: PlaceOption[]
@@ -62,7 +56,6 @@ function getErrorMessage(error: unknown) {
 }
 
 export function AiControlsForm({
-  venues,
   initialVenueId,
   initialConfig,
   initialPlaces,
@@ -73,15 +66,13 @@ export function AiControlsForm({
   }
   const client = clientRef.current
 
-  const [selectedVenueId, setSelectedVenueId] = useState(initialVenueId)
   const [aiTone, setAiTone] = useState<ToneValue>(
     (initialConfig.aiTone as ToneValue | null) ?? 'FRIENDLY',
   )
   const [aiGuideNotes, setAiGuideNotes] = useState(initialConfig.aiGuideNotes ?? '')
   const [aiGuideName, setAiGuideName] = useState(initialConfig.aiGuideName ?? '')
   const [aiFeaturedPlaceId, setAiFeaturedPlaceId] = useState(initialConfig.aiFeaturedPlaceId ?? '')
-  const [places, setPlaces] = useState<PlaceOption[]>(initialPlaces)
-  const [isLoadingVenue, setIsLoadingVenue] = useState(false)
+  const [places] = useState<PlaceOption[]>(initialPlaces)
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -100,56 +91,6 @@ export function AiControlsForm({
     }
   }, [successMessage])
 
-  useEffect(() => {
-    let disposed = false
-
-    async function loadVenueData() {
-      if (selectedVenueId === initialVenueId) {
-        setAiTone((initialConfig.aiTone as ToneValue | null) ?? 'FRIENDLY')
-        setAiGuideNotes(initialConfig.aiGuideNotes ?? '')
-        setAiGuideName(initialConfig.aiGuideName ?? '')
-        setAiFeaturedPlaceId(initialConfig.aiFeaturedPlaceId ?? '')
-        setPlaces(initialPlaces)
-        return
-      }
-
-      setIsLoadingVenue(true)
-      setFormError(null)
-      setSuccessMessage(null)
-
-      try {
-        const [config, venuePlaces] = await Promise.all([
-          client.venue.getAiConfig.query({ venueId: selectedVenueId }),
-          client.place.list.query({ venueId: selectedVenueId }),
-        ])
-
-        if (disposed) {
-          return
-        }
-
-        setAiTone((config.aiTone as ToneValue | null) ?? 'FRIENDLY')
-        setAiGuideNotes(config.aiGuideNotes ?? '')
-        setAiGuideName(config.aiGuideName ?? '')
-        setAiFeaturedPlaceId(config.aiFeaturedPlaceId ?? '')
-        setPlaces(venuePlaces.map((place) => ({ id: place.id, name: place.name })))
-      } catch (error) {
-        if (!disposed) {
-          setFormError(getErrorMessage(error))
-        }
-      } finally {
-        if (!disposed) {
-          setIsLoadingVenue(false)
-        }
-      }
-    }
-
-    void loadVenueData()
-
-    return () => {
-      disposed = true
-    }
-  }, [client, initialConfig, initialPlaces, initialVenueId, selectedVenueId])
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFormError(null)
@@ -158,7 +99,7 @@ export function AiControlsForm({
 
     try {
       await client.venue.updateAiConfig.mutate({
-        venueId: selectedVenueId,
+        venueId: initialVenueId,
         aiTone,
         aiGuideName: aiGuideName.trim() || null,
         aiGuideNotes: aiGuideNotes.trim() ? aiGuideNotes.trim() : null,
@@ -175,30 +116,6 @@ export function AiControlsForm({
 
   return (
     <form className="space-y-6" onSubmit={handleSubmit}>
-      {venues.length > 1 ? (
-        <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
-            Venue selector
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
-            Choose a venue
-          </h2>
-          <select
-            value={selectedVenueId}
-            onChange={(event) => {
-              setSelectedVenueId(event.target.value)
-            }}
-            className="mt-5 min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-          >
-            {venues.map((venue) => (
-              <option key={venue.id} value={venue.id}>
-                {venue.name}
-              </option>
-            ))}
-          </select>
-        </section>
-      ) : null}
-
       <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-deep text-pf-light">
@@ -264,7 +181,7 @@ export function AiControlsForm({
         <select
           id="featured-place"
           value={aiFeaturedPlaceId}
-          disabled={isLoadingVenue || places.length === 0}
+          disabled={places.length === 0}
           onChange={(event) => {
             setAiFeaturedPlaceId(event.target.value)
           }}
@@ -309,7 +226,7 @@ export function AiControlsForm({
             maxLength={80}
             placeholder="e.g. Riverside Zoo Guide"
             value={aiGuideName}
-            disabled={isLoadingVenue}
+            disabled={isSaving}
             onChange={(event) => {
               setAiGuideName(event.target.value)
             }}
@@ -320,7 +237,7 @@ export function AiControlsForm({
         <textarea
           value={aiGuideNotes}
           maxLength={2000}
-          disabled={isLoadingVenue}
+          disabled={isSaving}
           onChange={(event) => {
             setAiGuideNotes(event.target.value)
           }}
@@ -347,7 +264,7 @@ export function AiControlsForm({
 
       <button
         type="submit"
-        disabled={isSaving || isLoadingVenue}
+        disabled={isSaving}
         className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
       >
         {isSaving ? 'Saving...' : 'Save AI configuration'}

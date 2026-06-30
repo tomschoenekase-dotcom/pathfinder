@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { createTRPCClient } from '../lib/trpc'
 
@@ -43,17 +43,13 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
   }
   const client = clientRef.current
 
-  const [selectedVenueId, setSelectedVenueId] = useState(venues[0]?.id ?? '')
-  const selectedVenue = useMemo(
-    () => venues.find((venue) => venue.id === selectedVenueId) ?? venues[0],
-    [selectedVenueId, venues],
-  )
+  const venue = venues[0]
   const [chatTheme, setChatTheme] = useState<ThemeValue>(
-    isThemeValue(selectedVenue?.chatTheme) ? selectedVenue.chatTheme : 'default',
+    isThemeValue(venue?.chatTheme) ? venue.chatTheme : 'default',
   )
-  const [chatAccentColor, setChatAccentColor] = useState(selectedVenue?.chatAccentColor ?? '')
-  const [chatLogoUrl, setChatLogoUrl] = useState(selectedVenue?.chatLogoUrl ?? '')
-  const [chatBannerUrl, setChatBannerUrl] = useState(selectedVenue?.chatBannerUrl ?? '')
+  const [chatAccentColor, setChatAccentColor] = useState(venue?.chatAccentColor ?? '')
+  const [chatLogoUrl, setChatLogoUrl] = useState(venue?.chatLogoUrl ?? '')
+  const [chatBannerUrl, setChatBannerUrl] = useState(venue?.chatBannerUrl ?? '')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -62,26 +58,15 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
     ? chatAccentColor
     : (THEMES.find((theme) => theme.value === chatTheme)?.accent ?? '#3A7BD5')
 
-  function handleVenueChange(venueId: string) {
-    const nextVenue = venues.find((venue) => venue.id === venueId)
-    setSelectedVenueId(venueId)
-    setChatTheme(isThemeValue(nextVenue?.chatTheme) ? nextVenue.chatTheme : 'default')
-    setChatAccentColor(nextVenue?.chatAccentColor ?? '')
-    setChatLogoUrl(nextVenue?.chatLogoUrl ?? '')
-    setChatBannerUrl(nextVenue?.chatBannerUrl ?? '')
-    setSaveError(null)
-    setSaved(false)
-  }
-
   async function handleSave() {
-    if (!selectedVenueId || isSaving) return
+    if (!venue?.id || isSaving) return
     setSaveError(null)
     setSaved(false)
     setIsSaving(true)
 
     try {
       await client.venue.updateChatDesign.mutate({
-        venueId: selectedVenueId,
+        venueId: venue.id,
         chatTheme,
         chatAccentColor: isHexColor(chatAccentColor) ? chatAccentColor : null,
         chatLogoUrl: chatLogoUrl.trim() || null,
@@ -101,28 +86,6 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
 
   return (
     <div className="space-y-8">
-      {venues.length > 1 && (
-        <div>
-          <label className="block text-sm font-semibold text-pf-deep" htmlFor="design-venue">
-            Venue
-          </label>
-          <select
-            id="design-venue"
-            value={selectedVenueId}
-            onChange={(event) => {
-              handleVenueChange(event.target.value)
-            }}
-            className="mt-2 w-full rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep outline-none focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-          >
-            {venues.map((venue) => (
-              <option key={venue.id} value={venue.id}>
-                {venue.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
       <div>
         <p className="text-sm font-semibold text-pf-deep">Colour theme</p>
         <p className="mt-1 text-xs leading-5 text-pf-deep/50">
@@ -247,7 +210,7 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
 
       <button
         type="button"
-        disabled={isSaving || !selectedVenueId}
+        disabled={isSaving || !venue?.id}
         onClick={handleSave}
         className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
       >

@@ -28,7 +28,19 @@ type KnowledgeManagerProps = {
   initialEntries: KnowledgeEntry[]
 }
 
-const CATEGORY_SUGGESTIONS = ['FAQ', 'Policy', 'History', 'Services', 'Hours', 'Accessibility']
+const CATEGORY_SUGGESTIONS = [
+  'FAQ',
+  'History',
+  'Policy',
+  'Services',
+  'Hours',
+  'Accessibility',
+  'Directions',
+  'Atmosphere',
+  'Menu',
+  'Events',
+  'Other',
+]
 
 const EMPTY_FORM: KnowledgeFormValues = {
   title: '',
@@ -262,22 +274,21 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="kb-category">
               Category
             </label>
-            <input
+            <select
               id="kb-category"
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-              list="knowledge-categories"
-              maxLength={100}
               value={values.category}
               onChange={(event) =>
                 setValues((current) => ({ ...current, category: event.target.value }))
               }
               required
-            />
-            <datalist id="knowledge-categories">
+            >
               {CATEGORY_SUGGESTIONS.map((category) => (
-                <option key={category} value={category} />
+                <option key={category} value={category}>
+                  {category}
+                </option>
               ))}
-            </datalist>
+            </select>
           </div>
 
           <div>
