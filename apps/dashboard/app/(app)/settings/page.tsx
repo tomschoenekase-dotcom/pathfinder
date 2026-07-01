@@ -320,8 +320,54 @@ function MemberRow({ member }: { member: SettingsMember }) {
   )
 }
 
+function PendingInvitationsTable({
+  invitations,
+}: {
+  invitations: Array<{ id: string; emailAddress: string; role: string }>
+}) {
+  if (invitations.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-[1.5rem] border border-pf-light">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-pf-light bg-pf-surface">
+            <th className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40">
+              Email
+            </th>
+            <th className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40">
+              Role
+            </th>
+            <th className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-pf-deep/40">
+              Status
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {invitations.map((invitation) => (
+            <tr key={invitation.id} className="border-b border-pf-light/60 last:border-0">
+              <td className="px-4 py-3 font-medium text-pf-deep">{invitation.emailAddress}</td>
+              <td className="px-4 py-3 text-pf-deep/60">
+                {invitation.role === 'org:admin' ? 'Manager' : 'Staff'}
+              </td>
+              <td className="px-4 py-3">
+                <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                  Pending
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { user } = useUser()
+  const { invitations } = useOrganization({ invitations: true })
   const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
   if (clientRef.current === null) {
     clientRef.current = createTRPCClient()
@@ -432,10 +478,22 @@ export default function SettingsPage() {
             </button>
           </div>
 
+          <InviteForm />
+
+          <PendingInvitationsTable
+            invitations={
+              invitations?.data?.map((invitation) => ({
+                id: invitation.id,
+                emailAddress: invitation.emailAddress,
+                role: invitation.role,
+              })) ?? []
+            }
+          />
+
           {loading ? (
-            <p className="text-sm text-pf-deep/50">Loading team members...</p>
+            <p className="mt-6 text-sm text-pf-deep/50">Loading team members...</p>
           ) : data?.members && data.members.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="mt-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-pf-primary/10 text-left">
@@ -453,10 +511,8 @@ export default function SettingsPage() {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-pf-deep/40">No team members found.</p>
+            <p className="mt-6 text-sm text-pf-deep/40">No team members found.</p>
           )}
-
-          <InviteForm />
         </section>
       </div>
     </main>

@@ -42,6 +42,9 @@ export default async function DashboardIndexPage() {
     totalPlaces: venues.reduce((sum: number, venue) => sum + venue._count.places, 0),
     venues: venues.length,
   }
+  const firstVenue = venues[0] ?? null
+  const webUrl = process.env.NEXT_PUBLIC_WEB_URL ?? null
+  const chatUrl = firstVenue && webUrl ? `${webUrl}/${firstVenue.slug}/chat` : null
 
-  return <DashboardOverview stats={stats} />
+  return <DashboardOverview stats={stats} chatUrl={chatUrl} />
 }

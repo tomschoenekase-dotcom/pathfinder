@@ -323,14 +323,14 @@ export const analyticsRouter = router({
   }),
 
   /**
-   * Unique + returning visitor counts over the window, derived from the persistent
-   * VisitorSession.visitorId. Returning = a visitorId seen on >= 2 distinct UTC days.
+   * Unique visitor, total session, and conversation-depth stats over the window,
+   * derived from the persistent VisitorSession table.
    */
   getVisitorStats: tenantProcedure.input(getWindowInput).query(async ({ ctx, input }) => {
     const startDate = startOfUtcDay(new Date())
     startDate.setUTCDate(startDate.getUTCDate() - (input.days - 1))
 
-    const [identifiedSessions, totalSessions] = await Promise.all([
+    const [identifiedSessions, totalSessions, messageAggregate] = await Promise.all([
       ctx.db.visitorSession.findMany({
         where: {
           tenantId: ctx.session.activeTenantId,
@@ -345,6 +345,13 @@ export const analyticsRouter = router({
           startedAt: { gte: startDate },
         },
       }),
+      ctx.db.visitorSession.aggregate({
+        where: {
+          tenantId: ctx.session.activeTenantId,
+          startedAt: { gte: startDate },
+        },
+        _avg: { messageCount: true },
+      }),
     ])
 
     const daysByVisitor = new Map<string, Set<string>>()
@@ -356,14 +363,9 @@ export const analyticsRouter = router({
       daysByVisitor.set(session.visitorId, seen)
     }
 
-    let returningVisitors = 0
-    for (const days of daysByVisitor.values()) {
-      if (days.size >= 2) returningVisitors += 1
-    }
-
     return {
       uniqueVisitors: daysByVisitor.size,
-      returningVisitors,
+      avgMessagesPerSession: Math.round((messageAggregate._avg.messageCount ?? 0) * 10) / 10,
       totalSessions,
     }
   }),

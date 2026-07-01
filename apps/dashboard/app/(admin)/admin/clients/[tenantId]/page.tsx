@@ -66,7 +66,14 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
               {tenant.status}
             </span>
           </div>
-          <ViewAsClientButton tenantId={tenant.id} tenantName={tenant.name} />
+          <div className="flex flex-wrap items-center gap-3">
+            <ViewAsClientButton tenantId={tenant.id} tenantName={tenant.name} />
+            <ViewAsClientButton
+              tenantId={tenant.id}
+              redirectPath="/analytics"
+              label="View analytics →"
+            />
+          </div>
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-pf-deep/50">
           <span className="rounded-full bg-pf-surface px-2 py-0.5 font-mono">{tenant.slug}</span>

@@ -13,6 +13,7 @@ const visitorSessionUpsert = vi.fn()
 const visitorSessionUpdateMany = vi.fn()
 const visitorSessionFindMany = vi.fn()
 const visitorSessionCount = vi.fn()
+const visitorSessionAggregate = vi.fn()
 const questionClusterFindMany = vi.fn()
 const placeFindMany = vi.fn()
 const dbQueryRaw = vi.fn()
@@ -33,6 +34,7 @@ const mockDb = {
     updateMany: visitorSessionUpdateMany,
     findMany: visitorSessionFindMany,
     count: visitorSessionCount,
+    aggregate: visitorSessionAggregate,
   },
   questionCluster: {
     findMany: questionClusterFindMany,
@@ -299,19 +301,20 @@ describe('analytics router', () => {
     )
   })
 
-  it('analytics.getVisitorStats counts unique and returning visitors over distinct days', async () => {
-    // v1 seen on two distinct days -> returning; v2 only one day -> not returning.
+  it('analytics.getVisitorStats counts unique visitors and average messages per session', async () => {
     visitorSessionFindMany.mockResolvedValueOnce([
       { visitorId: 'v1', startedAt: new Date('2026-06-10T08:00:00.000Z') },
       { visitorId: 'v1', startedAt: new Date('2026-06-12T09:00:00.000Z') },
       { visitorId: 'v2', startedAt: new Date('2026-06-11T10:00:00.000Z') },
     ])
     visitorSessionCount.mockResolvedValueOnce(5)
+    visitorSessionAggregate.mockResolvedValueOnce({ _avg: { messageCount: 3.24 } })
 
     const caller = testRouter.createCaller(tenantCtx())
     const result = await caller.analytics.getVisitorStats({ days: 30 })
 
-    expect(result).toEqual({ uniqueVisitors: 2, returningVisitors: 1, totalSessions: 5 })
+    expect(result).toEqual({ uniqueVisitors: 2, avgMessagesPerSession: 3.2, totalSessions: 5 })
+    expect(result).not.toHaveProperty('returningVisitors')
   })
 
   it('analytics.getVisitorStats throws UNAUTHORIZED without a session', async () => {

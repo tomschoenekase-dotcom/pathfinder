@@ -11,6 +11,7 @@ type DashboardOverviewProps = {
     totalPlaces: number
     venues: number
   }
+  chatUrl?: string | null
 }
 
 type QuickAction = {
@@ -98,7 +99,7 @@ const statCards: StatCard[] = [
   },
 ] as const
 
-export function DashboardOverview({ stats }: DashboardOverviewProps) {
+export function DashboardOverview({ stats, chatUrl }: DashboardOverviewProps) {
   const { organization } = useOrganization()
   const orgName = organization?.name ?? 'Your organization'
   const quickActions = getQuickActions(stats)
@@ -111,6 +112,16 @@ export function DashboardOverview({ stats }: DashboardOverviewProps) {
           <p className="mt-3 max-w-2xl text-sm leading-6 text-pf-deep/50">
             Monitor guest activity, publish operational alerts, and fine-tune your AI guide.
           </p>
+          {chatUrl ? (
+            <a
+              href={chatUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex min-h-10 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
+            >
+              Open guest chat →
+            </a>
+          ) : null}
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

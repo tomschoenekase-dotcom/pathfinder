@@ -48,7 +48,6 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
     isThemeValue(venue?.chatTheme) ? venue.chatTheme : 'default',
   )
   const [chatAccentColor, setChatAccentColor] = useState(venue?.chatAccentColor ?? '')
-  const [chatLogoUrl, setChatLogoUrl] = useState(venue?.chatLogoUrl ?? '')
   const [chatBannerUrl, setChatBannerUrl] = useState(venue?.chatBannerUrl ?? '')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -69,12 +68,13 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         venueId: venue.id,
         chatTheme,
         chatAccentColor: isHexColor(chatAccentColor) ? chatAccentColor : null,
-        chatLogoUrl: chatLogoUrl.trim() || null,
         chatBannerUrl: chatBannerUrl.trim() || null,
       })
       setSaved(true)
-    } catch {
-      setSaveError('Failed to save. Please try again.')
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message ? err.message : 'Failed to save. Please try again.'
+      setSaveError(message)
     } finally {
       setIsSaving(false)
     }
@@ -143,39 +143,6 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
             aria-label="Colour preview"
           />
         </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-semibold text-pf-deep" htmlFor="chat-logo-url">
-          Your logo URL
-        </label>
-        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
-          Link to your logo image. Square PNG or SVG files work best.
-        </p>
-        <input
-          id="chat-logo-url"
-          type="url"
-          placeholder="https://yoursite.com/logo.png"
-          value={chatLogoUrl}
-          onChange={(event) => {
-            setChatLogoUrl(event.target.value)
-          }}
-          className="mt-3 w-full rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-        />
-        {chatLogoUrl ? (
-          <div className="mt-3 flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={chatLogoUrl}
-              alt="Logo preview"
-              className="h-10 w-10 rounded-xl border border-pf-light object-contain"
-              onError={(event) => {
-                ;(event.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
-            <p className="text-xs text-pf-deep/50">Preview</p>
-          </div>
-        ) : null}
       </div>
 
       <div>

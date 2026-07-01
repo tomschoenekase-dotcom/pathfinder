@@ -5,17 +5,24 @@ import { useRouter } from 'next/navigation'
 
 type ViewAsClientButtonProps = {
   tenantId: string
-  tenantName: string
+  tenantName?: string
+  redirectPath?: string
+  label?: string
 }
 
-export function ViewAsClientButton({ tenantId, tenantName }: ViewAsClientButtonProps) {
+export function ViewAsClientButton({
+  tenantId,
+  tenantName,
+  redirectPath = '/',
+  label,
+}: ViewAsClientButtonProps) {
   const { setActive, isLoaded } = useOrganizationList()
   const router = useRouter()
 
   async function handleViewAs() {
     if (!setActive) return
     await setActive({ organization: tenantId })
-    router.push('/')
+    router.push(redirectPath)
   }
 
   return (
@@ -25,7 +32,7 @@ export function ViewAsClientButton({ tenantId, tenantName }: ViewAsClientButtonP
       disabled={!isLoaded}
       className="rounded-2xl bg-pf-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:opacity-50"
     >
-      View as {tenantName} →
+      {label ?? `View as ${tenantName} →`}
     </button>
   )
 }
