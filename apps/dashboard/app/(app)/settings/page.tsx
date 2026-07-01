@@ -418,7 +418,19 @@ export default function SettingsPage() {
         </section>
 
         <section className="rounded-3xl border border-pf-primary/10 bg-white p-6 shadow-sm">
-          <SectionHeader icon={Users} title="Team" />
+          <div className="mb-6 flex items-center justify-between border-b border-pf-primary/10 pb-4">
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-pf-accent" aria-hidden="true" />
+              <h2 className="text-lg font-semibold text-pf-deep">Team</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadSettings()}
+              className="text-xs font-medium text-pf-accent hover:underline"
+            >
+              Refresh
+            </button>
+          </div>
 
           {loading ? (
             <p className="text-sm text-pf-deep/50">Loading team members...</p>

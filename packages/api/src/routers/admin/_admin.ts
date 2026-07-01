@@ -387,6 +387,47 @@ export const adminRouter = router({
       return { ok: true }
     }),
 
+  updateClientPlanTier: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        planTier: z.enum(['free', 'pro', 'enterprise']),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const updated = await withTenantIsolationBypass(async () => {
+        const existing = await db.tenant.findUnique({
+          where: { id: input.tenantId },
+          select: { id: true, planTier: true },
+        })
+
+        if (!existing) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+        }
+
+        const tenant = await db.tenant.update({
+          where: { id: input.tenantId },
+          data: { planTier: input.planTier },
+          select: { id: true, planTier: true },
+        })
+
+        return { existing, tenant }
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.client.plan_updated',
+        targetType: 'Tenant',
+        targetId: input.tenantId,
+        beforeState: updated.existing,
+        afterState: updated.tenant,
+      })
+
+      return { ok: true }
+    }),
+
   triggerDigest: adminProcedure
     .input(
       z.object({

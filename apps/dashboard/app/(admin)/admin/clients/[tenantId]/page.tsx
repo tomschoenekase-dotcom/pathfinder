@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 
+import { AdminClientPlanForm } from '../../../../../components/admin/AdminClientPlanForm'
 import { AdminClientStatusForm } from '../../../../../components/admin/AdminClientStatusForm'
 import { AdminTriggerDigestButton } from '../../../../../components/admin/AdminTriggerDigestButton'
 import { ViewAsClientButton } from '../../../../../components/admin/ViewAsClientButton'
@@ -150,6 +151,14 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
             <p className="mt-1 text-sm text-pf-deep/60">Current: {tenant.status}</p>
             <div className="mt-4">
               <AdminClientStatusForm tenantId={tenant.id} currentStatus={tenant.status} />
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold tracking-tight text-pf-deep">Plan</h2>
+            <p className="mt-1 text-sm text-pf-deep/60">Current: {tenant.planTier}</p>
+            <div className="mt-4">
+              <AdminClientPlanForm tenantId={tenant.id} currentPlanTier={tenant.planTier} />
             </div>
           </div>
 
