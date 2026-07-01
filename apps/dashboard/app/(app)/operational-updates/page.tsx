@@ -1,17 +1,8 @@
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-
 import { OperationalUpdatesList } from '../../../components/OperationalUpdatesList'
-
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/operational-updates'),
-  })
-
-  return appRouter.createCaller(ctx)
-}
+import { createDashboardCaller } from '../../../lib/server-caller'
 
 export default async function OperationalUpdatesPage() {
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/operational-updates')
   const updates = await caller.operationalUpdate.list()
   type UpdateItem = (typeof updates)[number]
   const serializedUpdates = updates.map((update: UpdateItem) => ({

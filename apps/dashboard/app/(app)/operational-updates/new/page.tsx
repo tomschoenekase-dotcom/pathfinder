@@ -1,19 +1,10 @@
 import Link from 'next/link'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-
 import { OperationalUpdateForm } from '../../../../components/OperationalUpdateForm'
-
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/operational-updates/new'),
-  })
-
-  return appRouter.createCaller(ctx)
-}
+import { createDashboardCaller } from '../../../../lib/server-caller'
 
 export default async function NewOperationalUpdatePage() {
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/operational-updates/new')
   const venues = await caller.venue.list()
 
   return (

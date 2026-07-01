@@ -68,11 +68,6 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <ViewAsClientButton tenantId={tenant.id} tenantName={tenant.name} />
-            <ViewAsClientButton
-              tenantId={tenant.id}
-              redirectPath="/analytics"
-              label="View analytics →"
-            />
           </div>
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-pf-deep/50">

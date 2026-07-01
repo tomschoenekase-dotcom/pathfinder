@@ -2,8 +2,8 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { SignOutButton, useOrganization, useOrganizationList, useUser } from '@clerk/nextjs'
+import { usePathname } from 'next/navigation'
+import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   Bot,
   ChartColumn,
@@ -41,19 +41,20 @@ function isActivePath(pathname: string, href: string) {
 
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const { organization } = useOrganization()
-  const { setActive } = useOrganizationList()
   const { user } = useUser()
-  const orgName = organization?.name ?? 'Your organization'
   const isPlatformAdmin =
     (user?.publicMetadata as { platform_role?: unknown } | undefined)?.platform_role ===
     'PLATFORM_ADMIN'
+  const orgName = organization?.name ?? (isPlatformAdmin ? 'Client workspace' : 'Your organization')
 
   async function exitClientView() {
-    if (!setActive) return
-    await setActive({ organization: null })
-    router.push('/admin')
+    await fetch('/api/admin/impersonate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId: null }),
+    })
+    window.location.href = '/admin'
   }
 
   return (

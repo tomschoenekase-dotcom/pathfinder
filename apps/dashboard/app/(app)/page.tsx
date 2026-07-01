@@ -1,18 +1,10 @@
-import { appRouter, createTRPCContext } from '@pathfinder/api'
 import { redirect } from 'next/navigation'
 
 import { DashboardOverview } from '../../components/DashboardOverview'
-
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/'),
-  })
-
-  return appRouter.createCaller(ctx)
-}
+import { createDashboardCaller } from '../../lib/server-caller'
 
 export default async function DashboardIndexPage() {
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/')
   const [venues, operationalUpdates, dailyStats] = await Promise.all([
     caller.venue.list(),
     caller.operationalUpdate.list(),

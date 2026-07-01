@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
+import { createDashboardCaller } from '../../../lib/server-caller'
 
 type AnalyticsPageProps = {
   searchParams?: Promise<{
@@ -19,14 +19,6 @@ const insightStyles: Record<DigestInsight['type'], string> = {
   confusion: 'border-rose-200 bg-rose-50 text-rose-700',
   interest: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   recommendation: 'border-amber-200 bg-amber-50 text-amber-700',
-}
-
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/analytics'),
-  })
-
-  return appRouter.createCaller(ctx)
 }
 
 function formatWeekRange(weekStart: Date, weekEnd: Date): string {
@@ -481,7 +473,7 @@ function PlaceInterestList({
 }
 
 export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps) {
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/analytics')
   const resolvedSearchParams = searchParams ? await searchParams : undefined
 
   const [

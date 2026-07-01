@@ -245,6 +245,95 @@ export const adminRouter = router({
       })
     }),
 
+  getClientAnalytics: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string().min(1),
+        days: z.number().int().min(1).max(90).default(30),
+      }),
+    )
+    .query(async ({ input }) => {
+      return withTenantIsolationBypass(async () => {
+        const startDate = new Date()
+        startDate.setUTCDate(startDate.getUTCDate() - (input.days - 1))
+        startDate.setUTCHours(0, 0, 0, 0)
+
+        const [
+          tenant,
+          totalSessions,
+          totalMessages,
+          uniqueVisitors,
+          recentSessions,
+          questionClusters,
+        ] = await Promise.all([
+          db.tenant.findUnique({
+            where: { id: input.tenantId },
+            select: { id: true, name: true, slug: true },
+          }),
+          db.visitorSession.count({
+            where: { tenantId: input.tenantId, startedAt: { gte: startDate } },
+          }),
+          db.message.count({
+            where: { tenantId: input.tenantId, createdAt: { gte: startDate } },
+          }),
+          db.visitorSession.findMany({
+            where: {
+              tenantId: input.tenantId,
+              startedAt: { gte: startDate },
+              visitorId: { not: null },
+            },
+            select: { visitorId: true },
+            distinct: ['visitorId'],
+          }),
+          db.visitorSession.findMany({
+            where: { tenantId: input.tenantId, startedAt: { gte: startDate } },
+            orderBy: { startedAt: 'desc' },
+            take: 20,
+            select: {
+              id: true,
+              startedAt: true,
+              lastActiveAt: true,
+              messageCount: true,
+              visitorId: true,
+              messages: {
+                orderBy: { createdAt: 'asc' },
+                select: { id: true, role: true, content: true, createdAt: true, topic: true },
+              },
+            },
+          }),
+          db.questionCluster.findMany({
+            where: { tenantId: input.tenantId, windowStart: { gte: startDate } },
+            orderBy: { count: 'desc' },
+            take: 20,
+            select: {
+              id: true,
+              kind: true,
+              canonicalText: true,
+              count: true,
+              examples: true,
+              windowStart: true,
+              venue: { select: { name: true } },
+            },
+          }),
+        ])
+
+        if (!tenant) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
+        }
+
+        return {
+          tenant,
+          stats: {
+            totalSessions,
+            totalMessages,
+            uniqueVisitors: uniqueVisitors.length,
+          },
+          recentSessions,
+          questionClusters,
+        }
+      })
+    }),
+
   listClients: adminProcedure.query(async () => {
     return withTenantIsolationBypass(() =>
       db.tenant.findMany({

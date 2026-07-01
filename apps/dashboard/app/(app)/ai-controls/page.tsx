@@ -1,8 +1,7 @@
 import Link from 'next/link'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-
 import { AiControlsForm } from '../../../components/AiControlsForm'
+import { createDashboardCaller } from '../../../lib/server-caller'
 
 type AiControlsPageProps = {
   searchParams: Promise<{
@@ -10,17 +9,9 @@ type AiControlsPageProps = {
   }>
 }
 
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/ai-controls'),
-  })
-
-  return appRouter.createCaller(ctx)
-}
-
 export default async function AiControlsPage({ searchParams }: AiControlsPageProps) {
   const { venue: requestedVenue } = await searchParams
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/ai-controls')
   const venues = await caller.venue.list()
 
   if (venues.length === 0) {

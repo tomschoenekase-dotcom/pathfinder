@@ -1,36 +1,28 @@
 'use client'
 
-import { useOrganizationList } from '@clerk/nextjs'
-
 type ViewAsClientButtonProps = {
   tenantId: string
   tenantName?: string
-  redirectPath?: string
   label?: string
 }
 
-export function ViewAsClientButton({
-  tenantId,
-  tenantName,
-  redirectPath = '/',
-  label,
-}: ViewAsClientButtonProps) {
-  const { setActive, isLoaded } = useOrganizationList()
-
+export function ViewAsClientButton({ tenantId, tenantName, label }: ViewAsClientButtonProps) {
   async function handleViewAs() {
-    if (!setActive) return
-    await setActive({ organization: tenantId })
-    window.location.href = redirectPath
+    await fetch('/api/admin/impersonate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId }),
+    })
+    window.location.href = '/'
   }
 
   return (
     <button
       type="button"
       onClick={handleViewAs}
-      disabled={!isLoaded}
-      className="rounded-2xl bg-pf-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:opacity-50"
+      className="rounded-2xl bg-pf-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-pf-accent"
     >
-      {label ?? `View as ${tenantName} →`}
+      {label ?? `View as ${tenantName ?? 'client'} ->`}
     </button>
   )
 }

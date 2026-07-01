@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
+import { createDashboardCaller } from '../../../../lib/server-caller'
 
 type VenueDetailPageProps = {
   params: Promise<{
@@ -11,14 +11,6 @@ type VenueDetailPageProps = {
   searchParams: Promise<{
     onboarded?: string
   }>
-}
-
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/venues/detail'),
-  })
-
-  return appRouter.createCaller(ctx)
 }
 
 const TONE_LABELS: Record<string, string> = {
@@ -65,7 +57,7 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
   const { venueId } = await params
   const { onboarded } = await searchParams
   const justOnboarded = onboarded === '1'
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/venues/detail')
 
   try {
     const venue = await caller.venue.getById({ id: venueId })

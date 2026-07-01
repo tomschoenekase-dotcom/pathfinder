@@ -23,8 +23,32 @@ const ANONYMOUS_SESSION: AnonymousSessionContext = {
   isPlatformAdmin: false,
 }
 
+function getCookieValue(headers: Headers, name: string): string | null {
+  const cookieHeader = headers.get('cookie')
+
+  if (!cookieHeader) {
+    return null
+  }
+
+  for (const cookie of cookieHeader.split(';')) {
+    const [rawKey, ...rawValue] = cookie.trim().split('=')
+    if (rawKey === name) {
+      return decodeURIComponent(rawValue.join('='))
+    }
+  }
+
+  return null
+}
+
 export async function createTRPCContext({ req }: { req: Request }): Promise<TRPCContext> {
-  const session = (await resolveSession(req)) ?? ANONYMOUS_SESSION
+  const resolvedSession = await resolveSession(req)
+  const adminTenantOverride =
+    resolvedSession?.isPlatformAdmin === true
+      ? getCookieValue(req.headers, 'pf_admin_tenant')
+      : null
+  const session = resolvedSession
+    ? { ...resolvedSession, activeTenantId: adminTenantOverride ?? resolvedSession.activeTenantId }
+    : ANONYMOUS_SESSION
 
   return {
     db,

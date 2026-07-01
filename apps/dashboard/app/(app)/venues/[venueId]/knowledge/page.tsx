@@ -2,25 +2,16 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-
 import { KnowledgeManager } from '../../../../../components/KnowledgeManager'
+import { createDashboardCaller } from '../../../../../lib/server-caller'
 
 type KnowledgePageProps = {
   params: Promise<{ venueId: string }>
 }
 
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/venues/knowledge'),
-  })
-
-  return appRouter.createCaller(ctx)
-}
-
 export default async function KnowledgePage({ params }: KnowledgePageProps) {
   const { venueId } = await params
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/venues/knowledge')
 
   try {
     const [venue, entries] = await Promise.all([

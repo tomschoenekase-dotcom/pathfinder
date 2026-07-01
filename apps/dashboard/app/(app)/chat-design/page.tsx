@@ -1,14 +1,10 @@
 import { TRPCError } from '@trpc/server'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-
 import { ChatDesignForm } from '../../../components/ChatDesignForm'
+import { createDashboardCaller } from '../../../lib/server-caller'
 
 export default async function ChatDesignPage() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/chat-design'),
-  })
-  const caller = appRouter.createCaller(ctx)
+  const caller = await createDashboardCaller('/chat-design')
 
   let venues: Awaited<ReturnType<typeof caller.venue.list>> = []
   try {

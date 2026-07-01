@@ -1,18 +1,10 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/venues'),
-  })
-
-  return appRouter.createCaller(ctx)
-}
+import { createDashboardCaller } from '../../../lib/server-caller'
 
 export default async function VenuesPage() {
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/venues')
   const venues = await caller.venue.list()
 
   if (venues.length > 0) {

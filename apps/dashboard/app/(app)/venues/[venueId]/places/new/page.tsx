@@ -2,25 +2,16 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
-import { appRouter, createTRPCContext } from '@pathfinder/api'
-
 import { PlaceForm } from '../../../../../../components/PlaceForm'
+import { createDashboardCaller } from '../../../../../../lib/server-caller'
 
 type NewPlacePageProps = {
   params: Promise<{ venueId: string }>
 }
 
-async function createCaller() {
-  const ctx = await createTRPCContext({
-    req: new Request('https://dashboard.pathfinder.local/venues/places/new'),
-  })
-
-  return appRouter.createCaller(ctx)
-}
-
 export default async function NewPlacePage({ params }: NewPlacePageProps) {
   const { venueId } = await params
-  const caller = await createCaller()
+  const caller = await createDashboardCaller('/venues/places/new')
 
   try {
     const venue = await caller.venue.getById({ id: venueId })

@@ -25,7 +25,13 @@ export default clerkMiddleware(async (auth, req) => {
       return authState.redirectToSignIn()
     }
 
-    if (!authState.orgId && pathname !== '/onboarding' && !pathname.startsWith('/admin')) {
+    const adminTenantOverride = req.cookies.get('pf_admin_tenant')?.value
+    const isPlatformAdmin =
+      (authState.sessionClaims?.publicMetadata as { platform_role?: string } | undefined)
+        ?.platform_role === 'PLATFORM_ADMIN'
+    const effectiveOrgId = authState.orgId ?? (isPlatformAdmin ? adminTenantOverride : null)
+
+    if (!effectiveOrgId && pathname !== '/onboarding' && !pathname.startsWith('/admin')) {
       const onboardingUrl = new URL('/onboarding', req.url)
       return NextResponse.redirect(onboardingUrl)
     }
