@@ -301,19 +301,19 @@ describe('analytics router', () => {
     )
   })
 
-  it('analytics.getVisitorStats counts unique visitors and average messages per session', async () => {
+  it('analytics.getVisitorStats counts unique visitors and total messages', async () => {
     visitorSessionFindMany.mockResolvedValueOnce([
       { visitorId: 'v1', startedAt: new Date('2026-06-10T08:00:00.000Z') },
       { visitorId: 'v1', startedAt: new Date('2026-06-12T09:00:00.000Z') },
       { visitorId: 'v2', startedAt: new Date('2026-06-11T10:00:00.000Z') },
     ])
     visitorSessionCount.mockResolvedValueOnce(5)
-    visitorSessionAggregate.mockResolvedValueOnce({ _avg: { messageCount: 3.24 } })
+    visitorSessionAggregate.mockResolvedValueOnce({ _sum: { messageCount: 42 } })
 
     const caller = testRouter.createCaller(tenantCtx())
     const result = await caller.analytics.getVisitorStats({ days: 30 })
 
-    expect(result).toEqual({ uniqueVisitors: 2, avgMessagesPerSession: 3.2, totalSessions: 5 })
+    expect(result).toEqual({ uniqueVisitors: 2, totalMessages: 42, totalSessions: 5 })
     expect(result).not.toHaveProperty('returningVisitors')
   })
 

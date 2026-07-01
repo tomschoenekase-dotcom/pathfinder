@@ -32,7 +32,7 @@ export default clerkMiddleware(async (auth, req) => {
 
     return NextResponse.next()
   } catch {
-    return NextResponse.next()
+    return NextResponse.redirect(new URL('/sign-in', req.url))
   }
 })
 

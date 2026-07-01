@@ -278,14 +278,14 @@ function TopQuestionsList({
 function VisitorStatsCards({
   stats,
 }: {
-  stats: { uniqueVisitors: number; avgMessagesPerSession: number; totalSessions: number }
+  stats: { uniqueVisitors: number; totalMessages: number; totalSessions: number }
 }) {
   const cards = [
     { label: 'Unique visitors', value: stats.uniqueVisitors, hint: 'Distinct devices (30 days)' },
     {
-      label: 'Avg. messages / session',
-      value: stats.avgMessagesPerSession.toFixed(1),
-      hint: 'Conversation depth (30 days)',
+      label: 'Total messages',
+      value: stats.totalMessages,
+      hint: 'Messages sent by guests (30 days)',
     },
     { label: 'Total sessions', value: stats.totalSessions, hint: 'Chat visits (30 days)' },
   ]

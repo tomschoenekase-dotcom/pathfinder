@@ -350,7 +350,7 @@ export const analyticsRouter = router({
           tenantId: ctx.session.activeTenantId,
           startedAt: { gte: startDate },
         },
-        _avg: { messageCount: true },
+        _sum: { messageCount: true },
       }),
     ])
 
@@ -365,7 +365,7 @@ export const analyticsRouter = router({
 
     return {
       uniqueVisitors: daysByVisitor.size,
-      avgMessagesPerSession: Math.round((messageAggregate._avg.messageCount ?? 0) * 10) / 10,
+      totalMessages: messageAggregate._sum.messageCount ?? 0,
       totalSessions,
     }
   }),

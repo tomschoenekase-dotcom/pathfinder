@@ -48,7 +48,6 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
     isThemeValue(venue?.chatTheme) ? venue.chatTheme : 'default',
   )
   const [chatAccentColor, setChatAccentColor] = useState(venue?.chatAccentColor ?? '')
-  const [chatBannerUrl, setChatBannerUrl] = useState(venue?.chatBannerUrl ?? '')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -68,7 +67,6 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
         venueId: venue.id,
         chatTheme,
         chatAccentColor: isHexColor(chatAccentColor) ? chatAccentColor : null,
-        chatBannerUrl: chatBannerUrl.trim() || null,
       })
       setSaved(true)
     } catch (err: unknown) {
@@ -143,25 +141,6 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
             aria-label="Colour preview"
           />
         </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-semibold text-pf-deep" htmlFor="chat-banner-url">
-          Chat header background image URL
-        </label>
-        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
-          Optional banner image shown behind the venue name in the chat header.
-        </p>
-        <input
-          id="chat-banner-url"
-          type="url"
-          placeholder="https://yoursite.com/banner.jpg"
-          value={chatBannerUrl}
-          onChange={(event) => {
-            setChatBannerUrl(event.target.value)
-          }}
-          className="mt-3 w-full rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-        />
       </div>
 
       {saveError ? (

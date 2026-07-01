@@ -1,7 +1,6 @@
 'use client'
 
 import { useOrganizationList } from '@clerk/nextjs'
-import { useRouter } from 'next/navigation'
 
 type ViewAsClientButtonProps = {
   tenantId: string
@@ -17,12 +16,11 @@ export function ViewAsClientButton({
   label,
 }: ViewAsClientButtonProps) {
   const { setActive, isLoaded } = useOrganizationList()
-  const router = useRouter()
 
   async function handleViewAs() {
     if (!setActive) return
     await setActive({ organization: tenantId })
-    router.push(redirectPath)
+    window.location.href = redirectPath
   }
 
   return (
