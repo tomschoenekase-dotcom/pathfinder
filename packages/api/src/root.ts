@@ -6,6 +6,7 @@ import { chatRouter } from './routers/chat'
 import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
+import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
 
 export const appRouter = router({
@@ -14,6 +15,7 @@ export const appRouter = router({
   chat: chatRouter,
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,
+  tenant: tenantRouter,
   venue: venueRouter,
   place: placeRouter,
   health: publicProcedure.query(() => ({

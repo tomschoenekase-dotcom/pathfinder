@@ -28,6 +28,7 @@ model Tenant {
   planTier    String             @default("free") @map("plan_tier")
   status      TenantStatus       @default(ACTIVE)
   config      Json               @default("{}")
+  nextPaymentDue DateTime?       @map("next_payment_due")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
   memberships  TenantMembership[]

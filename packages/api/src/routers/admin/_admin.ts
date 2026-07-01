@@ -259,6 +259,30 @@ export const adminRouter = router({
     )
   }),
 
+  /**
+   * Platform-admin-only mutation to set or clear a tenant's next payment due
+   * date. Visible read-only to operators; editable for admins viewing a tenant.
+   */
+  setTenantPaymentDue: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string().min(1),
+        nextPaymentDue: z.string().datetime().nullable(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await withTenantIsolationBypass(async () => {
+        await db.tenant.update({
+          where: { id: input.tenantId },
+          data: {
+            nextPaymentDue: input.nextPaymentDue ? new Date(input.nextPaymentDue) : null,
+          },
+        })
+      })
+
+      return { ok: true }
+    }),
+
   createClient: adminProcedure
     .input(
       z.object({

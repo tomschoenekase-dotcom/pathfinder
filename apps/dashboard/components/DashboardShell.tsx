@@ -4,7 +4,16 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { SignOutButton, useOrganization, useOrganizationList, useUser } from '@clerk/nextjs'
-import { Bot, ChartColumn, Home, LogOut, Megaphone, Palette, ShieldCheck } from 'lucide-react'
+import {
+  Bot,
+  ChartColumn,
+  Home,
+  LogOut,
+  Megaphone,
+  Palette,
+  Settings,
+  ShieldCheck,
+} from 'lucide-react'
 
 import { PathFinderBrand } from '@pathfinder/ui'
 
@@ -19,6 +28,7 @@ const navigationItems = [
   { href: '/ai-controls', label: 'AI Controls', icon: Bot },
   { href: '/chat-design', label: 'Chatbot Design', icon: Palette },
   { href: '/operational-updates', label: 'Operational Updates', icon: Megaphone },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ] as const
 
 function isActivePath(pathname: string, href: string) {
