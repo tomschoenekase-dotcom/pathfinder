@@ -45,9 +45,10 @@ type FeaturedPlace = {
 }
 
 type EngagementQuestionContext = {
-  questionType: 'OPEN_ENDED' | 'MULTIPLE_CHOICE'
-  prompt: string
-  choiceOptions: string[]
+  questionType?: 'OPEN_ENDED' | 'MULTIPLE_CHOICE'
+  prompt?: string
+  choiceOptions?: string[]
+  allowAiInvented: boolean
 }
 
 /**
@@ -89,14 +90,32 @@ export function buildVenueSystemPromptParts(params: {
   const featuredPlaceSection = featuredPlace
     ? `\nFeatured highlight: When relevant, mention "${featuredPlace.name}" - ${featuredPlace.blurb}.`
     : ''
-  const engagementQuestionSection = engagementQuestion
-    ? `\n\nGuest engagement moment: The operator wants you to naturally work the following into the conversation when - and only when - a genuinely natural opening appears (e.g. the conversation is wrapping up, or the guest just finished an experience). Do not force it into an unrelated answer, and do not ask it more than once per conversation. Put it in your own words each time so it never sounds scripted - do not repeat the operator's wording verbatim.\nOperator's intent: ${engagementQuestion.prompt}${
+  const engagementQuestionSection = (() => {
+    if (!engagementQuestion) return ''
+
+    const hasAuthored = engagementQuestion.prompt !== undefined
+
+    if (hasAuthored && !engagementQuestion.allowAiInvented) {
+      return `\n\nGuest engagement moment: The operator wants you to naturally work the following into the conversation when - and only when - a genuinely natural opening appears (e.g. the conversation is wrapping up, or the guest just finished an experience). Do not force it into an unrelated answer, and do not ask it more than once per conversation. Put it in your own words each time so it never sounds scripted - do not repeat the operator's wording verbatim.\nOperator's intent: ${engagementQuestion.prompt}${
         engagementQuestion.questionType === 'MULTIPLE_CHOICE' &&
-        engagementQuestion.choiceOptions.length > 0
-          ? `\nWeave in these options conversationally, never as a bullet list or menu: ${engagementQuestion.choiceOptions.join(', ')}.`
+        (engagementQuestion.choiceOptions?.length ?? 0) > 0
+          ? `\nWeave in these options conversationally, never as a bullet list or menu: ${engagementQuestion.choiceOptions?.join(', ')}.`
           : ''
       }`
-    : ''
+    }
+
+    if (hasAuthored && engagementQuestion.allowAiInvented) {
+      return `\n\nGuest engagement moment: This operator is especially interested in learning from guests, so look for one genuinely natural opening in this conversation (e.g. it's wrapping up, or the guest just finished an experience) to ask a single low-key question. Prefer weaving in the operator's intent below, in your own words - never read it verbatim. If it doesn't fit naturally in this specific reply, you may instead ask a single question of your own invention that's genuinely curious about this specific guest's visit so far. Never force either into an unrelated answer, and never ask more than one engagement question in the whole conversation.\nOperator's intent: ${engagementQuestion.prompt}${
+        engagementQuestion.questionType === 'MULTIPLE_CHOICE' &&
+        (engagementQuestion.choiceOptions?.length ?? 0) > 0
+          ? `\nWeave in these options conversationally, never as a bullet list or menu: ${engagementQuestion.choiceOptions?.join(', ')}.`
+          : ''
+      }`
+    }
+
+    // No active authored questions at all - invention is the only option.
+    return `\n\nGuest engagement moment: This operator is especially interested in learning from guests. Look for one genuinely natural opening in this conversation (e.g. it's wrapping up, or the guest just finished an experience) to ask a single low-key question of your own invention that's genuinely curious about this specific guest's visit so far - grounded in something they actually said or did, not generic small talk. Never force it into an unrelated answer, never present it as a survey, and never ask more than one engagement question in the whole conversation.`
+  })()
   const toneInstruction =
     venue.aiTone === 'PROFESSIONAL'
       ? 'Respond in a clear, informative, professional tone.'

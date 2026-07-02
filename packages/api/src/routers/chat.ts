@@ -9,7 +9,7 @@ import { env, logger } from '@pathfinder/config'
 
 import { router } from '../core'
 import { generateEmbedding } from '../lib/embeddings'
-import { selectEngagementQuestion } from '../lib/engagement-questions'
+import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
@@ -348,10 +348,16 @@ export const chatRouter = router({
     }
 
     // 5. Build context — history arrives newest-first, reverse to oldest-first for Claude
-    const selectedEngagementQuestion = selectEngagementQuestion(
-      tenantEngagement?.engagementMode ?? 'STOIC',
-      engagementQuestions,
-    )
+    const engagementMode = tenantEngagement?.engagementMode ?? 'STOIC'
+    const engagementGatePassed = rollEngagementGate(engagementMode)
+    const selectedEngagementQuestion = engagementGatePassed
+      ? selectAuthoredQuestion(engagementQuestions)
+      : null
+    // Curious mode invites the AI to invent its own question when the gate
+    // passed, regardless of whether an authored one was also offered - it's a
+    // fallback the AI uses only if the authored one (or none existing) doesn't
+    // fit a natural opening this turn.
+    const allowAiInventedQuestion = engagementGatePassed && engagementMode === 'CURIOUS'
 
     const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
       venue,
@@ -363,12 +369,17 @@ export const chatRouter = router({
       featuredPlace,
       ...(input.language ? { language: input.language } : {}),
       guideMode,
-      ...(selectedEngagementQuestion
+      ...(selectedEngagementQuestion || allowAiInventedQuestion
         ? {
             engagementQuestion: {
-              questionType: selectedEngagementQuestion.questionType,
-              prompt: selectedEngagementQuestion.prompt,
-              choiceOptions: selectedEngagementQuestion.choiceOptions,
+              ...(selectedEngagementQuestion
+                ? {
+                    questionType: selectedEngagementQuestion.questionType,
+                    prompt: selectedEngagementQuestion.prompt,
+                    choiceOptions: selectedEngagementQuestion.choiceOptions,
+                  }
+                : {}),
+              allowAiInvented: allowAiInventedQuestion,
             },
           }
         : {}),
@@ -453,7 +464,7 @@ export const chatRouter = router({
       })
     } catch {}
 
-    if (selectedEngagementQuestion) {
+    if (selectedEngagementQuestion || allowAiInventedQuestion) {
       try {
         await emitEvent({
           tenantId: venue.tenantId,
@@ -461,9 +472,10 @@ export const chatRouter = router({
           sessionId: input.anonymousToken,
           eventType: 'engagement_question.asked',
           metadata: {
-            engagementQuestionId: selectedEngagementQuestion.id,
-            intensity: selectedEngagementQuestion.intensity,
-            mode: tenantEngagement?.engagementMode ?? 'STOIC',
+            engagementQuestionId: selectedEngagementQuestion?.id ?? null,
+            intensity: selectedEngagementQuestion?.intensity ?? null,
+            aiInventionAllowed: allowAiInventedQuestion,
+            mode: engagementMode,
           },
         })
       } catch {}

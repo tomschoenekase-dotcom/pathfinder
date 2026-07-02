@@ -125,6 +125,7 @@ describe('buildVenueSystemPrompt', () => {
         questionType: 'MULTIPLE_CHOICE',
         prompt: 'Ask which part of the visit was their favorite.',
         choiceOptions: ['the butterfly exhibit', 'the food court'],
+        allowAiInvented: false,
       },
     })
 

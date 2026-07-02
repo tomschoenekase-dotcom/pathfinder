@@ -38,7 +38,8 @@ const MODE_OPTIONS: Array<{ value: TenantEngagementMode; label: string; descript
   {
     value: 'CURIOUS',
     label: 'Curious',
-    description: 'Like Balanced, but the AI looks for openings to ask a bit more often.',
+    description:
+      'Like Balanced, but if none of your questions fit the moment, the AI will ask a genuinely curious question of its own.',
   },
 ]
 

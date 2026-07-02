@@ -206,6 +206,15 @@ describe('chat router', () => {
       messageCreate.mockResolvedValue({})
     }
 
+    function getConcatenatedSystemPrompt() {
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as Parameters<
+        Anthropic['messages']['create']
+      >[0]
+      const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
+
+      return systemBlocks.map((block) => block.text).join('')
+    }
+
     it('returns a non-empty response string and sessionId', async () => {
       setupHappyPath('The elephants are 50m north.')
 
@@ -349,10 +358,113 @@ describe('chat router', () => {
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'engagement_question.asked',
-          metadata: expect.objectContaining({ engagementQuestionId: 'question_selected' }),
+          metadata: expect.objectContaining({
+            engagementQuestionId: 'question_selected',
+            aiInventionAllowed: true,
+          }),
         }),
       )
       random.mockRestore()
+    })
+
+    it('lets Curious mode offer an invented question when there are no authored questions', async () => {
+      setupHappyPath('ok')
+      tenantFindUnique.mockReset()
+      engagementQuestionFindMany.mockReset()
+      tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'CURIOUS' })
+      engagementQuestionFindMany.mockResolvedValueOnce([])
+      const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0)
+
+      try {
+        await caller.chat.send(sendInput)
+
+        const systemPrompt = getConcatenatedSystemPrompt()
+        expect(systemPrompt).toContain('Guest engagement moment')
+        expect(systemPrompt).not.toContain("Operator's intent")
+        expect(emitEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventType: 'engagement_question.asked',
+            metadata: expect.objectContaining({
+              engagementQuestionId: null,
+              aiInventionAllowed: true,
+            }),
+          }),
+        )
+      } finally {
+        random.mockRestore()
+      }
+    })
+
+    it('lets Curious mode offer both an authored question and invention fallback', async () => {
+      setupHappyPath('ok')
+      tenantFindUnique.mockReset()
+      engagementQuestionFindMany.mockReset()
+      tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'CURIOUS' })
+      engagementQuestionFindMany.mockResolvedValueOnce([
+        {
+          id: 'question_selected',
+          questionType: 'OPEN_ENDED',
+          prompt: 'Ask about wayfinding.',
+          choiceOptions: [],
+          intensity: 5,
+        },
+      ])
+      const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0)
+
+      try {
+        await caller.chat.send(sendInput)
+
+        const systemPrompt = getConcatenatedSystemPrompt()
+        expect(systemPrompt).toContain("Operator's intent")
+        expect(systemPrompt).toContain('your own invention')
+        expect(emitEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventType: 'engagement_question.asked',
+            metadata: expect.objectContaining({
+              engagementQuestionId: 'question_selected',
+              aiInventionAllowed: true,
+            }),
+          }),
+        )
+      } finally {
+        random.mockRestore()
+      }
+    })
+
+    it('does not let Balanced mode offer invention', async () => {
+      setupHappyPath('ok')
+      tenantFindUnique.mockReset()
+      engagementQuestionFindMany.mockReset()
+      tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'BALANCED' })
+      engagementQuestionFindMany.mockResolvedValueOnce([
+        {
+          id: 'question_selected',
+          questionType: 'OPEN_ENDED',
+          prompt: 'Ask about wayfinding.',
+          choiceOptions: [],
+          intensity: 5,
+        },
+      ])
+      const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0)
+
+      try {
+        await caller.chat.send(sendInput)
+
+        const systemPrompt = getConcatenatedSystemPrompt()
+        expect(systemPrompt).toContain("Operator's intent")
+        expect(systemPrompt).not.toContain('your own invention')
+        expect(emitEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventType: 'engagement_question.asked',
+            metadata: expect.objectContaining({
+              engagementQuestionId: 'question_selected',
+              aiInventionAllowed: false,
+            }),
+          }),
+        )
+      } finally {
+        random.mockRestore()
+      }
     })
 
     it('swallows analytics failures and still returns the AI response', async () => {
