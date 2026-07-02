@@ -386,7 +386,10 @@ export default function VenueChatPage() {
     : 'text-pf-deep/40 hover:text-pf-primary'
 
   return (
-    <div className="flex min-h-screen flex-col bg-pf-surface" style={{ backgroundColor: surface }}>
+    <div
+      className="flex h-screen flex-col overflow-hidden bg-pf-surface"
+      style={{ backgroundColor: surface }}
+    >
       <style>{`
         :root {
           --chat-accent: ${accent};
@@ -468,7 +471,7 @@ export default function VenueChatPage() {
         </div>
       ) : null}
 
-      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
+      <div className="mx-auto flex w-full min-h-0 max-w-2xl flex-1 flex-col px-4 sm:px-6">
         <ChatWindow
           messages={messages}
           onSend={(message) => {

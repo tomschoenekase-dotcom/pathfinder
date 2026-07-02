@@ -77,7 +77,7 @@ export function ChatWindow({
   }
 
   return (
-    <section className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm">
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm">
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>

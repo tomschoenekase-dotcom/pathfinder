@@ -20,6 +20,7 @@ import { PathFinderBrand } from '@pathfinder/ui'
 
 type DashboardShellProps = {
   children: ReactNode
+  impersonatedTenantName?: string
 }
 
 const navigationItems = [
@@ -41,14 +42,17 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function DashboardShell({ children }: DashboardShellProps) {
+export function DashboardShell({ children, impersonatedTenantName }: DashboardShellProps) {
   const pathname = usePathname()
   const { organization } = useOrganization()
   const { user } = useUser()
   const isPlatformAdmin =
     (user?.publicMetadata as { platform_role?: unknown } | undefined)?.platform_role ===
     'PLATFORM_ADMIN'
-  const orgName = organization?.name ?? (isPlatformAdmin ? 'Client workspace' : 'Your organization')
+  const orgName =
+    impersonatedTenantName ??
+    organization?.name ??
+    (isPlatformAdmin ? 'Client workspace' : 'Your organization')
 
   async function exitClientView() {
     await fetch('/api/admin/impersonate', {

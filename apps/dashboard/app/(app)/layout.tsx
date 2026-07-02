@@ -6,6 +6,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { DashboardShell } from '../../components/DashboardShell'
+import { createDashboardCaller } from '../../lib/server-caller'
 
 type AppLayoutProps = {
   children: ReactNode
@@ -28,5 +29,16 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
     redirect('/onboarding')
   }
 
-  return <DashboardShell>{children}</DashboardShell>
+  let impersonatedTenantName: string | undefined
+  if (isPlatformAdmin && adminTenantOverride) {
+    const caller = await createDashboardCaller('/')
+    const { tenant } = await caller.tenant.getSettings()
+    impersonatedTenantName = tenant.name
+  }
+
+  return (
+    <DashboardShell {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}>
+      {children}
+    </DashboardShell>
+  )
 }
