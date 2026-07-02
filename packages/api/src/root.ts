@@ -3,6 +3,7 @@ import { router } from './core'
 import { adminRouter } from './routers/admin/_admin'
 import { analyticsRouter } from './routers/analytics'
 import { chatRouter } from './routers/chat'
+import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
@@ -13,6 +14,7 @@ export const appRouter = router({
   admin: adminRouter,
   analytics: analyticsRouter,
   chat: chatRouter,
+  engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,
   tenant: tenantRouter,

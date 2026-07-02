@@ -11,3 +11,8 @@ export {
   OperationalUpdateSeverityInput,
 } from './schemas/operational-update'
 export { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from './schemas/knowledge'
+export {
+  CreateEngagementQuestionInput,
+  EngagementQuestionTypeInput,
+  UpdateEngagementQuestionInput,
+} from './schemas/engagement-question'

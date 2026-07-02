@@ -1,8 +1,10 @@
 import { TRPCError } from '@trpc/server'
+import { z } from 'zod'
 
 import { db } from '@pathfinder/db'
 
 import { router } from '../core'
+import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
 
 export const tenantRouter = router({
@@ -23,6 +25,7 @@ export const tenantRouter = router({
           planTier: true,
           status: true,
           nextPaymentDue: true,
+          engagementMode: true,
         },
       }),
       db.tenantMembership.findMany({
@@ -47,4 +50,16 @@ export const tenantRouter = router({
 
     return { tenant, members }
   }),
+
+  setEngagementMode: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(z.object({ mode: z.enum(['STOIC', 'BALANCED', 'CURIOUS']) }).strict())
+    .mutation(async ({ ctx, input }) => {
+      await db.tenant.update({
+        where: { id: ctx.session.activeTenantId },
+        data: { engagementMode: input.mode },
+      })
+
+      return { ok: true }
+    }),
 })

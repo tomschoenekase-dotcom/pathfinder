@@ -22,23 +22,25 @@ model User {
 }
 
 model Tenant {
-  id          String             @id
-  name        String
-  slug        String             @unique
-  planTier    String             @default("free") @map("plan_tier")
-  status      TenantStatus       @default(ACTIVE)
-  config      Json               @default("{}")
-  nextPaymentDue DateTime?       @map("next_payment_due")
-  createdAt   DateTime           @default(now()) @map("created_at")
-  updatedAt   DateTime           @updatedAt @map("updated_at")
-  memberships  TenantMembership[]
-  featureFlags TenantFeatureFlag[]
-  venues       Venue[]
-  operationalUpdates OperationalUpdate[]
-  analyticsEvents AnalyticsEvent[]
-  dailyRollups DailyRollup[]
-  weeklyDigests WeeklyDigest[]
-  questionClusters QuestionCluster[]
+  id                  String               @id
+  name                String
+  slug                String               @unique
+  planTier            String               @default("free") @map("plan_tier")
+  status              TenantStatus         @default(ACTIVE)
+  config              Json                 @default("{}")
+  nextPaymentDue      DateTime?            @map("next_payment_due")
+  engagementMode      TenantEngagementMode @default(STOIC) @map("engagement_mode")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  memberships         TenantMembership[]
+  featureFlags        TenantFeatureFlag[]
+  venues              Venue[]
+  operationalUpdates  OperationalUpdate[]
+  analyticsEvents     AnalyticsEvent[]
+  dailyRollups        DailyRollup[]
+  weeklyDigests       WeeklyDigest[]
+  questionClusters    QuestionCluster[]
+  engagementQuestions EngagementQuestion[]
 
   @@map("tenants")
 }
@@ -96,6 +98,22 @@ model TenantFeatureFlag {
   @@map("tenant_feature_flags")
 }
 
+model EngagementQuestion {
+  id            String                 @id @default(cuid())
+  tenantId      String                 @map("tenant_id")
+  questionType  EngagementQuestionType @map("question_type")
+  prompt        String
+  choiceOptions String[]               @default([]) @map("choice_options")
+  intensity     Int                    @default(3)
+  isActive      Boolean                @default(true) @map("is_active")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@map("engagement_questions")
+}
+
 model PlatformConfig {
   key       String   @id
   value     Json
@@ -123,38 +141,49 @@ enum MembershipStatus {
   REMOVED
 }
 
+enum EngagementQuestionType {
+  OPEN_ENDED
+  MULTIPLE_CHOICE
+}
+
+enum TenantEngagementMode {
+  STOIC
+  BALANCED
+  CURIOUS
+}
+
 model Venue {
-  id               String           @id @default(cuid())
-  tenantId         String           @map("tenant_id")
-  name             String
-  slug             String
-  description      String?
-  guideNotes       String?          @map("guide_notes")
-  aiGuideNotes     String?          @map("ai_guide_notes")
-  aiFeaturedPlaceId String?         @map("ai_featured_place_id")
-  aiTone           String?          @default("FRIENDLY") @map("ai_tone")
-  aiGuideName      String?          @map("ai_guide_name")
-  chatTheme        String?          @default("default") @map("chat_theme")
-  chatAccentColor  String?          @map("chat_accent_color")
-  chatLogoUrl      String?          @map("chat_logo_url")
-  chatBannerUrl    String?          @map("chat_banner_url")
-  category         String?
-  guideMode        String           @default("location_aware") @map("guide_mode")
-  defaultCenterLat Float?           @map("default_center_lat")
-  defaultCenterLng Float?           @map("default_center_lng")
-  geoBoundary      Json?            @map("geo_boundary")
-  isActive         Boolean          @default(true) @map("is_active")
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
-  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  places           Place[]
-  sessions         VisitorSession[]
-  adapters         DataAdapter[]
+  id                 String                @id @default(cuid())
+  tenantId           String                @map("tenant_id")
+  name               String
+  slug               String
+  description        String?
+  guideNotes         String?               @map("guide_notes")
+  aiGuideNotes       String?               @map("ai_guide_notes")
+  aiFeaturedPlaceId  String?               @map("ai_featured_place_id")
+  aiTone             String?               @default("FRIENDLY") @map("ai_tone")
+  aiGuideName        String?               @map("ai_guide_name")
+  chatTheme          String?               @default("default") @map("chat_theme")
+  chatAccentColor    String?               @map("chat_accent_color")
+  chatLogoUrl        String?               @map("chat_logo_url")
+  chatBannerUrl      String?               @map("chat_banner_url")
+  category           String?
+  guideMode          String                @default("location_aware") @map("guide_mode")
+  defaultCenterLat   Float?                @map("default_center_lat")
+  defaultCenterLng   Float?                @map("default_center_lng")
+  geoBoundary        Json?                 @map("geo_boundary")
+  isActive           Boolean               @default(true) @map("is_active")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  places             Place[]
+  sessions           VisitorSession[]
+  adapters           DataAdapter[]
   operationalUpdates OperationalUpdate[]
-  analyticsEvents AnalyticsEvent[]
-  dailyRollups DailyRollup[]
-  questionClusters QuestionCluster[]
-  knowledgeEntries VenueKnowledgeEntry[]
+  analyticsEvents    AnalyticsEvent[]
+  dailyRollups       DailyRollup[]
+  questionClusters   QuestionCluster[]
+  knowledgeEntries   VenueKnowledgeEntry[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -162,28 +191,28 @@ model Venue {
 }
 
 model Place {
-  id               String    @id @default(cuid())
-  tenantId         String    @map("tenant_id")
-  venueId          String    @map("venue_id")
-  name             String
-  type             String
-  itemType         String?   @map("item_type")
-  shortDescription String?   @map("short_description")
-  longDescription  String?   @map("long_description")
-  lat              Float?
-  lng              Float?
-  tags             String[]
-  importanceScore  Int       @default(0) @map("importance_score")
-  areaName         String?   @map("area_name")
-  hours            String?
-  photoUrl         String?   @map("photo_url")
-  isActive         Boolean   @default(true) @map("is_active")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  venue            Venue     @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  id                 String              @id @default(cuid())
+  tenantId           String              @map("tenant_id")
+  venueId            String              @map("venue_id")
+  name               String
+  type               String
+  itemType           String?             @map("item_type")
+  shortDescription   String?             @map("short_description")
+  longDescription    String?             @map("long_description")
+  lat                Float?
+  lng                Float?
+  tags               String[]
+  importanceScore    Int                 @default(0) @map("importance_score")
+  areaName           String?             @map("area_name")
+  hours              String?
+  photoUrl           String?             @map("photo_url")
+  isActive           Boolean             @default(true) @map("is_active")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  venue              Venue               @relation(fields: [venueId], references: [id], onDelete: Restrict)
   operationalUpdates OperationalUpdate[]
-  analyticsEvents AnalyticsEvent[]
-  dailyRollups     DailyRollup[]
+  analyticsEvents    AnalyticsEvent[]
+  dailyRollups       DailyRollup[]
 
   @@index([tenantId])
   @@index([venueId])

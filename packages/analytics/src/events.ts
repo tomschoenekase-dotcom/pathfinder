@@ -12,6 +12,7 @@ export const ANALYTICS_EVENT_TYPES = [
   'directions.opened',
   'operational_update.viewed',
   'venue.updated',
+  'engagement_question.asked',
 ] as const
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number]

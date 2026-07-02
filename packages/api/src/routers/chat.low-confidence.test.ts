@@ -32,9 +32,13 @@ const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
+const tenantFindUnique = vi.fn()
+const engagementQuestionFindMany = vi.fn()
 
 const mockDb = {
   visitorSession: { upsert: sessionUpsert },
+  tenant: { findUnique: tenantFindUnique },
+  engagementQuestion: { findMany: engagementQuestionFindMany },
   place: { findMany: vi.fn() },
   message: { findMany: messageFindMany, create: messageCreate },
   operationalUpdate: { findMany: vi.fn().mockResolvedValue([]) },
@@ -82,6 +86,8 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
   messageFindMany.mockResolvedValueOnce([])
   searchPlacesByEmbedding.mockResolvedValueOnce(places)
   searchKnowledgeByEmbedding.mockResolvedValueOnce([])
+  tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'STOIC' })
+  engagementQuestionFindMany.mockResolvedValueOnce([])
   anthropicCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: reply }] })
   messageCreate.mockResolvedValue({})
 }

@@ -9,9 +9,10 @@ import { env, logger } from '@pathfinder/config'
 
 import { router } from '../core'
 import { generateEmbedding } from '../lib/embeddings'
+import { selectEngagementQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { checkRateLimit } from '../lib/rate-limit'
-import { buildVenueSystemPrompt } from '../lib/venue-context'
+import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { publicProcedure } from '../trpc'
 
 // ---------------------------------------------------------------------------
@@ -221,25 +222,40 @@ export const chatRouter = router({
 
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
-    const [queryEmbedding, historyDesc, activeUpdates] = await Promise.all([
-      generateEmbedding(trimmedInput).catch(() => null),
-      ctx.db.message.findMany({
-        where: { sessionId: session.id, tenantId: venue.tenantId },
-        orderBy: { createdAt: 'desc' },
-        take: HISTORY_LIMIT,
-        select: { role: true, content: true },
-      }),
-      ctx.db.operationalUpdate.findMany({
-        where: {
-          venueId: input.venueId,
-          tenantId: venue.tenantId,
-          isActive: true,
-          expiresAt: { gt: new Date() },
-        },
-        select: { severity: true, title: true, body: true, redirectTo: true },
-        orderBy: { severity: 'asc' },
-      }),
-    ])
+    const [queryEmbedding, historyDesc, activeUpdates, tenantEngagement, engagementQuestions] =
+      await Promise.all([
+        generateEmbedding(trimmedInput).catch(() => null),
+        ctx.db.message.findMany({
+          where: { sessionId: session.id, tenantId: venue.tenantId },
+          orderBy: { createdAt: 'desc' },
+          take: HISTORY_LIMIT,
+          select: { role: true, content: true },
+        }),
+        ctx.db.operationalUpdate.findMany({
+          where: {
+            venueId: input.venueId,
+            tenantId: venue.tenantId,
+            isActive: true,
+            expiresAt: { gt: new Date() },
+          },
+          select: { severity: true, title: true, body: true, redirectTo: true },
+          orderBy: { severity: 'asc' },
+        }),
+        ctx.db.tenant.findUnique({
+          where: { id: venue.tenantId },
+          select: { engagementMode: true },
+        }),
+        ctx.db.engagementQuestion.findMany({
+          where: { tenantId: venue.tenantId, isActive: true },
+          select: {
+            id: true,
+            questionType: true,
+            prompt: true,
+            choiceOptions: true,
+            intensity: true,
+          },
+        }),
+      ])
 
     // 4. Retrieve relevant places and knowledge entries.
     //    When an embedding is available both searches run in parallel (same query embedding,
@@ -332,7 +348,12 @@ export const chatRouter = router({
     }
 
     // 5. Build context — history arrives newest-first, reverse to oldest-first for Claude
-    const systemPrompt = buildVenueSystemPrompt({
+    const selectedEngagementQuestion = selectEngagementQuestion(
+      tenantEngagement?.engagementMode ?? 'STOIC',
+      engagementQuestions,
+    )
+
+    const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
       venue,
       relevantPlaces,
       knowledgeEntries: relevantKnowledgeEntries,
@@ -342,6 +363,15 @@ export const chatRouter = router({
       featuredPlace,
       ...(input.language ? { language: input.language } : {}),
       guideMode,
+      ...(selectedEngagementQuestion
+        ? {
+            engagementQuestion: {
+              questionType: selectedEngagementQuestion.questionType,
+              prompt: selectedEngagementQuestion.prompt,
+              choiceOptions: selectedEngagementQuestion.choiceOptions,
+            },
+          }
+        : {}),
     })
     const history = historyDesc.reverse()
 
@@ -352,7 +382,10 @@ export const chatRouter = router({
       const result = await anthropic.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: MAX_TOKENS,
-        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        system: [
+          { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: dynamicPart },
+        ],
         messages: [
           ...history.map((m: { role: string; content: string }) => ({
             role: m.role as 'user' | 'assistant',
@@ -419,6 +452,22 @@ export const chatRouter = router({
         },
       })
     } catch {}
+
+    if (selectedEngagementQuestion) {
+      try {
+        await emitEvent({
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          sessionId: input.anonymousToken,
+          eventType: 'engagement_question.asked',
+          metadata: {
+            engagementQuestionId: selectedEngagementQuestion.id,
+            intensity: selectedEngagementQuestion.intensity,
+            mode: tenantEngagement?.engagementMode ?? 'STOIC',
+          },
+        })
+      } catch {}
+    }
 
     // Backend-only low-confidence detection (decision E). Invisible to the guest —
     // the reply above already projected confidence; this only feeds content-gap

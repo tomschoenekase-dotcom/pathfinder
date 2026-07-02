@@ -12,6 +12,10 @@ export { CreateVenueInput, UpdateVenueInput } from './routers/venue'
 export { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from './routers/place'
 export { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from './routers/knowledge'
 export {
+  CreateEngagementQuestionInput,
+  UpdateEngagementQuestionInput,
+} from './routers/engagement-question'
+export {
   CreateOperationalUpdateInputBase,
   CreateOperationalUpdateInput,
   DeactivateOperationalUpdateInput,

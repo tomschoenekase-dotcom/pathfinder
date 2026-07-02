@@ -1,15 +1,17 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { tenantFindUnique, tenantMembershipFindMany } = vi.hoisted(() => ({
+const { tenantFindUnique, tenantMembershipFindMany, tenantUpdate } = vi.hoisted(() => ({
   tenantFindUnique: vi.fn(),
   tenantMembershipFindMany: vi.fn(),
+  tenantUpdate: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
   db: {
     tenant: {
       findUnique: tenantFindUnique,
+      update: tenantUpdate,
     },
     tenantMembership: {
       findMany: tenantMembershipFindMany,
@@ -53,6 +55,7 @@ describe('tenant router', () => {
       planTier: 'pro',
       status: 'ACTIVE',
       nextPaymentDue: new Date('2026-07-15T00:00:00.000Z'),
+      engagementMode: 'BALANCED',
     }
     const members = [
       {
@@ -87,6 +90,7 @@ describe('tenant router', () => {
           planTier: true,
           status: true,
           nextPaymentDue: true,
+          engagementMode: true,
         }),
       }),
     )
@@ -111,6 +115,7 @@ describe('tenant router', () => {
       planTier: 'free',
       status: 'ACTIVE',
       nextPaymentDue: null,
+      engagementMode: 'STOIC',
     })
     tenantMembershipFindMany.mockResolvedValueOnce([])
 
@@ -122,5 +127,18 @@ describe('tenant router', () => {
         where: { tenantId: 'tenant_1', status: { not: 'REMOVED' } },
       }),
     )
+  })
+
+  it('tenant.setEngagementMode updates the current tenant mode', async () => {
+    tenantUpdate.mockResolvedValueOnce({})
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.tenant.setEngagementMode({ mode: 'CURIOUS' })
+
+    expect(result).toEqual({ ok: true })
+    expect(tenantUpdate).toHaveBeenCalledWith({
+      where: { id: 'tenant_1' },
+      data: { engagementMode: 'CURIOUS' },
+    })
   })
 })

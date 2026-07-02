@@ -44,6 +44,12 @@ type FeaturedPlace = {
   blurb: string
 }
 
+type EngagementQuestionContext = {
+  questionType: 'OPEN_ENDED' | 'MULTIPLE_CHOICE'
+  prompt: string
+  choiceOptions: string[]
+}
+
 /**
  * Converts a distance in meters to a natural-language phrase.
  * Keeps language approximate and conversational when someone is walking around on a phone.
@@ -56,7 +62,7 @@ export function formatDistance(meters: number): string {
   return `about a ${minutes}-minute walk`
 }
 
-export function buildVenueSystemPrompt(params: {
+export function buildVenueSystemPromptParts(params: {
   venue: VenueInfo
   relevantPlaces: RelevantPlace[]
   knowledgeEntries?: KnowledgeEntry[]
@@ -64,10 +70,11 @@ export function buildVenueSystemPrompt(params: {
   userLat: number
   userLng: number
   featuredPlace?: FeaturedPlace | null
+  engagementQuestion?: EngagementQuestionContext | null
   language?: string | null
   guideMode?: string | null
-}): string {
-  const { venue, relevantPlaces, featuredPlace, language } = params
+}): { staticPart: string; dynamicPart: string } {
+  const { venue, relevantPlaces, featuredPlace, language, engagementQuestion } = params
   const knowledgeEntries = params.knowledgeEntries ?? []
   const activeUpdates = params.activeUpdates ?? []
   const guideMode = params.guideMode ?? venue.guideMode ?? 'location_aware'
@@ -81,6 +88,14 @@ export function buildVenueSystemPrompt(params: {
       : ''
   const featuredPlaceSection = featuredPlace
     ? `\nFeatured highlight: When relevant, mention "${featuredPlace.name}" - ${featuredPlace.blurb}.`
+    : ''
+  const engagementQuestionSection = engagementQuestion
+    ? `\n\nGuest engagement moment: The operator wants you to naturally work the following into the conversation when - and only when - a genuinely natural opening appears (e.g. the conversation is wrapping up, or the guest just finished an experience). Do not force it into an unrelated answer, and do not ask it more than once per conversation. Put it in your own words each time so it never sounds scripted - do not repeat the operator's wording verbatim.\nOperator's intent: ${engagementQuestion.prompt}${
+        engagementQuestion.questionType === 'MULTIPLE_CHOICE' &&
+        engagementQuestion.choiceOptions.length > 0
+          ? `\nWeave in these options conversationally, never as a bullet list or menu: ${engagementQuestion.choiceOptions.join(', ')}.`
+          : ''
+      }`
     : ''
   const toneInstruction =
     venue.aiTone === 'PROFESSIONAL'
@@ -142,7 +157,7 @@ export function buildVenueSystemPrompt(params: {
 - If asked about navigation or location, explain this is a content guide, not a map.`
       : `- Lead with what makes a place worth visiting - its character, experience, or purpose. Distance is secondary context, not the headline.
 - Only mention distance when the visitor is asking how to find something or needs directions ("where is", "how far", "near me"). For questions about what to do or see, skip the distance entirely.
-- When distance is relevant, use the natural phrasing from the place data above ("about 200 feet away", "right nearby"). Never convert to metric or use raw numbers.
+- When distance is relevant, use the natural phrasing from the provided place data ("about 200 feet away", "right nearby"). Never convert to metric or use raw numbers.
 - For practical navigation questions (bathroom, exit, specific location), give the nearest match with distance and nothing else.
 - For exploratory questions ("what's good here", "what should I see"), suggest one or two options with a brief reason - no distances unless asked.
 - Category guide — treat each place type accordingly:
@@ -152,18 +167,15 @@ export function buildVenueSystemPrompt(params: {
   • entrance: Mention only when discussing how to get in, out, or reach a specific area.
   • location: This is a navigation landmark, not a destination. Never suggest visiting it. Use it only as a spatial reference in directions (e.g. "near the northwest corner", "just past the fountain area"). If a visitor asks about it directly, explain it as a reference point.`
 
-  return `You are ${guideName}, ${roleDescription} for ${venue.name}.
+  const staticPart = `You are ${guideName}, ${roleDescription} for ${venue.name}.
 
 About this venue:
 ${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}${alertsSection}
 
-MOST RELEVANT PLACES FOR THIS QUERY:
-${placesSection}${knowledgeSection}
-
 Rules:
-- Ground every answer in the venue data above. Do not invent places or distances.
+- Ground every answer in the venue and place data provided in this prompt. Do not invent places or distances.
 - Active alerts take priority over all other information. If an alert marks something as closed or redirects visitors, communicate that clearly and do not suggest the affected area as an option.
-- Ground answers in the knowledge base entries above when relevant. Treat them as authoritative venue information.
+- Ground answers in the knowledge base entries when relevant. Treat them as authoritative venue information.
 - Use the place data as background knowledge, not as text to quote. Paraphrase and summarize — never copy descriptions verbatim. Mention only what is relevant to the visitor's question.
 ${guideModeRules}
 - Match answer length to the question. Simple questions (where is, what is) get 1–2 sentences. Process or FAQ questions (what do I do, how does it work) can use up to 4–5 sentences if genuinely needed. Never pad a short answer to fill space.
@@ -172,4 +184,18 @@ ${guideModeRules}
 - ${toneInstruction}
 
 ${languageRule}`
+
+  const dynamicPart = `${engagementQuestionSection}
+
+MOST RELEVANT PLACES FOR THIS QUERY:
+${placesSection}${knowledgeSection}`
+
+  return { staticPart, dynamicPart }
+}
+
+export function buildVenueSystemPrompt(
+  params: Parameters<typeof buildVenueSystemPromptParts>[0],
+): string {
+  const { staticPart, dynamicPart } = buildVenueSystemPromptParts(params)
+  return staticPart + dynamicPart
 }

@@ -32,15 +32,20 @@ import { _setAnthropicClientForTesting, chatRouter } from './chat'
 const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
 const placeFindMany = vi.fn()
+const placeFindFirst = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
+const tenantFindUnique = vi.fn()
+const engagementQuestionFindMany = vi.fn()
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   venue: {},
   visitorSession: { upsert: sessionUpsert },
-  place: { findMany: placeFindMany },
+  tenant: { findUnique: tenantFindUnique },
+  engagementQuestion: { findMany: engagementQuestionFindMany },
+  place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate },
   operationalUpdate: { findMany: operationalUpdateFindMany },
   $queryRaw: dbQueryRaw,
@@ -107,6 +112,9 @@ describe('chat router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     _setAnthropicClientForTesting(mockAnthropicClient)
+    operationalUpdateFindMany.mockResolvedValue([])
+    tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
+    engagementQuestionFindMany.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -182,6 +190,16 @@ describe('chat router', () => {
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
       placeFindMany.mockResolvedValueOnce(placeRows)
       messageFindMany.mockResolvedValueOnce([])
+      tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'STOIC' })
+      engagementQuestionFindMany.mockResolvedValueOnce([
+        {
+          id: 'question_1',
+          questionType: 'OPEN_ENDED',
+          prompt: 'Ask whether the guest had trouble finding their way.',
+          choiceOptions: [],
+          intensity: 5,
+        },
+      ])
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: assistantText }],
       })
@@ -269,7 +287,7 @@ describe('chat router', () => {
       expect(callArgs.messages[1]).toMatchObject({ role: 'assistant', content: 'Second message' })
     })
 
-    it('uses cache_control ephemeral on the system prompt', async () => {
+    it('uses cache_control ephemeral only on the static system prompt block', async () => {
       setupHappyPath('ok')
 
       await caller.chat.send(sendInput)
@@ -279,12 +297,62 @@ describe('chat router', () => {
       >[0]
       const systemBlocks = callArgs.system as Array<{
         type: string
+        text: string
         cache_control?: { type: string }
       }>
+      expect(systemBlocks).toHaveLength(2)
       expect(systemBlocks[0]).toMatchObject({
         type: 'text',
         cache_control: { type: 'ephemeral' },
       })
+      expect(systemBlocks[1]).toMatchObject({ type: 'text' })
+      expect(systemBlocks[1]?.cache_control).toBeUndefined()
+
+      const concatenatedSystemPrompt = `${systemBlocks[0]?.text}${systemBlocks[1]?.text}`
+      expect(concatenatedSystemPrompt).toContain('City Zoo')
+      expect(concatenatedSystemPrompt).toContain('Elephants')
+    })
+
+    it('does not inject an engagement question when the tenant mode is STOIC', async () => {
+      setupHappyPath('ok')
+
+      await caller.chat.send(sendInput)
+
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as Parameters<
+        Anthropic['messages']['create']
+      >[0]
+      const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
+
+      expect(systemBlocks.map((block) => block.text).join('')).not.toContain(
+        'Guest engagement moment',
+      )
+    })
+
+    it('emits an engagement_question.asked event when a question is selected', async () => {
+      setupHappyPath('ok')
+      tenantFindUnique.mockReset()
+      engagementQuestionFindMany.mockReset()
+      tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'CURIOUS' })
+      engagementQuestionFindMany.mockResolvedValueOnce([
+        {
+          id: 'question_selected',
+          questionType: 'OPEN_ENDED',
+          prompt: 'Ask about wayfinding.',
+          choiceOptions: [],
+          intensity: 5,
+        },
+      ])
+      const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0)
+
+      await caller.chat.send(sendInput)
+
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'engagement_question.asked',
+          metadata: expect.objectContaining({ engagementQuestionId: 'question_selected' }),
+        }),
+      )
+      random.mockRestore()
     })
 
     it('swallows analytics failures and still returns the AI response', async () => {

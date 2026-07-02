@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildVenueSystemPrompt, formatDistance } from './venue-context'
+import {
+  buildVenueSystemPrompt,
+  buildVenueSystemPromptParts,
+  formatDistance,
+} from './venue-context'
 
 const venue = {
   name: 'City Zoo',
@@ -109,5 +113,61 @@ describe('buildVenueSystemPrompt', () => {
   it('includes areaName when present', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: 0, userLng: 0 })
     expect(prompt).toContain('Safari Zone')
+  })
+
+  it('includes engagement question context when provided', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: 0,
+      userLng: 0,
+      engagementQuestion: {
+        questionType: 'MULTIPLE_CHOICE',
+        prompt: 'Ask which part of the visit was their favorite.',
+        choiceOptions: ['the butterfly exhibit', 'the food court'],
+      },
+    })
+
+    expect(prompt).toContain('Guest engagement moment')
+    expect(prompt).toContain("Operator's intent: Ask which part of the visit was their favorite.")
+    expect(prompt).toContain('the butterfly exhibit, the food court')
+  })
+
+  it('buildVenueSystemPromptParts splits static and dynamic context correctly', () => {
+    const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces,
+      userLat: 40.7,
+      userLng: -74.0,
+    })
+
+    expect(staticPart).toContain('City Zoo')
+    expect(staticPart).toContain('Rules:')
+    expect(staticPart).not.toContain('Elephant Enclosure')
+    expect(dynamicPart).toContain('Elephant Enclosure')
+    expect(dynamicPart).toContain('MOST RELEVANT PLACES FOR THIS QUERY')
+  })
+
+  it('buildVenueSystemPrompt remains equivalent to concatenated prompt parts', () => {
+    const input = { venue, relevantPlaces, userLat: 40.7, userLng: -74.0 }
+
+    const prompt = buildVenueSystemPrompt(input)
+    const parts = buildVenueSystemPromptParts(input)
+
+    expect(prompt).toBe(parts.staticPart + parts.dynamicPart)
+  })
+
+  it('buildVenueSystemPromptParts handles empty places gracefully', () => {
+    const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces: [],
+      userLat: 0,
+      userLng: 0,
+    })
+
+    expect(staticPart).toContain('City Zoo')
+    expect(staticPart).toContain('Rules:')
+    expect(staticPart).not.toContain('No specific points of interest have been configured yet.')
+    expect(dynamicPart).toContain('No specific points of interest have been configured yet.')
   })
 })
