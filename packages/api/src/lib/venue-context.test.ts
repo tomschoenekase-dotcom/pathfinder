@@ -134,6 +134,45 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).toContain('the butterfly exhibit, the food court')
   })
 
+  it('includes the [[ENGAGEMENT_ASKED]] self-report instruction in all three engagement branches', () => {
+    const authoredOnly = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: 0,
+      userLng: 0,
+      engagementQuestion: {
+        questionType: 'OPEN_ENDED',
+        prompt: 'Ask about wayfinding.',
+        choiceOptions: [],
+        allowAiInvented: false,
+      },
+    })
+    const authoredPlusInvention = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: 0,
+      userLng: 0,
+      engagementQuestion: {
+        questionType: 'OPEN_ENDED',
+        prompt: 'Ask about wayfinding.',
+        choiceOptions: [],
+        allowAiInvented: true,
+      },
+    })
+    const inventionOnly = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: 0,
+      userLng: 0,
+      engagementQuestion: { allowAiInvented: true },
+    })
+
+    for (const prompt of [authoredOnly, authoredPlusInvention, inventionOnly]) {
+      expect(prompt).toContain('[[ENGAGEMENT_ASKED]]')
+      expect(prompt).toContain('Never mention this marker to the guest')
+    }
+  })
+
   it('buildVenueSystemPromptParts splits static and dynamic context correctly', () => {
     const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
       venue,

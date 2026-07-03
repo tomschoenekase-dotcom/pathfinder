@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
-import { enqueueWeeklyDigest } from '@pathfinder/jobs'
+import { enqueueAnswerAnalysis, enqueueWeeklyDigest, enqueueWeeklyReport } from '@pathfinder/jobs'
 import { adminProcedure } from '../../trpc'
 import { router } from '../../core'
 
@@ -512,6 +512,404 @@ export const adminRouter = router({
         targetId: input.tenantId,
         beforeState: updated.existing,
         afterState: updated.tenant,
+      })
+
+      return { ok: true }
+    }),
+
+  listVenueSessions: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        venueId: z.string(),
+        dateFrom: z.string().datetime().optional(),
+        dateTo: z.string().datetime().optional(),
+        notableOnly: z.boolean().optional(),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(100).default(25),
+      }),
+    )
+    .query(async ({ input }) => {
+      return withTenantIsolationBypass(async () => {
+        const sessions = await db.visitorSession.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            ...(input.notableOnly ? { isNotable: true } : {}),
+            ...(input.dateFrom || input.dateTo
+              ? {
+                  startedAt: {
+                    ...(input.dateFrom ? { gte: new Date(input.dateFrom) } : {}),
+                    ...(input.dateTo ? { lte: new Date(input.dateTo) } : {}),
+                  },
+                }
+              : {}),
+          },
+          orderBy: { startedAt: 'desc' },
+          take: input.limit + 1,
+          ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+          select: {
+            id: true,
+            startedAt: true,
+            lastActiveAt: true,
+            messageCount: true,
+            isNotable: true,
+            _count: { select: { engagementResponses: true, adminNotes: true } },
+          },
+        })
+
+        const hasMore = sessions.length > input.limit
+        return {
+          sessions: sessions.slice(0, input.limit),
+          nextCursor: hasMore ? (sessions[input.limit]?.id ?? null) : null,
+        }
+      })
+    }),
+
+  getSessionChatlog: adminProcedure
+    .input(z.object({ tenantId: z.string(), sessionId: z.string() }))
+    .query(async ({ input }) => {
+      return withTenantIsolationBypass(async () => {
+        const session = await db.visitorSession.findFirst({
+          where: { id: input.sessionId, tenantId: input.tenantId },
+          select: {
+            id: true,
+            venueId: true,
+            startedAt: true,
+            lastActiveAt: true,
+            isNotable: true,
+            venue: { select: { name: true } },
+            messages: {
+              orderBy: { createdAt: 'asc' },
+              select: { id: true, role: true, content: true, createdAt: true },
+            },
+            engagementResponses: {
+              orderBy: { askedAt: 'asc' },
+              select: {
+                id: true,
+                questionText: true,
+                answerText: true,
+                answerType: true,
+                isAiInvented: true,
+                askedAt: true,
+                answeredAt: true,
+              },
+            },
+            adminNotes: {
+              orderBy: { createdAt: 'desc' },
+              select: { id: true, note: true, authorId: true, createdAt: true },
+            },
+          },
+        })
+
+        if (!session) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' })
+        }
+
+        return session
+      })
+    }),
+
+  setSessionNotable: adminProcedure
+    .input(z.object({ tenantId: z.string(), sessionId: z.string(), isNotable: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await withTenantIsolationBypass(async () => {
+        await db.visitorSession.updateMany({
+          where: { id: input.sessionId, tenantId: input.tenantId },
+          data: { isNotable: input.isNotable },
+        })
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: input.isNotable ? 'admin.chatlog.marked_notable' : 'admin.chatlog.unmarked_notable',
+        targetType: 'VisitorSession',
+        targetId: input.sessionId,
+      })
+
+      return { ok: true }
+    }),
+
+  addChatlogNote: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        venueId: z.string(),
+        sessionId: z.string(),
+        note: z.string().min(1).max(2000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const created = await withTenantIsolationBypass(async () => {
+        return db.adminChatlogNote.create({
+          data: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            sessionId: input.sessionId,
+            authorId: ctx.session.userId,
+            note: input.note,
+          },
+          select: { id: true, note: true, authorId: true, createdAt: true },
+        })
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.chatlog.note_added',
+        targetType: 'VisitorSession',
+        targetId: input.sessionId,
+        afterState: { note: input.note },
+      })
+
+      return created
+    }),
+
+  generateAnswerAnalysis: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        venueId: z.string(),
+        rangeStart: z.string().datetime(),
+        rangeEnd: z.string().datetime(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const snapshot = await withTenantIsolationBypass(async () => {
+        return db.answerAnalysisSnapshot.create({
+          data: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            rangeStart: new Date(input.rangeStart),
+            rangeEnd: new Date(input.rangeEnd),
+            status: 'GENERATING',
+            createdBy: ctx.session.userId,
+          },
+          select: { id: true },
+        })
+      })
+
+      await enqueueAnswerAnalysis({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        rangeStart: input.rangeStart,
+        rangeEnd: input.rangeEnd,
+        snapshotId: snapshot.id,
+      })
+
+      return { snapshotId: snapshot.id }
+    }),
+
+  listAnswerAnalyses: adminProcedure
+    .input(z.object({ tenantId: z.string(), venueId: z.string() }))
+    .query(async ({ input }) =>
+      withTenantIsolationBypass(async () =>
+        db.answerAnalysisSnapshot.findMany({
+          where: { tenantId: input.tenantId, venueId: input.venueId },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            status: true,
+            rangeStart: true,
+            rangeEnd: true,
+            answerCount: true,
+            generatedAt: true,
+          },
+        }),
+      ),
+    ),
+
+  getAnswerAnalysis: adminProcedure
+    .input(z.object({ tenantId: z.string(), snapshotId: z.string() }))
+    .query(async ({ input }) => {
+      const snapshot = await withTenantIsolationBypass(async () =>
+        db.answerAnalysisSnapshot.findFirst({
+          where: { id: input.snapshotId, tenantId: input.tenantId },
+        }),
+      )
+      if (!snapshot) throw new TRPCError({ code: 'NOT_FOUND', message: 'Analysis not found' })
+      return snapshot
+    }),
+
+  generateWeeklyReportDraft: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        venueId: z.string(),
+        weekStart: z.string().datetime(),
+        weekEnd: z.string().datetime(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const weekStart = new Date(input.weekStart)
+      const weekEnd = new Date(input.weekEnd)
+
+      const report = await withTenantIsolationBypass(async () => {
+        const existing = await db.weeklyReport.findUnique({
+          where: { venueId_weekStart: { venueId: input.venueId, weekStart } },
+          select: { id: true, status: true },
+        })
+
+        if (existing?.status === 'PUBLISHED') {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'This week is already published. Unpublish is not supported - create a correction note instead.',
+          })
+        }
+
+        if (existing) {
+          return db.weeklyReport.update({
+            where: { id: existing.id },
+            data: { status: 'GENERATING', error: null },
+            select: { id: true },
+          })
+        }
+
+        return db.weeklyReport.create({
+          data: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            weekStart,
+            weekEnd,
+            status: 'GENERATING',
+            createdBy: ctx.session.userId,
+          },
+          select: { id: true },
+        })
+      })
+
+      await enqueueWeeklyReport({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        weekStart: input.weekStart,
+        weekEnd: input.weekEnd,
+        reportId: report.id,
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.report.draft_generated',
+        targetType: 'WeeklyReport',
+        targetId: report.id,
+      })
+
+      return { reportId: report.id }
+    }),
+
+  listWeeklyReports: adminProcedure
+    .input(z.object({ tenantId: z.string(), venueId: z.string() }))
+    .query(async ({ input }) =>
+      withTenantIsolationBypass(async () =>
+        db.weeklyReport.findMany({
+          where: { tenantId: input.tenantId, venueId: input.venueId },
+          orderBy: { weekStart: 'desc' },
+          select: {
+            id: true,
+            weekStart: true,
+            weekEnd: true,
+            status: true,
+            title: true,
+            publishedAt: true,
+            updatedAt: true,
+          },
+        }),
+      ),
+    ),
+
+  getWeeklyReport: adminProcedure
+    .input(z.object({ tenantId: z.string(), reportId: z.string() }))
+    .query(async ({ input }) => {
+      const report = await withTenantIsolationBypass(async () =>
+        db.weeklyReport.findFirst({ where: { id: input.reportId, tenantId: input.tenantId } }),
+      )
+      if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
+      return report
+    }),
+
+  updateWeeklyReportDraft: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        reportId: z.string(),
+        title: z.string().min(1).max(200).optional(),
+        content: z.string().min(1).max(10_000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await withTenantIsolationBypass(async () =>
+        db.weeklyReport.findFirst({
+          where: { id: input.reportId, tenantId: input.tenantId },
+          select: { status: true },
+        }),
+      )
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
+      if (existing.status === 'PUBLISHED') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Published reports cannot be edited.' })
+      }
+
+      await withTenantIsolationBypass(async () => {
+        await db.weeklyReport.updateMany({
+          where: { id: input.reportId, tenantId: input.tenantId },
+          data: {
+            content: input.content,
+            ...(input.title !== undefined ? { title: input.title } : {}),
+          },
+        })
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.report.edited',
+        targetType: 'WeeklyReport',
+        targetId: input.reportId,
+      })
+
+      return { ok: true }
+    }),
+
+  publishWeeklyReport: adminProcedure
+    .input(z.object({ tenantId: z.string(), reportId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await withTenantIsolationBypass(async () =>
+        db.weeklyReport.findFirst({
+          where: { id: input.reportId, tenantId: input.tenantId },
+          select: { status: true, content: true },
+        }),
+      )
+      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
+      if (existing.status !== 'DRAFT') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Only a draft report can be published.',
+        })
+      }
+      if (!existing.content) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Report has no content to publish.' })
+      }
+
+      await withTenantIsolationBypass(async () => {
+        await db.weeklyReport.updateMany({
+          where: { id: input.reportId, tenantId: input.tenantId },
+          data: { status: 'PUBLISHED', publishedAt: new Date() },
+        })
+      })
+
+      await writeAuditLog({
+        tenantId: input.tenantId,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.report.published',
+        targetType: 'WeeklyReport',
+        targetId: input.reportId,
       })
 
       return { ok: true }

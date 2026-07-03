@@ -31,22 +31,30 @@ import { _setAnthropicClientForTesting, chatRouter } from './chat'
 
 const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
+const sessionUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
 const placeFindMany = vi.fn()
 const placeFindFirst = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
+const messageFindFirst = vi.fn()
 const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
+const engagementQuestionFindFirst = vi.fn()
+const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   venue: {},
-  visitorSession: { upsert: sessionUpsert },
+  visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
   tenant: { findUnique: tenantFindUnique },
-  engagementQuestion: { findMany: engagementQuestionFindMany },
+  engagementQuestion: {
+    findMany: engagementQuestionFindMany,
+    findFirst: engagementQuestionFindFirst,
+  },
+  engagementQuestionResponse: { create: engagementQuestionResponseCreate },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
-  message: { findMany: messageFindMany, create: messageCreate },
+  message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
@@ -115,6 +123,8 @@ describe('chat router', () => {
     operationalUpdateFindMany.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
+    sessionUpdateMany.mockResolvedValue({ count: 1 })
+    engagementQuestionResponseCreate.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -465,6 +475,171 @@ describe('chat router', () => {
       } finally {
         random.mockRestore()
       }
+    })
+
+    it('strips the [[ENGAGEMENT_ASKED]] marker before it reaches the guest or gets persisted', async () => {
+      setupHappyPath('ok')
+      tenantFindUnique.mockReset()
+      engagementQuestionFindMany.mockReset()
+      tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'CURIOUS' })
+      engagementQuestionFindMany.mockResolvedValueOnce([])
+      const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0)
+      anthropicCreate.mockReset()
+      anthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Some reply.\n[[ENGAGEMENT_ASKED]]' }],
+      })
+      messageCreate
+        .mockResolvedValueOnce({ id: 'user_msg_1' })
+        .mockResolvedValueOnce({ id: 'assistant_msg_1' })
+
+      try {
+        const result = await caller.chat.send(sendInput)
+
+        expect(result.response).not.toContain('[[ENGAGEMENT_ASKED]]')
+        expect(result.response).toBe('Some reply.')
+        expect(messageCreate).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            data: expect.objectContaining({ role: 'assistant', content: 'Some reply.' }),
+          }),
+        )
+      } finally {
+        random.mockRestore()
+      }
+    })
+
+    it('ignores the marker when no engagement question was offered this turn (guards against a hallucinated marker)', async () => {
+      setupHappyPath('ok')
+      // STOIC (default in beforeEach) never passes the gate, so no question is offered.
+      anthropicCreate.mockReset()
+      anthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Some reply.\n[[ENGAGEMENT_ASKED]]' }],
+      })
+      messageCreate
+        .mockResolvedValueOnce({ id: 'user_msg_1' })
+        .mockResolvedValueOnce({ id: 'assistant_msg_1' })
+
+      await caller.chat.send(sendInput)
+
+      expect(sessionUpdateMany).not.toHaveBeenCalled()
+    })
+
+    it('marks the session pending after a self-reported ask', async () => {
+      setupHappyPath('ok')
+      tenantFindUnique.mockReset()
+      engagementQuestionFindMany.mockReset()
+      tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'CURIOUS' })
+      engagementQuestionFindMany.mockResolvedValueOnce([
+        {
+          id: 'question_selected',
+          questionType: 'OPEN_ENDED',
+          prompt: 'Ask about wayfinding.',
+          choiceOptions: [],
+          intensity: 5,
+        },
+      ])
+      const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0)
+      anthropicCreate.mockReset()
+      anthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Some reply.\n[[ENGAGEMENT_ASKED]]' }],
+      })
+      messageCreate
+        .mockResolvedValueOnce({ id: 'user_msg_1' })
+        .mockResolvedValueOnce({ id: 'assistant_msg_1' })
+
+      try {
+        await caller.chat.send(sendInput)
+
+        expect(sessionUpdateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: SESSION_ID, tenantId: TENANT_ID },
+            data: expect.objectContaining({
+              pendingEngagementQuestionId: 'question_selected',
+              pendingEngagementAskedMessageId: 'assistant_msg_1',
+            }),
+          }),
+        )
+      } finally {
+        random.mockRestore()
+      }
+    })
+
+    it('captures the answer on the following turn from an authored pending question', async () => {
+      setupHappyPath('Reply without a marker.')
+      sessionUpsert.mockReset()
+      sessionUpsert.mockResolvedValueOnce({
+        id: SESSION_ID,
+        pendingEngagementQuestionId: 'question_prev',
+        pendingEngagementIsInvented: false,
+        pendingEngagementAskedMessageId: 'assistant_msg_prev',
+        pendingEngagementAskedAt: new Date('2026-07-01T00:00:00.000Z'),
+      })
+      engagementQuestionFindFirst.mockResolvedValueOnce({
+        prompt: 'Ask about wayfinding.',
+        questionType: 'OPEN_ENDED',
+      })
+      messageCreate
+        .mockResolvedValueOnce({ id: 'user_msg_new' })
+        .mockResolvedValueOnce({ id: 'assistant_msg_new' })
+
+      await caller.chat.send(sendInput)
+
+      expect(engagementQuestionResponseCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            engagementQuestionId: 'question_prev',
+            isAiInvented: false,
+            questionText: 'Ask about wayfinding.',
+            askedMessageId: 'assistant_msg_prev',
+            answerMessageId: 'user_msg_new',
+            answerText: sendInput.message,
+          }),
+        }),
+      )
+      expect(sessionUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: SESSION_ID, tenantId: TENANT_ID },
+          data: expect.objectContaining({
+            pendingEngagementQuestionId: null,
+            pendingEngagementAskedMessageId: null,
+          }),
+        }),
+      )
+    })
+
+    it('captures the answer to an AI-invented pending question by reading the asked message content', async () => {
+      setupHappyPath('Reply without a marker.')
+      sessionUpsert.mockReset()
+      sessionUpsert.mockResolvedValueOnce({
+        id: SESSION_ID,
+        pendingEngagementQuestionId: null,
+        pendingEngagementIsInvented: true,
+        pendingEngagementAskedMessageId: 'assistant_msg_prev',
+        pendingEngagementAskedAt: new Date('2026-07-01T00:00:00.000Z'),
+      })
+      messageFindFirst.mockResolvedValueOnce({
+        content: 'What was your favorite part of the visit so far?',
+      })
+      messageCreate
+        .mockResolvedValueOnce({ id: 'user_msg_new' })
+        .mockResolvedValueOnce({ id: 'assistant_msg_new' })
+
+      await caller.chat.send(sendInput)
+
+      expect(engagementQuestionFindFirst).not.toHaveBeenCalled()
+      expect(messageFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: 'assistant_msg_prev' }) }),
+      )
+      expect(engagementQuestionResponseCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            engagementQuestionId: null,
+            isAiInvented: true,
+            questionText: 'What was your favorite part of the visit so far?',
+            answerMessageId: 'user_msg_new',
+          }),
+        }),
+      )
     })
 
     it('swallows analytics failures and still returns the AI response', async () => {

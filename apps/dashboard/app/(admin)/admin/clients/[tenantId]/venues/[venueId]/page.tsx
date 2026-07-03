@@ -98,6 +98,36 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
         />
       </section>
 
+      <section className="grid gap-4 md:grid-cols-3">
+        {[
+          {
+            href: `/admin/clients/${tenantId}/venues/${venueId}/chatlogs`,
+            title: 'Chatlog review',
+            body: 'Browse transcripts, captured answers, notable flags, and private notes.',
+          },
+          {
+            href: `/admin/clients/${tenantId}/venues/${venueId}/analysis`,
+            title: 'Answer analysis',
+            body: 'Generate AI summaries from collected visitor answers.',
+          },
+          {
+            href: `/admin/clients/${tenantId}/venues/${venueId}/reports`,
+            title: 'Weekly reports',
+            body: 'Draft, edit, and publish client-facing weekly reports.',
+          },
+        ].map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="rounded-2xl border border-pf-light bg-pf-white p-5 shadow-sm transition hover:border-pf-accent"
+          >
+            <h2 className="text-lg font-semibold tracking-tight text-pf-deep">{item.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-pf-deep/60">{item.body}</p>
+            <span className="mt-4 inline-flex text-sm font-medium text-pf-primary">Open</span>
+          </Link>
+        ))}
+      </section>
+
       <section className="space-y-4">
         <div className="flex items-end justify-between">
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Points of interest</h2>

@@ -7,6 +7,7 @@ import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   Bot,
   ChartColumn,
+  FileText,
   Home,
   LogOut,
   Megaphone,
@@ -27,6 +28,7 @@ const navigationItems = [
   { href: '/', label: 'Overview', icon: Home },
   { href: '/venues', label: 'Your Chatbot', icon: Bot },
   { href: '/analytics', label: 'Analytics', icon: ChartColumn },
+  { href: '/weekly-reports', label: 'Weekly Reports', icon: FileText },
   { href: '/ai-controls', label: 'AI Controls', icon: Bot },
   { href: '/engagement-questions', label: 'Engagement Questions', icon: MessageCircleQuestion },
   { href: '/chat-design', label: 'Chatbot Design', icon: Palette },

@@ -10,12 +10,21 @@ const {
   weeklyDigestCreate,
   visitorSessionCount,
   visitorSessionFindMany,
+  visitorSessionUpdateMany,
   messageCount,
   questionClusterFindMany,
   userUpsert,
   tenantMembershipUpsert,
+  adminChatlogNoteCreate,
+  weeklyReportFindUnique,
+  weeklyReportCreate,
+  weeklyReportUpdate,
+  weeklyReportFindFirst,
+  weeklyReportUpdateMany,
   writeAuditLogMock,
   enqueueWeeklyDigest,
+  enqueueAnswerAnalysis,
+  enqueueWeeklyReport,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -25,12 +34,21 @@ const {
   weeklyDigestCreate: vi.fn(),
   visitorSessionCount: vi.fn(),
   visitorSessionFindMany: vi.fn(),
+  visitorSessionUpdateMany: vi.fn(),
   messageCount: vi.fn(),
   questionClusterFindMany: vi.fn(),
   userUpsert: vi.fn(),
   tenantMembershipUpsert: vi.fn(),
+  adminChatlogNoteCreate: vi.fn(),
+  weeklyReportFindUnique: vi.fn(),
+  weeklyReportCreate: vi.fn(),
+  weeklyReportUpdate: vi.fn(),
+  weeklyReportFindFirst: vi.fn(),
+  weeklyReportUpdateMany: vi.fn(),
   writeAuditLogMock: vi.fn(),
   enqueueWeeklyDigest: vi.fn(),
+  enqueueAnswerAnalysis: vi.fn(),
+  enqueueWeeklyReport: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -48,6 +66,7 @@ vi.mock('@pathfinder/db', () => ({
     visitorSession: {
       count: visitorSessionCount,
       findMany: visitorSessionFindMany,
+      updateMany: visitorSessionUpdateMany,
     },
     message: {
       count: messageCount,
@@ -61,6 +80,16 @@ vi.mock('@pathfinder/db', () => ({
     tenantMembership: {
       upsert: tenantMembershipUpsert,
     },
+    adminChatlogNote: {
+      create: adminChatlogNoteCreate,
+    },
+    weeklyReport: {
+      findUnique: weeklyReportFindUnique,
+      create: weeklyReportCreate,
+      update: weeklyReportUpdate,
+      findFirst: weeklyReportFindFirst,
+      updateMany: weeklyReportUpdateMany,
+    },
   },
   writeAuditLog: writeAuditLogMock,
   withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
@@ -68,6 +97,8 @@ vi.mock('@pathfinder/db', () => ({
 
 vi.mock('@pathfinder/jobs', () => ({
   enqueueWeeklyDigest,
+  enqueueAnswerAnalysis,
+  enqueueWeeklyReport,
 }))
 
 import { router } from '../../core'
@@ -251,5 +282,141 @@ describe('admin router', () => {
     await expect(
       caller.admin.getClientAnalytics({ tenantId: 'missing_tenant' }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+  })
+
+  it('admin.setSessionNotable writes an audit log with the correct action for true/false', async () => {
+    const caller = testRouter.createCaller(adminCtx())
+
+    await caller.admin.setSessionNotable({
+      tenantId: 'tenant_1',
+      sessionId: 'session_1',
+      isNotable: true,
+    })
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.chatlog.marked_notable', targetId: 'session_1' }),
+    )
+
+    await caller.admin.setSessionNotable({
+      tenantId: 'tenant_1',
+      sessionId: 'session_1',
+      isNotable: false,
+    })
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.chatlog.unmarked_notable', targetId: 'session_1' }),
+    )
+  })
+
+  it('admin.addChatlogNote sources authorId from the admin session, not client input', async () => {
+    adminChatlogNoteCreate.mockResolvedValueOnce({
+      id: 'note_1',
+      note: 'Guest was confused about wait times.',
+      authorId: 'admin_1',
+      createdAt: new Date(),
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await caller.admin.addChatlogNote({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      sessionId: 'session_1',
+      note: 'Guest was confused about wait times.',
+    })
+
+    expect(adminChatlogNoteCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ authorId: 'admin_1' }),
+      }),
+    )
+  })
+
+  it('admin.generateWeeklyReportDraft throws BAD_REQUEST when the week is already published', async () => {
+    weeklyReportFindUnique.mockResolvedValueOnce({ id: 'report_1', status: 'PUBLISHED' })
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(enqueueWeeklyReport).not.toHaveBeenCalled()
+  })
+
+  it('admin.updateWeeklyReportDraft throws BAD_REQUEST on a published report', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'PUBLISHED' })
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.updateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        reportId: 'report_1',
+        content: 'Edited content',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('admin.publishWeeklyReport throws BAD_REQUEST when status is not DRAFT', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'GENERATING', content: null })
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.publishWeeklyReport({ tenantId: 'tenant_1', reportId: 'report_1' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+  })
+
+  it('admin.publishWeeklyReport throws BAD_REQUEST when the draft has no content', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', content: null })
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.publishWeeklyReport({ tenantId: 'tenant_1', reportId: 'report_1' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('admin.publishWeeklyReport publishes a valid draft and audit-logs it', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', content: 'Some content' })
+
+    const caller = testRouter.createCaller(adminCtx())
+    const result = await caller.admin.publishWeeklyReport({
+      tenantId: 'tenant_1',
+      reportId: 'report_1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(weeklyReportUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'report_1', tenantId: 'tenant_1' },
+        data: expect.objectContaining({ status: 'PUBLISHED' }),
+      }),
+    )
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.report.published', targetId: 'report_1' }),
+    )
+  })
+
+  it('all new admin.* chatlog/report/analysis procedures throw FORBIDDEN for non-admin users', async () => {
+    const caller = testRouter.createCaller(nonAdminCtx())
+
+    await expect(
+      caller.admin.listVenueSessions({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+    await expect(
+      caller.admin.setSessionNotable({
+        tenantId: 'tenant_1',
+        sessionId: 'session_1',
+        isNotable: true,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+    await expect(
+      caller.admin.publishWeeklyReport({ tenantId: 'tenant_1', reportId: 'report_1' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 })

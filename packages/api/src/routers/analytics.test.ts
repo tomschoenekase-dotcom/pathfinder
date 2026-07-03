@@ -16,12 +16,20 @@ const visitorSessionCount = vi.fn()
 const visitorSessionAggregate = vi.fn()
 const questionClusterFindMany = vi.fn()
 const placeFindMany = vi.fn()
+const venueFindFirst = vi.fn()
+const weeklyReportFindMany = vi.fn()
 const dbQueryRaw = vi.fn()
 
 const mockDb = {
   weeklyDigest: {
     findFirst: weeklyDigestFindFirst,
     findMany: weeklyDigestFindMany,
+  },
+  weeklyReport: {
+    findMany: weeklyReportFindMany,
+  },
+  venue: {
+    findFirst: venueFindFirst,
   },
   dailyRollup: {
     findMany: dailyRollupFindMany,
@@ -431,5 +439,44 @@ describe('analytics router', () => {
     await expect(
       caller.analytics.getPlaceInterest({ venueId: 'cvenueabc123456789012', days: 30 }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }))
+  })
+
+  it('analytics.listPublishedWeeklyReports only returns PUBLISHED reports for the caller tenant', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    weeklyReportFindMany.mockResolvedValueOnce([
+      {
+        id: 'report_1',
+        title: 'PathFinder Weekly Report',
+        weekStart: new Date(),
+        weekEnd: new Date(),
+        content: 'x',
+        publishedAt: new Date(),
+      },
+    ])
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.analytics.listPublishedWeeklyReports({ venueId: 'venue_1' })
+
+    expect(result).toHaveLength(1)
+    expect(weeklyReportFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          status: 'PUBLISHED',
+        }),
+      }),
+    )
+  })
+
+  it('analytics.listPublishedWeeklyReports throws NOT_FOUND when the venue does not belong to the caller tenant', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(tenantCtx())
+
+    await expect(
+      caller.analytics.listPublishedWeeklyReports({ venueId: 'someone_elses_venue' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(weeklyReportFindMany).not.toHaveBeenCalled()
   })
 })

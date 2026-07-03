@@ -3,6 +3,9 @@ import { Queue, Worker, type Job } from 'bullmq'
 import { assertServerEnv, logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
+  ANSWER_ANALYSIS_PROCESS_JOB,
+  ANSWER_ANALYSIS_QUEUE,
+  ANSWER_ANALYSIS_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
@@ -34,16 +37,23 @@ import {
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
   WEEKLY_DIGEST_SCHEDULER_JOB,
+  WEEKLY_REPORT_PROCESS_JOB,
+  WEEKLY_REPORT_QUEUE,
+  WEEKLY_REPORT_RETRY_BACKOFF,
+  type AnswerAnalysisJobPayload,
   type DailyRollupJobPayload,
   type WeeklyDigestJobPayload,
+  type WeeklyReportJobPayload,
 } from '@pathfinder/jobs'
 
+import { processAnswerAnalysisJob } from './processors/answer-analysis'
 import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment'
 import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
+import { processWeeklyReportJob } from './processors/weekly-report'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
@@ -147,6 +157,40 @@ function getEmbedKnowledgeEntryBackoffDelay(attemptsMade: number): number {
 }
 
 function getAnalyticsEnrichmentBackoffDelay(attemptsMade: number): number {
+  switch (attemptsMade) {
+    case 1:
+      return 30_000
+    case 2:
+      return 60_000
+    case 3:
+      return 5 * 60_000
+    case 4:
+      return 30 * 60_000
+    case 5:
+      return 2 * 60 * 60_000
+    default:
+      return -1
+  }
+}
+
+function getAnswerAnalysisBackoffDelay(attemptsMade: number): number {
+  switch (attemptsMade) {
+    case 1:
+      return 30_000
+    case 2:
+      return 60_000
+    case 3:
+      return 5 * 60_000
+    case 4:
+      return 30 * 60_000
+    case 5:
+      return 2 * 60 * 60_000
+    default:
+      return -1
+  }
+}
+
+function getWeeklyReportBackoffDelay(attemptsMade: number): number {
   switch (attemptsMade) {
     case 1:
       return 30_000
@@ -364,6 +408,24 @@ async function handleAnalyticsEnrichmentQueueJob(
   throw new Error(`Unsupported analytics enrichment job: ${job.name}`)
 }
 
+async function handleAnswerAnalysisQueueJob(job: Job<AnswerAnalysisJobPayload>) {
+  if (job.name === ANSWER_ANALYSIS_PROCESS_JOB) {
+    await processAnswerAnalysisJob(job.data, job.id)
+    return
+  }
+
+  throw new Error(`Unsupported answer analysis job: ${job.name}`)
+}
+
+async function handleWeeklyReportQueueJob(job: Job<WeeklyReportJobPayload>) {
+  if (job.name === WEEKLY_REPORT_PROCESS_JOB) {
+    await processWeeklyReportJob(job.data, job.id)
+    return
+  }
+
+  throw new Error(`Unsupported weekly report job: ${job.name}`)
+}
+
 async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
   if (job.name === SEND_WELCOME_EMAIL_JOB) {
     await processSendWelcomeEmailJob(job.data, job.id)
@@ -379,6 +441,8 @@ export async function startWorkers() {
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
   const embedPlaceQueue = new Queue(EMBED_PLACE_QUEUE, { connection })
   const analyticsEnrichmentQueue = new Queue(ANALYTICS_ENRICHMENT_QUEUE, { connection })
+  const answerAnalysisQueue = new Queue(ANSWER_ANALYSIS_QUEUE, { connection })
+  const weeklyReportQueue = new Queue(WEEKLY_REPORT_QUEUE, { connection })
 
   await weeklyDigestQueue.upsertJobScheduler(
     WEEKLY_DIGEST_SCHEDULER_JOB,
@@ -517,6 +581,34 @@ export async function startWorkers() {
     },
   })
 
+  const answerAnalysisWorker = new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
+    connection,
+    concurrency: 2,
+    settings: {
+      backoffStrategy: (attemptsMade, type) => {
+        if (type === ANSWER_ANALYSIS_RETRY_BACKOFF) {
+          return getAnswerAnalysisBackoffDelay(attemptsMade)
+        }
+
+        return 0
+      },
+    },
+  })
+
+  const weeklyReportWorker = new Worker(WEEKLY_REPORT_QUEUE, handleWeeklyReportQueueJob, {
+    connection,
+    concurrency: 2,
+    settings: {
+      backoffStrategy: (attemptsMade, type) => {
+        if (type === WEEKLY_REPORT_RETRY_BACKOFF) {
+          return getWeeklyReportBackoffDelay(attemptsMade)
+        }
+
+        return 0
+      },
+    },
+  })
+
   const handleCompletedJob = (job: Job) => {
     logger.info({
       action: 'workers.job.completed',
@@ -543,6 +635,8 @@ export async function startWorkers() {
   embedKnowledgeEntryWorker.on('completed', handleCompletedJob)
   analyticsEnrichmentWorker.on('completed', handleCompletedJob)
   sendEmailWorker.on('completed', handleCompletedJob)
+  answerAnalysisWorker.on('completed', handleCompletedJob)
+  weeklyReportWorker.on('completed', handleCompletedJob)
 
   weeklyDigestWorker.on('failed', handleFailedJob)
   dailyRollupWorker.on('failed', handleFailedJob)
@@ -550,6 +644,8 @@ export async function startWorkers() {
   embedKnowledgeEntryWorker.on('failed', handleFailedJob)
   analyticsEnrichmentWorker.on('failed', handleFailedJob)
   sendEmailWorker.on('failed', handleFailedJob)
+  answerAnalysisWorker.on('failed', handleFailedJob)
+  weeklyReportWorker.on('failed', handleFailedJob)
 
   logger.info({
     action: 'workers.started',
@@ -559,6 +655,8 @@ export async function startWorkers() {
       EMBED_PLACE_QUEUE,
       EMBED_KNOWLEDGE_ENTRY_QUEUE,
       ANALYTICS_ENRICHMENT_QUEUE,
+      ANSWER_ANALYSIS_QUEUE,
+      WEEKLY_REPORT_QUEUE,
       SEND_EMAIL_QUEUE,
     ],
   })
@@ -572,11 +670,15 @@ export async function startWorkers() {
       embedPlaceWorker.close(),
       embedKnowledgeEntryWorker.close(),
       analyticsEnrichmentWorker.close(),
+      answerAnalysisWorker.close(),
+      weeklyReportWorker.close(),
       sendEmailWorker.close(),
       weeklyDigestQueue.close(),
       dailyRollupQueue.close(),
       embedPlaceQueue.close(),
       analyticsEnrichmentQueue.close(),
+      answerAnalysisQueue.close(),
+      weeklyReportQueue.close(),
       closeJobQueues(),
       closeBullMQConnection(),
     ])
@@ -593,12 +695,16 @@ export async function startWorkers() {
   return {
     analyticsEnrichmentQueue,
     analyticsEnrichmentWorker,
+    answerAnalysisQueue,
+    answerAnalysisWorker,
     dailyRollupQueue,
     dailyRollupWorker,
     embedKnowledgeEntryWorker,
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,
+    weeklyReportQueue,
+    weeklyReportWorker,
     weeklyDigestQueue,
     weeklyDigestWorker,
     shutdown,

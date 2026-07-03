@@ -5,6 +5,22 @@ export type WeeklyDigestJobPayload = {
   digestId: string
 }
 
+export type AnswerAnalysisJobPayload = {
+  tenantId: string
+  venueId: string
+  rangeStart: string
+  rangeEnd: string
+  snapshotId: string
+}
+
+export type WeeklyReportJobPayload = {
+  tenantId: string
+  venueId: string
+  weekStart: string
+  weekEnd: string
+  reportId: string
+}
+
 export type DailyRollupJobPayload = {
   tenantId: string
   date: string

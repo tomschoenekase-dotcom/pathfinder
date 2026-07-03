@@ -68,6 +68,15 @@ const HISTORY_LIMIT = 10
 const HISTORY_LOAD_LIMIT = 40
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 512
+const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
+
+function stripEngagementMarker(text: string): { cleaned: string; markerFound: boolean } {
+  const markerIndex = text.lastIndexOf(ENGAGEMENT_ASKED_MARKER)
+  if (markerIndex === -1) {
+    return { cleaned: text, markerFound: false }
+  }
+  return { cleaned: text.slice(0, markerIndex).trimEnd(), markerFound: true }
+}
 
 // Backend-only content-gap detection (no guest-facing change, no extra model call).
 // If even the best-matching place is semantically far from the question, the venue
@@ -217,8 +226,18 @@ export const chatRouter = router({
         lastActiveAt: new Date(),
         ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
-      select: { id: true },
+      select: {
+        id: true,
+        pendingEngagementQuestionId: true,
+        pendingEngagementIsInvented: true,
+        pendingEngagementAskedMessageId: true,
+        pendingEngagementAskedAt: true,
+      },
     })
+    const pendingAnswerSnapshot =
+      session.pendingEngagementQuestionId != null || session.pendingEngagementIsInvented === true
+        ? { ...session }
+        : null
 
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
@@ -388,6 +407,7 @@ export const chatRouter = router({
 
     // 6. Call Claude API — failure returns graceful fallback, never throws to caller
     let assistantResponse: string
+    let engagementAskedThisTurn = false
     try {
       const anthropic = getAnthropicClient()
       const result = await anthropic.messages.create({
@@ -406,10 +426,14 @@ export const chatRouter = router({
         ],
       })
 
-      assistantResponse =
+      const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(
         result.content[0]?.type === 'text'
           ? result.content[0].text
-          : "I'm sorry, I couldn't generate a response."
+          : "I'm sorry, I couldn't generate a response.",
+      )
+      assistantResponse = strippedResponse
+      engagementAskedThisTurn =
+        markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
     } catch (err) {
       logger.error({
         action: 'chat.send.claude_failed',
@@ -422,22 +446,91 @@ export const chatRouter = router({
     // 7. Persist messages in two separate statements so they get distinct createdAt
     //    timestamps. A single $transaction gives both rows the same now() value,
     //    making orderBy: { createdAt: 'desc' } non-deterministic on the next request.
-    await ctx.db.message.create({
+    const userMessage = await ctx.db.message.create({
       data: {
         tenantId: venue.tenantId,
         sessionId: session.id,
         role: 'user',
         content: trimmedInput,
       },
+      select: { id: true },
     })
-    await ctx.db.message.create({
+    const assistantMessage = await ctx.db.message.create({
       data: {
         tenantId: venue.tenantId,
         sessionId: session.id,
         role: 'assistant',
         content: assistantResponse,
       },
+      select: { id: true },
     })
+
+    if (pendingAnswerSnapshot) {
+      let questionText: string | null = null
+      let answerType: 'OPEN_ENDED' | 'MULTIPLE_CHOICE' = 'OPEN_ENDED'
+
+      if (pendingAnswerSnapshot.pendingEngagementQuestionId) {
+        const question = await ctx.db.engagementQuestion.findFirst({
+          where: {
+            id: pendingAnswerSnapshot.pendingEngagementQuestionId,
+            tenantId: venue.tenantId,
+          },
+          select: { prompt: true, questionType: true },
+        })
+        questionText = question?.prompt ?? null
+        answerType = question?.questionType ?? 'OPEN_ENDED'
+      } else if (pendingAnswerSnapshot.pendingEngagementAskedMessageId) {
+        const askedMessage = await ctx.db.message.findFirst({
+          where: {
+            id: pendingAnswerSnapshot.pendingEngagementAskedMessageId,
+            tenantId: venue.tenantId,
+          },
+          select: { content: true },
+        })
+        questionText = askedMessage?.content ?? null
+      }
+
+      if (questionText && pendingAnswerSnapshot.pendingEngagementAskedMessageId) {
+        await ctx.db.engagementQuestionResponse.create({
+          data: {
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            sessionId: session.id,
+            engagementQuestionId: pendingAnswerSnapshot.pendingEngagementQuestionId,
+            isAiInvented: pendingAnswerSnapshot.pendingEngagementIsInvented,
+            answerType,
+            questionText,
+            askedMessageId: pendingAnswerSnapshot.pendingEngagementAskedMessageId,
+            answerMessageId: userMessage.id,
+            answerText: trimmedInput,
+            askedAt: pendingAnswerSnapshot.pendingEngagementAskedAt ?? new Date(),
+            answeredAt: new Date(),
+          },
+        })
+      }
+
+      await ctx.db.visitorSession.updateMany({
+        where: { id: session.id, tenantId: venue.tenantId },
+        data: {
+          pendingEngagementQuestionId: null,
+          pendingEngagementIsInvented: false,
+          pendingEngagementAskedMessageId: null,
+          pendingEngagementAskedAt: null,
+        },
+      })
+    }
+
+    if (engagementAskedThisTurn) {
+      await ctx.db.visitorSession.updateMany({
+        where: { id: session.id, tenantId: venue.tenantId },
+        data: {
+          pendingEngagementQuestionId: selectedEngagementQuestion?.id ?? null,
+          pendingEngagementIsInvented: allowAiInventedQuestion && !selectedEngagementQuestion,
+          pendingEngagementAskedMessageId: assistantMessage.id,
+          pendingEngagementAskedAt: new Date(),
+        },
+      })
+    }
 
     try {
       await emitEvent({

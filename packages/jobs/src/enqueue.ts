@@ -4,6 +4,9 @@ import { logger } from '@pathfinder/config'
 
 import { getBullMQConnection } from './connection'
 import {
+  ANSWER_ANALYSIS_PROCESS_JOB,
+  ANSWER_ANALYSIS_QUEUE,
+  ANSWER_ANALYSIS_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
@@ -22,14 +25,19 @@ import {
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
+  WEEKLY_REPORT_PROCESS_JOB,
+  WEEKLY_REPORT_QUEUE,
+  WEEKLY_REPORT_RETRY_BACKOFF,
 } from './queues'
 import type {
+  AnswerAnalysisJobPayload,
   AnalyticsEnrichmentJobPayload,
   DailyRollupJobPayload,
   EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
   SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
+  WeeklyReportJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -54,6 +62,24 @@ const weeklyDigestJobOptions: JobsOptions = {
   attempts: 6,
   backoff: {
     type: WEEKLY_DIGEST_RETRY_BACKOFF,
+  },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+const answerAnalysisJobOptions: JobsOptions = {
+  attempts: 6,
+  backoff: {
+    type: ANSWER_ANALYSIS_RETRY_BACKOFF,
+  },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+const weeklyReportJobOptions: JobsOptions = {
+  attempts: 6,
+  backoff: {
+    type: WEEKLY_REPORT_RETRY_BACKOFF,
   },
   removeOnComplete: 1000,
   removeOnFail: 5000,
@@ -114,6 +140,36 @@ export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Prom
     action: 'jobs.weekly-digest.enqueued',
     tenantId: payload.tenantId,
     digestId: payload.digestId,
+    weekStart: payload.weekStart,
+    weekEnd: payload.weekEnd,
+  })
+}
+
+export async function enqueueAnswerAnalysis(payload: AnswerAnalysisJobPayload): Promise<void> {
+  await getQueue(ANSWER_ANALYSIS_QUEUE).add(ANSWER_ANALYSIS_PROCESS_JOB, payload, {
+    ...answerAnalysisJobOptions,
+    jobId: `answer-analysis:${payload.snapshotId}`,
+  })
+
+  logger.info({
+    action: 'jobs.answer-analysis.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    snapshotId: payload.snapshotId,
+  })
+}
+
+export async function enqueueWeeklyReport(payload: WeeklyReportJobPayload): Promise<void> {
+  await getQueue(WEEKLY_REPORT_QUEUE).add(WEEKLY_REPORT_PROCESS_JOB, payload, {
+    ...weeklyReportJobOptions,
+    jobId: `weekly-report:${payload.reportId}`,
+  })
+
+  logger.info({
+    action: 'jobs.weekly-report.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    reportId: payload.reportId,
     weekStart: payload.weekStart,
     weekEnd: payload.weekEnd,
   })

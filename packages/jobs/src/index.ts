@@ -1,4 +1,7 @@
 export {
+  ANSWER_ANALYSIS_PROCESS_JOB,
+  ANSWER_ANALYSIS_QUEUE,
+  ANSWER_ANALYSIS_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
@@ -20,22 +23,29 @@ export {
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
   WEEKLY_DIGEST_SCHEDULER_JOB,
+  WEEKLY_REPORT_PROCESS_JOB,
+  WEEKLY_REPORT_QUEUE,
+  WEEKLY_REPORT_RETRY_BACKOFF,
 } from './queues'
 export { closeBullMQConnection, getBullMQConnection } from './connection'
 export {
   closeJobQueues,
+  enqueueAnswerAnalysis,
   enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
   enqueueEmbedKnowledgeEntry,
   enqueueEmbedPlace,
   enqueueWelcomeEmail,
   enqueueWeeklyDigest,
+  enqueueWeeklyReport,
 } from './enqueue'
 export type {
+  AnswerAnalysisJobPayload,
   AnalyticsEnrichmentJobPayload,
   DailyRollupJobPayload,
   EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
   SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
+  WeeklyReportJobPayload,
 } from './types'

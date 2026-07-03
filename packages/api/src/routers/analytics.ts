@@ -253,6 +253,36 @@ export const analyticsRouter = router({
       return digest
     }),
 
+  listPublishedWeeklyReports: tenantProcedure
+    .input(z.object({ venueId: z.string() }).strict())
+    .query(async ({ ctx, input }) => {
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId: ctx.session.activeTenantId },
+        select: { id: true },
+      })
+
+      if (!venue) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
+      return ctx.db.weeklyReport.findMany({
+        where: {
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          status: 'PUBLISHED',
+        },
+        orderBy: { weekStart: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          weekStart: true,
+          weekEnd: true,
+          content: true,
+          publishedAt: true,
+        },
+      })
+    }),
+
   getDailyStats: tenantProcedure.input(getDailyStatsInput).query(async ({ ctx, input }) => {
     const startDate = startOfUtcDay(new Date())
     startDate.setUTCDate(startDate.getUTCDate() - (input.days - 1))

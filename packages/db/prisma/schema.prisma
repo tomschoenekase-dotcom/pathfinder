@@ -41,6 +41,10 @@ model Tenant {
   weeklyDigests       WeeklyDigest[]
   questionClusters    QuestionCluster[]
   engagementQuestions EngagementQuestion[]
+  engagementQuestionResponses EngagementQuestionResponse[]
+  adminChatlogNotes           AdminChatlogNote[]
+  weeklyReports               WeeklyReport[]
+  answerAnalysisSnapshots     AnswerAnalysisSnapshot[]
 
   @@map("tenants")
 }
@@ -109,6 +113,7 @@ model EngagementQuestion {
   createdAt     DateTime               @default(now()) @map("created_at")
   updatedAt     DateTime               @updatedAt @map("updated_at")
   tenant        Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  responses     EngagementQuestionResponse[]
 
   @@index([tenantId])
   @@map("engagement_questions")
@@ -152,6 +157,19 @@ enum TenantEngagementMode {
   CURIOUS
 }
 
+enum WeeklyReportStatus {
+  GENERATING
+  DRAFT
+  PUBLISHED
+  FAILED
+}
+
+enum AnswerAnalysisStatus {
+  GENERATING
+  COMPLETE
+  FAILED
+}
+
 model Venue {
   id                 String                @id @default(cuid())
   tenantId           String                @map("tenant_id")
@@ -184,6 +202,10 @@ model Venue {
   dailyRollups       DailyRollup[]
   questionClusters   QuestionCluster[]
   knowledgeEntries   VenueKnowledgeEntry[]
+  engagementResponses     EngagementQuestionResponse[]
+  adminChatlogNotes       AdminChatlogNote[]
+  weeklyReports           WeeklyReport[]
+  answerAnalysisSnapshots AnswerAnalysisSnapshot[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -250,14 +272,67 @@ model VisitorSession {
   startedAt      DateTime  @default(now()) @map("started_at")
   lastActiveAt   DateTime  @default(now()) @map("last_active_at")
   messageCount   Int       @default(0) @map("message_count")
+  pendingEngagementQuestionId     String?   @map("pending_engagement_question_id")
+  pendingEngagementIsInvented     Boolean   @default(false) @map("pending_engagement_is_invented")
+  pendingEngagementAskedMessageId String?   @map("pending_engagement_asked_message_id")
+  pendingEngagementAskedAt        DateTime? @map("pending_engagement_asked_at")
+  isNotable      Boolean   @default(false) @map("is_notable")
   venue          Venue     @relation(fields: [venueId], references: [id], onDelete: Restrict)
   messages       Message[]
+  engagementResponses EngagementQuestionResponse[]
+  adminNotes     AdminChatlogNote[]
 
   @@index([tenantId])
   @@index([venueId])
   @@index([anonymousToken])
   @@index([visitorId])
+  @@index([tenantId, venueId, startedAt])
   @@map("visitor_sessions")
+}
+
+model EngagementQuestionResponse {
+  id                   String                 @id @default(cuid())
+  tenantId             String                 @map("tenant_id")
+  venueId              String                 @map("venue_id")
+  sessionId            String                 @map("session_id")
+  engagementQuestionId String?                @map("engagement_question_id")
+  isAiInvented         Boolean                @default(false) @map("is_ai_invented")
+  answerType           EngagementQuestionType @map("answer_type")
+  questionText         String                 @map("question_text")
+  askedMessageId        String                 @map("asked_message_id")
+  answerMessageId       String                 @map("answer_message_id")
+  answerText            String                 @map("answer_text")
+  askedAt               DateTime               @map("asked_at")
+  answeredAt            DateTime               @map("answered_at")
+  sentimentLabel        String?                @map("sentiment_label")
+  category              String?
+  createdAt             DateTime               @default(now()) @map("created_at")
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                 Venue                  @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  session               VisitorSession         @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  engagementQuestion    EngagementQuestion?    @relation(fields: [engagementQuestionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, venueId, answeredAt])
+  @@index([engagementQuestionId])
+  @@index([sessionId])
+  @@map("engagement_question_responses")
+}
+
+model AdminChatlogNote {
+  id        String         @id @default(cuid())
+  tenantId  String         @map("tenant_id")
+  venueId   String         @map("venue_id")
+  sessionId String         @map("session_id")
+  authorId  String         @map("author_id")
+  note      String
+  createdAt DateTime       @default(now()) @map("created_at")
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue     Venue          @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  session   VisitorSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, sessionId])
+  @@index([venueId, createdAt])
+  @@map("admin_chatlog_notes")
 }
 
 model Message {
@@ -421,6 +496,52 @@ model WeeklyDigest {
   @@unique([tenantId, weekStart])
   @@index([tenantId, weekStart])
   @@map("weekly_digests")
+}
+
+model WeeklyReport {
+  id           String             @id @default(cuid())
+  tenantId     String             @map("tenant_id")
+  venueId      String             @map("venue_id")
+  weekStart    DateTime           @map("week_start")
+  weekEnd      DateTime           @map("week_end")
+  status       WeeklyReportStatus @default(GENERATING)
+  title        String             @default("PathFinder Weekly Report")
+  content      String?
+  answerCount  Int                @default(0) @map("answer_count")
+  sessionCount Int                @default(0) @map("session_count")
+  error        String?
+  generatedAt  DateTime?          @map("generated_at")
+  publishedAt  DateTime?          @map("published_at")
+  createdBy    String             @map("created_by")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue        Venue              @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@unique([venueId, weekStart])
+  @@index([tenantId, venueId, weekStart])
+  @@index([status])
+  @@map("weekly_reports")
+}
+
+model AnswerAnalysisSnapshot {
+  id          String               @id @default(cuid())
+  tenantId    String               @map("tenant_id")
+  venueId     String               @map("venue_id")
+  rangeStart  DateTime             @map("range_start")
+  rangeEnd    DateTime             @map("range_end")
+  status      AnswerAnalysisStatus @default(GENERATING)
+  summary     Json?
+  answerCount Int                  @default(0) @map("answer_count")
+  error       String?
+  generatedAt DateTime?            @map("generated_at")
+  createdBy   String               @map("created_by")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue       Venue                @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, venueId, createdAt])
+  @@map("answer_analysis_snapshots")
 }
 
 enum MessageRole {

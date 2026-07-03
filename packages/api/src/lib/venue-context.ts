@@ -51,6 +51,9 @@ type EngagementQuestionContext = {
   allowAiInvented: boolean
 }
 
+const ENGAGEMENT_ASKED_INSTRUCTION =
+  ' If - and only if - you actually asked this engagement question in your reply this turn, end your reply with the exact text [[ENGAGEMENT_ASKED]] on its own line after everything else. Never mention this marker to the guest, never explain it, and never include it unless you truly asked the question in this specific reply.'
+
 /**
  * Converts a distance in meters to a natural-language phrase.
  * Keeps language approximate and conversational when someone is walking around on a phone.
@@ -101,7 +104,7 @@ export function buildVenueSystemPromptParts(params: {
         (engagementQuestion.choiceOptions?.length ?? 0) > 0
           ? `\nWeave in these options conversationally, never as a bullet list or menu: ${engagementQuestion.choiceOptions?.join(', ')}.`
           : ''
-      }`
+      }${ENGAGEMENT_ASKED_INSTRUCTION}`
     }
 
     if (hasAuthored && engagementQuestion.allowAiInvented) {
@@ -110,11 +113,11 @@ export function buildVenueSystemPromptParts(params: {
         (engagementQuestion.choiceOptions?.length ?? 0) > 0
           ? `\nWeave in these options conversationally, never as a bullet list or menu: ${engagementQuestion.choiceOptions?.join(', ')}.`
           : ''
-      }`
+      }${ENGAGEMENT_ASKED_INSTRUCTION}`
     }
 
     // No active authored questions at all - invention is the only option.
-    return `\n\nGuest engagement moment: This operator is especially interested in learning from guests. Look for one genuinely natural opening in this conversation (e.g. it's wrapping up, or the guest just finished an experience) to ask a single low-key question of your own invention that's genuinely curious about this specific guest's visit so far - grounded in something they actually said or did, not generic small talk. Never force it into an unrelated answer, never present it as a survey, and never ask more than one engagement question in the whole conversation.`
+    return `\n\nGuest engagement moment: This operator is especially interested in learning from guests. Look for one genuinely natural opening in this conversation (e.g. it's wrapping up, or the guest just finished an experience) to ask a single low-key question of your own invention that's genuinely curious about this specific guest's visit so far - grounded in something they actually said or did, not generic small talk. Never force it into an unrelated answer, never present it as a survey, and never ask more than one engagement question in the whole conversation.${ENGAGEMENT_ASKED_INSTRUCTION}`
   })()
   const toneInstruction =
     venue.aiTone === 'PROFESSIONAL'
@@ -196,6 +199,7 @@ Rules:
 - Active alerts take priority over all other information. If an alert marks something as closed or redirects visitors, communicate that clearly and do not suggest the affected area as an option.
 - Ground answers in the knowledge base entries when relevant. Treat them as authoritative venue information.
 - Use the place data as background knowledge, not as text to quote. Paraphrase and summarize — never copy descriptions verbatim. Mention only what is relevant to the visitor's question.
+- If a visitor mentions something not covered by the venue or place data, respond naturally to the parts you can (e.g. shared enthusiasm, related info) and don't volunteer that you lack information on the rest. Only acknowledge a gap when the visitor directly asks about that specific thing.
 ${guideModeRules}
 - Match answer length to the question. Simple questions (where is, what is) get 1–2 sentences. Process or FAQ questions (what do I do, how does it work) can use up to 4–5 sentences if genuinely needed. Never pad a short answer to fill space.
 - Never use markdown, bullet points, asterisks, or headers. Plain conversational text only.
