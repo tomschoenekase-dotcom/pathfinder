@@ -7,6 +7,14 @@ import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 const MAX_OUTPUT_TOKENS = 1_800
+const MAX_GENERAL_MESSAGES = 400
+const MESSAGE_CONTENT_LIMIT = 500
+
+function trimMessageContent(content: string): string {
+  return content.length > MESSAGE_CONTENT_LIMIT
+    ? `${content.slice(0, MESSAGE_CONTENT_LIMIT).trimEnd()}...`
+    : content
+}
 
 const weeklyReportResponseSchema = z.object({
   overview: z.string().max(800),
@@ -125,57 +133,86 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
   const weekEnd = new Date(payload.weekEnd)
 
   return withTenantIsolationBypass(async () => {
-    const [venue, sessionCount, messageCount, responses, activeQuestions, notableNotes] =
-      await Promise.all([
-        db.venue.findFirst({
-          where: { id: payload.venueId, tenantId: payload.tenantId },
-          select: { name: true, category: true },
-        }),
-        db.visitorSession.count({
-          where: {
-            tenantId: payload.tenantId,
-            venueId: payload.venueId,
-            messages: { some: { createdAt: { gte: weekStart, lte: weekEnd } } },
-          },
-        }),
-        db.message.count({
-          where: {
-            tenantId: payload.tenantId,
-            createdAt: { gte: weekStart, lte: weekEnd },
-            session: { venueId: payload.venueId },
-          },
-        }),
-        db.engagementQuestionResponse.findMany({
-          where: {
-            tenantId: payload.tenantId,
-            venueId: payload.venueId,
-            answeredAt: { gte: weekStart, lte: weekEnd },
-          },
-          orderBy: { answeredAt: 'asc' },
-          select: { questionText: true, answerText: true, isAiInvented: true },
-        }),
-        db.engagementQuestion.findMany({
-          where: { tenantId: payload.tenantId, isActive: true },
-          orderBy: { createdAt: 'asc' },
-          select: { prompt: true, questionType: true },
-        }),
-        db.adminChatlogNote.findMany({
-          where: {
-            tenantId: payload.tenantId,
-            venueId: payload.venueId,
-            createdAt: { gte: weekStart, lte: weekEnd },
-            session: { isNotable: true },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: { note: true },
-        }),
-      ])
+    const [
+      venue,
+      sessionCount,
+      messageCount,
+      responses,
+      activeQuestions,
+      notableNotes,
+      generalMessages,
+    ] = await Promise.all([
+      db.venue.findFirst({
+        where: { id: payload.venueId, tenantId: payload.tenantId },
+        select: { name: true, category: true },
+      }),
+      db.visitorSession.count({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          messages: { some: { createdAt: { gte: weekStart, lte: weekEnd } } },
+        },
+      }),
+      db.message.count({
+        where: {
+          tenantId: payload.tenantId,
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { venueId: payload.venueId },
+        },
+      }),
+      db.engagementQuestionResponse.findMany({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          answeredAt: { gte: weekStart, lte: weekEnd },
+        },
+        orderBy: { answeredAt: 'asc' },
+        select: { questionText: true, answerText: true, isAiInvented: true },
+      }),
+      db.engagementQuestion.findMany({
+        where: { tenantId: payload.tenantId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { prompt: true, questionType: true },
+      }),
+      db.adminChatlogNote.findMany({
+        where: {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { isNotable: true },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { note: true },
+      }),
+      // Ordinary guest chat, not tied to any configured/invented engagement question — this
+      // is what makes "Visitor Questions & Interests" reflect real conversation content
+      // instead of just session/message counts.
+      db.message.findMany({
+        where: {
+          tenantId: payload.tenantId,
+          role: 'user',
+          createdAt: { gte: weekStart, lte: weekEnd },
+          session: { venueId: payload.venueId },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: MAX_GENERAL_MESSAGES,
+        select: { content: true },
+      }),
+    ])
 
     if (!venue) {
       throw new Error(`Venue ${payload.venueId} not found`)
     }
 
-    return { venue, sessionCount, messageCount, responses, activeQuestions, notableNotes }
+    return {
+      venue,
+      sessionCount,
+      messageCount,
+      responses,
+      activeQuestions,
+      notableNotes,
+      generalMessages: generalMessages.map((message) => trimMessageContent(message.content)),
+    }
   })
 }
 
@@ -189,6 +226,7 @@ function buildReportPrompt(params: {
   responses: Awaited<ReturnType<typeof loadReportData>>['responses']
   activeQuestions: Awaited<ReturnType<typeof loadReportData>>['activeQuestions']
   notableNotes: Awaited<ReturnType<typeof loadReportData>>['notableNotes']
+  generalMessages: string[]
 }): string {
   return [
     'You are drafting a weekly PathFinder report for a venue operator.',
@@ -203,17 +241,20 @@ function buildReportPrompt(params: {
     'Write concise plain English, not corporate language. Write like someone who actually read the conversations.',
     'Never invent data or fill gaps with assumptions. If a point is weakly supported, omit it.',
     'Base every report section only on the provided data.',
-    'visitorQuestionsAndInterests should merge common questions, interests, and confusion points into one short section.',
-    'specificAnalytics must directly answer each active configured engagement question using captured answers. If a configured question has zero answers this week, say so plainly.',
-    'quotes must be paraphrased/anonymized with no names or identifying details.',
+    'visitorQuestionsAndInterests should merge common questions, interests, and confusion points into one short section, drawing on both the ordinary guest chat messages and the structured answers below — an informative aside in an ordinary message counts just as much as a direct answer.',
+    'specificAnalytics must directly answer each active configured engagement question using ONLY the structured captured answers (not the ordinary chat messages). If a configured question has zero answers this week, say so plainly.',
+    'quotes must be paraphrased/anonymized with no names or identifying details, and may be drawn from either data source.',
     'quotes and nextSteps must always be JSON arrays — use an empty array [] for quotes if none stand out, but nextSteps must contain at least one recommendation. Never return a plain string in place of an array.',
     'If answers or sessions are low this week, say so honestly and avoid overclaiming.',
     '',
     'Active configured engagement questions JSON:',
     JSON.stringify(params.activeQuestions, null, 2),
     '',
-    'Captured answers JSON:',
+    'Structured captured answers JSON:',
     JSON.stringify(params.responses, null, 2),
+    '',
+    'Ordinary guest chat messages JSON (not tied to any specific question):',
+    JSON.stringify(params.generalMessages, null, 2),
     '',
     'Admin notes from notable conversations JSON:',
     JSON.stringify(
@@ -253,6 +294,7 @@ export async function processWeeklyReportJob(
       responses: data.responses,
       activeQuestions: data.activeQuestions,
       notableNotes: data.notableNotes,
+      generalMessages: data.generalMessages,
     })
 
     const response = await getAnthropicClient().messages.create({

@@ -7,22 +7,36 @@ import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 const MAX_OUTPUT_TOKENS = 1_500
-const MINIMUM_ANSWER_COUNT = 3
+// Gate on combined signal (structured answers + general chat messages), not just
+// engagement-question answers — a venue with no configured questions answered yet can
+// still have plenty of informative guest chat to analyze.
+const MINIMUM_SIGNAL_COUNT = 3
+const MAX_GENERAL_MESSAGES = 300
+const MESSAGE_CONTENT_LIMIT = 500
 
-function emptyAnalysisSummary(answerCount: number): AnswerAnalysisSummary {
+function trimMessageContent(content: string): string {
+  return content.length > MESSAGE_CONTENT_LIMIT
+    ? `${content.slice(0, MESSAGE_CONTENT_LIMIT).trimEnd()}...`
+    : content
+}
+
+function emptyAnalysisSummary(
+  answerCount: number,
+  generalMessageCount: number,
+): AnswerAnalysisSummary {
   return {
     liked: [],
     improve: [],
     themes: [],
     complaints: [],
     mostMentioned: [],
-    sentimentSummary: 'Not enough captured answers in this range to summarize sentiment yet.',
+    sentimentSummary: 'Not enough chat activity in this range to summarize sentiment yet.',
     quotes: [],
     perQuestion: [],
     sampleSizeCaveat:
-      answerCount === 0
-        ? 'No engagement-question answers were captured in this date range yet.'
-        : `Only ${answerCount} answer(s) were captured in this date range — too few to draw reliable conclusions yet.`,
+      answerCount === 0 && generalMessageCount === 0
+        ? 'No engagement-question answers or guest messages were captured in this date range yet.'
+        : `Only ${answerCount} engagement answer(s) and ${generalMessageCount} guest message(s) were captured in this date range — too few to draw reliable conclusions yet.`,
   }
 }
 
@@ -114,20 +128,41 @@ async function markSnapshotStatus(
 
 async function loadAnswers(payload: AnswerAnalysisJobPayload) {
   return withTenantIsolationBypass(async () => {
-    const [venue, responses] = await Promise.all([
+    const rangeStart = new Date(payload.rangeStart)
+    const rangeEnd = new Date(payload.rangeEnd)
+
+    const [venue, responses, generalMessages] = await Promise.all([
       db.venue.findUnique({ where: { id: payload.venueId }, select: { name: true } }),
       db.engagementQuestionResponse.findMany({
         where: {
           tenantId: payload.tenantId,
           venueId: payload.venueId,
-          answeredAt: { gte: new Date(payload.rangeStart), lte: new Date(payload.rangeEnd) },
+          answeredAt: { gte: rangeStart, lte: rangeEnd },
         },
         orderBy: { answeredAt: 'asc' },
         select: { questionText: true, answerText: true, answerType: true, isAiInvented: true },
       }),
+      // Ordinary guest chat, not tied to any configured/invented engagement question —
+      // this is the "chats with informal questions and statements" signal that structured
+      // answers alone miss. User-role only: we're after what guests said, not the AI's replies.
+      db.message.findMany({
+        where: {
+          tenantId: payload.tenantId,
+          role: 'user',
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+          session: { venueId: payload.venueId },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: MAX_GENERAL_MESSAGES,
+        select: { content: true },
+      }),
     ])
 
-    return { venueName: venue?.name ?? 'Unknown venue', responses }
+    return {
+      venueName: venue?.name ?? 'Unknown venue',
+      responses,
+      generalMessages: generalMessages.map((message) => trimMessageContent(message.content)),
+    }
   })
 }
 
@@ -136,22 +171,23 @@ function buildPrompt(params: {
   rangeStart: string
   rangeEnd: string
   responses: Awaited<ReturnType<typeof loadAnswers>>['responses']
+  generalMessages: string[]
 }): string {
   return [
-    'You are analyzing captured visitor answers from PathFinder guest conversations.',
+    'You are analyzing visitor feedback signal from PathFinder guest conversations.',
     `Venue: ${params.venueName}`,
     `Range start (UTC): ${params.rangeStart}`,
     `Range end (UTC): ${params.rangeEnd}`,
     '',
     'Return exactly one JSON object with keys: liked, improve, themes, complaints, mostMentioned, sentimentSummary, quotes, perQuestion, sampleSizeCaveat.',
-    'Use only the provided answers. Never invent trends, counts, quotes, or identifying details.',
-    'Summarize what visitors liked, what to improve, common themes, repeated complaints or confusion, most mentioned activities/areas, and overall sentiment.',
+    'Use only the data provided below. Never invent trends, counts, quotes, or identifying details.',
+    'Two data sources are provided: (1) structured answers the AI captured after directly asking a configured or invented engagement question, and (2) ordinary guest chat messages that were not answering any specific question. Draw liked, improve, themes, complaints, mostMentioned, quotes, and sentimentSummary from BOTH sources combined — an informative aside in an ordinary chat message counts just as much as a direct answer.',
+    'perQuestion is the one exception: it must reflect ONLY the structured answers (source 1), since its purpose is reporting whether visitors answered the specific questions this venue configured. Summarize each distinct questionText with its answer count. If source 1 is empty, return an empty perQuestion array — do not substitute general chat content into it.',
     'Quotes must be anonymized/paraphrased and must not include names or identifying details.',
-    'perQuestion must directly summarize each distinct questionText and include the answer count for that question.',
-    'If there are fewer than 8 total answers, fill sampleSizeCaveat honestly noting the small sample and avoid overclaiming; otherwise set it to null.',
+    'If total signal (structured answers plus general messages) is thin, fill sampleSizeCaveat honestly noting the small sample and avoid overclaiming; otherwise set it to null.',
     'liked, improve, themes, complaints, mostMentioned, quotes, and perQuestion must always be JSON arrays — use an empty array [] when you have nothing to report for that field. Never return a plain string in place of an array.',
     '',
-    'Answers JSON:',
+    'Source 1 — structured engagement-question answers JSON:',
     JSON.stringify(
       params.responses.map((response) => ({
         questionText: response.questionText,
@@ -162,6 +198,9 @@ function buildPrompt(params: {
       null,
       2,
     ),
+    '',
+    'Source 2 — ordinary guest chat messages JSON (not tied to any specific question):',
+    JSON.stringify(params.generalMessages, null, 2),
   ].join('\n')
 }
 
@@ -184,11 +223,15 @@ export async function processAnswerAnalysisJob(
 
   try {
     const promptData = await loadAnswers(payload)
+    const totalSignal = promptData.responses.length + promptData.generalMessages.length
 
-    if (promptData.responses.length < MINIMUM_ANSWER_COUNT) {
+    if (totalSignal < MINIMUM_SIGNAL_COUNT) {
       await markSnapshotStatus(payload, {
         status: 'COMPLETE',
-        summary: emptyAnalysisSummary(promptData.responses.length),
+        summary: emptyAnalysisSummary(
+          promptData.responses.length,
+          promptData.generalMessages.length,
+        ),
         answerCount: promptData.responses.length,
         error: null,
         generatedAt: new Date(),
@@ -201,6 +244,7 @@ export async function processAnswerAnalysisJob(
         venueId: payload.venueId,
         snapshotId: payload.snapshotId,
         answerCount: promptData.responses.length,
+        generalMessageCount: promptData.generalMessages.length,
       })
 
       return
@@ -211,6 +255,7 @@ export async function processAnswerAnalysisJob(
       rangeStart: payload.rangeStart,
       rangeEnd: payload.rangeEnd,
       responses: promptData.responses,
+      generalMessages: promptData.generalMessages,
     })
 
     const response = await getAnthropicClient().messages.create({
@@ -236,6 +281,7 @@ export async function processAnswerAnalysisJob(
       venueId: payload.venueId,
       snapshotId: payload.snapshotId,
       answerCount: promptData.responses.length,
+      generalMessageCount: promptData.generalMessages.length,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown answer analysis error'
