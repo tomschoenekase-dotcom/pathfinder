@@ -136,7 +136,8 @@
       "Bash(git commit -m ' *)",
       "Bash(pnpm --filter @pathfinder/api test -- venue-context chat)",
       "Bash(git status *)",
-      "Bash(npx turbo *)"
+      "Bash(npx turbo *)",
+      "Bash(npx prisma *)"
     ]
   }
 }

@@ -24,6 +24,7 @@ export function AdminGenerateWeeklyReportButton({
     clientRef.current = createTRPCClient()
   }
 
+  const [title, setTitle] = useState('')
   const [pending, setPending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -32,11 +33,13 @@ export function AdminGenerateWeeklyReportButton({
     setErrorMessage(null)
 
     try {
+      const trimmedTitle = title.trim()
       const result = await clientRef.current!.admin.generateWeeklyReportDraft.mutate({
         tenantId,
         venueId,
         weekStart,
         weekEnd,
+        ...(trimmedTitle ? { title: trimmedTitle } : {}),
       })
       router.push(`/admin/clients/${tenantId}/venues/${venueId}/reports/${result.reportId}`)
     } catch (error) {
@@ -47,7 +50,18 @@ export function AdminGenerateWeeklyReportButton({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <label className="grid gap-2 text-sm font-medium text-pf-deep">
+        Title (optional)
+        <input
+          type="text"
+          value={title}
+          maxLength={200}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="PathFinder Weekly Report"
+          className="min-h-10 w-full max-w-md rounded-2xl border border-pf-light bg-pf-surface px-4 text-sm text-pf-deep outline-none transition focus:border-pf-primary"
+        />
+      </label>
       <button
         type="button"
         disabled={pending}
@@ -56,7 +70,7 @@ export function AdminGenerateWeeklyReportButton({
         }}
         className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {pending ? 'Queuing...' : 'Generate Weekly Report Draft'}
+        {pending ? 'Queuing...' : 'Generate Report Draft'}
       </button>
       {errorMessage ? <p className="text-sm text-rose-600">{errorMessage}</p> : null}
     </div>

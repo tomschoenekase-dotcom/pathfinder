@@ -742,34 +742,18 @@ export const adminRouter = router({
         venueId: z.string(),
         weekStart: z.string().datetime(),
         weekEnd: z.string().datetime(),
+        title: z.string().min(1).max(200).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const weekStart = new Date(input.weekStart)
       const weekEnd = new Date(input.weekEnd)
 
+      // Reports are no longer one-per-venue-per-week — every generate creates its own
+      // independent row, covering whatever range and title the admin picked. This also
+      // avoids the old find-or-reuse-existing-row behavior silently regenerating on top
+      // of a prior (possibly stuck) attempt for the "same" week.
       const report = await withTenantIsolationBypass(async () => {
-        const existing = await db.weeklyReport.findUnique({
-          where: { venueId_weekStart: { venueId: input.venueId, weekStart } },
-          select: { id: true, status: true },
-        })
-
-        if (existing?.status === 'PUBLISHED') {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message:
-              'This week is already published. Unpublish is not supported - create a correction note instead.',
-          })
-        }
-
-        if (existing) {
-          return db.weeklyReport.update({
-            where: { id: existing.id },
-            data: { status: 'GENERATING', error: null },
-            select: { id: true },
-          })
-        }
-
         return db.weeklyReport.create({
           data: {
             tenantId: input.tenantId,
@@ -778,6 +762,7 @@ export const adminRouter = router({
             weekEnd,
             status: 'GENERATING',
             createdBy: ctx.session.userId,
+            ...(input.title !== undefined ? { title: input.title } : {}),
           },
           select: { id: true },
         })

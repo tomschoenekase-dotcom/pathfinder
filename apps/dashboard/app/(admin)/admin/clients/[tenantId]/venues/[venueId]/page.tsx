@@ -112,8 +112,8 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
           },
           {
             href: `/admin/clients/${tenantId}/venues/${venueId}/reports`,
-            title: 'Weekly reports',
-            body: 'Draft, edit, and publish client-facing weekly reports.',
+            title: 'Reports',
+            body: 'Draft, edit, and publish client-facing reports for any date range.',
           },
         ].map((item) => (
           <Link

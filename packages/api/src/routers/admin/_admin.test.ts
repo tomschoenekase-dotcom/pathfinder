@@ -329,20 +329,31 @@ describe('admin router', () => {
     )
   })
 
-  it('admin.generateWeeklyReportDraft throws BAD_REQUEST when the week is already published', async () => {
-    weeklyReportFindUnique.mockResolvedValueOnce({ id: 'report_1', status: 'PUBLISHED' })
+  it('admin.generateWeeklyReportDraft always creates a new row (no reuse) and accepts a custom title', async () => {
+    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
 
     const caller = testRouter.createCaller(adminCtx())
+    const result = await caller.admin.generateWeeklyReportDraft({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      weekStart: '2026-07-01T00:00:00.000Z',
+      weekEnd: '2026-07-15T23:59:59.999Z',
+      title: 'My custom report title',
+    })
 
-    await expect(
-      caller.admin.generateWeeklyReportDraft({
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        weekStart: '2026-07-01T00:00:00.000Z',
-        weekEnd: '2026-07-07T23:59:59.999Z',
+    expect(result).toEqual({ reportId: 'report_new' })
+    expect(weeklyReportFindUnique).not.toHaveBeenCalled()
+    expect(weeklyReportCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'GENERATING',
+          title: 'My custom report title',
+        }),
       }),
-    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
-    expect(enqueueWeeklyReport).not.toHaveBeenCalled()
+    )
+    expect(enqueueWeeklyReport).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1', reportId: 'report_new' }),
+    )
   })
 
   it('admin.updateWeeklyReportDraft throws BAD_REQUEST on a published report', async () => {

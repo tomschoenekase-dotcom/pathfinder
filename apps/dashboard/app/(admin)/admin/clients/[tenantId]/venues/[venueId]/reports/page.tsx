@@ -10,11 +10,9 @@ type AdminReportsPageProps = {
   searchParams: Promise<{ weekStart?: string; weekEnd?: string }>
 }
 
-function defaultWeekStart() {
+function defaultRangeStart() {
   const date = new Date()
-  const day = date.getUTCDay()
-  const daysFromMonday = (day + 6) % 7
-  date.setUTCDate(date.getUTCDate() - daysFromMonday)
+  date.setUTCDate(date.getUTCDate() - 6)
   date.setUTCHours(0, 0, 0, 0)
   return date
 }
@@ -28,13 +26,11 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
   const query = await searchParams
   const caller = await createAdminCaller()
   const reports = await caller.admin.listWeeklyReports({ tenantId, venueId })
-  const fallbackStart = defaultWeekStart()
+  const fallbackStart = defaultRangeStart()
   const weekStartDate = query.weekStart
     ? new Date(`${query.weekStart}T00:00:00.000Z`)
     : fallbackStart
-  const weekEndDate = query.weekEnd
-    ? new Date(`${query.weekEnd}T23:59:59.999Z`)
-    : new Date(weekStartDate.getTime() + 6 * 86_400_000 + 86_399_999)
+  const weekEndDate = query.weekEnd ? new Date(`${query.weekEnd}T23:59:59.999Z`) : new Date()
 
   return (
     <div className="space-y-8">
@@ -46,16 +42,16 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
       </Link>
 
       <header>
-        <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">Weekly reports</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">Reports</h1>
         <p className="mt-2 text-sm text-pf-deep/60">
-          Generate, edit, and publish venue-scoped weekly reports.
+          Generate, edit, and publish client-facing reports for any date range.
         </p>
       </header>
 
       <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
         <form className="flex flex-wrap items-end gap-3">
           <label className="grid gap-2 text-sm font-medium text-pf-deep">
-            Week start
+            Start date
             <input
               type="date"
               name="weekStart"
@@ -64,7 +60,7 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
             />
           </label>
           <label className="grid gap-2 text-sm font-medium text-pf-deep">
-            Week end
+            End date
             <input
               type="date"
               name="weekEnd"
@@ -76,7 +72,7 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
             type="submit"
             className="inline-flex min-h-10 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-semibold text-pf-primary"
           >
-            Set week
+            Set date range
           </button>
         </form>
         <AdminGenerateWeeklyReportButton
@@ -91,7 +87,7 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
         <table className="w-full text-left text-sm">
           <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
             <tr>
-              <th className="px-4 py-3 font-semibold">Week</th>
+              <th className="px-4 py-3 font-semibold">Date range</th>
               <th className="px-4 py-3 font-semibold">Title</th>
               <th className="px-4 py-3 font-semibold">Status</th>
               <th className="px-4 py-3 font-semibold">Updated</th>

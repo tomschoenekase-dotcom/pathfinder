@@ -518,7 +518,7 @@ model WeeklyReport {
   tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   venue        Venue              @relation(fields: [venueId], references: [id], onDelete: Restrict)
 
-  @@unique([venueId, weekStart])
+  @@index([venueId, weekStart])
   @@index([tenantId, venueId, weekStart])
   @@index([status])
   @@map("weekly_reports")
