@@ -7,6 +7,24 @@ import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 const MAX_OUTPUT_TOKENS = 1_500
+const MINIMUM_ANSWER_COUNT = 3
+
+function emptyAnalysisSummary(answerCount: number): AnswerAnalysisSummary {
+  return {
+    liked: [],
+    improve: [],
+    themes: [],
+    complaints: [],
+    mostMentioned: [],
+    sentimentSummary: 'Not enough captured answers in this range to summarize sentiment yet.',
+    quotes: [],
+    perQuestion: [],
+    sampleSizeCaveat:
+      answerCount === 0
+        ? 'No engagement-question answers were captured in this date range yet.'
+        : `Only ${answerCount} answer(s) were captured in this date range — too few to draw reliable conclusions yet.`,
+  }
+}
 
 const answerAnalysisResponseSchema = z.object({
   liked: z.array(z.string().max(300)).max(8),
@@ -131,6 +149,7 @@ function buildPrompt(params: {
     'Quotes must be anonymized/paraphrased and must not include names or identifying details.',
     'perQuestion must directly summarize each distinct questionText and include the answer count for that question.',
     'If there are fewer than 8 total answers, fill sampleSizeCaveat honestly noting the small sample and avoid overclaiming; otherwise set it to null.',
+    'liked, improve, themes, complaints, mostMentioned, quotes, and perQuestion must always be JSON arrays — use an empty array [] when you have nothing to report for that field. Never return a plain string in place of an array.',
     '',
     'Answers JSON:',
     JSON.stringify(
@@ -165,6 +184,28 @@ export async function processAnswerAnalysisJob(
 
   try {
     const promptData = await loadAnswers(payload)
+
+    if (promptData.responses.length < MINIMUM_ANSWER_COUNT) {
+      await markSnapshotStatus(payload, {
+        status: 'COMPLETE',
+        summary: emptyAnalysisSummary(promptData.responses.length),
+        answerCount: promptData.responses.length,
+        error: null,
+        generatedAt: new Date(),
+      })
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+
+      logger.info({
+        action: 'workers.answer-analysis.insufficient-data',
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        snapshotId: payload.snapshotId,
+        answerCount: promptData.responses.length,
+      })
+
+      return
+    }
+
     const prompt = buildPrompt({
       venueName: promptData.venueName,
       rangeStart: payload.rangeStart,

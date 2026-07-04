@@ -206,6 +206,7 @@ function buildReportPrompt(params: {
     'visitorQuestionsAndInterests should merge common questions, interests, and confusion points into one short section.',
     'specificAnalytics must directly answer each active configured engagement question using captured answers. If a configured question has zero answers this week, say so plainly.',
     'quotes must be paraphrased/anonymized with no names or identifying details.',
+    'quotes and nextSteps must always be JSON arrays — use an empty array [] for quotes if none stand out, but nextSteps must contain at least one recommendation. Never return a plain string in place of an array.',
     'If answers or sessions are low this week, say so honestly and avoid overclaiming.',
     '',
     'Active configured engagement questions JSON:',
