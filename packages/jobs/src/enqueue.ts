@@ -133,7 +133,7 @@ const sendWelcomeEmailJobOptions: JobsOptions = {
 export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Promise<void> {
   await getQueue(WEEKLY_DIGEST_QUEUE).add(WEEKLY_DIGEST_PROCESS_JOB, payload, {
     ...weeklyDigestJobOptions,
-    jobId: `weekly-digest:${payload.digestId}`,
+    jobId: `weekly-digest-${payload.digestId}`,
   })
 
   logger.info({
@@ -148,7 +148,7 @@ export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Prom
 export async function enqueueAnswerAnalysis(payload: AnswerAnalysisJobPayload): Promise<void> {
   await getQueue(ANSWER_ANALYSIS_QUEUE).add(ANSWER_ANALYSIS_PROCESS_JOB, payload, {
     ...answerAnalysisJobOptions,
-    jobId: `answer-analysis:${payload.snapshotId}`,
+    jobId: `answer-analysis-${payload.snapshotId}`,
   })
 
   logger.info({
@@ -162,7 +162,7 @@ export async function enqueueAnswerAnalysis(payload: AnswerAnalysisJobPayload): 
 export async function enqueueWeeklyReport(payload: WeeklyReportJobPayload): Promise<void> {
   await getQueue(WEEKLY_REPORT_QUEUE).add(WEEKLY_REPORT_PROCESS_JOB, payload, {
     ...weeklyReportJobOptions,
-    jobId: `weekly-report:${payload.reportId}`,
+    jobId: `weekly-report-${payload.reportId}`,
   })
 
   logger.info({
@@ -178,7 +178,7 @@ export async function enqueueWeeklyReport(payload: WeeklyReportJobPayload): Prom
 export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promise<void> {
   await getQueue(DAILY_ROLLUP_QUEUE).add(DAILY_ROLLUP_PROCESS_JOB, payload, {
     ...dailyRollupJobOptions,
-    jobId: `daily-rollup:${payload.tenantId}:${payload.date}`,
+    jobId: `daily-rollup-${payload.tenantId}-${payload.date}`,
   })
 
   logger.info({
@@ -191,7 +191,7 @@ export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promis
 export async function enqueueEmbedPlace(payload: EmbedPlaceJobPayload): Promise<void> {
   await getQueue(EMBED_PLACE_QUEUE).add(EMBED_PLACE_PROCESS_JOB, payload, {
     ...embedPlaceJobOptions,
-    jobId: `embed-place:${payload.placeId}`,
+    jobId: `embed-place-${payload.placeId}`,
   })
 
   logger.info({
@@ -206,7 +206,7 @@ export async function enqueueEmbedKnowledgeEntry(
 ): Promise<void> {
   await getQueue(EMBED_KNOWLEDGE_ENTRY_QUEUE).add(EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB, payload, {
     ...embedKnowledgeEntryJobOptions,
-    jobId: `embed-knowledge-entry:${payload.entryId}`,
+    jobId: `embed-knowledge-entry-${payload.entryId}`,
   })
 
   logger.info({
@@ -221,7 +221,7 @@ export async function enqueueAnalyticsEnrichment(
 ): Promise<void> {
   await getQueue(ANALYTICS_ENRICHMENT_QUEUE).add(ANALYTICS_ENRICHMENT_PROCESS_JOB, payload, {
     ...analyticsEnrichmentJobOptions,
-    jobId: `analytics-enrichment:${payload.tenantId}:${payload.date}`,
+    jobId: `analytics-enrichment-${payload.tenantId}-${payload.date}`,
   })
 
   logger.info({
@@ -234,7 +234,7 @@ export async function enqueueAnalyticsEnrichment(
 export async function enqueueWelcomeEmail(payload: SendWelcomeEmailJobPayload): Promise<void> {
   await getQueue(SEND_EMAIL_QUEUE).add(SEND_WELCOME_EMAIL_JOB, payload, {
     ...sendWelcomeEmailJobOptions,
-    jobId: `send-welcome-email:${payload.tenantId}`,
+    jobId: `send-welcome-email-${payload.tenantId}`,
   })
 
   logger.info({
