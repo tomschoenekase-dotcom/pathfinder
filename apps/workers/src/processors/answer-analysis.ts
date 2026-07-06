@@ -87,13 +87,43 @@ function extractResponseText(content: Anthropic.Messages.Message['content']): st
     .trim()
 }
 
+const ARRAY_FIELD_MAX: Record<string, number> = {
+  liked: 8,
+  improve: 8,
+  themes: 8,
+  complaints: 8,
+  mostMentioned: 8,
+  quotes: 5,
+  perQuestion: 20,
+}
+
+// Claude occasionally overshoots an array field's requested max by one or two items.
+// Truncate defensively before validating rather than failing the whole job over a minor
+// formatting overshoot — a truncated analysis is far better than an endless retry loop.
+function truncateAnalysisArrays(parsed: unknown): unknown {
+  if (typeof parsed !== 'object' || parsed === null) {
+    return parsed
+  }
+
+  const obj = parsed as Record<string, unknown>
+
+  for (const [field, max] of Object.entries(ARRAY_FIELD_MAX)) {
+    const value = obj[field]
+    if (Array.isArray(value) && value.length > max) {
+      obj[field] = value.slice(0, max)
+    }
+  }
+
+  return obj
+}
+
 function parseAnalysis(rawText: string): AnswerAnalysisSummary {
   const fencedMatch =
     rawText.match(/```json\s*([\s\S]*?)```/i) ?? rawText.match(/```([\s\S]*?)```/i)
   const candidate = fencedMatch?.[1]?.trim() ?? rawText.trim()
 
   try {
-    return answerAnalysisResponseSchema.parse(JSON.parse(candidate))
+    return answerAnalysisResponseSchema.parse(truncateAnalysisArrays(JSON.parse(candidate)))
   } catch {
     const firstBrace = candidate.indexOf('{')
     const lastBrace = candidate.lastIndexOf('}')
@@ -103,7 +133,7 @@ function parseAnalysis(rawText: string): AnswerAnalysisSummary {
     }
 
     return answerAnalysisResponseSchema.parse(
-      JSON.parse(candidate.slice(firstBrace, lastBrace + 1)),
+      truncateAnalysisArrays(JSON.parse(candidate.slice(firstBrace, lastBrace + 1))),
     )
   }
 }

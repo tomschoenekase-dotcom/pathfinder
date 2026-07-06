@@ -52,13 +52,33 @@ function extractResponseText(content: Anthropic.Messages.Message['content']): st
     .trim()
 }
 
+// Claude occasionally overshoots an array field's requested max by one or two items.
+// Truncate defensively before validating rather than failing the whole job over a minor
+// formatting overshoot — a truncated report is far better than an endless retry loop.
+function truncateReportArrays(parsed: unknown): unknown {
+  if (typeof parsed !== 'object' || parsed === null) {
+    return parsed
+  }
+
+  const obj = parsed as Record<string, unknown>
+
+  if (Array.isArray(obj.quotes) && obj.quotes.length > 3) {
+    obj.quotes = obj.quotes.slice(0, 3)
+  }
+  if (Array.isArray(obj.nextSteps) && obj.nextSteps.length > 2) {
+    obj.nextSteps = obj.nextSteps.slice(0, 2)
+  }
+
+  return obj
+}
+
 function parseReport(rawText: string): WeeklyReportResponse {
   const fencedMatch =
     rawText.match(/```json\s*([\s\S]*?)```/i) ?? rawText.match(/```([\s\S]*?)```/i)
   const candidate = fencedMatch?.[1]?.trim() ?? rawText.trim()
 
   try {
-    return weeklyReportResponseSchema.parse(JSON.parse(candidate))
+    return weeklyReportResponseSchema.parse(truncateReportArrays(JSON.parse(candidate)))
   } catch {
     const firstBrace = candidate.indexOf('{')
     const lastBrace = candidate.lastIndexOf('}')
@@ -67,7 +87,9 @@ function parseReport(rawText: string): WeeklyReportResponse {
       throw new Error('Claude response did not contain valid JSON')
     }
 
-    return weeklyReportResponseSchema.parse(JSON.parse(candidate.slice(firstBrace, lastBrace + 1)))
+    return weeklyReportResponseSchema.parse(
+      truncateReportArrays(JSON.parse(candidate.slice(firstBrace, lastBrace + 1))),
+    )
   }
 }
 
