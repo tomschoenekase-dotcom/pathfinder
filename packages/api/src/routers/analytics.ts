@@ -360,7 +360,7 @@ export const analyticsRouter = router({
     const startDate = startOfUtcDay(new Date())
     startDate.setUTCDate(startDate.getUTCDate() - (input.days - 1))
 
-    const [identifiedSessions, totalSessions, messageAggregate] = await Promise.all([
+    const [identifiedSessions, totalSessions, totalMessages] = await Promise.all([
       ctx.db.visitorSession.findMany({
         where: {
           tenantId: ctx.session.activeTenantId,
@@ -375,12 +375,14 @@ export const analyticsRouter = router({
           startedAt: { gte: startDate },
         },
       }),
-      ctx.db.visitorSession.aggregate({
+      // Counted directly from Message rows rather than VisitorSession.messageCount,
+      // which is only ever incremented by the trackEvent('message.sent') path that
+      // the guest chat UI never calls — it stayed 0 for every real session.
+      ctx.db.message.count({
         where: {
           tenantId: ctx.session.activeTenantId,
-          startedAt: { gte: startDate },
+          createdAt: { gte: startDate },
         },
-        _sum: { messageCount: true },
       }),
     ])
 
@@ -395,7 +397,7 @@ export const analyticsRouter = router({
 
     return {
       uniqueVisitors: daysByVisitor.size,
-      totalMessages: messageAggregate._sum.messageCount ?? 0,
+      totalMessages,
       totalSessions,
     }
   }),
@@ -430,6 +432,40 @@ export const analyticsRouter = router({
         count,
       }))
       .sort((left, right) => right.count - left.count)
+  }),
+
+  /**
+   * Top 3 guest-question themes, refreshed weekly by the analytics-enrichment
+   * job. Replaces the old raw "top questions" / "topics" lists with a short
+   * title + explanation per theme. Merges across venues, most recently
+   * generated venue's themes win when a tenant has more than one.
+   */
+  getWeeklyThemes: tenantProcedure.query(async ({ ctx }) => {
+    const latest = await ctx.db.venueWeeklyTheme.findFirst({
+      where: { tenantId: ctx.session.activeTenantId },
+      orderBy: [{ weekStart: 'desc' }, { generatedAt: 'desc' }],
+      select: { weekStart: true, weekEnd: true, generatedAt: true, themes: true },
+    })
+
+    if (!latest) {
+      return {
+        weekStart: null,
+        weekEnd: null,
+        themes: [] as { title: string; explanation: string }[],
+      }
+    }
+
+    const themes = Array.isArray(latest.themes)
+      ? latest.themes.filter(
+          (theme): theme is { title: string; explanation: string } =>
+            typeof theme === 'object' &&
+            theme !== null &&
+            typeof (theme as { title?: unknown }).title === 'string' &&
+            typeof (theme as { explanation?: unknown }).explanation === 'string',
+        )
+      : []
+
+    return { weekStart: latest.weekStart, weekEnd: latest.weekEnd, themes }
   }),
 
   /**

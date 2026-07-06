@@ -1,5 +1,3 @@
-import Link from 'next/link'
-
 import { createDashboardCaller } from '../../../lib/server-caller'
 
 function aggregateSessionSeries(
@@ -116,19 +114,14 @@ function SessionTrendChart({
   )
 }
 
-function VisitorStatsCards({
-  stats,
-}: {
-  stats: { uniqueVisitors: number; totalMessages: number; totalSessions: number }
-}) {
+function VisitorStatsCards({ stats }: { stats: { totalMessages: number; totalSessions: number } }) {
   const cards = [
-    { label: 'Unique visitors', value: stats.uniqueVisitors, hint: 'Distinct devices (30 days)' },
-    { label: 'Total messages', value: stats.totalMessages, hint: 'Messages sent by guests' },
     { label: 'Total sessions', value: stats.totalSessions, hint: 'Chat visits (30 days)' },
+    { label: 'Total messages', value: stats.totalMessages, hint: 'Messages sent by guests' },
   ]
 
   return (
-    <section className="grid gap-4 sm:grid-cols-3">
+    <section className="grid gap-4 sm:grid-cols-2">
       {cards.map((card) => (
         <div
           key={card.label}
@@ -141,6 +134,55 @@ function VisitorStatsCards({
           <p className="mt-1 text-xs text-pf-deep/50">{card.hint}</p>
         </div>
       ))}
+    </section>
+  )
+}
+
+function WeeklyThemes({
+  themes,
+  weekStart,
+  weekEnd,
+}: {
+  themes: Array<{ title: string; explanation: string }>
+  weekStart: Date | null
+  weekEnd: Date | null
+}) {
+  const rangeLabel =
+    weekStart && weekEnd
+      ? `${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+      : null
+
+  return (
+    <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
+          Weekly Themes
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+          Top 3 things guests asked about this week
+        </h2>
+        {rangeLabel ? <p className="mt-1 text-xs text-pf-deep/50">Week of {rangeLabel}</p> : null}
+      </div>
+      {themes.length === 0 ? (
+        <div className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/60">
+          Themes appear once guests have asked enough questions this week for a pattern to emerge.
+        </div>
+      ) : (
+        <ol className="space-y-3">
+          {themes.map((theme, index) => (
+            <li
+              key={`${theme.title}-${index}`}
+              className="rounded-[1.5rem] border border-pf-light bg-pf-surface px-5 py-4"
+            >
+              <p className="text-sm font-semibold text-pf-deep">
+                <span className="mr-2 font-semibold text-pf-accent">{index + 1}.</span>
+                {theme.title}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-pf-deep/70">{theme.explanation}</p>
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   )
 }
@@ -194,15 +236,12 @@ function RankedList({
 export default async function AnalyticsPage() {
   const caller = await createDashboardCaller('/analytics')
 
-  const [dailyStats, topQuestions, visitorStats, topTopics, contentGaps, venues] =
-    await Promise.all([
-      caller.analytics.getDailyStats({ days: 30 }),
-      caller.analytics.getTopQuestions({}),
-      caller.analytics.getVisitorStats({ days: 30 }),
-      caller.analytics.getTopTopics({ days: 30 }),
-      caller.analytics.getContentGaps({ days: 30 }),
-      caller.venue.list(),
-    ])
+  const [dailyStats, visitorStats, weeklyThemes, venues] = await Promise.all([
+    caller.analytics.getDailyStats({ days: 30 }),
+    caller.analytics.getVisitorStats({ days: 30 }),
+    caller.analytics.getWeeklyThemes(),
+    caller.venue.list(),
+  ])
 
   const placeInterestByVenue = await Promise.all(
     venues.map(async (venue) => ({
@@ -226,59 +265,19 @@ export default async function AnalyticsPage() {
             Guest behavior and conversation analytics
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-deep/60">
-            Review guest activity, content gaps, common questions, topics, and place interest.
+            Review guest activity and place interest.
           </p>
         </section>
 
         <VisitorStatsCards stats={visitorStats} />
 
-        <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
-            Weekly Reports
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
-            Published insight reports
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Weekly narrative reports now live in their own reviewed and published section.
-          </p>
-          <Link
-            href="/weekly-reports"
-            className="mt-4 inline-flex min-h-10 items-center rounded-full border border-pf-light px-5 text-sm font-semibold text-pf-primary transition hover:border-pf-accent"
-          >
-            See your weekly insight reports
-          </Link>
-        </section>
-
-        <RankedList
-          eyebrow="Content Gaps"
-          title="Questions your guide could not confidently answer"
-          empty="No content gaps detected yet."
-          items={contentGaps.map((gap) => ({
-            label: gap.question,
-            count: gap.count,
-            ...(gap.examples.length > 1
-              ? { meta: `Also asked as: ${gap.examples.slice(1, 3).join(', ')}` }
-              : {}),
-          }))}
-        />
-
         <SessionTrendChart rows={dailyStats} />
 
-        <div className="grid gap-6 xl:grid-cols-2">
-          <RankedList
-            eyebrow="Conversation Themes"
-            title="Guest questions"
-            empty="No guest questions recorded yet."
-            items={topQuestions.map((item) => ({ label: item.question, count: item.count }))}
-          />
-          <RankedList
-            eyebrow="Topics"
-            title="What guests ask about"
-            empty="Topic breakdown appears once nightly analysis has classified questions."
-            items={topTopics.map((topic) => ({ label: topic.label, count: topic.count }))}
-          />
-        </div>
+        <WeeklyThemes
+          themes={weeklyThemes.themes}
+          weekStart={weeklyThemes.weekStart}
+          weekEnd={weeklyThemes.weekEnd}
+        />
 
         <RankedList
           eyebrow="Place Interest"

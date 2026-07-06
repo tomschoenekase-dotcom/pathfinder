@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   visitorFindMany: vi.fn(),
   clusterDeleteMany: vi.fn(),
   clusterCreateMany: vi.fn(),
+  themeUpsert: vi.fn(),
   rollupDeleteMany: vi.fn(),
   rollupCreateMany: vi.fn(),
   transaction: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@pathfinder/db', () => ({
     },
     visitorSession: { findMany: mocks.visitorFindMany },
     questionCluster: { deleteMany: mocks.clusterDeleteMany, createMany: mocks.clusterCreateMany },
+    venueWeeklyTheme: { upsert: mocks.themeUpsert },
     $transaction: mocks.transaction,
   },
   generateEmbeddings: mocks.generateEmbeddings,
@@ -104,13 +106,16 @@ describe('processAnalyticsEnrichmentJob', () => {
     ])
     mocks.visitorFindMany.mockResolvedValue([{ visitorId: 'v1' }, { visitorId: 'v2' }])
     mocks.analyticsCount.mockResolvedValue(1)
-    // First findMany call = top-question window; second = content-gap window.
+    // Calls in order: top-question window, content-gap window, weekly-theme window.
+    // Theme window is kept below THEME_MIN_QUESTIONS so this test doesn't also
+    // need to stub a themes-shaped Anthropic response.
     mocks.analyticsFindMany
       .mockResolvedValueOnce([
         { metadata: { message: 'where is the toilet' } },
         { metadata: { message: 'what time do you open' } },
       ])
       .mockResolvedValueOnce([{ metadata: { question: 'is there a helipad' } }])
+      .mockResolvedValueOnce([{ metadata: { message: 'where is the toilet' } }])
     mocks.generateEmbeddings.mockImplementation(async (texts: string[]) =>
       texts.map((_, index) => [index + 1, 0, 0]),
     )
@@ -181,6 +186,66 @@ describe('processAnalyticsEnrichmentJob', () => {
     expect(clusterData.some((row) => row.kind === 'content_gap')).toBe(true)
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('synthesizes and upserts weekly themes once there are enough questions', async () => {
+    // Replace beforeEach's queued once-values (which include a deliberately
+    // thin theme window) with a fresh set for this test's 3 findMany calls,
+    // in order: top-question window, content-gap window, weekly-theme window.
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce([
+        { metadata: { message: 'where is the toilet' } },
+        { metadata: { message: 'what time do you open' } },
+      ])
+      .mockResolvedValueOnce([{ metadata: { question: 'is there a helipad' } }])
+      .mockResolvedValueOnce([
+        { metadata: { message: 'where is the toilet' } },
+        { metadata: { message: 'what time do you open' } },
+        { metadata: { message: 'is there parking nearby' } },
+        { metadata: { message: 'do you allow dogs' } },
+        { metadata: { message: 'where can I get coffee' } },
+      ])
+
+    anthropicCreate
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: '[{"index":0,"topic":"amenities_restrooms"},{"index":1,"topic":"hours_logistics"}]',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: '[{"title":"Restroom locations","explanation":"Guests frequently ask where the restrooms are."}]',
+          },
+        ],
+      })
+    mocks.themeUpsert.mockResolvedValue({})
+
+    await processAnalyticsEnrichmentJob({ tenantId: 'tenant_1', date: '2026-06-18T00:00:00.000Z' })
+
+    expect(mocks.themeUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId_venueId_weekStart: expect.objectContaining({
+            tenantId: 'tenant_1',
+            venueId: 'venue_1',
+          }),
+        },
+        create: expect.objectContaining({
+          themes: [
+            {
+              title: 'Restroom locations',
+              explanation: 'Guests frequently ask where the restrooms are.',
+            },
+          ],
+        }),
+      }),
+    )
   })
 
   it('marks the job record FAILED and rethrows on error', async () => {

@@ -12,6 +12,7 @@ type DashboardOverviewProps = {
     venues: number
   }
   chatUrl?: string | null
+  impersonatedTenantName?: string
 }
 
 type QuickAction = {
@@ -99,9 +100,13 @@ const statCards: StatCard[] = [
   },
 ] as const
 
-export function DashboardOverview({ stats, chatUrl }: DashboardOverviewProps) {
+export function DashboardOverview({
+  stats,
+  chatUrl,
+  impersonatedTenantName,
+}: DashboardOverviewProps) {
   const { organization } = useOrganization()
-  const orgName = organization?.name ?? 'Your organization'
+  const orgName = impersonatedTenantName ?? organization?.name ?? 'Your organization'
   const quickActions = getQuickActions(stats)
 
   return (

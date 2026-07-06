@@ -97,9 +97,11 @@ function formatReportContent(params: {
   title: string
   venueName: string
   weekLabel: string
+  sessionCount: number
+  messageCount: number
   parsed: WeeklyReportResponse
 }): string {
-  const { title, venueName, weekLabel, parsed } = params
+  const { title, venueName, weekLabel, sessionCount, messageCount, parsed } = params
   const quotesBlock =
     parsed.quotes.length > 0
       ? parsed.quotes.map((quote) => `- "${quote}"`).join('\n')
@@ -110,6 +112,10 @@ function formatReportContent(params: {
     title,
     `Venue: ${venueName}`,
     `Week: ${weekLabel}`,
+    // Printed directly from the counted values rather than left to the model to restate
+    // in prose — Claude would sometimes describe this as "0 messages" when it meant zero
+    // captured engagement answers, which are a different, often-empty metric.
+    `Sessions: ${sessionCount} · Messages: ${messageCount}`,
     '',
     'Overview',
     parsed.overview,
@@ -331,6 +337,8 @@ export async function processWeeklyReportJob(
       title,
       venueName: data.venue.name,
       weekLabel: `${payload.weekStart.slice(0, 10)} to ${payload.weekEnd.slice(0, 10)}`,
+      sessionCount: data.sessionCount,
+      messageCount: data.messageCount,
       parsed,
     })
 

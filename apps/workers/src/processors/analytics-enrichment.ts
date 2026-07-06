@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { z } from 'zod'
 
 import { TOPIC_KEY_SET, TOPIC_KEYS, type TopicKey } from '@pathfinder/analytics/topics'
 import { env, logger } from '@pathfinder/config'
@@ -28,6 +29,12 @@ const EMBED_BATCH_SIZE = 96 // questions per embeddings request
 
 const CLASSIFIER_MODEL = 'claude-haiku-4-5-20251001'
 const CLASSIFIER_MAX_TOKENS = 1_024
+
+// Weekly themes (decision F): synthesized once per calendar week per venue, not
+// nightly — regenerating unchanged data every night would just burn model calls.
+const THEME_MIN_QUESTIONS = 5 // below this, guest data is too thin to summarize honestly
+const THEME_MAX_QUESTIONS_FOR_PROMPT = 300
+const THEME_MAX_TOKENS = 1_024
 
 // DailyRollup metrics this job owns. It deletes ONLY these for the target day before
 // re-inserting, so it never clobbers the pure-SQL daily-rollup job's rows
@@ -76,6 +83,14 @@ function startOfUtcDay(date: Date): Date {
 function endOfUtcDay(date: Date): Date {
   const result = startOfUtcDay(date)
   result.setUTCDate(result.getUTCDate() + 1)
+  return result
+}
+
+/** Monday 00:00 UTC of the week containing `date`. */
+function startOfIsoWeekUtc(date: Date): Date {
+  const result = startOfUtcDay(date)
+  const isoDayOfWeek = (result.getUTCDay() + 6) % 7 // Mon=0 .. Sun=6
+  result.setUTCDate(result.getUTCDate() - isoDayOfWeek)
   return result
 }
 
@@ -148,6 +163,65 @@ async function classifyTopicBatch(questions: string[]): Promise<TopicKey[]> {
   })
 
   return parseTopicAssignments(extractText(response.content), questions.length)
+}
+
+// ---------------------------------------------------------------------------
+// Weekly themes (decision F): title + 1-3 sentence explanation, replacing the
+// old raw "top questions" and "topics" lists with something that actually reads
+// as an insight.
+// ---------------------------------------------------------------------------
+
+const weeklyThemesSchema = z
+  .array(
+    z.object({
+      title: z.string().max(80),
+      explanation: z.string().max(500),
+    }),
+  )
+  .max(3)
+
+export type WeeklyTheme = z.infer<typeof weeklyThemesSchema>[number]
+
+function parseWeeklyThemes(rawText: string): WeeklyTheme[] {
+  const fenced = rawText.match(/```json\s*([\s\S]*?)```/i) ?? rawText.match(/```([\s\S]*?)```/i)
+  let candidate = fenced?.[1]?.trim() ?? rawText.trim()
+
+  const firstBracket = candidate.indexOf('[')
+  const lastBracket = candidate.lastIndexOf(']')
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    candidate = candidate.slice(firstBracket, lastBracket + 1)
+  }
+
+  return weeklyThemesSchema.parse(JSON.parse(candidate)).slice(0, 3)
+}
+
+/**
+ * Synthesizes up to 3 named themes from a venue's recent guest questions —
+ * a title and a short explanation each, instead of a flat frequency list.
+ * Returns [] on any model/parse failure; the caller treats that as "skip".
+ */
+async function synthesizeWeeklyThemes(questions: string[]): Promise<WeeklyTheme[]> {
+  const trimmed = questions.slice(0, THEME_MAX_QUESTIONS_FOR_PROMPT)
+
+  const prompt = [
+    'You are analyzing a week of guest questions asked to a venue guide chatbot.',
+    'Identify up to 3 recurring themes across these questions.',
+    'For each theme, write a short title (5 words or fewer) and a 1-3 sentence plain-English explanation of what guests are asking and why it might matter to the venue operator.',
+    'Do not just restate a single question — describe the pattern across multiple questions.',
+    'Only report themes that are actually supported by the questions below; return fewer than 3 if the data does not support more.',
+    'Return JSON only: an array of {"title": "...", "explanation": "..."}.',
+    '',
+    'Guest questions:',
+    JSON.stringify(trimmed),
+  ].join('\n')
+
+  const response = await getAnthropicClient().messages.create({
+    model: CLASSIFIER_MODEL,
+    max_tokens: THEME_MAX_TOKENS,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  return parseWeeklyThemes(extractText(response.content))
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +347,7 @@ async function enrichVenue(params: {
   dayStart: Date
   dayEnd: Date
   windowStart: Date
-}): Promise<{ rollups: OwnedRollup[]; clustersWritten: number }> {
+}): Promise<{ rollups: OwnedRollup[]; clustersWritten: number; themesWritten: number }> {
   const { tenantId, venueId, dayStart, dayEnd, windowStart } = params
   const rollups: OwnedRollup[] = []
 
@@ -406,6 +480,53 @@ async function enrichVenue(params: {
     .filter((text): text is string => text !== null)
   const gapClusters = await buildClusters(gapTexts)
 
+  // --- Weekly themes (F): refreshed nightly from a trailing 7-day window, keyed
+  // by the calendar week containing today so the row converges over the week
+  // rather than resetting each night. Skips (leaves last good themes alone)
+  // when there isn't enough data to summarize honestly.
+  const themeWindowStart = new Date(dayEnd)
+  themeWindowStart.setUTCDate(themeWindowStart.getUTCDate() - 7)
+  const themeEvents = await db.analyticsEvent.findMany({
+    where: {
+      tenantId,
+      venueId,
+      eventType: 'message.sent',
+      occurredAt: { gte: themeWindowStart, lt: dayEnd },
+    },
+    orderBy: { occurredAt: 'desc' },
+    take: CLUSTER_MAX_QUESTIONS,
+    select: { metadata: true },
+  })
+  const themeQuestions = themeEvents
+    .map((event) => questionFromMetadata(event.metadata, 'message'))
+    .filter((text): text is string => text !== null)
+
+  let themesWritten = 0
+  if (themeQuestions.length >= THEME_MIN_QUESTIONS) {
+    try {
+      const themes = await synthesizeWeeklyThemes(themeQuestions)
+      if (themes.length > 0) {
+        const weekStart = startOfIsoWeekUtc(dayStart)
+        const weekEnd = new Date(weekStart)
+        weekEnd.setUTCDate(weekEnd.getUTCDate() + 7)
+
+        await db.venueWeeklyTheme.upsert({
+          where: { tenantId_venueId_weekStart: { tenantId, venueId, weekStart } },
+          create: { tenantId, venueId, weekStart, weekEnd, themes },
+          update: { themes, generatedAt: new Date() },
+        })
+        themesWritten = themes.length
+      }
+    } catch (error) {
+      logger.warn({
+        action: 'workers.analytics-enrichment.themes-failed',
+        tenantId,
+        venueId,
+        error: error instanceof Error ? error.message : 'Unknown themes error',
+      })
+    }
+  }
+
   // Replace this venue's clusters for both kinds.
   await db.questionCluster.deleteMany({
     where: { tenantId, venueId, kind: { in: ['top_question', 'content_gap'] } },
@@ -431,7 +552,7 @@ async function enrichVenue(params: {
     })
   }
 
-  return { rollups, clustersWritten: clusterRows.length }
+  return { rollups, clustersWritten: clusterRows.length, themesWritten }
 }
 
 // ---------------------------------------------------------------------------
@@ -461,6 +582,7 @@ export async function processAnalyticsEnrichmentJob(
   try {
     let totalRollups = 0
     let totalClusters = 0
+    let totalThemes = 0
 
     await withTenantIsolationBypass(async () => {
       const venues = await db.venue.findMany({
@@ -470,7 +592,7 @@ export async function processAnalyticsEnrichmentJob(
       })
 
       for (const venue of venues) {
-        const { rollups, clustersWritten } = await enrichVenue({
+        const { rollups, clustersWritten, themesWritten } = await enrichVenue({
           tenantId: payload.tenantId,
           venueId: venue.id,
           dayStart,
@@ -478,6 +600,7 @@ export async function processAnalyticsEnrichmentJob(
           windowStart,
         })
         totalClusters += clustersWritten
+        totalThemes += themesWritten
 
         // Replace only the metrics this job owns for the day, then insert fresh
         // values — never touch the daily-rollup job's rows.
@@ -518,6 +641,7 @@ export async function processAnalyticsEnrichmentJob(
       date: dayStart.toISOString(),
       rollupCount: totalRollups,
       clusterCount: totalClusters,
+      themeCount: totalThemes,
     })
   } catch (error) {
     await updateJobRecord(jobRecordId, {

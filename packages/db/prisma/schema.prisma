@@ -45,6 +45,7 @@ model Tenant {
   adminChatlogNotes           AdminChatlogNote[]
   weeklyReports               WeeklyReport[]
   answerAnalysisSnapshots     AnswerAnalysisSnapshot[]
+  venueWeeklyThemes           VenueWeeklyTheme[]
 
   @@map("tenants")
 }
@@ -206,6 +207,7 @@ model Venue {
   adminChatlogNotes       AdminChatlogNote[]
   weeklyReports           WeeklyReport[]
   answerAnalysisSnapshots AnswerAnalysisSnapshot[]
+  weeklyThemes            VenueWeeklyTheme[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -453,6 +455,23 @@ model QuestionCluster {
 
   @@index([tenantId, venueId, kind, windowStart])
   @@map("question_clusters")
+}
+
+model VenueWeeklyTheme {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  venueId     String   @map("venue_id")
+  weekStart   DateTime @map("week_start")
+  weekEnd     DateTime @map("week_end")
+  // Array of up to 3 { title: string, explanation: string } objects.
+  themes      Json     @default("[]")
+  generatedAt DateTime @default(now()) @map("generated_at")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue       Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, venueId, weekStart])
+  @@index([tenantId, weekStart])
+  @@map("venue_weekly_themes")
 }
 
 model JobRecord {

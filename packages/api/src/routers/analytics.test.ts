@@ -13,7 +13,7 @@ const visitorSessionUpsert = vi.fn()
 const visitorSessionUpdateMany = vi.fn()
 const visitorSessionFindMany = vi.fn()
 const visitorSessionCount = vi.fn()
-const visitorSessionAggregate = vi.fn()
+const messageCount = vi.fn()
 const questionClusterFindMany = vi.fn()
 const placeFindMany = vi.fn()
 const venueFindFirst = vi.fn()
@@ -42,7 +42,9 @@ const mockDb = {
     updateMany: visitorSessionUpdateMany,
     findMany: visitorSessionFindMany,
     count: visitorSessionCount,
-    aggregate: visitorSessionAggregate,
+  },
+  message: {
+    count: messageCount,
   },
   questionCluster: {
     findMany: questionClusterFindMany,
@@ -316,7 +318,7 @@ describe('analytics router', () => {
       { visitorId: 'v2', startedAt: new Date('2026-06-11T10:00:00.000Z') },
     ])
     visitorSessionCount.mockResolvedValueOnce(5)
-    visitorSessionAggregate.mockResolvedValueOnce({ _sum: { messageCount: 42 } })
+    messageCount.mockResolvedValueOnce(42)
 
     const caller = testRouter.createCaller(tenantCtx())
     const result = await caller.analytics.getVisitorStats({ days: 30 })

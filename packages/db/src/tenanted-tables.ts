@@ -17,6 +17,7 @@ export const TENANTED_TABLES = [
   'AdminChatlogNote',
   'WeeklyReport',
   'AnswerAnalysisSnapshot',
+  'VenueWeeklyTheme',
 ] as const
 
 export const PLATFORM_TABLES = ['User', 'Tenant', 'AuditLog', 'PlatformConfig'] as const
