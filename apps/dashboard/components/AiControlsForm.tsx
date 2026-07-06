@@ -245,7 +245,10 @@ export function AiControlsForm({
           className="mt-6 min-h-40 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
         />
         <div className="mt-2 flex justify-between gap-4 text-xs text-pf-deep/40">
-          <span>Keep instructions direct and operational.</span>
+          <span>
+            Keep instructions direct and operational. Response length is already handled
+            automatically — no need to ask for shorter answers here.
+          </span>
           <span>{aiGuideNotes.length}/2000</span>
         </div>
       </section>
