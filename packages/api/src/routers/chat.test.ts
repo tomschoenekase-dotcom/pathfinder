@@ -23,7 +23,23 @@ vi.mock('@pathfinder/analytics', () => ({
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
-import { _setAnthropicClientForTesting, chatRouter } from './chat'
+import { _setAnthropicClientForTesting, chatRouter, enforceResponseWordCap } from './chat'
+
+describe('enforceResponseWordCap', () => {
+  it('leaves short text untouched', () => {
+    expect(enforceResponseWordCap('Near the entrance.', 60)).toBe('Near the entrance.')
+  })
+
+  it('drops trailing sentences that push past the cap', () => {
+    const text = 'One two three four five. Six seven eight nine ten.'
+    expect(enforceResponseWordCap(text, 5)).toBe('One two three four five.')
+  })
+
+  it('keeps at least the first sentence even if it alone exceeds the cap', () => {
+    const text = 'One two three four five six seven. Eight nine.'
+    expect(enforceResponseWordCap(text, 3)).toBe('One two three four five six seven.')
+  })
+})
 
 // ---------------------------------------------------------------------------
 // DB mock

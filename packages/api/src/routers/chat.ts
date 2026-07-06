@@ -69,6 +69,10 @@ const HISTORY_LOAD_LIMIT = 40
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 512
 const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
+// Backstop for the word-count rules in venue-context.ts. Prompt instructions
+// are honored loosely by the model, not exactly — this guarantees the cap
+// guests actually see, regardless of how closely the model followed the prompt.
+const MAX_RESPONSE_WORDS = 60
 
 function stripEngagementMarker(text: string): { cleaned: string; markerFound: boolean } {
   const markerIndex = text.lastIndexOf(ENGAGEMENT_ASKED_MARKER)
@@ -76,6 +80,25 @@ function stripEngagementMarker(text: string): { cleaned: string; markerFound: bo
     return { cleaned: text, markerFound: false }
   }
   return { cleaned: text.slice(0, markerIndex).trimEnd(), markerFound: true }
+}
+
+// Exported for test coverage — trims to the last complete sentence that fits
+// within maxWords. Always keeps at least the first sentence, even if that
+// sentence alone runs over the cap, so a reply is never cut off mid-thought.
+export function enforceResponseWordCap(text: string, maxWords: number): string {
+  const trimmed = text.trim()
+  if (trimmed.split(/\s+/).length <= maxWords) return trimmed
+
+  const sentences = trimmed.match(/[^.!?]+[.!?]+[)'"]*|[^.!?]+$/g) ?? [trimmed]
+  let result = ''
+  let wordCount = 0
+  for (const sentence of sentences) {
+    const sentenceWords = sentence.trim().split(/\s+/).length
+    if (result && wordCount + sentenceWords > maxWords) break
+    result += (result ? ' ' : '') + sentence.trim()
+    wordCount += sentenceWords
+  }
+  return result
 }
 
 // Backend-only content-gap detection (no guest-facing change, no extra model call).
@@ -431,7 +454,7 @@ export const chatRouter = router({
           ? result.content[0].text
           : "I'm sorry, I couldn't generate a response.",
       )
-      assistantResponse = strippedResponse
+      assistantResponse = enforceResponseWordCap(strippedResponse, MAX_RESPONSE_WORDS)
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
     } catch (err) {
