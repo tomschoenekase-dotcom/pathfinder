@@ -184,6 +184,7 @@ model Venue {
   aiGuideName        String?               @map("ai_guide_name")
   chatTheme          String?               @default("default") @map("chat_theme")
   chatAccentColor    String?               @map("chat_accent_color")
+  chatFont           String?               @default("jakarta") @map("chat_font")
   chatLogoUrl        String?               @map("chat_logo_url")
   chatBannerUrl      String?               @map("chat_banner_url")
   category           String?

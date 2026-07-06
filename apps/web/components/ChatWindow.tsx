@@ -28,6 +28,7 @@ type ChatWindowProps = {
   isLoading: boolean
   errorMessage?: string | null
   accentColor?: string
+  accentContrastColor?: string
   placeholder?: string
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
@@ -40,6 +41,7 @@ export function ChatWindow({
   isLoading,
   errorMessage = null,
   accentColor,
+  accentContrastColor,
   placeholder = 'Ask what is nearby, where to go next, or where to find amenities.',
   onPlaceCardClick,
   onPlaceCardView,
@@ -77,7 +79,7 @@ export function ChatWindow({
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm">
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm">
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>
@@ -85,6 +87,9 @@ export function ChatWindow({
               role={message.role}
               content={message.content}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
+              {...(message.role === 'user' && accentContrastColor
+                ? { bubbleTextColor: accentContrastColor }
+                : {})}
             />
             {message.places && message.places.length > 0 ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -111,7 +116,7 @@ export function ChatWindow({
         {isLoading ? <TypingIndicator /> : null}
       </div>
 
-      <div className="border-t border-pf-light bg-pf-surface p-3 sm:p-4">
+      <div className="border-t border-[var(--chat-border)] bg-[var(--chat-bg)] p-3 sm:p-4">
         {errorMessage ? (
           <p className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {errorMessage}
@@ -124,7 +129,7 @@ export function ChatWindow({
           </label>
           <textarea
             id="chat-input"
-            className="min-h-14 flex-1 resize-none rounded-2xl border border-pf-light bg-pf-white px-4 py-3 text-[16px] leading-6 text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+            className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
             disabled={isLoading}
             placeholder={placeholder}
             rows={2}
@@ -142,8 +147,9 @@ export function ChatWindow({
           <button
             style={{
               backgroundColor: !isLoading && draft.trim().length > 0 ? accentColor : undefined,
+              color: !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
             }}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-pf-light disabled:text-pf-deep/30"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-[var(--chat-border)] disabled:text-[var(--chat-text-muted)]"
             disabled={isLoading || draft.trim().length === 0}
             type="button"
             onClick={submit}

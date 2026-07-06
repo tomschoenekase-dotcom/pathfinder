@@ -91,12 +91,15 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
   }
 
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-pf-light bg-pf-white px-3 py-1.5 shadow-sm">
-      <Globe className="h-3.5 w-3.5 flex-shrink-0 text-pf-deep/50" aria-hidden="true" />
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 py-1.5 shadow-sm">
+      <Globe
+        className="h-3.5 w-3.5 flex-shrink-0 text-[var(--chat-text-muted)]"
+        aria-hidden="true"
+      />
       <select
         value={value}
         onChange={handleChange}
-        className="cursor-pointer appearance-none border-none bg-transparent text-xs font-medium text-pf-deep/70 outline-none transition hover:text-pf-deep focus:text-pf-deep"
+        className="cursor-pointer appearance-none border-none bg-transparent text-xs font-medium text-[var(--chat-text-muted)] outline-none transition hover:text-[var(--chat-text)] focus:text-[var(--chat-text)]"
         aria-label="Select language"
       >
         {SUPPORTED_LANGUAGES.map((lang) => (
@@ -106,7 +109,7 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
         ))}
       </select>
       <svg
-        className="h-3 w-3 flex-shrink-0 text-pf-deep/40"
+        className="h-3 w-3 flex-shrink-0 text-[var(--chat-text-muted)]"
         viewBox="0 0 20 20"
         fill="currentColor"
         aria-hidden="true"

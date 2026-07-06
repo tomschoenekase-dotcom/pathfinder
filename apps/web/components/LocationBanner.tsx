@@ -15,9 +15,9 @@ export function LocationBanner({ permission, onRefresh, show = true }: LocationB
 
   if (permission === 'loading') {
     return (
-      <section className="mb-4 rounded-3xl border border-pf-light bg-pf-white p-4 text-pf-deep/60 shadow-sm">
-        <p className="text-sm font-semibold text-pf-deep">Checking location...</p>
-        <p className="mt-1 text-sm leading-6 text-pf-deep/60">
+      <section className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-4 text-[var(--chat-text-muted)] shadow-sm">
+        <p className="text-sm font-semibold text-[var(--chat-text)]">Checking location...</p>
+        <p className="mt-1 text-sm leading-6 text-[var(--chat-text-muted)]">
           Waiting for your device to share its position.
         </p>
       </section>

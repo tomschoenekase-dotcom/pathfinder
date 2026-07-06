@@ -241,14 +241,14 @@ export function QuickPromptChips({
 
   return (
     <section className="mb-4">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-pf-deep/40">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-[var(--chat-text-muted)]">
         {startLabel}
       </p>
       <div className="flex flex-wrap gap-2">
         {prompts.map((prompt) => (
           <button
             key={prompt}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-pf-light bg-pf-white px-4 text-center text-sm font-medium text-pf-primary shadow-sm transition hover:border-pf-accent hover:bg-pf-accent/5"
+            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 text-center text-sm font-medium text-[var(--chat-accent)] shadow-sm transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
             type="button"
             onClick={() => {
               onSend(prompt)

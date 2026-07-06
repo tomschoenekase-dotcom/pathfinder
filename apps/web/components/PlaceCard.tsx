@@ -44,31 +44,31 @@ export function PlaceCard({
 
   return (
     <div
-      className="overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm transition hover:border-pf-accent/40 hover:shadow-md"
+      className="overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm transition hover:border-[var(--chat-accent)]/40 hover:shadow-md"
       onClick={() => {
         onCardClick?.(id)
       }}
     >
       {photoUrl ? (
-        <div className="h-36 w-full overflow-hidden bg-pf-surface">
+        <div className="h-36 w-full overflow-hidden bg-[var(--chat-bg)]">
           <img src={photoUrl} alt={name} loading="lazy" className="h-full w-full object-cover" />
         </div>
       ) : (
-        <div className="flex h-28 w-full items-center justify-center bg-pf-surface">
-          <MapPin className="h-8 w-8 text-pf-light" aria-hidden="true" />
+        <div className="flex h-28 w-full items-center justify-center bg-[var(--chat-bg)]">
+          <MapPin className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
         </div>
       )}
 
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate font-semibold text-pf-deep">{name}</p>
-            <p className="mt-0.5 text-xs capitalize text-pf-deep/50">
+            <p className="truncate font-semibold text-[var(--chat-text)]">{name}</p>
+            <p className="mt-0.5 text-xs capitalize text-[var(--chat-text-muted)]">
               {type.toLowerCase().replace(/_/g, ' ')}
             </p>
           </div>
           {distanceMeters !== undefined ? (
-            <span className="shrink-0 rounded-full bg-pf-surface px-2.5 py-1 text-xs font-semibold text-pf-primary">
+            <span className="shrink-0 rounded-full bg-[var(--chat-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--chat-accent)]">
               {formatDistance(distanceMeters)}
             </span>
           ) : null}
@@ -79,7 +79,7 @@ export function PlaceCard({
             href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-pf-light bg-pf-surface px-4 text-xs font-semibold text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+            className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent)] transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
             onClick={(event) => {
               event.stopPropagation()
               onDirectionsClick?.(id)

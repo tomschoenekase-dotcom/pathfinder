@@ -14,7 +14,7 @@ import {
   SUPPORTED_LANGUAGES,
 } from '../../../components/LanguagePicker'
 import { LocationBanner } from '../../../components/LocationBanner'
-import { PathFinderIcon } from '@pathfinder/ui'
+import { CHAT_FONT_OPTIONS, getChatPalette, PathFinderIcon } from '@pathfinder/ui'
 import { QuickPromptChips } from '../../../components/QuickPromptChips'
 import { useGeolocation } from '../../../hooks/useGeolocation'
 import { useSession } from '../../../hooks/useSession'
@@ -32,6 +32,7 @@ type VenueSummary = {
   aiGuideName: string | null
   chatTheme: string | null
   chatAccentColor: string | null
+  chatFont: string | null
   chatLogoUrl: string | null
   chatBannerUrl: string | null
 }
@@ -52,27 +53,9 @@ type ChatMessage = {
   places?: PlaceSummary[]
 }
 
-const THEME_PRESETS: Record<string, { accent: string; surface: string }> = {
-  default: { accent: '#3A7BD5', surface: '#F2F5F9' },
-  forest: { accent: '#2D6A4F', surface: '#F0F7F4' },
-  sunset: { accent: '#E07B39', surface: '#FBF4EF' },
-  midnight: { accent: '#4361EE', surface: '#EEF0F8' },
-  rose: { accent: '#D4607A', surface: '#FDF0F3' },
-}
-
-function isHexColor(value: string | null | undefined): value is string {
-  return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value)
-}
-
-function getThemeColors(venue: VenueSummary) {
-  const preset = THEME_PRESETS[venue.chatTheme ?? 'default'] ?? {
-    accent: '#3A7BD5',
-    surface: '#F2F5F9',
-  }
-  return {
-    accent: isHexColor(venue.chatAccentColor) ? venue.chatAccentColor : preset.accent,
-    surface: preset.surface,
-  }
+function getChatFontFamily(chatFont: string | null | undefined): string {
+  const option = CHAT_FONT_OPTIONS.find((f) => f.value === chatFont) ?? CHAT_FONT_OPTIONS[0]!
+  return `var(${option.cssVar})`
 }
 
 function useApiClient() {
@@ -378,26 +361,35 @@ export default function VenueChatPage() {
     )
   }
 
-  const { accent, surface } = getThemeColors(venue)
+  const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
+  const fontFamily = getChatFontFamily(venue.chatFont)
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
-  const headerTextClass = venue.chatBannerUrl ? 'text-white drop-shadow-sm' : 'text-pf-deep'
+  const headerTextClass = venue.chatBannerUrl
+    ? 'text-white drop-shadow-sm'
+    : 'text-[var(--chat-text)]'
   const backTextClass = venue.chatBannerUrl
     ? 'text-white/75 hover:text-white'
-    : 'text-pf-deep/40 hover:text-pf-primary'
+    : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent)]'
 
   return (
     <div
-      className="flex h-screen flex-col overflow-hidden bg-pf-surface"
-      style={{ backgroundColor: surface }}
+      className="flex h-screen flex-col overflow-hidden"
+      style={{ backgroundColor: palette.bg, fontFamily }}
     >
       <style>{`
         :root {
-          --chat-accent: ${accent};
-          --chat-surface: ${surface};
+          --chat-accent: ${palette.accent};
+          --chat-accent-contrast: ${palette.accentContrast};
+          --chat-surface: ${palette.bg};
+          --chat-bg: ${palette.bg};
+          --chat-card: ${palette.card};
+          --chat-border: ${palette.border};
+          --chat-text: ${palette.text};
+          --chat-text-muted: ${palette.textMuted};
         }
       `}</style>
       <header
-        className="border-b border-black/10 bg-pf-white px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6"
+        className="border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6"
         style={
           venue.chatBannerUrl
             ? {
@@ -449,11 +441,11 @@ export default function VenueChatPage() {
 
       {messages.length === 0 ? (
         <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
-          <div className="mb-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-pf-deep">
+          <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-[var(--chat-text)]">
               {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS['English']}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+            <p className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]">
               {venue.description ??
                 LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
                 LANGUAGE_FALLBACK_DESCRIPTIONS['English']}
@@ -479,7 +471,8 @@ export default function VenueChatPage() {
           }}
           isLoading={isSending}
           errorMessage={sendError}
-          accentColor={accent}
+          accentColor={palette.accent}
+          accentContrastColor={palette.accentContrast}
           placeholder={chatPlaceholder}
           onPlaceCardView={(placeId) => {
             if (viewedPlaceIdsRef.current.has(placeId)) return
@@ -496,9 +489,9 @@ export default function VenueChatPage() {
       </div>
 
       <div className="pb-[env(safe-area-inset-bottom,1rem)] pt-2 text-center">
-        <p className="text-[10px] text-pf-deep/25">
+        <p className="text-[10px] text-[var(--chat-text-muted)]">
           Powered by{' '}
-          <a href="https://pathfinder.app" className="hover:text-pf-primary">
+          <a href="https://pathfinder.app" className="hover:text-[var(--chat-accent)]">
             PathFinder
           </a>
         </p>

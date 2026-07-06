@@ -100,6 +100,7 @@ const venueListSelect = {
   aiGuideName: true,
   chatTheme: true,
   chatAccentColor: true,
+  chatFont: true,
   chatLogoUrl: true,
   chatBannerUrl: true,
   isActive: true,
@@ -144,6 +145,7 @@ export const venueRouter = router({
           aiGuideName: string | null
           chatTheme: string | null
           chatAccentColor: string | null
+          chatFont: string | null
           chatLogoUrl: string | null
           chatBannerUrl: string | null
         }[]
@@ -155,6 +157,7 @@ export const venueRouter = router({
                ai_guide_name         AS "aiGuideName",
                chat_theme            AS "chatTheme",
                chat_accent_color     AS "chatAccentColor",
+               chat_font             AS "chatFont",
                chat_logo_url         AS "chatLogoUrl",
                chat_banner_url       AS "chatBannerUrl"
         FROM venues WHERE slug = ${input.slug} AND is_active = true LIMIT 1
@@ -384,11 +387,14 @@ export const venueRouter = router({
       z
         .object({
           venueId: z.string().cuid(),
-          chatTheme: z.enum(['default', 'forest', 'sunset', 'midnight', 'rose']).optional(),
+          chatTheme: z.enum(['default', 'forest', 'sunset', 'midnight', 'rose', 'dark']).optional(),
           chatAccentColor: z
             .string()
             .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a hex colour e.g. #3A7BD5')
             .nullable()
+            .optional(),
+          chatFont: z
+            .enum(['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'playfair'])
             .optional(),
           chatLogoUrl: z.string().url().max(500).nullable().optional(),
           chatBannerUrl: z.string().url().max(500).nullable().optional(),
@@ -422,6 +428,7 @@ export const venueRouter = router({
         select: {
           chatTheme: true,
           chatAccentColor: true,
+          chatFont: true,
           chatLogoUrl: true,
           chatBannerUrl: true,
         },

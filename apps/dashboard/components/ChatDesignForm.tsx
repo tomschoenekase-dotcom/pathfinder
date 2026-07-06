@@ -2,6 +2,15 @@
 
 import { useRef, useState } from 'react'
 
+import {
+  CHAT_FONT_OPTIONS,
+  CHAT_THEME_PRESETS,
+  type ChatFontValue,
+  type ChatThemeValue,
+  getChatPalette,
+  isHexColor,
+} from '@pathfinder/ui'
+
 import { createTRPCClient } from '../lib/trpc'
 
 type Venue = {
@@ -10,6 +19,7 @@ type Venue = {
   slug: string
   chatTheme?: string | null
   chatAccentColor?: string | null
+  chatFont?: string | null
   chatLogoUrl?: string | null
   chatBannerUrl?: string | null
 }
@@ -18,22 +28,21 @@ type ChatDesignFormProps = {
   venues: Venue[]
 }
 
-const THEMES = [
-  { value: 'default', label: 'PathFinder Blue', accent: '#3A7BD5', surface: '#F2F5F9' },
-  { value: 'forest', label: 'Forest', accent: '#2D6A4F', surface: '#F0F7F4' },
-  { value: 'sunset', label: 'Sunset', accent: '#E07B39', surface: '#FBF4EF' },
-  { value: 'midnight', label: 'Midnight', accent: '#4361EE', surface: '#EEF0F8' },
-  { value: 'rose', label: 'Rose', accent: '#D4607A', surface: '#FDF0F3' },
-] as const
+const THEMES: { value: ChatThemeValue; label: string; accent: string }[] = [
+  ...CHAT_THEME_PRESETS.map((preset) => ({
+    value: preset.value as ChatThemeValue,
+    label: preset.label,
+    accent: preset.accent,
+  })),
+  { value: 'dark', label: 'Dark (Neon)', accent: '#3A7BD5' },
+]
 
-type ThemeValue = (typeof THEMES)[number]['value']
-
-function isThemeValue(value: string | null | undefined): value is ThemeValue {
+function isThemeValue(value: string | null | undefined): value is ChatThemeValue {
   return THEMES.some((theme) => theme.value === value)
 }
 
-function isHexColor(value: string) {
-  return /^#[0-9A-Fa-f]{6}$/.test(value)
+function isFontValue(value: string | null | undefined): value is ChatFontValue {
+  return CHAT_FONT_OPTIONS.some((font) => font.value === value)
 }
 
 export function ChatDesignForm({ venues }: ChatDesignFormProps) {
@@ -44,17 +53,19 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
   const client = clientRef.current
 
   const venue = venues[0]
-  const [chatTheme, setChatTheme] = useState<ThemeValue>(
+  const [chatTheme, setChatTheme] = useState<ChatThemeValue>(
     isThemeValue(venue?.chatTheme) ? venue.chatTheme : 'default',
   )
   const [chatAccentColor, setChatAccentColor] = useState(venue?.chatAccentColor ?? '')
+  const [chatFont, setChatFont] = useState<ChatFontValue>(
+    isFontValue(venue?.chatFont) ? venue.chatFont : 'jakarta',
+  )
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  const previewAccent = isHexColor(chatAccentColor)
-    ? chatAccentColor
-    : (THEMES.find((theme) => theme.value === chatTheme)?.accent ?? '#3A7BD5')
+  const accentOverride = isHexColor(chatAccentColor) ? chatAccentColor : null
+  const previewAccent = getChatPalette(chatTheme, accentOverride).accent
 
   async function handleSave() {
     if (!venue?.id || isSaving) return
@@ -66,7 +77,8 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
       await client.venue.updateChatDesign.mutate({
         venueId: venue.id,
         chatTheme,
-        chatAccentColor: isHexColor(chatAccentColor) ? chatAccentColor : null,
+        chatAccentColor: accentOverride,
+        chatFont,
       })
       setSaved(true)
     } catch (err: unknown) {
@@ -87,31 +99,35 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
       <div>
         <p className="text-sm font-semibold text-pf-deep">Colour theme</p>
         <p className="mt-1 text-xs leading-5 text-pf-deep/50">
-          Choose a preset. The custom colour below overrides the accent colour.
+          Choose a preset. The custom colour below overrides the accent colour. Dark (Neon) derives
+          a glowing dark palette from your accent colour automatically.
         </p>
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {THEMES.map((theme) => (
-            <button
-              key={theme.value}
-              type="button"
-              onClick={() => {
-                setChatTheme(theme.value)
-              }}
-              className={[
-                'rounded-2xl border p-4 text-left transition',
-                chatTheme === theme.value
-                  ? 'border-pf-accent bg-pf-accent/5 ring-2 ring-pf-accent/30'
-                  : 'border-pf-light bg-pf-white hover:border-pf-accent/50',
-              ].join(' ')}
-            >
-              <div
-                className="h-6 w-6 rounded-full"
-                style={{ backgroundColor: theme.accent }}
-                aria-hidden="true"
-              />
-              <p className="mt-2 text-xs font-medium text-pf-deep">{theme.label}</p>
-            </button>
-          ))}
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {THEMES.map((theme) => {
+            const swatchColor = getChatPalette(theme.value, accentOverride).accent
+            return (
+              <button
+                key={theme.value}
+                type="button"
+                onClick={() => {
+                  setChatTheme(theme.value)
+                }}
+                className={[
+                  'rounded-2xl border p-4 text-left transition',
+                  chatTheme === theme.value
+                    ? 'border-pf-accent bg-pf-accent/5 ring-2 ring-pf-accent/30'
+                    : 'border-pf-light bg-pf-white hover:border-pf-accent/50',
+                ].join(' ')}
+              >
+                <div
+                  className="h-6 w-6 rounded-full"
+                  style={{ backgroundColor: swatchColor }}
+                  aria-hidden="true"
+                />
+                <p className="mt-2 text-xs font-medium text-pf-deep">{theme.label}</p>
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -140,6 +156,34 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
             style={{ backgroundColor: previewAccent }}
             aria-label="Colour preview"
           />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-sm font-semibold text-pf-deep">Font</p>
+        <p className="mt-1 text-xs leading-5 text-pf-deep/50">
+          Choose the typeface used throughout the guest chat.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {CHAT_FONT_OPTIONS.map((font) => (
+            <button
+              key={font.value}
+              type="button"
+              onClick={() => {
+                setChatFont(font.value)
+              }}
+              className={[
+                'rounded-2xl border p-4 text-left transition',
+                chatFont === font.value
+                  ? 'border-pf-accent bg-pf-accent/5 ring-2 ring-pf-accent/30'
+                  : 'border-pf-light bg-pf-white hover:border-pf-accent/50',
+              ].join(' ')}
+            >
+              <p className="text-sm text-pf-deep" style={{ fontFamily: `var(${font.cssVar})` }}>
+                {font.label}
+              </p>
+            </button>
+          ))}
         </div>
       </div>
 

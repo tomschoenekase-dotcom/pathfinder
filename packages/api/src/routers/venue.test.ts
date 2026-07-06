@@ -288,6 +288,55 @@ describe('venue router', () => {
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 
+  // --- venue.updateChatDesign ---
+
+  it('venue.updateChatDesign accepts the dark theme and a valid font', async () => {
+    venueFindFirst
+      .mockResolvedValueOnce({ id: 'cuid1234567890abcdef' }) // ownership check
+      .mockResolvedValueOnce({
+        chatTheme: 'dark',
+        chatAccentColor: '#3A7BD5',
+        chatFont: 'inter',
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+      })
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    const caller = testRouter.createCaller(managerCtx())
+    const result = await caller.venue.updateChatDesign({
+      venueId: 'cuid1234567890abcdef',
+      chatTheme: 'dark',
+      chatAccentColor: '#3A7BD5',
+      chatFont: 'inter',
+    })
+
+    expect(result).toMatchObject({ chatTheme: 'dark', chatFont: 'inter' })
+    expect(venueUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ chatTheme: 'dark', chatFont: 'inter' }),
+      }),
+    )
+  })
+
+  it('venue.updateChatDesign rejects an invalid font value', async () => {
+    const caller = testRouter.createCaller(managerCtx())
+
+    await expect(
+      caller.venue.updateChatDesign({
+        venueId: 'cuid1234567890abcdef',
+        chatFont: 'comic-sans' as never,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+  })
+
+  it('venue.updateChatDesign with STAFF role throws FORBIDDEN', async () => {
+    const caller = testRouter.createCaller(staffCtx())
+
+    await expect(
+      caller.venue.updateChatDesign({ venueId: 'cuid1234567890abcdef', chatTheme: 'dark' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+  })
+
   // --- venue.delete ---
 
   it('venue.delete removes venue with no places', async () => {
