@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { MessageBubble } from './MessageBubble'
 import { PlaceCard } from './PlaceCard'
@@ -30,6 +31,7 @@ type ChatWindowProps = {
   accentColor?: string
   accentContrastColor?: string
   placeholder?: string
+  emptyState?: ReactNode
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
@@ -43,6 +45,7 @@ export function ChatWindow({
   accentColor,
   accentContrastColor,
   placeholder = 'Ask what is nearby, where to go next, or where to find amenities.',
+  emptyState,
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
@@ -80,7 +83,9 @@ export function ChatWindow({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm">
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
+        {messages.length === 0 && emptyState ? emptyState : null}
+
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}-${message.content.slice(0, 16)}`}>
             <MessageBubble

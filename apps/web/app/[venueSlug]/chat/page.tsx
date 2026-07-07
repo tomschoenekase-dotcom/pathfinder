@@ -439,30 +439,6 @@ export default function VenueChatPage() {
         />
       </div>
 
-      {messages.length === 0 ? (
-        <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
-          <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-[var(--chat-text)]">
-              {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS['English']}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]">
-              {venue.description ??
-                LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
-                LANGUAGE_FALLBACK_DESCRIPTIONS['English']}
-            </p>
-          </div>
-          <QuickPromptChips
-            language={language}
-            venueName={venue.name}
-            venueCategory={venue.category ?? undefined}
-            guideMode={venue.guideMode}
-            onSend={(prompt) => {
-              void handleSend(prompt)
-            }}
-          />
-        </div>
-      ) : null}
-
       <div className="mx-auto flex w-full min-h-0 max-w-2xl flex-1 flex-col px-4 sm:px-6">
         <ChatWindow
           messages={messages}
@@ -474,6 +450,29 @@ export default function VenueChatPage() {
           accentColor={palette.accent}
           accentContrastColor={palette.accentContrast}
           placeholder={chatPlaceholder}
+          emptyState={
+            <div>
+              <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
+                <h2 className="text-xl font-semibold text-[var(--chat-text)]">
+                  {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS['English']}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]">
+                  {venue.description ??
+                    LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
+                    LANGUAGE_FALLBACK_DESCRIPTIONS['English']}
+                </p>
+              </div>
+              <QuickPromptChips
+                language={language}
+                venueName={venue.name}
+                venueCategory={venue.category ?? undefined}
+                guideMode={venue.guideMode}
+                onSend={(prompt) => {
+                  void handleSend(prompt)
+                }}
+              />
+            </div>
+          }
           onPlaceCardView={(placeId) => {
             if (viewedPlaceIdsRef.current.has(placeId)) return
             viewedPlaceIdsRef.current.add(placeId)
