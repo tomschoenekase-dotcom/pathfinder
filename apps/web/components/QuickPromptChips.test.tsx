@@ -15,14 +15,11 @@ describe('QuickPromptChips', () => {
     expect(onSend).toHaveBeenCalledWith('Where are the restrooms?')
   })
 
-  it('personalizes prompts when venue props are provided', () => {
+  it('caps prompts at 3 per language', () => {
     expect(buildPrompts('Riverside Aquarium', 'AQUARIUM')).toEqual([
       "What's worth seeing near me right now?",
       'Where should I go next?',
       'Where are the restrooms?',
-      "What's good to eat or drink here?",
-      'What makes Riverside Aquarium special?',
-      'What animals can I see today?',
     ])
   })
 })

@@ -217,6 +217,8 @@ type QuickPromptChipsProps = {
   guideMode?: string | undefined
 }
 
+const MAX_PROMPTS = 3
+
 export function buildPrompts(
   venueName?: string,
   venueCategory?: string,
@@ -224,9 +226,11 @@ export function buildPrompts(
   language = 'English',
 ): string[] {
   const set = LOCALIZED_PROMPTS[language] ?? LOCALIZED_PROMPTS['English']!
-  return guideMode === 'non_location'
-    ? set.nonLocation(venueName)
-    : set.location(venueName, venueCategory)
+  const prompts =
+    guideMode === 'non_location'
+      ? set.nonLocation(venueName)
+      : set.location(venueName, venueCategory)
+  return prompts.slice(0, MAX_PROMPTS)
 }
 
 export function QuickPromptChips({

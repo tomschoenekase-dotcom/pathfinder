@@ -324,7 +324,7 @@ export default function VenueChatPage() {
 
   if (isBooting) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6">
+      <main className="flex min-h-dvh items-center justify-center bg-pf-surface px-6">
         <div className="flex flex-col items-center gap-5 text-center">
           <PathFinderIcon className="h-10 w-10 animate-pulse" />
           <p className="text-sm font-medium text-pf-deep/60">Loading your guide...</p>
@@ -335,7 +335,7 @@ export default function VenueChatPage() {
 
   if (!venue) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6">
+      <main className="flex min-h-dvh items-center justify-center bg-pf-surface px-6">
         <div className="w-full max-w-md rounded-3xl border border-pf-light bg-pf-white p-8 text-center shadow-sm">
           <h1 className="text-2xl font-semibold text-pf-deep">Venue unavailable</h1>
           <p className="mt-3 text-sm leading-6 text-pf-deep/60">
@@ -373,7 +373,7 @@ export default function VenueChatPage() {
 
   return (
     <div
-      className="flex h-screen flex-col overflow-hidden"
+      className="flex h-dvh flex-col overflow-hidden"
       style={{ backgroundColor: palette.bg, fontFamily }}
     >
       <style>{`
