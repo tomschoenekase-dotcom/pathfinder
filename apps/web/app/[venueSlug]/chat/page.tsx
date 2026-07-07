@@ -373,7 +373,7 @@ export default function VenueChatPage() {
 
   return (
     <div
-      className="flex h-dvh flex-col overflow-hidden"
+      className="flex h-svh flex-col overflow-hidden"
       style={{ backgroundColor: palette.bg, fontFamily }}
     >
       <style>{`
