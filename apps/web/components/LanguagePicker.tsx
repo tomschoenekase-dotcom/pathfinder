@@ -17,16 +17,16 @@ export const SUPPORTED_LANGUAGES = [
 ]
 
 export const LANGUAGE_PLACEHOLDERS: Record<string, string> = {
-  English: 'Ask what is nearby, where to go next, or where to find amenities.',
-  Español: 'Pregunta qué hay cerca, a dónde ir o dónde encontrar servicios.',
-  Français: 'Demandez ce qui est proche, où aller ou où trouver des équipements.',
-  Deutsch: 'Fragen Sie, was in der Nähe ist, wohin Sie gehen oder wo Sie Einrichtungen finden.',
-  Italiano: "Chiedi cosa c'è nelle vicinanze, dove andare o dove trovare i servizi.",
-  Português: 'Pergunte o que há por perto, para onde ir ou onde encontrar comodidades.',
-  中文: '询问附近有什么、下一步去哪里或在哪里可以找到设施。',
-  日本語: '近くに何があるか、次にどこへ行くか、設備はどこにあるかを聞いてください。',
-  한국어: '주변에 무엇이 있는지, 다음에 어디로 갈지, 편의시설은 어디에 있는지 물어보세요.',
-  العربية: 'اسأل عما هو قريب منك، وأين تذهب، وأين تجد المرافق.',
+  English: 'Ask anything about this place...',
+  Español: 'Pregunta lo que quieras...',
+  Français: 'Posez votre question...',
+  Deutsch: 'Frag einfach drauflos...',
+  Italiano: 'Chiedi quello che vuoi...',
+  Português: 'Pergunte o que quiser...',
+  中文: '问点什么吧…',
+  日本語: '何でも聞いてください…',
+  한국어: '무엇이든 물어보세요...',
+  العربية: 'اسأل أي شيء...',
 }
 
 export const LANGUAGE_HEADINGS: Record<string, string> = {

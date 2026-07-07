@@ -85,11 +85,7 @@ export default function VenueChatPage() {
     )
     return match ? match.label : 'English'
   })
-  const chatPlaceholder =
-    LANGUAGE_PLACEHOLDERS[language] ??
-    (venue?.guideMode === 'non_location'
-      ? 'Ask what to know, how it works, or what to do next.'
-      : 'Ask what is nearby, where to go next, or where to find amenities.')
+  const chatPlaceholder = LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)

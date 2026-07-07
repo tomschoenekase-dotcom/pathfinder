@@ -44,7 +44,7 @@ export function ChatWindow({
   errorMessage = null,
   accentColor,
   accentContrastColor,
-  placeholder = 'Ask what is nearby, where to go next, or where to find amenities.',
+  placeholder = 'Ask anything about this place...',
   emptyState,
   onPlaceCardClick,
   onPlaceCardView,
