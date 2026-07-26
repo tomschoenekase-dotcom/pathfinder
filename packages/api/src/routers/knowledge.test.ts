@@ -16,6 +16,7 @@ const entryFindFirst = vi.fn()
 const entryCreate = vi.fn()
 const entryUpdateMany = vi.fn()
 const entryDeleteMany = vi.fn()
+const dbTransaction = vi.fn()
 
 const mockDb = {
   venue: { findFirst: venueFindFirst },
@@ -26,6 +27,7 @@ const mockDb = {
     updateMany: entryUpdateMany,
     deleteMany: entryDeleteMany,
   },
+  $transaction: dbTransaction,
 } as unknown as TRPCContext['db']
 
 const baseCtx = { db: mockDb, headers: new Headers() }
@@ -129,6 +131,49 @@ describe('knowledge router', () => {
         isEnabled: true,
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+  })
+
+  it('knowledge.bulkCreate creates all entries and enqueues embeddings', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
+    dbTransaction.mockResolvedValueOnce([entryRow, { ...entryRow, id: 'centrydef123456789012' }])
+
+    const caller = testRouter.createCaller(managerCtx())
+    const result = await caller.knowledge.bulkCreate({
+      venueId: VENUE_ID,
+      entries: [
+        {
+          title: 'Refund policy',
+          category: 'Policy',
+          content: 'Refunds are available.',
+          isEnabled: true,
+        },
+        {
+          title: 'Parking',
+          category: 'Directions',
+          content: 'Parking is available.',
+          isEnabled: true,
+        },
+      ],
+    })
+
+    expect(result.count).toBe(2)
+    expect(dbTransaction).toHaveBeenCalled()
+    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('knowledge.bulkCreate rejects more than 500 entries before looking up the venue', async () => {
+    const caller = testRouter.createCaller(managerCtx())
+    const entries = Array.from({ length: 501 }, (_, index) => ({
+      title: `Entry ${index}`,
+      category: 'FAQ',
+      content: 'Venue information.',
+      isEnabled: true,
+    }))
+
+    await expect(caller.knowledge.bulkCreate({ venueId: VENUE_ID, entries })).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }),
+    )
+    expect(venueFindFirst).not.toHaveBeenCalled()
   })
 
   it('knowledge.update re-enqueues when content fields change', async () => {

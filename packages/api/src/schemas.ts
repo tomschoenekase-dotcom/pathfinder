@@ -10,7 +10,12 @@ export {
   DeactivateOperationalUpdateInput,
   OperationalUpdateSeverityInput,
 } from './schemas/operational-update'
-export { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from './schemas/knowledge'
+export {
+  BulkCreateKnowledgeEntriesInput,
+  CreateKnowledgeEntryInput,
+  KnowledgeEntryInput,
+  UpdateKnowledgeEntryInput,
+} from './schemas/knowledge'
 export {
   CreateEngagementQuestionInput,
   EngagementQuestionTypeInput,

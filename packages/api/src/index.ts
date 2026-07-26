@@ -10,7 +10,11 @@ export { requireRole } from './middleware/require-role'
 export { requireTenant } from './middleware/require-tenant'
 export { CreateVenueInput, UpdateVenueInput } from './routers/venue'
 export { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from './routers/place'
-export { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from './routers/knowledge'
+export {
+  BulkCreateKnowledgeEntriesInput,
+  CreateKnowledgeEntryInput,
+  UpdateKnowledgeEntryInput,
+} from './routers/knowledge'
 export {
   CreateEngagementQuestionInput,
   UpdateEngagementQuestionInput,

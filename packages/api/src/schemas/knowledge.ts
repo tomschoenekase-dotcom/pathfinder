@@ -8,6 +8,15 @@ export const CreateKnowledgeEntryInput = z.object({
   isEnabled: z.boolean().default(true),
 })
 
+export const KnowledgeEntryInput = CreateKnowledgeEntryInput.omit({ venueId: true })
+
+export const BulkCreateKnowledgeEntriesInput = z
+  .object({
+    venueId: z.string().cuid(),
+    entries: z.array(KnowledgeEntryInput),
+  })
+  .strict()
+
 export const UpdateKnowledgeEntryInput = z.object({
   id: z.string().cuid(),
   title: z.string().min(1).max(200).optional(),
@@ -17,4 +26,6 @@ export const UpdateKnowledgeEntryInput = z.object({
 })
 
 export type CreateKnowledgeEntryInput = z.infer<typeof CreateKnowledgeEntryInput>
+export type KnowledgeEntryInput = z.infer<typeof KnowledgeEntryInput>
+export type BulkCreateKnowledgeEntriesInput = z.infer<typeof BulkCreateKnowledgeEntriesInput>
 export type UpdateKnowledgeEntryInput = z.infer<typeof UpdateKnowledgeEntryInput>

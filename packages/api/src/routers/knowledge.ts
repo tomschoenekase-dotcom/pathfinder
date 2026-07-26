@@ -5,14 +5,20 @@ import { logger } from '@pathfinder/config/logger'
 import { db } from '@pathfinder/db'
 import { enqueueEmbedKnowledgeEntry } from '@pathfinder/jobs'
 
-import { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from '../schemas/knowledge'
+import {
+  BulkCreateKnowledgeEntriesInput,
+  CreateKnowledgeEntryInput,
+  UpdateKnowledgeEntryInput,
+} from '../schemas/knowledge'
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
 
-export { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput }
+export { BulkCreateKnowledgeEntriesInput, CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput }
 
 type Db = typeof db
+
+const BULK_CREATE_LIMIT = 500
 
 const knowledgeEntrySelect = {
   id: true,
@@ -95,6 +101,44 @@ export const knowledgeRouter = router({
       await enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId })
 
       return entry
+    }),
+
+  bulkCreate: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(BulkCreateKnowledgeEntriesInput)
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+
+      if (input.entries.length > BULK_CREATE_LIMIT) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Bulk create limit is ${BULK_CREATE_LIMIT} knowledge entries`,
+        })
+      }
+
+      await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
+
+      const entries = await ctx.db.$transaction(
+        input.entries.map((entry) =>
+          ctx.db.venueKnowledgeEntry.create({
+            data: {
+              tenantId,
+              venueId: input.venueId,
+              title: entry.title,
+              category: entry.category,
+              content: entry.content,
+              isEnabled: entry.isEnabled,
+            },
+            select: knowledgeEntrySelect,
+          }),
+        ),
+      )
+
+      await Promise.all(
+        entries.map((entry) => enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId })),
+      )
+
+      return { count: entries.length, entries }
     }),
 
   update: tenantProcedure
