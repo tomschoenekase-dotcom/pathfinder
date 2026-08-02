@@ -45,6 +45,11 @@ function describeClerkError(error: unknown): string {
  * an admin member of the org automatically, so a platform admin creating a
  * client this way can later switch into it (via the org picker) to use
  * Clerk-native flows like inviting the real client by email.
+ *
+ * `input.slug` is NOT sent to Clerk — this Clerk instance has organization
+ * slugs disabled, and the self-serve onboarding flow already creates orgs
+ * without one. It's only used as the fallback value for our own Tenant.slug
+ * column below, which is independent of Clerk's org slug.
  */
 export async function createOrganization(input: {
   name: string
@@ -57,7 +62,6 @@ export async function createOrganization(input: {
   try {
     organization = await client.organizations.createOrganization({
       name: input.name,
-      slug: input.slug,
       createdBy: input.createdByUserId,
     })
   } catch (error) {
