@@ -1,10 +1,18 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { tenantFindUnique, tenantMembershipFindMany, tenantUpdate } = vi.hoisted(() => ({
+const {
+  tenantFindUnique,
+  tenantMembershipFindMany,
+  tenantUpdate,
+  inviteOrganizationMemberMock,
+  listPendingOrganizationInvitationsMock,
+} = vi.hoisted(() => ({
   tenantFindUnique: vi.fn(),
   tenantMembershipFindMany: vi.fn(),
   tenantUpdate: vi.fn(),
+  inviteOrganizationMemberMock: vi.fn(),
+  listPendingOrganizationInvitationsMock: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -18,6 +26,15 @@ vi.mock('@pathfinder/db', () => ({
     },
   },
 }))
+
+vi.mock('@pathfinder/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pathfinder/auth')>()
+  return {
+    ...actual,
+    inviteOrganizationMember: inviteOrganizationMemberMock,
+    listPendingOrganizationInvitations: listPendingOrganizationInvitationsMock,
+  }
+})
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -36,6 +53,30 @@ function tenantCtx(): TRPCContext {
       activeTenantId: 'tenant_1',
       role: 'OWNER',
       isPlatformAdmin: false,
+    },
+  }
+}
+
+function staffCtx(): TRPCContext {
+  return {
+    ...baseCtx,
+    session: {
+      userId: 'user_2',
+      activeTenantId: 'tenant_1',
+      role: 'STAFF',
+      isPlatformAdmin: false,
+    },
+  }
+}
+
+function adminImpersonatingCtx(): TRPCContext {
+  return {
+    ...baseCtx,
+    session: {
+      userId: 'admin_1',
+      activeTenantId: 'tenant_1',
+      role: null,
+      isPlatformAdmin: true,
     },
   }
 }
@@ -127,6 +168,61 @@ describe('tenant router', () => {
         where: { tenantId: 'tenant_1', status: { not: 'REMOVED' } },
       }),
     )
+  })
+
+  it('tenant.inviteMember invites through the active tenant, not a client-supplied one', async () => {
+    inviteOrganizationMemberMock.mockResolvedValueOnce({ id: 'invitation_1' })
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.tenant.inviteMember({
+      emailAddress: 'new-member@example.com',
+      role: 'org:member',
+    })
+
+    expect(result).toEqual({ id: 'invitation_1' })
+    expect(inviteOrganizationMemberMock).toHaveBeenCalledWith({
+      organizationId: 'tenant_1',
+      emailAddress: 'new-member@example.com',
+      role: 'org:member',
+      inviterUserId: 'user_1',
+    })
+  })
+
+  it('tenant.inviteMember allows a platform admin impersonating a tenant, regardless of their own org role', async () => {
+    inviteOrganizationMemberMock.mockResolvedValueOnce({ id: 'invitation_2' })
+
+    const caller = testRouter.createCaller(adminImpersonatingCtx())
+    await caller.tenant.inviteMember({
+      emailAddress: 'client-owner@example.com',
+      role: 'org:admin',
+    })
+
+    expect(inviteOrganizationMemberMock).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: 'tenant_1', inviterUserId: 'admin_1' }),
+    )
+  })
+
+  it('tenant.inviteMember throws FORBIDDEN for members below OWNER', async () => {
+    const caller = testRouter.createCaller(staffCtx())
+
+    await expect(
+      caller.tenant.inviteMember({ emailAddress: 'someone@example.com', role: 'org:member' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+    expect(inviteOrganizationMemberMock).not.toHaveBeenCalled()
+  })
+
+  it('tenant.listPendingInvitations reads pending invitations for the active tenant', async () => {
+    listPendingOrganizationInvitationsMock.mockResolvedValueOnce([
+      { id: 'invitation_1', emailAddress: 'new-member@example.com', role: 'org:member' },
+    ])
+
+    const caller = testRouter.createCaller(tenantCtx())
+    const result = await caller.tenant.listPendingInvitations()
+
+    expect(result).toEqual([
+      { id: 'invitation_1', emailAddress: 'new-member@example.com', role: 'org:member' },
+    ])
+    expect(listPendingOrganizationInvitationsMock).toHaveBeenCalledWith('tenant_1')
   })
 
   it('tenant.setEngagementMode updates the current tenant mode', async () => {

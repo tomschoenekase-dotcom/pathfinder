@@ -2,7 +2,7 @@
 
 import type { ElementType, FormEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { useOrganization, useUser } from '@clerk/nextjs'
+import { useUser } from '@clerk/nextjs'
 import { Building2, CalendarClock, Settings, Users } from 'lucide-react'
 
 import { createTRPCClient } from '../../../lib/trpc'
@@ -11,6 +11,9 @@ type SettingsData = Awaited<
   ReturnType<ReturnType<typeof createTRPCClient>['tenant']['getSettings']['query']>
 >
 type SettingsMember = SettingsData['members'][number]
+type PendingInvitation = Awaited<
+  ReturnType<ReturnType<typeof createTRPCClient>['tenant']['listPendingInvitations']['query']>
+>[number]
 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: 'Owner',
@@ -198,26 +201,32 @@ function PaymentDateEditor({
   )
 }
 
-function InviteForm() {
-  const { organization } = useOrganization()
+function InviteForm({
+  client,
+  onInvited,
+}: {
+  client: ReturnType<typeof createTRPCClient>
+  onInvited: () => Promise<void>
+}) {
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState('org:member')
+  const [role, setRole] = useState<'org:admin' | 'org:member'>('org:member')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!organization || !email.trim()) return
+    if (!email.trim()) return
 
     setLoading(true)
     setError(null)
     setSuccess(false)
 
     try {
-      await organization.inviteMember({ emailAddress: email.trim(), role })
+      await client.tenant.inviteMember.mutate({ emailAddress: email.trim(), role })
       setEmail('')
       setSuccess(true)
+      await onInvited()
       window.setTimeout(() => setSuccess(false), 6000)
     } catch (err) {
       setError(getErrorMessage(err))
@@ -257,7 +266,7 @@ function InviteForm() {
           <select
             id="invite-role"
             value={role}
-            onChange={(event) => setRole(event.target.value)}
+            onChange={(event) => setRole(event.target.value as 'org:admin' | 'org:member')}
             className="min-h-10 w-full rounded-2xl border border-pf-light bg-white px-4 text-sm text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
           >
             {INVITE_ROLE_OPTIONS.map((option) => (
@@ -269,7 +278,7 @@ function InviteForm() {
         </div>
         <button
           type="submit"
-          disabled={loading || !email.trim() || !organization}
+          disabled={loading || !email.trim()}
           className="inline-flex min-h-10 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? 'Sending...' : 'Send invite'}
@@ -367,7 +376,6 @@ function PendingInvitationsTable({
 
 export default function SettingsPage() {
   const { user } = useUser()
-  const { invitations } = useOrganization({ invitations: true })
   const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
   if (clientRef.current === null) {
     clientRef.current = createTRPCClient()
@@ -375,6 +383,7 @@ export default function SettingsPage() {
   const client = clientRef.current
 
   const [data, setData] = useState<SettingsData | null>(null)
+  const [invitations, setInvitations] = useState<PendingInvitation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const isPlatformAdmin =
@@ -394,8 +403,18 @@ export default function SettingsPage() {
     }
   }
 
+  async function loadInvitations() {
+    try {
+      const pending = await client.tenant.listPendingInvitations.query()
+      setInvitations(pending)
+    } catch {
+      // Non-critical — the invite form and member list still work without it.
+    }
+  }
+
   useEffect(() => {
     void loadSettings()
+    void loadInvitations()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -466,17 +485,9 @@ export default function SettingsPage() {
         <section className="rounded-3xl border border-pf-primary/10 bg-white p-6 shadow-sm">
           <SectionHeader icon={Users} title="Team" />
 
-          <InviteForm />
+          <InviteForm client={client} onInvited={loadInvitations} />
 
-          <PendingInvitationsTable
-            invitations={
-              invitations?.data?.map((invitation) => ({
-                id: invitation.id,
-                emailAddress: invitation.emailAddress,
-                role: invitation.role,
-              })) ?? []
-            }
-          />
+          <PendingInvitationsTable invitations={invitations} />
 
           {loading ? (
             <p className="mt-6 text-sm text-pf-deep/50">Loading team members...</p>

@@ -41,7 +41,7 @@ async function embedPlace(place: {
 // Slug utility
 // ---------------------------------------------------------------------------
 
-function slugify(name: string): string {
+export function slugify(name: string): string {
   return name
     .toLowerCase()
     .trim()
@@ -50,7 +50,7 @@ function slugify(name: string): string {
     .replace(/-+/g, '-')
 }
 
-async function uniqueSlug(
+export async function uniqueSlug(
   db: Db,
   tenantId: string,
   base: string,

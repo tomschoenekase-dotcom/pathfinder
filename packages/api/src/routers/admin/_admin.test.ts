@@ -21,10 +21,14 @@ const {
   weeklyReportUpdate,
   weeklyReportFindFirst,
   weeklyReportUpdateMany,
+  venueFindFirst,
+  venueCreate,
   writeAuditLogMock,
   enqueueWeeklyDigest,
   enqueueAnswerAnalysis,
   enqueueWeeklyReport,
+  createOrganizationMock,
+  currentUserMock,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -45,10 +49,14 @@ const {
   weeklyReportUpdate: vi.fn(),
   weeklyReportFindFirst: vi.fn(),
   weeklyReportUpdateMany: vi.fn(),
+  venueFindFirst: vi.fn(),
+  venueCreate: vi.fn(),
   writeAuditLogMock: vi.fn(),
   enqueueWeeklyDigest: vi.fn(),
   enqueueAnswerAnalysis: vi.fn(),
   enqueueWeeklyReport: vi.fn(),
+  createOrganizationMock: vi.fn(),
+  currentUserMock: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -90,6 +98,10 @@ vi.mock('@pathfinder/db', () => ({
       findFirst: weeklyReportFindFirst,
       updateMany: weeklyReportUpdateMany,
     },
+    venue: {
+      findFirst: venueFindFirst,
+      create: venueCreate,
+    },
   },
   writeAuditLog: writeAuditLogMock,
   withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
@@ -100,6 +112,15 @@ vi.mock('@pathfinder/jobs', () => ({
   enqueueAnswerAnalysis,
   enqueueWeeklyReport,
 }))
+
+vi.mock('@pathfinder/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pathfinder/auth')>()
+  return {
+    ...actual,
+    createOrganization: createOrganizationMock,
+    currentUser: currentUserMock,
+  }
+})
 
 import { router } from '../../core'
 import type { TRPCContext } from '../../context'
@@ -327,6 +348,75 @@ describe('admin router', () => {
         data: expect.objectContaining({ authorId: 'admin_1' }),
       }),
     )
+  })
+
+  it('admin.createClientAndVenue creates the org, tenant, admin membership, and venue', async () => {
+    createOrganizationMock.mockResolvedValueOnce({
+      id: 'org_new',
+      name: 'The Grand Hotel',
+      slug: 'the-grand-hotel',
+    })
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    tenantFindUnique.mockResolvedValueOnce(null) // slug uniqueness check
+    tenantCreate.mockResolvedValueOnce({
+      id: 'org_new',
+      name: 'The Grand Hotel',
+      slug: 'the-grand-hotel',
+    })
+    venueFindFirst.mockResolvedValueOnce(null) // venue slug uniqueness check
+    venueCreate.mockResolvedValueOnce({ id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' })
+
+    const caller = testRouter.createCaller(adminCtx())
+    const result = await caller.admin.createClientAndVenue({
+      clientName: 'The Grand Hotel',
+      venue: { name: 'Main Lobby' },
+    })
+
+    expect(createOrganizationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'The Grand Hotel', createdByUserId: 'admin_1' }),
+    )
+    expect(tenantCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
+      }),
+    )
+    expect(tenantMembershipUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          tenantId: 'org_new',
+          userId: 'admin_1',
+          role: 'OWNER',
+          status: 'ACTIVE',
+        }),
+      }),
+    )
+    expect(venueCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tenantId: 'org_new', name: 'Main Lobby' }),
+      }),
+    )
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.client.created', targetId: 'org_new' }),
+    )
+    expect(result).toEqual({
+      tenant: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
+      venue: { id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' },
+    })
+  })
+
+  it('admin.createClientAndVenue throws FORBIDDEN for non-admin users', async () => {
+    const caller = testRouter.createCaller(nonAdminCtx())
+
+    await expect(
+      caller.admin.createClientAndVenue({
+        clientName: 'The Grand Hotel',
+        venue: { name: 'Main Lobby' },
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+    expect(createOrganizationMock).not.toHaveBeenCalled()
   })
 
   it('admin.generateWeeklyReportDraft always creates a new row (no reuse) and accepts a custom title', async () => {

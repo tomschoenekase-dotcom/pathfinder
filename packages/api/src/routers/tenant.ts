@@ -2,10 +2,24 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { db } from '@pathfinder/db'
+import {
+  inviteOrganizationMember,
+  listPendingOrganizationInvitations,
+  requireTenantRole,
+} from '@pathfinder/auth'
+import type { SessionContext } from '@pathfinder/auth'
 
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
+
+// Team management is OWNER-only, same as other tenant-membership-affecting
+// actions — except platform admins, who manage clients while impersonating
+// (a cookie override) rather than as a real member with a real org role.
+function assertCanManageTeam(session: SessionContext & { activeTenantId: string }) {
+  if (session.isPlatformAdmin) return
+  requireTenantRole(session, 'OWNER')
+}
 
 export const tenantRouter = router({
   /**
@@ -49,6 +63,36 @@ export const tenantRouter = router({
     }
 
     return { tenant, members }
+  }),
+
+  /**
+   * Invites someone into the current tenant's Clerk org by email, via the
+   * Backend API (not the client-side Clerk SDK) so it targets whichever
+   * tenant is actually active server-side — including a platform admin's
+   * impersonated tenant, which the browser's real Clerk org state can't see.
+   */
+  inviteMember: tenantProcedure
+    .input(
+      z
+        .object({
+          emailAddress: z.string().email(),
+          role: z.enum(['org:admin', 'org:member']),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertCanManageTeam(ctx.session)
+
+      return inviteOrganizationMember({
+        organizationId: ctx.session.activeTenantId,
+        emailAddress: input.emailAddress,
+        role: input.role,
+        inviterUserId: ctx.session.userId,
+      })
+    }),
+
+  listPendingInvitations: tenantProcedure.query(async ({ ctx }) => {
+    return listPendingOrganizationInvitations(ctx.session.activeTenantId)
   }),
 
   setEngagementMode: tenantProcedure

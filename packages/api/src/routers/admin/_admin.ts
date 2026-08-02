@@ -2,8 +2,11 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
 import { enqueueAnswerAnalysis, enqueueWeeklyDigest, enqueueWeeklyReport } from '@pathfinder/jobs'
+import { createOrganization, currentUser } from '@pathfinder/auth'
 import { adminProcedure } from '../../trpc'
 import { router } from '../../core'
+import { CreateVenueInput } from '../../schemas/venue'
+import { slugify, uniqueSlug } from '../venue'
 
 function startOfCurrentUtcWeek(date: Date): Date {
   const result = new Date(date)
@@ -23,6 +26,22 @@ function endOfUtcWeek(weekStart: Date): Date {
   result.setUTCHours(23, 59, 59, 999)
 
   return result
+}
+
+async function uniqueTenantSlug(base: string): Promise<string> {
+  let candidate = base
+  let suffix = 2
+
+  while (true) {
+    const existing = await db.tenant.findUnique({
+      where: { slug: candidate },
+      select: { id: true },
+    })
+    if (!existing) return candidate
+
+    candidate = `${base}-${suffix}`
+    suffix++
+  }
 }
 
 export const adminRouter = router({
@@ -433,6 +452,115 @@ export const adminRouter = router({
       })
 
       return { ok: true }
+    }),
+
+  /**
+   * Creates a brand-new client end-to-end: a real Clerk Organization, its
+   * Tenant row, the calling admin as its OWNER (so they can immediately
+   * manage it and, later, switch into the org via the picker to invite the
+   * real client through the existing Settings invite flow), and a first
+   * Venue. Lets an admin onboard a client who won't self-serve a Clerk
+   * account, instead of the old workaround of hand-creating a throwaway
+   * account per venue.
+   */
+  createClientAndVenue: adminProcedure
+    .input(
+      z.object({
+        clientName: z.string().min(1).max(120),
+        clientSlug: z.string().min(1).max(80).optional(),
+        venue: CreateVenueInput,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const tenantSlug = await uniqueTenantSlug(slugify(input.clientSlug ?? input.clientName))
+
+      const organization = await createOrganization({
+        name: input.clientName,
+        slug: tenantSlug,
+        createdByUserId: ctx.session.userId,
+      })
+
+      const adminUser = await currentUser()
+      const adminEmail =
+        adminUser?.emailAddresses.find((address) => address.id === adminUser.primaryEmailAddressId)
+          ?.emailAddress ?? adminUser?.emailAddresses[0]?.emailAddress
+
+      if (!adminEmail) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Could not resolve the admin email address',
+        })
+      }
+
+      const { tenant, venue } = await withTenantIsolationBypass(async () => {
+        const tenant = await db.tenant.create({
+          data: { id: organization.id, name: input.clientName, slug: organization.slug },
+        })
+
+        await db.user.upsert({
+          where: { id: ctx.session.userId },
+          create: { id: ctx.session.userId, email: adminEmail },
+          update: { email: adminEmail },
+        })
+
+        await db.tenantMembership.upsert({
+          where: { tenantId_userId: { tenantId: organization.id, userId: ctx.session.userId } },
+          create: {
+            tenantId: organization.id,
+            userId: ctx.session.userId,
+            role: 'OWNER',
+            status: 'ACTIVE',
+            joinedAt: new Date(),
+          },
+          update: { role: 'OWNER', status: 'ACTIVE' },
+        })
+
+        const venueSlug = await uniqueSlug(
+          db,
+          organization.id,
+          slugify(input.venue.slug ?? input.venue.name),
+        )
+
+        const venue = await db.venue.create({
+          data: {
+            tenantId: organization.id,
+            name: input.venue.name,
+            slug: venueSlug,
+            guideMode: input.venue.guideMode ?? 'location_aware',
+            ...(input.venue.description !== undefined
+              ? { description: input.venue.description }
+              : {}),
+            ...(input.venue.guideNotes !== undefined ? { guideNotes: input.venue.guideNotes } : {}),
+            ...(input.venue.category !== undefined ? { category: input.venue.category } : {}),
+            ...(input.venue.defaultCenterLat !== undefined
+              ? { defaultCenterLat: input.venue.defaultCenterLat }
+              : {}),
+            ...(input.venue.defaultCenterLng !== undefined
+              ? { defaultCenterLng: input.venue.defaultCenterLng }
+              : {}),
+          },
+          select: { id: true, name: true, slug: true },
+        })
+
+        return { tenant, venue }
+      })
+
+      await writeAuditLog({
+        tenantId: organization.id,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.client.created',
+        targetType: 'Tenant',
+        targetId: organization.id,
+        afterState: {
+          id: organization.id,
+          name: input.clientName,
+          slug: tenantSlug,
+          venueId: venue.id,
+        },
+      })
+
+      return { tenant, venue }
     }),
 
   updateClientStatus: adminProcedure

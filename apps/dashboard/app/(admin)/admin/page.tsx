@@ -62,7 +62,15 @@ export default async function AdminOverviewPage() {
       <section className="space-y-4">
         <div className="flex items-end justify-between">
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Clients</h2>
-          <span className="text-sm text-pf-deep/50">{clients.length} total</span>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-pf-deep/50">{clients.length} total</span>
+            <Link
+              href="/admin/new"
+              className="inline-flex min-h-10 items-center rounded-full bg-pf-primary px-4 text-sm font-semibold text-white transition hover:bg-pf-accent"
+            >
+              + New client
+            </Link>
+          </div>
         </div>
 
         {clients.length === 0 ? (
