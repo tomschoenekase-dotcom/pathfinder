@@ -24,6 +24,22 @@ export type CreatedOrganization = {
   slug: string
 }
 
+// Clerk API errors carry the real reason in `.errors[].longMessage`; the
+// generic top-level `.message` is often just the HTTP status text (e.g.
+// "Forbidden"), which is useless on its own for diagnosing why a call failed.
+function describeClerkError(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'errors' in error) {
+    const clerkErrors = (error as { errors?: unknown }).errors
+    if (Array.isArray(clerkErrors) && clerkErrors.length > 0) {
+      const [first] = clerkErrors as Array<{ message?: string; longMessage?: string }>
+      const detail = first?.longMessage ?? first?.message
+      if (detail) return detail
+    }
+  }
+
+  return error instanceof Error ? error.message : 'Unknown Clerk error'
+}
+
 /**
  * Creates a real Clerk Organization server-side. `createdBy` makes that user
  * an admin member of the org automatically, so a platform admin creating a
@@ -36,11 +52,20 @@ export async function createOrganization(input: {
   createdByUserId: string
 }): Promise<CreatedOrganization> {
   const client = await clerkClient()
-  const organization = await client.organizations.createOrganization({
-    name: input.name,
-    slug: input.slug,
-    createdBy: input.createdByUserId,
-  })
+
+  let organization: Awaited<ReturnType<typeof client.organizations.createOrganization>>
+  try {
+    organization = await client.organizations.createOrganization({
+      name: input.name,
+      slug: input.slug,
+      createdBy: input.createdByUserId,
+    })
+  } catch (error) {
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: `Clerk rejected the organization creation: ${describeClerkError(error)}`,
+    })
+  }
 
   return {
     id: organization.id,
@@ -73,14 +98,22 @@ export async function inviteOrganizationMember(input: {
   inviterUserId: string
 }): Promise<{ id: string }> {
   const client = await clerkClient()
-  const invitation = await client.organizations.createOrganizationInvitation({
-    organizationId: input.organizationId,
-    emailAddress: input.emailAddress,
-    role: input.role,
-    inviterUserId: input.inviterUserId,
-  })
 
-  return { id: invitation.id }
+  try {
+    const invitation = await client.organizations.createOrganizationInvitation({
+      organizationId: input.organizationId,
+      emailAddress: input.emailAddress,
+      role: input.role,
+      inviterUserId: input.inviterUserId,
+    })
+
+    return { id: invitation.id }
+  } catch (error) {
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: `Clerk rejected the invitation: ${describeClerkError(error)}`,
+    })
+  }
 }
 
 export async function listPendingOrganizationInvitations(
