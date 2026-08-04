@@ -22,6 +22,9 @@ import {
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
+  MEDIA_INGESTION_PROCESS_JOB,
+  MEDIA_INGESTION_QUEUE,
+  MEDIA_INGESTION_RETRY_BACKOFF,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -38,6 +41,7 @@ import type {
   SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
+  MediaIngestionJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -128,6 +132,26 @@ const sendWelcomeEmailJobOptions: JobsOptions = {
   },
   removeOnComplete: 1000,
   removeOnFail: 5000,
+}
+
+const mediaIngestionJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: { type: MEDIA_INGESTION_RETRY_BACKOFF },
+  removeOnComplete: 100,
+  removeOnFail: 500,
+}
+
+export async function enqueueMediaIngestion(payload: MediaIngestionJobPayload): Promise<void> {
+  await getQueue(MEDIA_INGESTION_QUEUE).add(MEDIA_INGESTION_PROCESS_JOB, payload, {
+    ...mediaIngestionJobOptions,
+    jobId: `media-ingestion-${payload.projectId}`,
+  })
+  logger.info({
+    action: 'jobs.media-ingestion.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    projectId: payload.projectId,
+  })
 }
 
 export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Promise<void> {

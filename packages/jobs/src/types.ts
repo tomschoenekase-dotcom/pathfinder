@@ -49,3 +49,9 @@ export type SendWelcomeEmailJobPayload = {
   recipientName: string | null
   orgName: string
 }
+
+export type MediaIngestionJobPayload = {
+  tenantId: string
+  venueId: string
+  projectId: string
+}

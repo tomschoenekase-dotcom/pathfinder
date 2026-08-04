@@ -1,6 +1,7 @@
 import { publicProcedure } from './trpc'
 import { router } from './core'
 import { adminRouter } from './routers/admin/_admin'
+import { mediaIngestionRouter } from './routers/admin/media-ingestion'
 import { analyticsRouter } from './routers/analytics'
 import { chatRouter } from './routers/chat'
 import { engagementQuestionRouter } from './routers/engagement-question'
@@ -12,6 +13,7 @@ import { venueRouter } from './routers/venue'
 
 export const appRouter = router({
   admin: adminRouter,
+  mediaIngestion: mediaIngestionRouter,
   analytics: analyticsRouter,
   chat: chatRouter,
   engagementQuestion: engagementQuestionRouter,

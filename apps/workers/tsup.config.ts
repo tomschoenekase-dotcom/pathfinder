@@ -12,5 +12,5 @@ export default defineConfig({
   // Bundle all workspace packages (they resolve to raw TS source in the monorepo)
   noExternal: [/^@pathfinder\//],
   // Do not bundle these — they have native binaries that must remain external
-  external: ['@prisma/client', '.prisma/client'],
+  external: ['@prisma/client', '.prisma/client', 'sharp', 'ffmpeg-static'],
 })

@@ -32,3 +32,7 @@ export const ANALYTICS_ENRICHMENT_RETRY_BACKOFF = 'analytics-enrichment-retry'
 export const SEND_EMAIL_QUEUE = 'send-email'
 export const SEND_WELCOME_EMAIL_JOB = 'send-welcome-email'
 export const SEND_WELCOME_EMAIL_RETRY_BACKOFF = 'send-welcome-email-retry'
+
+export const MEDIA_INGESTION_QUEUE = 'media-ingestion'
+export const MEDIA_INGESTION_PROCESS_JOB = 'media-ingestion-process'
+export const MEDIA_INGESTION_RETRY_BACKOFF = 'media-ingestion-retry'

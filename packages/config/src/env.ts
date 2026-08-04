@@ -20,6 +20,9 @@ export const envSchema = z.object({
 
   // Required for RAG / semantic place search
   OPENAI_API_KEY: z.string().min(1).optional(),
+  MEDIA_ANALYSIS_MODEL: z.string().min(1).optional(),
+  MEDIA_SYNTHESIS_MODEL: z.string().min(1).optional(),
+  MEDIA_TRANSCRIPTION_MODEL: z.string().min(1).optional(),
 
   // Required from PACKET-12 (integrations) onward
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
@@ -27,6 +30,7 @@ export const envSchema = z.object({
   // Required when storage is wired (post-MVP scaffolding)
   STORAGE_BUCKET: z.string().optional(),
   STORAGE_REGION: z.string().optional(),
+  STORAGE_ENDPOINT: z.string().url().optional(),
   STORAGE_ACCESS_KEY_ID: z.string().optional(),
   STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
 

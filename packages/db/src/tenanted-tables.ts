@@ -18,6 +18,8 @@ export const TENANTED_TABLES = [
   'WeeklyReport',
   'AnswerAnalysisSnapshot',
   'VenueWeeklyTheme',
+  'MediaIngestionProject',
+  'MediaIngestionAsset',
 ] as const
 
 export const PLATFORM_TABLES = ['User', 'Tenant', 'AuditLog', 'PlatformConfig'] as const

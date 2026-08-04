@@ -26,6 +26,9 @@ export {
   WEEKLY_REPORT_PROCESS_JOB,
   WEEKLY_REPORT_QUEUE,
   WEEKLY_REPORT_RETRY_BACKOFF,
+  MEDIA_INGESTION_PROCESS_JOB,
+  MEDIA_INGESTION_QUEUE,
+  MEDIA_INGESTION_RETRY_BACKOFF,
 } from './queues'
 export { closeBullMQConnection, getBullMQConnection } from './connection'
 export {
@@ -38,6 +41,7 @@ export {
   enqueueWelcomeEmail,
   enqueueWeeklyDigest,
   enqueueWeeklyReport,
+  enqueueMediaIngestion,
 } from './enqueue'
 export type {
   AnswerAnalysisJobPayload,
@@ -48,4 +52,5 @@ export type {
   SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
+  MediaIngestionJobPayload,
 } from './types'

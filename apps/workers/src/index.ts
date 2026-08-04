@@ -26,6 +26,9 @@ import {
   enqueueDailyRollup,
   enqueueWeeklyDigest,
   getBullMQConnection,
+  MEDIA_INGESTION_PROCESS_JOB,
+  MEDIA_INGESTION_QUEUE,
+  MEDIA_INGESTION_RETRY_BACKOFF,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -44,6 +47,7 @@ import {
   type DailyRollupJobPayload,
   type WeeklyDigestJobPayload,
   type WeeklyReportJobPayload,
+  type MediaIngestionJobPayload,
 } from '@pathfinder/jobs'
 
 import { processAnswerAnalysisJob } from './processors/answer-analysis'
@@ -54,6 +58,7 @@ import { processEmbedPlaceJob } from './processors/embed-place'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
+import { processMediaIngestionJob } from './processors/media-ingestion'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
@@ -435,6 +440,15 @@ async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
   throw new Error(`Unsupported send-email job: ${job.name}`)
 }
 
+async function handleMediaIngestionQueueJob(job: Job<MediaIngestionJobPayload>) {
+  if (job.name === MEDIA_INGESTION_PROCESS_JOB) {
+    await processMediaIngestionJob(job.data, job.id)
+    return
+  }
+
+  throw new Error(`Unsupported media ingestion job: ${job.name}`)
+}
+
 export async function startWorkers() {
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
@@ -443,6 +457,7 @@ export async function startWorkers() {
   const analyticsEnrichmentQueue = new Queue(ANALYTICS_ENRICHMENT_QUEUE, { connection })
   const answerAnalysisQueue = new Queue(ANSWER_ANALYSIS_QUEUE, { connection })
   const weeklyReportQueue = new Queue(WEEKLY_REPORT_QUEUE, { connection })
+  const mediaIngestionQueue = new Queue(MEDIA_INGESTION_QUEUE, { connection })
 
   await weeklyDigestQueue.upsertJobScheduler(
     WEEKLY_DIGEST_SCHEDULER_JOB,
@@ -609,6 +624,17 @@ export async function startWorkers() {
     },
   })
 
+  // A media job may hold several GB of temporary data and make many model calls,
+  // so keep concurrency at one per worker process.
+  const mediaIngestionWorker = new Worker(MEDIA_INGESTION_QUEUE, handleMediaIngestionQueueJob, {
+    connection,
+    concurrency: 1,
+    settings: {
+      backoffStrategy: (attemptsMade, type) =>
+        type === MEDIA_INGESTION_RETRY_BACKOFF ? Math.min(attemptsMade * 60_000, 5 * 60_000) : 0,
+    },
+  })
+
   const handleCompletedJob = (job: Job) => {
     logger.info({
       action: 'workers.job.completed',
@@ -637,6 +663,7 @@ export async function startWorkers() {
   sendEmailWorker.on('completed', handleCompletedJob)
   answerAnalysisWorker.on('completed', handleCompletedJob)
   weeklyReportWorker.on('completed', handleCompletedJob)
+  mediaIngestionWorker.on('completed', handleCompletedJob)
 
   weeklyDigestWorker.on('failed', handleFailedJob)
   dailyRollupWorker.on('failed', handleFailedJob)
@@ -646,6 +673,7 @@ export async function startWorkers() {
   sendEmailWorker.on('failed', handleFailedJob)
   answerAnalysisWorker.on('failed', handleFailedJob)
   weeklyReportWorker.on('failed', handleFailedJob)
+  mediaIngestionWorker.on('failed', handleFailedJob)
 
   logger.info({
     action: 'workers.started',
@@ -658,6 +686,7 @@ export async function startWorkers() {
       ANSWER_ANALYSIS_QUEUE,
       WEEKLY_REPORT_QUEUE,
       SEND_EMAIL_QUEUE,
+      MEDIA_INGESTION_QUEUE,
     ],
   })
 
@@ -673,12 +702,14 @@ export async function startWorkers() {
       answerAnalysisWorker.close(),
       weeklyReportWorker.close(),
       sendEmailWorker.close(),
+      mediaIngestionWorker.close(),
       weeklyDigestQueue.close(),
       dailyRollupQueue.close(),
       embedPlaceQueue.close(),
       analyticsEnrichmentQueue.close(),
       answerAnalysisQueue.close(),
       weeklyReportQueue.close(),
+      mediaIngestionQueue.close(),
       closeJobQueues(),
       closeBullMQConnection(),
     ])
@@ -703,6 +734,8 @@ export async function startWorkers() {
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,
+    mediaIngestionQueue,
+    mediaIngestionWorker,
     weeklyReportQueue,
     weeklyReportWorker,
     weeklyDigestQueue,

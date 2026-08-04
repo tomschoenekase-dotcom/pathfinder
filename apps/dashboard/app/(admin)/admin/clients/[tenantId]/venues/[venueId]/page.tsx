@@ -101,6 +101,11 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
       <section className="grid gap-4 md:grid-cols-3">
         {[
           {
+            href: `/admin/clients/${tenantId}/venues/${venueId}/media`,
+            title: 'Media lab',
+            body: 'Turn a ZIP of photos, video, audio, and notes into reviewed venue JSON.',
+          },
+          {
             href: `/admin/clients/${tenantId}/venues/${venueId}/chatlogs`,
             title: 'Chatlog review',
             body: 'Browse transcripts, captured answers, notable flags, and private notes.',
