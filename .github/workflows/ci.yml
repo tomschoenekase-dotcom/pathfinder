@@ -47,6 +47,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir packages/db db:generate
       - run: pnpm turbo run typecheck
       - run: pnpm turbo run lint
       - run: pnpm turbo run test
