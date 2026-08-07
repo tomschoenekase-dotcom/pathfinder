@@ -233,13 +233,51 @@ function RankedList({
   )
 }
 
+function GuestQuestions({ questions }: { questions: Array<{ question: string; count: number }> }) {
+  return (
+    <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
+          Guest Questions
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+          Guest Questions (Last 7 Days)
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+          Showing most-asked questions across all your venues in the last 7 days.
+        </p>
+      </div>
+      {questions.length === 0 ? (
+        <div className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface px-5 py-6 text-sm text-pf-deep/60">
+          No guest messages recorded yet.
+        </div>
+      ) : (
+        <ol className="space-y-3">
+          {questions.map((question, index) => (
+            <li
+              key={`${question.question}-${index}`}
+              className="flex items-start justify-between gap-4 rounded-[1.5rem] border border-pf-light bg-pf-surface px-5 py-4"
+            >
+              <p className="text-sm leading-6 text-pf-deep">{question.question}</p>
+              <span className="inline-flex shrink-0 rounded-full bg-pf-white px-3 py-1 text-xs font-semibold text-pf-deep">
+                {question.count}×
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  )
+}
+
 export default async function AnalyticsPage() {
   const caller = await createDashboardCaller('/analytics')
 
-  const [dailyStats, visitorStats, weeklyThemes, venues] = await Promise.all([
+  const [dailyStats, visitorStats, weeklyThemes, topQuestions, venues] = await Promise.all([
     caller.analytics.getDailyStats({ days: 30 }),
     caller.analytics.getVisitorStats({ days: 30 }),
     caller.analytics.getWeeklyThemes(),
+    caller.analytics.getTopQuestions({}),
     caller.venue.list(),
   ])
 
@@ -278,6 +316,8 @@ export default async function AnalyticsPage() {
           weekStart={weeklyThemes.weekStart}
           weekEnd={weeklyThemes.weekEnd}
         />
+
+        <GuestQuestions questions={topQuestions} />
 
         <RankedList
           eyebrow="Place Interest"
