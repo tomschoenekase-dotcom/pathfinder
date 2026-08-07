@@ -103,6 +103,7 @@ describe('tenantIsolationMiddleware', () => {
       'VenueWeeklyTheme',
       'MediaIngestionProject',
       'MediaIngestionAsset',
+      'EmbeddingWorkClaim',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual(['User', 'Tenant', 'PlatformConfig'])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual(['AuditLog', 'JobRecord'])

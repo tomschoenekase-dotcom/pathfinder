@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UnrecoverableError } from 'bullmq'
 
 const mocks = vi.hoisted(() => ({
+  acquireEmbeddingWork: vi.fn(),
   aiUsageCreate: vi.fn(),
   buildPlaceText: vi.fn(),
   generateEmbedding: vi.fn(),
   placeFindFirst: vi.fn(),
+  releaseEmbeddingWork: vi.fn(),
   storePlaceEmbeddingForScope: vi.fn(),
   updateJobRecord: vi.fn(),
   withTenantIsolationBypass: vi.fn(),
@@ -15,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@pathfinder/ai', () => ({
   AI_EMBEDDING_MODEL_KEYS: { PLACE_CONTENT: 'place-content-embedding' },
   generateEmbedding: mocks.generateEmbedding,
+  getAiEmbeddingProfile: vi.fn(() => 'openai:text-embedding-3-small:1536'),
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -22,12 +25,14 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  acquireEmbeddingWork: mocks.acquireEmbeddingWork,
   buildPlaceText: mocks.buildPlaceText,
   db: {
     aiUsageEvent: { create: mocks.aiUsageCreate },
     place: { findFirst: mocks.placeFindFirst },
   },
   storePlaceEmbeddingForScope: mocks.storePlaceEmbeddingForScope,
+  releaseEmbeddingWork: mocks.releaseEmbeddingWork,
   updateJobRecord: mocks.updateJobRecord,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
@@ -74,8 +79,10 @@ describe('processEmbedPlaceJob', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.aiUsageCreate.mockResolvedValue({ id: 'usage_1' })
+    mocks.acquireEmbeddingWork.mockResolvedValue({ state: 'acquired', claimId: 'claim_1' })
     mocks.buildPlaceText.mockReturnValue('canonical place text')
-    mocks.storePlaceEmbeddingForScope.mockResolvedValue(true)
+    mocks.releaseEmbeddingWork.mockResolvedValue(true)
+    mocks.storePlaceEmbeddingForScope.mockResolvedValue({ claimCompleted: true, stored: true })
     mocks.generateEmbedding.mockImplementation(async (params) => {
       await params.usageSink(usage)
       return { ...usage, embeddings: [[0.1]], embedding: [0.1] }
@@ -129,7 +136,27 @@ describe('processEmbedPlaceJob', () => {
         isActive: place.isActive,
       },
       embedding: [0.1],
+      claimId: 'claim_1',
+      leaseToken: expect.stringMatching(/^[a-f0-9-]{36}$/),
     })
+    expect(mocks.acquireEmbeddingWork).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        entityType: 'PLACE',
+        entityId: 'place_1',
+        contentUpdatedAt,
+        leaseToken: expect.stringMatching(/^[a-f0-9-]{36}$/),
+        sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        embeddingProfile: 'openai:text-embedding-3-small:1536',
+      }),
+    )
+    expect(mocks.storePlaceEmbeddingForScope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claimId: 'claim_1',
+        leaseToken: expect.stringMatching(/^[a-f0-9-]{36}$/),
+      }),
+    )
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 
@@ -194,6 +221,49 @@ describe('processEmbedPlaceJob', () => {
       }),
     })
     expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.releaseEmbeddingWork).toHaveBeenCalledWith(
+      expect.objectContaining({ claimId: 'claim_1', tenantId: 'tenant_1' }),
+    )
+  })
+
+  it('skips provider and storage for a durable successful replay', async () => {
+    mocks.placeFindFirst.mockResolvedValueOnce(place)
+    mocks.acquireEmbeddingWork.mockResolvedValueOnce({ state: 'complete' })
+
+    await expect(processEmbedPlaceJob(payload, 'bull_duplicate')).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
+  })
+
+  it('retries rather than completing while identical work is leased', async () => {
+    mocks.placeFindFirst.mockResolvedValueOnce(place)
+    mocks.acquireEmbeddingWork.mockResolvedValueOnce({ state: 'leased' })
+
+    await expect(processEmbedPlaceJob(payload, 'bull_duplicate')).rejects.toThrow(
+      'currently leased',
+    )
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'FAILED',
+      error: 'Identical embedding work is currently leased',
+    })
+  })
+
+  it('uses a fresh fencing token for each processor invocation, independent of Bull job ID', async () => {
+    mocks.placeFindFirst.mockResolvedValue(place)
+
+    await processEmbedPlaceJob(payload, 'bull_retry')
+    await processEmbedPlaceJob(payload, 'bull_retry')
+
+    const firstToken = mocks.acquireEmbeddingWork.mock.calls[0]?.[0].leaseToken
+    const secondToken = mocks.acquireEmbeddingWork.mock.calls[1]?.[0].leaseToken
+    expect(firstToken).toMatch(/^[a-f0-9-]{36}$/)
+    expect(secondToken).toMatch(/^[a-f0-9-]{36}$/)
+    expect(secondToken).not.toBe(firstToken)
   })
 
   it('retains observed billed usage but stores nothing for a malformed provider response', async () => {
@@ -252,7 +322,10 @@ describe('processEmbedPlaceJob', () => {
 
   it('does not overwrite a revision that changes during the provider call', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(place)
-    mocks.storePlaceEmbeddingForScope.mockResolvedValueOnce(false)
+    mocks.storePlaceEmbeddingForScope.mockResolvedValueOnce({
+      claimCompleted: true,
+      stored: false,
+    })
 
     await expect(processEmbedPlaceJob(payload)).resolves.toBeUndefined()
     expect(mocks.generateEmbedding).toHaveBeenCalledOnce()

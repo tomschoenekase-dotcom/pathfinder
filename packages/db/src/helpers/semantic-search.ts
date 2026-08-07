@@ -1,5 +1,6 @@
 import { db } from '../client'
 import { haversineDistanceMeters } from '@pathfinder/config/geo'
+import { EMBEDDING_WORK_LEASE_MS } from './embedding-work-claims'
 
 export type SemanticPlace = {
   id: string
@@ -39,6 +40,57 @@ type RawPlaceRow = {
 
 const DEFAULT_LIMIT = 8
 const KNOWLEDGE_DEFAULT_LIMIT = 5
+
+type EmbeddingTransaction = Omit<
+  typeof db,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>
+
+async function fenceEmbeddingClaim(
+  tx: EmbeddingTransaction,
+  params: { claimId: string; tenantId: string; venueId: string; leaseToken: string },
+): Promise<boolean> {
+  const fenced = await tx.$executeRaw`
+    UPDATE embedding_work_claims
+    SET lease_expires_at = clock_timestamp() + ${EMBEDDING_WORK_LEASE_MS} * INTERVAL '1 millisecond',
+        updated_at = clock_timestamp()
+    WHERE id = ${params.claimId}
+      AND tenant_id = ${params.tenantId}
+      AND venue_id = ${params.venueId}
+      AND status = 'RUNNING'
+      AND lease_token = ${params.leaseToken}
+      AND lease_expires_at > clock_timestamp()
+  `
+  return fenced === 1
+}
+
+async function finishEmbeddingClaim(
+  tx: EmbeddingTransaction,
+  params: {
+    claimId: string
+    tenantId: string
+    venueId: string
+    leaseToken: string
+    stored: boolean
+  },
+): Promise<void> {
+  const finished = await tx.embeddingWorkClaim.updateMany({
+    where: {
+      id: params.claimId,
+      tenantId: params.tenantId,
+      venueId: params.venueId,
+      status: 'RUNNING',
+      leaseToken: params.leaseToken,
+    },
+    data: {
+      status: params.stored ? 'COMPLETE' : 'SUPERSEDED',
+      leaseToken: null,
+      leaseExpiresAt: null,
+      completedAt: new Date(),
+    },
+  })
+  if (finished.count !== 1) throw new Error('Embedding claim terminal transition lost ownership')
+}
 
 export type SemanticKnowledgeEntry = {
   id: string
@@ -140,27 +192,39 @@ export async function storePlaceEmbeddingForScope(params: {
     isActive: boolean
   }
   embedding: number[]
-}): Promise<boolean> {
+  claimId: string
+  leaseToken: string
+}): Promise<{ claimCompleted: boolean; stored: boolean }> {
   const vectorStr = `[${params.embedding.join(',')}]`
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updated = await (db as any).$executeRaw`
-    UPDATE places
-    SET embedding = ${vectorStr}::vector
-    WHERE id = ${params.placeId}
-      AND tenant_id = ${params.tenantId}
-      AND venue_id = ${params.venueId}
-      AND updated_at = ${params.contentUpdatedAt}
-      AND name = ${params.source.name}
-      AND type = ${params.source.type}
-      AND item_type IS NOT DISTINCT FROM ${params.source.itemType}
-      AND short_description IS NOT DISTINCT FROM ${params.source.shortDescription}
-      AND long_description IS NOT DISTINCT FROM ${params.source.longDescription}
-      AND tags = ${params.source.tags}
-      AND area_name IS NOT DISTINCT FROM ${params.source.areaName}
-      AND hours IS NOT DISTINCT FROM ${params.source.hours}
-      AND is_active = ${params.source.isActive}
-  `
-  return updated === 1
+  return db.$transaction(async (tx) => {
+    if (!(await fenceEmbeddingClaim(tx as unknown as EmbeddingTransaction, params))) {
+      return { claimCompleted: false, stored: false }
+    }
+
+    const updated = await tx.$executeRaw`
+      UPDATE places
+      SET embedding = ${vectorStr}::vector
+      WHERE id = ${params.placeId}
+        AND tenant_id = ${params.tenantId}
+        AND venue_id = ${params.venueId}
+        AND updated_at = ${params.contentUpdatedAt}
+        AND name = ${params.source.name}
+        AND type = ${params.source.type}
+        AND item_type IS NOT DISTINCT FROM ${params.source.itemType}
+        AND short_description IS NOT DISTINCT FROM ${params.source.shortDescription}
+        AND long_description IS NOT DISTINCT FROM ${params.source.longDescription}
+        AND tags = ${params.source.tags}
+        AND area_name IS NOT DISTINCT FROM ${params.source.areaName}
+        AND hours IS NOT DISTINCT FROM ${params.source.hours}
+        AND is_active = ${params.source.isActive}
+    `
+    const stored = updated === 1
+    await finishEmbeddingClaim(tx as unknown as EmbeddingTransaction, {
+      ...params,
+      stored,
+    })
+    return { claimCompleted: true, stored }
+  })
 }
 
 /**
@@ -219,20 +283,32 @@ export async function storeKnowledgeEntryEmbeddingForScope(params: {
     isEnabled: boolean
   }
   embedding: number[]
-}): Promise<boolean> {
+  claimId: string
+  leaseToken: string
+}): Promise<{ claimCompleted: boolean; stored: boolean }> {
   const vectorStr = `[${params.embedding.join(',')}]`
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const updated = await (db as any).$executeRaw`
-    UPDATE venue_knowledge_entries
-    SET embedding = ${vectorStr}::vector
-    WHERE id = ${params.entryId}
-      AND tenant_id = ${params.tenantId}
-      AND venue_id = ${params.venueId}
-      AND updated_at = ${params.contentUpdatedAt}
-      AND title = ${params.source.title}
-      AND category = ${params.source.category}
-      AND content = ${params.source.content}
-      AND is_enabled = ${params.source.isEnabled}
-  `
-  return updated === 1
+  return db.$transaction(async (tx) => {
+    if (!(await fenceEmbeddingClaim(tx as unknown as EmbeddingTransaction, params))) {
+      return { claimCompleted: false, stored: false }
+    }
+
+    const updated = await tx.$executeRaw`
+      UPDATE venue_knowledge_entries
+      SET embedding = ${vectorStr}::vector
+      WHERE id = ${params.entryId}
+        AND tenant_id = ${params.tenantId}
+        AND venue_id = ${params.venueId}
+        AND updated_at = ${params.contentUpdatedAt}
+        AND title = ${params.source.title}
+        AND category = ${params.source.category}
+        AND content = ${params.source.content}
+        AND is_enabled = ${params.source.isEnabled}
+    `
+    const stored = updated === 1
+    await finishEmbeddingClaim(tx as unknown as EmbeddingTransaction, {
+      ...params,
+      stored,
+    })
+    return { claimCompleted: true, stored }
+  })
 }

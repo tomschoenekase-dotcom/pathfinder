@@ -49,6 +49,7 @@ model Tenant {
   mediaIngestionProjects      MediaIngestionProject[]
   aiUsageEvents               AiUsageEvent[]
   aiUsageDailyRollups         AiUsageDailyRollup[]
+  embeddingWorkClaims         EmbeddingWorkClaim[]
 
   @@map("tenants")
 }
@@ -215,6 +216,7 @@ model Venue {
   mediaIngestionProjects  MediaIngestionProject[]
   aiUsageEvents           AiUsageEvent[]
   aiUsageDailyRollups     AiUsageDailyRollup[]
+  embeddingWorkClaims     EmbeddingWorkClaim[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -559,10 +561,45 @@ model JobRecord {
   @@map("job_records")
 }
 
+model EmbeddingWorkClaim {
+  id               String                   @id @default(cuid())
+  tenantId         String                   @map("tenant_id")
+  venueId          String                   @map("venue_id")
+  entityType       EmbeddingWorkEntityType  @map("entity_type")
+  entityId         String                   @map("entity_id")
+  contentUpdatedAt DateTime                 @map("content_updated_at")
+  sourceHash       String                   @map("source_hash")
+  embeddingProfile String                   @map("embedding_profile")
+  status           EmbeddingWorkClaimStatus @default(RUNNING)
+  leaseToken       String?                  @map("lease_token")
+  leaseExpiresAt   DateTime?                @map("lease_expires_at")
+  completedAt      DateTime?                @map("completed_at")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue            Venue                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, venueId, entityType, entityId], map: "embedding_work_claims_entity_key")
+  @@index([tenantId, status, leaseExpiresAt])
+  @@index([tenantId, entityType, entityId, createdAt])
+  @@map("embedding_work_claims")
+}
+
 enum JobStatus {
   RUNNING
   COMPLETE
   FAILED
+}
+
+enum EmbeddingWorkEntityType {
+  PLACE
+  KNOWLEDGE_ENTRY
+}
+
+enum EmbeddingWorkClaimStatus {
+  RUNNING
+  COMPLETE
+  SUPERSEDED
 }
 
 model WeeklyDigest {

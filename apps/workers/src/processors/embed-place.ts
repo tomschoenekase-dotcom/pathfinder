@@ -1,9 +1,13 @@
+import { randomUUID } from 'node:crypto'
+
 import { logger } from '@pathfinder/config'
-import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
+import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding, getAiEmbeddingProfile } from '@pathfinder/ai'
 import {
   buildPlaceText,
+  acquireEmbeddingWork,
   db,
   storePlaceEmbeddingForScope,
+  releaseEmbeddingWork,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -12,7 +16,11 @@ import type { EmbedPlaceJobPayload } from '@pathfinder/jobs'
 import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
-import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
+import {
+  embeddingRevisionMatches,
+  embeddingSourceHash,
+  parseEmbeddingRevision,
+} from '../lib/embedding-revision'
 
 export async function processEmbedPlaceJob(
   payload: EmbedPlaceJobPayload,
@@ -28,6 +36,7 @@ export async function processEmbedPlaceJob(
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
   })
+  let claim: { claimId: string; leaseToken: string; venueId: string } | undefined
 
   try {
     const contentUpdatedAt = parseEmbeddingRevision(payload.contentUpdatedAt)
@@ -81,16 +90,42 @@ export async function processEmbedPlaceJob(
       return
     }
 
+    const text = buildPlaceText(place)
+    const leaseToken = randomUUID()
+    const acquisition = await acquireEmbeddingWork({
+      tenantId: payload.tenantId,
+      venueId: place.venueId,
+      entityType: 'PLACE',
+      entityId: place.id,
+      contentUpdatedAt,
+      sourceHash: embeddingSourceHash('place', text),
+      embeddingProfile: getAiEmbeddingProfile(AI_EMBEDDING_MODEL_KEYS.PLACE_CONTENT),
+      leaseToken,
+    })
+    if (acquisition.state === 'complete') {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: `workers.embed-place.skipped-${acquisition.state}`,
+        tenantId: payload.tenantId,
+        placeId: payload.placeId,
+      })
+      return
+    }
+    if (acquisition.state === 'leased') {
+      throw new Error('Identical embedding work is currently leased')
+    }
+    claim = { claimId: acquisition.claimId, leaseToken, venueId: place.venueId }
+
     const result = await generateEmbedding({
       modelKey: AI_EMBEDDING_MODEL_KEYS.PLACE_CONTENT,
-      text: buildPlaceText(place),
+      text,
       usageSink: createWorkerAiUsageSink({
         tenantId: payload.tenantId,
         venueId: place.venueId,
         feature: 'place-embedding',
       }),
     })
-    const stored = await storePlaceEmbeddingForScope({
+    const storage = await storePlaceEmbeddingForScope({
       placeId: place.id,
       tenantId: payload.tenantId,
       venueId: place.venueId,
@@ -107,8 +142,14 @@ export async function processEmbedPlaceJob(
         isActive: place.isActive,
       },
       embedding: result.embedding,
+      claimId: claim.claimId,
+      leaseToken: claim.leaseToken,
     })
-    if (!stored) {
+    if (!storage.claimCompleted) {
+      throw new Error('Embedding work claim completion lost ownership or expired')
+    }
+    claim = undefined
+    if (!storage.stored) {
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
       logger.info({
         action: 'workers.embed-place.skipped-stale-write',
@@ -126,6 +167,19 @@ export async function processEmbedPlaceJob(
       placeId: payload.placeId,
     })
   } catch (error) {
+    if (claim) {
+      try {
+        await releaseEmbeddingWork({ ...claim, tenantId: payload.tenantId })
+      } catch (releaseError) {
+        logger.warn({
+          action: 'workers.embed-place.claim-release-failed',
+          tenantId: payload.tenantId,
+          placeId: payload.placeId,
+          error:
+            releaseError instanceof Error ? releaseError.message : 'Unknown claim release error',
+        })
+      }
+    }
     await updateJobRecord(jobRecordId, {
       status: 'FAILED',
       error: error instanceof Error ? error.message : 'Unknown embed place error',

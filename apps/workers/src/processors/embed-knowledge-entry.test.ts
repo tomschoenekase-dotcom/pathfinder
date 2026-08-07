@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { UnrecoverableError } from 'bullmq'
 
 const mocks = vi.hoisted(() => ({
+  acquireEmbeddingWork: vi.fn(),
   aiUsageCreate: vi.fn(),
   buildKnowledgeEntryText: vi.fn(),
   entryFindFirst: vi.fn(),
   generateEmbedding: vi.fn(),
+  releaseEmbeddingWork: vi.fn(),
   storeKnowledgeEntryEmbeddingForScope: vi.fn(),
   updateJobRecord: vi.fn(),
   withTenantIsolationBypass: vi.fn(),
@@ -14,17 +17,20 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@pathfinder/ai', () => ({
   AI_EMBEDDING_MODEL_KEYS: { KNOWLEDGE_CONTENT: 'knowledge-content-embedding' },
   generateEmbedding: mocks.generateEmbedding,
+  getAiEmbeddingProfile: vi.fn(() => 'openai:text-embedding-3-small:1536'),
 }))
 vi.mock('@pathfinder/config', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 vi.mock('@pathfinder/db', () => ({
+  acquireEmbeddingWork: mocks.acquireEmbeddingWork,
   buildKnowledgeEntryText: mocks.buildKnowledgeEntryText,
   db: {
     aiUsageEvent: { create: mocks.aiUsageCreate },
     venueKnowledgeEntry: { findFirst: mocks.entryFindFirst },
   },
   storeKnowledgeEntryEmbeddingForScope: mocks.storeKnowledgeEntryEmbeddingForScope,
+  releaseEmbeddingWork: mocks.releaseEmbeddingWork,
   updateJobRecord: mocks.updateJobRecord,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
@@ -65,8 +71,13 @@ describe('processEmbedKnowledgeEntryJob', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.aiUsageCreate.mockResolvedValue({ id: 'usage_1' })
+    mocks.acquireEmbeddingWork.mockResolvedValue({ state: 'acquired', claimId: 'claim_1' })
     mocks.buildKnowledgeEntryText.mockReturnValue('canonical knowledge text')
-    mocks.storeKnowledgeEntryEmbeddingForScope.mockResolvedValue(true)
+    mocks.releaseEmbeddingWork.mockResolvedValue(true)
+    mocks.storeKnowledgeEntryEmbeddingForScope.mockResolvedValue({
+      claimCompleted: true,
+      stored: true,
+    })
     mocks.generateEmbedding.mockImplementation(async (params) => {
       await params.usageSink(usage)
       return { ...usage, embeddings: [[0.2]], embedding: [0.2] }
@@ -117,7 +128,27 @@ describe('processEmbedKnowledgeEntryJob', () => {
         isEnabled: entry.isEnabled,
       },
       embedding: [0.2],
+      claimId: 'claim_1',
+      leaseToken: expect.stringMatching(/^[a-f0-9-]{36}$/),
     })
+    expect(mocks.acquireEmbeddingWork).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        entityType: 'KNOWLEDGE_ENTRY',
+        entityId: 'entry_1',
+        contentUpdatedAt,
+        leaseToken: expect.stringMatching(/^[a-f0-9-]{36}$/),
+        sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        embeddingProfile: 'openai:text-embedding-3-small:1536',
+      }),
+    )
+    expect(mocks.storeKnowledgeEntryEmbeddingForScope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claimId: 'claim_1',
+        leaseToken: expect.stringMatching(/^[a-f0-9-]{36}$/),
+      }),
+    )
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 
@@ -147,6 +178,19 @@ describe('processEmbedKnowledgeEntryJob', () => {
     })
   })
 
+  it('fails a malformed revision as unrecoverable before entity or provider work', async () => {
+    await expect(
+      processEmbedKnowledgeEntryJob({ ...payload, contentUpdatedAt: 'legacy-missing-revision' }),
+    ).rejects.toBeInstanceOf(UnrecoverableError)
+    expect(mocks.entryFindFirst).not.toHaveBeenCalled()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'FAILED',
+      error: 'Embedding contentUpdatedAt must be an ISO UTC timestamp',
+    })
+  })
+
   it('makes one gateway call and records one failed attempt for a retryable provider error', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(entry)
     mocks.generateEmbedding.mockImplementationOnce(async (params) => {
@@ -171,6 +215,36 @@ describe('processEmbedKnowledgeEntryJob', () => {
       }),
     })
     expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.releaseEmbeddingWork).toHaveBeenCalledWith(
+      expect.objectContaining({ claimId: 'claim_1', tenantId: 'tenant_1' }),
+    )
+  })
+
+  it('skips provider and storage for a durable successful replay', async () => {
+    mocks.entryFindFirst.mockResolvedValueOnce(entry)
+    mocks.acquireEmbeddingWork.mockResolvedValueOnce({ state: 'complete' })
+
+    await expect(processEmbedKnowledgeEntryJob(payload, 'bull_duplicate')).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
+  })
+
+  it('retries rather than completing while identical work is leased', async () => {
+    mocks.entryFindFirst.mockResolvedValueOnce(entry)
+    mocks.acquireEmbeddingWork.mockResolvedValueOnce({ state: 'leased' })
+
+    await expect(processEmbedKnowledgeEntryJob(payload, 'bull_duplicate')).rejects.toThrow(
+      'currently leased',
+    )
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'FAILED',
+      error: 'Identical embedding work is currently leased',
+    })
   })
 
   it('retains observed billed usage but stores nothing for malformed provider data', async () => {
@@ -229,7 +303,10 @@ describe('processEmbedKnowledgeEntryJob', () => {
 
   it('does not overwrite a revision that changes during the provider call', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(entry)
-    mocks.storeKnowledgeEntryEmbeddingForScope.mockResolvedValueOnce(false)
+    mocks.storeKnowledgeEntryEmbeddingForScope.mockResolvedValueOnce({
+      claimCompleted: true,
+      stored: false,
+    })
 
     await expect(processEmbedKnowledgeEntryJob(payload)).resolves.toBeUndefined()
     expect(mocks.generateEmbedding).toHaveBeenCalledOnce()

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { AI_EMBEDDING_MODEL_KEYS, getAiEmbeddingModelSpec } from './embedding-model-registry'
+import {
+  AI_EMBEDDING_MODEL_KEYS,
+  getAiEmbeddingModelSpec,
+  getAiEmbeddingProfile,
+} from './embedding-model-registry'
 
 describe('embedding model registry', () => {
   it.each([
@@ -20,5 +24,11 @@ describe('embedding model registry', () => {
 
   it('preserves the guest-query retry contract', () => {
     expect(getAiEmbeddingModelSpec(AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY).maxAttempts).toBe(2)
+  })
+
+  it('includes provider, model, and vector dimensions in the persisted profile', () => {
+    expect(getAiEmbeddingProfile(AI_EMBEDDING_MODEL_KEYS.PLACE_CONTENT)).toBe(
+      'openai:text-embedding-3-small:1536',
+    )
   })
 })

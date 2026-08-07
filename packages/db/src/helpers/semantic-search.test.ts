@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { executeRaw, queryRaw } = vi.hoisted(() => ({
+const { claimUpdateMany, executeRaw, queryRaw, transaction } = vi.hoisted(() => ({
+  claimUpdateMany: vi.fn(),
   executeRaw: vi.fn(),
   queryRaw: vi.fn(),
+  transaction: vi.fn(),
 }))
 
 vi.mock('../client', () => ({
   db: {
     $queryRaw: queryRaw,
-    $executeRaw: executeRaw,
+    $transaction: transaction,
   },
 }))
 
@@ -44,6 +46,14 @@ const knowledgeSource = {
 describe('knowledge semantic search helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    executeRaw.mockResolvedValue(1)
+    claimUpdateMany.mockResolvedValue({ count: 1 })
+    transaction.mockImplementation((fn) =>
+      fn({
+        $executeRaw: executeRaw,
+        embeddingWorkClaim: { updateMany: claimUpdateMany },
+      }),
+    )
   })
 
   it('maps raw knowledge rows and coerces distance to number', async () => {
@@ -77,7 +87,6 @@ describe('knowledge semantic search helpers', () => {
   })
 
   it('binds place writes to scope, revision, and every captured source field', async () => {
-    executeRaw.mockResolvedValueOnce(1)
     await expect(
       storePlaceEmbeddingForScope({
         placeId: 'place_1',
@@ -86,9 +95,24 @@ describe('knowledge semantic search helpers', () => {
         contentUpdatedAt,
         source: placeSource,
         embedding: [0.1, 0.2],
+        claimId: 'claim_1',
+        leaseToken: 'lease_1',
       }),
-    ).resolves.toBe(true)
-    expect(executeRaw.mock.calls[0]?.slice(1)).toEqual([
+    ).resolves.toEqual({ claimCompleted: true, stored: true })
+    expect(claimUpdateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: 'claim_1',
+        tenantId: 'tenant_1',
+        leaseToken: 'lease_1',
+      }),
+      data: {
+        status: 'COMPLETE',
+        leaseToken: null,
+        leaseExpiresAt: null,
+        completedAt: expect.any(Date),
+      },
+    })
+    expect(executeRaw.mock.calls[1]?.slice(1)).toEqual([
       '[0.1,0.2]',
       'place_1',
       'tenant_1',
@@ -107,7 +131,6 @@ describe('knowledge semantic search helpers', () => {
   })
 
   it('binds knowledge writes to scope, revision, and every captured source field', async () => {
-    executeRaw.mockResolvedValueOnce(1)
     await expect(
       storeKnowledgeEntryEmbeddingForScope({
         entryId: 'entry_1',
@@ -116,9 +139,11 @@ describe('knowledge semantic search helpers', () => {
         contentUpdatedAt,
         source: knowledgeSource,
         embedding: [0.3, 0.4],
+        claimId: 'claim_2',
+        leaseToken: 'lease_2',
       }),
-    ).resolves.toBe(true)
-    expect(executeRaw.mock.calls[0]?.slice(1)).toEqual([
+    ).resolves.toEqual({ claimCompleted: true, stored: true })
+    expect(executeRaw.mock.calls[1]?.slice(1)).toEqual([
       '[0.3,0.4]',
       'entry_1',
       'tenant_1',
@@ -132,7 +157,7 @@ describe('knowledge semantic search helpers', () => {
   })
 
   it('returns false without throwing when scope, revision, or source changed', async () => {
-    executeRaw.mockResolvedValueOnce(0)
+    executeRaw.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
     await expect(
       storePlaceEmbeddingForScope({
         placeId: 'place_1',
@@ -141,7 +166,28 @@ describe('knowledge semantic search helpers', () => {
         contentUpdatedAt,
         source: placeSource,
         embedding: [0.1],
+        claimId: 'claim_1',
+        leaseToken: 'lease_1',
       }),
-    ).resolves.toBe(false)
+    ).resolves.toEqual({ claimCompleted: true, stored: false })
+  })
+
+  it('does not write a vector after the fencing token loses ownership', async () => {
+    executeRaw.mockResolvedValueOnce(0)
+
+    await expect(
+      storePlaceEmbeddingForScope({
+        placeId: 'place_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        contentUpdatedAt,
+        source: placeSource,
+        embedding: [0.1],
+        claimId: 'claim_1',
+        leaseToken: 'stale_lease',
+      }),
+    ).resolves.toEqual({ claimCompleted: false, stored: false })
+    expect(executeRaw).toHaveBeenCalledOnce()
+    expect(claimUpdateMany).not.toHaveBeenCalled()
   })
 })

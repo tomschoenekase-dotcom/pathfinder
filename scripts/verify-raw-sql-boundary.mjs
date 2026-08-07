@@ -18,6 +18,7 @@ const approvedPolicies = new Set([
   'public-venue-session-token',
   'tenant-and-venue',
   'tenant-venue-revision-source',
+  'tenant-venue-entity-lease',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -72,6 +73,12 @@ const approvedOperations = [
     policy: 'tenant-and-venue',
   },
   {
+    file: 'packages/db/src/helpers/embedding-work-claims.ts',
+    method: '$queryRaw',
+    hash: '1f0ad38f8215a2f31f3be7ba79e0bc9a747393876618b5c753c9d1924b4e55fc',
+    policy: 'tenant-venue-entity-lease',
+  },
+  {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
     hash: '078f87ab5b3961b369533d7182e91722f3aa9d45db444748597842670d2bc1f3',
@@ -80,7 +87,13 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$executeRaw',
-    hash: '13023c54e29471ae63818c0e1b7a2f365588e174ab964f4e94ea0adc462e883d',
+    hash: 'fa8acf3d6b5e28dfa8611f61c4c80432d6e87b1fd62a33410fee2d2a45931fdf',
+    policy: 'tenant-venue-entity-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/semantic-search.ts',
+    method: '$executeRaw',
+    hash: 'a074100896e870e6222c82cc1777a4e5682cb63e58de6601f6e1e1041d3851e8',
     policy: 'tenant-venue-revision-source',
   },
   {
@@ -92,7 +105,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$executeRaw',
-    hash: '47865cf7e63cba797e5de27b20b8a0a9116a4516a3495297e2d28e4096cb7ec7',
+    hash: '62067bac1ff9fc9bdb241f6d57cc1087edcdd7b8b7b981684fd767c158f0b2a3',
     policy: 'tenant-venue-revision-source',
   },
 ]

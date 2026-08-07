@@ -1,9 +1,13 @@
+import { randomUUID } from 'node:crypto'
+
 import { logger } from '@pathfinder/config'
-import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
+import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding, getAiEmbeddingProfile } from '@pathfinder/ai'
 import {
   buildKnowledgeEntryText,
+  acquireEmbeddingWork,
   db,
   storeKnowledgeEntryEmbeddingForScope,
+  releaseEmbeddingWork,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -12,7 +16,11 @@ import type { EmbedKnowledgeEntryJobPayload } from '@pathfinder/jobs'
 import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
-import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
+import {
+  embeddingRevisionMatches,
+  embeddingSourceHash,
+  parseEmbeddingRevision,
+} from '../lib/embedding-revision'
 
 export async function processEmbedKnowledgeEntryJob(
   payload: EmbedKnowledgeEntryJobPayload,
@@ -28,6 +36,7 @@ export async function processEmbedKnowledgeEntryJob(
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
   })
+  let claim: { claimId: string; leaseToken: string; venueId: string } | undefined
 
   try {
     const contentUpdatedAt = parseEmbeddingRevision(payload.contentUpdatedAt)
@@ -76,16 +85,42 @@ export async function processEmbedKnowledgeEntryJob(
       return
     }
 
+    const text = buildKnowledgeEntryText(entry)
+    const leaseToken = randomUUID()
+    const acquisition = await acquireEmbeddingWork({
+      tenantId: payload.tenantId,
+      venueId: entry.venueId,
+      entityType: 'KNOWLEDGE_ENTRY',
+      entityId: entry.id,
+      contentUpdatedAt,
+      sourceHash: embeddingSourceHash('knowledge-entry', text),
+      embeddingProfile: getAiEmbeddingProfile(AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT),
+      leaseToken,
+    })
+    if (acquisition.state === 'complete') {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: `workers.embed-knowledge-entry.skipped-${acquisition.state}`,
+        tenantId: payload.tenantId,
+        entryId: payload.entryId,
+      })
+      return
+    }
+    if (acquisition.state === 'leased') {
+      throw new Error('Identical embedding work is currently leased')
+    }
+    claim = { claimId: acquisition.claimId, leaseToken, venueId: entry.venueId }
+
     const result = await generateEmbedding({
       modelKey: AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT,
-      text: buildKnowledgeEntryText(entry),
+      text,
       usageSink: createWorkerAiUsageSink({
         tenantId: payload.tenantId,
         venueId: entry.venueId,
         feature: 'knowledge-entry-embedding',
       }),
     })
-    const stored = await storeKnowledgeEntryEmbeddingForScope({
+    const storage = await storeKnowledgeEntryEmbeddingForScope({
       entryId: entry.id,
       tenantId: payload.tenantId,
       venueId: entry.venueId,
@@ -97,8 +132,14 @@ export async function processEmbedKnowledgeEntryJob(
         isEnabled: entry.isEnabled,
       },
       embedding: result.embedding,
+      claimId: claim.claimId,
+      leaseToken: claim.leaseToken,
     })
-    if (!stored) {
+    if (!storage.claimCompleted) {
+      throw new Error('Embedding work claim completion lost ownership or expired')
+    }
+    claim = undefined
+    if (!storage.stored) {
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
       logger.info({
         action: 'workers.embed-knowledge-entry.skipped-stale-write',
@@ -116,6 +157,19 @@ export async function processEmbedKnowledgeEntryJob(
       entryId: payload.entryId,
     })
   } catch (error) {
+    if (claim) {
+      try {
+        await releaseEmbeddingWork({ ...claim, tenantId: payload.tenantId })
+      } catch (releaseError) {
+        logger.warn({
+          action: 'workers.embed-knowledge-entry.claim-release-failed',
+          tenantId: payload.tenantId,
+          entryId: payload.entryId,
+          error:
+            releaseError instanceof Error ? releaseError.message : 'Unknown claim release error',
+        })
+      }
+    }
     await updateJobRecord(jobRecordId, {
       status: 'FAILED',
       error: error instanceof Error ? error.message : 'Unknown embed knowledge entry error',

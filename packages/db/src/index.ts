@@ -2,6 +2,15 @@ export { db } from './client'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'
+export {
+  acquireEmbeddingWork,
+  EMBEDDING_WORK_LEASE_MS,
+  releaseEmbeddingWork,
+} from './helpers/embedding-work-claims'
+export type {
+  AcquireEmbeddingWorkParams,
+  EmbeddingWorkAcquisition,
+} from './helpers/embedding-work-claims'
 export type { WriteJobRecordParams } from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'
 export { handleClerkEvent, mapClerkRoleToTenantRole } from './helpers/membership-sync'

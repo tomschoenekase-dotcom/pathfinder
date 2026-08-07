@@ -21,6 +21,7 @@ export {
 export {
   AI_EMBEDDING_MODEL_KEYS,
   AI_EMBEDDING_MODEL_REGISTRY,
+  getAiEmbeddingProfile,
   getAiEmbeddingModelSpec,
   type AiEmbeddingModelKey,
   type AiEmbeddingModelSpec,

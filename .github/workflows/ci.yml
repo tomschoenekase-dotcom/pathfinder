@@ -64,6 +64,10 @@ jobs:
       - run: pnpm verify:tenant-procedures
       - run: pnpm --dir packages/db db:generate
       - run: pnpm --dir packages/db exec prisma migrate deploy
+      - name: Verify embedding claim concurrency and recovery
+        run: pnpm --dir packages/db exec vitest run src/helpers/embedding-work-claims.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_EMBEDDING_CLAIM_INTEGRATION: '1'
       - run: pnpm turbo run build
       - run: pnpm turbo run typecheck
       - run: pnpm turbo run lint

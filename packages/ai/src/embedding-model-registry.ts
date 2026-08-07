@@ -56,3 +56,8 @@ export const AI_EMBEDDING_MODEL_REGISTRY: Readonly<
 export function getAiEmbeddingModelSpec(modelKey: AiEmbeddingModelKey): AiEmbeddingModelSpec {
   return AI_EMBEDDING_MODEL_REGISTRY[modelKey]
 }
+
+export function getAiEmbeddingProfile(modelKey: AiEmbeddingModelKey): string {
+  const spec = getAiEmbeddingModelSpec(modelKey)
+  return `${spec.provider}:${spec.model}:${spec.dimensions}`
+}
