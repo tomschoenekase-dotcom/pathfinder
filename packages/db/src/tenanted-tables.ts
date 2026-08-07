@@ -6,6 +6,7 @@ export const TENANTED_TABLES = [
   'VenueKnowledgeEntry',
   'VisitorSession',
   'AiUsageEvent',
+  'AiUsageDailyRollup',
   'Message',
   'DataAdapter',
   'OperationalUpdate',

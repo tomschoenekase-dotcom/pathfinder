@@ -1,4 +1,5 @@
 import { logger } from '@pathfinder/config'
+import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { db, withTenantIsolationBypass, writeJobRecord, updateJobRecord } from '@pathfinder/db'
 import type { DailyRollupJobPayload } from '@pathfinder/jobs'
 
@@ -9,6 +10,94 @@ type RollupRow = {
   metric: string
   value: number
   placeId?: string
+}
+
+type AiUsageRow = {
+  venueId: string
+  feature: string
+  requestCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  totalTokens: number
+  estimatedCostUsd: unknown
+  success: boolean
+}
+
+type AiCostRollupRow = {
+  tenantId: string
+  venueId: string
+  date: Date
+  feature: string
+  requestCount: number
+  successfulRequestCount: number
+  failedRequestCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  totalTokens: number
+  estimatedCostUsd: string
+}
+
+const OWNED_DAILY_ROLLUP_METRICS = [
+  'sessions',
+  'messages',
+  'unique_place_mentions',
+  'place_mentions',
+] as const
+
+export function buildAiCostRollups(params: {
+  tenantId: string
+  date: Date
+  events: AiUsageRow[]
+}): AiCostRollupRow[] {
+  const grouped = new Map<
+    string,
+    Omit<AiCostRollupRow, 'estimatedCostUsd'> & { costUnits: bigint }
+  >()
+
+  for (const event of params.events) {
+    const key = JSON.stringify([event.venueId, event.feature])
+    const existing = grouped.get(key) ?? {
+      tenantId: params.tenantId,
+      venueId: event.venueId,
+      date: params.date,
+      feature: event.feature,
+      requestCount: 0,
+      successfulRequestCount: 0,
+      failedRequestCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      totalTokens: 0,
+      costUnits: 0n,
+    }
+
+    existing.requestCount += event.requestCount
+    existing.successfulRequestCount += event.success ? event.requestCount : 0
+    existing.failedRequestCount += event.success ? 0 : event.requestCount
+    existing.inputTokens += event.inputTokens
+    existing.outputTokens += event.outputTokens
+    existing.cacheCreationInputTokens += event.cacheCreationInputTokens
+    existing.cacheReadInputTokens += event.cacheReadInputTokens
+    existing.totalTokens += event.totalTokens
+    existing.costUnits += aiCostDecimalToUnits(event.estimatedCostUsd)
+    grouped.set(key, existing)
+  }
+
+  return [...grouped.values()]
+    .sort((left, right) =>
+      left.venueId === right.venueId
+        ? left.feature.localeCompare(right.feature)
+        : left.venueId.localeCompare(right.venueId),
+    )
+    .map(({ costUnits, ...rollup }) => ({
+      ...rollup,
+      estimatedCostUsd: aiCostUnitsToDecimal(costUnits),
+    }))
 }
 
 function startOfUtcDay(date: Date): Date {
@@ -205,7 +294,43 @@ export async function processDailyRollupJob(
   })
 
   try {
-    const rollups = await buildTenantRollups(payload)
+    const [rollups, groupedUsage] = await Promise.all([
+      buildTenantRollups(payload),
+      withTenantIsolationBypass(() =>
+        db.aiUsageEvent.groupBy({
+          by: ['venueId', 'feature', 'success'],
+          where: {
+            tenantId: payload.tenantId,
+            createdAt: { gte: date, lt: nextDate },
+          },
+          _count: { _all: true },
+          _sum: {
+            inputTokens: true,
+            outputTokens: true,
+            cacheCreationInputTokens: true,
+            cacheReadInputTokens: true,
+            totalTokens: true,
+            estimatedCostUsd: true,
+          },
+        }),
+      ),
+    ])
+    const aiCostRollups = buildAiCostRollups({
+      tenantId: payload.tenantId,
+      date,
+      events: groupedUsage.map((group) => ({
+        venueId: group.venueId,
+        feature: group.feature,
+        success: group.success,
+        requestCount: group._count._all,
+        inputTokens: group._sum.inputTokens ?? 0,
+        outputTokens: group._sum.outputTokens ?? 0,
+        cacheCreationInputTokens: group._sum.cacheCreationInputTokens ?? 0,
+        cacheReadInputTokens: group._sum.cacheReadInputTokens ?? 0,
+        totalTokens: group._sum.totalTokens ?? 0,
+        estimatedCostUsd: group._sum.estimatedCostUsd ?? 0,
+      })),
+    })
 
     await withTenantIsolationBypass(async () => {
       await db.$transaction(async (tx) => {
@@ -216,6 +341,7 @@ export async function processDailyRollupJob(
               gte: date,
               lt: nextDate,
             },
+            metric: { in: [...OWNED_DAILY_ROLLUP_METRICS] },
           },
         })
 
@@ -231,6 +357,17 @@ export async function processDailyRollupJob(
             })),
           })
         }
+
+        await tx.aiUsageDailyRollup.deleteMany({
+          where: {
+            tenantId: payload.tenantId,
+            date: { gte: date, lt: nextDate },
+          },
+        })
+
+        if (aiCostRollups.length > 0) {
+          await tx.aiUsageDailyRollup.createMany({ data: aiCostRollups })
+        }
       })
     })
 
@@ -241,6 +378,7 @@ export async function processDailyRollupJob(
       tenantId: payload.tenantId,
       date: date.toISOString(),
       rowCount: rollups.length,
+      aiCostRowCount: aiCostRollups.length,
     })
   } catch (error) {
     await updateJobRecord(jobRecordId, {

@@ -78,6 +78,7 @@ describe('tenantIsolationMiddleware', () => {
       'VenueKnowledgeEntry',
       'VisitorSession',
       'AiUsageEvent',
+      'AiUsageDailyRollup',
       'Message',
       'DataAdapter',
       'OperationalUpdate',

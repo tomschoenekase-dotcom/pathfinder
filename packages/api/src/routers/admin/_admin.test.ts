@@ -13,6 +13,7 @@ const {
   visitorSessionUpdateMany,
   messageCount,
   questionClusterFindMany,
+  aiUsageDailyRollupFindMany,
   userUpsert,
   tenantMembershipUpsert,
   adminChatlogNoteCreate,
@@ -41,6 +42,7 @@ const {
   visitorSessionUpdateMany: vi.fn(),
   messageCount: vi.fn(),
   questionClusterFindMany: vi.fn(),
+  aiUsageDailyRollupFindMany: vi.fn(),
   userUpsert: vi.fn(),
   tenantMembershipUpsert: vi.fn(),
   adminChatlogNoteCreate: vi.fn(),
@@ -81,6 +83,9 @@ vi.mock('@pathfinder/db', () => ({
     },
     questionCluster: {
       findMany: questionClusterFindMany,
+    },
+    aiUsageDailyRollup: {
+      findMany: aiUsageDailyRollupFindMany,
     },
     user: {
       upsert: userUpsert,
@@ -303,6 +308,119 @@ describe('admin router', () => {
     await expect(
       caller.admin.getClientAnalytics({ tenantId: 'missing_tenant' }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+  })
+
+  it('admin.getClientAiCosts returns exact estimated totals for the tenant UTC window', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-07T19:30:00.000Z'))
+    try {
+      tenantFindUnique.mockResolvedValueOnce({
+        id: 'tenant_1',
+        name: 'Tenant One',
+        slug: 'tenant-one',
+      })
+      aiUsageDailyRollupFindMany.mockResolvedValueOnce([
+        {
+          date: new Date('2026-08-06T00:00:00.000Z'),
+          venueId: 'venue_1',
+          feature: 'guest-chat',
+          requestCount: 2,
+          successfulRequestCount: 1,
+          failedRequestCount: 1,
+          totalTokens: 120,
+          estimatedCostUsd: '0.10000001',
+          venue: { name: 'Main Venue' },
+        },
+        {
+          date: new Date('2026-08-07T00:00:00.000Z'),
+          venueId: 'venue_1',
+          feature: 'place-embedding',
+          requestCount: 1,
+          successfulRequestCount: 1,
+          failedRequestCount: 0,
+          totalTokens: 5,
+          estimatedCostUsd: '2e-8',
+          venue: { name: 'Main Venue' },
+        },
+      ])
+
+      const result = await testRouter
+        .createCaller(adminCtx())
+        .admin.getClientAiCosts({ tenantId: 'tenant_1', days: 2 })
+
+      expect(aiUsageDailyRollupFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: 'tenant_1',
+            date: {
+              gte: new Date('2026-08-06T00:00:00.000Z'),
+              lt: new Date('2026-08-08T00:00:00.000Z'),
+            },
+          },
+        }),
+      )
+      expect(result.totals).toEqual({
+        requestCount: 3,
+        successfulRequestCount: 2,
+        failedRequestCount: 1,
+        totalTokens: 125,
+        estimatedCostUsd: '0.10000003',
+      })
+      expect(result.costs.map((row) => row.estimatedCostUsd)).toEqual(['0.10000001', '0.00000002'])
+      expect(result.breakdown).toEqual([
+        {
+          venueId: 'venue_1',
+          venueName: 'Main Venue',
+          requestCount: 3,
+          totalTokens: 125,
+          estimatedCostUsd: '0.10000003',
+          features: [
+            {
+              feature: 'guest-chat',
+              requestCount: 2,
+              totalTokens: 120,
+              estimatedCostUsd: '0.10000001',
+            },
+            {
+              feature: 'place-embedding',
+              requestCount: 1,
+              totalTokens: 5,
+              estimatedCostUsd: '0.00000002',
+            },
+          ],
+        },
+      ])
+      expect(result.completeness).toBe('estimated-lower-bound')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('admin.getClientAiCosts has a graceful empty state and remains admin-only', async () => {
+    tenantFindUnique.mockResolvedValueOnce({
+      id: 'tenant_1',
+      name: 'Tenant One',
+      slug: 'tenant-one',
+    })
+    aiUsageDailyRollupFindMany.mockResolvedValueOnce([])
+
+    const result = await testRouter
+      .createCaller(adminCtx())
+      .admin.getClientAiCosts({ tenantId: 'tenant_1' })
+
+    expect(result.costs).toEqual([])
+    expect(result.breakdown).toEqual([])
+    expect(result.totals).toEqual({
+      requestCount: 0,
+      successfulRequestCount: 0,
+      failedRequestCount: 0,
+      totalTokens: 0,
+      estimatedCostUsd: '0.00000000',
+    })
+
+    await expect(
+      testRouter.createCaller(nonAdminCtx()).admin.getClientAiCosts({ tenantId: 'tenant_1' }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 
   it('admin.setSessionNotable writes an audit log with the correct action for true/false', async () => {

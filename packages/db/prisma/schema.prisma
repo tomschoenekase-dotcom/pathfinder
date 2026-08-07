@@ -48,6 +48,7 @@ model Tenant {
   venueWeeklyThemes           VenueWeeklyTheme[]
   mediaIngestionProjects      MediaIngestionProject[]
   aiUsageEvents               AiUsageEvent[]
+  aiUsageDailyRollups         AiUsageDailyRollup[]
 
   @@map("tenants")
 }
@@ -213,6 +214,7 @@ model Venue {
   weeklyThemes            VenueWeeklyTheme[]
   mediaIngestionProjects  MediaIngestionProject[]
   aiUsageEvents           AiUsageEvent[]
+  aiUsageDailyRollups     AiUsageDailyRollup[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -329,6 +331,31 @@ model AiUsageEvent {
   @@index([sessionId])
   @@index([feature, createdAt])
   @@map("ai_usage_events")
+}
+
+model AiUsageDailyRollup {
+  id                       String   @id @default(cuid())
+  tenantId                 String   @map("tenant_id")
+  venueId                  String   @map("venue_id")
+  date                     DateTime
+  feature                  String
+  requestCount             Int      @default(0) @map("request_count")
+  successfulRequestCount   Int      @default(0) @map("successful_request_count")
+  failedRequestCount       Int      @default(0) @map("failed_request_count")
+  inputTokens              Int      @default(0) @map("input_tokens")
+  outputTokens             Int      @default(0) @map("output_tokens")
+  cacheCreationInputTokens Int      @default(0) @map("cache_creation_input_tokens")
+  cacheReadInputTokens     Int      @default(0) @map("cache_read_input_tokens")
+  totalTokens              Int      @default(0) @map("total_tokens")
+  estimatedCostUsd         Decimal  @default(0) @map("estimated_cost_usd") @db.Decimal(18, 8)
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                    Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, venueId, date, feature])
+  @@index([tenantId, date])
+  @@index([tenantId, venueId, date])
+  @@index([feature, date])
+  @@map("ai_usage_daily_rollups")
 }
 
 model EngagementQuestionResponse {

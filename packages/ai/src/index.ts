@@ -32,3 +32,9 @@ export {
   type AiEmbeddingResult,
   type OpenAiEmbeddingsClient,
 } from './openai-embeddings'
+export {
+  AI_COST_DECIMAL_SCALE,
+  aiCostDecimalToUnits,
+  aiCostUnitsToDecimal,
+  sumAiCostDecimals,
+} from './cost-decimal'
