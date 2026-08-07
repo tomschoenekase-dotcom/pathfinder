@@ -38,7 +38,7 @@ describe('writeJobRecord', () => {
     expect(upsertMock).not.toHaveBeenCalled()
   })
 
-  it('upserts on bullJobId so a BullMQ retry updates the existing record instead of colliding on the unique constraint', async () => {
+  it('upserts on queue and bullJobId so another queue cannot overwrite the retry record', async () => {
     upsertMock.mockResolvedValueOnce({ id: 'record_1' })
 
     const { writeJobRecord } = await import('./job-records')
@@ -55,7 +55,12 @@ describe('writeJobRecord', () => {
     expect(createMock).not.toHaveBeenCalled()
     expect(upsertMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { bullJobId: 'weekly-report-report_1' },
+        where: {
+          queue_bullJobId: {
+            queue: 'weekly-report',
+            bullJobId: 'weekly-report-report_1',
+          },
+        },
         create: expect.objectContaining({ bullJobId: 'weekly-report-report_1', status: 'RUNNING' }),
         update: expect.objectContaining({ bullJobId: 'weekly-report-report_1', status: 'RUNNING' }),
       }),

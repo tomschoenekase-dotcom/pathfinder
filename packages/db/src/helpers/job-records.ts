@@ -26,15 +26,20 @@ export async function writeJobRecord(params: WriteJobRecordParams): Promise<stri
     completedAt: params.completedAt ?? null,
   }
 
-  // BullMQ reuses the same job id across retries of the same job. `bullJobId` is unique,
-  // so a plain create() throws on the second attempt (constraint violation) before the
-  // caller's own try/catch ever runs, leaving whatever status was set at the top of that
-  // attempt stuck forever. Upsert on bullJobId so a retry updates the existing record
-  // instead of colliding with it.
+  // BullMQ reuses an id across retries, but ids are unique only within a queue. Upsert
+  // on the composite queue/id identity so retries update their record without allowing
+  // an unrelated queue that chose the same id to overwrite it. The legacy global unique
+  // index remains temporarily for rolling-deploy compatibility and fails cross-queue ID
+  // reuse closed until a separately gated contract migration removes it.
   if (params.bullJobId) {
     const record = await withTenantIsolationBypass(() =>
       db.jobRecord.upsert({
-        where: { bullJobId: params.bullJobId as string },
+        where: {
+          queue_bullJobId: {
+            queue: params.queue,
+            bullJobId: params.bullJobId as string,
+          },
+        },
         create: data,
         update: data,
         select: { id: true },
