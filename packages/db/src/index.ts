@@ -15,15 +15,7 @@ export {
   storePlaceEmbeddingForScope,
 } from './helpers/semantic-search'
 export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'
-export {
-  buildPlaceText,
-  buildKnowledgeEntryText,
-  generateAndStoreKnowledgeEntryEmbedding,
-  generateAndStorePlaceEmbedding,
-  generateEmbedding,
-  generateEmbeddings,
-  setOpenAIClientForTesting,
-} from './helpers/embeddings'
+export { buildKnowledgeEntryText, buildPlaceText } from './helpers/content-text'
 
 export type {
   AnalyticsEvent,

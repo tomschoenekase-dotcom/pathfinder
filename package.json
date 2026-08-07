@@ -8,6 +8,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "verify:ai-boundary": "node scripts/verify-ai-provider-boundary.mjs",
     "test:watch": "vitest",
     "verify:staging": "node scripts/verify-staging-config.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
