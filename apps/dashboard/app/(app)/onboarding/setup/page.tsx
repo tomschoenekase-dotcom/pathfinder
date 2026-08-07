@@ -86,12 +86,12 @@ type SetupState = {
   place: FirstPlaceValues
 }
 
-const STEP_LABELS = ['Venue info', 'Venue location', 'First guide item'] as const
+const STEP_LABELS = ['Venue info', 'First place', 'Done'] as const
 
 const STEP_TITLES = [
   'Tell us about your venue',
-  'Set your venue center',
-  'Add your first guide item',
+  'Add your first place',
+  'You are ready to welcome guests',
 ] as const
 
 const INITIAL_STATE: SetupState = {
@@ -422,13 +422,11 @@ function VenueLocationStep({
 function FirstPlaceStep({
   defaultValues,
   isSubmitting,
-  formError,
   onBack,
   onSubmit,
 }: {
   defaultValues: FirstPlaceValues
   isSubmitting: boolean
-  formError: string | null
   onBack: () => void
   onSubmit: (values: FirstPlaceValues) => void
 }) {
@@ -452,12 +450,6 @@ function FirstPlaceStep({
             Add at least one guide item so your AI guide has something to talk about.
           </p>
         </div>
-
-        {formError ? (
-          <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            {formError}
-          </p>
-        ) : null}
 
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="sm:col-span-2">
@@ -554,6 +546,22 @@ export default function OnboardingSetupPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
+  const [completedVenueId, setCompletedVenueId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!completedVenueId) {
+      return
+    }
+
+    const redirectTimer = window.setTimeout(() => {
+      router.push(`/venues/${completedVenueId}?onboarded=1`)
+      router.refresh()
+    }, 2000)
+
+    return () => {
+      window.clearTimeout(redirectTimer)
+    }
+  }, [completedVenueId, router])
 
   async function handleCreateVenue(placeValues: FirstPlaceValues) {
     setFormError(null)
@@ -579,12 +587,8 @@ export default function OnboardingSetupPage() {
         importanceScore: 0,
       })
 
-      setCurrentStep(2)
       setIsComplete(true)
-      window.setTimeout(() => {
-        router.push(`/venues/${venue.id}?onboarded=1`)
-        router.refresh()
-      }, 2000)
+      setCompletedVenueId(venue.id)
     } catch (error) {
       setFormError(getErrorMessage(error))
       setIsSubmitting(false)
@@ -598,7 +602,8 @@ export default function OnboardingSetupPage() {
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
             <CheckCircle2 className="h-8 w-8" aria-hidden="true" />
           </div>
-          <h1 className="mt-6 text-3xl font-semibold tracking-tight text-pf-deep">
+          <p className="mt-6 text-sm font-medium text-emerald-700">Step 3 of 3 - Done</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-pf-deep">
             Your venue is live.
           </h1>
           <p className="mt-3 text-sm leading-6 text-pf-deep/60">
@@ -623,8 +628,14 @@ export default function OnboardingSetupPage() {
           <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
             Create the basics PathFinder needs to launch your dashboard and AI guide.
           </p>
-          <StepIndicator currentStep={currentStep} />
+          <StepIndicator currentStep={currentStep === 2 ? 1 : 0} />
         </section>
+
+        {formError ? (
+          <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {formError}
+          </p>
+        ) : null}
 
         <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
           {currentStep === 0 ? (
@@ -673,7 +684,6 @@ export default function OnboardingSetupPage() {
           {currentStep === 2 ? (
             <FirstPlaceStep
               defaultValues={setupState.place}
-              formError={formError}
               isSubmitting={isSubmitting}
               onBack={() => {
                 setCurrentStep(1)
