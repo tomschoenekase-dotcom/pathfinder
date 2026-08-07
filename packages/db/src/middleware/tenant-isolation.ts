@@ -61,6 +61,9 @@ function requiresWhereTenantId(action: string): boolean {
     'updateMany',
     'delete',
     'deleteMany',
+    'count',
+    'aggregate',
+    'groupBy',
   ].includes(action)
 }
 
@@ -104,13 +107,16 @@ export async function tenantIsolationMiddleware(
   }
 
   if (params.action === 'upsert') {
-    // Only the create path must carry tenantId — it ensures every new row is
-    // tenant-scoped. The where clause uses a unique key (e.g. anonymousToken)
-    // that already identifies a tenant-owned row, so adding tenantId there is
-    // not required by Prisma's typed API and not necessary for security.
-    const hasCreateTenantId = hasTenantIdValue(params.args?.create)
+    const createTenantId = (params.args?.create as Record<string, unknown> | undefined)?.tenantId
+    const whereTenantId = (params.args?.where as Record<string, unknown> | undefined)?.tenantId
 
-    if (!hasCreateTenantId) {
+    if (
+      createTenantId === undefined ||
+      createTenantId === null ||
+      whereTenantId === undefined ||
+      whereTenantId === null ||
+      createTenantId !== whereTenantId
+    ) {
       throw new TenantIsolationError(params.model, params.action)
     }
 

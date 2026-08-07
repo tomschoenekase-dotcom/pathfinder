@@ -140,7 +140,13 @@ export const chatRouter = router({
     if (input.visitorId !== undefined) updateData.visitorId = input.visitorId
 
     const session = await ctx.db.visitorSession.upsert({
-      where: { anonymousToken: input.anonymousToken },
+      where: {
+        venueId_anonymousToken: {
+          venueId: input.venueId,
+          anonymousToken: input.anonymousToken,
+        },
+        tenantId: venue.tenantId,
+      },
       create: {
         tenantId: venue.tenantId,
         venueId: input.venueId,
@@ -218,7 +224,7 @@ export const chatRouter = router({
     const contextLng = userLng ?? 0
 
     const [sessionAllowed, venueAllowed] = await Promise.all([
-      checkRateLimit(`ratelimit:chat:session:${input.anonymousToken}`, 60, 3600),
+      checkRateLimit(`ratelimit:chat:session:${input.venueId}:${input.anonymousToken}`, 60, 3600),
       checkRateLimit(`ratelimit:chat:venue:${input.venueId}`, 30, 60),
     ])
 
@@ -233,7 +239,13 @@ export const chatRouter = router({
 
     // 2. Upsert session, update location
     const session = await ctx.db.visitorSession.upsert({
-      where: { anonymousToken: input.anonymousToken },
+      where: {
+        venueId_anonymousToken: {
+          venueId: input.venueId,
+          anonymousToken: input.anonymousToken,
+        },
+        tenantId: venue.tenantId,
+      },
       create: {
         tenantId: venue.tenantId,
         venueId: input.venueId,
@@ -665,18 +677,19 @@ export const chatRouter = router({
         .strict(),
     )
     .query(async ({ ctx, input }) => {
-      // $queryRaw used here because this is a public cross-tenant lookup — the caller
-      // only knows the anonymousToken, not the tenantId. anonymous_token has a unique
-      // index so this lookup is safe without tenant scoping.
+      // This is a public cross-tenant lookup, so resolve tenant ownership from the
+      // venue-scoped session identity. Anonymous tokens are intentionally reusable
+      // across venues and must never select a session from another venue.
       const [session] = await ctx.db.$queryRaw<{ id: string; venueId: string; tenantId: string }[]>`
         SELECT id, venue_id AS "venueId", tenant_id AS "tenantId"
         FROM visitor_sessions
-        WHERE anonymous_token = ${input.anonymousToken}
+        WHERE venue_id = ${input.venueId}
+          AND anonymous_token = ${input.anonymousToken}
         LIMIT 1
       `
 
       // No session yet — fresh visitor, return empty history
-      if (!session || session.venueId !== input.venueId) {
+      if (!session) {
         return { messages: [] }
       }
 

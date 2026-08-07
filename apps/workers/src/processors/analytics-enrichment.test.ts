@@ -231,6 +231,7 @@ describe('processAnalyticsEnrichmentJob', () => {
     expect(mocks.themeUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
+          tenantId: 'tenant_1',
           tenantId_venueId_weekStart: expect.objectContaining({
             tenantId: 'tenant_1',
             venueId: 'venue_1',

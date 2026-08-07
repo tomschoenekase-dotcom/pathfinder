@@ -271,7 +271,13 @@ describe('analytics router', () => {
     )
     expect(visitorSessionUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { anonymousToken: '00000000-0000-4000-8000-000000000001' },
+        where: {
+          venueId_anonymousToken: {
+            venueId: 'cvenueabc123456789012',
+            anonymousToken: '00000000-0000-4000-8000-000000000001',
+          },
+          tenantId: 'tenant_1',
+        },
         create: expect.objectContaining({
           tenantId: 'tenant_1',
           venueId: 'cvenueabc123456789012',
@@ -307,6 +313,29 @@ describe('analytics router', () => {
         update: expect.objectContaining({
           visitorId: '11111111-1111-4111-8111-111111111111',
         }),
+      }),
+    )
+  })
+
+  it('analytics.trackEvent scopes session updates to tenant and venue', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    const caller = testRouter.createCaller(anonymousCtx())
+    await caller.analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.ended',
+    })
+
+    expect(visitorSessionUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          anonymousToken: '00000000-0000-4000-8000-000000000001',
+          tenantId: 'tenant_1',
+          venueId: 'cvenueabc123456789012',
+        },
       }),
     )
   })

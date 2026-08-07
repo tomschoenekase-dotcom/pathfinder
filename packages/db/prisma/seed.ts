@@ -244,6 +244,7 @@ async function main() {
 
   const venue = await db.venue.upsert({
     where: {
+      tenantId: DEMO_TENANT_ID,
       tenantId_slug: {
         tenantId: DEMO_TENANT_ID,
         slug: venueSeed.slug,
@@ -267,7 +268,7 @@ async function main() {
 
   for (const place of places) {
     await db.place.upsert({
-      where: { id: place.id },
+      where: { id: place.id, tenantId: DEMO_TENANT_ID },
       update: {
         ...place,
         tenantId: DEMO_TENANT_ID,
@@ -283,6 +284,7 @@ async function main() {
 
   const historicVenue = await db.venue.upsert({
     where: {
+      tenantId: DEMO_TENANT_ID,
       tenantId_slug: {
         tenantId: DEMO_TENANT_ID,
         slug: 'sappington-house',
@@ -367,7 +369,7 @@ async function main() {
 
   for (const item of sappingtonItems) {
     await db.place.upsert({
-      where: { id: item.id },
+      where: { id: item.id, tenantId: DEMO_TENANT_ID },
       update: {
         ...item,
         tenantId: DEMO_TENANT_ID,

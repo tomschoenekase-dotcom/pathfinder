@@ -93,20 +93,38 @@ describe('syncMembershipCreated (via handleClerkEvent)', () => {
   it('upserts User and TenantMembership when tenant exists', async () => {
     tenantFindUniqueMock.mockResolvedValueOnce({ id: TENANT_ID })
     userUpsertMock.mockResolvedValueOnce({ id: USER_ID })
-    membershipUpsertMock.mockResolvedValueOnce({ id: 'mem_1', tenantId: TENANT_ID, userId: USER_ID, role: 'OWNER', status: 'ACTIVE' })
+    membershipUpsertMock.mockResolvedValueOnce({
+      id: 'mem_1',
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      role: 'OWNER',
+      status: 'ACTIVE',
+    })
 
     const { handleClerkEvent } = await import('./membership-sync')
     await handleClerkEvent({ type: 'organizationMembership.created', data: membershipData })
 
-    expect(userUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: USER_ID },
-      create: expect.objectContaining({ id: USER_ID, email: 'alice@example.com' }),
-    }))
-    expect(membershipUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId_userId: { tenantId: TENANT_ID, userId: USER_ID } },
-      create: expect.objectContaining({ tenantId: TENANT_ID, userId: USER_ID, role: 'OWNER', status: 'ACTIVE' }),
-      update: expect.objectContaining({ role: 'OWNER', status: 'ACTIVE' }),
-    }))
+    expect(userUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: USER_ID },
+        create: expect.objectContaining({ id: USER_ID, email: 'alice@example.com' }),
+      }),
+    )
+    expect(membershipUpsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: TENANT_ID,
+          tenantId_userId: { tenantId: TENANT_ID, userId: USER_ID },
+        },
+        create: expect.objectContaining({
+          tenantId: TENANT_ID,
+          userId: USER_ID,
+          role: 'OWNER',
+          status: 'ACTIVE',
+        }),
+        update: expect.objectContaining({ role: 'OWNER', status: 'ACTIVE' }),
+      }),
+    )
     expect(auditLogCreateMock).toHaveBeenCalled()
   })
 
@@ -118,15 +136,23 @@ describe('syncMembershipCreated (via handleClerkEvent)', () => {
 
     expect(userUpsertMock).not.toHaveBeenCalled()
     expect(membershipUpsertMock).not.toHaveBeenCalled()
-    expect(loggerWarnMock).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'clerk.webhook.tenant_not_found',
-    }))
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'clerk.webhook.tenant_not_found',
+      }),
+    )
   })
 
   it('calling created event twice does not fail (upsert idempotency)', async () => {
     tenantFindUniqueMock.mockResolvedValue({ id: TENANT_ID })
     userUpsertMock.mockResolvedValue({ id: USER_ID })
-    membershipUpsertMock.mockResolvedValue({ id: 'mem_1', tenantId: TENANT_ID, userId: USER_ID, role: 'OWNER', status: 'ACTIVE' })
+    membershipUpsertMock.mockResolvedValue({
+      id: 'mem_1',
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      role: 'OWNER',
+      status: 'ACTIVE',
+    })
 
     const { handleClerkEvent } = await import('./membership-sync')
     await handleClerkEvent({ type: 'organizationMembership.created', data: membershipData })
@@ -148,19 +174,29 @@ describe('syncMembershipDeleted (via handleClerkEvent)', () => {
 
   it('sets status REMOVED and does not delete the row', async () => {
     membershipFindUniqueMock.mockResolvedValueOnce({ id: 'mem_1', role: 'OWNER', status: 'ACTIVE' })
-    membershipUpdateMock.mockResolvedValueOnce({ id: 'mem_1', tenantId: TENANT_ID, userId: USER_ID, role: 'OWNER', status: 'REMOVED' })
+    membershipUpdateMock.mockResolvedValueOnce({
+      id: 'mem_1',
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      role: 'OWNER',
+      status: 'REMOVED',
+    })
 
     const { handleClerkEvent } = await import('./membership-sync')
     await handleClerkEvent({ type: 'organizationMembership.deleted', data: membershipData })
 
-    expect(membershipUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
-      data: { status: 'REMOVED' },
-    }))
-    expect(auditLogCreateMock).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        afterState: expect.objectContaining({ status: 'REMOVED' }),
+    expect(membershipUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: 'REMOVED' },
       }),
-    }))
+    )
+    expect(auditLogCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          afterState: expect.objectContaining({ status: 'REMOVED' }),
+        }),
+      }),
+    )
   })
 
   it('logs a warning and does nothing when membership row does not exist', async () => {
@@ -170,8 +206,10 @@ describe('syncMembershipDeleted (via handleClerkEvent)', () => {
     await handleClerkEvent({ type: 'organizationMembership.deleted', data: membershipData })
 
     expect(membershipUpdateMock).not.toHaveBeenCalled()
-    expect(loggerWarnMock).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'clerk.webhook.membership_not_found_on_delete',
-    }))
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'clerk.webhook.membership_not_found_on_delete',
+      }),
+    )
   })
 })

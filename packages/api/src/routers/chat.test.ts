@@ -159,7 +159,10 @@ describe('chat router', () => {
       expect(result).toEqual({ sessionId: SESSION_ID })
       expect(sessionUpsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { anonymousToken: TOKEN },
+          where: {
+            venueId_anonymousToken: { venueId: VENUE_ID, anonymousToken: TOKEN },
+            tenantId: TENANT_ID,
+          },
           create: expect.objectContaining({ tenantId: TENANT_ID, venueId: VENUE_ID }),
         }),
       )
@@ -174,6 +177,38 @@ describe('chat router', () => {
 
       expect(r1).toEqual(r2)
       expect(sessionUpsert).toHaveBeenCalledTimes(2)
+    })
+
+    it('scopes the same anonymous token independently for different venues', async () => {
+      const otherVenueId = 'cvenueother1234567890'
+      dbQueryRaw
+        .mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID }])
+        .mockResolvedValueOnce([{ id: otherVenueId, tenantId: 'tenant_2' }])
+      sessionUpsert
+        .mockResolvedValueOnce({ id: SESSION_ID })
+        .mockResolvedValueOnce({ id: 'session_2' })
+
+      await caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN })
+      await caller.chat.session({ venueId: otherVenueId, anonymousToken: TOKEN })
+
+      expect(sessionUpsert).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          where: {
+            venueId_anonymousToken: { venueId: VENUE_ID, anonymousToken: TOKEN },
+            tenantId: TENANT_ID,
+          },
+        }),
+      )
+      expect(sessionUpsert).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          where: {
+            venueId_anonymousToken: { venueId: otherVenueId, anonymousToken: TOKEN },
+            tenantId: 'tenant_2',
+          },
+        }),
+      )
     })
 
     it('throws NOT_FOUND for inactive venue', async () => {
@@ -268,6 +303,15 @@ describe('chat router', () => {
       setupHappyPath('Near the entrance.')
 
       await caller.chat.send(sendInput)
+
+      expect(sessionUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            venueId_anonymousToken: { venueId: VENUE_ID, anonymousToken: TOKEN },
+            tenantId: TENANT_ID,
+          },
+        }),
+      )
 
       expect(messageCreate).toHaveBeenCalledTimes(2)
       expect(messageCreate).toHaveBeenNthCalledWith(
@@ -667,6 +711,32 @@ describe('chat router', () => {
 
       expect(result.response).toBe('The elephants are 50m north.')
       expect(result.sessionId).toBe(SESSION_ID)
+    })
+  })
+
+  describe('chat.history', () => {
+    it('binds both venue and anonymous token before loading messages', async () => {
+      dbQueryRaw.mockResolvedValueOnce([{ id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID }])
+      messageFindMany.mockResolvedValueOnce([{ role: 'assistant', content: 'Welcome.' }])
+
+      const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
+
+      expect(dbQueryRaw.mock.calls[0]?.slice(1)).toEqual([VENUE_ID, TOKEN])
+      expect(messageFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { sessionId: SESSION_ID, tenantId: TENANT_ID },
+        }),
+      )
+      expect(result).toEqual({ messages: [{ role: 'assistant', content: 'Welcome.' }] })
+    })
+
+    it('does not load messages when no venue-scoped session exists', async () => {
+      dbQueryRaw.mockResolvedValueOnce([])
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+      ).resolves.toEqual({ messages: [] })
+      expect(messageFindMany).not.toHaveBeenCalled()
     })
   })
 })

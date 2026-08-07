@@ -88,9 +88,9 @@ export async function syncMembershipCreated(data: OrgMembershipData): Promise<vo
   const tenantId = data.organization.id
   const userId = data.public_user_data.user_id
   const email = data.public_user_data.email_addresses?.[0]?.email_address ?? ''
-  const fullName = [data.public_user_data.first_name, data.public_user_data.last_name]
-    .filter(Boolean)
-    .join(' ') || null
+  const fullName =
+    [data.public_user_data.first_name, data.public_user_data.last_name].filter(Boolean).join(' ') ||
+    null
   const role = mapClerkRoleToTenantRole(data.role)
 
   // Verify tenant exists — Clerk may send membership.created before organization.created
@@ -114,7 +114,7 @@ export async function syncMembershipCreated(data: OrgMembershipData): Promise<vo
 
   // Upsert the membership (idempotent — handles Clerk retries)
   const membership = await db.tenantMembership.upsert({
-    where: { tenantId_userId: { tenantId, userId } },
+    where: { tenantId, tenantId_userId: { tenantId, userId } },
     create: { tenantId, userId, role, status: 'ACTIVE', joinedAt: new Date() },
     update: { role, status: 'ACTIVE' },
   })
@@ -136,11 +136,11 @@ export async function syncMembershipUpdated(data: OrgMembershipData): Promise<vo
   const role = mapClerkRoleToTenantRole(data.role)
 
   const existing = await db.tenantMembership.findUnique({
-    where: { tenantId_userId: { tenantId, userId } },
+    where: { tenantId, tenantId_userId: { tenantId, userId } },
   })
 
   const membership = await db.tenantMembership.upsert({
-    where: { tenantId_userId: { tenantId, userId } },
+    where: { tenantId, tenantId_userId: { tenantId, userId } },
     create: { tenantId, userId, role, status: 'ACTIVE', joinedAt: new Date() },
     update: { role, status: 'ACTIVE' },
   })

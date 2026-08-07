@@ -39,12 +39,18 @@ function createMockDb() {
         run(createParams({ action: 'findMany', args, model: 'Place' })),
     },
     tenantMembership: {
+      aggregate: (args: Record<string, unknown> = {}) =>
+        run(createParams({ action: 'aggregate', args, model: 'TenantMembership' })),
+      count: (args: Record<string, unknown> = {}) =>
+        run(createParams({ action: 'count', args, model: 'TenantMembership' })),
       create: (args: Record<string, unknown>) =>
         run(createParams({ action: 'create', args, model: 'TenantMembership' })),
       deleteMany: (args: Record<string, unknown>) =>
         run(createParams({ action: 'deleteMany', args, model: 'TenantMembership' })),
       findMany: (args: Record<string, unknown> = {}) =>
         run(createParams({ action: 'findMany', args, model: 'TenantMembership' })),
+      groupBy: (args: Record<string, unknown> = {}) =>
+        run(createParams({ action: 'groupBy', args, model: 'TenantMembership' })),
       updateMany: (args: Record<string, unknown>) =>
         run(createParams({ action: 'updateMany', args, model: 'TenantMembership' })),
       upsert: (args: Record<string, unknown>) =>
@@ -189,7 +195,21 @@ describe('tenantIsolationMiddleware', () => {
     })
   })
 
-  it('upsert requires create.tenantId but not where.tenantId', async () => {
+  it.each(['count', 'aggregate', 'groupBy'] as const)(
+    '%s requires where.tenantId',
+    async (operation) => {
+      const db = createMockDb()
+
+      await expect(db.tenantMembership[operation]({})).rejects.toEqual(
+        new TenantIsolationError('TenantMembership', operation),
+      )
+      await expect(
+        db.tenantMembership[operation]({ where: { tenantId: 'org_1' } }),
+      ).resolves.toMatchObject({ action: operation })
+    },
+  )
+
+  it('upsert requires tenantId in both create and where', async () => {
     const db = createMockDb()
 
     // Missing tenantId in create — must throw regardless of where
@@ -201,19 +221,47 @@ describe('tenantIsolationMiddleware', () => {
       }),
     ).rejects.toEqual(new TenantIsolationError('TenantMembership', 'upsert'))
 
-    // create has tenantId but where does not — allowed (where uses a unique key)
+    // create has tenantId but where does not — reject cross-tenant updates
     await expect(
       db.tenantMembership.upsert({
         where: { id: 'membership_1' },
         update: { role: 'MANAGER' },
         create: { tenantId: 'org_1', userId: 'user_1', role: 'OWNER' },
       }),
-    ).resolves.toMatchObject({ action: 'upsert' })
+    ).rejects.toEqual(new TenantIsolationError('TenantMembership', 'upsert'))
 
     // both have tenantId — also allowed
     await expect(
       db.tenantMembership.upsert({
         where: { tenantId: 'org_1' },
+        update: { role: 'MANAGER' },
+        create: { tenantId: 'org_1', userId: 'user_1', role: 'OWNER' },
+      }),
+    ).resolves.toMatchObject({ action: 'upsert' })
+
+    await expect(
+      db.tenantMembership.upsert({
+        where: { tenantId_userId: { tenantId: 'org_2', userId: 'user_1' } },
+        update: { role: 'MANAGER' },
+        create: { tenantId: 'org_1', userId: 'user_1', role: 'OWNER' },
+      }),
+    ).rejects.toEqual(new TenantIsolationError('TenantMembership', 'upsert'))
+
+    // A nested compound key alone is not sufficient; the root query must be scoped.
+    await expect(
+      db.tenantMembership.upsert({
+        where: { tenantId_userId: { tenantId: 'org_1', userId: 'user_1' } },
+        update: { role: 'MANAGER' },
+        create: { tenantId: 'org_1', userId: 'user_1', role: 'OWNER' },
+      }),
+    ).rejects.toEqual(new TenantIsolationError('TenantMembership', 'upsert'))
+
+    await expect(
+      db.tenantMembership.upsert({
+        where: {
+          tenantId: 'org_1',
+          tenantId_userId: { tenantId: 'org_1', userId: 'user_1' },
+        },
         update: { role: 'MANAGER' },
         create: { tenantId: 'org_1', userId: 'user_1', role: 'OWNER' },
       }),
@@ -292,22 +340,28 @@ describe('tenantIsolationMiddleware', () => {
     expect(tenantIsolationInternals.hasOwnTenantKey({})).toBe(false)
     expect(tenantIsolationInternals.hasTenantIdValue({ tenantId: null })).toBe(false)
     expect(tenantIsolationInternals.hasTenantIdValue({ tenant_id: 'org_1' })).toBe(true)
+    expect(
+      tenantIsolationInternals.hasTenantIdValue({
+        OR: [{ tenantId: 'org_1' }, { id: 'foreign' }],
+      }),
+    ).toBe(false)
+    expect(tenantIsolationInternals.hasTenantIdValue({ venue: { tenantId: 'org_1' } })).toBe(false)
     expect(tenantIsolationInternals.hasTenantIdInCreateData([{ tenantId: 'org_1' }])).toBe(true)
     expect(tenantIsolationInternals.requiresWhereTenantId('findUnique')).toBe(true)
-    expect(tenantIsolationInternals.requiresWhereTenantId('aggregate')).toBe(false)
+    expect(tenantIsolationInternals.requiresWhereTenantId('aggregate')).toBe(true)
     expect(tenantIsolationInternals.isBypassEnabled()).toBe(false)
 
     await expect(
       tenantIsolationMiddleware(
         createParams({
-          action: 'aggregate',
+          action: 'unknownOperation',
           model: 'TenantMembership',
           args: {},
         }),
         next,
       ),
     ).resolves.toMatchObject({
-      action: 'aggregate',
+      action: 'unknownOperation',
     })
   })
 })

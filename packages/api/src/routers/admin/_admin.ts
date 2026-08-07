@@ -424,7 +424,10 @@ export const adminRouter = router({
         })
 
         await db.tenantMembership.upsert({
-          where: { tenantId_userId: { tenantId: input.orgId, userId: input.userId } },
+          where: {
+            tenantId: input.orgId,
+            tenantId_userId: { tenantId: input.orgId, userId: input.userId },
+          },
           create: {
             tenantId: input.orgId,
             userId: input.userId,
@@ -504,7 +507,10 @@ export const adminRouter = router({
         })
 
         await db.tenantMembership.upsert({
-          where: { tenantId_userId: { tenantId: organization.id, userId: ctx.session.userId } },
+          where: {
+            tenantId: organization.id,
+            tenantId_userId: { tenantId: organization.id, userId: ctx.session.userId },
+          },
           create: {
             tenantId: organization.id,
             userId: ctx.session.userId,

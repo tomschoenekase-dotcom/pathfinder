@@ -92,7 +92,13 @@ async function syncVisitorSession(
 
   if (params.eventType === 'session.started') {
     await db.visitorSession.upsert({
-      where: { anonymousToken: params.sessionId },
+      where: {
+        venueId_anonymousToken: {
+          venueId: params.venueId,
+          anonymousToken: params.sessionId,
+        },
+        tenantId: params.tenantId,
+      },
       create: {
         tenantId: params.tenantId,
         venueId: params.venueId,
@@ -110,7 +116,11 @@ async function syncVisitorSession(
 
   if (params.eventType === 'session.ended') {
     await db.visitorSession.updateMany({
-      where: { anonymousToken: params.sessionId, tenantId: params.tenantId },
+      where: {
+        anonymousToken: params.sessionId,
+        tenantId: params.tenantId,
+        venueId: params.venueId,
+      },
       data: { lastActiveAt: new Date() },
     })
 
@@ -119,7 +129,13 @@ async function syncVisitorSession(
 
   if (params.eventType === 'message.sent') {
     await db.visitorSession.upsert({
-      where: { anonymousToken: params.sessionId },
+      where: {
+        venueId_anonymousToken: {
+          venueId: params.venueId,
+          anonymousToken: params.sessionId,
+        },
+        tenantId: params.tenantId,
+      },
       create: {
         tenantId: params.tenantId,
         venueId: params.venueId,
@@ -140,7 +156,11 @@ async function syncVisitorSession(
   }
 
   await db.visitorSession.updateMany({
-    where: { anonymousToken: params.sessionId, tenantId: params.tenantId },
+    where: {
+      anonymousToken: params.sessionId,
+      tenantId: params.tenantId,
+      venueId: params.venueId,
+    },
     data: { lastActiveAt: new Date() },
   })
 }

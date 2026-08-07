@@ -511,7 +511,10 @@ async function enrichVenue(params: {
         weekEnd.setUTCDate(weekEnd.getUTCDate() + 7)
 
         await db.venueWeeklyTheme.upsert({
-          where: { tenantId_venueId_weekStart: { tenantId, venueId, weekStart } },
+          where: {
+            tenantId,
+            tenantId_venueId_weekStart: { tenantId, venueId, weekStart },
+          },
           create: { tenantId, venueId, weekStart, weekEnd, themes },
           update: { themes, generatedAt: new Date() },
         })
