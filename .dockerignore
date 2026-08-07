@@ -1,0 +1,24 @@
+# Host dependency and build-artifact directories — must NOT enter the
+# Docker build context, otherwise pnpm install --frozen-lockfile inside the
+# container cannot perform a clean Linux install (breaks Prisma CLI etc.)
+node_modules/
+.pnpm-store/
+.corepack/
+.corepack-bin/
+
+# Build artifacts / caches
+.next/
+dist/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Env and secrets
+.env
+.env.local
+*.env
+*.env.local
+
+# VCS and local tooling
+.git/
+.husky/
