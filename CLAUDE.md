@@ -18,17 +18,17 @@ PathFinder is an AI-powered venue-guide chatbot platform.
 
 - `apps/web` is the public guest chat app.
 - `apps/dashboard` is the tenant operator console.
-- `apps/admin` is built but deployment is in flux; admin work may be happening in parallel.
+- Platform-admin pages and routes live inside `apps/dashboard`; there is no separate `apps/admin` workspace.
 - `apps/workers` runs BullMQ background jobs.
 - `packages/api` owns tRPC business logic.
 - `packages/db` owns Prisma, schema, migrations, tenant isolation, audit helpers, semantic search, and job records.
 - `packages/auth` owns Clerk session and permission helpers.
-- `packages/analytics` owns the server-side analytics emitter and event allow-list.
+- `packages/analytics` owns the server-side analytics emitter plus the complete and public-client event catalogs.
 - `packages/jobs` owns queue names, job payload types, Redis connection, and enqueue helpers.
 - `packages/config` owns shared logger, env, feature flag keys, eslint config, and tsconfig bases.
 - `packages/ui` is the shared presentational component package.
 
-Not built: listings, bookings, events, guest-user accounts, availability slots, file upload storage, admin impersonation sessions, PostHog wiring, outbound integrations, provider adapters, webhook processing, email dispatch, and booking expiry jobs.
+Not built: listings, bookings, venue events, guest-user accounts, availability slots, PostHog wiring, general outbound integrations, and booking expiry jobs. Do not infer absence from older planning documents: multipart media storage, audited cookie-based admin impersonation, AI provider adapters, Clerk webhook processing, and welcome-email dispatch are implemented, although live-provider readiness still depends on environment configuration and stage evidence.
 
 ## Extensible Platform Constraints
 
@@ -50,7 +50,7 @@ security boundary.
 ## Monorepo Boundaries
 
 - `apps/*` may import from `packages/*`; packages must not import from apps.
-- `apps/web`, `apps/dashboard`, and `apps/admin` must not import from each other.
+- `apps/web` and `apps/dashboard` must not import from each other.
 - `packages/db` is the only package that imports `@prisma/client`.
 - `packages/auth` is the only package that imports Clerk server SDKs.
 - `packages/api` is the only package that defines tRPC routers.
@@ -125,7 +125,7 @@ Rules:
 
 - Business logic lives in `packages/api/src/routers/`.
 - Apps mount/call `appRouter`; apps do not define tRPC procedures.
-- Plain Next.js route handlers are for tRPC mounting and Clerk webhooks only unless a task explicitly adds another integration point.
+- Plain Next.js route handlers are limited integration boundaries. Current reviewed exceptions include tRPC mounting, Clerk webhooks, health checks, and the audited admin-impersonation transition; new handlers require an explicit boundary review.
 - Validate every tRPC input with Zod.
 - Shared API schemas live in `packages/api/src/schemas/`.
 - Throw `TRPCError` from procedures; do not return ad hoc error objects.
@@ -134,18 +134,23 @@ Rules:
 
 ## Analytics
 
-- `emitEvent()` from `packages/analytics` is server-side only.
-- Event types must be in `packages/analytics/src/events.ts`.
-- Current allow-list:
+- `emitEvent()` from `packages/analytics` is server-side only. Browser code writes only through the validated public analytics mutation.
+- Event types must be in the authoritative catalogs in `packages/analytics/src/events.ts`.
+- Current public-client allow-list:
   - `session.started`
   - `session.ended`
   - `message.sent`
-  - `message.received`
   - `place_card.viewed`
   - `place_card.clicked`
   - `directions.opened`
   - `operational_update.viewed`
+- Server-only events include:
+  - `message.received`
+  - `message.fallback`
+  - `message.low_confidence`
   - `venue.updated`
+  - `engagement_question.asked`
+- Never add a server-derived reliability or business event to the public-client allow-list merely because it exists in the complete catalog.
 - `emitEvent()` is best-effort and must not break user-facing flows.
 - Emit after successful state changes.
 - Dashboard analytics reads should use `AnalyticsEvent`, `DailyRollup`, or `WeeklyDigest`, not ad hoc component queries.
