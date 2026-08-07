@@ -1,41 +1,31 @@
 import { clerkMiddleware } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
-const AUTH_ROUTES = ['/sign-in', '/sign-up']
-// /api/webhooks/clerk must remain here — Clerk sends webhook POST requests
-// without a session cookie, so auth() would redirect them with a 307 and break
-// automatic tenant creation on org signup.
-const PUBLIC_ROUTES = ['/api/webhooks/clerk']
+import { isPublicDashboardPath, resolveDashboardAccess } from './lib/middleware-access'
 
 export default clerkMiddleware(async (auth, req) => {
   try {
     const { pathname } = req.nextUrl
 
-    if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
-      return NextResponse.next()
-    }
-
-    if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-      return NextResponse.next()
-    }
+    if (isPublicDashboardPath(pathname)) return NextResponse.next()
 
     const authState = await auth()
-
-    if (!authState.userId) {
-      return authState.redirectToSignIn()
-    }
-
     const adminTenantOverride = req.cookies.get('pf_admin_tenant')?.value
-    const isPlatformAdmin =
-      (authState.sessionClaims?.publicMetadata as { platform_role?: string } | undefined)
-        ?.platform_role === 'PLATFORM_ADMIN'
-    const effectiveOrgId = authState.orgId ?? (isPlatformAdmin ? adminTenantOverride : null)
+    const decision = resolveDashboardAccess({
+      pathname,
+      userId: authState.userId,
+      orgId: authState.orgId,
+      platformRole: (
+        authState.sessionClaims?.publicMetadata as { platform_role?: unknown } | undefined
+      )?.platform_role,
+      adminTenantOverride,
+    })
 
-    if (!effectiveOrgId && pathname !== '/onboarding' && !pathname.startsWith('/admin')) {
-      const onboardingUrl = new URL('/onboarding', req.url)
-      return NextResponse.redirect(onboardingUrl)
+    if (decision === 'sign-in') return authState.redirectToSignIn()
+    if (decision === 'root') return NextResponse.redirect(new URL('/', req.url))
+    if (decision === 'onboarding') {
+      return NextResponse.redirect(new URL('/onboarding', req.url))
     }
-
     return NextResponse.next()
   } catch {
     return NextResponse.redirect(new URL('/sign-in', req.url))
