@@ -1,0 +1,196 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const harness = vi.hoisted(() => {
+  type Touch = { kind: 'db-touch' | 'external-touch'; path: string; args: unknown[] }
+  const dbTouches: Touch[] = []
+  const externalTouches: Touch[] = []
+
+  const makeDbProxy = (parts: string[]): unknown =>
+    new Proxy(() => undefined, {
+      get(_target, property) {
+        if (property === 'then') return undefined
+        return makeDbProxy([...parts, String(property)])
+      },
+      apply(_target, _thisArg, args: unknown[]) {
+        const touch: Touch = { kind: 'db-touch', path: parts.join('.'), args }
+        dbTouches.push(touch)
+        return Promise.reject(touch)
+      },
+    })
+
+  const external = (path: string) =>
+    vi.fn((...args: unknown[]) => {
+      const touch: Touch = { kind: 'external-touch', path, args }
+      externalTouches.push(touch)
+      return Promise.reject(touch)
+    })
+
+  return {
+    db: makeDbProxy([]),
+    dbTouches,
+    externalTouches,
+    inviteOrganizationMember: external('external.inviteOrganizationMember'),
+    listPendingOrganizationInvitations: external('external.listPendingOrganizationInvitations'),
+  }
+})
+
+vi.mock('@pathfinder/db', () => ({
+  db: harness.db,
+  writeAuditLog: vi.fn(),
+}))
+
+vi.mock('@pathfinder/jobs', () => ({
+  enqueueEmbedKnowledgeEntry: vi.fn(),
+  enqueueEmbedPlace: vi.fn(),
+}))
+
+vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn() }))
+
+vi.mock('@pathfinder/config/logger', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+
+vi.mock('@pathfinder/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pathfinder/auth')>()
+  return {
+    ...actual,
+    inviteOrganizationMember: harness.inviteOrganizationMember,
+    listPendingOrganizationInvitations: harness.listPendingOrganizationInvitations,
+  }
+})
+
+import type { TenantRole } from '@pathfinder/auth'
+import { router } from './core'
+import type { TRPCContext } from './context'
+import { analyticsRouter } from './routers/analytics'
+import { engagementQuestionRouter } from './routers/engagement-question'
+import { knowledgeRouter } from './routers/knowledge'
+import { operationalUpdateRouter } from './routers/operational-update'
+import { placeRouter } from './routers/place'
+import { tenantRouter } from './routers/tenant'
+import { venueRouter } from './routers/venue'
+import cases from './testing/tenant-procedure-cases.json'
+
+const ATTACKER_TENANT_ID = 'tenant_attacker'
+
+const testRouter = router({
+  analytics: analyticsRouter,
+  engagementQuestion: engagementQuestionRouter,
+  knowledge: knowledgeRouter,
+  operationalUpdate: operationalUpdateRouter,
+  place: placeRouter,
+  tenant: tenantRouter,
+  venue: venueRouter,
+})
+
+type ProcedureCase = {
+  path: string
+  kind: 'query' | 'mutation'
+  minimumRole: TenantRole
+  firstTouch: string
+  input: unknown
+}
+
+function materialize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(materialize)
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    if (typeof record.$futureMinutes === 'number') {
+      return new Date(Date.now() + record.$futureMinutes * 60_000)
+    }
+    return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, materialize(item)]))
+  }
+  return value
+}
+
+function authoritativeTenant(touch: {
+  kind: 'db-touch' | 'external-touch'
+  path: string
+  args: unknown[]
+}): unknown {
+  if (touch.path === 'external.inviteOrganizationMember') {
+    return (touch.args[0] as { organizationId?: unknown } | undefined)?.organizationId
+  }
+  if (touch.path === 'external.listPendingOrganizationInvitations') return touch.args[0]
+
+  const operation = touch.args[0] as
+    | { where?: { id?: unknown; tenantId?: unknown }; data?: { tenantId?: unknown } }
+    | undefined
+  if (touch.path.startsWith('tenant.')) return operation?.where?.id
+  return operation?.where?.tenantId ?? operation?.data?.tenantId
+}
+
+function context(role: TenantRole): TRPCContext {
+  return {
+    db: harness.db as TRPCContext['db'],
+    headers: new Headers(),
+    session: {
+      userId: 'attacker_user',
+      activeTenantId: ATTACKER_TENANT_ID,
+      role,
+      isPlatformAdmin: false,
+    },
+  }
+}
+
+function clearTouches() {
+  harness.dbTouches.length = 0
+  harness.externalTouches.length = 0
+}
+
+async function invoke(entry: ProcedureCase, role: TenantRole): Promise<unknown> {
+  const [routerName, procedureName] = entry.path.split('.')
+  if (!routerName || !procedureName) throw new Error(`Malformed procedure path: ${entry.path}`)
+
+  const caller = testRouter.createCaller(context(role)) as unknown as Record<
+    string,
+    Record<string, (input?: unknown) => Promise<unknown>>
+  >
+  const procedure = caller[routerName]?.[procedureName]
+  if (!procedure) throw new Error(`Procedure is not callable: ${entry.path}`)
+  const input = materialize(entry.input)
+  return entry.input === null ? procedure() : procedure(input)
+}
+
+describe('generated tenant-procedure cross-tenant boundary', () => {
+  beforeEach(() => {
+    clearTouches()
+    vi.clearAllMocks()
+  })
+
+  it.each(cases as ProcedureCase[])(
+    '$path reaches only attacker-scoped boundaries',
+    async (entry) => {
+      const belowMinimumRole =
+        entry.minimumRole === 'OWNER' ? 'MANAGER' : entry.minimumRole === 'MANAGER' ? 'STAFF' : null
+      if (belowMinimumRole) {
+        await expect(invoke(entry, belowMinimumRole)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+        expect(harness.dbTouches).toHaveLength(0)
+        expect(harness.externalTouches).toHaveLength(0)
+        clearTouches()
+      }
+
+      let thrown: unknown
+      try {
+        await invoke(entry, entry.minimumRole)
+      } catch (error) {
+        thrown = error
+      }
+
+      const expectedKind = entry.firstTouch.startsWith('external.') ? 'external-touch' : 'db-touch'
+      expect((thrown as { cause?: unknown } | undefined)?.cause).toMatchObject({
+        kind: expectedKind,
+      })
+
+      const touches = expectedKind === 'db-touch' ? harness.dbTouches : harness.externalTouches
+      const unexpectedTouches =
+        expectedKind === 'db-touch' ? harness.externalTouches : harness.dbTouches
+      expect(touches.map((touch) => touch.path)).toContain(entry.firstTouch)
+      expect(touches.length).toBeGreaterThan(0)
+      expect(unexpectedTouches).toHaveLength(0)
+      for (const touch of touches) {
+        expect(authoritativeTenant(touch), touch.path).toBe(ATTACKER_TENANT_ID)
+      }
+    },
+  )
+})

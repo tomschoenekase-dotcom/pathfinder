@@ -11,6 +11,7 @@
     "verify:ai-boundary": "node scripts/verify-ai-provider-boundary.mjs",
     "verify:raw-sql": "node scripts/verify-raw-sql-boundary.mjs",
     "verify:tenant-bypasses": "node scripts/verify-tenant-bypass-boundary.mjs",
+    "verify:tenant-procedures": "node scripts/verify-tenant-procedure-coverage.mjs",
     "verify:tenant-registry": "node scripts/verify-tenant-registry.mjs",
     "test:watch": "vitest",
     "verify:staging": "node scripts/verify-staging-config.mjs",

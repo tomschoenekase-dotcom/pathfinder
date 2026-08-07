@@ -1,0 +1,305 @@
+[
+  {
+    "path": "analytics.getLatestDigest",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "weeklyDigest.findFirst",
+    "input": null
+  },
+  {
+    "path": "analytics.listDigests",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "weeklyDigest.findMany",
+    "input": null
+  },
+  {
+    "path": "analytics.getDigest",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "weeklyDigest.findFirst",
+    "input": { "id": "" }
+  },
+  {
+    "path": "analytics.listPublishedWeeklyReports",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "analytics.getDailyStats",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "dailyRollup.findMany",
+    "input": null
+  },
+  {
+    "path": "analytics.getTopQuestions",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "questionCluster.findMany",
+    "input": null
+  },
+  {
+    "path": "analytics.getContentGaps",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "questionCluster.findMany",
+    "input": null
+  },
+  {
+    "path": "analytics.getVisitorStats",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "visitorSession.findMany",
+    "input": null
+  },
+  {
+    "path": "analytics.getTopTopics",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "dailyRollup.findMany",
+    "input": null
+  },
+  {
+    "path": "analytics.getWeeklyThemes",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venueWeeklyTheme.findFirst",
+    "input": null
+  },
+  {
+    "path": "analytics.getPlaceInterest",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "dailyRollup.findMany",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+
+  {
+    "path": "engagementQuestion.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "engagementQuestion.findMany",
+    "input": null
+  },
+  {
+    "path": "engagementQuestion.create",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "engagementQuestion.create",
+    "input": { "questionType": "OPEN_ENDED", "prompt": "How was your visit?" }
+  },
+  {
+    "path": "engagementQuestion.update",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "engagementQuestion.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
+    "path": "engagementQuestion.delete",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "engagementQuestion.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+
+  {
+    "path": "knowledge.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "knowledge.create",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "title": "Policy",
+      "category": "FAQ",
+      "content": "Details"
+    }
+  },
+  {
+    "path": "knowledge.bulkCreate",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012", "entries": [] }
+  },
+  {
+    "path": "knowledge.update",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venueKnowledgeEntry.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
+    "path": "knowledge.delete",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venueKnowledgeEntry.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+
+  {
+    "path": "operationalUpdate.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "operationalUpdate.findMany",
+    "input": null
+  },
+  {
+    "path": "operationalUpdate.create",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "severity": "INFO",
+      "title": "Notice",
+      "expiresAt": { "$futureMinutes": 16 }
+    }
+  },
+  {
+    "path": "operationalUpdate.deactivate",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "operationalUpdate.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+
+  {
+    "path": "place.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "place.getById",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "place.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
+    "path": "place.create",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012", "name": "Lobby", "type": "room" }
+  },
+  {
+    "path": "place.update",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "place.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
+    "path": "place.delete",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "place.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
+    "path": "place.bulkCreate",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012", "places": [] }
+  },
+
+  {
+    "path": "tenant.getSettings",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenant.findUnique",
+    "input": null
+  },
+  {
+    "path": "tenant.inviteMember",
+    "kind": "mutation",
+    "minimumRole": "OWNER",
+    "firstTouch": "external.inviteOrganizationMember",
+    "input": { "emailAddress": "guest@example.com", "role": "org:admin" }
+  },
+  {
+    "path": "tenant.listPendingInvitations",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "external.listPendingOrganizationInvitations",
+    "input": null
+  },
+  {
+    "path": "tenant.setEngagementMode",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "tenant.update",
+    "input": { "mode": "STOIC" }
+  },
+
+  {
+    "path": "venue.list",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findMany",
+    "input": null
+  },
+  {
+    "path": "venue.getById",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
+    "path": "venue.getAiConfig",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "venue.create",
+    "kind": "mutation",
+    "minimumRole": "OWNER",
+    "firstTouch": "venue.findFirst",
+    "input": { "name": "New Venue" }
+  },
+  {
+    "path": "venue.update",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
+    "path": "venue.updateAiConfig",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "venue.updateChatDesign",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "venue.delete",
+    "kind": "mutation",
+    "minimumRole": "OWNER",
+    "firstTouch": "venue.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  }
+]
