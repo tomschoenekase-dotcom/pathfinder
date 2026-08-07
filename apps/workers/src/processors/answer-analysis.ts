@@ -1,12 +1,16 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
-import { env, logger } from '@pathfinder/config'
+import {
+  AI_MODEL_KEYS,
+  generateText,
+  setAnthropicClientForTesting,
+  type AnthropicMessagesClient,
+} from '@pathfinder/ai'
+import { logger } from '@pathfinder/config'
 import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
 import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
-const MAX_OUTPUT_TOKENS = 1_500
+import { createWorkerAiUsageSink } from '../lib/ai-usage'
 // Gate on combined signal (structured answers + general chat messages), not just
 // engagement-question answers — a venue with no configured questions answered yet can
 // still have plenty of informative guest chat to analyze.
@@ -62,29 +66,8 @@ const answerAnalysisResponseSchema = z.object({
 
 type AnswerAnalysisSummary = z.infer<typeof answerAnalysisResponseSchema>
 
-let anthropicClient: Anthropic | null = null
-
-function getAnthropicClient(): Anthropic {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is not configured')
-  }
-
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
-  }
-
-  return anthropicClient
-}
-
-function extractResponseText(content: Anthropic.Messages.Message['content']): string {
-  return content
-    .filter(
-      (block): block is Extract<(typeof content)[number], { type: 'text' }> =>
-        block.type === 'text',
-    )
-    .map((block) => block.text)
-    .join('\n')
-    .trim()
+export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void {
+  setAnthropicClientForTesting(client)
 }
 
 const ARRAY_FIELD_MAX: Record<string, number> = {
@@ -162,7 +145,10 @@ async function loadAnswers(payload: AnswerAnalysisJobPayload) {
     const rangeEnd = new Date(payload.rangeEnd)
 
     const [venue, responses, generalMessages] = await Promise.all([
-      db.venue.findUnique({ where: { id: payload.venueId }, select: { name: true } }),
+      db.venue.findFirst({
+        where: { id: payload.venueId, tenantId: payload.tenantId },
+        select: { name: true },
+      }),
       db.engagementQuestionResponse.findMany({
         where: {
           tenantId: payload.tenantId,
@@ -188,8 +174,12 @@ async function loadAnswers(payload: AnswerAnalysisJobPayload) {
       }),
     ])
 
+    if (!venue) {
+      throw new Error(`Venue ${payload.venueId} not found for tenant ${payload.tenantId}`)
+    }
+
     return {
-      venueName: venue?.name ?? 'Unknown venue',
+      venueName: venue.name,
       responses,
       generalMessages: generalMessages.map((message) => trimMessageContent(message.content)),
     }
@@ -288,13 +278,19 @@ export async function processAnswerAnalysisJob(
       generalMessages: promptData.generalMessages,
     })
 
-    const response = await getAnthropicClient().messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: MAX_OUTPUT_TOKENS,
+    const response = await generateText({
+      modelKey: AI_MODEL_KEYS.ANSWER_ANALYSIS,
+      system: [],
       messages: [{ role: 'user', content: prompt }],
+      parseResponse: parseAnalysis,
+      usageSink: createWorkerAiUsageSink({
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        feature: 'answer-analysis',
+      }),
     })
 
-    const summary = parseAnalysis(extractResponseText(response.content))
+    const summary = response.parsed
 
     await markSnapshotStatus(payload, {
       status: 'COMPLETE',

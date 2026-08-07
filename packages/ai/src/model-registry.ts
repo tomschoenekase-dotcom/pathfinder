@@ -1,6 +1,7 @@
 export const AI_MODEL_KEYS = {
   ANALYTICS_TOPIC_CLASSIFIER: 'analytics-topic-classifier',
   ANALYTICS_WEEKLY_THEMES: 'analytics-weekly-themes',
+  ANSWER_ANALYSIS: 'answer-analysis',
   GUEST_CHAT: 'guest-chat',
 } as const
 
@@ -28,12 +29,12 @@ const HAIKU_PRICING = {
   cacheRead: 0.1,
 } as const
 
-function haikuSpec(maxOutputTokens: number): AiModelSpec {
+function haikuSpec(maxOutputTokens: number, timeoutMs = 10_000): AiModelSpec {
   return {
     provider: 'anthropic',
     model: 'claude-haiku-4-5-20251001',
     maxOutputTokens,
-    timeoutMs: 10_000,
+    timeoutMs,
     maxAttempts: 2,
     pricingVersion: 'anthropic-public-2026-08-07',
     // Anthropic Claude API list prices verified 2026-08-07. Keep pricing
@@ -42,9 +43,29 @@ function haikuSpec(maxOutputTokens: number): AiModelSpec {
   }
 }
 
+function sonnetSpec(maxOutputTokens: number): AiModelSpec {
+  return {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    maxOutputTokens,
+    timeoutMs: 30_000,
+    // BullMQ owns retries for fail-closed background jobs. Avoid multiplying
+    // provider calls inside each queue attempt.
+    maxAttempts: 1,
+    pricingVersion: 'anthropic-public-2026-08-07',
+    pricingUsdPerMillionTokens: {
+      input: 3,
+      output: 15,
+      cacheWrite: 3.75,
+      cacheRead: 0.3,
+    },
+  }
+}
+
 export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
-  [AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER]: haikuSpec(1_024),
-  [AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES]: haikuSpec(1_024),
+  [AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER]: haikuSpec(1_024, 30_000),
+  [AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES]: haikuSpec(1_024, 30_000),
+  [AI_MODEL_KEYS.ANSWER_ANALYSIS]: sonnetSpec(1_500),
   [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
 }
 
