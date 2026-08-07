@@ -10,11 +10,14 @@ export {
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
   storeKnowledgeEntryEmbedding,
+  storeKnowledgeEntryEmbeddingForScope,
   storePlaceEmbedding,
+  storePlaceEmbeddingForScope,
 } from './helpers/semantic-search'
 export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'
 export {
   buildPlaceText,
+  buildKnowledgeEntryText,
   generateAndStoreKnowledgeEntryEmbedding,
   generateAndStorePlaceEmbedding,
   generateEmbedding,

@@ -135,6 +135,27 @@ export async function storePlaceEmbedding(placeId: string, embedding: number[]):
     .$executeRaw`UPDATE places SET embedding = ${vectorStr}::vector WHERE id = ${placeId}`
 }
 
+/** Stores a place embedding only when the full tenant/venue/entity scope still matches. */
+export async function storePlaceEmbeddingForScope(params: {
+  placeId: string
+  tenantId: string
+  venueId: string
+  embedding: number[]
+}): Promise<void> {
+  const vectorStr = `[${params.embedding.join(',')}]`
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updated = await (db as any).$executeRaw`
+    UPDATE places
+    SET embedding = ${vectorStr}::vector
+    WHERE id = ${params.placeId}
+      AND tenant_id = ${params.tenantId}
+      AND venue_id = ${params.venueId}
+  `
+  if (updated !== 1) {
+    throw new Error(`Place ${params.placeId} embedding scope changed before persistence`)
+  }
+}
+
 /**
  * Searches knowledge entries by cosine similarity against a pre-computed query embedding.
  *
@@ -192,4 +213,27 @@ export async function storeKnowledgeEntryEmbedding(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db as any)
     .$executeRaw`UPDATE venue_knowledge_entries SET embedding = ${vectorStr}::vector WHERE id = ${entryId}`
+}
+
+/** Stores a knowledge embedding only when the full tenant/venue/entity scope still matches. */
+export async function storeKnowledgeEntryEmbeddingForScope(params: {
+  entryId: string
+  tenantId: string
+  venueId: string
+  embedding: number[]
+}): Promise<void> {
+  const vectorStr = `[${params.embedding.join(',')}]`
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updated = await (db as any).$executeRaw`
+    UPDATE venue_knowledge_entries
+    SET embedding = ${vectorStr}::vector
+    WHERE id = ${params.entryId}
+      AND tenant_id = ${params.tenantId}
+      AND venue_id = ${params.venueId}
+  `
+  if (updated !== 1) {
+    throw new Error(
+      `VenueKnowledgeEntry ${params.entryId} embedding scope changed before persistence`,
+    )
+  }
 }

@@ -1,12 +1,16 @@
 import { logger } from '@pathfinder/config'
+import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
 import {
+  buildKnowledgeEntryText,
   db,
-  generateAndStoreKnowledgeEntryEmbedding,
+  storeKnowledgeEntryEmbeddingForScope,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
 } from '@pathfinder/db'
 import type { EmbedKnowledgeEntryJobPayload } from '@pathfinder/jobs'
+
+import { createWorkerAiUsageSink } from '../lib/ai-usage'
 
 export async function processEmbedKnowledgeEntryJob(
   payload: EmbedKnowledgeEntryJobPayload,
@@ -29,9 +33,11 @@ export async function processEmbedKnowledgeEntryJob(
         where: {
           id: payload.entryId,
           tenantId: payload.tenantId,
+          venue: { tenantId: payload.tenantId },
         },
         select: {
           id: true,
+          venueId: true,
           title: true,
           category: true,
           content: true,
@@ -43,7 +49,21 @@ export async function processEmbedKnowledgeEntryJob(
       throw new Error(`VenueKnowledgeEntry ${payload.entryId} not found`)
     }
 
-    await generateAndStoreKnowledgeEntryEmbedding(entry)
+    const result = await generateEmbedding({
+      modelKey: AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT,
+      text: buildKnowledgeEntryText(entry),
+      usageSink: createWorkerAiUsageSink({
+        tenantId: payload.tenantId,
+        venueId: entry.venueId,
+        feature: 'knowledge-entry-embedding',
+      }),
+    })
+    await storeKnowledgeEntryEmbeddingForScope({
+      entryId: entry.id,
+      tenantId: payload.tenantId,
+      venueId: entry.venueId,
+      embedding: result.embedding,
+    })
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({

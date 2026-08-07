@@ -1,12 +1,16 @@
 import { logger } from '@pathfinder/config'
+import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
 import {
+  buildPlaceText,
   db,
-  generateAndStorePlaceEmbedding,
+  storePlaceEmbeddingForScope,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
 } from '@pathfinder/db'
 import type { EmbedPlaceJobPayload } from '@pathfinder/jobs'
+
+import { createWorkerAiUsageSink } from '../lib/ai-usage'
 
 export async function processEmbedPlaceJob(
   payload: EmbedPlaceJobPayload,
@@ -30,9 +34,11 @@ export async function processEmbedPlaceJob(
           id: payload.placeId,
           tenantId: payload.tenantId,
           isActive: true,
+          venue: { tenantId: payload.tenantId },
         },
         select: {
           id: true,
+          venueId: true,
           name: true,
           type: true,
           itemType: true,
@@ -49,7 +55,21 @@ export async function processEmbedPlaceJob(
       throw new Error(`Place ${payload.placeId} not found`)
     }
 
-    await generateAndStorePlaceEmbedding(place)
+    const result = await generateEmbedding({
+      modelKey: AI_EMBEDDING_MODEL_KEYS.PLACE_CONTENT,
+      text: buildPlaceText(place),
+      usageSink: createWorkerAiUsageSink({
+        tenantId: payload.tenantId,
+        venueId: place.venueId,
+        feature: 'place-embedding',
+      }),
+    })
+    await storePlaceEmbeddingForScope({
+      placeId: place.id,
+      tenantId: payload.tenantId,
+      venueId: place.venueId,
+      embedding: result.embedding,
+    })
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({

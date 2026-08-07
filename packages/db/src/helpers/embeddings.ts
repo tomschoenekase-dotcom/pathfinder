@@ -45,6 +45,14 @@ export function buildPlaceText(place: {
     .join('. ')
 }
 
+export function buildKnowledgeEntryText(entry: {
+  title: string
+  category: string
+  content: string
+}): string {
+  return [entry.title, entry.category, entry.content].filter(Boolean).join('. ')
+}
+
 const EMBEDDING_MODEL = 'text-embedding-3-small'
 const EMBEDDING_DIMENSIONS = 1536
 
@@ -103,7 +111,7 @@ export async function generateAndStoreKnowledgeEntryEmbedding(entry: {
   category: string
   content: string
 }): Promise<void> {
-  const text = [entry.title, entry.category, entry.content].filter(Boolean).join('. ')
+  const text = buildKnowledgeEntryText(entry)
   const embedding = await generateEmbedding(text)
 
   await storeKnowledgeEntryEmbedding(entry.id, embedding)
