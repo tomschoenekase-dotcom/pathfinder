@@ -1,11 +1,16 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import {
+  AI_MODEL_KEYS,
+  generateText,
+  setAnthropicClientForTesting,
+  type AnthropicMessagesClient,
+} from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
 import { searchKnowledgeByEmbedding, searchPlacesByEmbedding } from '@pathfinder/db'
 
-import { env, logger } from '@pathfinder/config'
+import { logger } from '@pathfinder/config'
 
 import { router } from '../core'
 import { generateEmbedding } from '../lib/embeddings'
@@ -16,24 +21,12 @@ import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { publicProcedure } from '../trpc'
 
 // ---------------------------------------------------------------------------
-// Anthropic client — module-level singleton, not re-instantiated per request
+// Provider test seam (the production singleton is owned by @pathfinder/ai)
 // ---------------------------------------------------------------------------
 
-let _anthropic: Anthropic | null = null
-
-function getAnthropicClient(): Anthropic {
-  if (!_anthropic) {
-    if (!env.ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY is not configured')
-    }
-    _anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
-  }
-  return _anthropic
-}
-
-// Exported for test injection — allows tests to replace the singleton
-export function _setAnthropicClientForTesting(client: Anthropic | null): void {
-  _anthropic = client
+// Exported for test injection while provider ownership lives in @pathfinder/ai.
+export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void {
+  setAnthropicClientForTesting(client)
 }
 
 // ---------------------------------------------------------------------------
@@ -66,8 +59,6 @@ const NEAREST_PLACES_LIMIT = 8
 const KNOWLEDGE_ENTRIES_LIMIT = 5
 const HISTORY_LIMIT = 10
 const HISTORY_LOAD_LIMIT = 40
-const CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
-const MAX_TOKENS = 512
 const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
 // Backstop for the word-count rules in venue-context.ts. Prompt instructions
 // are honored loosely by the model, not exactly — this guarantees the cap
@@ -440,14 +431,13 @@ export const chatRouter = router({
     })
     const history = historyDesc.reverse()
 
-    // 6. Call Claude API — failure returns graceful fallback, never throws to caller
+    // 6. Call the AI gateway. Provider failure remains fail-open for the guest,
+    //    while every attempt is recorded best-effort for cost and reliability evidence.
     let assistantResponse: string
     let engagementAskedThisTurn = false
     try {
-      const anthropic = getAnthropicClient()
-      const result = await anthropic.messages.create({
-        model: CLAUDE_MODEL,
-        max_tokens: MAX_TOKENS,
+      const result = await generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicPart },
@@ -459,19 +449,51 @@ export const chatRouter = router({
           })),
           { role: 'user', content: trimmedInput },
         ],
+        usageSink: async (usage) => {
+          try {
+            await ctx.db.aiUsageEvent.create({
+              data: {
+                tenantId: venue.tenantId,
+                venueId: input.venueId,
+                sessionId: session.id,
+                feature: 'guest-chat',
+                surface: 'guest-web',
+                provider: usage.provider,
+                model: usage.model,
+                pricingVersion: usage.pricingVersion,
+                inputTokens: usage.usage.inputTokens,
+                outputTokens: usage.usage.outputTokens,
+                cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
+                cacheReadInputTokens: usage.usage.cacheReadInputTokens,
+                totalTokens:
+                  usage.usage.inputTokens +
+                  usage.usage.outputTokens +
+                  usage.usage.cacheCreationInputTokens +
+                  usage.usage.cacheReadInputTokens,
+                estimatedCostUsd: usage.estimatedCostUsd,
+                latencyMs: usage.latencyMs,
+                attempts: usage.attempts,
+                success: usage.success,
+                ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
+              },
+            })
+          } catch (usageError) {
+            logger.error({
+              action: 'chat.send.ai_usage_failed',
+              venueId: input.venueId,
+              error: usageError instanceof Error ? usageError.message : 'Unknown error',
+            })
+          }
+        },
       })
 
-      const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(
-        result.content[0]?.type === 'text'
-          ? result.content[0].text
-          : "I'm sorry, I couldn't generate a response.",
-      )
+      const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
       assistantResponse = enforceResponseWordCap(strippedResponse, MAX_RESPONSE_WORDS)
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
     } catch (err) {
       logger.error({
-        action: 'chat.send.claude_failed',
+        action: 'chat.send.ai_failed',
         venueId: input.venueId,
         error: err instanceof Error ? err.message : 'Unknown error',
       })

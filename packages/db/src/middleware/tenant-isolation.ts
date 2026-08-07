@@ -15,6 +15,8 @@ export type TenantIsolationMiddlewareParams = {
 type MiddlewareNext = (params: TenantIsolationMiddlewareParams) => Promise<unknown>
 
 const bypassTenantIsolationStorage = new AsyncLocalStorage<boolean>()
+const APPEND_ONLY_MODELS = ['AiUsageEvent'] as const
+const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']
 
 function hasOwnTenantKey(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -82,6 +84,13 @@ export class TenantIsolationError extends Error {
   }
 }
 
+export class AppendOnlyModelError extends Error {
+  constructor(model: string, operation: string) {
+    super(`Append-only model '${model}' does not allow '${operation}'`)
+    this.name = 'AppendOnlyModelError'
+  }
+}
+
 export async function withTenantIsolationBypass<T>(fn: () => Promise<T>): Promise<T> {
   return bypassTenantIsolationStorage.run(true, fn)
 }
@@ -92,6 +101,13 @@ export async function tenantIsolationMiddleware(
 ) {
   if (!isTenantedModel(params.model)) {
     return next(params)
+  }
+
+  if (
+    APPEND_ONLY_MODELS.includes(params.model as (typeof APPEND_ONLY_MODELS)[number]) &&
+    MUTATING_EXISTING_ACTIONS.includes(params.action)
+  ) {
+    throw new AppendOnlyModelError(params.model, params.action)
   }
 
   if (isBypassEnabled()) {

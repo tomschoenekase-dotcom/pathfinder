@@ -1,5 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+
+import type { AnthropicMessagesClient } from '@pathfinder/ai'
 
 // Mock config so env validation doesn't fail in the test environment.
 vi.mock('@pathfinder/config', () => ({
@@ -34,11 +35,13 @@ const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
 const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
+const aiUsageEventCreate = vi.fn().mockResolvedValue({})
 
 const mockDb = {
   visitorSession: { upsert: sessionUpsert },
   tenant: { findUnique: tenantFindUnique },
   engagementQuestion: { findMany: engagementQuestionFindMany },
+  aiUsageEvent: { create: aiUsageEventCreate },
   place: { findMany: vi.fn() },
   message: { findMany: messageFindMany, create: messageCreate },
   operationalUpdate: { findMany: vi.fn().mockResolvedValue([]) },
@@ -46,7 +49,7 @@ const mockDb = {
 } as unknown as TRPCContext['db']
 
 const anthropicCreate = vi.fn()
-const mockAnthropicClient = { messages: { create: anthropicCreate } } as unknown as Anthropic
+const mockAnthropicClient = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
 
 const ctx: TRPCContext = {
   db: mockDb,
@@ -88,7 +91,10 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
   searchKnowledgeByEmbedding.mockResolvedValueOnce([])
   tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'STOIC' })
   engagementQuestionFindMany.mockResolvedValueOnce([])
-  anthropicCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: reply }] })
+  anthropicCreate.mockResolvedValueOnce({
+    content: [{ type: 'text', text: reply }],
+    usage: { input_tokens: 20, output_tokens: 10 },
+  })
   messageCreate.mockResolvedValue({})
 }
 

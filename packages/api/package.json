@@ -15,10 +15,10 @@
     "test:watch": "vitest --passWithNoTests"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.88.0",
     "@aws-sdk/client-s3": "^3.1102.0",
     "@aws-sdk/s3-request-presigner": "^3.1102.0",
     "@pathfinder/analytics": "workspace:*",
+    "@pathfinder/ai": "workspace:*",
     "@pathfinder/auth": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/db": "workspace:*",

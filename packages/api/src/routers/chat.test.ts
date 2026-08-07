@@ -1,6 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import type { AnthropicCreateParams, AnthropicMessagesClient } from '@pathfinder/ai'
 
 // Mock @pathfinder/config so env validation doesn't fail in the test environment
 vi.mock('@pathfinder/config', () => ({
@@ -57,6 +58,7 @@ const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
 const engagementQuestionFindFirst = vi.fn()
 const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
+const aiUsageEventCreate = vi.fn().mockResolvedValue({})
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
@@ -69,6 +71,7 @@ const mockDb = {
     findFirst: engagementQuestionFindFirst,
   },
   engagementQuestionResponse: { create: engagementQuestionResponseCreate },
+  aiUsageEvent: { create: aiUsageEventCreate },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
@@ -82,7 +85,7 @@ const mockDb = {
 const anthropicCreate = vi.fn()
 const mockAnthropicClient = {
   messages: { create: anthropicCreate },
-} as unknown as Anthropic
+} as AnthropicMessagesClient
 
 // ---------------------------------------------------------------------------
 // Context
@@ -141,6 +144,7 @@ describe('chat router', () => {
     engagementQuestionFindMany.mockResolvedValue([])
     sessionUpdateMany.mockResolvedValue({ count: 1 })
     engagementQuestionResponseCreate.mockResolvedValue({})
+    aiUsageEventCreate.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -263,14 +267,18 @@ describe('chat router', () => {
       ])
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: assistantText }],
+        usage: {
+          input_tokens: 20,
+          output_tokens: 10,
+          cache_creation_input_tokens: 4,
+          cache_read_input_tokens: 3,
+        },
       })
       messageCreate.mockResolvedValue({})
     }
 
     function getConcatenatedSystemPrompt() {
-      const callArgs = anthropicCreate.mock.calls[0]?.[0] as Parameters<
-        Anthropic['messages']['create']
-      >[0]
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
       const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
 
       return systemBlocks.map((block) => block.text).join('')
@@ -283,12 +291,37 @@ describe('chat router', () => {
 
       expect(result.response).toBe('The elephants are 50m north.')
       expect(result.sessionId).toBe(SESSION_ID)
+      expect(aiUsageEventCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+          sessionId: SESSION_ID,
+          feature: 'guest-chat',
+          surface: 'guest-web',
+          inputTokens: 20,
+          outputTokens: 10,
+          cacheCreationInputTokens: 4,
+          cacheReadInputTokens: 3,
+          totalTokens: 37,
+          success: true,
+        }),
+      })
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'message.sent', sessionId: TOKEN }),
       )
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'message.received', sessionId: TOKEN }),
       )
+    })
+
+    it('returns the provider response when durable usage reporting fails', async () => {
+      setupHappyPath('The elephants are nearby.')
+      aiUsageEventCreate.mockRejectedValueOnce(new Error('usage database unavailable'))
+
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'The elephants are nearby.',
+        sessionId: SESSION_ID,
+      })
     })
 
     it('throws NOT_FOUND for non-existent venueId', async () => {
@@ -340,6 +373,16 @@ describe('chat router', () => {
 
       expect(result.response).toContain("I'm having trouble right now")
       expect(result.sessionId).toBe(SESSION_ID)
+      expect(aiUsageEventCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+          sessionId: SESSION_ID,
+          feature: 'guest-chat',
+          success: false,
+          errorCode: 'provider-error',
+        }),
+      })
     })
 
     it('loads history in correct chronological order (oldest first for Claude)', async () => {
@@ -353,14 +396,13 @@ describe('chat router', () => {
       ])
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Reply.' }],
+        usage: { input_tokens: 20, output_tokens: 10 },
       })
       messageCreate.mockResolvedValue({})
 
       await caller.chat.send(sendInput)
 
-      const callArgs = anthropicCreate.mock.calls[0]?.[0] as Parameters<
-        Anthropic['messages']['create']
-      >[0]
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
       // First two messages are history (reversed), third is new user message
       expect(callArgs.messages[0]).toMatchObject({ role: 'user', content: 'First message' })
       expect(callArgs.messages[1]).toMatchObject({ role: 'assistant', content: 'Second message' })
@@ -371,9 +413,7 @@ describe('chat router', () => {
 
       await caller.chat.send(sendInput)
 
-      const callArgs = anthropicCreate.mock.calls[0]?.[0] as Parameters<
-        Anthropic['messages']['create']
-      >[0]
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
       const systemBlocks = callArgs.system as Array<{
         type: string
         text: string
@@ -397,9 +437,7 @@ describe('chat router', () => {
 
       await caller.chat.send(sendInput)
 
-      const callArgs = anthropicCreate.mock.calls[0]?.[0] as Parameters<
-        Anthropic['messages']['create']
-      >[0]
+      const callArgs = anthropicCreate.mock.calls[0]?.[0] as AnthropicCreateParams
       const systemBlocks = callArgs.system as Array<{ type: string; text: string }>
 
       expect(systemBlocks.map((block) => block.text).join('')).not.toContain(
@@ -547,6 +585,7 @@ describe('chat router', () => {
       anthropicCreate.mockReset()
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Some reply.\n[[ENGAGEMENT_ASKED]]' }],
+        usage: { input_tokens: 20, output_tokens: 10 },
       })
       messageCreate
         .mockResolvedValueOnce({ id: 'user_msg_1' })
@@ -574,6 +613,7 @@ describe('chat router', () => {
       anthropicCreate.mockReset()
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Some reply.\n[[ENGAGEMENT_ASKED]]' }],
+        usage: { input_tokens: 20, output_tokens: 10 },
       })
       messageCreate
         .mockResolvedValueOnce({ id: 'user_msg_1' })
@@ -602,6 +642,7 @@ describe('chat router', () => {
       anthropicCreate.mockReset()
       anthropicCreate.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Some reply.\n[[ENGAGEMENT_ASKED]]' }],
+        usage: { input_tokens: 20, output_tokens: 10 },
       })
       messageCreate
         .mockResolvedValueOnce({ id: 'user_msg_1' })
