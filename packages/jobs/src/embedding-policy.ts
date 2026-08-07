@@ -1,0 +1,1 @@
+export const CONTENT_EMBEDDING_MAX_ATTEMPTS = 6

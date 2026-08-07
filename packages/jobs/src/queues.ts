@@ -1,6 +1,7 @@
 import { env } from '@pathfinder/config'
 
 import { environmentQueueName } from './environment-name'
+export { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 
 const queueName = (baseName: string) => environmentQueueName(env.RAILWAY_ENVIRONMENT, baseName)
 

@@ -27,6 +27,7 @@ vi.mock('@pathfinder/config', () => ({
 vi.mock('@pathfinder/db', () => ({
   acquireEmbeddingWork: mocks.acquireEmbeddingWork,
   buildPlaceText: mocks.buildPlaceText,
+  embeddingSourceHash: vi.fn(() => 'a'.repeat(64)),
   db: {
     aiUsageEvent: { create: mocks.aiUsageCreate },
     place: { findFirst: mocks.placeFindFirst },

@@ -32,6 +32,7 @@ import {
   WEEKLY_REPORT_QUEUE,
   WEEKLY_REPORT_RETRY_BACKOFF,
 } from './queues'
+import { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 import type {
   AnswerAnalysisJobPayload,
   AnalyticsEnrichmentJobPayload,
@@ -99,7 +100,7 @@ const dailyRollupJobOptions: JobsOptions = {
 }
 
 const embedPlaceJobOptions: JobsOptions = {
-  attempts: 6,
+  attempts: CONTENT_EMBEDDING_MAX_ATTEMPTS,
   backoff: {
     type: EMBED_PLACE_RETRY_BACKOFF,
   },
@@ -108,7 +109,7 @@ const embedPlaceJobOptions: JobsOptions = {
 }
 
 const embedKnowledgeEntryJobOptions: JobsOptions = {
-  attempts: 6,
+  attempts: CONTENT_EMBEDDING_MAX_ATTEMPTS,
   backoff: {
     type: EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   },

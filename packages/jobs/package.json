@@ -2,7 +2,9 @@
   "name": "@pathfinder/jobs",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./embedding-policy": "./src/embedding-policy.ts",
+    "./queues": "./src/queues.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

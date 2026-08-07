@@ -21,6 +21,8 @@ const approvedPolicies = new Set([
   'tenant-venue-entity-lease',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
+  'tenant-optional-venue-cursor-audit',
+  'tenant-venue-revision-canary-insert',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -85,6 +87,30 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '1b2d60ffbbfc05eeb54b73f5d5f3a29bf030f7b9b1786f1861f9fd66749c7660',
     policy: 'tenant-venue-revision-lease',
+  },
+  {
+    file: 'apps/workers/src/lib/embedding-freshness.ts',
+    method: '$queryRaw',
+    hash: '5f63160357e15ccea6e9a0572be64daa8ede1ba29f6c061eb4e5651bc714297a',
+    policy: 'tenant-optional-venue-cursor-audit',
+  },
+  {
+    file: 'apps/workers/src/lib/embedding-freshness.ts',
+    method: '$queryRaw',
+    hash: 'ef7a4ce0b2e86b9128ffcd478352c60ffcc2e6ef4730e1b653de4f8ecf8be408',
+    policy: 'tenant-optional-venue-cursor-audit',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-freshness-canary.ts',
+    method: '$executeRaw',
+    hash: '1de2f3c55a4f758efa80db716662a1d3f72702c21dfb88c81ddd92fa159c5b77',
+    policy: 'tenant-venue-revision-canary-insert',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-freshness-canary.ts',
+    method: '$executeRaw',
+    hash: '38ffe9c2bb013165ca00df8197f324134f35bc57bd907a42f8868523bf6e2cd9',
+    policy: 'tenant-venue-revision-canary-insert',
   },
   {
     file: 'packages/db/src/helpers/embedding-work-claims.ts',

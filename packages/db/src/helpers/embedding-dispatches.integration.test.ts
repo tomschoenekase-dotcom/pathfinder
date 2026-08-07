@@ -8,6 +8,7 @@ import {
   failEmbeddingDispatch,
   leaseEmbeddingDispatchBatch,
 } from './embedding-dispatches'
+import { insertEmbeddingFreshnessCanary } from './embedding-freshness-canary'
 
 const integrationDescribe =
   process.env.RUN_EMBEDDING_DB_INTEGRATION === '1' ? describe : describe.skip
@@ -232,5 +233,42 @@ integrationDescribe('embedding dispatch outbox (PostgreSQL integration)', () => 
       }),
     ).rejects.toThrow('rollback')
     expect(await db.embeddingDispatch.count({ where: { tenantId, entityId: placeId } })).toBe(0)
+  })
+
+  it('inserts only an exact eligible canary and never resets an existing dispatch', async () => {
+    const placeId = `place-${randomUUID()}`
+    const place = await db.place.create({
+      data: { id: placeId, tenantId, venueId, name: 'Canary target', type: 'exhibit', tags: [] },
+    })
+    await db.embeddingDispatch.deleteMany({ where: { tenantId, venueId, entityId: placeId } })
+
+    await expect(
+      insertEmbeddingFreshnessCanary({
+        tenantId,
+        venueId,
+        targets: [{ entityType: 'PLACE', entityId: placeId, contentUpdatedAt: new Date(0) }],
+      }),
+    ).resolves.toEqual({ inserted: [], skipped: [placeId] })
+    await expect(
+      insertEmbeddingFreshnessCanary({
+        tenantId,
+        venueId,
+        targets: [{ entityType: 'PLACE', entityId: placeId, contentUpdatedAt: place.updatedAt }],
+      }),
+    ).resolves.toEqual({ inserted: [placeId], skipped: [] })
+
+    const { leaseToken } = await leaseEmbeddingDispatchBatch({ batchSize: 1 })
+    await expect(
+      insertEmbeddingFreshnessCanary({
+        tenantId,
+        venueId,
+        targets: [{ entityType: 'PLACE', entityId: placeId, contentUpdatedAt: place.updatedAt }],
+      }),
+    ).resolves.toEqual({ inserted: [], skipped: [placeId] })
+    expect(
+      await db.embeddingDispatch.findFirstOrThrow({
+        where: { tenantId, venueId, entityId: placeId },
+      }),
+    ).toMatchObject({ attempts: 1, leaseToken })
   })
 })

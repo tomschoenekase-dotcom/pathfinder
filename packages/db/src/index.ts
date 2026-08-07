@@ -15,6 +15,11 @@ export {
   leaseEmbeddingDispatchBatch,
 } from './helpers/embedding-dispatches'
 export type { LeasedEmbeddingDispatch } from './helpers/embedding-dispatches'
+export {
+  EMBEDDING_FRESHNESS_CANARY_MAX,
+  insertEmbeddingFreshnessCanary,
+} from './helpers/embedding-freshness-canary'
+export type { EmbeddingFreshnessCanaryTarget } from './helpers/embedding-freshness-canary'
 export type {
   AcquireEmbeddingWorkParams,
   EmbeddingWorkAcquisition,
@@ -31,6 +36,8 @@ export {
 } from './helpers/semantic-search'
 export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'
 export { buildKnowledgeEntryText, buildPlaceText } from './helpers/content-text'
+export { embeddingSourceHash } from './helpers/embedding-identity'
+export type { EmbeddingSourceEntity } from './helpers/embedding-identity'
 
 export type {
   AnalyticsEvent,

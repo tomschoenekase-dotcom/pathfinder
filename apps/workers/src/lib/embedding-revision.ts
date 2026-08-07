@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 import { UnrecoverableError } from 'bullmq'
 
 export function parseEmbeddingRevision(value: string): Date {
@@ -12,11 +10,4 @@ export function parseEmbeddingRevision(value: string): Date {
 
 export function embeddingRevisionMatches(actual: Date, expected: Date): boolean {
   return actual.getTime() === expected.getTime()
-}
-
-export function embeddingSourceHash(entityType: 'place' | 'knowledge-entry', text: string): string {
-  return createHash('sha256')
-    .update(`pathfinder:${entityType}:canonical-v1\0`, 'utf8')
-    .update(text, 'utf8')
-    .digest('hex')
 }

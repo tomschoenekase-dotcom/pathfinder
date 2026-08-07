@@ -4,6 +4,7 @@ import { logger } from '@pathfinder/config'
 import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding, getAiEmbeddingProfile } from '@pathfinder/ai'
 import {
   buildPlaceText,
+  embeddingSourceHash,
   acquireEmbeddingWork,
   db,
   storePlaceEmbeddingForScope,
@@ -16,11 +17,7 @@ import type { EmbedPlaceJobPayload } from '@pathfinder/jobs'
 import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
-import {
-  embeddingRevisionMatches,
-  embeddingSourceHash,
-  parseEmbeddingRevision,
-} from '../lib/embedding-revision'
+import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
 
 export async function processEmbedPlaceJob(
   payload: EmbedPlaceJobPayload,
