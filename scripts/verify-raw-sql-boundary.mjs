@@ -23,11 +23,54 @@ const approvedPolicies = new Set([
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
   'tenant-venue-revision-canary-insert',
+  'tenant-venue-exact-invariant-repair',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/db/src/helpers/embedding-claim-repair.ts',
+    method: '$queryRaw',
+    hash: 'ced88be1d97236cb5813ebb32caacb3b4939f20a4ab0368835f9846ac019c635',
+    policy: 'tenant-venue-exact-invariant-repair',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-claim-repair.ts',
+    method: '$queryRaw',
+    hash: '3e0a4da968b3cefbecee1942ee0fcdde47a2e8242bcf62e441db3fd29fde315c',
+    policy: 'tenant-venue-exact-invariant-repair',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-claim-repair.ts',
+    method: '$queryRaw',
+    hash: '68e27cda94ba3c6e1c7007b6dbb4f47ba0eaa3fe543ee1dbc6fb8fff4efa0a39',
+    policy: 'tenant-venue-exact-invariant-repair',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-claim-repair.ts',
+    method: '$queryRaw',
+    hash: '09469ab3b7115c4b6390e19b5386407bf48491670664129ef00a87600f68d254',
+    policy: 'tenant-venue-exact-invariant-repair',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-claim-repair.ts',
+    method: '$queryRaw',
+    hash: 'e299e9f7bab197669aa91d392996a7936d507317d7b6a0a0303e5610bbd75bda',
+    policy: 'tenant-venue-exact-invariant-repair',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-claim-repair.ts',
+    method: '$queryRaw',
+    hash: 'd2c558ce20afed52b4b8c3935b1a940e982f6885451c898a91a09dcc33f1100b',
+    policy: 'tenant-venue-exact-invariant-repair',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-claim-repair.ts',
+    method: '$executeRaw',
+    hash: '0ab4f9519b6ea989e9401086deb53e137ddc377ca51b3280a812a3062ddbd63a',
+    policy: 'tenant-venue-exact-invariant-repair',
+  },
   {
     file: 'apps/web/app/api/health/route.ts',
     method: '$queryRaw',

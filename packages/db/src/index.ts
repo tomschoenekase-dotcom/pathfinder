@@ -38,6 +38,8 @@ export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-s
 export { buildKnowledgeEntryText, buildPlaceText } from './helpers/content-text'
 export { embeddingSourceHash } from './helpers/embedding-identity'
 export type { EmbeddingSourceEntity } from './helpers/embedding-identity'
+export { repairCompleteClaimMissingVector } from './helpers/embedding-claim-repair'
+export type { RepairCompleteClaimResult } from './helpers/embedding-claim-repair'
 
 export type {
   AnalyticsEvent,

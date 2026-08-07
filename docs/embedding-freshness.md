@@ -32,3 +32,13 @@ pnpm embedding:freshness \
 The entity confirmation must exactly equal the canary limit. The dispatcher confirmation is an operator assertion: this database-only tool cannot verify a deployed worker's environment. The output reports selected IDs, inserted/skipped dispatches, the configured six attempts per BullMQ job, and an estimate for the one-job-per-entity case. That estimate is explicitly **not a hard provider-attempt bound** because an already-published or enqueue-before-ack duplicate BullMQ job is not visible from PostgreSQL. It does not estimate dollars without token counts.
 
 Enabling `EMBEDDING_DISPATCH_ENABLED=true` afterward is a separate explicit staging action. Inspect the inserted dispatch count first, enable the dispatcher, observe `JobRecord` and structured worker logs, then disable again before expanding the canary. Production execution or an unbounded historical sweep requires separate authorization and evidence.
+
+## Exact invariant repair
+
+`complete-claim-missing-vector-invariant-breach` is excluded from the generic canary because a dispatch alone would be skipped by the exact completed claim. Use the separate one-entity command only in staging, with dispatchers independently disabled:
+
+```text
+pnpm embedding:claim-repair --repair-reason complete-claim-missing-vector-invariant-breach --tenant-id <tenant> --venue-id <venue> --entity-type PLACE --entity-id <id> --confirm-entity-id <id> --confirm-dispatcher-disabled true --actor-id <operator>
+```
+
+The command revalidates the exact complete claim, current canonical source/profile, active entity, absent vector, and dispatch state in one transaction. It preserves completion identity, changes the claim to `SUPERSEDED`, establishes current durable dispatch, and writes an audit record atomically. It refuses leased or stale dispatches. The mutating database helper independently rechecks the local staging and dispatcher-disabled environment. Deployed dispatcher disablement and the supplied actor ID remain operator assertions rather than independently verified identity.
