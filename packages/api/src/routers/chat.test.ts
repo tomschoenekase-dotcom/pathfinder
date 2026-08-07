@@ -332,13 +332,39 @@ describe('chat router', () => {
         expect.objectContaining({ eventType: 'message.sent', sessionId: TOKEN }),
       )
       expect(emitEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: 'message.received', sessionId: TOKEN }),
+        expect.objectContaining({
+          eventType: 'message.received',
+          sessionId: TOKEN,
+          metadata: expect.objectContaining({
+            fallback: false,
+            retrievalMode: 'geo-or-importance',
+            embeddingMs: expect.any(Number),
+            retrievalMs: expect.any(Number),
+            promptAssemblyMs: expect.any(Number),
+            modelMs: expect.any(Number),
+            persistenceMs: expect.any(Number),
+            totalMs: expect.any(Number),
+          }),
+        }),
+      )
+      expect(emitEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'message.fallback' }),
       )
     })
 
     it('returns the provider response when durable usage reporting fails', async () => {
       setupHappyPath('The elephants are nearby.')
       aiUsageEventCreate.mockRejectedValueOnce(new Error('usage database unavailable'))
+
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'The elephants are nearby.',
+        sessionId: SESSION_ID,
+      })
+    })
+
+    it('returns the provider response when best-effort analytics reporting fails', async () => {
+      setupHappyPath('The elephants are nearby.')
+      emitEvent.mockRejectedValue(new Error('analytics database unavailable'))
 
       await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
         response: 'The elephants are nearby.',
@@ -405,6 +431,26 @@ describe('chat router', () => {
           errorCode: 'provider-error',
         }),
       })
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.fallback',
+          sessionId: TOKEN,
+          metadata: expect.objectContaining({
+            failureStage: 'generation',
+            failureCode: 'provider-error',
+            totalMs: expect.any(Number),
+          }),
+        }),
+      )
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({
+            fallback: true,
+            failureCode: 'provider-error',
+          }),
+        }),
+      )
     })
 
     it('loads history in correct chronological order (oldest first for Claude)', async () => {

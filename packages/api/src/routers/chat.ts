@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
+  AiGatewayError,
   AI_MODEL_KEYS,
   generateText,
   setAnthropicClientForTesting,
@@ -64,6 +65,10 @@ const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
 // are honored loosely by the model, not exactly — this guarantees the cap
 // guests actually see, regardless of how closely the model followed the prompt.
 const MAX_RESPONSE_WORDS = 60
+
+function elapsedMilliseconds(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt))
+}
 
 function stripEngagementMarker(text: string): { cleaned: string; markerFound: boolean } {
   const markerIndex = text.lastIndexOf(ENGAGEMENT_ASKED_MARKER)
@@ -158,6 +163,12 @@ export const chatRouter = router({
    * Send a message and receive an AI response grounded in venue + location data.
    */
   send: publicProcedure.input(sendMessageSchema).mutation(async ({ ctx, input }) => {
+    const requestStartedAt = performance.now()
+    let embeddingMs = 0
+    let retrievalMs = 0
+    let promptAssemblyMs = 0
+    let modelMs = 0
+    let persistenceMs = 0
     const trimmedInput = input.message.trim()
     // 1. Validate venue
     // $queryRaw used here because this is a public cross-tenant lookup — the caller
@@ -267,44 +278,51 @@ export const chatRouter = router({
 
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
+    const embeddingStartedAt = performance.now()
+    const queryEmbeddingPromise = generateGuestQueryEmbedding(trimmedInput, async (usage) => {
+      try {
+        await ctx.db.aiUsageEvent.create({
+          data: {
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            sessionId: session.id,
+            feature: 'guest-chat-query-embedding',
+            surface: 'guest-web',
+            provider: usage.provider,
+            model: usage.model,
+            pricingVersion: usage.pricingVersion,
+            inputTokens: usage.usage.inputTokens,
+            outputTokens: usage.usage.outputTokens,
+            cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
+            cacheReadInputTokens: usage.usage.cacheReadInputTokens,
+            totalTokens:
+              usage.usage.inputTokens +
+              usage.usage.outputTokens +
+              usage.usage.cacheCreationInputTokens +
+              usage.usage.cacheReadInputTokens,
+            estimatedCostUsd: usage.estimatedCostUsd,
+            latencyMs: usage.latencyMs,
+            attempts: usage.attempts,
+            success: usage.success,
+            ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
+          },
+        })
+      } catch (usageError) {
+        logger.error({
+          action: 'chat.send.embedding_usage_failed',
+          venueId: input.venueId,
+          error: usageError instanceof Error ? usageError.message : 'Unknown error',
+        })
+      }
+    })
+      .catch(() => null)
+      .finally(() => {
+        embeddingMs = elapsedMilliseconds(embeddingStartedAt)
+      })
+
     const [queryEmbedding, historyDesc, activeUpdates, tenantEngagement, engagementQuestions] =
       await Promise.all([
-        generateGuestQueryEmbedding(trimmedInput, async (usage) => {
-          try {
-            await ctx.db.aiUsageEvent.create({
-              data: {
-                tenantId: venue.tenantId,
-                venueId: input.venueId,
-                sessionId: session.id,
-                feature: 'guest-chat-query-embedding',
-                surface: 'guest-web',
-                provider: usage.provider,
-                model: usage.model,
-                pricingVersion: usage.pricingVersion,
-                inputTokens: usage.usage.inputTokens,
-                outputTokens: usage.usage.outputTokens,
-                cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
-                cacheReadInputTokens: usage.usage.cacheReadInputTokens,
-                totalTokens:
-                  usage.usage.inputTokens +
-                  usage.usage.outputTokens +
-                  usage.usage.cacheCreationInputTokens +
-                  usage.usage.cacheReadInputTokens,
-                estimatedCostUsd: usage.estimatedCostUsd,
-                latencyMs: usage.latencyMs,
-                attempts: usage.attempts,
-                success: usage.success,
-                ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
-              },
-            })
-          } catch (usageError) {
-            logger.error({
-              action: 'chat.send.embedding_usage_failed',
-              venueId: input.venueId,
-              error: usageError instanceof Error ? usageError.message : 'Unknown error',
-            })
-          }
-        }).catch(() => null),
+        queryEmbeddingPromise,
         ctx.db.message.findMany({
           where: { sessionId: session.id, tenantId: venue.tenantId },
           orderBy: { createdAt: 'desc' },
@@ -341,6 +359,7 @@ export const chatRouter = router({
     //    When an embedding is available both searches run in parallel (same query embedding,
     //    no inter-dependency). Geo-nearest fallback for places when embedding is absent;
     //    knowledge entries fall back to empty (no non-semantic fallback needed).
+    const retrievalStartedAt = performance.now()
     let relevantPlaces: Awaited<ReturnType<typeof searchPlacesByEmbedding>>
     let relevantKnowledgeEntries: Awaited<ReturnType<typeof searchKnowledgeByEmbedding>>
     if (queryEmbedding) {
@@ -392,6 +411,7 @@ export const chatRouter = router({
               distanceMeters: 0,
             }))
     }
+    retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
     let featuredPlace: {
       name: string
@@ -439,6 +459,7 @@ export const chatRouter = router({
     // fit a natural opening this turn.
     const allowAiInventedQuestion = engagementGatePassed && engagementMode === 'CURIOUS'
 
+    const promptAssemblyStartedAt = performance.now()
     const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
       venue,
       relevantPlaces,
@@ -465,11 +486,14 @@ export const chatRouter = router({
         : {}),
     })
     const history = historyDesc.reverse()
+    promptAssemblyMs = elapsedMilliseconds(promptAssemblyStartedAt)
 
     // 6. Call the AI gateway. Provider failure remains fail-open for the guest,
     //    while every attempt is recorded best-effort for cost and reliability evidence.
     let assistantResponse: string
     let engagementAskedThisTurn = false
+    let fallbackFailureCode: string | null = null
+    const modelStartedAt = performance.now()
     try {
       const result = await generateText({
         modelKey: AI_MODEL_KEYS.GUEST_CHAT,
@@ -527,17 +551,21 @@ export const chatRouter = router({
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
     } catch (err) {
+      fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
       logger.error({
         action: 'chat.send.ai_failed',
         venueId: input.venueId,
         error: err instanceof Error ? err.message : 'Unknown error',
       })
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
+    } finally {
+      modelMs = elapsedMilliseconds(modelStartedAt)
     }
 
     // 7. Persist messages in two separate statements so they get distinct createdAt
     //    timestamps. A single $transaction gives both rows the same now() value,
     //    making orderBy: { createdAt: 'desc' } non-deterministic on the next request.
+    const persistenceStartedAt = performance.now()
     const userMessage = await ctx.db.message.create({
       data: {
         tenantId: venue.tenantId,
@@ -556,6 +584,7 @@ export const chatRouter = router({
       },
       select: { id: true },
     })
+    persistenceMs = elapsedMilliseconds(persistenceStartedAt)
 
     if (pendingAnswerSnapshot) {
       let questionText: string | null = null
@@ -624,6 +653,32 @@ export const chatRouter = router({
       })
     }
 
+    const totalMs = elapsedMilliseconds(requestStartedAt)
+    const timingMetadata = {
+      embeddingMs,
+      retrievalMs,
+      promptAssemblyMs,
+      modelMs,
+      persistenceMs,
+      totalMs,
+    }
+
+    if (fallbackFailureCode) {
+      try {
+        await emitEvent({
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          sessionId: input.anonymousToken,
+          eventType: 'message.fallback',
+          metadata: {
+            failureStage: 'generation',
+            failureCode: fallbackFailureCode,
+            ...timingMetadata,
+          },
+        })
+      } catch {}
+    }
+
     try {
       await emitEvent({
         tenantId: venue.tenantId,
@@ -645,6 +700,10 @@ export const chatRouter = router({
         metadata: {
           responseLength: assistantResponse.length,
           placesReturned: relevantPlaces.length,
+          fallback: fallbackFailureCode !== null,
+          retrievalMode: queryEmbedding ? 'semantic' : 'geo-or-importance',
+          ...(fallbackFailureCode ? { failureCode: fallbackFailureCode } : {}),
+          ...timingMetadata,
         },
       })
     } catch {}

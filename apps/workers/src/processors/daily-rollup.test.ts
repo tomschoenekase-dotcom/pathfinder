@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   messageFindMany: vi.fn(),
   placeFindMany: vi.fn(),
   usageGroupBy: vi.fn(),
+  analyticsEventFindMany: vi.fn(),
   dailyDeleteMany: vi.fn(),
   dailyCreateMany: vi.fn(),
   costDeleteMany: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('@pathfinder/db', () => ({
     message: { count: mocks.messageCount, findMany: mocks.messageFindMany },
     place: { findMany: mocks.placeFindMany },
     aiUsageEvent: { groupBy: mocks.usageGroupBy },
+    analyticsEvent: { findMany: mocks.analyticsEventFindMany },
     $transaction: mocks.transaction,
   },
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
@@ -35,9 +37,57 @@ vi.mock('@pathfinder/db', () => ({
   updateJobRecord: mocks.updateJobRecord,
 }))
 
-import { buildAiCostRollups, processDailyRollupJob } from './daily-rollup'
+import {
+  buildAiCostRollups,
+  buildChatReliabilityRollups,
+  processDailyRollupJob,
+} from './daily-rollup'
 
 const targetDate = new Date('2026-08-06T00:00:00.000Z')
+
+describe('buildChatReliabilityRollups', () => {
+  it('computes privacy-safe fallback counts, basis points, and nearest-rank p95 timings', () => {
+    const events: Array<{ eventType: string; metadata: Record<string, unknown> }> = [
+      ...Array.from({ length: 20 }, (_, index) => ({
+        eventType: 'message.received',
+        metadata: {
+          fallback: index < 3,
+          embeddingMs: index + 1,
+          retrievalMs: 10,
+          promptAssemblyMs: 2,
+          modelMs: (index + 1) * 10,
+          persistenceMs: 3,
+          totalMs: (index + 1) * 20,
+        },
+      })),
+    ]
+    const rows = buildChatReliabilityRollups({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      date: targetDate,
+      events,
+    })
+
+    expect(Object.fromEntries(rows.map((row) => [row.metric, row.value]))).toMatchObject({
+      chat_responses: 20,
+      chat_fallbacks: 3,
+      chat_fallback_rate_bps: 1500,
+      chat_embedding_p95_ms: 19,
+      chat_model_p95_ms: 190,
+      chat_total_p95_ms: 380,
+    })
+  })
+
+  it('ignores malformed timing metadata and reports explicit zeroes for an empty day', () => {
+    const rows = buildChatReliabilityRollups({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      date: targetDate,
+      events: [],
+    })
+    expect(rows.every((row) => row.value === 0)).toBe(true)
+  })
+})
 
 describe('buildAiCostRollups', () => {
   it('groups by venue and feature with exact eight-decimal cost arithmetic', () => {
@@ -150,6 +200,7 @@ describe('processDailyRollupJob AI cost rollups', () => {
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.venueFindMany.mockResolvedValue([])
     mocks.usageGroupBy.mockResolvedValue([])
+    mocks.analyticsEventFindMany.mockResolvedValue([])
     mocks.dailyDeleteMany.mockResolvedValue({ count: 0 })
     mocks.dailyCreateMany.mockResolvedValue({ count: 0 })
     mocks.costDeleteMany.mockResolvedValue({ count: 0 })
@@ -230,7 +281,21 @@ describe('processDailyRollupJob AI cost rollups', () => {
         tenantId: 'tenant_1',
         date: dayWhere.createdAt,
         metric: {
-          in: ['sessions', 'messages', 'unique_place_mentions', 'place_mentions'],
+          in: [
+            'sessions',
+            'messages',
+            'unique_place_mentions',
+            'place_mentions',
+            'chat_responses',
+            'chat_fallbacks',
+            'chat_fallback_rate_bps',
+            'chat_embedding_p95_ms',
+            'chat_retrieval_p95_ms',
+            'chat_prompt_assembly_p95_ms',
+            'chat_model_p95_ms',
+            'chat_persistence_p95_ms',
+            'chat_total_p95_ms',
+          ],
         },
       },
     })
@@ -264,6 +329,46 @@ describe('processDailyRollupJob AI cost rollups', () => {
 
     expect(mocks.costDeleteMany).toHaveBeenCalledOnce()
     expect(mocks.costCreateMany).not.toHaveBeenCalled()
+  })
+
+  it('reads server chat events in the tenant venue day and persists reliability metrics', async () => {
+    mocks.venueFindMany.mockResolvedValue([{ id: 'venue_1' }])
+    mocks.visitorSessionCount.mockResolvedValue(1)
+    mocks.messageCount.mockResolvedValue(2)
+    mocks.messageFindMany.mockResolvedValue([])
+    mocks.placeFindMany.mockResolvedValue([])
+    mocks.analyticsEventFindMany.mockResolvedValue([
+      { eventType: 'message.received', metadata: { totalMs: 120, modelMs: 80 } },
+      { eventType: 'message.received', metadata: { totalMs: 240, modelMs: 190 } },
+      { eventType: 'message.received', metadata: { fallback: true, totalMs: 200, modelMs: 150 } },
+    ])
+
+    await processDailyRollupJob({ tenantId: 'tenant_1', date: targetDate.toISOString() })
+
+    expect(mocks.analyticsEventFindMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'message.received',
+        occurredAt: {
+          gte: new Date('2026-08-06T00:00:00.000Z'),
+          lt: new Date('2026-08-07T00:00:00.000Z'),
+        },
+      },
+      select: { eventType: true, metadata: true },
+    })
+    expect(mocks.dailyCreateMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({ venueId: 'venue_1', metric: 'chat_responses', value: 3 }),
+        expect.objectContaining({ venueId: 'venue_1', metric: 'chat_fallbacks', value: 1 }),
+        expect.objectContaining({
+          venueId: 'venue_1',
+          metric: 'chat_fallback_rate_bps',
+          value: 3333,
+        }),
+        expect.objectContaining({ venueId: 'venue_1', metric: 'chat_total_p95_ms', value: 240 }),
+      ]),
+    })
   })
 
   it('fails the job record when transactional replacement fails', async () => {

@@ -292,6 +292,25 @@ describe('analytics router', () => {
     )
   })
 
+  it.each(['message.received', 'message.fallback', 'message.low_confidence'] as const)(
+    'analytics.trackEvent rejects server-only event %s before database access',
+    async (eventType) => {
+      const caller = testRouter.createCaller(anonymousCtx())
+
+      await expect(
+        caller.analytics.trackEvent({
+          sessionId: '00000000-0000-4000-8000-000000000001',
+          venueId: 'cvenueabc123456789012',
+          // The runtime rejection is the contract under test; this cast keeps the
+          // test capable of exercising values excluded by the public TypeScript type.
+          eventType: eventType as 'message.sent',
+        }),
+      ).rejects.toThrow()
+      expect(dbQueryRaw).not.toHaveBeenCalled()
+      expect(analyticsEventCreate).not.toHaveBeenCalled()
+    },
+  )
+
   it('analytics.trackEvent persists visitorId on the session when provided', async () => {
     dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
     analyticsEventCreate.mockResolvedValueOnce({})

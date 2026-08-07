@@ -41,12 +41,72 @@ type AiCostRollupRow = {
   estimatedCostUsd: string
 }
 
+type ChatReliabilityEvent = { eventType: string; metadata: unknown }
+
+const CHAT_TIMING_METRICS = {
+  embeddingMs: 'chat_embedding_p95_ms',
+  retrievalMs: 'chat_retrieval_p95_ms',
+  promptAssemblyMs: 'chat_prompt_assembly_p95_ms',
+  modelMs: 'chat_model_p95_ms',
+  persistenceMs: 'chat_persistence_p95_ms',
+  totalMs: 'chat_total_p95_ms',
+} as const
+
 const OWNED_DAILY_ROLLUP_METRICS = [
   'sessions',
   'messages',
   'unique_place_mentions',
   'place_mentions',
+  'chat_responses',
+  'chat_fallbacks',
+  'chat_fallback_rate_bps',
+  ...Object.values(CHAT_TIMING_METRICS),
 ] as const
+
+function metadataRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function percentile95(values: number[]): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((left, right) => left - right)
+  return Math.round(sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0)
+}
+
+export function buildChatReliabilityRollups(params: {
+  tenantId: string
+  venueId: string
+  date: Date
+  events: ChatReliabilityEvent[]
+}): RollupRow[] {
+  const responseEvents = params.events.filter((event) => event.eventType === 'message.received')
+  const metadata = responseEvents.map((event) => metadataRecord(event.metadata))
+  const fallbackCount = metadata.filter((entry) => entry?.fallback === true).length
+  const base = { tenantId: params.tenantId, venueId: params.venueId, date: params.date }
+  const rows: RollupRow[] = [
+    { ...base, metric: 'chat_responses', value: responseEvents.length },
+    { ...base, metric: 'chat_fallbacks', value: fallbackCount },
+    {
+      ...base,
+      metric: 'chat_fallback_rate_bps',
+      value:
+        responseEvents.length === 0
+          ? 0
+          : Math.round((fallbackCount * 10_000) / responseEvents.length),
+    },
+  ]
+
+  for (const [field, metric] of Object.entries(CHAT_TIMING_METRICS)) {
+    const values = metadata.flatMap((entry) => {
+      const value = entry?.[field]
+      return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? [value] : []
+    })
+    rows.push({ ...base, metric, value: percentile95(values) })
+  }
+  return rows
+}
 
 export function buildAiCostRollups(params: {
   tenantId: string
@@ -172,7 +232,7 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
     const rollups: RollupRow[] = []
 
     for (const venue of venues) {
-      const [sessionCount, messageCount, messages, places] = await Promise.all([
+      const [sessionCount, messageCount, messages, places, chatEvents] = await Promise.all([
         db.visitorSession.count({
           where: {
             tenantId: payload.tenantId,
@@ -221,6 +281,15 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
             name: true,
           },
         }),
+        db.analyticsEvent.findMany({
+          where: {
+            tenantId: payload.tenantId,
+            venueId: venue.id,
+            eventType: 'message.received',
+            occurredAt: { gte: date, lt: nextDate },
+          },
+          select: { eventType: true, metadata: true },
+        }),
       ])
 
       const normalizedMessages = messages.map((message) => ({
@@ -257,6 +326,12 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
           metric: 'unique_place_mentions',
           value: uniqueMentionCount,
         },
+        ...buildChatReliabilityRollups({
+          tenantId: payload.tenantId,
+          venueId: venue.id,
+          date,
+          events: chatEvents,
+        }),
       )
 
       for (const [placeId, value] of mentionCounts.entries()) {

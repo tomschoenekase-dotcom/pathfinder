@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfinder/analytics/events'
+import { PUBLIC_ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfinder/analytics/events'
 import { TOPIC_LABELS, type TopicKey } from '@pathfinder/analytics/topics'
 
 import { router } from '../core'
@@ -23,7 +23,7 @@ const analyticsTrackEventInput = z
     sessionId: z.string().uuid(),
     venueId: z.string().cuid(),
     visitorId: z.string().uuid().optional(),
-    eventType: z.enum(ANALYTICS_EVENT_TYPES),
+    eventType: z.enum(PUBLIC_ANALYTICS_EVENT_TYPES),
     placeId: z.string().cuid().optional(),
     metadata: z.record(z.unknown()).optional(),
     occurredAt: z.coerce.date().optional(),
