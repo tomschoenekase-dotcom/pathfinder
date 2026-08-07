@@ -32,12 +32,20 @@ vi.mock('@pathfinder/db', () => ({
 
 import { processEmbedKnowledgeEntryJob } from './embed-knowledge-entry'
 
+const contentUpdatedAt = new Date('2026-08-07T18:00:00.123Z')
+const payload = {
+  tenantId: 'tenant_1',
+  entryId: 'entry_1',
+  contentUpdatedAt: contentUpdatedAt.toISOString(),
+}
 const entry = {
   id: 'entry_1',
   venueId: 'venue_1',
   title: 'Accessibility',
   category: 'services',
   content: 'Elevators are beside the east entrance.',
+  isEnabled: true,
+  updatedAt: contentUpdatedAt,
 }
 const usage = {
   provider: 'openai',
@@ -58,7 +66,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.aiUsageCreate.mockResolvedValue({ id: 'usage_1' })
     mocks.buildKnowledgeEntryText.mockReturnValue('canonical knowledge text')
-    mocks.storeKnowledgeEntryEmbeddingForScope.mockResolvedValue(undefined)
+    mocks.storeKnowledgeEntryEmbeddingForScope.mockResolvedValue(true)
     mocks.generateEmbedding.mockImplementation(async (params) => {
       await params.usageSink(usage)
       return { ...usage, embeddings: [[0.2]], embedding: [0.2] }
@@ -67,10 +75,18 @@ describe('processEmbedKnowledgeEntryJob', () => {
 
   it('binds tenant and venue, records usage, and stores the validated embedding', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(entry)
-    await processEmbedKnowledgeEntryJob({ tenantId: 'tenant_1', entryId: 'entry_1' }, 'bull_1')
+    await processEmbedKnowledgeEntryJob(payload, 'bull_1')
     expect(mocks.entryFindFirst).toHaveBeenCalledWith({
       where: { id: 'entry_1', tenantId: 'tenant_1', venue: { tenantId: 'tenant_1' } },
-      select: { id: true, venueId: true, title: true, category: true, content: true },
+      select: {
+        id: true,
+        venueId: true,
+        title: true,
+        category: true,
+        content: true,
+        isEnabled: true,
+        updatedAt: true,
+      },
     })
     expect(mocks.buildKnowledgeEntryText).toHaveBeenCalledWith(entry)
     expect(mocks.generateEmbedding).toHaveBeenCalledWith(
@@ -93,6 +109,13 @@ describe('processEmbedKnowledgeEntryJob', () => {
       entryId: 'entry_1',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
+      contentUpdatedAt,
+      source: {
+        title: entry.title,
+        category: entry.category,
+        content: entry.content,
+        isEnabled: entry.isEnabled,
+      },
       embedding: [0.2],
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
@@ -101,7 +124,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
   it('fails closed without provider, usage, or storage when the scoped entity is absent', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(null)
     await expect(
-      processEmbedKnowledgeEntryJob({ tenantId: 'wrong_tenant', entryId: 'entry_1' }),
+      processEmbedKnowledgeEntryJob({ ...payload, tenantId: 'wrong_tenant' }),
     ).rejects.toThrow('VenueKnowledgeEntry entry_1 not found')
     expect(mocks.generateEmbedding).not.toHaveBeenCalled()
     expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
@@ -109,6 +132,18 @@ describe('processEmbedKnowledgeEntryJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'VenueKnowledgeEntry entry_1 not found',
+    })
+  })
+
+  it('completes without provider work when the scoped entry is disabled', async () => {
+    mocks.entryFindFirst.mockResolvedValueOnce({ ...entry, isEnabled: false })
+
+    await expect(processEmbedKnowledgeEntryJob(payload)).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
+    expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
     })
   })
 
@@ -124,9 +159,9 @@ describe('processEmbedKnowledgeEntryJob', () => {
       })
       throw new Error('OpenAI embedding request failed')
     })
-    await expect(
-      processEmbedKnowledgeEntryJob({ tenantId: 'tenant_1', entryId: 'entry_1' }),
-    ).rejects.toThrow('OpenAI embedding request failed')
+    await expect(processEmbedKnowledgeEntryJob(payload)).rejects.toThrow(
+      'OpenAI embedding request failed',
+    )
     expect(mocks.generateEmbedding).toHaveBeenCalledTimes(1)
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -144,9 +179,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
       await params.usageSink({ ...usage, success: false, errorCode: 'invalid-provider-response' })
       throw new Error('OpenAI returned invalid embedding data')
     })
-    await expect(
-      processEmbedKnowledgeEntryJob({ tenantId: 'tenant_1', entryId: 'entry_1' }),
-    ).rejects.toThrow()
+    await expect(processEmbedKnowledgeEntryJob(payload)).rejects.toThrow()
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         inputTokens: 9,
@@ -161,9 +194,7 @@ describe('processEmbedKnowledgeEntryJob', () => {
   it('stores and completes when usage persistence fails', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(entry)
     mocks.aiUsageCreate.mockRejectedValueOnce(new Error('usage db unavailable'))
-    await expect(
-      processEmbedKnowledgeEntryJob({ tenantId: 'tenant_1', entryId: 'entry_1' }),
-    ).resolves.toBeUndefined()
+    await expect(processEmbedKnowledgeEntryJob(payload)).resolves.toBeUndefined()
     expect(mocks.storeKnowledgeEntryEmbeddingForScope).toHaveBeenCalledOnce()
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
   })
@@ -171,15 +202,40 @@ describe('processEmbedKnowledgeEntryJob', () => {
   it('retains successful provider usage but fails the job when scoped storage fails', async () => {
     mocks.entryFindFirst.mockResolvedValueOnce(entry)
     mocks.storeKnowledgeEntryEmbeddingForScope.mockRejectedValueOnce(new Error('scope changed'))
-    await expect(
-      processEmbedKnowledgeEntryJob({ tenantId: 'tenant_1', entryId: 'entry_1' }),
-    ).rejects.toThrow('scope changed')
+    await expect(processEmbedKnowledgeEntryJob(payload)).rejects.toThrow('scope changed')
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ success: true }),
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'scope changed',
+    })
+  })
+
+  it('completes stale queued revisions before provider or usage work', async () => {
+    mocks.entryFindFirst.mockResolvedValueOnce({
+      ...entry,
+      updatedAt: new Date('2026-08-07T18:00:00.124Z'),
+    })
+
+    await expect(processEmbedKnowledgeEntryJob(payload)).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
+    expect(mocks.storeKnowledgeEntryEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
+  })
+
+  it('does not overwrite a revision that changes during the provider call', async () => {
+    mocks.entryFindFirst.mockResolvedValueOnce(entry)
+    mocks.storeKnowledgeEntryEmbeddingForScope.mockResolvedValueOnce(false)
+
+    await expect(processEmbedKnowledgeEntryJob(payload)).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).toHaveBeenCalledOnce()
+    expect(mocks.storeKnowledgeEntryEmbeddingForScope).toHaveBeenCalledOnce()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
     })
   })
 })

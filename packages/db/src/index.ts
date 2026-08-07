@@ -9,9 +9,7 @@ export type { ClerkWebhookEvent } from './helpers/membership-sync'
 export {
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
-  storeKnowledgeEntryEmbedding,
   storeKnowledgeEntryEmbeddingForScope,
-  storePlaceEmbedding,
   storePlaceEmbeddingForScope,
 } from './helpers/semantic-search'
 export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'

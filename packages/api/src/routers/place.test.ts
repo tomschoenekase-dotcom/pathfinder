@@ -192,6 +192,7 @@ describe('place router', () => {
     expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
       placeId: PLACE_ID,
       tenantId: 'tenant_1',
+      contentUpdatedAt: placeRow.updatedAt.toISOString(),
     })
   })
 
@@ -240,6 +241,7 @@ describe('place router', () => {
     expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
       placeId: PLACE_ID,
       tenantId: 'tenant_1',
+      contentUpdatedAt: placeRow.updatedAt.toISOString(),
     })
   })
 
@@ -319,6 +321,16 @@ describe('place router', () => {
     expect(result.count).toBe(2)
     expect(dbTransaction).toHaveBeenCalled()
     expect(enqueueEmbedPlaceMock).toHaveBeenCalledTimes(2)
+    expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(1, {
+      placeId: PLACE_ID,
+      tenantId: 'tenant_1',
+      contentUpdatedAt: placeRow.updatedAt.toISOString(),
+    })
+    expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(2, {
+      placeId: PLACE_ID,
+      tenantId: 'tenant_1',
+      contentUpdatedAt: placeRow.updatedAt.toISOString(),
+    })
   })
 
   it('place.bulkCreate throws BAD_REQUEST when over 500 places', async () => {

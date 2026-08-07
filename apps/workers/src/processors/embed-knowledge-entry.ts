@@ -9,8 +9,10 @@ import {
   writeJobRecord,
 } from '@pathfinder/db'
 import type { EmbedKnowledgeEntryJobPayload } from '@pathfinder/jobs'
+import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
 
 export async function processEmbedKnowledgeEntryJob(
   payload: EmbedKnowledgeEntryJobPayload,
@@ -28,6 +30,7 @@ export async function processEmbedKnowledgeEntryJob(
   })
 
   try {
+    const contentUpdatedAt = parseEmbeddingRevision(payload.contentUpdatedAt)
     const entry = await withTenantIsolationBypass(async () =>
       db.venueKnowledgeEntry.findFirst({
         where: {
@@ -41,12 +44,36 @@ export async function processEmbedKnowledgeEntryJob(
           title: true,
           category: true,
           content: true,
+          isEnabled: true,
+          updatedAt: true,
         },
       }),
     )
 
     if (!entry) {
-      throw new Error(`VenueKnowledgeEntry ${payload.entryId} not found`)
+      throw new UnrecoverableError(`VenueKnowledgeEntry ${payload.entryId} not found`)
+    }
+
+    if (!entry.isEnabled) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: 'workers.embed-knowledge-entry.skipped-disabled',
+        tenantId: payload.tenantId,
+        entryId: payload.entryId,
+      })
+      return
+    }
+
+    if (!embeddingRevisionMatches(entry.updatedAt, contentUpdatedAt)) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: 'workers.embed-knowledge-entry.skipped-stale',
+        tenantId: payload.tenantId,
+        entryId: payload.entryId,
+        contentUpdatedAt: payload.contentUpdatedAt,
+        currentUpdatedAt: entry.updatedAt.toISOString(),
+      })
+      return
     }
 
     const result = await generateEmbedding({
@@ -58,12 +85,29 @@ export async function processEmbedKnowledgeEntryJob(
         feature: 'knowledge-entry-embedding',
       }),
     })
-    await storeKnowledgeEntryEmbeddingForScope({
+    const stored = await storeKnowledgeEntryEmbeddingForScope({
       entryId: entry.id,
       tenantId: payload.tenantId,
       venueId: entry.venueId,
+      contentUpdatedAt,
+      source: {
+        title: entry.title,
+        category: entry.category,
+        content: entry.content,
+        isEnabled: entry.isEnabled,
+      },
       embedding: result.embedding,
     })
+    if (!stored) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: 'workers.embed-knowledge-entry.skipped-stale-write',
+        tenantId: payload.tenantId,
+        entryId: payload.entryId,
+        contentUpdatedAt: payload.contentUpdatedAt,
+      })
+      return
+    }
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({

@@ -9,8 +9,10 @@ import {
   writeJobRecord,
 } from '@pathfinder/db'
 import type { EmbedPlaceJobPayload } from '@pathfinder/jobs'
+import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
 
 export async function processEmbedPlaceJob(
   payload: EmbedPlaceJobPayload,
@@ -28,12 +30,12 @@ export async function processEmbedPlaceJob(
   })
 
   try {
+    const contentUpdatedAt = parseEmbeddingRevision(payload.contentUpdatedAt)
     const place = await withTenantIsolationBypass(async () =>
       db.place.findFirst({
         where: {
           id: payload.placeId,
           tenantId: payload.tenantId,
-          isActive: true,
           venue: { tenantId: payload.tenantId },
         },
         select: {
@@ -47,12 +49,36 @@ export async function processEmbedPlaceJob(
           tags: true,
           areaName: true,
           hours: true,
+          isActive: true,
+          updatedAt: true,
         },
       }),
     )
 
     if (!place) {
-      throw new Error(`Place ${payload.placeId} not found`)
+      throw new UnrecoverableError(`Place ${payload.placeId} not found`)
+    }
+
+    if (!place.isActive) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: 'workers.embed-place.skipped-inactive',
+        tenantId: payload.tenantId,
+        placeId: payload.placeId,
+      })
+      return
+    }
+
+    if (!embeddingRevisionMatches(place.updatedAt, contentUpdatedAt)) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: 'workers.embed-place.skipped-stale',
+        tenantId: payload.tenantId,
+        placeId: payload.placeId,
+        contentUpdatedAt: payload.contentUpdatedAt,
+        currentUpdatedAt: place.updatedAt.toISOString(),
+      })
+      return
     }
 
     const result = await generateEmbedding({
@@ -64,12 +90,34 @@ export async function processEmbedPlaceJob(
         feature: 'place-embedding',
       }),
     })
-    await storePlaceEmbeddingForScope({
+    const stored = await storePlaceEmbeddingForScope({
       placeId: place.id,
       tenantId: payload.tenantId,
       venueId: place.venueId,
+      contentUpdatedAt,
+      source: {
+        name: place.name,
+        type: place.type,
+        itemType: place.itemType,
+        shortDescription: place.shortDescription,
+        longDescription: place.longDescription,
+        tags: place.tags,
+        areaName: place.areaName,
+        hours: place.hours,
+        isActive: place.isActive,
+      },
       embedding: result.embedding,
     })
+    if (!stored) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      logger.info({
+        action: 'workers.embed-place.skipped-stale-write',
+        tenantId: payload.tenantId,
+        placeId: payload.placeId,
+        contentUpdatedAt: payload.contentUpdatedAt,
+      })
+      return
+    }
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({

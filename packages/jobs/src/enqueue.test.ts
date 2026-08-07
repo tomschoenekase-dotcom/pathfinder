@@ -20,7 +20,11 @@ describe('mutable embedding enqueues', () => {
   })
 
   it('does not suppress repeated place revisions with a retained entity job id', async () => {
-    const payload = { tenantId: 'tenant_1', placeId: 'place_1' }
+    const payload = {
+      tenantId: 'tenant_1',
+      placeId: 'place_1',
+      contentUpdatedAt: '2026-08-07T18:00:00.123Z',
+    }
     await enqueueEmbedPlace(payload)
     await enqueueEmbedPlace(payload)
 
@@ -31,7 +35,11 @@ describe('mutable embedding enqueues', () => {
   })
 
   it('does not suppress repeated knowledge revisions with a retained entity job id', async () => {
-    const payload = { tenantId: 'tenant_1', entryId: 'entry_1' }
+    const payload = {
+      tenantId: 'tenant_1',
+      entryId: 'entry_1',
+      contentUpdatedAt: '2026-08-07T18:00:00.123Z',
+    }
     await enqueueEmbedKnowledgeEntry(payload)
     await enqueueEmbedKnowledgeEntry(payload)
 

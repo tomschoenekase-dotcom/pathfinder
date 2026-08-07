@@ -114,6 +114,7 @@ describe('knowledge router', () => {
     expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledWith({
       entryId: ENTRY_ID,
       tenantId: 'tenant_1',
+      contentUpdatedAt: entryRow.updatedAt.toISOString(),
     })
   })
 
@@ -159,6 +160,16 @@ describe('knowledge router', () => {
     expect(result.count).toBe(2)
     expect(dbTransaction).toHaveBeenCalled()
     expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledTimes(2)
+    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenNthCalledWith(1, {
+      entryId: ENTRY_ID,
+      tenantId: 'tenant_1',
+      contentUpdatedAt: entryRow.updatedAt.toISOString(),
+    })
+    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenNthCalledWith(2, {
+      entryId: 'centrydef123456789012',
+      tenantId: 'tenant_1',
+      contentUpdatedAt: entryRow.updatedAt.toISOString(),
+    })
   })
 
   it('knowledge.bulkCreate rejects more than 500 entries before looking up the venue', async () => {
@@ -189,6 +200,7 @@ describe('knowledge router', () => {
     expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledWith({
       entryId: ENTRY_ID,
       tenantId: 'tenant_1',
+      contentUpdatedAt: entryRow.updatedAt.toISOString(),
     })
   })
 

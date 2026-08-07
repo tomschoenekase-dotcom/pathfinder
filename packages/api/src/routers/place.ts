@@ -15,9 +15,13 @@ type Db = typeof db
 
 const BULK_CREATE_LIMIT = 500
 
-async function embedPlace(place: { id: string; tenantId: string }): Promise<void> {
+async function embedPlace(place: { id: string; tenantId: string; updatedAt: Date }): Promise<void> {
   try {
-    await enqueueEmbedPlace({ placeId: place.id, tenantId: place.tenantId })
+    await enqueueEmbedPlace({
+      placeId: place.id,
+      tenantId: place.tenantId,
+      contentUpdatedAt: place.updatedAt.toISOString(),
+    })
   } catch (err) {
     logger.warn({
       action: 'place.embed.enqueue.failed',

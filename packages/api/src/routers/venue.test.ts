@@ -292,6 +292,8 @@ describe('venue router', () => {
   // --- venue.updateAiConfig ---
 
   it('saves AI config and enqueues every scoped unembedded place', async () => {
+    const place1UpdatedAt = new Date('2026-08-07T18:00:00.123Z')
+    const place2UpdatedAt = new Date('2026-08-07T18:00:00.456Z')
     venueFindFirst
       .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
       .mockResolvedValueOnce({
@@ -300,7 +302,10 @@ describe('venue router', () => {
         aiTone: 'FRIENDLY',
       })
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
-    dbQueryRaw.mockResolvedValueOnce([{ id: 'place_1' }, { id: 'place_2' }])
+    dbQueryRaw.mockResolvedValueOnce([
+      { id: 'place_1', updatedAt: place1UpdatedAt },
+      { id: 'place_2', updatedAt: place2UpdatedAt },
+    ])
 
     const caller = testRouter.createCaller(managerCtx())
     await caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: 'Keep it concise' })
@@ -310,10 +315,12 @@ describe('venue router', () => {
     expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(1, {
       tenantId: 'tenant_1',
       placeId: 'place_1',
+      contentUpdatedAt: place1UpdatedAt.toISOString(),
     })
     expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(2, {
       tenantId: 'tenant_1',
       placeId: 'place_2',
+      contentUpdatedAt: place2UpdatedAt.toISOString(),
     })
   })
 
@@ -323,7 +330,9 @@ describe('venue router', () => {
       .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
       .mockResolvedValueOnce(updated)
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
-    dbQueryRaw.mockResolvedValueOnce([{ id: 'place_1' }])
+    dbQueryRaw.mockResolvedValueOnce([
+      { id: 'place_1', updatedAt: new Date('2026-08-07T18:00:00.123Z') },
+    ])
     enqueueEmbedPlaceMock.mockRejectedValueOnce(new Error('redis unavailable'))
 
     const caller = testRouter.createCaller(managerCtx())

@@ -29,11 +29,13 @@ export type DailyRollupJobPayload = {
 export type EmbedPlaceJobPayload = {
   placeId: string
   tenantId: string
+  contentUpdatedAt: string
 }
 
 export type EmbedKnowledgeEntryJobPayload = {
   entryId: string
   tenantId: string
+  contentUpdatedAt: string
 }
 
 export type AnalyticsEnrichmentJobPayload = {

@@ -14,9 +14,13 @@ import { publicProcedure, tenantProcedure } from '../trpc'
 
 type Db = typeof db
 
-async function embedPlace(place: { id: string; tenantId: string }): Promise<void> {
+async function embedPlace(place: { id: string; tenantId: string; updatedAt: Date }): Promise<void> {
   try {
-    await enqueueEmbedPlace({ placeId: place.id, tenantId: place.tenantId })
+    await enqueueEmbedPlace({
+      placeId: place.id,
+      tenantId: place.tenantId,
+      contentUpdatedAt: place.updatedAt.toISOString(),
+    })
   } catch (err) {
     logger.warn({
       action: 'place.embed.enqueue.failed',
@@ -332,8 +336,8 @@ export const venueRouter = router({
       }
 
       // Re-embed any places that are missing an embedding. Failures are logged and do not block the save.
-      const unembeddedIds = await ctx.db.$queryRaw<{ id: string }[]>`
-        SELECT id FROM places
+      const unembeddedIds = await ctx.db.$queryRaw<{ id: string; updatedAt: Date }[]>`
+        SELECT id, updated_at AS "updatedAt" FROM places
         WHERE venue_id  = ${input.venueId}
           AND tenant_id = ${tenantId}
           AND is_active = true
@@ -341,7 +345,9 @@ export const venueRouter = router({
       `
 
       if (unembeddedIds.length > 0) {
-        await Promise.all(unembeddedIds.map(({ id }) => embedPlace({ id, tenantId })))
+        await Promise.all(
+          unembeddedIds.map(({ id, updatedAt }) => embedPlace({ id, tenantId, updatedAt })),
+        )
       }
 
       try {

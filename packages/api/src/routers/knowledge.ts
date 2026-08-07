@@ -50,9 +50,14 @@ async function assertVenueBelongsToTenant(
 async function enqueueKnowledgeEmbedding(payload: {
   entryId: string
   tenantId: string
+  updatedAt: Date
 }): Promise<void> {
   try {
-    await enqueueEmbedKnowledgeEntry(payload)
+    await enqueueEmbedKnowledgeEntry({
+      entryId: payload.entryId,
+      tenantId: payload.tenantId,
+      contentUpdatedAt: payload.updatedAt.toISOString(),
+    })
   } catch (err) {
     logger.warn({
       action: 'knowledge.embed.enqueue.failed',
@@ -98,7 +103,7 @@ export const knowledgeRouter = router({
         select: knowledgeEntrySelect,
       })
 
-      await enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId })
+      await enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId, updatedAt: entry.updatedAt })
 
       return entry
     }),
@@ -135,7 +140,9 @@ export const knowledgeRouter = router({
       )
 
       await Promise.all(
-        entries.map((entry) => enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId })),
+        entries.map((entry) =>
+          enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId, updatedAt: entry.updatedAt }),
+        ),
       )
 
       return { count: entries.length, entries }
@@ -175,7 +182,7 @@ export const knowledgeRouter = router({
         input.content !== undefined ||
         input.isEnabled === true
       ) {
-        await enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId })
+        await enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId, updatedAt: entry.updatedAt })
       }
 
       return entry

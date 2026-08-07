@@ -122,26 +122,25 @@ export async function searchPlacesByEmbedding(params: {
   }))
 }
 
-/**
- * Stores a pre-computed embedding vector for a place.
- *
- * Raw SQL required: vector(1536) is unsupported by Prisma's typed API.
- * The placeId must have been obtained from a prior tenant-isolated query.
- */
-export async function storePlaceEmbedding(placeId: string, embedding: number[]): Promise<void> {
-  const vectorStr = `[${embedding.join(',')}]`
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (db as any)
-    .$executeRaw`UPDATE places SET embedding = ${vectorStr}::vector WHERE id = ${placeId}`
-}
-
-/** Stores a place embedding only when the full tenant/venue/entity scope still matches. */
+/** Stores a place embedding only while scope and captured content still match. */
 export async function storePlaceEmbeddingForScope(params: {
   placeId: string
   tenantId: string
   venueId: string
+  contentUpdatedAt: Date
+  source: {
+    name: string
+    type: string
+    itemType: string | null
+    shortDescription: string | null
+    longDescription: string | null
+    tags: string[]
+    areaName: string | null
+    hours: string | null
+    isActive: boolean
+  }
   embedding: number[]
-}): Promise<void> {
+}): Promise<boolean> {
   const vectorStr = `[${params.embedding.join(',')}]`
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updated = await (db as any).$executeRaw`
@@ -150,10 +149,18 @@ export async function storePlaceEmbeddingForScope(params: {
     WHERE id = ${params.placeId}
       AND tenant_id = ${params.tenantId}
       AND venue_id = ${params.venueId}
+      AND updated_at = ${params.contentUpdatedAt}
+      AND name = ${params.source.name}
+      AND type = ${params.source.type}
+      AND item_type IS NOT DISTINCT FROM ${params.source.itemType}
+      AND short_description IS NOT DISTINCT FROM ${params.source.shortDescription}
+      AND long_description IS NOT DISTINCT FROM ${params.source.longDescription}
+      AND tags = ${params.source.tags}
+      AND area_name IS NOT DISTINCT FROM ${params.source.areaName}
+      AND hours IS NOT DISTINCT FROM ${params.source.hours}
+      AND is_active = ${params.source.isActive}
   `
-  if (updated !== 1) {
-    throw new Error(`Place ${params.placeId} embedding scope changed before persistence`)
-  }
+  return updated === 1
 }
 
 /**
@@ -199,29 +206,20 @@ export async function searchKnowledgeByEmbedding(params: {
   }))
 }
 
-/**
- * Stores a pre-computed embedding vector for a knowledge entry.
- *
- * Raw SQL required: vector(1536) is unsupported by Prisma's typed API.
- * The entryId must have been obtained from a prior tenant-isolated query.
- */
-export async function storeKnowledgeEntryEmbedding(
-  entryId: string,
-  embedding: number[],
-): Promise<void> {
-  const vectorStr = `[${embedding.join(',')}]`
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (db as any)
-    .$executeRaw`UPDATE venue_knowledge_entries SET embedding = ${vectorStr}::vector WHERE id = ${entryId}`
-}
-
-/** Stores a knowledge embedding only when the full tenant/venue/entity scope still matches. */
+/** Stores a knowledge embedding only while scope and captured content still match. */
 export async function storeKnowledgeEntryEmbeddingForScope(params: {
   entryId: string
   tenantId: string
   venueId: string
+  contentUpdatedAt: Date
+  source: {
+    title: string
+    category: string
+    content: string
+    isEnabled: boolean
+  }
   embedding: number[]
-}): Promise<void> {
+}): Promise<boolean> {
   const vectorStr = `[${params.embedding.join(',')}]`
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updated = await (db as any).$executeRaw`
@@ -230,10 +228,11 @@ export async function storeKnowledgeEntryEmbeddingForScope(params: {
     WHERE id = ${params.entryId}
       AND tenant_id = ${params.tenantId}
       AND venue_id = ${params.venueId}
+      AND updated_at = ${params.contentUpdatedAt}
+      AND title = ${params.source.title}
+      AND category = ${params.source.category}
+      AND content = ${params.source.content}
+      AND is_enabled = ${params.source.isEnabled}
   `
-  if (updated !== 1) {
-    throw new Error(
-      `VenueKnowledgeEntry ${params.entryId} embedding scope changed before persistence`,
-    )
-  }
+  return updated === 1
 }

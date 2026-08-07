@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { UnrecoverableError } from 'bullmq'
 
 const mocks = vi.hoisted(() => ({
   aiUsageCreate: vi.fn(),
@@ -34,6 +35,12 @@ vi.mock('@pathfinder/db', () => ({
 
 import { processEmbedPlaceJob } from './embed-place'
 
+const contentUpdatedAt = new Date('2026-08-07T18:00:00.123Z')
+const payload = {
+  tenantId: 'tenant_1',
+  placeId: 'place_1',
+  contentUpdatedAt: contentUpdatedAt.toISOString(),
+}
 const place = {
   id: 'place_1',
   venueId: 'venue_1',
@@ -45,6 +52,8 @@ const place = {
   tags: ['art'],
   areaName: 'First Floor',
   hours: null,
+  isActive: true,
+  updatedAt: contentUpdatedAt,
 }
 
 const usage = {
@@ -66,7 +75,7 @@ describe('processEmbedPlaceJob', () => {
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.aiUsageCreate.mockResolvedValue({ id: 'usage_1' })
     mocks.buildPlaceText.mockReturnValue('canonical place text')
-    mocks.storePlaceEmbeddingForScope.mockResolvedValue(undefined)
+    mocks.storePlaceEmbeddingForScope.mockResolvedValue(true)
     mocks.generateEmbedding.mockImplementation(async (params) => {
       await params.usageSink(usage)
       return { ...usage, embeddings: [[0.1]], embedding: [0.1] }
@@ -76,13 +85,12 @@ describe('processEmbedPlaceJob', () => {
   it('binds tenant and venue, records usage, and stores the validated embedding', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(place)
 
-    await processEmbedPlaceJob({ tenantId: 'tenant_1', placeId: 'place_1' }, 'bull_1')
+    await processEmbedPlaceJob(payload, 'bull_1')
 
     expect(mocks.placeFindFirst).toHaveBeenCalledWith({
       where: {
         id: 'place_1',
         tenantId: 'tenant_1',
-        isActive: true,
         venue: { tenantId: 'tenant_1' },
       },
       select: expect.objectContaining({ id: true, venueId: true }),
@@ -108,6 +116,18 @@ describe('processEmbedPlaceJob', () => {
       placeId: 'place_1',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
+      contentUpdatedAt,
+      source: {
+        name: place.name,
+        type: place.type,
+        itemType: place.itemType,
+        shortDescription: place.shortDescription,
+        longDescription: place.longDescription,
+        tags: place.tags,
+        areaName: place.areaName,
+        hours: place.hours,
+        isActive: place.isActive,
+      },
       embedding: [0.1],
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
@@ -115,15 +135,40 @@ describe('processEmbedPlaceJob', () => {
 
   it('fails closed without provider, usage, or storage when the scoped entity is absent', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(null)
-    await expect(
-      processEmbedPlaceJob({ tenantId: 'wrong_tenant', placeId: 'place_1' }),
-    ).rejects.toThrow('Place place_1 not found')
+    await expect(processEmbedPlaceJob({ ...payload, tenantId: 'wrong_tenant' })).rejects.toThrow(
+      'Place place_1 not found',
+    )
     expect(mocks.generateEmbedding).not.toHaveBeenCalled()
     expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
     expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'Place place_1 not found',
+    })
+  })
+
+  it('completes without provider work when the scoped place is inactive', async () => {
+    mocks.placeFindFirst.mockResolvedValueOnce({ ...place, isActive: false })
+
+    await expect(processEmbedPlaceJob(payload)).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
+    expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
+  })
+
+  it('fails a malformed revision as unrecoverable before entity or provider work', async () => {
+    await expect(
+      processEmbedPlaceJob({ ...payload, contentUpdatedAt: 'legacy-missing-revision' }),
+    ).rejects.toBeInstanceOf(UnrecoverableError)
+    expect(mocks.placeFindFirst).not.toHaveBeenCalled()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'FAILED',
+      error: 'Embedding contentUpdatedAt must be an ISO UTC timestamp',
     })
   })
 
@@ -139,9 +184,7 @@ describe('processEmbedPlaceJob', () => {
       })
       throw new Error('OpenAI embedding request failed')
     })
-    await expect(
-      processEmbedPlaceJob({ tenantId: 'tenant_1', placeId: 'place_1' }),
-    ).rejects.toThrow('OpenAI embedding request failed')
+    await expect(processEmbedPlaceJob(payload)).rejects.toThrow('OpenAI embedding request failed')
     expect(mocks.generateEmbedding).toHaveBeenCalledTimes(1)
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -159,9 +202,7 @@ describe('processEmbedPlaceJob', () => {
       await params.usageSink({ ...usage, success: false, errorCode: 'invalid-provider-response' })
       throw new Error('OpenAI returned invalid embedding data')
     })
-    await expect(
-      processEmbedPlaceJob({ tenantId: 'tenant_1', placeId: 'place_1' }),
-    ).rejects.toThrow()
+    await expect(processEmbedPlaceJob(payload)).rejects.toThrow()
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         inputTokens: 7,
@@ -176,9 +217,7 @@ describe('processEmbedPlaceJob', () => {
   it('stores and completes when usage persistence fails', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(place)
     mocks.aiUsageCreate.mockRejectedValueOnce(new Error('usage db unavailable'))
-    await expect(
-      processEmbedPlaceJob({ tenantId: 'tenant_1', placeId: 'place_1' }),
-    ).resolves.toBeUndefined()
+    await expect(processEmbedPlaceJob(payload)).resolves.toBeUndefined()
     expect(mocks.storePlaceEmbeddingForScope).toHaveBeenCalledOnce()
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
   })
@@ -186,15 +225,40 @@ describe('processEmbedPlaceJob', () => {
   it('retains successful provider usage but fails the job when scoped storage fails', async () => {
     mocks.placeFindFirst.mockResolvedValueOnce(place)
     mocks.storePlaceEmbeddingForScope.mockRejectedValueOnce(new Error('scope changed'))
-    await expect(
-      processEmbedPlaceJob({ tenantId: 'tenant_1', placeId: 'place_1' }),
-    ).rejects.toThrow('scope changed')
+    await expect(processEmbedPlaceJob(payload)).rejects.toThrow('scope changed')
     expect(mocks.aiUsageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ success: true }),
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'scope changed',
+    })
+  })
+
+  it('completes stale queued revisions before provider or usage work', async () => {
+    mocks.placeFindFirst.mockResolvedValueOnce({
+      ...place,
+      updatedAt: new Date('2026-08-07T18:00:00.124Z'),
+    })
+
+    await expect(processEmbedPlaceJob(payload)).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).not.toHaveBeenCalled()
+    expect(mocks.aiUsageCreate).not.toHaveBeenCalled()
+    expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
+  })
+
+  it('does not overwrite a revision that changes during the provider call', async () => {
+    mocks.placeFindFirst.mockResolvedValueOnce(place)
+    mocks.storePlaceEmbeddingForScope.mockResolvedValueOnce(false)
+
+    await expect(processEmbedPlaceJob(payload)).resolves.toBeUndefined()
+    expect(mocks.generateEmbedding).toHaveBeenCalledOnce()
+    expect(mocks.storePlaceEmbeddingForScope).toHaveBeenCalledOnce()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
     })
   })
 })
