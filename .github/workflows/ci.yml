@@ -59,6 +59,7 @@ jobs:
       - run: pnpm verify:staging
       - run: pnpm verify:ai-boundary
       - run: pnpm verify:tenant-registry
+      - run: pnpm verify:tenant-bypasses
       - run: pnpm --dir packages/db db:generate
       - run: pnpm --dir packages/db exec prisma migrate deploy
       - run: pnpm turbo run build
