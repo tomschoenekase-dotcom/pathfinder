@@ -1,0 +1,52 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+
+const originalNodeEnv = process.env.NODE_ENV
+const originalNextPhase = process.env.NEXT_PHASE
+
+let envSchema: typeof import('./env').envSchema
+
+beforeAll(async () => {
+  // The module validates process.env while it is imported. Use the existing
+  // build-time escape hatch so these tests can exercise envSchema directly.
+  process.env.NEXT_PHASE = 'phase-production-build'
+  ;({ envSchema } = await import('./env'))
+})
+
+afterAll(() => {
+  process.env.NEXT_PHASE = originalNextPhase
+})
+
+const requiredEnvironment = {
+  DATABASE_URL: 'postgresql://example.test/pathfinder',
+  DIRECT_DATABASE_URL: 'postgresql://example.test/pathfinder',
+  CLERK_SECRET_KEY: 'test-secret',
+  CLERK_PUBLISHABLE_KEY: 'test-publishable',
+}
+
+afterEach(() => {
+  process.env.NODE_ENV = originalNodeEnv
+})
+
+describe('RAILWAY_ENVIRONMENT', () => {
+  it('defaults to staging outside production', () => {
+    process.env.NODE_ENV = 'test'
+
+    expect(envSchema.parse(requiredEnvironment).RAILWAY_ENVIRONMENT).toBe('staging')
+  })
+
+  it('is required in production', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(() => envSchema.parse(requiredEnvironment)).toThrow()
+  })
+
+  it('accepts the supported deployment environments', () => {
+    process.env.NODE_ENV = 'production'
+
+    for (const RAILWAY_ENVIRONMENT of ['production', 'staging', 'preview']) {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).RAILWAY_ENVIRONMENT,
+      ).toBe(RAILWAY_ENVIRONMENT)
+    }
+  })
+})

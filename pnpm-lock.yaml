@@ -129,6 +129,9 @@ importers:
       '@pathfinder/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@pathfinder/jobs':
+        specifier: workspace:*
+        version: link:../../packages/jobs
       '@pathfinder/ui':
         specifier: workspace:*
         version: link:../../packages/ui

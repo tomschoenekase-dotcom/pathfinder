@@ -1,6 +1,16 @@
 import { z } from 'zod'
 
+const railwayEnvironmentSchema = z.preprocess(
+  (value) => value ?? (process.env.NODE_ENV === 'production' ? undefined : 'staging'),
+  z.enum(['production', 'staging', 'preview']),
+)
+
 export const envSchema = z.object({
+  // Deployment boundary: production serves live traffic, staging is synthetic
+  // data only, and preview is for ephemeral review deployments. This is
+  // required when NODE_ENV=production and defaults to staging for development.
+  RAILWAY_ENVIRONMENT: railwayEnvironmentSchema,
+
   // Required from PACKET-03 onward
   DATABASE_URL: z.string().min(1),
   DIRECT_DATABASE_URL: z.string().min(1),

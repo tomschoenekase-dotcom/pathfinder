@@ -1,4 +1,5 @@
 import { db } from '../src'
+import { env } from '@pathfinder/config'
 
 const DEMO_TENANT_ID = 'demo-tenant'
 const DEMO_VENUE_ID = 'demo-venue-riverside-aquarium'
@@ -220,6 +221,12 @@ const places = [
 ]
 
 async function main() {
+  if (env.RAILWAY_ENVIRONMENT !== 'staging') {
+    throw new Error(
+      `Refusing to seed synthetic data outside staging (RAILWAY_ENVIRONMENT=${env.RAILWAY_ENVIRONMENT}).`,
+    )
+  }
+
   await db.tenant.upsert({
     where: { id: DEMO_TENANT_ID },
     update: {
