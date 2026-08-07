@@ -50,6 +50,7 @@ model Tenant {
   aiUsageEvents               AiUsageEvent[]
   aiUsageDailyRollups         AiUsageDailyRollup[]
   embeddingWorkClaims         EmbeddingWorkClaim[]
+  embeddingDispatches         EmbeddingDispatch[]
 
   @@map("tenants")
 }
@@ -217,6 +218,7 @@ model Venue {
   aiUsageEvents           AiUsageEvent[]
   aiUsageDailyRollups     AiUsageDailyRollup[]
   embeddingWorkClaims     EmbeddingWorkClaim[]
+  embeddingDispatches     EmbeddingDispatch[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -583,6 +585,29 @@ model EmbeddingWorkClaim {
   @@index([tenantId, status, leaseExpiresAt])
   @@index([tenantId, entityType, entityId, createdAt])
   @@map("embedding_work_claims")
+}
+
+model EmbeddingDispatch {
+  id               String                  @id
+  tenantId         String                  @map("tenant_id")
+  venueId          String                  @map("venue_id")
+  entityType       EmbeddingWorkEntityType @map("entity_type")
+  entityId         String                  @map("entity_id")
+  contentUpdatedAt DateTime                @map("content_updated_at")
+  attempts         Int                     @default(0)
+  nextAttemptAt    DateTime                @default(now()) @map("next_attempt_at")
+  leaseToken       String?                 @map("lease_token")
+  leaseExpiresAt   DateTime?               @map("lease_expires_at")
+  lastError        String?                 @map("last_error")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue            Venue                   @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, venueId, entityType, entityId], map: "embedding_dispatches_entity_key")
+  @@index([nextAttemptAt, leaseExpiresAt, createdAt], map: "embedding_dispatches_due_idx")
+  @@index([tenantId, venueId, createdAt])
+  @@map("embedding_dispatches")
 }
 
 enum JobStatus {

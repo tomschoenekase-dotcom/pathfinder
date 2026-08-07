@@ -125,3 +125,38 @@ describe('WORKER_SCHEDULERS_ENABLED', () => {
     ).toThrow()
   })
 })
+
+describe('EMBEDDING_DISPATCH_ENABLED', () => {
+  it('defaults to enabled in production', () => {
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'production' })
+        .EMBEDDING_DISPATCH_ENABLED,
+    ).toBe(true)
+  })
+
+  it.each(['staging', 'preview'] as const)('defaults to disabled in %s', (RAILWAY_ENVIRONMENT) => {
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).EMBEDDING_DISPATCH_ENABLED,
+    ).toBe(false)
+  })
+
+  it('allows an explicit staging enable without enabling business schedulers', () => {
+    const parsed = envSchema.parse({
+      ...requiredEnvironment,
+      RAILWAY_ENVIRONMENT: 'staging',
+      EMBEDDING_DISPATCH_ENABLED: 'true',
+    })
+    expect(parsed.EMBEDDING_DISPATCH_ENABLED).toBe(true)
+    expect(parsed.WORKER_SCHEDULERS_ENABLED).toBe(false)
+  })
+
+  it('rejects an invalid dispatch override', () => {
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        EMBEDDING_DISPATCH_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})

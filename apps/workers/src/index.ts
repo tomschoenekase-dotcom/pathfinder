@@ -22,6 +22,8 @@ import {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
+  EMBEDDING_DISPATCH_QUEUE,
+  EMBEDDING_DISPATCH_SCHEDULER_JOB,
   enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
   enqueueWeeklyDigest,
@@ -55,6 +57,7 @@ import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment
 import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedPlaceJob } from './processors/embed-place'
+import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
@@ -65,6 +68,7 @@ const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
 // Runs after the daily rollup (01:00) so its pure-SQL rows already exist.
 const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
+const EMBEDDING_DISPATCH_CRON = '* * * * *'
 
 function startOfUtcWeek(date: Date): Date {
   const start = new Date(date)
@@ -398,6 +402,15 @@ async function handleEmbedKnowledgeEntryQueueJob(job: Job<EmbedKnowledgeEntryJob
   throw new Error(`Unsupported embed knowledge entry job: ${job.name}`)
 }
 
+async function handleEmbeddingDispatchQueueJob(job: Job<Record<string, never>>) {
+  if (job.name === EMBEDDING_DISPATCH_SCHEDULER_JOB) {
+    await processEmbeddingDispatches()
+    return
+  }
+
+  throw new Error(`Unsupported embedding dispatch job: ${job.name}`)
+}
+
 async function handleAnalyticsEnrichmentQueueJob(
   job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
 ) {
@@ -455,6 +468,7 @@ export async function startWorkers() {
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
   const embedPlaceQueue = new Queue(EMBED_PLACE_QUEUE, { connection })
+  const embeddingDispatchQueue = new Queue(EMBEDDING_DISPATCH_QUEUE, { connection })
   const analyticsEnrichmentQueue = new Queue(ANALYTICS_ENRICHMENT_QUEUE, { connection })
   const answerAnalysisQueue = new Queue(ANSWER_ANALYSIS_QUEUE, { connection })
   const weeklyReportQueue = new Queue(WEEKLY_REPORT_QUEUE, { connection })
@@ -499,6 +513,27 @@ export async function startWorkers() {
           },
         ),
       remove: () => analyticsEnrichmentQueue.removeJobScheduler(ANALYTICS_ENRICHMENT_SCHEDULER_JOB),
+    },
+  ])
+
+  await applySchedulerState(env.EMBEDDING_DISPATCH_ENABLED, [
+    {
+      upsert: () =>
+        embeddingDispatchQueue.upsertJobScheduler(
+          EMBEDDING_DISPATCH_SCHEDULER_JOB,
+          { pattern: EMBEDDING_DISPATCH_CRON },
+          {
+            name: EMBEDDING_DISPATCH_SCHEDULER_JOB,
+            data: {},
+            opts: {
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 5_000 },
+              removeOnComplete: 10,
+              removeOnFail: 50,
+            },
+          },
+        ),
+      remove: () => embeddingDispatchQueue.removeJobScheduler(EMBEDDING_DISPATCH_SCHEDULER_JOB),
     },
   ])
 
@@ -560,6 +595,12 @@ export async function startWorkers() {
         },
       },
     },
+  )
+
+  const embeddingDispatchWorker = new Worker(
+    EMBEDDING_DISPATCH_QUEUE,
+    handleEmbeddingDispatchQueueJob,
+    { connection, concurrency: 1 },
   )
 
   const analyticsEnrichmentWorker = new Worker(
@@ -657,6 +698,7 @@ export async function startWorkers() {
   dailyRollupWorker.on('completed', handleCompletedJob)
   embedPlaceWorker.on('completed', handleCompletedJob)
   embedKnowledgeEntryWorker.on('completed', handleCompletedJob)
+  embeddingDispatchWorker.on('completed', handleCompletedJob)
   analyticsEnrichmentWorker.on('completed', handleCompletedJob)
   sendEmailWorker.on('completed', handleCompletedJob)
   answerAnalysisWorker.on('completed', handleCompletedJob)
@@ -667,6 +709,7 @@ export async function startWorkers() {
   dailyRollupWorker.on('failed', handleFailedJob)
   embedPlaceWorker.on('failed', handleFailedJob)
   embedKnowledgeEntryWorker.on('failed', handleFailedJob)
+  embeddingDispatchWorker.on('failed', handleFailedJob)
   analyticsEnrichmentWorker.on('failed', handleFailedJob)
   sendEmailWorker.on('failed', handleFailedJob)
   answerAnalysisWorker.on('failed', handleFailedJob)
@@ -676,11 +719,13 @@ export async function startWorkers() {
   logger.info({
     action: 'workers.started',
     recurringSchedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
+    embeddingDispatchEnabled: env.EMBEDDING_DISPATCH_ENABLED,
     queues: [
       WEEKLY_DIGEST_QUEUE,
       DAILY_ROLLUP_QUEUE,
       EMBED_PLACE_QUEUE,
       EMBED_KNOWLEDGE_ENTRY_QUEUE,
+      EMBEDDING_DISPATCH_QUEUE,
       ANALYTICS_ENRICHMENT_QUEUE,
       ANSWER_ANALYSIS_QUEUE,
       WEEKLY_REPORT_QUEUE,
@@ -697,6 +742,7 @@ export async function startWorkers() {
       dailyRollupWorker.close(),
       embedPlaceWorker.close(),
       embedKnowledgeEntryWorker.close(),
+      embeddingDispatchWorker.close(),
       analyticsEnrichmentWorker.close(),
       answerAnalysisWorker.close(),
       weeklyReportWorker.close(),
@@ -705,6 +751,7 @@ export async function startWorkers() {
       weeklyDigestQueue.close(),
       dailyRollupQueue.close(),
       embedPlaceQueue.close(),
+      embeddingDispatchQueue.close(),
       analyticsEnrichmentQueue.close(),
       answerAnalysisQueue.close(),
       weeklyReportQueue.close(),
@@ -730,6 +777,8 @@ export async function startWorkers() {
     dailyRollupQueue,
     dailyRollupWorker,
     embedKnowledgeEntryWorker,
+    embeddingDispatchQueue,
+    embeddingDispatchWorker,
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,

@@ -81,7 +81,12 @@ normally do not need every worker-only outbound credential.
 6. Deploy web, dashboard, and workers from `RELEASE_SHA`. Keep workers stopped
    until migrations are complete. Record the resulting Railway deployment ID
    and full source SHA for each service.
-7. Run the smoke tests below. Any failure blocks production promotion; fix it
+7. Start the workers with `EMBEDDING_DISPATCH_ENABLED=false`. Confirm the new
+   `EmbeddingDispatch` table and content triggers exist, then make one synthetic
+   place or knowledge edit and verify a single coalesced dispatch row is committed.
+   Only after that proof, set `EMBEDDING_DISPATCH_ENABLED=true` and restart the
+   staging worker. This flag is independent of `WORKER_SCHEDULERS_ENABLED`.
+8. Run the smoke tests below. Any failure blocks production promotion; fix it
    in a new commit and repeat the entire exact-SHA procedure.
 
 ## Staging smoke tests
@@ -93,9 +98,11 @@ normally do not need every worker-only outbound credential.
 - Sign in to the dashboard with a Clerk test user, select the staging tenant,
   and verify one read plus one reversible write. Confirm the change exists only
   in staging.
-- Enqueue or trigger one safe staging job and confirm the workers consume it,
-  its `JobRecord` reaches the expected terminal state, and no production Redis
-  queue or outbound destination is touched.
+- Edit one synthetic place or knowledge record and confirm its outbox row is
+  dispatched, the matching embedding `JobRecord` reaches the expected terminal
+  state, and no production Redis queue or outbound destination is touched. Repeat
+  the same content revision and confirm the provider-work claim avoids a second
+  provider call. Preserve only sanitized IDs and counts as evidence.
 - Exercise any storage or outbound integration changed by the release using a
   disposable object/test recipient, then remove or expire that test artifact.
 - Review service logs for startup, migration, tenant-isolation, queue, and

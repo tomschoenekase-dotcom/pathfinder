@@ -16,6 +16,10 @@ const rawEnvSchema = z
     // environment explicitly opts in or out. Queue consumers run independently.
     WORKER_SCHEDULERS_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Mutation dispatch is correctness infrastructure, separate from business
+    // cron. Production defaults on; staging/preview require explicit rollout.
+    EMBEDDING_DISPATCH_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Required from PACKET-03 onward
     DATABASE_URL: z.string().min(1),
     DIRECT_DATABASE_URL: z.string().min(1),
@@ -73,6 +77,10 @@ export const envSchema = rawEnvSchema.transform((values) => ({
     values.WORKER_SCHEDULERS_ENABLED === undefined
       ? values.RAILWAY_ENVIRONMENT === 'production'
       : values.WORKER_SCHEDULERS_ENABLED === 'true',
+  EMBEDDING_DISPATCH_ENABLED:
+    values.EMBEDDING_DISPATCH_ENABLED === undefined
+      ? values.RAILWAY_ENVIRONMENT === 'production'
+      : values.EMBEDDING_DISPATCH_ENABLED === 'true',
 }))
 
 // During Next.js build (NEXT_PHASE=phase-production-build) env vars may not

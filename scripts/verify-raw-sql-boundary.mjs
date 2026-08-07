@@ -19,6 +19,8 @@ const approvedPolicies = new Set([
   'tenant-and-venue',
   'tenant-venue-revision-source',
   'tenant-venue-entity-lease',
+  'platform-dispatch-lease',
+  'tenant-venue-revision-lease',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -71,6 +73,18 @@ const approvedOperations = [
     method: '$queryRaw',
     hash: 'f869aa4e6f5b7b4015b2462ed70877c7691212ed0325374357ab8144470833ab',
     policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-dispatches.ts',
+    method: '$queryRaw',
+    hash: 'a925e18ada96c0708399943037bf1131d99e9debefa92a74b8300a24b84a4b93',
+    policy: 'platform-dispatch-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/embedding-dispatches.ts',
+    method: '$executeRaw',
+    hash: '1b2d60ffbbfc05eeb54b73f5d5f3a29bf030f7b9b1786f1861f9fd66749c7660',
+    policy: 'tenant-venue-revision-lease',
   },
   {
     file: 'packages/db/src/helpers/embedding-work-claims.ts',

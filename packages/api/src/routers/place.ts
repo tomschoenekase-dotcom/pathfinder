@@ -1,9 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { logger } from '@pathfinder/config/logger'
 import { db } from '@pathfinder/db'
-import { enqueueEmbedPlace } from '@pathfinder/jobs'
 
 import { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from '../schemas/place'
 
@@ -14,23 +12,6 @@ import { tenantProcedure } from '../trpc'
 type Db = typeof db
 
 const BULK_CREATE_LIMIT = 500
-
-async function embedPlace(place: { id: string; tenantId: string; updatedAt: Date }): Promise<void> {
-  try {
-    await enqueueEmbedPlace({
-      placeId: place.id,
-      tenantId: place.tenantId,
-      contentUpdatedAt: place.updatedAt.toISOString(),
-    })
-  } catch (err) {
-    logger.warn({
-      action: 'place.embed.enqueue.failed',
-      tenantId: place.tenantId,
-      placeId: place.id,
-      error: err instanceof Error ? err.message : String(err),
-    })
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Input schemas — defined in ../schemas/place (client-safe, re-exported here)
@@ -148,8 +129,6 @@ export const placeRouter = router({
         select: placeSelect,
       })
 
-      await embedPlace({ ...place, tenantId })
-
       return place
     }),
 
@@ -183,8 +162,6 @@ export const placeRouter = router({
       if (!updated) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
       }
-
-      await embedPlace({ ...updated, tenantId })
 
       return updated
     }),
@@ -254,8 +231,6 @@ export const placeRouter = router({
           }),
         ),
       )
-
-      await Promise.all(created.map((place) => embedPlace({ ...place, tenantId })))
 
       return { count: created.length, places: created }
     }),

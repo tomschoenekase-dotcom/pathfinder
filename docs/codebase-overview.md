@@ -159,8 +159,9 @@ Mounted under these namespaces in `root.ts`:
   `getAiConfig`/`updateAiConfig` (AI persona, tone, featured place, guide name),
   `updateChatDesign` (theme/accent/logo/banner). Create needs `OWNER`, updates need `MANAGER`.
   Slugs are auto-generated and de-duplicated per tenant.
-- **`place`** (`routers/place.ts`) — POI CRUD + `bulkCreate` (≤500). Every create/update enqueues
-  an `embed-place` job to (re)generate the OpenAI embedding. `MANAGER`+.
+- **`place`** (`routers/place.ts`) — POI CRUD + `bulkCreate` (≤500). Database triggers atomically
+  coalesce embedding work into `EmbeddingDispatch`; the dispatcher later enqueues provider work.
+  `MANAGER`+.
 - **`operationalUpdate`** (`routers/operational-update.ts`) — time-boxed notices (closures,
   warnings, redirects) attached to a venue/place. Writes audit logs. `MANAGER`+.
 - **`analytics`** (`routers/analytics.ts`) — `trackEvent` (public, guest telemetry ingest +
@@ -178,8 +179,9 @@ Mounted under these namespaces in `root.ts`:
 ### 4.5 Library helpers (`packages/api/src/lib`)
 
 - `embeddings.ts` — compatibility exports for OpenAI `text-embedding-3-small` (1536 dims). Shared
-  place embedding generation and text building live in `packages/db/src/helpers/embeddings.ts`;
-  place writes enqueue background jobs instead of embedding inline.
+  place and knowledge embedding generation and canonical text building live in
+  `packages/db/src/helpers/embeddings.ts`; content writes record transactional dispatch intent
+  instead of calling Redis or the provider inline.
 - `geo.ts` — Haversine distance + `findNearestPlaces()` (the geo fallback ranker).
 - `rate-limit.ts` — Redis (`ioredis`) fixed-window counter via an atomic Lua increment/TTL-repair
   operation. Production requires Redis and denies when the shared check is unavailable; staging
@@ -248,6 +250,8 @@ Mounted under these namespaces in `root.ts`:
   - `DailyRollup` — pre-aggregated daily metrics (sessions/messages/place mentions).
   - `WeeklyDigest` — AI-generated weekly insight summaries.
   - `JobRecord` — every worker run, for admin visibility.
+  - `EmbeddingDispatch` — the transactional, coalescing outbox between content commits and Redis.
+  - `EmbeddingWorkClaim` — per-entity provider-work lease, replay identity, and fencing state.
   - `OperationalUpdate`, `DataAdapter` (placeholder for future integrations).
 - Migrations are forward-only and numbered/timestamped. `005_place_embeddings` enables the
   `vector` extension and creates an HNSW cosine index. Note the **mixed numbering scheme**:
@@ -345,18 +349,25 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 
 ### 8.4 `apps/workers` — background jobs
 
-- `src/index.ts` boots two BullMQ queues with **repeatable cron schedulers**:
+- `src/index.ts` configures three **repeatable schedulers** among its BullMQ queues:
   - `weekly-digest` — `0 23 * * 0` (Sun 23:00 UTC),
-  - `daily-rollup` — `0 1 * * *` (01:00 UTC daily).
-- It also runs the enqueue-driven `embed-place` queue, which has no cron scheduler.
-- The scheduler jobs fan out one process job per **active tenant**; process jobs run with
-  concurrency 2 and a 5-step retry backoff (30s→1m→5m→30m→2h, 6 attempts).
+  - `daily-rollup` — `0 1 * * *` (01:00 UTC daily),
+  - `embedding-dispatch` — once per minute, but only when `EMBEDDING_DISPATCH_ENABLED=true`.
+- It also runs the enqueue-driven `embed-place` and `embed-knowledge` queues, which have no cron
+  scheduler. The dispatcher leases committed outbox rows and publishes those jobs to Redis.
+- The digest and rollup schedulers fan out one process job per **active tenant**. Their process
+  jobs run with concurrency 2 and a 5-step retry backoff (30s→1m→5m→30m→2h, 6 attempts). The
+  embedding dispatcher instead leases a bounded cross-tenant batch using explicit scoped writes.
 - Graceful `SIGINT`/`SIGTERM` shutdown drains workers and closes queues/Redis.
 - Processors:
   - `daily-rollup.ts` — per venue, counts sessions/messages and **place mentions** (regex over the
     day's messages), wipes+rewrites that day's `DailyRollup` rows in a transaction.
-  - `embed-place.ts` — loads a tenant-filtered place, generates an OpenAI embedding, stores it in
-    pgvector, and writes a `JobRecord`.
+  - `embed-place.ts` / `embed-knowledge.ts` — load tenant-filtered content, acquire a revision- and
+    provider-profile-specific fenced claim, generate the OpenAI embedding, and atomically store it
+    with claim completion. Exact successful replays skip the provider call.
+  - `dispatch-embeddings.ts` — leases due `EmbeddingDispatch` rows with `SKIP LOCKED`, enqueues the
+    exact content revision, and acknowledges only the same fenced lease. Failed publishes retain
+    the row with bounded exponential backoff.
   - `weekly-digest.ts` — gathers the week's sessions/messages, and if ≥5 sessions, prompts
     **Claude Sonnet 4.6** to return strict JSON insights (parsed/validated with Zod, with fenced-code
     and brace-extraction fallbacks), then writes them to `WeeklyDigest`. Under the threshold it
@@ -371,8 +382,9 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
   (`session.started`, `message.sent`, `place_card.clicked`, …); the analytics router validates
   incoming events against it. Events are emitted **server-side only**.
 - **`packages/jobs`** — `queues.ts` (queue/job-name constants), `connection.ts` (shared BullMQ
-  Redis connection), `enqueue.ts` (typed `enqueueWeeklyDigest`, `enqueueDailyRollup`, and
-  `enqueueEmbedPlace` with deterministic `jobId`s for idempotency), `types.ts` (payload types).
+  Redis connection), `enqueue.ts` (typed enqueue helpers for scheduled, place-embedding, and
+  knowledge-embedding work), `types.ts` (payload types). Database claim fencing—not BullMQ job ID
+  reuse—is the provider-work deduplication boundary.
   Apps/routers enqueue through these; only the worker process constructs `Worker`s.
 - **Two-tier analytics, as designed:** raw `AnalyticsEvent` (recent/append-only) → nightly
   `DailyRollup` (fast dashboard reads). Dashboard aggregate reads hit rollups/events, never OLTP
@@ -387,9 +399,11 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 - **`updateMany`/`deleteMany` instead of `update`/`delete`** — used so `tenant_id` can be included
   in `where` (single-row `update`/`delete` require a unique key and won't accept the extra filter),
   satisfying the isolation middleware. Followed by a `findFirst` to return the row.
-- **Fail-open vs fail-closed** — embeddings, analytics, and the Claude call degrade where their
-  caller has a safe fallback. The public paid-chat rate limiter, auth, tenant isolation, and role
-  checks fail closed in production. Non-production rate limiting retains a bounded local fallback.
+- **Fail-open vs fail-closed** — query embeddings, analytics, and the Claude call degrade where
+  their caller has a safe fallback. Content-embedding intent is durable in PostgreSQL and retries
+  asynchronously; provider failure never rolls back the content write. The public paid-chat rate
+  limiter, auth, tenant isolation, and role checks fail closed in production. Non-production rate
+  limiting retains a bounded local fallback.
 - **Raw SQL is the deliberate exception** — only for public cross-tenant lookups and pgvector;
   always commented, always either tenant-bound or justified.
 - **Structured logging** — `packages/config/logger.ts` writes single-line JSON to stdout with

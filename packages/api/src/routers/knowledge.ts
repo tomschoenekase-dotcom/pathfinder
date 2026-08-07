@@ -1,9 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { logger } from '@pathfinder/config/logger'
 import { db } from '@pathfinder/db'
-import { enqueueEmbedKnowledgeEntry } from '@pathfinder/jobs'
 
 import {
   BulkCreateKnowledgeEntriesInput,
@@ -47,27 +45,6 @@ async function assertVenueBelongsToTenant(
   }
 }
 
-async function enqueueKnowledgeEmbedding(payload: {
-  entryId: string
-  tenantId: string
-  updatedAt: Date
-}): Promise<void> {
-  try {
-    await enqueueEmbedKnowledgeEntry({
-      entryId: payload.entryId,
-      tenantId: payload.tenantId,
-      contentUpdatedAt: payload.updatedAt.toISOString(),
-    })
-  } catch (err) {
-    logger.warn({
-      action: 'knowledge.embed.enqueue.failed',
-      tenantId: payload.tenantId,
-      entryId: payload.entryId,
-      error: err instanceof Error ? err.message : String(err),
-    })
-  }
-}
-
 export const knowledgeRouter = router({
   list: tenantProcedure
     .input(z.object({ venueId: z.string().cuid() }))
@@ -103,8 +80,6 @@ export const knowledgeRouter = router({
         select: knowledgeEntrySelect,
       })
 
-      await enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId, updatedAt: entry.updatedAt })
-
       return entry
     }),
 
@@ -139,12 +114,6 @@ export const knowledgeRouter = router({
         ),
       )
 
-      await Promise.all(
-        entries.map((entry) =>
-          enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId, updatedAt: entry.updatedAt }),
-        ),
-      )
-
       return { count: entries.length, entries }
     }),
 
@@ -174,15 +143,6 @@ export const knowledgeRouter = router({
 
       if (!entry) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge entry not found' })
-      }
-
-      if (
-        input.title !== undefined ||
-        input.category !== undefined ||
-        input.content !== undefined ||
-        input.isEnabled === true
-      ) {
-        await enqueueKnowledgeEmbedding({ entryId: entry.id, tenantId, updatedAt: entry.updatedAt })
       }
 
       return entry

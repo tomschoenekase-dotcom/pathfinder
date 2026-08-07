@@ -7,6 +7,14 @@ export {
   EMBEDDING_WORK_LEASE_MS,
   releaseEmbeddingWork,
 } from './helpers/embedding-work-claims'
+export {
+  acknowledgeEmbeddingDispatch,
+  EMBEDDING_DISPATCH_BATCH_SIZE,
+  EMBEDDING_DISPATCH_LEASE_MS,
+  failEmbeddingDispatch,
+  leaseEmbeddingDispatchBatch,
+} from './helpers/embedding-dispatches'
+export type { LeasedEmbeddingDispatch } from './helpers/embedding-dispatches'
 export type {
   AcquireEmbeddingWorkParams,
   EmbeddingWorkAcquisition,

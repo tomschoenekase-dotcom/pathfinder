@@ -23,6 +23,7 @@ export const TENANTED_TABLES = [
   'MediaIngestionProject',
   'MediaIngestionAsset',
   'EmbeddingWorkClaim',
+  'EmbeddingDispatch',
 ] as const
 
 export const PLATFORM_TABLES = ['User', 'Tenant', 'PlatformConfig'] as const

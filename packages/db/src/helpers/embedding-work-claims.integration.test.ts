@@ -10,7 +10,7 @@ import {
 } from './semantic-search'
 
 const integrationDescribe =
-  process.env.RUN_EMBEDDING_CLAIM_INTEGRATION === '1' ? describe : describe.skip
+  process.env.RUN_EMBEDDING_DB_INTEGRATION === '1' ? describe : describe.skip
 
 integrationDescribe('embedding work claims (PostgreSQL integration)', () => {
   const runId = randomUUID()

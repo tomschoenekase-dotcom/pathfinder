@@ -1,11 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@pathfinder/jobs', () => ({
-  enqueueEmbedKnowledgeEntry: vi.fn().mockResolvedValue(undefined),
-}))
-
-import { enqueueEmbedKnowledgeEntry } from '@pathfinder/jobs'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { knowledgeRouter } from './knowledge'
@@ -57,8 +52,6 @@ function staffCtx(): TRPCContext {
 }
 
 const testRouter = router({ knowledge: knowledgeRouter })
-const enqueueEmbedKnowledgeEntryMock = vi.mocked(enqueueEmbedKnowledgeEntry)
-
 const VENUE_ID = 'cvenueabc123456789012'
 const ENTRY_ID = 'centryabc123456789012'
 
@@ -92,7 +85,7 @@ describe('knowledge router', () => {
     )
   })
 
-  it('knowledge.create creates an entry and enqueues embedding', async () => {
+  it('knowledge.create creates an entry for trigger-backed dispatch', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
     entryCreate.mockResolvedValueOnce(entryRow)
 
@@ -111,11 +104,6 @@ describe('knowledge router', () => {
         data: expect.objectContaining({ tenantId: 'tenant_1', venueId: VENUE_ID }),
       }),
     )
-    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledWith({
-      entryId: ENTRY_ID,
-      tenantId: 'tenant_1',
-      contentUpdatedAt: entryRow.updatedAt.toISOString(),
-    })
   })
 
   it('knowledge.create throws NOT_FOUND for a venue in another tenant', async () => {
@@ -134,7 +122,7 @@ describe('knowledge router', () => {
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
   })
 
-  it('knowledge.bulkCreate creates all entries and enqueues embeddings', async () => {
+  it('knowledge.bulkCreate creates all entries for trigger-backed dispatch', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
     dbTransaction.mockResolvedValueOnce([entryRow, { ...entryRow, id: 'centrydef123456789012' }])
 
@@ -159,17 +147,6 @@ describe('knowledge router', () => {
 
     expect(result.count).toBe(2)
     expect(dbTransaction).toHaveBeenCalled()
-    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledTimes(2)
-    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenNthCalledWith(1, {
-      entryId: ENTRY_ID,
-      tenantId: 'tenant_1',
-      contentUpdatedAt: entryRow.updatedAt.toISOString(),
-    })
-    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenNthCalledWith(2, {
-      entryId: 'centrydef123456789012',
-      tenantId: 'tenant_1',
-      contentUpdatedAt: entryRow.updatedAt.toISOString(),
-    })
   })
 
   it('knowledge.bulkCreate rejects more than 500 entries before looking up the venue', async () => {
@@ -187,7 +164,7 @@ describe('knowledge router', () => {
     expect(venueFindFirst).not.toHaveBeenCalled()
   })
 
-  it('knowledge.update re-enqueues when content fields change', async () => {
+  it('knowledge.update leaves content dispatch to the database trigger', async () => {
     entryFindFirst
       .mockResolvedValueOnce({ id: ENTRY_ID })
       .mockResolvedValueOnce({ ...entryRow, content: 'Updated' })
@@ -197,14 +174,9 @@ describe('knowledge router', () => {
     const result = await caller.knowledge.update({ id: ENTRY_ID, content: 'Updated' })
 
     expect(result).toMatchObject({ content: 'Updated' })
-    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledWith({
-      entryId: ENTRY_ID,
-      tenantId: 'tenant_1',
-      contentUpdatedAt: entryRow.updatedAt.toISOString(),
-    })
   })
 
-  it('knowledge.update does not re-enqueue for isEnabled-only changes', async () => {
+  it('knowledge.update persists isEnabled changes for trigger evaluation', async () => {
     entryFindFirst
       .mockResolvedValueOnce({ id: ENTRY_ID })
       .mockResolvedValueOnce({ ...entryRow, isEnabled: false })
@@ -214,7 +186,6 @@ describe('knowledge router', () => {
     const result = await caller.knowledge.update({ id: ENTRY_ID, isEnabled: false })
 
     expect(result).toMatchObject({ isEnabled: false })
-    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
   })
 
   it('knowledge.delete throws NOT_FOUND for cross-tenant IDs', async () => {

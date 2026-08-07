@@ -30,6 +30,9 @@ export const EMBED_KNOWLEDGE_ENTRY_QUEUE = queueName('embed-knowledge-entry')
 export const EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB = 'embed-knowledge-entry-process'
 export const EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF = 'embed-knowledge-entry-retry'
 
+export const EMBEDDING_DISPATCH_QUEUE = queueName('embedding-dispatch')
+export const EMBEDDING_DISPATCH_SCHEDULER_JOB = 'embedding-dispatch-scheduler'
+
 export const ANALYTICS_ENRICHMENT_QUEUE = queueName('analytics-enrichment')
 export const ANALYTICS_ENRICHMENT_PROCESS_JOB = 'analytics-enrichment-process'
 export const ANALYTICS_ENRICHMENT_SCHEDULER_JOB = 'analytics-enrichment-scheduler'
