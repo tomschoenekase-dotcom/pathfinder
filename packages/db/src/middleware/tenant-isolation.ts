@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
-import { PLATFORM_TABLES, TENANTED_TABLES } from '../tenanted-tables'
+import { PLATFORM_TABLES, SHARED_SCOPE_TABLES, TENANTED_TABLES } from '../tenanted-tables'
 
 export type TenantIsolationMiddlewareParams = {
   action: string
@@ -91,6 +91,12 @@ export class AppendOnlyModelError extends Error {
   }
 }
 
+/**
+ * Disables only the Prisma tenant-predicate presence check for the callback.
+ * It grants no user role, venue access, capability, or audience authorization.
+ * Callers must establish their own authoritative scope and remain limited to
+ * reviewed platform-admin or tenant-filtered worker paths.
+ */
 export async function withTenantIsolationBypass<T>(fn: () => Promise<T>): Promise<T> {
   return bypassTenantIsolationStorage.run(true, fn)
 }
@@ -152,6 +158,7 @@ export async function tenantIsolationMiddleware(
 
 export const TENANTED_TABLES_LIST = TENANTED_TABLES
 export const PLATFORM_TABLES_LIST = PLATFORM_TABLES
+export const SHARED_SCOPE_TABLES_LIST = SHARED_SCOPE_TABLES
 
 export const tenantIsolationInternals = {
   hasOwnTenantKey,

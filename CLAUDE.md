@@ -30,6 +30,23 @@ PathFinder is an AI-powered venue-guide chatbot platform.
 
 Not built: listings, bookings, events, guest-user accounts, availability slots, file upload storage, admin impersonation sessions, PostHog wiring, outbound integrations, provider adapters, webhook processing, email dispatch, and booking expiry jobs.
 
+## Extensible Platform Constraints
+
+PathFinder is one shared platform. Preserve three independent concepts instead of expanding
+`guideMode` or another single field into a giant product mode:
+
+- venue archetype describes the kind of place and should primarily select configuration/defaults;
+- audience describes who may access an experience or content;
+- capabilities describe enabled modules and behavior.
+
+Do not fork chat, retrieval, analytics, billing, tenant isolation, or AI-provider infrastructure by
+vertical. Do not add client-name/slug conditionals. `guideMode` is only the current navigation/location
+profile, tenant roles are operator authority, and tenant feature flags are release controls; none is an
+audience or archetype. Do not introduce archetype, audience, or `AssistantExperience` migrations until
+an approved current use case defines their semantics. When restricted audiences are implemented,
+authorization must filter content before retrieval/model context; prompt instructions are not a
+security boundary.
+
 ## Monorepo Boundaries
 
 - `apps/*` may import from `packages/*`; packages must not import from apps.
@@ -62,19 +79,9 @@ Workers must not import `@pathfinder/api`.
 
 Tenant isolation is the core security control. The middleware in `packages/db/src/middleware/tenant-isolation.ts` must throw when tenant-scoped queries omit `tenant_id`.
 
-Tenanted models must match `packages/db/src/tenanted-tables.ts`:
-
-- `TenantMembership`
-- `TenantFeatureFlag`
-- `Venue`
-- `Place`
-- `VisitorSession`
-- `Message`
-- `DataAdapter`
-- `OperationalUpdate`
-- `AnalyticsEvent`
-- `DailyRollup`
-- `WeeklyDigest`
+Every Prisma model must appear in exactly one registry in `packages/db/src/tenanted-tables.ts`:
+`TENANTED_TABLES`, `PLATFORM_TABLES`, or the explicit mixed `SHARED_SCOPE_TABLES`. Models with a
+required `tenantId` belong in `TENANTED_TABLES`. `pnpm verify:tenant-registry` enforces this in CI.
 
 Rules:
 

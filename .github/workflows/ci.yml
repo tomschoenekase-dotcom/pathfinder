@@ -58,6 +58,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify:staging
       - run: pnpm verify:ai-boundary
+      - run: pnpm verify:tenant-registry
       - run: pnpm --dir packages/db db:generate
       - run: pnpm --dir packages/db exec prisma migrate deploy
       - run: pnpm turbo run build

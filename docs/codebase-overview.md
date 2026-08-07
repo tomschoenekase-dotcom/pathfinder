@@ -199,11 +199,14 @@ Mounted under these namespaces in `root.ts`:
 
 ### 5.2 Tenant isolation (`src/middleware/tenant-isolation.ts`) — the critical security control
 
-- `TENANTED_TABLES` (in `tenanted-tables.ts`) lists every tenant-scoped model; `PLATFORM_TABLES`
-  lists the global ones (`User`, `Tenant`, `AuditLog`, `PlatformConfig`).
+- `TENANTED_TABLES` (in `tenanted-tables.ts`) lists every required-tenant model; `PLATFORM_TABLES`
+  lists the global ones (`User`, `Tenant`, `PlatformConfig`), and `SHARED_SCOPE_TABLES` explicitly
+  identifies mixed-scope models (`AuditLog`, `JobRecord`). The
+  `verify:tenant-registry` CI gate parses the Prisma schema and rejects missing, duplicate, stale, or
+  structurally inconsistent classifications.
 - For a tenanted model, the middleware **throws `TenantIsolationError`** unless `tenant_id` is present:
   - `create`/`createMany` → must be in `data`,
-  - `upsert` → must be in the `create` branch (the `where` uses a unique key, so it's exempt),
+  - `upsert` → must match in both the `create` branch and root `where`,
   - reads/updates/deletes → must be in `where`.
 - **Bypass:** `withTenantIsolationBypass(fn)` uses `AsyncLocalStorage` to set a flag; only allowed
   in `admin.*` procedures and worker processors (which legitimately operate cross-tenant).

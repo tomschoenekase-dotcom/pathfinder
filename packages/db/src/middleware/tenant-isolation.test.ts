@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AppendOnlyModelError,
   PLATFORM_TABLES_LIST,
+  SHARED_SCOPE_TABLES_LIST,
   TENANTED_TABLES_LIST,
   TenantIsolationError,
   tenantIsolationInternals,
@@ -95,7 +96,8 @@ describe('tenantIsolationMiddleware', () => {
       'MediaIngestionProject',
       'MediaIngestionAsset',
     ])
-    expect(PLATFORM_TABLES_LIST).toEqual(['User', 'Tenant', 'AuditLog', 'PlatformConfig'])
+    expect(PLATFORM_TABLES_LIST).toEqual(['User', 'Tenant', 'PlatformConfig'])
+    expect(SHARED_SCOPE_TABLES_LIST).toEqual(['AuditLog', 'JobRecord'])
   })
 
   it('findMany on a tenanted table with tenantId passes', async () => {
