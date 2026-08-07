@@ -28,6 +28,18 @@ const videoExtensions = new Set(['.mp4', '.mov', '.m4v', '.avi', '.webm'])
 const audioExtensions = new Set(['.mp3', '.m4a', '.wav', '.aac', '.ogg'])
 const textExtensions = new Set(['.txt', '.md', '.csv', '.json'])
 
+export async function cleanupMediaWorkDir(workDir: string, projectId: string): Promise<void> {
+  try {
+    await rm(workDir, { recursive: true, force: true })
+  } catch (error) {
+    logger.warn({
+      action: 'media-ingestion.cleanup.failed',
+      projectId,
+      error: error instanceof Error ? error.message : 'Unknown cleanup error',
+    })
+  }
+}
+
 type Analysis = {
   summary: string
   visibleText: string[]
@@ -305,7 +317,7 @@ export async function processMediaIngestionJob(
     payload,
     startedAt,
   })
-  const workDir = await mkdtemp(join(tmpdir(), `pathfinder-media-${payload.projectId}-`))
+  let workDir: string | null = null
 
   try {
     const project = await withTenantIsolationBypass(() =>
@@ -317,11 +329,28 @@ export async function processMediaIngestionJob(
           mode: true,
           settings: true,
           sourceObjectKey: true,
+          status: true,
           venue: { select: { name: true } },
         },
       }),
     )
     if (!project?.sourceObjectKey) throw new Error('Media ingestion project or archive not found.')
+    const claimed = await withTenantIsolationBypass(() =>
+      db.mediaIngestionProject.updateMany({
+        where: {
+          id: project.id,
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          status: { in: ['QUEUED', 'FAILED'] },
+        },
+        data: { status: 'INVENTORYING', stage: 'inventory', progress: 3, error: null },
+      }),
+    )
+    if (claimed.count !== 1) {
+      await updateJobRecord(recordId, { status: 'COMPLETE' })
+      return
+    }
+    workDir = await mkdtemp(join(tmpdir(), `pathfinder-media-${payload.projectId}-`))
     if (!process.env.OPENAI_API_KEY)
       throw new Error('OPENAI_API_KEY is required for media analysis.')
     const settings = project.settings as {
@@ -329,12 +358,6 @@ export async function processMediaIngestionJob(
       detectDuplicates?: boolean
       videoSecondsPerSample?: number
     }
-    await withTenantIsolationBypass(() =>
-      db.mediaIngestionProject.updateMany({
-        where: { id: project.id, tenantId: payload.tenantId },
-        data: { status: 'INVENTORYING', stage: 'inventory', progress: 3, error: null },
-      }),
-    )
     const files = await downloadAndExtract(project.sourceObjectKey, workDir)
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const analyses: Array<{
@@ -521,6 +544,8 @@ export async function processMediaIngestionJob(
     logger.error({ action: 'media-ingestion.failed', projectId: payload.projectId, error: message })
     throw error
   } finally {
-    await rm(workDir, { recursive: true, force: true })
+    if (workDir) {
+      await cleanupMediaWorkDir(workDir, payload.projectId)
+    }
   }
 }

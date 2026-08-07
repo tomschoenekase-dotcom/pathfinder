@@ -1,14 +1,35 @@
 import { TRPCError } from '@trpc/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@pathfinder/db', () => ({
-  db: {},
-  withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
+const mocks = vi.hoisted(() => ({
+  beginMediaUpload: vi.fn(),
+  enqueueMediaIngestion: vi.fn(),
+  finishMediaUpload: vi.fn(),
+  projectFindFirst: vi.fn(),
+  projectUpdateMany: vi.fn(),
+  signMediaUploadPart: vi.fn(),
   writeAuditLog: vi.fn(),
 }))
 
+vi.mock('@pathfinder/db', () => ({
+  db: {
+    mediaIngestionProject: {
+      findFirst: mocks.projectFindFirst,
+      updateMany: mocks.projectUpdateMany,
+    },
+  },
+  withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
+  writeAuditLog: mocks.writeAuditLog,
+}))
+
 vi.mock('@pathfinder/jobs', () => ({
-  enqueueMediaIngestion: vi.fn(),
+  enqueueMediaIngestion: mocks.enqueueMediaIngestion,
+}))
+
+vi.mock('../../lib/media-storage', () => ({
+  beginMediaUpload: mocks.beginMediaUpload,
+  finishMediaUpload: mocks.finishMediaUpload,
+  signMediaUploadPart: mocks.signMediaUploadPart,
 }))
 
 import { router } from '../../core'
@@ -31,6 +52,14 @@ function context(isPlatformAdmin: boolean): TRPCContext {
 }
 
 describe('media ingestion router', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    mocks.finishMediaUpload.mockResolvedValue(undefined)
+    mocks.enqueueMediaIngestion.mockResolvedValue(undefined)
+    mocks.projectUpdateMany.mockResolvedValue({ count: 1 })
+    mocks.writeAuditLog.mockResolvedValue(undefined)
+  })
+
   it('rejects all access for non-platform admins', async () => {
     const caller = testRouter.createCaller(context(false))
     await expect(
@@ -49,5 +78,108 @@ describe('media ingestion router', () => {
         contentType: 'application/zip',
       }),
     ).rejects.toThrow()
+  })
+
+  it('cannot overwrite a concurrent worker claim after reading FAILED', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'FAILED',
+    })
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
+  })
+
+  it('compensates the upload reservation when storage creation fails', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'DRAFT',
+    })
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
+    mocks.beginMediaUpload.mockRejectedValueOnce(new Error('storage unavailable'))
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toThrow('storage unavailable')
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: { id: 'project_1', tenantId: 'tenant_1', status: 'UPLOADING' },
+      data: { status: 'FAILED', stage: 'upload', error: 'storage unavailable' },
+    })
+  })
+
+  it('completes storage and enqueues the exact scoped project', async () => {
+    mocks.projectFindFirst
+      .mockResolvedValueOnce({
+        id: 'project_1',
+        sourceObjectKey: 'staging/tenant/venue/project.zip',
+      })
+      .mockResolvedValueOnce({ venueId: 'venue_1' })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.completeUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadId: 'upload_1',
+        parts: [{ partNumber: 1, etag: 'etag_1' }],
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    expect(mocks.finishMediaUpload).toHaveBeenCalledWith(
+      'staging/tenant/venue/project.zip',
+      'upload_1',
+      [{ partNumber: 1, etag: 'etag_1' }],
+    )
+    expect(mocks.enqueueMediaIngestion).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      projectId: 'project_1',
+    })
+    expect(mocks.writeAuditLog).toHaveBeenCalledOnce()
+  })
+
+  it('marks the project FAILED instead of stranding QUEUED when enqueue fails', async () => {
+    mocks.projectFindFirst
+      .mockResolvedValueOnce({
+        id: 'project_1',
+        sourceObjectKey: 'staging/tenant/venue/project.zip',
+      })
+      .mockResolvedValueOnce({ venueId: 'venue_1' })
+    mocks.enqueueMediaIngestion.mockRejectedValueOnce(new Error('redis unavailable'))
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.completeUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadId: 'upload_1',
+        parts: [{ partNumber: 1, etag: 'etag_1' }],
+      }),
+    ).rejects.toThrow('redis unavailable')
+
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: { id: 'project_1', tenantId: 'tenant_1', status: 'QUEUED' },
+      data: { status: 'FAILED', stage: 'queue', error: 'redis unavailable' },
+    })
+    expect(mocks.writeAuditLog).not.toHaveBeenCalled()
   })
 })

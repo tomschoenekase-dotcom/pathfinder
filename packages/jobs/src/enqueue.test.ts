@@ -11,7 +11,7 @@ vi.mock('@pathfinder/config', () => ({
 }))
 vi.mock('./connection', () => ({ getBullMQConnection: vi.fn(() => ({})) }))
 
-import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from './enqueue'
+import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace, enqueueMediaIngestion } from './enqueue'
 
 describe('mutable embedding enqueues', () => {
   beforeEach(() => {
@@ -34,6 +34,17 @@ describe('mutable embedding enqueues', () => {
     const payload = { tenantId: 'tenant_1', entryId: 'entry_1' }
     await enqueueEmbedKnowledgeEntry(payload)
     await enqueueEmbedKnowledgeEntry(payload)
+
+    expect(mocks.add).toHaveBeenCalledTimes(2)
+    for (const call of mocks.add.mock.calls) {
+      expect(call[2]).not.toHaveProperty('jobId')
+    }
+  })
+
+  it('does not suppress a media project re-upload with a retained project job id', async () => {
+    const payload = { tenantId: 'tenant_1', venueId: 'venue_1', projectId: 'project_1' }
+    await enqueueMediaIngestion(payload)
+    await enqueueMediaIngestion(payload)
 
     expect(mocks.add).toHaveBeenCalledTimes(2)
     for (const call of mocks.add.mock.calls) {

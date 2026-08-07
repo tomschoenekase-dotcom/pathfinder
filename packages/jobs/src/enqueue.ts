@@ -144,7 +144,6 @@ const mediaIngestionJobOptions: JobsOptions = {
 export async function enqueueMediaIngestion(payload: MediaIngestionJobPayload): Promise<void> {
   await getQueue(MEDIA_INGESTION_QUEUE).add(MEDIA_INGESTION_PROCESS_JOB, payload, {
     ...mediaIngestionJobOptions,
-    jobId: `media-ingestion-${payload.projectId}`,
   })
   logger.info({
     action: 'jobs.media-ingestion.enqueued',

@@ -146,10 +146,13 @@ export const mediaIngestionRouter = router({
       const objectKey = currentDeploymentStorageKey(
         `media-ingestion/${input.tenantId}/${project.venueId}/${project.id}/${safeFileName(input.filename)}`,
       )
-      const upload = await beginMediaUpload(objectKey, input.contentType)
-      await withTenantIsolationBypass(() =>
+      const reserved = await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
-          where: { id: project.id, tenantId: input.tenantId },
+          where: {
+            id: project.id,
+            tenantId: input.tenantId,
+            status: { in: ['DRAFT', 'FAILED'] },
+          },
           data: {
             status: 'UPLOADING',
             stage: 'upload',
@@ -160,7 +163,21 @@ export const mediaIngestionRouter = router({
           },
         }),
       )
-      return upload
+      if (reserved.count !== 1) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'This project already has an upload.' })
+      }
+      try {
+        return await beginMediaUpload(objectKey, input.contentType)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Media upload creation failed.'
+        await withTenantIsolationBypass(() =>
+          db.mediaIngestionProject.updateMany({
+            where: { id: project.id, tenantId: input.tenantId, status: 'UPLOADING' },
+            data: { status: 'FAILED', stage: 'upload', error: message },
+          }),
+        )
+        throw error
+      }
     }),
 
   signPart: adminProcedure
@@ -223,11 +240,22 @@ export const mediaIngestionRouter = router({
         }),
       )
       if (!queued) throw new TRPCError({ code: 'NOT_FOUND', message: 'Media project not found.' })
-      await enqueueMediaIngestion({
-        tenantId: input.tenantId,
-        venueId: queued.venueId,
-        projectId: project.id,
-      })
+      try {
+        await enqueueMediaIngestion({
+          tenantId: input.tenantId,
+          venueId: queued.venueId,
+          projectId: project.id,
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Media ingestion enqueue failed.'
+        await withTenantIsolationBypass(() =>
+          db.mediaIngestionProject.updateMany({
+            where: { id: project.id, tenantId: input.tenantId, status: 'QUEUED' },
+            data: { status: 'FAILED', stage: 'queue', error: message },
+          }),
+        )
+        throw error
+      }
       await writeAuditLog({
         tenantId: input.tenantId,
         actorId: ctx.session.userId,
