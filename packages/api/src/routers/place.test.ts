@@ -1,11 +1,9 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@pathfinder/db', () => ({
-  generateAndStorePlaceEmbedding: vi.fn().mockResolvedValue(undefined),
-}))
+vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
 
-import { generateAndStorePlaceEmbedding } from '@pathfinder/db'
+import { enqueueEmbedPlace } from '@pathfinder/jobs'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { placeRouter } from './place'
@@ -77,7 +75,7 @@ function staffCtx(): TRPCContext {
 }
 
 const testRouter = router({ place: placeRouter })
-const generateAndStorePlaceEmbeddingMock = vi.mocked(generateAndStorePlaceEmbedding)
+const enqueueEmbedPlaceMock = vi.mocked(enqueueEmbedPlace)
 
 const VENUE_ID = 'cvenueabc123456789012'
 const PLACE_ID = 'cplace123456789012345'
@@ -191,9 +189,10 @@ describe('place router', () => {
         data: expect.objectContaining({ tenantId: 'tenant_1', venueId: VENUE_ID }),
       }),
     )
-    expect(generateAndStorePlaceEmbeddingMock).toHaveBeenCalledWith(
-      expect.objectContaining({ id: PLACE_ID, tenantId: 'tenant_1' }),
-    )
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
+      placeId: PLACE_ID,
+      tenantId: 'tenant_1',
+    })
   })
 
   it('place.create throws NOT_FOUND when venueId belongs to different tenant', async () => {
@@ -204,6 +203,15 @@ describe('place router', () => {
     await expect(caller.place.create(placeInput)).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }),
     )
+  })
+
+  it('returns the committed place when embedding enqueue fails', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
+    placeCreate.mockResolvedValueOnce(placeRow)
+    enqueueEmbedPlaceMock.mockRejectedValueOnce(new Error('redis unavailable'))
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(caller.place.create(placeInput)).resolves.toEqual(placeRow)
   })
 
   it('place.create with STAFF role throws FORBIDDEN', async () => {
@@ -229,9 +237,10 @@ describe('place router', () => {
     expect(placeUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant_1' }) }),
     )
-    expect(generateAndStorePlaceEmbeddingMock).toHaveBeenCalledWith(
-      expect.objectContaining({ id: PLACE_ID, tenantId: 'tenant_1' }),
-    )
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
+      placeId: PLACE_ID,
+      tenantId: 'tenant_1',
+    })
   })
 
   it('place.update accepts lat/lng of 0 (valid coordinate)', async () => {
@@ -309,7 +318,7 @@ describe('place router', () => {
 
     expect(result.count).toBe(2)
     expect(dbTransaction).toHaveBeenCalled()
-    expect(generateAndStorePlaceEmbeddingMock).toHaveBeenCalledTimes(2)
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledTimes(2)
   })
 
   it('place.bulkCreate throws BAD_REQUEST when over 500 places', async () => {

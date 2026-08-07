@@ -215,7 +215,6 @@ export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promis
 export async function enqueueEmbedPlace(payload: EmbedPlaceJobPayload): Promise<void> {
   await getQueue(EMBED_PLACE_QUEUE).add(EMBED_PLACE_PROCESS_JOB, payload, {
     ...embedPlaceJobOptions,
-    jobId: `embed-place-${payload.placeId}`,
   })
 
   logger.info({
@@ -230,7 +229,6 @@ export async function enqueueEmbedKnowledgeEntry(
 ): Promise<void> {
   await getQueue(EMBED_KNOWLEDGE_ENTRY_QUEUE).add(EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB, payload, {
     ...embedKnowledgeEntryJobOptions,
-    jobId: `embed-knowledge-entry-${payload.entryId}`,
   })
 
   logger.info({

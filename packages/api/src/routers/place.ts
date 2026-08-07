@@ -2,7 +2,8 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { logger } from '@pathfinder/config/logger'
-import { db, generateAndStorePlaceEmbedding } from '@pathfinder/db'
+import { db } from '@pathfinder/db'
+import { enqueueEmbedPlace } from '@pathfinder/jobs'
 
 import { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from '../schemas/place'
 
@@ -14,23 +15,12 @@ type Db = typeof db
 
 const BULK_CREATE_LIMIT = 500
 
-async function embedPlace(place: {
-  id: string
-  name: string
-  type: string
-  itemType?: string | null
-  shortDescription: string | null
-  longDescription: string | null
-  tags: string[]
-  areaName: string | null
-  hours: string | null
-  tenantId: string
-}): Promise<void> {
+async function embedPlace(place: { id: string; tenantId: string }): Promise<void> {
   try {
-    await generateAndStorePlaceEmbedding(place)
+    await enqueueEmbedPlace({ placeId: place.id, tenantId: place.tenantId })
   } catch (err) {
     logger.warn({
-      action: 'place.embed.failed',
+      action: 'place.embed.enqueue.failed',
       tenantId: place.tenantId,
       placeId: place.id,
       error: err instanceof Error ? err.message : String(err),

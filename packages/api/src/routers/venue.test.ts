@@ -15,9 +15,9 @@ vi.mock('@pathfinder/analytics', () => ({
   emitEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@pathfinder/db', () => ({
-  generateAndStorePlaceEmbedding: vi.fn().mockResolvedValue(undefined),
-}))
+vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
+
+import { enqueueEmbedPlace } from '@pathfinder/jobs'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -91,6 +91,7 @@ function staffCtx(): TRPCContext {
 }
 
 const testRouter = router({ venue: venueRouter })
+const enqueueEmbedPlaceMock = vi.mocked(enqueueEmbedPlace)
 
 const venueRow = {
   id: 'cuid1234567890abcdef',
@@ -286,6 +287,61 @@ describe('venue router', () => {
     await expect(
       caller.venue.update({ id: 'cuid1234567890abcdef', name: 'X' }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+  })
+
+  // --- venue.updateAiConfig ---
+
+  it('saves AI config and enqueues every scoped unembedded place', async () => {
+    venueFindFirst
+      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
+      .mockResolvedValueOnce({
+        aiGuideNotes: 'Keep it concise',
+        aiGuideName: 'Pip',
+        aiTone: 'FRIENDLY',
+      })
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'place_1' }, { id: 'place_2' }])
+
+    const caller = testRouter.createCaller(managerCtx())
+    await caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: 'Keep it concise' })
+
+    expect(dbQueryRaw).toHaveBeenCalledOnce()
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledTimes(2)
+    expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(1, {
+      tenantId: 'tenant_1',
+      placeId: 'place_1',
+    })
+    expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(2, {
+      tenantId: 'tenant_1',
+      placeId: 'place_2',
+    })
+  })
+
+  it('returns saved AI config when an embedding enqueue fails', async () => {
+    const updated = { aiGuideNotes: 'Keep it concise', aiGuideName: 'Pip', aiTone: 'FRIENDLY' }
+    venueFindFirst
+      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
+      .mockResolvedValueOnce(updated)
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'place_1' }])
+    enqueueEmbedPlaceMock.mockRejectedValueOnce(new Error('redis unavailable'))
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: 'Keep it concise' }),
+    ).resolves.toEqual(updated)
+  })
+
+  it('does not enqueue when every active scoped place already has an embedding', async () => {
+    venueFindFirst
+      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
+      .mockResolvedValueOnce({ aiGuideNotes: null, aiGuideName: null, aiTone: 'FRIENDLY' })
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+    dbQueryRaw.mockResolvedValueOnce([])
+
+    const caller = testRouter.createCaller(managerCtx())
+    await caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: null })
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
 
   // --- venue.updateChatDesign ---

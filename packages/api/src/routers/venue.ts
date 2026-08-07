@@ -1,7 +1,8 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, generateAndStorePlaceEmbedding } from '@pathfinder/db'
+import { db } from '@pathfinder/db'
+import { enqueueEmbedPlace } from '@pathfinder/jobs'
 import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
 
@@ -13,23 +14,12 @@ import { publicProcedure, tenantProcedure } from '../trpc'
 
 type Db = typeof db
 
-async function embedPlace(place: {
-  id: string
-  name: string
-  type: string
-  itemType?: string | null
-  shortDescription: string | null
-  longDescription: string | null
-  tags: string[]
-  areaName: string | null
-  hours: string | null
-  tenantId: string
-}): Promise<void> {
+async function embedPlace(place: { id: string; tenantId: string }): Promise<void> {
   try {
-    await generateAndStorePlaceEmbedding(place)
+    await enqueueEmbedPlace({ placeId: place.id, tenantId: place.tenantId })
   } catch (err) {
     logger.warn({
-      action: 'place.embed.failed',
+      action: 'place.embed.enqueue.failed',
       tenantId: place.tenantId,
       placeId: place.id,
       error: err instanceof Error ? err.message : String(err),
@@ -351,22 +341,7 @@ export const venueRouter = router({
       `
 
       if (unembeddedIds.length > 0) {
-        const ids = unembeddedIds.map((r) => r.id)
-        const places = await ctx.db.place.findMany({
-          where: { id: { in: ids }, tenantId },
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            itemType: true,
-            shortDescription: true,
-            longDescription: true,
-            tags: true,
-            areaName: true,
-            hours: true,
-          },
-        })
-        await Promise.all(places.map((place) => embedPlace({ ...place, tenantId })))
+        await Promise.all(unembeddedIds.map(({ id }) => embedPlace({ id, tenantId })))
       }
 
       try {
