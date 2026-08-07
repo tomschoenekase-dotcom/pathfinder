@@ -22,6 +22,12 @@ vi.mock('@pathfinder/analytics', () => ({
   emitEvent,
 }))
 
+const { checkRateLimit } = vi.hoisted(() => ({
+  checkRateLimit: vi.fn(),
+}))
+
+vi.mock('../lib/rate-limit', () => ({ checkRateLimit }))
+
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { _setAnthropicClientForTesting, chatRouter, enforceResponseWordCap } from './chat'
@@ -145,6 +151,7 @@ describe('chat router', () => {
     sessionUpdateMany.mockResolvedValue({ count: 1 })
     engagementQuestionResponseCreate.mockResolvedValue({})
     aiUsageEventCreate.mockResolvedValue({})
+    checkRateLimit.mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -249,6 +256,21 @@ describe('chat router', () => {
       lat: 40.7128,
       lng: -74.006,
     }
+
+    it('denies before session or provider work when a rate-limit dependency fails closed', async () => {
+      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID }])
+      checkRateLimit.mockResolvedValue(false)
+
+      await expect(caller.chat.send(sendInput)).rejects.toThrowError(
+        expect.objectContaining<Partial<TRPCError>>({ code: 'TOO_MANY_REQUESTS' }),
+      )
+
+      expect(checkRateLimit).toHaveBeenCalledTimes(2)
+      expect(sessionUpsert).not.toHaveBeenCalled()
+      expect(messageCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(aiUsageEventCreate).not.toHaveBeenCalled()
+    })
 
     function setupHappyPath(assistantText = 'The elephants are 50m north.') {
       dbQueryRaw.mockResolvedValueOnce([venueRow])

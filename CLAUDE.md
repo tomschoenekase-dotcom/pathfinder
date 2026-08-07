@@ -151,7 +151,7 @@ Rules:
 - Every processor writes and updates a `JobRecord` with `writeJobRecord` and `updateJobRecord`.
 - Workers log structurally through `packages/config/src/logger.ts`.
 - Workers handle shutdown gracefully.
-- External services such as OpenAI, Anthropic, Redis, and job queues should fail open where product behavior can degrade safely.
+- External services should fail open only where product behavior can degrade safely. The public, spend-bearing chat rate limiter requires Redis and fails closed in production; staging and preview retain a bounded in-process fallback.
 
 ## Logging and Audit
 

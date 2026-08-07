@@ -218,15 +218,15 @@ if (!sessionAllowed || !venueAllowed) {
 
 ### Constraints
 
-- If Redis is unavailable, fail open (allow the request) — never block a guest because Redis is down
+- Production requires Redis and fails closed when the shared rate-limit check is unavailable; staging and preview retain the bounded in-process fallback
 - Do not import `ioredis` directly from any `apps/*` file — only from `packages/api/src/lib/rate-limit.ts`
 - Do not use `packages/jobs/src/connection.ts` — that connection is BullMQ-configured. Create a separate minimal Redis client in the rate-limit module
 
 ### Acceptance criteria
 
 - Sending > 60 messages from one `anonymousToken` in an hour returns `TOO_MANY_REQUESTS`
-- When `REDIS_URL` is unset, chat works normally (no error thrown)
-- The rate-limit module has unit tests covering: allowed request, blocked request, Redis-unavailable fallback
+- Production environment validation rejects an unset `REDIS_URL`; staging and preview continue through the bounded fallback
+- The rate-limit module has unit tests covering healthy allow/block behavior plus production denial and non-production fallback when Redis is unavailable
 
 ---
 

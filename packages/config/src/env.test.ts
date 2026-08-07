@@ -21,6 +21,7 @@ const requiredEnvironment = {
   DIRECT_DATABASE_URL: 'postgresql://example.test/pathfinder',
   CLERK_SECRET_KEY: 'test-secret',
   CLERK_PUBLISHABLE_KEY: 'test-publishable',
+  REDIS_URL: 'redis://example.test:6379',
 }
 
 afterEach(() => {
@@ -49,6 +50,30 @@ describe('RAILWAY_ENVIRONMENT', () => {
       ).toBe(RAILWAY_ENVIRONMENT)
     }
   })
+
+  it('requires Redis in production', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        REDIS_URL: undefined,
+        RAILWAY_ENVIRONMENT: 'production',
+      }),
+    ).toThrow('REDIS_URL is required in production')
+  })
+
+  it.each(['staging', 'preview'] as const)(
+    'allows Redis to be omitted in %s',
+    (RAILWAY_ENVIRONMENT) => {
+      process.env.NODE_ENV = 'production'
+
+      expect(
+        envSchema.parse({ ...requiredEnvironment, REDIS_URL: undefined, RAILWAY_ENVIRONMENT })
+          .REDIS_URL,
+      ).toBeUndefined()
+    },
+  )
 })
 
 describe('WORKER_SCHEDULERS_ENABLED', () => {

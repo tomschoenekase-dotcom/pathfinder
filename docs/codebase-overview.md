@@ -181,8 +181,9 @@ Mounted under these namespaces in `root.ts`:
   place embedding generation and text building live in `packages/db/src/helpers/embeddings.ts`;
   place writes enqueue background jobs instead of embedding inline.
 - `geo.ts` — Haversine distance + `findNearestPlaces()` (the geo fallback ranker).
-- `rate-limit.ts` — Redis (`ioredis`) fixed-window counter via `INCR`+`EXPIRE`. **Fails open**:
-  if `REDIS_URL` is unset or Redis errors, requests are allowed.
+- `rate-limit.ts` — Redis (`ioredis`) fixed-window counter via an atomic Lua increment/TTL-repair
+  operation. Production requires Redis and denies when the shared check is unavailable; staging
+  and preview use a bounded per-process fallback.
 - `venue-context.ts` — `buildVenueSystemPrompt()`, the big prompt builder (see §6).
 
 ---
@@ -380,9 +381,9 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 - **`updateMany`/`deleteMany` instead of `update`/`delete`** — used so `tenant_id` can be included
   in `where` (single-row `update`/`delete` require a unique key and won't accept the extra filter),
   satisfying the isolation middleware. Followed by a `findFirst` to return the row.
-- **Fail-open vs fail-closed** — rate limiting, embeddings, analytics, and the Claude call all
-  **fail open / degrade gracefully** (guests are never hard-blocked by infra). Auth, tenant
-  isolation, and role checks **fail closed** (throw).
+- **Fail-open vs fail-closed** — embeddings, analytics, and the Claude call degrade where their
+  caller has a safe fallback. The public paid-chat rate limiter, auth, tenant isolation, and role
+  checks fail closed in production. Non-production rate limiting retains a bounded local fallback.
 - **Raw SQL is the deliberate exception** — only for public cross-tenant lookups and pgvector;
   always commented, always either tenant-bound or justified.
 - **Structured logging** — `packages/config/logger.ts` writes single-line JSON to stdout with
