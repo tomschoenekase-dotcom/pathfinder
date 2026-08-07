@@ -1,6 +1,6 @@
 export { db } from './client'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
-export { writeAuditLog } from './helpers/audit'
+export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'
 export type { WriteJobRecordParams } from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'

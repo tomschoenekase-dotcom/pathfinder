@@ -74,4 +74,22 @@ describe('writeAuditLog', () => {
       }),
     )
   })
+
+  it('exposes database errors through the strict writer', async () => {
+    createMock.mockRejectedValueOnce(new Error('db unavailable'))
+
+    const { writeAuditLogStrict } = await import('./audit')
+
+    await expect(
+      writeAuditLogStrict({
+        tenantId: 'tenant_1',
+        actorId: 'admin_1',
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.impersonation.started',
+        targetType: 'Tenant',
+        targetId: 'tenant_1',
+      }),
+    ).rejects.toThrow('db unavailable')
+    expect(warnMock).not.toHaveBeenCalled()
+  })
 })

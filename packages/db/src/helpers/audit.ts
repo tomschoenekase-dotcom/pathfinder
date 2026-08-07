@@ -15,37 +15,30 @@ export type WriteAuditLogParams = {
   userAgent?: string
 }
 
+function auditLogData(params: WriteAuditLogParams) {
+  const data = {
+    actorId: params.actorId,
+    actorRole: params.actorRole,
+    action: params.action,
+    targetType: params.targetType,
+    targetId: params.targetId,
+  }
+
+  if (params.tenantId !== undefined) Object.assign(data, { tenantId: params.tenantId })
+  if (params.beforeState !== undefined) Object.assign(data, { beforeState: params.beforeState })
+  if (params.afterState !== undefined) Object.assign(data, { afterState: params.afterState })
+  if (params.ipAddress !== undefined) Object.assign(data, { ipAddress: params.ipAddress })
+  if (params.userAgent !== undefined) Object.assign(data, { userAgent: params.userAgent })
+  return data
+}
+
+export async function writeAuditLogStrict(params: WriteAuditLogParams): Promise<void> {
+  await db.auditLog.create({ data: auditLogData(params) })
+}
+
 export async function writeAuditLog(params: WriteAuditLogParams): Promise<void> {
   try {
-    const data = {
-      actorId: params.actorId,
-      actorRole: params.actorRole,
-      action: params.action,
-      targetType: params.targetType,
-      targetId: params.targetId,
-    }
-
-    if (params.tenantId !== undefined) {
-      Object.assign(data, { tenantId: params.tenantId })
-    }
-
-    if (params.beforeState !== undefined) {
-      Object.assign(data, { beforeState: params.beforeState })
-    }
-
-    if (params.afterState !== undefined) {
-      Object.assign(data, { afterState: params.afterState })
-    }
-
-    if (params.ipAddress !== undefined) {
-      Object.assign(data, { ipAddress: params.ipAddress })
-    }
-
-    if (params.userAgent !== undefined) {
-      Object.assign(data, { userAgent: params.userAgent })
-    }
-
-    await db.auditLog.create({ data })
+    await writeAuditLogStrict(params)
   } catch (error) {
     const logFields = {
       service: '@pathfinder/db',
