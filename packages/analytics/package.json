@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc --noEmit --project tsconfig.json",
     "dev": "echo dev:analytics",
-    "lint": "echo lint:analytics",
+    "lint": "eslint --config ../config/eslint/base.js \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"

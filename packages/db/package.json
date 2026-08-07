@@ -14,7 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "dev": "echo dev:db",
-    "lint": "echo lint:db",
+    "lint": "eslint --config ../config/eslint/base.js \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"

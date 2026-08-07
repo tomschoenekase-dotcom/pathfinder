@@ -53,7 +53,7 @@ export async function uniqueSlug(
   let candidate = base
   let suffix = 2
 
-  while (true) {
+  for (;;) {
     const existing = await db.venue.findFirst({
       where: {
         tenantId,
@@ -316,9 +316,8 @@ export const venueRouter = router({
         }
       }
 
-      const { venueId: _venueId, ...raw } = input
       const data = Object.fromEntries(
-        Object.entries(raw).filter(([, value]) => value !== undefined),
+        Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
       )
 
       await ctx.db.venue.updateMany({
@@ -357,7 +356,9 @@ export const venueRouter = router({
           sessionId: '',
           eventType: 'venue.updated',
         })
-      } catch {}
+      } catch {
+        // Venue analytics are best-effort and must not break the mutation.
+      }
 
       return updated
     }),
@@ -394,9 +395,8 @@ export const venueRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
 
-      const { venueId: _venueId, ...raw } = input
       const data = Object.fromEntries(
-        Object.entries(raw).filter(([, value]) => value !== undefined),
+        Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
       )
 
       await ctx.db.venue.updateMany({
@@ -426,7 +426,9 @@ export const venueRouter = router({
           sessionId: '',
           eventType: 'venue.updated',
         })
-      } catch {}
+      } catch {
+        // Venue analytics are best-effort and must not break the mutation.
+      }
 
       return updated
     }),

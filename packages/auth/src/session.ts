@@ -30,7 +30,8 @@ function mapClerkOrgRole(orgRole: string | null): TenantRole | null {
   return CLERK_ORG_ROLE_TO_TENANT_ROLE[orgRole] ?? null
 }
 
-export async function resolveSession(_request: Request): Promise<SessionContext | null> {
+export async function resolveSession(request: Request): Promise<SessionContext | null> {
+  void request
   let authState: Awaited<ReturnType<typeof auth>>
 
   try {

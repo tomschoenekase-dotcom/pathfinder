@@ -406,10 +406,10 @@ export const chatRouter = router({
       relevantPlaces =
         guideMode === 'location_aware' && userLat != null && userLng != null
           ? findNearestPlaces(userLat, userLng, fallbackPlaces, NEAREST_PLACES_LIMIT)
-          : fallbackPlaces.map(({ importanceScore: _importanceScore, ...place }) => ({
-              ...place,
-              distanceMeters: 0,
-            }))
+          : fallbackPlaces.map(({ importanceScore, ...place }) => {
+              void importanceScore
+              return { ...place, distanceMeters: 0 }
+            })
     }
     retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
@@ -676,7 +676,9 @@ export const chatRouter = router({
             ...timingMetadata,
           },
         })
-      } catch {}
+      } catch {
+        // Reliability analytics are best-effort and must not break guest chat.
+      }
     }
 
     try {
@@ -689,7 +691,9 @@ export const chatRouter = router({
           message: trimmedInput,
         },
       })
-    } catch {}
+    } catch {
+      // Interaction analytics are best-effort and must not break guest chat.
+    }
 
     try {
       await emitEvent({
@@ -706,7 +710,9 @@ export const chatRouter = router({
           ...timingMetadata,
         },
       })
-    } catch {}
+    } catch {
+      // Response analytics are best-effort and must not break guest chat.
+    }
 
     if (selectedEngagementQuestion || allowAiInventedQuestion) {
       try {
@@ -722,7 +728,9 @@ export const chatRouter = router({
             mode: engagementMode,
           },
         })
-      } catch {}
+      } catch {
+        // Engagement analytics are best-effort and must not break guest chat.
+      }
     }
 
     // Backend-only low-confidence detection (decision E). Invisible to the guest —
@@ -746,7 +754,9 @@ export const chatRouter = router({
             score: topDistance,
           },
         })
-      } catch {}
+      } catch {
+        // Low-confidence analytics are best-effort and must not break guest chat.
+      }
     }
 
     // Filter places to only those Claude actually mentioned in the response.

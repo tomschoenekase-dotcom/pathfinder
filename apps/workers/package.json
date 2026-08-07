@@ -6,7 +6,7 @@
     "dev": "echo dev:workers",
     "embedding:freshness": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-freshness.ts",
     "embedding:claim-repair": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-claim-repair.ts",
-    "lint": "echo lint:workers",
+    "lint": "eslint --config ../../packages/config/eslint/base.js \"src/**/*.ts\"",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",

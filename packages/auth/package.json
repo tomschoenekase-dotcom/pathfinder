@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc --noEmit --project tsconfig.json",
     "dev": "echo dev:auth",
-    "lint": "echo lint:auth",
+    "lint": "eslint --config ../config/eslint/base.js \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"

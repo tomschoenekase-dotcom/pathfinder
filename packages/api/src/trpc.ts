@@ -1,4 +1,4 @@
-import { router, t } from './core'
+import { t } from './core'
 import { requireAuth } from './middleware/require-auth'
 import { requirePlatformAdminMiddleware } from './middleware/require-platform-admin'
 import { requireTenant } from './middleware/require-tenant'

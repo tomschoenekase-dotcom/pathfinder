@@ -33,7 +33,7 @@ async function uniqueTenantSlug(base: string): Promise<string> {
   let candidate = base
   let suffix = 2
 
-  while (true) {
+  for (;;) {
     const existing = await db.tenant.findUnique({
       where: { slug: candidate },
       select: { id: true },
