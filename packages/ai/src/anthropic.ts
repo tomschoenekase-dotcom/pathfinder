@@ -50,7 +50,14 @@ export type AiTextResult<TParsed = string> = {
   attempts: number
 }
 
-export type AiUsageRecord = Omit<AiTextResult<unknown>, 'text' | 'parsed'> & {
+export type AiUsageRecord = {
+  provider: 'anthropic' | 'openai'
+  model: string
+  pricingVersion: string
+  usage: AiTokenUsage
+  estimatedCostUsd: number
+  latencyMs: number
+  attempts: number
   success: boolean
   errorCode?: string
 }

@@ -20,7 +20,7 @@ vi.mock('@pathfinder/db', () => ({ searchKnowledgeByEmbedding, searchPlacesByEmb
 
 // Force an embedding to exist so chat.send takes the semantic branch.
 const { generateEmbedding } = vi.hoisted(() => ({ generateEmbedding: vi.fn() }))
-vi.mock('../lib/embeddings', () => ({ generateEmbedding }))
+vi.mock('../lib/guest-query-embedding', () => ({ generateGuestQueryEmbedding: generateEmbedding }))
 
 // Rate limit always allows in tests.
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: vi.fn().mockResolvedValue(true) }))
@@ -132,6 +132,124 @@ describe('chat.send low-confidence flag', () => {
     expect(calls[0]?.[0]).toMatchObject({
       eventType: 'message.low_confidence',
       metadata: { question: 'Is there a helipad?', score: 0.9 },
+    })
+  })
+
+  it('attributes guest query embedding usage to the resolved tenant, venue, and session', async () => {
+    setup([place(0.1)], 'The elephants are nearby.')
+    generateEmbedding.mockReset()
+    generateEmbedding.mockImplementationOnce(
+      async (
+        _text: string,
+        sink: (usage: {
+          provider: 'openai'
+          model: string
+          pricingVersion: string
+          usage: {
+            inputTokens: number
+            outputTokens: number
+            cacheCreationInputTokens: number
+            cacheReadInputTokens: number
+          }
+          estimatedCostUsd: number
+          latencyMs: number
+          attempts: number
+          success: boolean
+        }) => Promise<void>,
+      ) => {
+        await sink({
+          provider: 'openai',
+          model: 'text-embedding-3-small',
+          pricingVersion: 'openai-public-2026-08-07',
+          usage: {
+            inputTokens: 25,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+          },
+          estimatedCostUsd: 0.0000005,
+          latencyMs: 12,
+          attempts: 1,
+          success: true,
+        })
+        return [0.1, 0.2, 0.3]
+      },
+    )
+
+    await caller.chat.send(sendInput)
+
+    expect(aiUsageEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: VENUE_ID,
+        sessionId: 'sess_1',
+        feature: 'guest-chat-query-embedding',
+        surface: 'guest-web',
+        provider: 'openai',
+        model: 'text-embedding-3-small',
+        inputTokens: 25,
+        totalTokens: 25,
+        success: true,
+      }),
+    })
+  })
+
+  it('records embedding failure and preserves the guest geo fallback', async () => {
+    setup([], 'I do not have that information.')
+    generateEmbedding.mockReset()
+    generateEmbedding.mockImplementationOnce(
+      async (
+        _text: string,
+        sink: (usage: {
+          provider: 'openai'
+          model: string
+          pricingVersion: string
+          usage: {
+            inputTokens: number
+            outputTokens: number
+            cacheCreationInputTokens: number
+            cacheReadInputTokens: number
+          }
+          estimatedCostUsd: number
+          latencyMs: number
+          attempts: number
+          success: boolean
+          errorCode: string
+        }) => Promise<void>,
+      ) => {
+        await sink({
+          provider: 'openai',
+          model: 'text-embedding-3-small',
+          pricingVersion: 'openai-public-2026-08-07',
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+          },
+          estimatedCostUsd: 0,
+          latencyMs: 10_000,
+          attempts: 2,
+          success: false,
+          errorCode: 'provider-http-503',
+        })
+        throw new Error('embedding unavailable')
+      },
+    )
+    ;(mockDb.place.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([])
+
+    await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+      response: 'I do not have that information.',
+    })
+
+    expect(aiUsageEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        feature: 'guest-chat-query-embedding',
+        provider: 'openai',
+        success: false,
+        errorCode: 'provider-http-503',
+        attempts: 2,
+      }),
     })
   })
 

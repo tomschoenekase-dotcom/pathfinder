@@ -13,9 +13,9 @@ import { searchKnowledgeByEmbedding, searchPlacesByEmbedding } from '@pathfinder
 import { logger } from '@pathfinder/config'
 
 import { router } from '../core'
-import { generateEmbedding } from '../lib/embeddings'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
+import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { publicProcedure } from '../trpc'
@@ -269,7 +269,42 @@ export const chatRouter = router({
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
     const [queryEmbedding, historyDesc, activeUpdates, tenantEngagement, engagementQuestions] =
       await Promise.all([
-        generateEmbedding(trimmedInput).catch(() => null),
+        generateGuestQueryEmbedding(trimmedInput, async (usage) => {
+          try {
+            await ctx.db.aiUsageEvent.create({
+              data: {
+                tenantId: venue.tenantId,
+                venueId: input.venueId,
+                sessionId: session.id,
+                feature: 'guest-chat-query-embedding',
+                surface: 'guest-web',
+                provider: usage.provider,
+                model: usage.model,
+                pricingVersion: usage.pricingVersion,
+                inputTokens: usage.usage.inputTokens,
+                outputTokens: usage.usage.outputTokens,
+                cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
+                cacheReadInputTokens: usage.usage.cacheReadInputTokens,
+                totalTokens:
+                  usage.usage.inputTokens +
+                  usage.usage.outputTokens +
+                  usage.usage.cacheCreationInputTokens +
+                  usage.usage.cacheReadInputTokens,
+                estimatedCostUsd: usage.estimatedCostUsd,
+                latencyMs: usage.latencyMs,
+                attempts: usage.attempts,
+                success: usage.success,
+                ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
+              },
+            })
+          } catch (usageError) {
+            logger.error({
+              action: 'chat.send.embedding_usage_failed',
+              venueId: input.venueId,
+              error: usageError instanceof Error ? usageError.message : 'Unknown error',
+            })
+          }
+        }).catch(() => null),
         ctx.db.message.findMany({
           where: { sessionId: session.id, tenantId: venue.tenantId },
           orderBy: { createdAt: 'desc' },

@@ -18,3 +18,17 @@ export {
   type AiModelKey,
   type AiModelSpec,
 } from './model-registry'
+export {
+  AI_EMBEDDING_MODEL_KEYS,
+  AI_EMBEDDING_MODEL_REGISTRY,
+  getAiEmbeddingModelSpec,
+  type AiEmbeddingModelKey,
+  type AiEmbeddingModelSpec,
+} from './embedding-model-registry'
+export {
+  generateEmbedding,
+  generateEmbeddings,
+  setOpenAiEmbeddingsClientForTesting,
+  type AiEmbeddingResult,
+  type OpenAiEmbeddingsClient,
+} from './openai-embeddings'
