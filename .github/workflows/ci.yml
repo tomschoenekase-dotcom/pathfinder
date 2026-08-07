@@ -4,14 +4,14 @@ on:
   push:
     branches: ['**']
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   ci:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_PASSWORD: testpassword
           POSTGRES_DB: pathfinder_test
@@ -21,7 +21,16 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
+      RAILWAY_ENVIRONMENT: staging
       DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_test
       DIRECT_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_test
       REDIS_URL: redis://localhost:6379
@@ -47,7 +56,10 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:staging
       - run: pnpm --dir packages/db db:generate
+      - run: pnpm --dir packages/db exec prisma migrate deploy
+      - run: pnpm turbo run build
       - run: pnpm turbo run typecheck
       - run: pnpm turbo run lint
       - run: pnpm turbo run test

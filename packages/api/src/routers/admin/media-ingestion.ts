@@ -5,6 +5,7 @@ import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
 import { enqueueMediaIngestion } from '@pathfinder/jobs'
 
 import { router } from '../../core'
+import { currentDeploymentStorageKey } from '../../lib/deployment-storage-key'
 import { beginMediaUpload, finishMediaUpload, signMediaUploadPart } from '../../lib/media-storage'
 import { adminProcedure } from '../../trpc'
 
@@ -142,7 +143,9 @@ export const mediaIngestionRouter = router({
       if (!['DRAFT', 'FAILED'].includes(project.status)) {
         throw new TRPCError({ code: 'CONFLICT', message: 'This project already has an upload.' })
       }
-      const objectKey = `media-ingestion/${input.tenantId}/${project.venueId}/${project.id}/${safeFileName(input.filename)}`
+      const objectKey = currentDeploymentStorageKey(
+        `media-ingestion/${input.tenantId}/${project.venueId}/${project.id}/${safeFileName(input.filename)}`,
+      )
       const upload = await beginMediaUpload(objectKey, input.contentType)
       await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({

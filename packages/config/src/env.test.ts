@@ -50,3 +50,53 @@ describe('RAILWAY_ENVIRONMENT', () => {
     }
   })
 })
+
+describe('WORKER_SCHEDULERS_ENABLED', () => {
+  it('defaults to enabled in production', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'production' })
+        .WORKER_SCHEDULERS_ENABLED,
+    ).toBe(true)
+  })
+
+  it.each(['staging', 'preview'] as const)('defaults to disabled in %s', (RAILWAY_ENVIRONMENT) => {
+    process.env.NODE_ENV = 'production'
+
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).WORKER_SCHEDULERS_ENABLED,
+    ).toBe(false)
+  })
+
+  it.each([
+    ['production', 'false', false],
+    ['staging', 'true', true],
+    ['preview', 'true', true],
+  ] as const)(
+    'allows %s to explicitly set the scheduler override to %s',
+    (RAILWAY_ENVIRONMENT, WORKER_SCHEDULERS_ENABLED, expected) => {
+      process.env.NODE_ENV = 'production'
+
+      expect(
+        envSchema.parse({
+          ...requiredEnvironment,
+          RAILWAY_ENVIRONMENT,
+          WORKER_SCHEDULERS_ENABLED,
+        }).WORKER_SCHEDULERS_ENABLED,
+      ).toBe(expected)
+    },
+  )
+
+  it('rejects an invalid scheduler override', () => {
+    process.env.NODE_ENV = 'production'
+
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        WORKER_SCHEDULERS_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})

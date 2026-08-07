@@ -5,11 +5,15 @@ const railwayEnvironmentSchema = z.preprocess(
   z.enum(['production', 'staging', 'preview']),
 )
 
-export const envSchema = z.object({
+const rawEnvSchema = z.object({
   // Deployment boundary: production serves live traffic, staging is synthetic
   // data only, and preview is for ephemeral review deployments. This is
   // required when NODE_ENV=production and defaults to staging for development.
   RAILWAY_ENVIRONMENT: railwayEnvironmentSchema,
+
+  // Recurring jobs should only be registered by production workers unless an
+  // environment explicitly opts in or out. Queue consumers run independently.
+  WORKER_SCHEDULERS_ENABLED: z.enum(['true', 'false']).optional(),
 
   // Required from PACKET-03 onward
   DATABASE_URL: z.string().min(1),
@@ -52,6 +56,14 @@ export const envSchema = z.object({
   RESEND_FROM_EMAIL: z.string().optional(),
   DASHBOARD_URL: z.string().optional(),
 })
+
+export const envSchema = rawEnvSchema.transform((values) => ({
+  ...values,
+  WORKER_SCHEDULERS_ENABLED:
+    values.WORKER_SCHEDULERS_ENABLED === undefined
+      ? values.RAILWAY_ENVIRONMENT === 'production'
+      : values.WORKER_SCHEDULERS_ENABLED === 'true',
+}))
 
 // During Next.js build (NEXT_PHASE=phase-production-build) env vars may not
 // be available. Skip strict validation then; the app will crash at runtime if

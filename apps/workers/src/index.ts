@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
-import { assertServerEnv, logger } from '@pathfinder/config'
+import { assertServerEnv, env, logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
   ANSWER_ANALYSIS_PROCESS_JOB,
@@ -59,6 +59,7 @@ import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
+import { applySchedulerState } from './scheduler-control'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
@@ -459,50 +460,47 @@ export async function startWorkers() {
   const weeklyReportQueue = new Queue(WEEKLY_REPORT_QUEUE, { connection })
   const mediaIngestionQueue = new Queue(MEDIA_INGESTION_QUEUE, { connection })
 
-  await weeklyDigestQueue.upsertJobScheduler(
-    WEEKLY_DIGEST_SCHEDULER_JOB,
+  await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
     {
-      pattern: WEEKLY_DIGEST_CRON,
+      upsert: () =>
+        weeklyDigestQueue.upsertJobScheduler(
+          WEEKLY_DIGEST_SCHEDULER_JOB,
+          { pattern: WEEKLY_DIGEST_CRON },
+          {
+            name: WEEKLY_DIGEST_SCHEDULER_JOB,
+            data: {},
+            opts: { removeOnComplete: 10, removeOnFail: 50 },
+          },
+        ),
+      remove: () => weeklyDigestQueue.removeJobScheduler(WEEKLY_DIGEST_SCHEDULER_JOB),
     },
     {
-      name: WEEKLY_DIGEST_SCHEDULER_JOB,
-      data: {},
-      opts: {
-        removeOnComplete: 10,
-        removeOnFail: 50,
-      },
-    },
-  )
-
-  await dailyRollupQueue.upsertJobScheduler(
-    DAILY_ROLLUP_SCHEDULER_JOB,
-    {
-      pattern: DAILY_ROLLUP_CRON,
+      upsert: () =>
+        dailyRollupQueue.upsertJobScheduler(
+          DAILY_ROLLUP_SCHEDULER_JOB,
+          { pattern: DAILY_ROLLUP_CRON },
+          {
+            name: DAILY_ROLLUP_SCHEDULER_JOB,
+            data: {},
+            opts: { removeOnComplete: 10, removeOnFail: 50 },
+          },
+        ),
+      remove: () => dailyRollupQueue.removeJobScheduler(DAILY_ROLLUP_SCHEDULER_JOB),
     },
     {
-      name: DAILY_ROLLUP_SCHEDULER_JOB,
-      data: {},
-      opts: {
-        removeOnComplete: 10,
-        removeOnFail: 50,
-      },
+      upsert: () =>
+        analyticsEnrichmentQueue.upsertJobScheduler(
+          ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
+          { pattern: ANALYTICS_ENRICHMENT_CRON },
+          {
+            name: ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
+            data: {},
+            opts: { removeOnComplete: 10, removeOnFail: 50 },
+          },
+        ),
+      remove: () => analyticsEnrichmentQueue.removeJobScheduler(ANALYTICS_ENRICHMENT_SCHEDULER_JOB),
     },
-  )
-
-  await analyticsEnrichmentQueue.upsertJobScheduler(
-    ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
-    {
-      pattern: ANALYTICS_ENRICHMENT_CRON,
-    },
-    {
-      name: ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
-      data: {},
-      opts: {
-        removeOnComplete: 10,
-        removeOnFail: 50,
-      },
-    },
-  )
+  ])
 
   const weeklyDigestWorker = new Worker(WEEKLY_DIGEST_QUEUE, handleWeeklyDigestQueueJob, {
     connection,
@@ -677,6 +675,7 @@ export async function startWorkers() {
 
   logger.info({
     action: 'workers.started',
+    recurringSchedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
     queues: [
       WEEKLY_DIGEST_QUEUE,
       DAILY_ROLLUP_QUEUE,
