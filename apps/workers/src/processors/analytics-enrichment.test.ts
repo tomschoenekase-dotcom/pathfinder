@@ -1,5 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import type { AnthropicMessagesClient } from '@pathfinder/ai'
 
 const mocks = vi.hoisted(() => ({
   venueFindMany: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   withTenantIsolationBypass: vi.fn(),
   writeJobRecord: vi.fn(),
   updateJobRecord: vi.fn(),
+  aiUsageEventCreate: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -29,6 +31,7 @@ vi.mock('@pathfinder/config', () => ({
 vi.mock('@pathfinder/db', () => ({
   db: {
     venue: { findMany: mocks.venueFindMany },
+    aiUsageEvent: { create: mocks.aiUsageEventCreate },
     message: { findMany: mocks.messageFindMany, updateMany: mocks.messageUpdateMany },
     analyticsEvent: {
       groupBy: mocks.analyticsGroupBy,
@@ -53,7 +56,7 @@ import {
 } from './analytics-enrichment'
 
 const anthropicCreate = vi.fn()
-const mockAnthropic = { messages: { create: anthropicCreate } } as unknown as Anthropic
+const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
 
 describe('clusterQuestions', () => {
   it('merges near-identical embeddings and keeps the most frequent phrasing', () => {
@@ -88,6 +91,7 @@ describe('processAnalyticsEnrichmentJob', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+    mocks.aiUsageEventCreate.mockResolvedValue({})
     mocks.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         dailyRollup: { deleteMany: mocks.rollupDeleteMany, createMany: mocks.rollupCreateMany },
@@ -131,6 +135,7 @@ describe('processAnalyticsEnrichmentJob', () => {
           text: '[{"index":0,"topic":"amenities_restrooms"},{"index":1,"topic":"hours_logistics"}]',
         },
       ],
+      usage: { input_tokens: 20, output_tokens: 10 },
     })
   })
 
@@ -186,6 +191,18 @@ describe('processAnalyticsEnrichmentJob', () => {
     expect(clusterData.some((row) => row.kind === 'content_gap')).toBe(true)
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+    expect(mocks.aiUsageEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        feature: 'analytics-topic-classifier',
+        surface: 'worker',
+        inputTokens: 20,
+        outputTokens: 10,
+        totalTokens: 30,
+        success: true,
+      }),
+    })
   })
 
   it('synthesizes and upserts weekly themes once there are enough questions', async () => {
@@ -215,6 +232,7 @@ describe('processAnalyticsEnrichmentJob', () => {
             text: '[{"index":0,"topic":"amenities_restrooms"},{"index":1,"topic":"hours_logistics"}]',
           },
         ],
+        usage: { input_tokens: 20, output_tokens: 10 },
       })
       .mockResolvedValueOnce({
         content: [
@@ -223,6 +241,7 @@ describe('processAnalyticsEnrichmentJob', () => {
             text: '[{"title":"Restroom locations","explanation":"Guests frequently ask where the restrooms are."}]',
           },
         ],
+        usage: { input_tokens: 30, output_tokens: 15 },
       })
     mocks.themeUpsert.mockResolvedValue({})
 
@@ -244,6 +263,127 @@ describe('processAnalyticsEnrichmentJob', () => {
               explanation: 'Guests frequently ask where the restrooms are.',
             },
           ],
+        }),
+      }),
+    )
+    expect(mocks.aiUsageEventCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          feature: 'analytics-weekly-themes',
+          inputTokens: 30,
+          outputTokens: 15,
+          success: true,
+        }),
+      }),
+    )
+  })
+
+  it('records malformed classifier output as failure and continues the job', async () => {
+    anthropicCreate.mockResolvedValueOnce({
+      content: [{ type: 'text', text: '{"not":"an array"}' }],
+      usage: { input_tokens: 12, output_tokens: 4 },
+    })
+
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(mocks.messageUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.aiUsageEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        feature: 'analytics-topic-classifier',
+        success: false,
+        errorCode: 'invalid-structured-output',
+        inputTokens: 12,
+        outputTokens: 4,
+        totalTokens: 16,
+      }),
+    })
+    const failedClassifierUsage = mocks.aiUsageEventCreate.mock.calls[0]?.[0]?.data as {
+      estimatedCostUsd: number
+    }
+    expect(failedClassifierUsage.estimatedCostUsd).toBeGreaterThan(0)
+    expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('attributes classifier usage to each resolved venue', async () => {
+    mocks.venueFindMany.mockResolvedValueOnce([{ id: 'venue_1' }, { id: 'venue_2' }])
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany.mockResolvedValue([])
+
+    await processAnalyticsEnrichmentJob({
+      tenantId: 'tenant_1',
+      date: '2026-06-18T00:00:00.000Z',
+    })
+
+    expect(mocks.aiUsageEventCreate).toHaveBeenCalledTimes(2)
+    expect(mocks.aiUsageEventCreate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+      }),
+    )
+    expect(mocks.aiUsageEventCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_2' }),
+      }),
+    )
+  })
+
+  it('records malformed weekly themes and preserves the last good row', async () => {
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { metadata: { message: 'where is the toilet' } },
+        { metadata: { message: 'what time do you open' } },
+        { metadata: { message: 'is there parking nearby' } },
+        { metadata: { message: 'do you allow dogs' } },
+        { metadata: { message: 'where can I get coffee' } },
+      ])
+    anthropicCreate
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: '[{"index":0,"topic":"amenities_restrooms"},{"index":1,"topic":"hours_logistics"}]',
+          },
+        ],
+        usage: { input_tokens: 20, output_tokens: 10 },
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: '{"malformed":true}' }],
+        usage: { input_tokens: 30, output_tokens: 5 },
+      })
+
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(mocks.themeUpsert).not.toHaveBeenCalled()
+    expect(mocks.aiUsageEventCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          feature: 'analytics-weekly-themes',
+          success: false,
+          errorCode: 'invalid-structured-output',
+          inputTokens: 30,
+          outputTokens: 5,
+          totalTokens: 35,
         }),
       }),
     )

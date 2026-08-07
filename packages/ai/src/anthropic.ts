@@ -38,8 +38,9 @@ export type AiTokenUsage = {
   cacheReadInputTokens: number
 }
 
-export type AiTextResult = {
+export type AiTextResult<TParsed = string> = {
   text: string
+  parsed: TParsed
   provider: 'anthropic'
   model: string
   pricingVersion: string
@@ -49,7 +50,7 @@ export type AiTextResult = {
   attempts: number
 }
 
-export type AiUsageRecord = Omit<AiTextResult, 'text'> & {
+export type AiUsageRecord = Omit<AiTextResult<unknown>, 'text' | 'parsed'> & {
   success: boolean
   errorCode?: string
 }
@@ -59,12 +60,17 @@ export type AiUsageSink = (record: AiUsageRecord) => Promise<void>
 export class AiGatewayError extends Error {
   readonly attempts: number
   readonly code: string
+  readonly usageRecorded: boolean
 
-  constructor(message: string, options: { attempts: number; code: string; cause?: unknown }) {
+  constructor(
+    message: string,
+    options: { attempts: number; code: string; cause?: unknown; usageRecorded?: boolean },
+  ) {
     super(message, options.cause !== undefined ? { cause: options.cause } : undefined)
     this.name = 'AiGatewayError'
     this.attempts = options.attempts
     this.code = options.code
+    this.usageRecorded = options.usageRecorded ?? false
   }
 }
 
@@ -157,7 +163,7 @@ async function recordUsageBestEffort(sink: AiUsageSink, record: AiUsageRecord): 
   }
 }
 
-export async function generateText(params: {
+export async function generateText<TParsed = string>(params: {
   modelKey: AiModelKey
   system: AiSystemBlock[]
   messages: AiMessage[]
@@ -166,7 +172,8 @@ export async function generateText(params: {
   maxAttempts?: number
   retryDelayMs?: number
   usageSink: AiUsageSink
-}): Promise<AiTextResult> {
+  parseResponse?: (text: string) => TParsed
+}): Promise<AiTextResult<TParsed>> {
   const spec = getAiModelSpec(params.modelKey)
   const maxAttempts = params.maxAttempts ?? spec.maxAttempts
   const timeoutMs = params.timeoutMs ?? spec.timeoutMs
@@ -189,26 +196,69 @@ export async function generateText(params: {
         { timeout: timeoutMs },
       )
       const response = responseSchema.parse(raw)
-      const textBlock = response.content.find(
-        (block): block is typeof block & { text: string } =>
-          block.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0,
-      )
-      if (!textBlock) {
-        throw new AiGatewayError('Provider response contained no text block', {
-          attempts: attempt,
-          code: 'missing-text-block',
-        })
-      }
-
       const usage: AiTokenUsage = {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
         cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
       }
+      const text = response.content
+        .filter(
+          (block): block is typeof block & { text: string } =>
+            block.type === 'text' && typeof block.text === 'string',
+        )
+        .map((block) => block.text)
+        .join('\n')
+        .trim()
+      if (!text) {
+        const gatewayError = new AiGatewayError('Provider response contained no text block', {
+          attempts: attempt,
+          code: 'missing-text-block',
+          usageRecorded: true,
+        })
+        await recordUsageBestEffort(params.usageSink, {
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage,
+          estimatedCostUsd: estimateCostUsd(params.modelKey, usage),
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt,
+          success: false,
+          errorCode: gatewayError.code,
+        })
+        throw gatewayError
+      }
 
-      const result: AiTextResult = {
-        text: textBlock.text,
+      let parsed: TParsed
+      try {
+        parsed = params.parseResponse ? params.parseResponse(text) : (text as TParsed)
+      } catch (error) {
+        const gatewayError = new AiGatewayError(
+          error instanceof Error ? error.message : 'Structured response validation failed',
+          {
+            attempts: attempt,
+            code: 'invalid-structured-output',
+            cause: error,
+            usageRecorded: true,
+          },
+        )
+        await recordUsageBestEffort(params.usageSink, {
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage,
+          estimatedCostUsd: estimateCostUsd(params.modelKey, usage),
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt,
+          success: false,
+          errorCode: gatewayError.code,
+        })
+        throw gatewayError
+      }
+      const result: AiTextResult<TParsed> = {
+        text,
+        parsed,
         provider: spec.provider,
         model: spec.model,
         pricingVersion: spec.pricingVersion,
@@ -217,7 +267,16 @@ export async function generateText(params: {
         latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
         attempts: attempt,
       }
-      await recordUsageBestEffort(params.usageSink, { ...result, success: true })
+      await recordUsageBestEffort(params.usageSink, {
+        provider: result.provider,
+        model: result.model,
+        pricingVersion: result.pricingVersion,
+        usage: result.usage,
+        estimatedCostUsd: result.estimatedCostUsd,
+        latencyMs: result.latencyMs,
+        attempts: result.attempts,
+        success: true,
+      })
       return result
     } catch (error) {
       lastError = error
@@ -230,22 +289,24 @@ export async function generateText(params: {
             cause: error,
           },
         )
-        await recordUsageBestEffort(params.usageSink, {
-          provider: spec.provider,
-          model: spec.model,
-          pricingVersion: spec.pricingVersion,
-          usage: {
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheCreationInputTokens: 0,
-            cacheReadInputTokens: 0,
-          },
-          estimatedCostUsd: 0,
-          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
-          attempts: attempt,
-          success: false,
-          errorCode: gatewayError.code,
-        })
+        if (!(error instanceof AiGatewayError && error.usageRecorded)) {
+          await recordUsageBestEffort(params.usageSink, {
+            provider: spec.provider,
+            model: spec.model,
+            pricingVersion: spec.pricingVersion,
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheCreationInputTokens: 0,
+              cacheReadInputTokens: 0,
+            },
+            estimatedCostUsd: 0,
+            latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            attempts: attempt,
+            success: false,
+            errorCode: gatewayError.code,
+          })
+        }
         throw gatewayError
       }
       await wait((params.retryDelayMs ?? 100) * 2 ** (attempt - 1))

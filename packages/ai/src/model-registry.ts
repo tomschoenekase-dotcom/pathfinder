@@ -1,4 +1,6 @@
 export const AI_MODEL_KEYS = {
+  ANALYTICS_TOPIC_CLASSIFIER: 'analytics-topic-classifier',
+  ANALYTICS_WEEKLY_THEMES: 'analytics-weekly-themes',
   GUEST_CHAT: 'guest-chat',
 } as const
 
@@ -19,23 +21,31 @@ export type AiModelSpec = {
   }
 }
 
-export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
-  [AI_MODEL_KEYS.GUEST_CHAT]: {
+const HAIKU_PRICING = {
+  input: 1,
+  output: 5,
+  cacheWrite: 1.25,
+  cacheRead: 0.1,
+} as const
+
+function haikuSpec(maxOutputTokens: number): AiModelSpec {
+  return {
     provider: 'anthropic',
     model: 'claude-haiku-4-5-20251001',
-    maxOutputTokens: 512,
+    maxOutputTokens,
     timeoutMs: 10_000,
     maxAttempts: 2,
     pricingVersion: 'anthropic-public-2026-08-07',
     // Anthropic Claude API list prices verified 2026-08-07. Keep pricing
     // versioned with code; cost is an estimate, never an invoice amount.
-    pricingUsdPerMillionTokens: {
-      input: 1,
-      output: 5,
-      cacheWrite: 1.25,
-      cacheRead: 0.1,
-    },
-  },
+    pricingUsdPerMillionTokens: HAIKU_PRICING,
+  }
+}
+
+export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
+  [AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER]: haikuSpec(1_024),
+  [AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES]: haikuSpec(1_024),
+  [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
 }
 
 export function getAiModelSpec(modelKey: AiModelKey): AiModelSpec {

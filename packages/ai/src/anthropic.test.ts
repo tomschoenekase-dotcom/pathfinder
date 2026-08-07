@@ -116,7 +116,37 @@ describe('generateText', () => {
       }),
     ).rejects.toMatchObject({ code: 'missing-text-block', attempts: 1 })
     expect(usageSink).toHaveBeenCalledWith(
-      expect.objectContaining({ success: false, errorCode: 'missing-text-block' }),
+      expect.objectContaining({
+        success: false,
+        errorCode: 'missing-text-block',
+        usage: expect.objectContaining({ inputTokens: 5, outputTokens: 1 }),
+      }),
+    )
+  })
+
+  it('records structured parser rejection as a failed call', async () => {
+    create.mockResolvedValueOnce({
+      content: [{ type: 'text', text: '{"unexpected":true}' }],
+      usage: { input_tokens: 5, output_tokens: 2 },
+    })
+
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [],
+        messages: [{ role: 'user', content: 'Hello' }],
+        parseResponse: () => {
+          throw new Error('wrong shape')
+        },
+        usageSink,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-structured-output', attempts: 1 })
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: 'invalid-structured-output',
+        usage: expect.objectContaining({ inputTokens: 5, outputTokens: 2 }),
+      }),
     )
   })
 

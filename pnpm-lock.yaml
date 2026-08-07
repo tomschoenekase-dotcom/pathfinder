@@ -196,6 +196,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1102.0
         version: 3.1102.0
+      '@pathfinder/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@pathfinder/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics

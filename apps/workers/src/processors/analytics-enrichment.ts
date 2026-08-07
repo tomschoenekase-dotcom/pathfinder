@@ -1,8 +1,13 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
+import {
+  AI_MODEL_KEYS,
+  generateText,
+  setAnthropicClientForTesting,
+  type AnthropicMessagesClient,
+} from '@pathfinder/ai'
 import { TOPIC_KEY_SET, TOPIC_KEYS, type TopicKey } from '@pathfinder/analytics/topics'
-import { env, logger } from '@pathfinder/config'
+import { logger } from '@pathfinder/config'
 import {
   db,
   generateEmbeddings,
@@ -11,6 +16,8 @@ import {
   writeJobRecord,
 } from '@pathfinder/db'
 import type { AnalyticsEnrichmentJobPayload } from '@pathfinder/jobs'
+
+import { createWorkerAiUsageSink } from '../lib/ai-usage'
 
 // ---------------------------------------------------------------------------
 // Tunables — ALL of these need tuning on real data. Kept here as named constants
@@ -27,14 +34,10 @@ const CLUSTER_EXAMPLES_PER = 3 // example raw questions stored per cluster
 const TOPIC_BATCH_SIZE = 20 // questions per Haiku classification call
 const EMBED_BATCH_SIZE = 96 // questions per embeddings request
 
-const CLASSIFIER_MODEL = 'claude-haiku-4-5-20251001'
-const CLASSIFIER_MAX_TOKENS = 1_024
-
 // Weekly themes (decision F): synthesized once per calendar week per venue, not
 // nightly — regenerating unchanged data every night would just burn model calls.
 const THEME_MIN_QUESTIONS = 5 // below this, guest data is too thin to summarize honestly
 const THEME_MAX_QUESTIONS_FOR_PROMPT = 300
-const THEME_MAX_TOKENS = 1_024
 
 // DailyRollup metrics this job owns. It deletes ONLY these for the target day before
 // re-inserting, so it never clobbers the pure-SQL daily-rollup job's rows
@@ -49,25 +52,11 @@ const OWNED_DAILY_METRICS = [
 ] as const
 
 // ---------------------------------------------------------------------------
-// Anthropic client — module-level singleton with a test setter, mirroring chat.ts.
+// Provider test seam; the production client is owned by @pathfinder/ai.
 // ---------------------------------------------------------------------------
 
-let anthropicClient: Anthropic | null = null
-
-function getAnthropicClient(): Anthropic {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is not configured')
-  }
-
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
-  }
-
-  return anthropicClient
-}
-
-export function _setAnthropicClientForTesting(client: Anthropic | null): void {
-  anthropicClient = client
+export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void {
+  setAnthropicClientForTesting(client)
 }
 
 // ---------------------------------------------------------------------------
@@ -97,17 +86,6 @@ function startOfIsoWeekUtc(date: Date): Date {
 // ---------------------------------------------------------------------------
 // Topic classification (decision B)
 // ---------------------------------------------------------------------------
-
-function extractText(content: Anthropic.Messages.Message['content']): string {
-  return content
-    .filter(
-      (block): block is Extract<(typeof content)[number], { type: 'text' }> =>
-        block.type === 'text',
-    )
-    .map((block) => block.text)
-    .join('\n')
-    .trim()
-}
 
 function parseTopicAssignments(rawText: string, count: number): TopicKey[] {
   const fenced = rawText.match(/```json\s*([\s\S]*?)```/i) ?? rawText.match(/```([\s\S]*?)```/i)
@@ -143,7 +121,12 @@ function parseTopicAssignments(rawText: string, count: number): TopicKey[] {
  * Falls back to 'other' for the whole batch if the model/parse fails — a failed
  * classification must never abort the night's enrichment.
  */
-async function classifyTopicBatch(questions: string[]): Promise<TopicKey[]> {
+async function classifyTopicBatch(params: {
+  questions: string[]
+  tenantId: string
+  venueId: string
+}): Promise<TopicKey[]> {
+  const { questions, tenantId, venueId } = params
   const prompt = [
     'You label short visitor questions for a venue guide with exactly one topic each.',
     `Allowed topics: ${TOPIC_KEYS.join(', ')}.`,
@@ -156,13 +139,19 @@ async function classifyTopicBatch(questions: string[]): Promise<TopicKey[]> {
     ),
   ].join('\n')
 
-  const response = await getAnthropicClient().messages.create({
-    model: CLASSIFIER_MODEL,
-    max_tokens: CLASSIFIER_MAX_TOKENS,
+  const response = await generateText({
+    modelKey: AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER,
+    system: [],
     messages: [{ role: 'user', content: prompt }],
+    parseResponse: (text) => parseTopicAssignments(text, questions.length),
+    usageSink: createWorkerAiUsageSink({
+      tenantId,
+      venueId,
+      feature: 'analytics-topic-classifier',
+    }),
   })
 
-  return parseTopicAssignments(extractText(response.content), questions.length)
+  return response.parsed
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +189,12 @@ function parseWeeklyThemes(rawText: string): WeeklyTheme[] {
  * a title and a short explanation each, instead of a flat frequency list.
  * Returns [] on any model/parse failure; the caller treats that as "skip".
  */
-async function synthesizeWeeklyThemes(questions: string[]): Promise<WeeklyTheme[]> {
+async function synthesizeWeeklyThemes(params: {
+  questions: string[]
+  tenantId: string
+  venueId: string
+}): Promise<WeeklyTheme[]> {
+  const { questions, tenantId, venueId } = params
   const trimmed = questions.slice(0, THEME_MAX_QUESTIONS_FOR_PROMPT)
 
   const prompt = [
@@ -215,13 +209,19 @@ async function synthesizeWeeklyThemes(questions: string[]): Promise<WeeklyTheme[
     JSON.stringify(trimmed),
   ].join('\n')
 
-  const response = await getAnthropicClient().messages.create({
-    model: CLASSIFIER_MODEL,
-    max_tokens: THEME_MAX_TOKENS,
+  const response = await generateText({
+    modelKey: AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES,
+    system: [],
     messages: [{ role: 'user', content: prompt }],
+    parseResponse: parseWeeklyThemes,
+    usageSink: createWorkerAiUsageSink({
+      tenantId,
+      venueId,
+      feature: 'analytics-weekly-themes',
+    }),
   })
 
-  return parseWeeklyThemes(extractText(response.content))
+  return response.parsed
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +368,11 @@ async function enrichVenue(params: {
     const batch = untaggedMessages.slice(i, i + TOPIC_BATCH_SIZE)
     let topics: TopicKey[]
     try {
-      topics = await classifyTopicBatch(batch.map((message) => message.content))
+      topics = await classifyTopicBatch({
+        questions: batch.map((message) => message.content),
+        tenantId,
+        venueId,
+      })
     } catch (error) {
       logger.warn({
         action: 'workers.analytics-enrichment.classify-failed',
@@ -504,7 +508,7 @@ async function enrichVenue(params: {
   let themesWritten = 0
   if (themeQuestions.length >= THEME_MIN_QUESTIONS) {
     try {
-      const themes = await synthesizeWeeklyThemes(themeQuestions)
+      const themes = await synthesizeWeeklyThemes({ questions: themeQuestions, tenantId, venueId })
       if (themes.length > 0) {
         const weekStart = startOfIsoWeekUtc(dayStart)
         const weekEnd = new Date(weekStart)
