@@ -883,6 +883,16 @@ export const adminRouter = router({
       const weekStart = new Date(input.weekStart)
       const weekEnd = new Date(input.weekEnd)
 
+      const venue = await withTenantIsolationBypass(async () =>
+        db.venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        }),
+      )
+      if (!venue) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
       // Reports are no longer one-per-venue-per-week — every generate creates its own
       // independent row, covering whatever range and title the admin picked. This also
       // avoids the old find-or-reuse-existing-row behavior silently regenerating on top

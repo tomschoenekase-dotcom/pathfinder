@@ -420,6 +420,7 @@ describe('admin router', () => {
   })
 
   it('admin.generateWeeklyReportDraft always creates a new row (no reuse) and accepts a custom title', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
     weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
 
     const caller = testRouter.createCaller(adminCtx())
@@ -444,6 +445,28 @@ describe('admin router', () => {
     expect(enqueueWeeklyReport).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1', reportId: 'report_new' }),
     )
+  })
+
+  it('admin.generateWeeklyReportDraft rejects a venue outside the supplied tenant', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'other_tenant_venue',
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'other_tenant_venue', tenantId: 'tenant_1' },
+      select: { id: true },
+    })
+    expect(weeklyReportCreate).not.toHaveBeenCalled()
+    expect(enqueueWeeklyReport).not.toHaveBeenCalled()
   })
 
   it('admin.updateWeeklyReportDraft throws BAD_REQUEST on a published report', async () => {

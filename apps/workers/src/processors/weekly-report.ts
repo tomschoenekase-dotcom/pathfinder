@@ -1,12 +1,17 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
-import { env, logger } from '@pathfinder/config'
+import {
+  AI_MODEL_KEYS,
+  generateText,
+  setAnthropicClientForTesting,
+  type AnthropicMessagesClient,
+} from '@pathfinder/ai'
+import { logger } from '@pathfinder/config'
 import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
 import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
-const MAX_OUTPUT_TOKENS = 1_800
+import { createWorkerAiUsageSink } from '../lib/ai-usage'
+
 const MAX_GENERAL_MESSAGES = 400
 const MESSAGE_CONTENT_LIMIT = 500
 
@@ -27,29 +32,8 @@ const weeklyReportResponseSchema = z.object({
 
 type WeeklyReportResponse = z.infer<typeof weeklyReportResponseSchema>
 
-let anthropicClient: Anthropic | null = null
-
-function getAnthropicClient(): Anthropic {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is not configured')
-  }
-
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
-  }
-
-  return anthropicClient
-}
-
-function extractResponseText(content: Anthropic.Messages.Message['content']): string {
-  return content
-    .filter(
-      (block): block is Extract<(typeof content)[number], { type: 'text' }> =>
-        block.type === 'text',
-    )
-    .map((block) => block.text)
-    .join('\n')
-    .trim()
+export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void {
+  setAnthropicClientForTesting(client)
 }
 
 // Claude occasionally overshoots an array field's requested max by one or two items.
@@ -149,10 +133,20 @@ async function markReportStatus(
   },
 ): Promise<void> {
   await withTenantIsolationBypass(async () => {
-    await db.weeklyReport.updateMany({
-      where: { id: payload.reportId, tenantId: payload.tenantId },
+    const result = await db.weeklyReport.updateMany({
+      where: {
+        id: payload.reportId,
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+      },
       data,
     })
+
+    if (result.count !== 1) {
+      throw new Error(
+        `Report ${payload.reportId} not found for tenant ${payload.tenantId} and venue ${payload.venueId}`,
+      )
+    }
   })
 }
 
@@ -325,13 +319,19 @@ export async function processWeeklyReportJob(
       generalMessages: data.generalMessages,
     })
 
-    const response = await getAnthropicClient().messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: MAX_OUTPUT_TOKENS,
+    const response = await generateText({
+      modelKey: AI_MODEL_KEYS.WEEKLY_REPORT,
+      system: [],
       messages: [{ role: 'user', content: prompt }],
+      parseResponse: parseReport,
+      usageSink: createWorkerAiUsageSink({
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        feature: 'weekly-report',
+      }),
     })
 
-    const parsed = parseReport(extractResponseText(response.content))
+    const parsed = response.parsed
     const title = 'PathFinder Weekly Report'
     const content = formatReportContent({
       title,

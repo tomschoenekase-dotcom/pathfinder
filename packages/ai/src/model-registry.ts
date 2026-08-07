@@ -3,6 +3,7 @@ export const AI_MODEL_KEYS = {
   ANALYTICS_WEEKLY_THEMES: 'analytics-weekly-themes',
   ANSWER_ANALYSIS: 'answer-analysis',
   GUEST_CHAT: 'guest-chat',
+  WEEKLY_REPORT: 'weekly-report',
 } as const
 
 export type AiModelKey = (typeof AI_MODEL_KEYS)[keyof typeof AI_MODEL_KEYS]
@@ -67,6 +68,7 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   [AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES]: haikuSpec(1_024, 30_000),
   [AI_MODEL_KEYS.ANSWER_ANALYSIS]: sonnetSpec(1_500),
   [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
+  [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),
 }
 
 export function getAiModelSpec(modelKey: AiModelKey): AiModelSpec {
