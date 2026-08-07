@@ -2,6 +2,7 @@ export const AI_EMBEDDING_MODEL_KEYS = {
   GUEST_QUERY: 'guest-query-embedding',
   PLACE_CONTENT: 'place-content-embedding',
   KNOWLEDGE_CONTENT: 'knowledge-content-embedding',
+  ANALYTICS_CLUSTERING: 'analytics-clustering-embedding',
 } as const
 
 export type AiEmbeddingModelKey =
@@ -41,6 +42,11 @@ export const AI_EMBEDDING_MODEL_REGISTRY: Readonly<
     maxAttempts: 1,
   },
   [AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT]: {
+    ...TEXT_EMBEDDING_3_SMALL,
+    // BullMQ owns retries for worker jobs; do not multiply provider calls.
+    maxAttempts: 1,
+  },
+  [AI_EMBEDDING_MODEL_KEYS.ANALYTICS_CLUSTERING]: {
     ...TEXT_EMBEDDING_3_SMALL,
     // BullMQ owns retries for worker jobs; do not multiply provider calls.
     maxAttempts: 1,

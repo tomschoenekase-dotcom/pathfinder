@@ -1,20 +1,16 @@
 import { z } from 'zod'
 
 import {
+  AI_EMBEDDING_MODEL_KEYS,
   AI_MODEL_KEYS,
+  generateEmbeddings,
   generateText,
   setAnthropicClientForTesting,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { TOPIC_KEY_SET, TOPIC_KEYS, type TopicKey } from '@pathfinder/analytics/topics'
 import { logger } from '@pathfinder/config'
-import {
-  db,
-  generateEmbeddings,
-  updateJobRecord,
-  withTenantIsolationBypass,
-  writeJobRecord,
-} from '@pathfinder/db'
+import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
 import type { AnalyticsEnrichmentJobPayload } from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
@@ -304,7 +300,12 @@ export function clusterQuestions(
     .slice(0, TOP_N_CLUSTERS)
 }
 
-async function buildClusters(questions: string[]): Promise<QuestionCluster[]> {
+async function buildClusters(params: {
+  questions: string[]
+  tenantId: string
+  venueId: string
+}): Promise<QuestionCluster[]> {
+  const { questions, tenantId, venueId } = params
   const trimmed = questions
     .map((question) => question.trim())
     .filter((question) => question.length > 0)
@@ -317,7 +318,16 @@ async function buildClusters(questions: string[]): Promise<QuestionCluster[]> {
   const embeddings: number[][] = []
   for (let i = 0; i < trimmed.length; i += EMBED_BATCH_SIZE) {
     const batch = trimmed.slice(i, i + EMBED_BATCH_SIZE)
-    embeddings.push(...(await generateEmbeddings(batch)))
+    const result = await generateEmbeddings({
+      modelKey: AI_EMBEDDING_MODEL_KEYS.ANALYTICS_CLUSTERING,
+      texts: batch,
+      usageSink: createWorkerAiUsageSink({
+        tenantId,
+        venueId,
+        feature: 'analytics-question-clustering',
+      }),
+    })
+    embeddings.push(...result.embeddings)
   }
 
   const items = trimmed.map((text, index) => ({ text, embedding: embeddings[index]! }))
@@ -465,7 +475,7 @@ async function enrichVenue(params: {
   const topQuestionTexts = windowQuestions
     .map((event) => questionFromMetadata(event.metadata, 'message'))
     .filter((text): text is string => text !== null)
-  const topClusters = await buildClusters(topQuestionTexts)
+  const topClusters = await buildClusters({ questions: topQuestionTexts, tenantId, venueId })
 
   // --- 3. Content-gap clusters (E) over the rolling window ---
   const gapEvents = await db.analyticsEvent.findMany({
@@ -482,7 +492,7 @@ async function enrichVenue(params: {
   const gapTexts = gapEvents
     .map((event) => questionFromMetadata(event.metadata, 'question'))
     .filter((text): text is string => text !== null)
-  const gapClusters = await buildClusters(gapTexts)
+  const gapClusters = await buildClusters({ questions: gapTexts, tenantId, venueId })
 
   // --- Weekly themes (F): refreshed nightly from a trailing 7-day window, keyed
   // by the calendar week containing today so the row converges over the week

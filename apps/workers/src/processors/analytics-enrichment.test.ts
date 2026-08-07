@@ -28,6 +28,11 @@ vi.mock('@pathfinder/config', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
+vi.mock('@pathfinder/ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pathfinder/ai')>()
+  return { ...actual, generateEmbeddings: mocks.generateEmbeddings }
+})
+
 vi.mock('@pathfinder/db', () => ({
   db: {
     venue: { findMany: mocks.venueFindMany },
@@ -43,7 +48,6 @@ vi.mock('@pathfinder/db', () => ({
     venueWeeklyTheme: { upsert: mocks.themeUpsert },
     $transaction: mocks.transaction,
   },
-  generateEmbeddings: mocks.generateEmbeddings,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
   updateJobRecord: mocks.updateJobRecord,
@@ -57,6 +61,36 @@ import {
 
 const anthropicCreate = vi.fn()
 const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
+
+const embeddingUsage = {
+  provider: 'openai' as const,
+  model: 'text-embedding-3-small',
+  pricingVersion: 'openai-public-2026-08-07',
+  usage: {
+    inputTokens: 12,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+  },
+  estimatedCostUsd: 0.00000024,
+  latencyMs: 3,
+  attempts: 1,
+  success: true,
+}
+
+type EmbeddingParams = {
+  modelKey: string
+  texts: string[]
+  usageSink: (usage: typeof embeddingUsage & { errorCode?: string }) => Promise<void>
+}
+
+async function successfulEmbeddingBatch(params: EmbeddingParams) {
+  await params.usageSink(embeddingUsage)
+  return {
+    ...embeddingUsage,
+    embeddings: params.texts.map((_, index) => [index + 1, 0, 0]),
+  }
+}
 
 describe('clusterQuestions', () => {
   it('merges near-identical embeddings and keeps the most frequent phrasing', () => {
@@ -120,9 +154,7 @@ describe('processAnalyticsEnrichmentJob', () => {
       ])
       .mockResolvedValueOnce([{ metadata: { question: 'is there a helipad' } }])
       .mockResolvedValueOnce([{ metadata: { message: 'where is the toilet' } }])
-    mocks.generateEmbeddings.mockImplementation(async (texts: string[]) =>
-      texts.map((_, index) => [index + 1, 0, 0]),
-    )
+    mocks.generateEmbeddings.mockImplementation(successfulEmbeddingBatch)
     mocks.clusterDeleteMany.mockResolvedValue({})
     mocks.clusterCreateMany.mockResolvedValue({})
     mocks.rollupDeleteMany.mockResolvedValue({})
@@ -267,7 +299,7 @@ describe('processAnalyticsEnrichmentJob', () => {
       }),
     )
     expect(mocks.aiUsageEventCreate).toHaveBeenNthCalledWith(
-      2,
+      4,
       expect.objectContaining({
         data: expect.objectContaining({
           tenantId: 'tenant_1',
@@ -387,6 +419,105 @@ describe('processAnalyticsEnrichmentJob', () => {
         }),
       }),
     )
+  })
+
+  it('batches clustering embeddings in order and attributes each request', async () => {
+    const questions = Array.from({ length: 97 }, (_, index) => ({
+      metadata: { message: `question ${index}` },
+    }))
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce(questions)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    await processAnalyticsEnrichmentJob({
+      tenantId: 'tenant_1',
+      date: '2026-06-18T00:00:00.000Z',
+    })
+
+    expect(mocks.generateEmbeddings).toHaveBeenCalledTimes(2)
+    expect(mocks.generateEmbeddings.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        modelKey: 'analytics-clustering-embedding',
+        texts: Array.from({ length: 96 }, (_, index) => `question ${index}`),
+      }),
+    )
+    expect(mocks.generateEmbeddings.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        modelKey: 'analytics-clustering-embedding',
+        texts: ['question 96'],
+      }),
+    )
+    const embeddingEvents = mocks.aiUsageEventCreate.mock.calls
+      .map((call) => call[0].data)
+      .filter((data) => data.feature === 'analytics-question-clustering')
+    expect(embeddingEvents).toHaveLength(2)
+    expect(embeddingEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          surface: 'worker',
+          attempts: 1,
+          success: true,
+        }),
+      ]),
+    )
+  })
+
+  it('retains prior batch usage and preserves clusters when a later batch fails', async () => {
+    const questions = Array.from({ length: 97 }, (_, index) => ({
+      metadata: { message: `question ${index}` },
+    }))
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany.mockResolvedValueOnce(questions)
+    mocks.generateEmbeddings
+      .mockImplementationOnce(successfulEmbeddingBatch)
+      .mockImplementationOnce(async (params: EmbeddingParams) => {
+        await params.usageSink({
+          ...embeddingUsage,
+          usage: { ...embeddingUsage.usage, inputTokens: 0 },
+          estimatedCostUsd: 0,
+          success: false,
+          errorCode: 'provider-http-503',
+        })
+        throw new Error('OpenAI embedding request failed')
+      })
+
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).rejects.toThrow('OpenAI embedding request failed')
+
+    expect(mocks.generateEmbeddings).toHaveBeenCalledTimes(2)
+    const embeddingEvents = mocks.aiUsageEventCreate.mock.calls
+      .map((call) => call[0].data)
+      .filter((data) => data.feature === 'analytics-question-clustering')
+    expect(embeddingEvents).toEqual([
+      expect.objectContaining({ success: true, attempts: 1 }),
+      expect.objectContaining({ success: false, attempts: 1, errorCode: 'provider-http-503' }),
+    ])
+    expect(mocks.clusterDeleteMany).not.toHaveBeenCalled()
+    expect(mocks.clusterCreateMany).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'FAILED',
+      error: 'OpenAI embedding request failed',
+    })
+  })
+
+  it('continues clustering when usage persistence is unavailable', async () => {
+    mocks.aiUsageEventCreate.mockRejectedValue(new Error('usage db unavailable'))
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).resolves.toBeUndefined()
+    expect(mocks.clusterCreateMany).toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 
   it('marks the job record FAILED and rethrows on error', async () => {
