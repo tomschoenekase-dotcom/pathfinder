@@ -1,0 +1,552 @@
+import { createHash } from 'node:crypto'
+import { readFile, readdir } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const ignoredDirectories = new Set(['.git', '.next', '.turbo', 'dist', 'node_modules'])
+const sourceExtensions = new Set(['.ts', '.tsx'])
+const safeMethods = new Set(['$queryRaw', '$executeRaw'])
+const prohibitedMethods = new Set(['$queryRawUnsafe', '$executeRawUnsafe', '$queryRawTyped'])
+const rawMethods = new Set([...safeMethods, ...prohibitedMethods])
+const prismaFragmentHelpers = new Set(['sql', 'raw', 'join', 'empty'])
+const approvedPolicies = new Set([
+  'system-probe',
+  'public-venue-slug',
+  'public-venue-id',
+  'public-venue-session-token',
+  'tenant-and-venue',
+  'tenant-venue-revision-source',
+])
+
+// Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
+// Run with --print-inventory after a reviewed query change, then update only the intended entry.
+const approvedOperations = [
+  {
+    file: 'apps/web/app/api/health/route.ts',
+    method: '$queryRaw',
+    hash: '1730fc082ddaf286020215008c78754a2d980d4e7aefc39e339c6684fca76e7c',
+    policy: 'system-probe',
+  },
+  {
+    file: 'apps/web/app/[venueSlug]/chat/layout.tsx',
+    method: '$queryRaw',
+    hash: '18364e754072766ce9704c6ca743a1774c58cfb786ff322c33e8367af6ed7b71',
+    policy: 'public-venue-slug',
+  },
+  {
+    file: 'packages/api/src/routers/analytics.ts',
+    method: '$queryRaw',
+    hash: '46303d6622b41aff5fc44f7d2d9201ba9b6cfada52486596296c0ce5784a8056',
+    policy: 'public-venue-id',
+  },
+  {
+    file: 'packages/api/src/routers/chat.ts',
+    method: '$queryRaw',
+    hash: 'b60eb08da4af4b7e56c4a5b111d614deaf0ebeb5cd9dcff1370ea3fd45f89b51',
+    policy: 'public-venue-id',
+  },
+  {
+    file: 'packages/api/src/routers/chat.ts',
+    method: '$queryRaw',
+    hash: '0d9343cf04e14fbb149568d40d9114ac091c144db25082ea4bffbff0ff4f4671',
+    policy: 'public-venue-id',
+  },
+  {
+    file: 'packages/api/src/routers/chat.ts',
+    method: '$queryRaw',
+    hash: '0e9c67756aeb6f06c65fa2f2dcad466db1b4c646bb47c819a3b7b4dfdf6de68c',
+    policy: 'public-venue-session-token',
+  },
+  {
+    file: 'packages/api/src/routers/venue.ts',
+    method: '$queryRaw',
+    hash: 'cc9351d36f562c57799328ef56fdb130629486500e382306f134062c805cb255',
+    policy: 'public-venue-slug',
+  },
+  {
+    file: 'packages/api/src/routers/venue.ts',
+    method: '$queryRaw',
+    hash: 'f869aa4e6f5b7b4015b2462ed70877c7691212ed0325374357ab8144470833ab',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/semantic-search.ts',
+    method: '$queryRaw',
+    hash: '078f87ab5b3961b369533d7182e91722f3aa9d45db444748597842670d2bc1f3',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/semantic-search.ts',
+    method: '$executeRaw',
+    hash: '13023c54e29471ae63818c0e1b7a2f365588e174ab964f4e94ea0adc462e883d',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/db/src/helpers/semantic-search.ts',
+    method: '$queryRaw',
+    hash: '86c45e1fb58daaf4ee5320549fa21008b76f1984fb96c010fde2f3442bfa510c',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/semantic-search.ts',
+    method: '$executeRaw',
+    hash: '47865cf7e63cba797e5de27b20b8a0a9116a4516a3495297e2d28e4096cb7ec7',
+    policy: 'tenant-venue-revision-source',
+  },
+]
+
+async function collectFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const files = []
+  for (const entry of entries) {
+    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) continue
+    const absolute = path.join(directory, entry.name)
+    if (entry.isDirectory()) files.push(...(await collectFiles(absolute)))
+    else if (sourceExtensions.has(path.extname(entry.name))) files.push(absolute)
+  }
+  return files
+}
+
+function relativePath(absolute) {
+  return path.relative(repositoryRoot, absolute).split(path.sep).join('/')
+}
+
+function isTestPath(fileName) {
+  return /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/.test(fileName)
+}
+
+function canonicalSql(sql) {
+  // Preserve all semantic text, including whitespace inside literals/comments.
+  return sql.replace(/\r\n?/g, '\n')
+}
+
+function canonicalExpression(expression, sourceFile) {
+  return expression.getText(sourceFile).replace(/\r\n?/g, '\n')
+}
+
+function operationForTag(node, method, sourceFile, fileName) {
+  let sql = ts.isNoSubstitutionTemplateLiteral(node.template)
+    ? node.template.text
+    : node.template.head.text
+  const expressions = []
+  if (ts.isTemplateExpression(node.template)) {
+    for (const span of node.template.templateSpans) {
+      expressions.push(canonicalExpression(span.expression, sourceFile))
+      sql += ` $${expressions.length} ${span.literal.text}`
+    }
+  }
+  const canonical = canonicalSql(sql)
+  const signatureInput = `${method}\0${canonical}\0${expressions.join('\0')}`
+  return {
+    file: fileName,
+    method,
+    hash: createHash('sha256').update(signatureInput).digest('hex'),
+    bindings: expressions,
+    sql: canonical,
+  }
+}
+
+function unwrapExpression(node) {
+  let current = node
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+function constantString(node) {
+  const current = unwrapExpression(node)
+  if (ts.isStringLiteral(current) || ts.isNoSubstitutionTemplateLiteral(current)) {
+    return current.text
+  }
+  if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = constantString(current.left)
+    const right = constantString(current.right)
+    return left === null || right === null ? null : left + right
+  }
+  return null
+}
+
+function propertyName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text
+  if (ts.isElementAccessExpression(node)) return constantString(node.argumentExpression)
+  return null
+}
+
+function isDbReceiver(node, aliases) {
+  const current = unwrapExpression(node)
+  if (ts.isIdentifier(current)) return current.text === 'db' || aliases.has(current.text)
+  return ts.isPropertyAccessExpression(current) && current.name.text === 'db'
+}
+
+function collectDbAliases(sourceFile) {
+  const aliases = new Set()
+  const declarations = []
+  const collect = (node) => {
+    if (ts.isVariableDeclaration(node)) declarations.push(node)
+    ts.forEachChild(node, collect)
+  }
+  collect(sourceFile)
+
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const declaration of declarations) {
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.initializer &&
+        isDbReceiver(declaration.initializer, aliases) &&
+        !aliases.has(declaration.name.text)
+      ) {
+        aliases.add(declaration.name.text)
+        changed = true
+      }
+      if (ts.isObjectBindingPattern(declaration.name)) {
+        for (const element of declaration.name.elements) {
+          const sourceName =
+            element.propertyName?.getText(sourceFile) ?? element.name.getText(sourceFile)
+          if (
+            sourceName === 'db' &&
+            ts.isIdentifier(element.name) &&
+            !aliases.has(element.name.text)
+          ) {
+            aliases.add(element.name.text)
+            changed = true
+          }
+        }
+      }
+    }
+  }
+  return aliases
+}
+
+function analyzeSource(source, fileName) {
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
+  const operations = []
+  const violations = []
+  const dbAliases = collectDbAliases(sourceFile)
+
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && node.text === 'Prisma') {
+      violations.push(`${fileName}: Prisma namespace access is prohibited in production source`)
+    }
+
+    if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require'
+      const specifier = node.arguments[0]
+      if (
+        (isDynamicImport || isRequire) &&
+        specifier &&
+        constantString(specifier) === '@prisma/client'
+      ) {
+        violations.push(`${fileName}: dynamic Prisma client access is prohibited`)
+      }
+      if (
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === 'Reflect' &&
+        node.expression.name.text === 'get' &&
+        node.arguments[0] &&
+        isDbReceiver(node.arguments[0], dbAliases)
+      ) {
+        violations.push(`${fileName}: reflected database method access is prohibited`)
+      }
+    }
+
+    const name = propertyName(node)
+    if (name && rawMethods.has(name)) {
+      if (ts.isElementAccessExpression(node)) {
+        violations.push(`${fileName}: computed raw SQL reference ${name} is prohibited`)
+      } else if (prohibitedMethods.has(name)) {
+        violations.push(`${fileName}: Prisma raw method ${name} is prohibited`)
+      } else if (!(ts.isTaggedTemplateExpression(node.parent) && node.parent.tag === node)) {
+        violations.push(`${fileName}: ${name} must be used only as a direct tagged template`)
+      } else {
+        operations.push(operationForTag(node.parent, name, sourceFile, fileName))
+      }
+    }
+
+    if (
+      ts.isElementAccessExpression(node) &&
+      ts.isTaggedTemplateExpression(node.parent) &&
+      node.parent.tag === node &&
+      name === null
+    ) {
+      violations.push(`${fileName}: computed tagged-template access is prohibited`)
+    }
+    if (
+      ts.isElementAccessExpression(node) &&
+      ts.isCallExpression(node.parent) &&
+      node.parent.expression === node
+    ) {
+      violations.push(`${fileName}: computed method calls are prohibited in production source`)
+    }
+    if (
+      ts.isElementAccessExpression(node) &&
+      name === null &&
+      isDbReceiver(node.expression, dbAliases)
+    ) {
+      violations.push(`${fileName}: dynamic database method access is prohibited`)
+    }
+
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'Prisma' &&
+      prismaFragmentHelpers.has(node.name.text)
+    ) {
+      violations.push(`${fileName}: Prisma.${node.name.text} raw SQL fragments are prohibited`)
+    }
+
+    if (
+      ts.isIdentifier(node) &&
+      rawMethods.has(node.text) &&
+      !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+    ) {
+      violations.push(`${fileName}: detached raw SQL reference ${node.text} is prohibited`)
+    }
+
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      rawMethods.has(node.text) &&
+      !(ts.isElementAccessExpression(node.parent) && node.parent.argumentExpression === node)
+    ) {
+      violations.push(`${fileName}: computed raw SQL reference ${node.text} is prohibited`)
+    }
+
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return { operations, violations }
+}
+
+function operationKey(operation) {
+  return `${operation.file}\0${operation.method}\0${operation.hash}`
+}
+
+function auditInventory(files, approved) {
+  const violations = []
+  const operations = []
+  const approvedKeys = new Set()
+
+  for (const entry of approved) {
+    const key = operationKey(entry)
+    if (approvedKeys.has(key)) violations.push(`duplicate raw SQL allowlist entry: ${key}`)
+    approvedKeys.add(key)
+    if (!approvedPolicies.has(entry.policy)) {
+      violations.push(`${entry.file}: invalid or missing raw SQL policy '${entry.policy}'`)
+    }
+  }
+
+  for (const { fileName, source } of files) {
+    if (isTestPath(fileName)) continue
+    const result = analyzeSource(source, fileName)
+    operations.push(...result.operations)
+    violations.push(...result.violations)
+  }
+
+  const observedKeys = new Set()
+  for (const operation of operations) {
+    const key = operationKey(operation)
+    if (observedKeys.has(key)) {
+      violations.push(`${operation.file}: duplicate raw SQL operation signature ${operation.hash}`)
+    }
+    observedKeys.add(key)
+    if (!approvedKeys.has(key)) {
+      violations.push(
+        `${operation.file}: unapproved ${operation.method} signature ${operation.hash}`,
+      )
+    }
+  }
+  for (const entry of approved) {
+    if (!observedKeys.has(operationKey(entry))) {
+      violations.push(`${entry.file}: stale ${entry.method} signature ${entry.hash}`)
+    }
+  }
+
+  return { operations, violations }
+}
+
+function expectFixtureFailure(name, files, approved, fragment) {
+  const result = auditInventory(files, approved)
+  if (!result.violations.some((violation) => violation.includes(fragment))) {
+    throw new Error(`Raw SQL verifier failed its ${name} self-test`)
+  }
+}
+
+function runSelfTests() {
+  const fileName = 'packages/api/src/fixture.ts'
+  const source = 'const rows = db.$queryRaw`SELECT id FROM places WHERE tenant_id = ${tenantId}`'
+  const analyzed = analyzeSource(source, fileName)
+  if (analyzed.violations.length > 0 || analyzed.operations.length !== 1) {
+    throw new Error('Raw SQL verifier failed its clean parser self-test')
+  }
+  const approved = [{ ...analyzed.operations[0], policy: 'tenant-and-venue' }]
+  if (auditInventory([{ fileName, source }], approved).violations.length > 0) {
+    throw new Error('Raw SQL verifier failed its clean inventory self-test')
+  }
+
+  const literalWhitespaceA = analyzeSource(
+    "const rows = db.$queryRaw`SELECT 'a b' WHERE tenant_id = ${tenantId}`",
+    fileName,
+  ).operations[0]
+  const literalWhitespaceB = analyzeSource(
+    "const rows = db.$queryRaw`SELECT 'a  b' WHERE tenant_id = ${tenantId}`",
+    fileName,
+  ).operations[0]
+  if (!literalWhitespaceA || literalWhitespaceA.hash === literalWhitespaceB?.hash) {
+    throw new Error('Raw SQL verifier failed its literal-whitespace collision self-test')
+  }
+  expectFixtureFailure(
+    'semantic drift',
+    [{ fileName, source: source.replace('tenant_id', 'venue_id') }],
+    approved,
+    'unapproved',
+  )
+  expectFixtureFailure(
+    'binding drift',
+    [{ fileName, source: source.replace('${tenantId}', '${venueId}') }],
+    approved,
+    'unapproved',
+  )
+  expectFixtureFailure(
+    'unsafe method',
+    [{ fileName, source: 'db.$queryRawUnsafe("SELECT 1")' }],
+    [],
+    'Prisma raw method $queryRawUnsafe is prohibited',
+  )
+  expectFixtureFailure(
+    'function call',
+    [{ fileName, source: 'db.$queryRaw("SELECT 1")' }],
+    [],
+    'direct tagged template',
+  )
+  expectFixtureFailure(
+    'detached alias',
+    [{ fileName, source: 'const { $queryRaw } = db; $queryRaw`SELECT 1`' }],
+    [],
+    'detached raw SQL reference',
+  )
+  expectFixtureFailure(
+    'element access',
+    [{ fileName, source: 'db["$queryRaw"]`SELECT 1`' }],
+    [],
+    'computed raw SQL reference',
+  )
+  expectFixtureFailure(
+    'computed concatenation',
+    [{ fileName, source: "db['$query' + 'Raw']`SELECT 1`" }],
+    [],
+    'computed raw SQL reference',
+  )
+  expectFixtureFailure(
+    'dynamic computed tag',
+    [{ fileName, source: 'const method = getMethod(); db[method]`SELECT 1`' }],
+    [],
+    'computed tagged-template access',
+  )
+  expectFixtureFailure(
+    'dynamic database method',
+    [{ fileName, source: 'const client = db; const method = getMethod(); client[method](query)' }],
+    [],
+    'dynamic database method access',
+  )
+  expectFixtureFailure(
+    'wrapped dynamic method',
+    [
+      {
+        fileName,
+        source: 'const holder = { client: db }; holder.client[getMethod()](query)',
+      },
+    ],
+    [],
+    'computed method calls are prohibited',
+  )
+  expectFixtureFailure(
+    'reflected database method',
+    [{ fileName, source: 'Reflect.get(db, method)(query)' }],
+    [],
+    'reflected database method access',
+  )
+  expectFixtureFailure(
+    'typed raw',
+    [{ fileName, source: 'db.$queryRawTyped(query)' }],
+    [],
+    'Prisma raw method $queryRawTyped is prohibited',
+  )
+  expectFixtureFailure(
+    'Prisma fragment',
+    [{ fileName, source: 'const fragment = Prisma.sql`tenant_id = ${tenantId}`' }],
+    [],
+    'raw SQL fragments are prohibited',
+  )
+  expectFixtureFailure(
+    'Prisma alias',
+    [
+      {
+        fileName,
+        source: "import { Prisma as P } from '@prisma/client'; P.sql`SELECT 1`",
+      },
+    ],
+    [],
+    'Prisma namespace access is prohibited',
+  )
+  expectFixtureFailure(
+    'dynamic Prisma access',
+    [{ fileName, source: "const p = await import('@prisma/client')" }],
+    [],
+    'dynamic Prisma client access is prohibited',
+  )
+  expectFixtureFailure('stale allowlist', [], approved, 'stale')
+  expectFixtureFailure(
+    'duplicate allowlist',
+    [{ fileName, source }],
+    [...approved, ...approved],
+    'duplicate raw SQL allowlist entry',
+  )
+}
+
+runSelfTests()
+
+const sourceFiles = (
+  await Promise.all(
+    ['apps', 'packages'].map((directory) => collectFiles(path.join(repositoryRoot, directory))),
+  )
+).flat()
+const files = await Promise.all(
+  sourceFiles.map(async (absolute) => ({
+    fileName: relativePath(absolute),
+    source: await readFile(absolute, 'utf8'),
+  })),
+)
+const result = auditInventory(files, approvedOperations)
+
+if (process.argv.includes('--print-inventory')) {
+  console.log(JSON.stringify(result.operations, null, 2))
+  if (result.violations.length > 0) {
+    console.error('Raw SQL boundary violations:')
+    for (const violation of [...new Set(result.violations)].sort()) console.error(`- ${violation}`)
+    process.exit(1)
+  }
+  process.exit(0)
+}
+
+if (result.violations.length > 0) {
+  console.error('Raw SQL boundary violations:')
+  for (const violation of [...new Set(result.violations)].sort()) console.error(`- ${violation}`)
+  process.exit(1)
+}
+
+const reads = result.operations.filter((operation) => operation.method === '$queryRaw').length
+const writes = result.operations.length - reads
+console.log(
+  `Verified ${result.operations.length} raw SQL operations: ${reads} reads, ${writes} writes.`,
+)

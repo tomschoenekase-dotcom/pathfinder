@@ -88,7 +88,7 @@ Rules:
 - Every query against a tenanted table must include `tenant_id`.
 - `activeTenantId` comes from Clerk org context via `packages/auth`; never read it from client input.
 - Public cross-tenant raw SQL is allowed only when resolving public resources such as venue slug or anonymous session token, and the code must explain why.
-- Raw SQL for pgvector must bind `tenant_id` explicitly.
+- Raw SQL for pgvector must bind `tenant_id` explicitly. CI pins every production raw SQL template and its interpolation expressions; unsafe methods, detached calls, computed access, and Prisma raw-fragment helpers are prohibited.
 - `withTenantIsolationBypass` is allowed only for platform-admin procedures and worker processors that explicitly filter by tenant. Every invocation emits a structured `tenant_isolation.bypass` log with its normalized caller; never suppress or bypass that audit event. CI pins the approved production files and exact call counts; update that boundary only with a security review.
 - Redis keys containing tenant data must be tenant namespaced.
 
