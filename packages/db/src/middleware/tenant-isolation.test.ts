@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const loggerInfo = vi.hoisted(() => vi.fn())
+
+vi.mock('@pathfinder/config/logger', () => ({ logger: { info: loggerInfo } }))
 
 import {
   AppendOnlyModelError,
@@ -70,6 +74,10 @@ function createMockDb() {
 }
 
 describe('tenantIsolationMiddleware', () => {
+  beforeEach(() => {
+    loggerInfo.mockReset()
+  })
+
   it('exports the expected table lists', () => {
     expect(TENANTED_TABLES_LIST).toEqual([
       'TenantMembership',
@@ -183,6 +191,29 @@ describe('tenantIsolationMiddleware', () => {
       model: 'TenantMembership',
       action: 'findMany',
     })
+    expect(loggerInfo).toHaveBeenCalledWith({
+      action: 'tenant_isolation.bypass',
+      caller: expect.stringMatching(/tenant-isolation\.test\.ts:\d+:\d+$/),
+    })
+  })
+
+  it('normalizes production and bundled bypass caller identities', () => {
+    expect(
+      tenantIsolationInternals.resolveBypassCaller(
+        'Error\n    at resolveBypassCaller (C:\\repo\\packages\\db\\src\\middleware\\tenant-isolation.ts:1:1)\n    at withTenantIsolationBypass (C:\\repo\\packages\\db\\src\\middleware\\tenant-isolation.ts:2:2)\n    at runReport (C:\\repo\\apps\\workers\\dist\\index.js:123:45)',
+      ),
+    ).toBe('apps/workers/dist/index.js:123:45')
+    expect(
+      tenantIsolationInternals.resolveBypassCaller(
+        'Error\n    at e (C:\\deploy\\.next\\server\\chunks\\bundle.js:1:1)\n    at t (C:\\deploy\\.next\\server\\chunks\\bundle.js:2:2)\n    at C:\\Users\\alice\\deploy\\.next\\server\\chunks\\abc123.js:10:2',
+      ),
+    ).toBe('.next/server/chunks/[chunk].js:10:2')
+    expect(
+      tenantIsolationInternals.resolveBypassCaller(
+        'Error\n    at e (C:\\deploy\\dist\\index.js:1:1)\n    at t (C:\\deploy\\dist\\index.js:2:2)\n    at C:\\private\\service\\handler.js:10:2',
+      ),
+    ).toBe('unknown')
+    expect(tenantIsolationInternals.resolveBypassCaller('Error')).toBe('unknown')
   })
 
   it('updateMany requires where.tenantId', async () => {

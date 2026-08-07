@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
+import { logger } from '@pathfinder/config/logger'
+
 import { PLATFORM_TABLES, SHARED_SCOPE_TABLES, TENANTED_TABLES } from '../tenanted-tables'
 
 export type TenantIsolationMiddlewareParams = {
@@ -77,6 +79,43 @@ function isBypassEnabled(): boolean {
   return bypassTenantIsolationStorage.getStore() === true
 }
 
+function resolveBypassCaller(stack = new Error().stack): string {
+  // V8 stacks begin with the error header, this helper, and the bypass wrapper.
+  // Skip those frames positionally so minification cannot disguise them.
+  for (const frame of stack?.split('\n').slice(3) ?? []) {
+    const normalized = frame.trim().replaceAll('\\', '/')
+    const repositoryPath = normalized.match(/(?:^|[/(@])((?:apps|packages)\/[^():]+:\d+:\d+)/)
+    if (repositoryPath?.[1]) return repositoryPath[1]
+
+    const location = normalized.match(/(?:\()?((?:file:\/\/\/)?[^()]+):(\d+):(\d+)\)?$/)
+    if (location?.[1]) {
+      const filePath = location[1]
+      const nextServerIndex = filePath.lastIndexOf('/.next/server/')
+      if (nextServerIndex >= 0) {
+        const relative = filePath
+          .slice(nextServerIndex + 1)
+          .replace(/chunks\/[^/]+\.js$/, 'chunks/[chunk].js')
+        return `${relative}:${location[2]}:${location[3]}`
+      }
+
+      const distIndex = filePath.lastIndexOf('/dist/')
+      if (distIndex >= 0) {
+        return `${filePath.slice(distIndex + 1)}:${location[2]}:${location[3]}`
+      }
+
+      // Never expose an arbitrary absolute deployment or user path.
+      continue
+    }
+
+    const functionName = normalized.match(/^at\s+(?:async\s+)?([^\s(]+)/)?.[1]
+    if (functionName && functionName.length >= 3 && !/[/\\:]/.test(functionName)) {
+      return functionName
+    }
+  }
+
+  return 'unknown'
+}
+
 export class TenantIsolationError extends Error {
   constructor(model: string, operation: string) {
     super(`Tenant isolation violated: query on '${model}' (${operation}) missing tenant_id`)
@@ -98,6 +137,10 @@ export class AppendOnlyModelError extends Error {
  * reviewed platform-admin or tenant-filtered worker paths.
  */
 export async function withTenantIsolationBypass<T>(fn: () => Promise<T>): Promise<T> {
+  logger.info({
+    action: 'tenant_isolation.bypass',
+    caller: resolveBypassCaller(),
+  })
   return bypassTenantIsolationStorage.run(true, fn)
 }
 
@@ -165,5 +208,6 @@ export const tenantIsolationInternals = {
   hasTenantIdInCreateData,
   hasTenantIdValue,
   isBypassEnabled,
+  resolveBypassCaller,
   requiresWhereTenantId,
 }

@@ -209,7 +209,10 @@ Mounted under these namespaces in `root.ts`:
   - `upsert` → must match in both the `create` branch and root `where`,
   - reads/updates/deletes → must be in `where`.
 - **Bypass:** `withTenantIsolationBypass(fn)` uses `AsyncLocalStorage` to set a flag; only allowed
-  in `admin.*` procedures and worker processors (which legitimately operate cross-tenant).
+  in `admin.*` procedures and worker processors (which legitimately operate cross-tenant). Every
+  invocation emits a structured `tenant_isolation.bypass` info log with a normalized source or
+  bundled caller identity. The bypass disables only predicate-presence enforcement; it grants no
+  user role, venue, capability, or audience authorization.
 - Because raw SQL bypasses this hook entirely, every `$queryRaw` either binds `tenant_id` explicitly
   or is a deliberate public cross-tenant lookup (resolving a venue/session by slug/token), with a
   comment explaining why. This is the consistent pattern in `chat.ts`, `venue.getBySlug`, `analytics`.
