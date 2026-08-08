@@ -1,6 +1,7 @@
 export {
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
+  ANSWER_ANALYSIS_RECOVERY_JOB,
   ANSWER_ANALYSIS_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
@@ -18,6 +19,8 @@ export {
   EMBED_PLACE_RETRY_BACKOFF,
   EMBEDDING_DISPATCH_QUEUE,
   EMBEDDING_DISPATCH_SCHEDULER_JOB,
+  GENERATION_RECOVERY_QUEUE,
+  GENERATION_RECOVERY_SCHEDULER_JOB,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -27,6 +30,7 @@ export {
   WEEKLY_DIGEST_SCHEDULER_JOB,
   WEEKLY_REPORT_PROCESS_JOB,
   WEEKLY_REPORT_QUEUE,
+  WEEKLY_REPORT_RECOVERY_JOB,
   WEEKLY_REPORT_RETRY_BACKOFF,
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
@@ -37,6 +41,7 @@ export { checkBullMQConnection, closeBullMQConnection, getBullMQConnection } fro
 export {
   closeJobQueues,
   enqueueAnswerAnalysis,
+  enqueueAnswerAnalysisRecovery,
   enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
   enqueueEmbedKnowledgeEntry,
@@ -44,10 +49,12 @@ export {
   enqueueWelcomeEmail,
   enqueueWeeklyDigest,
   enqueueWeeklyReport,
+  enqueueWeeklyReportRecovery,
   enqueueMediaIngestion,
 } from './enqueue'
 export type {
   AnswerAnalysisJobPayload,
+  AnswerAnalysisRecoveryJobPayload,
   AnalyticsEnrichmentJobPayload,
   DailyRollupJobPayload,
   EmbedKnowledgeEntryJobPayload,
@@ -55,5 +62,6 @@ export type {
   SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
+  WeeklyReportRecoveryJobPayload,
   MediaIngestionJobPayload,
 } from './types'

@@ -20,6 +20,10 @@ const rawEnvSchema = z
     // cron. Production defaults on; staging/preview require explicit rollout.
     EMBEDDING_DISPATCH_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Expired generation recovery is correctness infrastructure, separate from
+    // business cron. Staging/preview require an explicit canary opt-in.
+    GENERATION_RECOVERY_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Required from PACKET-03 onward
     DATABASE_URL: z.string().min(1),
     DIRECT_DATABASE_URL: z.string().min(1),
@@ -81,6 +85,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
     values.EMBEDDING_DISPATCH_ENABLED === undefined
       ? values.RAILWAY_ENVIRONMENT === 'production'
       : values.EMBEDDING_DISPATCH_ENABLED === 'true',
+  GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
 }))
 
 // During Next.js build (NEXT_PHASE=phase-production-build) env vars may not

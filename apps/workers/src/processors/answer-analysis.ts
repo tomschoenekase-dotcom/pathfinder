@@ -9,12 +9,18 @@ import {
 import { logger } from '@pathfinder/config'
 import {
   acquireAnswerAnalysisExecution,
+  acquireAnswerAnalysisRecoveryExecution,
   db,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
 } from '@pathfinder/db'
-import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
+import {
+  ANSWER_ANALYSIS_PROCESS_JOB,
+  ANSWER_ANALYSIS_QUEUE,
+  ANSWER_ANALYSIS_RECOVERY_JOB,
+  type AnswerAnalysisJobPayload,
+} from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
 import {
@@ -253,13 +259,17 @@ function buildPrompt(params: {
 export async function processAnswerAnalysisJob(
   payload: AnswerAnalysisJobPayload,
   executionInput?: JobExecutionInput,
+  options: { observedLeaseToken?: string } = {},
 ): Promise<void> {
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
 
   const jobRecordId = await writeJobRecord({
-    queue: 'answer-analysis',
-    jobName: 'answer-analysis-process',
+    queue: ANSWER_ANALYSIS_QUEUE,
+    jobName:
+      options.observedLeaseToken === undefined
+        ? ANSWER_ANALYSIS_PROCESS_JOB
+        : ANSWER_ANALYSIS_RECOVERY_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
@@ -272,13 +282,20 @@ export async function processAnswerAnalysisJob(
   let leaseConflict = false
 
   try {
-    const acquisition = await acquireAnswerAnalysisExecution({
+    const claimIdentity = {
       snapshotId: payload.snapshotId,
       tenantId: payload.tenantId,
       venueId: payload.venueId,
       rangeStart: new Date(payload.rangeStart),
       rangeEnd: new Date(payload.rangeEnd),
-    })
+    }
+    const acquisition =
+      options.observedLeaseToken === undefined
+        ? await acquireAnswerAnalysisExecution(claimIdentity)
+        : await acquireAnswerAnalysisRecoveryExecution({
+            ...claimIdentity,
+            observedLeaseToken: options.observedLeaseToken,
+          })
     if (acquisition.state !== 'acquired') {
       if (acquisition.state === 'leased') {
         leaseConflict = true

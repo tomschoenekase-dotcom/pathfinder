@@ -160,3 +160,35 @@ describe('EMBEDDING_DISPATCH_ENABLED', () => {
     ).toThrow()
   })
 })
+
+describe('GENERATION_RECOVERY_ENABLED', () => {
+  it.each(['production', 'staging', 'preview'] as const)(
+    'defaults to disabled in %s until explicitly rolled out',
+    (RAILWAY_ENVIRONMENT) => {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT })
+          .GENERATION_RECOVERY_ENABLED,
+      ).toBe(false)
+    },
+  )
+
+  it('allows an explicit staging enable without enabling business schedulers', () => {
+    const parsed = envSchema.parse({
+      ...requiredEnvironment,
+      RAILWAY_ENVIRONMENT: 'staging',
+      GENERATION_RECOVERY_ENABLED: 'true',
+    })
+    expect(parsed.GENERATION_RECOVERY_ENABLED).toBe(true)
+    expect(parsed.WORKER_SCHEDULERS_ENABLED).toBe(false)
+  })
+
+  it('rejects an invalid recovery override', () => {
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        GENERATION_RECOVERY_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})

@@ -13,12 +13,20 @@ export type AnswerAnalysisJobPayload = {
   snapshotId: string
 }
 
+export type AnswerAnalysisRecoveryJobPayload = AnswerAnalysisJobPayload & {
+  observedLeaseToken: string
+}
+
 export type WeeklyReportJobPayload = {
   tenantId: string
   venueId: string
   weekStart: string
   weekEnd: string
   reportId: string
+}
+
+export type WeeklyReportRecoveryJobPayload = WeeklyReportJobPayload & {
+  observedLeaseToken: string
 }
 
 export type DailyRollupJobPayload = {

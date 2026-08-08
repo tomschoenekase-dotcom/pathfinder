@@ -8,6 +8,7 @@ import { getBullMQConnection } from './connection'
 import {
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
+  ANSWER_ANALYSIS_RECOVERY_JOB,
   ANSWER_ANALYSIS_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
@@ -32,6 +33,7 @@ import {
   WEEKLY_DIGEST_RETRY_BACKOFF,
   WEEKLY_REPORT_PROCESS_JOB,
   WEEKLY_REPORT_QUEUE,
+  WEEKLY_REPORT_RECOVERY_JOB,
   WEEKLY_REPORT_RETRY_BACKOFF,
 } from './queues'
 import { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
@@ -48,6 +50,21 @@ import type {
 } from './types'
 
 const queueCache = new Map<string, Queue>()
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+
+function normalizeObservedLeaseToken(observedLeaseToken: string): string {
+  if (!UUID_PATTERN.test(observedLeaseToken)) {
+    throw new Error('Observed execution lease token must be a UUID')
+  }
+  return observedLeaseToken.toLowerCase()
+}
+
+function recoveryJobId(type: 'answer-analysis' | 'weekly-report', identity: string[]): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['pathfinder-generation-recovery-v1', type, ...identity]))
+    .digest('hex')
+  return `generation-recovery-${type}-${digest}`
+}
 
 function getQueue(name: string): Queue {
   const existingQueue = queueCache.get(name)
@@ -189,6 +206,32 @@ export async function enqueueAnswerAnalysis(payload: AnswerAnalysisJobPayload): 
   })
 }
 
+export async function enqueueAnswerAnalysisRecovery(
+  payload: AnswerAnalysisJobPayload,
+  observedLeaseToken: string,
+): Promise<void> {
+  const normalizedLeaseToken = normalizeObservedLeaseToken(observedLeaseToken)
+  const jobId = recoveryJobId('answer-analysis', [
+    payload.tenantId,
+    payload.venueId,
+    payload.snapshotId,
+    payload.rangeStart,
+    payload.rangeEnd,
+    normalizedLeaseToken,
+  ])
+
+  await getQueue(ANSWER_ANALYSIS_QUEUE).add(
+    ANSWER_ANALYSIS_RECOVERY_JOB,
+    { ...payload, observedLeaseToken: normalizedLeaseToken },
+    {
+      ...answerAnalysisJobOptions,
+      jobId,
+    },
+  )
+
+  logger.info({ action: 'jobs.answer-analysis.recovery-enqueued' })
+}
+
 export async function enqueueWeeklyReport(payload: WeeklyReportJobPayload): Promise<void> {
   await getQueue(WEEKLY_REPORT_QUEUE).add(WEEKLY_REPORT_PROCESS_JOB, payload, {
     ...weeklyReportJobOptions,
@@ -203,6 +246,32 @@ export async function enqueueWeeklyReport(payload: WeeklyReportJobPayload): Prom
     weekStart: payload.weekStart,
     weekEnd: payload.weekEnd,
   })
+}
+
+export async function enqueueWeeklyReportRecovery(
+  payload: WeeklyReportJobPayload,
+  observedLeaseToken: string,
+): Promise<void> {
+  const normalizedLeaseToken = normalizeObservedLeaseToken(observedLeaseToken)
+  const jobId = recoveryJobId('weekly-report', [
+    payload.tenantId,
+    payload.venueId,
+    payload.reportId,
+    payload.weekStart,
+    payload.weekEnd,
+    normalizedLeaseToken,
+  ])
+
+  await getQueue(WEEKLY_REPORT_QUEUE).add(
+    WEEKLY_REPORT_RECOVERY_JOB,
+    { ...payload, observedLeaseToken: normalizedLeaseToken },
+    {
+      ...weeklyReportJobOptions,
+      jobId,
+    },
+  )
+
+  logger.info({ action: 'jobs.weekly-report.recovery-enqueued' })
 }
 
 export async function enqueueDailyRollup(payload: DailyRollupJobPayload): Promise<void> {

@@ -104,6 +104,16 @@ jobs:
         run: pnpm --dir packages/db exec vitest run src/helpers/generation-execution-claims.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_GENERATION_EXECUTION_DB_INTEGRATION: '1'
+      - name: Verify expired generation recovery discovery
+        run: pnpm --dir packages/db exec vitest run src/helpers/generation-recovery.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_GENERATION_RECOVERY_DB_INTEGRATION: '1'
+      - name: Verify generation recovery enqueue deduplication
+        run: pnpm --dir packages/jobs exec vitest run src/generation-recovery.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RAILWAY_ENVIRONMENT: preview
+          RUN_GENERATION_RECOVERY_REDIS_INTEGRATION: '1'
+          PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_disposable_generation_recovery
       - name: Verify embedding freshness audit isolation
         run: pnpm --dir apps/workers exec vitest run src/lib/embedding-freshness.integration.test.ts --pool=forks --maxWorkers=1
         env:

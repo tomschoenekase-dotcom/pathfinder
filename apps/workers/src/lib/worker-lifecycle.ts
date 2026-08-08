@@ -49,6 +49,25 @@ export function createShutdownCoordinator(options: {
   }
 }
 
+export async function runStartupWithCleanup<T>(
+  start: () => Promise<T>,
+  cleanup: () => Promise<void>,
+): Promise<T> {
+  try {
+    return await start()
+  } catch (startupError) {
+    try {
+      await cleanup()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [startupError, cleanupError],
+        'Worker startup failed and cleanup reported resource failures.',
+      )
+    }
+    throw startupError
+  }
+}
+
 export function createEscalatingShutdownHandler(
   shutdown: () => Promise<void>,
   onFailure: (error: unknown) => void,

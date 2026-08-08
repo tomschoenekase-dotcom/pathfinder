@@ -8,7 +8,8 @@ describe('environmentQueueName', () => {
   })
 
   it('isolates staging and preview queues from production and each other', () => {
-    expect(environmentQueueName('staging', 'media-ingestion')).toBe('staging:media-ingestion')
-    expect(environmentQueueName('preview', 'media-ingestion')).toBe('preview:media-ingestion')
+    expect(environmentQueueName('staging', 'media-ingestion')).toBe('staging--media-ingestion')
+    expect(environmentQueueName('preview', 'media-ingestion')).toBe('preview--media-ingestion')
+    expect(environmentQueueName('staging', 'media-ingestion')).not.toContain(':')
   })
 })

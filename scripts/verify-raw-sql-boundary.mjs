@@ -20,6 +20,7 @@ const approvedPolicies = new Set([
   'tenant-venue-revision-source',
   'tenant-venue-entity-lease',
   'tenant-venue-range-generation-lease',
+  'platform-expired-generation-discovery',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
@@ -175,9 +176,33 @@ const approvedOperations = [
     policy: 'tenant-venue-range-generation-lease',
   },
   {
+    file: 'packages/db/src/helpers/generation-recovery.ts',
+    method: '$queryRaw',
+    hash: 'd8d5dc88ee097448c22246158d2595357932f583c571d91aa9224244249827ed',
+    policy: 'platform-expired-generation-discovery',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-recovery.ts',
+    method: '$queryRaw',
+    hash: '1d2474f8b0dc709ce3b1f040861aeeaf734d61955bb842dbb9a4098389167d41',
+    policy: 'platform-expired-generation-discovery',
+  },
+  {
     file: 'packages/db/src/helpers/generation-execution-claims.ts',
     method: '$executeRaw',
     hash: '2dbc9db9a8b11d9fa044f019fc583a48aa1d535ddbeffca264ca8e37c52b0ec5',
+    policy: 'tenant-venue-range-generation-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: 'c2598fd73f258c67158b65c8ded77f678184a36b0145c813ea5d680eee06b911',
+    policy: 'tenant-venue-range-generation-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: 'aa6fe2925792b47f4997d48d5d31f2380f0603b095344d9f3e10e9eb64f06c23',
     policy: 'tenant-venue-range-generation-lease',
   },
   {

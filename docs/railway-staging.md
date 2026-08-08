@@ -123,6 +123,48 @@ staging release shell. The disposable wrapper intentionally has no external-host
 8. Run the smoke tests below. Any failure blocks production promotion; fix it
    in a new commit and repeat the entire exact-SHA procedure.
 
+## Generation recovery canary
+
+Generation recovery is a separate, default-off safety mechanism for answer-analysis and weekly-
+report rows left in `GENERATING` after a worker dies. Each minute it inspects at most 50 expired
+rows of each type, oldest lease first, and submits recovery requests that can acquire only the
+exact expired lease token they observed. A delayed request for an older token cannot acquire a
+newer generation. Recovery does not repair rows whose lease token or expiry is null.
+
+Run this canary only against independently verified staging PostgreSQL and Redis resources:
+
+1. Deploy the exact release SHA with `GENERATION_RECOVERY_ENABLED=false` on every worker replica.
+   Apply migrations first. Confirm ordinary analysis and report jobs still complete.
+2. This release changes every non-production BullMQ queue prefix from `staging:` / `preview:` to
+   `staging--` / `preview--` because BullMQ forbids `:` in queue names. Before enabling workers,
+   inspect staging Redis for legacy-prefixed waiting, delayed, active, or failed jobs. Record and
+   deliberately drain or remove only those staging jobs under the normal data-retention policy;
+   never perform a broad Redis key deletion. Production queue names are unchanged.
+3. Create synthetic staging-only analysis and weekly-report rows with valid tenant, venue, and
+   range identities. Include one expired lease, one active lease, and one expired token A that is
+   superseded by token B before its recovery request executes. Do not alter real customer rows.
+4. Set `GENERATION_RECOVERY_ENABLED=true` uniformly on all worker replicas and perform a
+   coordinated restart. Mixed flag values make scheduler ownership and operator evidence
+   ambiguous. Verify exactly one repeating `generation-recovery-scheduler` definition with the
+   one-minute cron and no startup cleanup errors.
+5. Verify the expired rows each reach one terminal outcome and at most one provider execution.
+   The active row must not run. The delayed token-A request must complete as an ineligible no-op
+   after token B replaces it. Confirm recovery `JobRecord` payloads contain no lease token and
+   logs contain only sanitized IDs/counts, never generated content or credentials.
+6. Observe at least two scheduler intervals. Record discovered, accepted enqueue-request, and
+   failure counts; oldest expired lease age; remaining expired backlog by type; provider retry or
+   exhaustion events; and distinct recovery-job failures. A backlog that stays above 50 per type,
+   increasing oldest age, enqueue failures, or exhausted jobs blocks promotion because the
+   oldest-first bounded scan can starve newer rows.
+
+Rollback is operationally reversible: set `GENERATION_RECOVERY_ENABLED=false` on every worker
+replica and restart them together, then verify the scheduler definition was removed. Disabling
+the flag does **not** cancel recovery jobs already waiting or delayed. Inspect the dedicated
+answer-analysis and weekly-report recovery job names and let safe exact-token no-ops finish, or
+drain only those staging recovery jobs under an approved incident procedure. Do not delete
+ordinary generation jobs or broad queue namespaces. Preserve failed-job and `JobRecord` evidence
+before any drain.
+
 ## Staging smoke tests
 
 - Request the public web `/api/health` endpoint and record the status code and

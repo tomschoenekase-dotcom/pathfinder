@@ -9,12 +9,18 @@ import {
 import { logger } from '@pathfinder/config'
 import {
   acquireWeeklyReportExecution,
+  acquireWeeklyReportRecoveryExecution,
   db,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
 } from '@pathfinder/db'
-import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
+import {
+  WEEKLY_REPORT_PROCESS_JOB,
+  WEEKLY_REPORT_QUEUE,
+  WEEKLY_REPORT_RECOVERY_JOB,
+  type WeeklyReportJobPayload,
+} from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
 import {
@@ -308,13 +314,17 @@ function buildReportPrompt(params: {
 export async function processWeeklyReportJob(
   payload: WeeklyReportJobPayload,
   executionInput?: JobExecutionInput,
+  options: { observedLeaseToken?: string } = {},
 ): Promise<void> {
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
 
   const jobRecordId = await writeJobRecord({
-    queue: 'weekly-report',
-    jobName: 'weekly-report-process',
+    queue: WEEKLY_REPORT_QUEUE,
+    jobName:
+      options.observedLeaseToken === undefined
+        ? WEEKLY_REPORT_PROCESS_JOB
+        : WEEKLY_REPORT_RECOVERY_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
@@ -328,20 +338,27 @@ export async function processWeeklyReportJob(
   let leaseConflict = false
 
   try {
-    const acquisition = await acquireWeeklyReportExecution({
+    const claimIdentity = {
       reportId: payload.reportId,
       tenantId: payload.tenantId,
       venueId: payload.venueId,
       weekStart: new Date(payload.weekStart),
       weekEnd: new Date(payload.weekEnd),
-    })
+    }
+    const acquisition =
+      options.observedLeaseToken === undefined
+        ? await acquireWeeklyReportExecution(claimIdentity)
+        : await acquireWeeklyReportRecoveryExecution({
+            ...claimIdentity,
+            observedLeaseToken: options.observedLeaseToken,
+          })
     if (acquisition.state !== 'acquired') {
-      if (acquisition.state === 'missing' || acquisition.state === 'terminal') {
-        await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
-        return
+      if (acquisition.state === 'leased') {
+        leaseConflict = true
+        throw new Error(WEEKLY_REPORT_EXECUTION_LEASED_ERROR)
       }
-      leaseConflict = true
-      throw new Error(WEEKLY_REPORT_EXECUTION_LEASED_ERROR)
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      return
     }
     const acquiredLeaseToken = acquisition.leaseToken
     executionLeaseToken = acquiredLeaseToken

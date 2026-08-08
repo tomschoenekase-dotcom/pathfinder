@@ -4,14 +4,28 @@ export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'
 export {
   acquireAnswerAnalysisExecution,
+  acquireAnswerAnalysisRecoveryExecution,
   acquireWeeklyReportExecution,
+  acquireWeeklyReportRecoveryExecution,
   GENERATION_EXECUTION_LEASE_MS,
 } from './helpers/generation-execution-claims'
 export type {
   AcquireAnswerAnalysisExecutionParams,
+  AcquireAnswerAnalysisRecoveryExecutionParams,
   AcquireWeeklyReportExecutionParams,
+  AcquireWeeklyReportRecoveryExecutionParams,
   GenerationExecutionAcquisition,
+  GenerationRecoveryExecutionAcquisition,
 } from './helpers/generation-execution-claims'
+export {
+  discoverExpiredGenerationExecutions,
+  GENERATION_RECOVERY_MAX_PER_TYPE,
+} from './helpers/generation-recovery'
+export type {
+  ExpiredAnswerAnalysisExecution,
+  ExpiredGenerationExecutions,
+  ExpiredWeeklyReportExecution,
+} from './helpers/generation-recovery'
 export {
   acquireEmbeddingWork,
   EMBEDDING_WORK_LEASE_MS,

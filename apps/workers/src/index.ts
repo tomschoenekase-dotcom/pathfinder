@@ -5,6 +5,7 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
+  ANSWER_ANALYSIS_RECOVERY_JOB,
   ANSWER_ANALYSIS_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
@@ -24,6 +25,8 @@ import {
   EMBED_PLACE_RETRY_BACKOFF,
   EMBEDDING_DISPATCH_QUEUE,
   EMBEDDING_DISPATCH_SCHEDULER_JOB,
+  GENERATION_RECOVERY_QUEUE,
+  GENERATION_RECOVERY_SCHEDULER_JOB,
   enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
   enqueueWeeklyDigest,
@@ -44,11 +47,14 @@ import {
   WEEKLY_DIGEST_SCHEDULER_JOB,
   WEEKLY_REPORT_PROCESS_JOB,
   WEEKLY_REPORT_QUEUE,
+  WEEKLY_REPORT_RECOVERY_JOB,
   WEEKLY_REPORT_RETRY_BACKOFF,
   type AnswerAnalysisJobPayload,
+  type AnswerAnalysisRecoveryJobPayload,
   type DailyRollupJobPayload,
   type WeeklyDigestJobPayload,
   type WeeklyReportJobPayload,
+  type WeeklyReportRecoveryJobPayload,
   type MediaIngestionJobPayload,
 } from '@pathfinder/jobs'
 
@@ -58,19 +64,25 @@ import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
+import { processGenerationRecovery } from './processors/generation-recovery'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
 import { applySchedulerState } from './scheduler-control'
 import { getJobExecutionMetadata } from './lib/job-execution'
-import { createEscalatingShutdownHandler, createShutdownCoordinator } from './lib/worker-lifecycle'
+import {
+  createEscalatingShutdownHandler,
+  createShutdownCoordinator,
+  runStartupWithCleanup,
+} from './lib/worker-lifecycle'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
 // Runs after the daily rollup (01:00) so its pure-SQL rows already exist.
 const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
 const EMBEDDING_DISPATCH_CRON = '* * * * *'
+const GENERATION_RECOVERY_CRON = '* * * * *'
 
 function startOfUtcWeek(date: Date): Date {
   const start = new Date(date)
@@ -413,6 +425,15 @@ async function handleEmbeddingDispatchQueueJob(job: Job<Record<string, never>>) 
   throw new Error(`Unsupported embedding dispatch job: ${job.name}`)
 }
 
+async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>) {
+  if (job.name === GENERATION_RECOVERY_SCHEDULER_JOB) {
+    await processGenerationRecovery(getJobExecutionMetadata(job))
+    return
+  }
+
+  throw new Error(`Unsupported generation recovery job: ${job.name}`)
+}
+
 async function handleAnalyticsEnrichmentQueueJob(
   job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
 ) {
@@ -432,18 +453,34 @@ async function handleAnalyticsEnrichmentQueueJob(
   throw new Error(`Unsupported analytics enrichment job: ${job.name}`)
 }
 
-async function handleAnswerAnalysisQueueJob(job: Job<AnswerAnalysisJobPayload>) {
+async function handleAnswerAnalysisQueueJob(
+  job: Job<AnswerAnalysisJobPayload | AnswerAnalysisRecoveryJobPayload>,
+) {
   if (job.name === ANSWER_ANALYSIS_PROCESS_JOB) {
     await processAnswerAnalysisJob(job.data, getJobExecutionMetadata(job))
+    return
+  }
+
+  if (job.name === ANSWER_ANALYSIS_RECOVERY_JOB) {
+    const { observedLeaseToken, ...payload } = job.data as AnswerAnalysisRecoveryJobPayload
+    await processAnswerAnalysisJob(payload, getJobExecutionMetadata(job), { observedLeaseToken })
     return
   }
 
   throw new Error(`Unsupported answer analysis job: ${job.name}`)
 }
 
-async function handleWeeklyReportQueueJob(job: Job<WeeklyReportJobPayload>) {
+async function handleWeeklyReportQueueJob(
+  job: Job<WeeklyReportJobPayload | WeeklyReportRecoveryJobPayload>,
+) {
   if (job.name === WEEKLY_REPORT_PROCESS_JOB) {
     await processWeeklyReportJob(job.data, getJobExecutionMetadata(job))
+    return
+  }
+
+  if (job.name === WEEKLY_REPORT_RECOVERY_JOB) {
+    const { observedLeaseToken, ...payload } = job.data as WeeklyReportRecoveryJobPayload
+    await processWeeklyReportJob(payload, getJobExecutionMetadata(job), { observedLeaseToken })
     return
   }
 
@@ -474,73 +511,121 @@ export async function startWorkers() {
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
   const embedPlaceQueue = new Queue(EMBED_PLACE_QUEUE, { connection })
   const embeddingDispatchQueue = new Queue(EMBEDDING_DISPATCH_QUEUE, { connection })
+  const generationRecoveryQueue = new Queue(GENERATION_RECOVERY_QUEUE, { connection })
   const analyticsEnrichmentQueue = new Queue(ANALYTICS_ENRICHMENT_QUEUE, { connection })
   const answerAnalysisQueue = new Queue(ANSWER_ANALYSIS_QUEUE, { connection })
   const weeklyReportQueue = new Queue(WEEKLY_REPORT_QUEUE, { connection })
   const mediaIngestionQueue = new Queue(MEDIA_INGESTION_QUEUE, { connection })
 
-  await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
-    {
-      upsert: () =>
-        weeklyDigestQueue.upsertJobScheduler(
-          WEEKLY_DIGEST_SCHEDULER_JOB,
-          { pattern: WEEKLY_DIGEST_CRON },
-          {
-            name: WEEKLY_DIGEST_SCHEDULER_JOB,
-            data: {},
-            opts: { removeOnComplete: 10, removeOnFail: 50 },
-          },
-        ),
-      remove: () => weeklyDigestQueue.removeJobScheduler(WEEKLY_DIGEST_SCHEDULER_JOB),
-    },
-    {
-      upsert: () =>
-        dailyRollupQueue.upsertJobScheduler(
-          DAILY_ROLLUP_SCHEDULER_JOB,
-          { pattern: DAILY_ROLLUP_CRON },
-          {
-            name: DAILY_ROLLUP_SCHEDULER_JOB,
-            data: {},
-            opts: { removeOnComplete: 10, removeOnFail: 50 },
-          },
-        ),
-      remove: () => dailyRollupQueue.removeJobScheduler(DAILY_ROLLUP_SCHEDULER_JOB),
-    },
-    {
-      upsert: () =>
-        analyticsEnrichmentQueue.upsertJobScheduler(
-          ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
-          { pattern: ANALYTICS_ENRICHMENT_CRON },
-          {
-            name: ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
-            data: {},
-            opts: { removeOnComplete: 10, removeOnFail: 50 },
-          },
-        ),
-      remove: () => analyticsEnrichmentQueue.removeJobScheduler(ANALYTICS_ENRICHMENT_SCHEDULER_JOB),
-    },
-  ])
+  const schedulerQueueResources = [
+    { name: WEEKLY_DIGEST_QUEUE, close: () => weeklyDigestQueue.close() },
+    { name: DAILY_ROLLUP_QUEUE, close: () => dailyRollupQueue.close() },
+    { name: EMBED_PLACE_QUEUE, close: () => embedPlaceQueue.close() },
+    { name: EMBEDDING_DISPATCH_QUEUE, close: () => embeddingDispatchQueue.close() },
+    { name: GENERATION_RECOVERY_QUEUE, close: () => generationRecoveryQueue.close() },
+    { name: ANALYTICS_ENRICHMENT_QUEUE, close: () => analyticsEnrichmentQueue.close() },
+    { name: ANSWER_ANALYSIS_QUEUE, close: () => answerAnalysisQueue.close() },
+    { name: WEEKLY_REPORT_QUEUE, close: () => weeklyReportQueue.close() },
+    { name: MEDIA_INGESTION_QUEUE, close: () => mediaIngestionQueue.close() },
+  ]
+  const cleanupAfterStartupFailure = createShutdownCoordinator({
+    onStart: () => logger.info({ action: 'workers.start.cleanup' }),
+    phases: [
+      { name: 'scheduler-queues', resources: schedulerQueueResources },
+      { name: 'enqueue-queues', resources: [{ name: 'cached', close: closeJobQueues }] },
+      {
+        name: 'connection',
+        resources: [{ name: 'bullmq', close: closeBullMQConnection }],
+      },
+    ],
+  })
 
-  await applySchedulerState(env.EMBEDDING_DISPATCH_ENABLED, [
-    {
-      upsert: () =>
-        embeddingDispatchQueue.upsertJobScheduler(
-          EMBEDDING_DISPATCH_SCHEDULER_JOB,
-          { pattern: EMBEDDING_DISPATCH_CRON },
-          {
-            name: EMBEDDING_DISPATCH_SCHEDULER_JOB,
-            data: {},
-            opts: {
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 5_000 },
-              removeOnComplete: 10,
-              removeOnFail: 50,
+  await runStartupWithCleanup(async () => {
+    await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
+      {
+        upsert: () =>
+          weeklyDigestQueue.upsertJobScheduler(
+            WEEKLY_DIGEST_SCHEDULER_JOB,
+            { pattern: WEEKLY_DIGEST_CRON },
+            {
+              name: WEEKLY_DIGEST_SCHEDULER_JOB,
+              data: {},
+              opts: { removeOnComplete: 10, removeOnFail: 50 },
             },
-          },
-        ),
-      remove: () => embeddingDispatchQueue.removeJobScheduler(EMBEDDING_DISPATCH_SCHEDULER_JOB),
-    },
-  ])
+          ),
+        remove: () => weeklyDigestQueue.removeJobScheduler(WEEKLY_DIGEST_SCHEDULER_JOB),
+      },
+      {
+        upsert: () =>
+          dailyRollupQueue.upsertJobScheduler(
+            DAILY_ROLLUP_SCHEDULER_JOB,
+            { pattern: DAILY_ROLLUP_CRON },
+            {
+              name: DAILY_ROLLUP_SCHEDULER_JOB,
+              data: {},
+              opts: { removeOnComplete: 10, removeOnFail: 50 },
+            },
+          ),
+        remove: () => dailyRollupQueue.removeJobScheduler(DAILY_ROLLUP_SCHEDULER_JOB),
+      },
+      {
+        upsert: () =>
+          analyticsEnrichmentQueue.upsertJobScheduler(
+            ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
+            { pattern: ANALYTICS_ENRICHMENT_CRON },
+            {
+              name: ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
+              data: {},
+              opts: { removeOnComplete: 10, removeOnFail: 50 },
+            },
+          ),
+        remove: () =>
+          analyticsEnrichmentQueue.removeJobScheduler(ANALYTICS_ENRICHMENT_SCHEDULER_JOB),
+      },
+    ])
+
+    await applySchedulerState(env.EMBEDDING_DISPATCH_ENABLED, [
+      {
+        upsert: () =>
+          embeddingDispatchQueue.upsertJobScheduler(
+            EMBEDDING_DISPATCH_SCHEDULER_JOB,
+            { pattern: EMBEDDING_DISPATCH_CRON },
+            {
+              name: EMBEDDING_DISPATCH_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 10,
+                removeOnFail: 50,
+              },
+            },
+          ),
+        remove: () => embeddingDispatchQueue.removeJobScheduler(EMBEDDING_DISPATCH_SCHEDULER_JOB),
+      },
+    ])
+
+    await applySchedulerState(env.GENERATION_RECOVERY_ENABLED, [
+      {
+        upsert: () =>
+          generationRecoveryQueue.upsertJobScheduler(
+            GENERATION_RECOVERY_SCHEDULER_JOB,
+            { pattern: GENERATION_RECOVERY_CRON },
+            {
+              name: GENERATION_RECOVERY_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 10,
+                removeOnFail: 50,
+              },
+            },
+          ),
+        remove: () => generationRecoveryQueue.removeJobScheduler(GENERATION_RECOVERY_SCHEDULER_JOB),
+      },
+    ])
+  }, cleanupAfterStartupFailure)
 
   const observeWorkerRuntime = <DataType, ResultType, NameType extends string>(
     queueName: string,
@@ -628,6 +713,14 @@ export async function startWorkers() {
   const embeddingDispatchWorker = observeWorkerRuntime(
     EMBEDDING_DISPATCH_QUEUE,
     new Worker(EMBEDDING_DISPATCH_QUEUE, handleEmbeddingDispatchQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
+  const generationRecoveryWorker = observeWorkerRuntime(
+    GENERATION_RECOVERY_QUEUE,
+    new Worker(GENERATION_RECOVERY_QUEUE, handleGenerationRecoveryQueueJob, {
       connection,
       concurrency: 1,
     }),
@@ -741,6 +834,7 @@ export async function startWorkers() {
     { name: EMBED_PLACE_QUEUE, worker: embedPlaceWorker },
     { name: EMBED_KNOWLEDGE_ENTRY_QUEUE, worker: embedKnowledgeEntryWorker },
     { name: EMBEDDING_DISPATCH_QUEUE, worker: embeddingDispatchWorker },
+    { name: GENERATION_RECOVERY_QUEUE, worker: generationRecoveryWorker },
     { name: ANALYTICS_ENRICHMENT_QUEUE, worker: analyticsEnrichmentWorker },
     { name: SEND_EMAIL_QUEUE, worker: sendEmailWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
@@ -757,12 +851,14 @@ export async function startWorkers() {
     action: 'workers.started',
     recurringSchedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
     embeddingDispatchEnabled: env.EMBEDDING_DISPATCH_ENABLED,
+    generationRecoveryEnabled: env.GENERATION_RECOVERY_ENABLED,
     queues: [
       WEEKLY_DIGEST_QUEUE,
       DAILY_ROLLUP_QUEUE,
       EMBED_PLACE_QUEUE,
       EMBED_KNOWLEDGE_ENTRY_QUEUE,
       EMBEDDING_DISPATCH_QUEUE,
+      GENERATION_RECOVERY_QUEUE,
       ANALYTICS_ENRICHMENT_QUEUE,
       ANSWER_ANALYSIS_QUEUE,
       WEEKLY_REPORT_QUEUE,
@@ -780,16 +876,7 @@ export async function startWorkers() {
       },
       {
         name: 'scheduler-queues',
-        resources: [
-          { name: WEEKLY_DIGEST_QUEUE, close: () => weeklyDigestQueue.close() },
-          { name: DAILY_ROLLUP_QUEUE, close: () => dailyRollupQueue.close() },
-          { name: EMBED_PLACE_QUEUE, close: () => embedPlaceQueue.close() },
-          { name: EMBEDDING_DISPATCH_QUEUE, close: () => embeddingDispatchQueue.close() },
-          { name: ANALYTICS_ENRICHMENT_QUEUE, close: () => analyticsEnrichmentQueue.close() },
-          { name: ANSWER_ANALYSIS_QUEUE, close: () => answerAnalysisQueue.close() },
-          { name: WEEKLY_REPORT_QUEUE, close: () => weeklyReportQueue.close() },
-          { name: MEDIA_INGESTION_QUEUE, close: () => mediaIngestionQueue.close() },
-        ],
+        resources: schedulerQueueResources,
       },
       {
         name: 'enqueue-queues',
@@ -841,6 +928,8 @@ export async function startWorkers() {
     embedKnowledgeEntryWorker,
     embeddingDispatchQueue,
     embeddingDispatchWorker,
+    generationRecoveryQueue,
+    generationRecoveryWorker,
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,

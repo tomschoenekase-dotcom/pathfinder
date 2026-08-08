@@ -5,6 +5,7 @@ import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
   acquireWeeklyReportExecution: vi.fn(),
+  acquireWeeklyReportRecoveryExecution: vi.fn(),
   reportUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   sessionCount: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/config', () => ({
+  env: { RAILWAY_ENVIRONMENT: 'staging' },
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
@@ -35,6 +37,7 @@ vi.mock('@pathfinder/db', () => ({
     aiUsageEvent: { create: mocks.aiUsageEventCreate },
   },
   acquireWeeklyReportExecution: mocks.acquireWeeklyReportExecution,
+  acquireWeeklyReportRecoveryExecution: mocks.acquireWeeklyReportRecoveryExecution,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
   updateJobRecord: mocks.updateJobRecord,
@@ -71,6 +74,10 @@ describe('processWeeklyReportJob', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.acquireWeeklyReportExecution.mockResolvedValue({
+      state: 'acquired',
+      leaseToken: 'report_lease_1',
+    })
+    mocks.acquireWeeklyReportRecoveryExecution.mockResolvedValue({
       state: 'acquired',
       leaseToken: 'report_lease_1',
     })
@@ -149,6 +156,45 @@ describe('processWeeklyReportJob', () => {
       }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('uses an exact observed-token recovery claim without persisting the token', async () => {
+    const observedLeaseToken = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
+    await processWeeklyReportJob(payload, 'bull_recovery_1', { observedLeaseToken })
+
+    expect(mocks.acquireWeeklyReportExecution).not.toHaveBeenCalled()
+    expect(mocks.acquireWeeklyReportRecoveryExecution).toHaveBeenCalledWith({
+      reportId: 'report_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      weekStart: new Date('2026-06-01T00:00:00.000Z'),
+      weekEnd: new Date('2026-06-08T00:00:00.000Z'),
+      observedLeaseToken,
+    })
+    expect(mocks.writeJobRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobName: 'weekly-report-recovery',
+        payload,
+      }),
+    )
+    expect(JSON.stringify(mocks.writeJobRecord.mock.calls)).not.toContain(observedLeaseToken)
+  })
+
+  it('completes an ineligible recovery delivery without reads or provider work', async () => {
+    mocks.acquireWeeklyReportRecoveryExecution.mockResolvedValueOnce({ state: 'ineligible' })
+
+    await expect(
+      processWeeklyReportJob(payload, 'bull_recovery_superseded', {
+        observedLeaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(mocks.venueFindFirst).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
   })
 
   it('fails before the provider call when the venue is not owned by the tenant', async () => {

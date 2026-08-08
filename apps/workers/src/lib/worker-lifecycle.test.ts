@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createEscalatingShutdownHandler, createShutdownCoordinator } from './worker-lifecycle'
+import {
+  createEscalatingShutdownHandler,
+  createShutdownCoordinator,
+  runStartupWithCleanup,
+} from './worker-lifecycle'
 
 function deferred() {
   let resolve!: () => void
@@ -13,6 +17,44 @@ function deferred() {
 }
 
 describe('worker shutdown lifecycle', () => {
+  it('closes every registered startup resource before preserving the startup failure', async () => {
+    const startupFailure = new Error('scheduler registration failed')
+    const closes = Array.from({ length: 9 }, () => vi.fn(async () => undefined))
+    const closeConnection = vi.fn(async () => undefined)
+    const cleanup = createShutdownCoordinator({
+      onStart: vi.fn(),
+      phases: [
+        {
+          name: 'scheduler-queues',
+          resources: closes.map((close, index) => ({ name: `queue-${index}`, close })),
+        },
+        { name: 'connection', resources: [{ name: 'redis', close: closeConnection }] },
+      ],
+    })
+
+    const error = await runStartupWithCleanup(
+      async () => Promise.reject(startupFailure),
+      cleanup,
+    ).catch((failure: unknown) => failure)
+
+    expect(error).toBe(startupFailure)
+    for (const close of closes) expect(close).toHaveBeenCalledOnce()
+    expect(closeConnection).toHaveBeenCalledOnce()
+  })
+
+  it('preserves startup and cleanup failures together', async () => {
+    const startupFailure = new Error('scheduler registration failed')
+    const cleanupFailure = new Error('redis close failed')
+
+    const error = await runStartupWithCleanup(
+      async () => Promise.reject(startupFailure),
+      async () => Promise.reject(cleanupFailure),
+    ).catch((failure: unknown) => failure)
+
+    expect(error).toBeInstanceOf(AggregateError)
+    expect((error as AggregateError).errors).toEqual([startupFailure, cleanupFailure])
+  })
+
   it('returns one in-flight promise and closes phases in dependency order', async () => {
     const workerClose = deferred()
     const order: string[] = []

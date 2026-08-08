@@ -12,11 +12,16 @@ export const WEEKLY_DIGEST_RETRY_BACKOFF = 'weekly-digest-retry'
 
 export const ANSWER_ANALYSIS_QUEUE = queueName('answer-analysis')
 export const ANSWER_ANALYSIS_PROCESS_JOB = 'answer-analysis-process'
+export const ANSWER_ANALYSIS_RECOVERY_JOB = 'answer-analysis-recovery'
 export const ANSWER_ANALYSIS_RETRY_BACKOFF = 'answer-analysis-retry'
 
 export const WEEKLY_REPORT_QUEUE = queueName('weekly-report')
 export const WEEKLY_REPORT_PROCESS_JOB = 'weekly-report-process'
+export const WEEKLY_REPORT_RECOVERY_JOB = 'weekly-report-recovery'
 export const WEEKLY_REPORT_RETRY_BACKOFF = 'weekly-report-retry'
+
+export const GENERATION_RECOVERY_QUEUE = queueName('generation-recovery')
+export const GENERATION_RECOVERY_SCHEDULER_JOB = 'generation-recovery-scheduler'
 
 export const DAILY_ROLLUP_QUEUE = queueName('daily-rollup')
 export const DAILY_ROLLUP_PROCESS_JOB = 'daily-rollup-process'

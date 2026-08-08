@@ -5,6 +5,7 @@ import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
   acquireAnswerAnalysisExecution: vi.fn(),
+  acquireAnswerAnalysisRecoveryExecution: vi.fn(),
   snapshotUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   responseFindMany: vi.fn(),
@@ -16,11 +17,13 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/config', () => ({
+  env: { RAILWAY_ENVIRONMENT: 'staging' },
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
 vi.mock('@pathfinder/db', () => ({
   acquireAnswerAnalysisExecution: mocks.acquireAnswerAnalysisExecution,
+  acquireAnswerAnalysisRecoveryExecution: mocks.acquireAnswerAnalysisRecoveryExecution,
   db: {
     answerAnalysisSnapshot: {
       updateMany: mocks.snapshotUpdateMany,
@@ -70,6 +73,10 @@ describe('processAnswerAnalysisJob', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.acquireAnswerAnalysisExecution.mockResolvedValue({
+      state: 'acquired',
+      leaseToken: LEASE_TOKEN,
+    })
+    mocks.acquireAnswerAnalysisRecoveryExecution.mockResolvedValue({
       state: 'acquired',
       leaseToken: LEASE_TOKEN,
     })
@@ -142,6 +149,45 @@ describe('processAnswerAnalysisJob', () => {
       }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('uses an exact observed-token recovery claim without persisting the token', async () => {
+    const observedLeaseToken = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
+    await processAnswerAnalysisJob(payload, 'bull_recovery_1', { observedLeaseToken })
+
+    expect(mocks.acquireAnswerAnalysisExecution).not.toHaveBeenCalled()
+    expect(mocks.acquireAnswerAnalysisRecoveryExecution).toHaveBeenCalledWith({
+      snapshotId: 'snapshot_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      rangeStart: new Date('2026-06-01T00:00:00.000Z'),
+      rangeEnd: new Date('2026-06-08T00:00:00.000Z'),
+      observedLeaseToken,
+    })
+    expect(mocks.writeJobRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobName: 'answer-analysis-recovery',
+        payload,
+      }),
+    )
+    expect(JSON.stringify(mocks.writeJobRecord.mock.calls)).not.toContain(observedLeaseToken)
+  })
+
+  it('completes an ineligible recovery delivery without reads or provider work', async () => {
+    mocks.acquireAnswerAnalysisRecoveryExecution.mockResolvedValueOnce({ state: 'ineligible' })
+
+    await expect(
+      processAnswerAnalysisJob(payload, 'bull_recovery_superseded', {
+        observedLeaseToken: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(mocks.venueFindFirst).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
   })
 
   it.each(['missing', 'terminal'] as const)(

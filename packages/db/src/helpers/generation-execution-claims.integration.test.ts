@@ -5,7 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '../client'
 import {
   acquireAnswerAnalysisExecution,
+  acquireAnswerAnalysisRecoveryExecution,
   acquireWeeklyReportExecution,
+  acquireWeeklyReportRecoveryExecution,
 } from './generation-execution-claims'
 
 function isExplicitDisposableDatabase(): boolean {
@@ -308,6 +310,200 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
       acquireWeeklyReportExecution({
         ...identity,
         weekStart: new Date(rangeStart.getTime() - 1),
+      }),
+    ).resolves.toEqual({ state: 'missing' })
+  })
+
+  it('grants exactly one of 32 same-token answer-analysis recovery callers', async () => {
+    const identity = await createAnalysis()
+    const observedLeaseToken = randomUUID()
+    await db.answerAnalysisSnapshot.updateMany({
+      where: { id: identity.snapshotId, tenantId, venueId },
+      data: {
+        executionLeaseToken: observedLeaseToken,
+        executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z'),
+      },
+    })
+
+    const results = await Promise.all(
+      Array.from({ length: 32 }, () =>
+        acquireAnswerAnalysisRecoveryExecution({ ...identity, observedLeaseToken }),
+      ),
+    )
+    const acquired = results.filter((result) => result.state === 'acquired')
+    expect(acquired).toHaveLength(1)
+    expect(results.filter((result) => result.state === 'ineligible')).toHaveLength(31)
+    expect(acquired[0]).toMatchObject({ state: 'acquired' })
+    if (acquired[0]?.state !== 'acquired') throw new Error('Expected recovery owner')
+    expect(acquired[0].leaseToken).not.toBe(observedLeaseToken)
+  })
+
+  it('grants exactly one of 32 same-token weekly-report recovery callers', async () => {
+    const identity = await createReport()
+    const observedLeaseToken = randomUUID()
+    await db.weeklyReport.updateMany({
+      where: { id: identity.reportId, tenantId, venueId },
+      data: {
+        executionLeaseToken: observedLeaseToken,
+        executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z'),
+      },
+    })
+
+    const results = await Promise.all(
+      Array.from({ length: 32 }, () =>
+        acquireWeeklyReportRecoveryExecution({ ...identity, observedLeaseToken }),
+      ),
+    )
+    const acquired = results.filter((result) => result.state === 'acquired')
+    expect(acquired).toHaveLength(1)
+    expect(results.filter((result) => result.state === 'ineligible')).toHaveLength(31)
+    expect(acquired[0]).toMatchObject({ state: 'acquired' })
+    if (acquired[0]?.state !== 'acquired') throw new Error('Expected recovery owner')
+    expect(acquired[0].leaseToken).not.toBe(observedLeaseToken)
+  })
+
+  it('prevents delayed token A from acquiring expired answer-analysis takeover token B', async () => {
+    const identity = await createAnalysis()
+    const tokenA = randomUUID()
+    await db.answerAnalysisSnapshot.updateMany({
+      where: { id: identity.snapshotId, tenantId, venueId },
+      data: {
+        executionLeaseToken: tokenA,
+        executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z'),
+      },
+    })
+    const takeover = await acquireAnswerAnalysisRecoveryExecution({
+      ...identity,
+      observedLeaseToken: tokenA,
+    })
+    if (takeover.state !== 'acquired') throw new Error('Expected recovery takeover')
+    await db.answerAnalysisSnapshot.updateMany({
+      where: { id: identity.snapshotId, tenantId, venueId },
+      data: { executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
+    })
+
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({ ...identity, observedLeaseToken: tokenA }),
+    ).resolves.toEqual({ state: 'ineligible' })
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({
+        ...identity,
+        observedLeaseToken: takeover.leaseToken,
+      }),
+    ).resolves.toMatchObject({ state: 'acquired' })
+  })
+
+  it('prevents delayed token A from acquiring expired weekly-report takeover token B', async () => {
+    const identity = await createReport()
+    const tokenA = randomUUID()
+    await db.weeklyReport.updateMany({
+      where: { id: identity.reportId, tenantId, venueId },
+      data: {
+        executionLeaseToken: tokenA,
+        executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z'),
+      },
+    })
+    const takeover = await acquireWeeklyReportRecoveryExecution({
+      ...identity,
+      observedLeaseToken: tokenA,
+    })
+    if (takeover.state !== 'acquired') throw new Error('Expected recovery takeover')
+    await db.weeklyReport.updateMany({
+      where: { id: identity.reportId, tenantId, venueId },
+      data: { executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
+    })
+
+    await expect(
+      acquireWeeklyReportRecoveryExecution({ ...identity, observedLeaseToken: tokenA }),
+    ).resolves.toEqual({ state: 'ineligible' })
+    await expect(
+      acquireWeeklyReportRecoveryExecution({
+        ...identity,
+        observedLeaseToken: takeover.leaseToken,
+      }),
+    ).resolves.toMatchObject({ state: 'acquired' })
+  })
+
+  it('does no answer-analysis recovery work for active, null, failed, terminal, missing, or range mismatch', async () => {
+    const active = await createAnalysis()
+    const activeToken = randomUUID()
+    await db.answerAnalysisSnapshot.updateMany({
+      where: { id: active.snapshotId, tenantId, venueId },
+      data: {
+        executionLeaseToken: activeToken,
+        executionLeaseExpiresAt: new Date('2999-01-01T00:00:00.000Z'),
+      },
+    })
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({ ...active, observedLeaseToken: activeToken }),
+    ).resolves.toEqual({ state: 'ineligible' })
+
+    const noLease = await createAnalysis()
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({ ...noLease, observedLeaseToken: randomUUID() }),
+    ).resolves.toEqual({ state: 'ineligible' })
+    const failed = await createAnalysis('FAILED')
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({ ...failed, observedLeaseToken: randomUUID() }),
+    ).resolves.toEqual({ state: 'ineligible' })
+    const terminal = await createAnalysis('COMPLETE')
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({ ...terminal, observedLeaseToken: randomUUID() }),
+    ).resolves.toEqual({ state: 'terminal' })
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({
+        ...active,
+        snapshotId: randomUUID(),
+        observedLeaseToken: activeToken,
+      }),
+    ).resolves.toEqual({ state: 'missing' })
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({
+        ...active,
+        rangeEnd: new Date(rangeEnd.getTime() + 1),
+        observedLeaseToken: activeToken,
+      }),
+    ).resolves.toEqual({ state: 'missing' })
+  })
+
+  it('does no weekly-report recovery work for active, null, failed, terminal, missing, or range mismatch', async () => {
+    const active = await createReport()
+    const activeToken = randomUUID()
+    await db.weeklyReport.updateMany({
+      where: { id: active.reportId, tenantId, venueId },
+      data: {
+        executionLeaseToken: activeToken,
+        executionLeaseExpiresAt: new Date('2999-01-01T00:00:00.000Z'),
+      },
+    })
+    await expect(
+      acquireWeeklyReportRecoveryExecution({ ...active, observedLeaseToken: activeToken }),
+    ).resolves.toEqual({ state: 'ineligible' })
+
+    const noLease = await createReport()
+    await expect(
+      acquireWeeklyReportRecoveryExecution({ ...noLease, observedLeaseToken: randomUUID() }),
+    ).resolves.toEqual({ state: 'ineligible' })
+    const failed = await createReport('FAILED')
+    await expect(
+      acquireWeeklyReportRecoveryExecution({ ...failed, observedLeaseToken: randomUUID() }),
+    ).resolves.toEqual({ state: 'ineligible' })
+    const terminal = await createReport('DRAFT')
+    await expect(
+      acquireWeeklyReportRecoveryExecution({ ...terminal, observedLeaseToken: randomUUID() }),
+    ).resolves.toEqual({ state: 'terminal' })
+    await expect(
+      acquireWeeklyReportRecoveryExecution({
+        ...active,
+        reportId: randomUUID(),
+        observedLeaseToken: activeToken,
+      }),
+    ).resolves.toEqual({ state: 'missing' })
+    await expect(
+      acquireWeeklyReportRecoveryExecution({
+        ...active,
+        weekStart: new Date(rangeStart.getTime() - 1),
+        observedLeaseToken: activeToken,
       }),
     ).resolves.toEqual({ state: 'missing' })
   })

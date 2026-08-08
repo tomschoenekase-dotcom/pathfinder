@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   executeRaw: vi.fn(),
   answerFindFirst: vi.fn(),
   reportFindFirst: vi.fn(),
+  bypass: vi.fn(async (operation: () => Promise<unknown>) => operation()),
 }))
 
 vi.mock('../client', () => ({
@@ -13,10 +14,15 @@ vi.mock('../client', () => ({
     weeklyReport: { findFirst: mocks.reportFindFirst },
   },
 }))
+vi.mock('../middleware/tenant-isolation', () => ({
+  withTenantIsolationBypass: mocks.bypass,
+}))
 
 import {
   acquireAnswerAnalysisExecution,
+  acquireAnswerAnalysisRecoveryExecution,
   acquireWeeklyReportExecution,
+  acquireWeeklyReportRecoveryExecution,
   GENERATION_EXECUTION_LEASE_MS,
 } from './generation-execution-claims'
 
@@ -35,6 +41,16 @@ const reportIdentity = {
   venueId: 'venue_1',
   weekStart: rangeStart,
   weekEnd: rangeEnd,
+}
+const observedLeaseToken = '00000000-0000-4000-8000-000000000001'
+
+function expectExactRecoveryPredicate(call: unknown[]): void {
+  const sql = (call[0] as readonly string[]).join('?')
+  expect(sql).toContain("status = 'GENERATING'")
+  expect(sql).not.toContain('status IN')
+  expect(sql).toContain('execution_lease_token = ?::uuid')
+  expect(sql).toContain('execution_lease_expires_at IS NOT NULL')
+  expect(sql).toContain('execution_lease_expires_at <= clock_timestamp()')
 }
 
 describe('generation execution claims', () => {
@@ -161,4 +177,106 @@ describe('generation execution claims', () => {
       state: 'missing',
     })
   })
+
+  it('atomically replaces the exact expired answer-analysis recovery token', async () => {
+    mocks.executeRaw.mockResolvedValueOnce(1)
+
+    const result = await acquireAnswerAnalysisRecoveryExecution({
+      ...analysisIdentity,
+      observedLeaseToken,
+    })
+
+    expect(result).toMatchObject({ state: 'acquired' })
+    if (result.state !== 'acquired') throw new Error('Expected recovery acquisition')
+    expect(result.leaseToken).not.toBe(observedLeaseToken)
+    expect(mocks.executeRaw.mock.calls[0]!.slice(1)).toEqual([
+      result.leaseToken,
+      GENERATION_EXECUTION_LEASE_MS,
+      'snapshot_1',
+      'tenant_1',
+      'venue_1',
+      rangeStart,
+      rangeEnd,
+      observedLeaseToken,
+    ])
+    expectExactRecoveryPredicate(mocks.executeRaw.mock.calls[0]!)
+    expect(mocks.answerFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('atomically replaces the exact expired weekly-report recovery token', async () => {
+    mocks.executeRaw.mockResolvedValueOnce(1)
+
+    const result = await acquireWeeklyReportRecoveryExecution({
+      ...reportIdentity,
+      observedLeaseToken,
+    })
+
+    expect(result).toMatchObject({ state: 'acquired' })
+    if (result.state !== 'acquired') throw new Error('Expected recovery acquisition')
+    expect(result.leaseToken).not.toBe(observedLeaseToken)
+    expect(mocks.executeRaw.mock.calls[0]!.slice(1)).toEqual([
+      result.leaseToken,
+      GENERATION_EXECUTION_LEASE_MS,
+      'report_1',
+      'tenant_1',
+      'venue_1',
+      rangeStart,
+      rangeEnd,
+      observedLeaseToken,
+    ])
+    expectExactRecoveryPredicate(mocks.executeRaw.mock.calls[0]!)
+    expect(mocks.reportFindFirst).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['GENERATING', 'ineligible'],
+    ['FAILED', 'ineligible'],
+    ['COMPLETE', 'terminal'],
+  ] as const)('classifies answer-analysis recovery status %s as %s', async (status, state) => {
+    mocks.executeRaw.mockResolvedValueOnce(0)
+    mocks.answerFindFirst.mockResolvedValueOnce({ status })
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({ ...analysisIdentity, observedLeaseToken }),
+    ).resolves.toEqual({ state })
+  })
+
+  it.each([
+    ['GENERATING', 'ineligible'],
+    ['FAILED', 'ineligible'],
+    ['DRAFT', 'terminal'],
+    ['PUBLISHED', 'terminal'],
+  ] as const)('classifies weekly-report recovery status %s as %s', async (status, state) => {
+    mocks.executeRaw.mockResolvedValueOnce(0)
+    mocks.reportFindFirst.mockResolvedValueOnce({ status })
+    await expect(
+      acquireWeeklyReportRecoveryExecution({ ...reportIdentity, observedLeaseToken }),
+    ).resolves.toEqual({ state })
+  })
+
+  it('returns missing for recovery scope or range mismatch', async () => {
+    mocks.executeRaw.mockResolvedValueOnce(0).mockResolvedValueOnce(0)
+    mocks.answerFindFirst.mockResolvedValueOnce(null)
+    mocks.reportFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      acquireAnswerAnalysisRecoveryExecution({ ...analysisIdentity, observedLeaseToken }),
+    ).resolves.toEqual({ state: 'missing' })
+    await expect(
+      acquireWeeklyReportRecoveryExecution({ ...reportIdentity, observedLeaseToken }),
+    ).resolves.toEqual({ state: 'missing' })
+  })
+
+  it.each(['not-a-uuid', '', '00000000-0000-0000-0000-00000000000z'])(
+    'rejects invalid observed token %s before bypass or SQL',
+    async (invalidToken) => {
+      await expect(
+        acquireAnswerAnalysisRecoveryExecution({
+          ...analysisIdentity,
+          observedLeaseToken: invalidToken,
+        }),
+      ).rejects.toThrow('Observed generation execution lease token must be a valid UUID.')
+      expect(mocks.bypass).not.toHaveBeenCalled()
+      expect(mocks.executeRaw).not.toHaveBeenCalled()
+    },
+  )
 })
