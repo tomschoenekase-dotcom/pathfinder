@@ -13,7 +13,11 @@ import {
   withTenantIsolationBypass,
   writeJobRecord,
 } from '@pathfinder/db'
-import type { EmbedPlaceJobPayload } from '@pathfinder/jobs'
+import {
+  EMBED_PLACE_PROCESS_JOB,
+  EMBED_PLACE_QUEUE,
+  type EmbedPlaceJobPayload,
+} from '@pathfinder/jobs'
 import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
@@ -31,8 +35,8 @@ export async function processEmbedPlaceJob(
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const jobRecordId = await writeJobRecord({
-    queue: 'embed-place',
-    jobName: 'embed-place-process',
+    queue: EMBED_PLACE_QUEUE,
+    jobName: EMBED_PLACE_PROCESS_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',

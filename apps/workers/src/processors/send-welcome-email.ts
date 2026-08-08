@@ -10,7 +10,11 @@ import {
   updateJobRecord,
   writeJobRecord,
 } from '@pathfinder/db'
-import type { SendWelcomeEmailJobPayload } from '@pathfinder/jobs'
+import {
+  SEND_EMAIL_QUEUE,
+  SEND_WELCOME_EMAIL_JOB,
+  type SendWelcomeEmailJobPayload,
+} from '@pathfinder/jobs'
 
 import {
   normalizeJobExecutionMetadata,
@@ -94,8 +98,8 @@ export async function processSendWelcomeEmailJob(
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const jobRecordId = await writeJobRecord({
-    queue: 'send-email',
-    jobName: 'send-welcome-email',
+    queue: SEND_EMAIL_QUEUE,
+    jobName: SEND_WELCOME_EMAIL_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',

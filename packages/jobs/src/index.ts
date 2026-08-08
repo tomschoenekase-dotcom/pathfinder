@@ -40,6 +40,17 @@ export {
   MEDIA_INGESTION_RETRY_BACKOFF,
 } from './queues'
 export { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
+export {
+  inspectTerminalJobRedrive,
+  redriveTerminalJob,
+  supportedTerminalRedriveQueues,
+  TerminalRedriveRefusal,
+} from './terminal-redrive'
+export type {
+  TerminalJobRecordEvidence,
+  TerminalRedrivePreview,
+  TerminalRedriveQueue,
+} from './terminal-redrive'
 export { checkBullMQConnection, closeBullMQConnection, getBullMQConnection } from './connection'
 export {
   closeJobQueues,

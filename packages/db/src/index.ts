@@ -12,7 +12,11 @@ export type {
   ContentVersionSourceProvenance,
 } from './helpers/content-version-context'
 export { lockVenueContentMutation, lockVenueReportMutation } from './helpers/venue-content-lock'
-export { writeJobRecord, updateJobRecord } from './helpers/job-records'
+export {
+  findTerminalJobRecordEvidence,
+  writeJobRecord,
+  updateJobRecord,
+} from './helpers/job-records'
 export {
   acquireAnswerAnalysisExecution,
   acquireAnswerAnalysisRecoveryExecution,
@@ -75,7 +79,11 @@ export type {
   AcquireEmbeddingWorkParams,
   EmbeddingWorkAcquisition,
 } from './helpers/embedding-work-claims'
-export type { JobFailureDisposition, WriteJobRecordParams } from './helpers/job-records'
+export type {
+  JobFailureDisposition,
+  TerminalJobRecordEvidence,
+  WriteJobRecordParams,
+} from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'
 export { checkDatabaseConnection } from './helpers/health'
 export {

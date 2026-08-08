@@ -3,7 +3,11 @@ import { z } from 'zod'
 
 import { env, logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass, writeJobRecord, updateJobRecord } from '@pathfinder/db'
-import type { WeeklyDigestJobPayload } from '@pathfinder/jobs'
+import {
+  WEEKLY_DIGEST_PROCESS_JOB,
+  WEEKLY_DIGEST_QUEUE,
+  type WeeklyDigestJobPayload,
+} from '@pathfinder/jobs'
 
 import {
   normalizeJobExecutionMetadata,
@@ -274,8 +278,8 @@ export async function processWeeklyDigestJob(
   await markDigestStatus(payload, { status: 'PROCESSING' })
 
   const jobRecordId = await writeJobRecord({
-    queue: 'weekly-digest',
-    jobName: 'weekly-digest-process',
+    queue: WEEKLY_DIGEST_QUEUE,
+    jobName: WEEKLY_DIGEST_PROCESS_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',

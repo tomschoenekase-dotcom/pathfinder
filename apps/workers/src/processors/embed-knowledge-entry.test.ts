@@ -20,6 +20,7 @@ vi.mock('@pathfinder/ai', () => ({
   getAiEmbeddingProfile: vi.fn(() => 'openai:text-embedding-3-small:1536'),
 }))
 vi.mock('@pathfinder/config', () => ({
+  env: { RAILWAY_ENVIRONMENT: 'staging' },
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 vi.mock('@pathfinder/db', () => ({

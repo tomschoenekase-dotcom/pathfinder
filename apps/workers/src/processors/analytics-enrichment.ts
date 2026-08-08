@@ -11,7 +11,11 @@ import {
 import { TOPIC_KEY_SET, TOPIC_KEYS, type TopicKey } from '@pathfinder/analytics/topics'
 import { logger } from '@pathfinder/config'
 import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
-import type { AnalyticsEnrichmentJobPayload } from '@pathfinder/jobs'
+import {
+  ANALYTICS_ENRICHMENT_PROCESS_JOB,
+  ANALYTICS_ENRICHMENT_QUEUE,
+  type AnalyticsEnrichmentJobPayload,
+} from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
 import {
@@ -593,8 +597,8 @@ export async function processAnalyticsEnrichmentJob(
   windowStart.setUTCDate(windowStart.getUTCDate() - (CLUSTER_WINDOW_DAYS - 1))
 
   const jobRecordId = await writeJobRecord({
-    queue: 'analytics-enrichment',
-    jobName: 'analytics-enrichment-process',
+    queue: ANALYTICS_ENRICHMENT_QUEUE,
+    jobName: ANALYTICS_ENRICHMENT_PROCESS_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',

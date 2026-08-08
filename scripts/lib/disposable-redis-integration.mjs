@@ -33,7 +33,9 @@ export function parsePublishedRedisPort(output) {
 
 export function buildDisposableRedisChildEnv(parentEnv, port, suite) {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) refuse('Redis port is invalid')
-  if (suite !== 'recovery' && suite !== 'dispatch') refuse('Redis suite is invalid')
+  if (!['recovery', 'dispatch', 'terminal-redrive'].includes(suite)) {
+    refuse('Redis suite is invalid')
+  }
   const childEnv = {}
   for (const [key, value] of Object.entries(parentEnv)) {
     const lowerKey = key.toLowerCase()
@@ -46,7 +48,14 @@ export function buildDisposableRedisChildEnv(parentEnv, port, suite) {
       continue
     }
     if (
-      /^(?:run_generation_.*_redis_integration|pathfinder_disposable_redis_confirmation)$/iu.test(
+      /^(?:run_(?:generation_.*|terminal_redrive)_redis_integration|pathfinder_disposable_redis_confirmation)$/iu.test(
+        key,
+      )
+    ) {
+      continue
+    }
+    if (
+      /^(?:pathfinder_allow_existing_disposable_redis|pathfinder_existing_disposable_redis_confirmation)$/iu.test(
         key,
       )
     ) {
@@ -61,9 +70,12 @@ export function buildDisposableRedisChildEnv(parentEnv, port, suite) {
   if (suite === 'recovery') {
     childEnv.RUN_GENERATION_RECOVERY_REDIS_INTEGRATION = '1'
     childEnv.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION = 'pathfinder_disposable_generation_recovery'
-  } else {
+  } else if (suite === 'dispatch') {
     childEnv.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION = '1'
     childEnv.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION = 'pathfinder_disposable_generation_dispatch'
+  } else {
+    childEnv.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION = '1'
+    childEnv.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION = 'pathfinder_disposable_terminal_redrive'
   }
   return childEnv
 }
@@ -229,10 +241,12 @@ function runSuite({
   stdout,
   stderr,
 }) {
-  const file =
-    suite === 'recovery'
-      ? 'src/generation-recovery.integration.test.ts'
-      : 'src/generation-dispatch.integration.test.ts'
+  const file = {
+    recovery: 'src/generation-recovery.integration.test.ts',
+    dispatch: 'src/generation-dispatch.integration.test.ts',
+    'terminal-redrive': 'src/terminal-redrive.integration.test.ts',
+  }[suite]
+  if (!file) refuse('Redis suite is invalid')
   const result = runNative(
     spawnSyncImpl,
     process.execPath,
@@ -262,6 +276,58 @@ function runSuite({
   }
   const report = validateVitestJsonReport(result.stdout, suite)
   stdout.write(`Disposable Redis ${suite} suite: ${report.passed}/2 passed.\n`)
+}
+
+export function runGuardedRedisSuite({
+  suite,
+  env = process.env,
+  spawnSyncImpl = spawnSync,
+  stdout = process.stdout,
+  stderr = process.stderr,
+  repositoryRoot = resolve(fileURLToPath(new URL('../..', import.meta.url))),
+} = {}) {
+  if (!['recovery', 'dispatch', 'terminal-redrive'].includes(suite)) {
+    refuse('Redis suite is invalid')
+  }
+  if (
+    env.PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS !== '1' ||
+    env.PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION !== 'pathfinder_ci_owned_disposable_redis'
+  ) {
+    refuse('Existing Redis gate requires exact disposable-target confirmation')
+  }
+  const packageManagerCli = env.npm_execpath
+  if (!packageManagerCli) refuse('Run this Redis gate through pnpm')
+  let redisUrl
+  try {
+    redisUrl = new URL(env.REDIS_URL ?? '')
+  } catch {
+    refuse('Redis gate requires a valid loopback REDIS_URL')
+  }
+  const host = redisUrl.hostname.replace(/^\[|\]$/gu, '').toLowerCase()
+  const port = Number(redisUrl.port)
+  if (
+    redisUrl.protocol !== 'redis:' ||
+    !['127.0.0.1', '::1', 'localhost'].includes(host) ||
+    redisUrl.username.length > 0 ||
+    redisUrl.password.length > 0 ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    redisUrl.pathname !== ''
+  ) {
+    refuse('Redis gate accepts only a credential-free loopback redis URL with an explicit port')
+  }
+  runSuite({
+    suite,
+    port,
+    repositoryRoot,
+    packageManagerCli,
+    parentEnv: env,
+    spawnSyncImpl,
+    stdout,
+    stderr,
+  })
+  return 0
 }
 
 export async function runDisposableRedisIntegration({
@@ -312,7 +378,7 @@ export async function runDisposableRedisIntegration({
     const port = parsePublishedRedisPort(published.stdout)
     stdout.write(`Disposable Redis ready on exact loopback port ${port}.\n`)
 
-    for (const suite of ['recovery', 'dispatch']) {
+    for (const suite of ['recovery', 'dispatch', 'terminal-redrive']) {
       runSuite({
         suite,
         port,

@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const createMock = vi.fn()
 const upsertMock = vi.fn()
 const updateMock = vi.fn()
+const findUniqueMock = vi.fn()
 
 vi.mock('../client', () => ({
   db: {
     jobRecord: {
       create: createMock,
+      findUnique: findUniqueMock,
       upsert: upsertMock,
       update: updateMock,
     },
@@ -19,6 +21,7 @@ describe('writeJobRecord', () => {
     createMock.mockReset()
     upsertMock.mockReset()
     updateMock.mockReset()
+    findUniqueMock.mockReset()
   })
 
   it('creates a plain record when bullJobId is absent (no retry collision risk)', async () => {
@@ -85,6 +88,52 @@ describe('writeJobRecord', () => {
         }),
       }),
     )
+  })
+})
+
+describe('findTerminalJobRecordEvidence', () => {
+  beforeEach(() => {
+    findUniqueMock.mockReset()
+  })
+
+  it('uses the exact queue-scoped BullMQ identity and returns only redrive evidence', async () => {
+    const record = {
+      id: 'record_1',
+      queue: 'weekly-report',
+      jobName: 'weekly-report-process',
+      bullJobId: 'job_1',
+      tenantId: 'tenant_1',
+      payload: { tenantId: 'tenant_1', reportId: 'report_1' },
+      status: 'FAILED',
+      attemptNumber: 6,
+      maxAttempts: 6,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
+      terminalAt: new Date('2026-08-08T12:00:00.000Z'),
+    }
+    findUniqueMock.mockResolvedValueOnce(record)
+    const { findTerminalJobRecordEvidence } = await import('./job-records')
+
+    await expect(
+      findTerminalJobRecordEvidence({ queue: 'weekly-report', bullJobId: 'job_1' }),
+    ).resolves.toEqual(record)
+    expect(findUniqueMock).toHaveBeenCalledWith({
+      where: {
+        queue_bullJobId: { queue: 'weekly-report', bullJobId: 'job_1' },
+      },
+      select: {
+        id: true,
+        queue: true,
+        jobName: true,
+        bullJobId: true,
+        tenantId: true,
+        payload: true,
+        status: true,
+        attemptNumber: true,
+        maxAttempts: true,
+        failureDisposition: true,
+        terminalAt: true,
+      },
+    })
   })
 })
 

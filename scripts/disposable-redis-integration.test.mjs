@@ -7,6 +7,7 @@ import {
   buildDisposableRedisChildEnv,
   parsePublishedRedisPort,
   runDisposableRedisIntegration,
+  runGuardedRedisSuite,
   validateLocalDockerEndpoint,
   validateVitestJsonReport,
 } from './lib/disposable-redis-integration.mjs'
@@ -33,7 +34,10 @@ test('builds isolated, credential-free suite environments with exact confirmatio
     RAILWAY_ENVIRONMENT: 'production',
     RUN_GENERATION_RECOVERY_REDIS_INTEGRATION: 'inherited',
     RUN_GENERATION_DISPATCH_REDIS_INTEGRATION: 'inherited',
+    RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION: 'inherited',
     PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION: 'inherited',
+    PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: 'inherited',
+    PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: 'inherited',
     DATABASE_URL: 'postgresql://user:secret@external.example/prod',
     CLERK_SECRET_KEY: 'secret',
     STORAGE_SECRET_ACCESS_KEY: 'secret',
@@ -50,6 +54,9 @@ test('builds isolated, credential-free suite environments with exact confirmatio
   assert.equal(recovery.RAILWAY_ENVIRONMENT, 'preview')
   assert.equal(recovery.RUN_GENERATION_RECOVERY_REDIS_INTEGRATION, '1')
   assert.equal(recovery.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION, undefined)
+  assert.equal(recovery.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION, undefined)
+  assert.equal(recovery.PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS, undefined)
+  assert.equal(recovery.PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION, undefined)
   assert.equal(
     recovery.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION,
     'pathfinder_disposable_generation_recovery',
@@ -60,6 +67,14 @@ test('builds isolated, credential-free suite environments with exact confirmatio
   assert.equal(
     dispatch.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION,
     'pathfinder_disposable_generation_dispatch',
+  )
+  const redrive = buildDisposableRedisChildEnv(parent, 49_154, 'terminal-redrive')
+  assert.equal(redrive.RUN_GENERATION_RECOVERY_REDIS_INTEGRATION, undefined)
+  assert.equal(redrive.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION, undefined)
+  assert.equal(redrive.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION, '1')
+  assert.equal(
+    redrive.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION,
+    'pathfinder_disposable_terminal_redrive',
   )
 })
 
@@ -135,6 +150,7 @@ function fakeRuntime({
   readinessNever = false,
   runFails = false,
   skippedRecovery = false,
+  skippedTerminal = false,
 } = {}) {
   let running = false
   let containerName = ''
@@ -212,9 +228,10 @@ function fakeRuntime({
       if (command === process.execPath) {
         suiteEnvironments.push(options.env)
         const isRecovery = args.includes('src/generation-recovery.integration.test.ts')
+        const isTerminal = args.includes('src/terminal-redrive.integration.test.ts')
         return {
           status: 0,
-          stdout: report(skippedRecovery && isRecovery),
+          stdout: report((skippedRecovery && isRecovery) || (skippedTerminal && isTerminal)),
           stderr: '',
         }
       }
@@ -222,6 +239,70 @@ function fakeRuntime({
     },
   }
 }
+
+test('the shared CI gate proves two terminal-redrive tests ran and rejects a silent skip', () => {
+  const passing = fakeRuntime()
+  const stdout = {
+    value: '',
+    write(value) {
+      this.value += value
+    },
+  }
+  assert.equal(
+    runGuardedRedisSuite({
+      suite: 'terminal-redrive',
+      env: {
+        npm_execpath: 'pnpm-cli.cjs',
+        REDIS_URL: 'redis://localhost:6379',
+        PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1',
+        PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: 'pathfinder_ci_owned_disposable_redis',
+      },
+      spawnSyncImpl: passing.spawnSyncImpl,
+      stdout,
+      stderr: { write() {} },
+      repositoryRoot: 'C:/pathfinder',
+    }),
+    0,
+  )
+  assert.equal(passing.suiteEnvironments.length, 1)
+  assert.match(stdout.value, /terminal-redrive suite: 2\/2 passed/u)
+
+  const skipped = fakeRuntime({ skippedTerminal: true })
+  assert.throws(
+    () =>
+      runGuardedRedisSuite({
+        suite: 'terminal-redrive',
+        env: {
+          npm_execpath: 'pnpm-cli.cjs',
+          REDIS_URL: 'redis://127.0.0.1:6379',
+          PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1',
+          PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: 'pathfinder_ci_owned_disposable_redis',
+        },
+        spawnSyncImpl: skipped.spawnSyncImpl,
+        stdout: { write() {} },
+        stderr: { write() {} },
+        repositoryRoot: 'C:/pathfinder',
+      }),
+    /must execute exactly two passing/u,
+  )
+})
+
+test('the shared gate refuses before spawn without exact existing-disposable confirmation', () => {
+  let spawned = false
+  assert.throws(
+    () =>
+      runGuardedRedisSuite({
+        suite: 'terminal-redrive',
+        env: { npm_execpath: 'pnpm-cli.cjs', REDIS_URL: 'redis://127.0.0.1:6379' },
+        spawnSyncImpl() {
+          spawned = true
+          throw new Error('must not spawn')
+        },
+      }),
+    /exact disposable-target confirmation/u,
+  )
+  assert.equal(spawned, false)
+})
 
 test('requires an explicit package lifecycle or environment opt-in before Docker inspection', async () => {
   const neverSpawn = () => {
@@ -272,7 +353,7 @@ test('rejects inherited and inspected remote Docker daemon endpoints before muta
   assert.equal(calls.length, 2)
 })
 
-test('runs both suites without a shell and always verifies exact-container cleanup', async () => {
+test('runs all suites without a shell and always verifies exact-container cleanup', async () => {
   const runtime = fakeRuntime()
   const stdout = {
     value: '',
@@ -294,10 +375,11 @@ test('runs both suites without a shell and always verifies exact-container clean
       repositoryRoot: 'C:/pathfinder',
     }),
   )
-  assert.equal(runtime.suiteEnvironments.length, 2)
+  assert.equal(runtime.suiteEnvironments.length, 3)
   assert.equal(runtime.isRunning(), false)
   assert.match(stdout.value, /recovery suite: 2\/2 passed/u)
   assert.match(stdout.value, /dispatch suite: 2\/2 passed/u)
+  assert.match(stdout.value, /terminal-redrive suite: 2\/2 passed/u)
   assert.match(stdout.value, /removed and verified absent/u)
 })
 

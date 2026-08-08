@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@pathfinder/config', () => ({
+  env: { RAILWAY_ENVIRONMENT: 'staging' },
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 

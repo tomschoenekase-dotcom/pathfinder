@@ -128,6 +128,11 @@ jobs:
           RAILWAY_ENVIRONMENT: preview
           RUN_GENERATION_DISPATCH_REDIS_INTEGRATION: '1'
           PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_disposable_generation_dispatch
+      - name: Verify terminal job redrive fencing
+        run: pnpm test:redis:terminal-redrive
+        env:
+          PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
+          PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
       - name: Verify embedding freshness audit isolation
         run: pnpm --dir apps/workers exec vitest run src/lib/embedding-freshness.integration.test.ts --pool=forks --maxWorkers=1
         env:

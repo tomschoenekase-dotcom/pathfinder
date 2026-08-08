@@ -17,6 +17,49 @@ export type WriteJobRecordParams = {
 
 export type JobFailureDisposition = 'RETRY_ELIGIBLE' | 'ATTEMPTS_EXHAUSTED' | 'UNRECOVERABLE'
 
+export type TerminalJobRecordEvidence = {
+  id: string
+  queue: string
+  jobName: string
+  bullJobId: string | null
+  tenantId: string | null
+  payload: unknown
+  status: string
+  attemptNumber: number | null
+  maxAttempts: number | null
+  failureDisposition: string | null
+  terminalAt: Date | null
+}
+
+export async function findTerminalJobRecordEvidence(params: {
+  queue: string
+  bullJobId: string
+}): Promise<TerminalJobRecordEvidence | null> {
+  return withTenantIsolationBypass(() =>
+    db.jobRecord.findUnique({
+      where: {
+        queue_bullJobId: {
+          queue: params.queue,
+          bullJobId: params.bullJobId,
+        },
+      },
+      select: {
+        id: true,
+        queue: true,
+        jobName: true,
+        bullJobId: true,
+        tenantId: true,
+        payload: true,
+        status: true,
+        attemptNumber: true,
+        maxAttempts: true,
+        failureDisposition: true,
+        terminalAt: true,
+      },
+    }),
+  )
+}
+
 export async function writeJobRecord(params: WriteJobRecordParams): Promise<string> {
   const data = {
     queue: params.queue,

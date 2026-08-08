@@ -1,7 +1,11 @@
 import { logger } from '@pathfinder/config'
 import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { db, withTenantIsolationBypass, writeJobRecord, updateJobRecord } from '@pathfinder/db'
-import type { DailyRollupJobPayload } from '@pathfinder/jobs'
+import {
+  DAILY_ROLLUP_PROCESS_JOB,
+  DAILY_ROLLUP_QUEUE,
+  type DailyRollupJobPayload,
+} from '@pathfinder/jobs'
 
 import {
   normalizeJobExecutionMetadata,
@@ -366,8 +370,8 @@ export async function processDailyRollupJob(
   const nextDate = endOfUtcDay(date)
 
   const jobRecordId = await writeJobRecord({
-    queue: 'daily-rollup',
-    jobName: 'daily-rollup-process',
+    queue: DAILY_ROLLUP_QUEUE,
+    jobName: DAILY_ROLLUP_PROCESS_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',

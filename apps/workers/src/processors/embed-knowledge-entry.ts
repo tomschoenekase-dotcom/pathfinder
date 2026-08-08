@@ -13,7 +13,11 @@ import {
   withTenantIsolationBypass,
   writeJobRecord,
 } from '@pathfinder/db'
-import type { EmbedKnowledgeEntryJobPayload } from '@pathfinder/jobs'
+import {
+  EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB,
+  EMBED_KNOWLEDGE_ENTRY_QUEUE,
+  type EmbedKnowledgeEntryJobPayload,
+} from '@pathfinder/jobs'
 import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
@@ -31,8 +35,8 @@ export async function processEmbedKnowledgeEntryJob(
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const jobRecordId = await writeJobRecord({
-    queue: 'embed-knowledge-entry',
-    jobName: 'embed-knowledge-entry-process',
+    queue: EMBED_KNOWLEDGE_ENTRY_QUEUE,
+    jobName: EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB,
     bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
