@@ -15,6 +15,7 @@ import {
 import { adminProcedure } from '../../trpc'
 import {
   MAX_MEDIA_ARCHIVE_BYTES as MAX_ARCHIVE_BYTES,
+  MEDIA_SOURCE_FINGERPRINT_ALGORITHM,
   isNoSuchMediaUpload,
   safeMediaFileName as safeFileName,
 } from './media-ingestion-helpers'
@@ -32,6 +33,12 @@ export const mediaIngestionBeginUploadRouter = router({
         filename: z.string().trim().min(1).max(255),
         bytes: z.number().int().positive().max(MAX_ARCHIVE_BYTES),
         lastModified: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
+        sourceIdentity: z
+          .object({
+            algorithm: z.literal(MEDIA_SOURCE_FINGERPRINT_ALGORITHM),
+            digest: z.string().regex(/^[0-9a-f]{64}$/),
+          })
+          .optional(),
         contentType: z.enum(['application/zip', 'application/x-zip-compressed']),
       }),
     )
@@ -48,6 +55,8 @@ export const mediaIngestionBeginUploadRouter = router({
             sourceFileName: true,
             sourceBytes: true,
             sourceLastModified: true,
+            sourceFingerprintAlgorithm: true,
+            sourceFingerprint: true,
             sourceObjectGeneration: true,
             sourceContentType: true,
             uploadAttemptId: true,
@@ -63,6 +72,11 @@ export const mediaIngestionBeginUploadRouter = router({
         project.sourceFileName === input.filename &&
         project.sourceBytes === BigInt(input.bytes) &&
         project.sourceLastModified === BigInt(input.lastModified) &&
+        ((project.sourceFingerprintAlgorithm === null &&
+          project.sourceFingerprint === null &&
+          input.sourceIdentity === undefined) ||
+          (project.sourceFingerprintAlgorithm === input.sourceIdentity?.algorithm &&
+            project.sourceFingerprint === input.sourceIdentity?.digest)) &&
         (project.sourceObjectGeneration === null ||
           project.sourceObjectGeneration === input.uploadAttemptId) &&
         project.sourceContentType === input.contentType &&
@@ -98,6 +112,13 @@ export const mediaIngestionBeginUploadRouter = router({
       if (!['DRAFT', 'FAILED'].includes(project.status)) {
         throw new TRPCError({ code: 'CONFLICT', message: 'This project already has an upload.' })
       }
+      if (input.sourceIdentity === undefined) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Refresh the Media Lab before starting a new upload.',
+        })
+      }
+      const sourceIdentity = input.sourceIdentity
       const objectKey = currentDeploymentStorageKey(
         `media-ingestion/${input.tenantId}/${project.venueId}/${project.id}/${input.uploadAttemptId}/${safeFileName(input.filename)}`,
       )
@@ -115,6 +136,8 @@ export const mediaIngestionBeginUploadRouter = router({
             sourceFileName: input.filename,
             sourceBytes: BigInt(input.bytes),
             sourceLastModified: BigInt(input.lastModified),
+            sourceFingerprintAlgorithm: sourceIdentity.algorithm,
+            sourceFingerprint: sourceIdentity.digest,
             sourceObjectGeneration: input.uploadAttemptId,
             sourceContentType: input.contentType,
             uploadAttemptId: input.uploadAttemptId,

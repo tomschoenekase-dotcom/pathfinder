@@ -970,39 +970,41 @@ enum GenerationDispatchStatus {
 /// import-ready PathFinder JSON. Raw media stays in object storage; the DB
 /// contains only orchestration state, evidence, questions, and drafts.
 model MediaIngestionProject {
-  id                     String                @id @default(cuid())
-  tenantId               String                @map("tenant_id")
-  venueId                String                @map("venue_id")
-  name                   String
-  context                String                @default("")
-  mode                   MediaIngestionMode    @default(BALANCED)
-  status                 MediaIngestionStatus  @default(DRAFT)
-  stage                  String                @default("setup")
-  progress               Int                   @default(0)
-  sourceObjectKey        String?               @map("source_object_key")
-  sourceFileName         String?               @map("source_file_name")
-  sourceBytes            BigInt?               @map("source_bytes")
-  sourceLastModified     BigInt?               @map("source_last_modified")
-  sourceObjectGeneration String?               @map("source_object_generation") @db.Uuid
-  uploadAttemptId        String?               @map("upload_attempt_id") @db.Uuid
-  storageUploadId        String?               @map("storage_upload_id")
-  uploadStartedAt        DateTime?             @map("upload_started_at")
-  sourceContentType      String?               @map("source_content_type")
-  settings               Json                  @default("{}")
-  coverage               Json                  @default("{}")
-  questions              Json                  @default("[]")
-  findings               Json                  @default("[]")
-  draftJson              Json?                 @map("draft_json")
-  estimatedCostCents     Int?                  @map("estimated_cost_cents")
-  actualCostCents        Int                   @default(0) @map("actual_cost_cents")
-  error                  String?
-  createdBy              String                @map("created_by")
-  createdAt              DateTime              @default(now()) @map("created_at")
-  updatedAt              DateTime              @updatedAt @map("updated_at")
-  completedAt            DateTime?             @map("completed_at")
-  tenant                 Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                  Venue                 @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  assets                 MediaIngestionAsset[]
+  id                         String                @id @default(cuid())
+  tenantId                   String                @map("tenant_id")
+  venueId                    String                @map("venue_id")
+  name                       String
+  context                    String                @default("")
+  mode                       MediaIngestionMode    @default(BALANCED)
+  status                     MediaIngestionStatus  @default(DRAFT)
+  stage                      String                @default("setup")
+  progress                   Int                   @default(0)
+  sourceObjectKey            String?               @map("source_object_key")
+  sourceFileName             String?               @map("source_file_name")
+  sourceBytes                BigInt?               @map("source_bytes")
+  sourceLastModified         BigInt?               @map("source_last_modified")
+  sourceFingerprintAlgorithm String?               @map("source_fingerprint_algorithm") @db.VarChar(48)
+  sourceFingerprint          String?               @map("source_fingerprint") @db.Char(64)
+  sourceObjectGeneration     String?               @map("source_object_generation") @db.Uuid
+  uploadAttemptId            String?               @map("upload_attempt_id") @db.Uuid
+  storageUploadId            String?               @map("storage_upload_id")
+  uploadStartedAt            DateTime?             @map("upload_started_at")
+  sourceContentType          String?               @map("source_content_type")
+  settings                   Json                  @default("{}")
+  coverage                   Json                  @default("{}")
+  questions                  Json                  @default("[]")
+  findings                   Json                  @default("[]")
+  draftJson                  Json?                 @map("draft_json")
+  estimatedCostCents         Int?                  @map("estimated_cost_cents")
+  actualCostCents            Int                   @default(0) @map("actual_cost_cents")
+  error                      String?
+  createdBy                  String                @map("created_by")
+  createdAt                  DateTime              @default(now()) @map("created_at")
+  updatedAt                  DateTime              @updatedAt @map("updated_at")
+  completedAt                DateTime?             @map("completed_at")
+  tenant                     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                      Venue                 @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  assets                     MediaIngestionAsset[]
 
   @@index([tenantId, venueId, createdAt])
   @@index([status, createdAt])

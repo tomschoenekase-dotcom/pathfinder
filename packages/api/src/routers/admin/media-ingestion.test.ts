@@ -56,6 +56,10 @@ const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111'
 const OTHER_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222'
 const UPPER_ATTEMPT_ID = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'
 const CANONICAL_UPPER_ATTEMPT_ID = UPPER_ATTEMPT_ID.toLowerCase()
+const SOURCE_IDENTITY = {
+  algorithm: 'pathfinder-sha256-part-manifest-v1' as const,
+  digest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+}
 const ABANDONED_UPLOAD_STARTED_AT = new Date('2026-07-01T00:00:00.000Z')
 const ABANDONED_UPLOAD_CUTOFF = new Date('2026-07-02T00:00:00.000Z')
 
@@ -109,6 +113,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 5 * 1024 * 1024 * 1024 + 1,
         contentType: 'application/zip',
@@ -130,6 +135,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -153,6 +159,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -196,6 +203,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -224,6 +232,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -249,6 +258,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: UPPER_ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         lastModified: 123456,
@@ -275,6 +285,8 @@ describe('media ingestion router', () => {
         sourceObjectGeneration: CANONICAL_UPPER_ATTEMPT_ID,
         sourceObjectKey: `staging/media-ingestion/tenant_1/venue_1/project_1/${CANONICAL_UPPER_ATTEMPT_ID}/visit.zip`,
         sourceLastModified: 123456n,
+        sourceFingerprintAlgorithm: SOURCE_IDENTITY.algorithm,
+        sourceFingerprint: SOURCE_IDENTITY.digest,
         sourceContentType: 'application/zip',
         uploadStartedAt: expect.any(Date),
       }),
@@ -300,6 +312,8 @@ describe('media ingestion router', () => {
       sourceFileName: 'visit.zip',
       sourceBytes: 10n,
       sourceLastModified: 0n,
+      sourceFingerprintAlgorithm: SOURCE_IDENTITY.algorithm,
+      sourceFingerprint: SOURCE_IDENTITY.digest,
       sourceObjectGeneration: null,
       sourceObjectKey: 'staging/tenant/venue/project.zip',
       sourceContentType: 'application/zip',
@@ -308,6 +322,90 @@ describe('media ingestion router', () => {
     })
 
     const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).resolves.toEqual({
+      partSize: 16 * 1024 * 1024,
+      parts: [{ partNumber: 1, etag: 'etag_1', size: 10 }],
+    })
+
+    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects a changed or omitted fingerprint before listing reusable parts', async () => {
+    const persisted = {
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'UPLOADING',
+      stage: 'upload',
+      sourceFileName: 'visit.zip',
+      sourceBytes: 10n,
+      sourceLastModified: 0n,
+      sourceFingerprintAlgorithm: SOURCE_IDENTITY.algorithm,
+      sourceFingerprint: SOURCE_IDENTITY.digest,
+      sourceObjectGeneration: ATTEMPT_ID,
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceContentType: 'application/zip',
+      uploadAttemptId: ATTEMPT_ID,
+      storageUploadId: 'server_secret_upload_id',
+    }
+    mocks.projectFindFirst.mockResolvedValue(persisted)
+    const caller = testRouter.createCaller(context(true))
+
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: { ...SOURCE_IDENTITY, digest: 'b'.repeat(64) },
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(mocks.listReusableMediaUploadParts).not.toHaveBeenCalled()
+    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
+  })
+
+  it('keeps legacy null-fingerprint uploads resumable without adopting a digest', async () => {
+    mocks.projectFindFirst.mockResolvedValue({
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'UPLOADING',
+      stage: 'upload',
+      sourceFileName: 'visit.zip',
+      sourceBytes: 10n,
+      sourceLastModified: 0n,
+      sourceFingerprintAlgorithm: null,
+      sourceFingerprint: null,
+      sourceObjectGeneration: ATTEMPT_ID,
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceContentType: 'application/zip',
+      uploadAttemptId: ATTEMPT_ID,
+      storageUploadId: 'server_secret_upload_id',
+    })
+    const caller = testRouter.createCaller(context(true))
+
     await expect(
       caller.mediaIngestion.beginUpload({
         tenantId: 'tenant_1',
@@ -322,8 +420,56 @@ describe('media ingestion router', () => {
       parts: [{ partNumber: 1, etag: 'etag_1', size: 10 }],
     })
 
-    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('requires a strong fingerprint before reserving a new upload', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'DRAFT',
+      stage: 'setup',
+    })
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-canonical source digests before database access', async () => {
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: { ...SOURCE_IDENTITY, digest: 'A'.repeat(64) },
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toThrow()
+    expect(mocks.projectFindFirst).not.toHaveBeenCalled()
   })
 
   it('rejects a resume selection with a different browser file identity', async () => {
@@ -347,6 +493,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         lastModified: 123457,
@@ -368,6 +515,8 @@ describe('media ingestion router', () => {
       sourceFileName: 'visit.zip',
       sourceBytes: 10n,
       sourceLastModified: 0n,
+      sourceFingerprintAlgorithm: SOURCE_IDENTITY.algorithm,
+      sourceFingerprint: SOURCE_IDENTITY.digest,
       sourceObjectGeneration: null,
       sourceObjectKey: 'staging/tenant/venue/project.zip',
       sourceContentType: 'application/zip',
@@ -384,6 +533,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -413,6 +563,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -446,6 +597,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -479,6 +631,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -514,6 +667,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -552,6 +706,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -577,6 +732,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -628,6 +784,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -660,6 +817,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',
@@ -693,6 +851,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         projectId: 'project_1',
         uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
         filename: 'visit.zip',
         bytes: 10,
         contentType: 'application/zip',

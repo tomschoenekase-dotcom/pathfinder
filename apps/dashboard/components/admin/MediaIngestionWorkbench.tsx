@@ -1,11 +1,17 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { planMediaUploadResume } from '../../lib/media-upload-resume'
+import {
+  fingerprintMediaSource,
+  MAX_MEDIA_SOURCE_BYTES,
+  MEDIA_SOURCE_FINGERPRINT_ALGORITHM,
+  type MediaSourceIdentity,
+} from '../../lib/media-source-identity'
 
 type Mode = 'ECONOMY' | 'BALANCED' | 'FORENSIC'
 type Project = {
@@ -18,6 +24,7 @@ type Project = {
   sourceFileName: string | null
   sourceBytes: number | null
   sourceLastModified: number | null
+  sourceFingerprintAlgorithm: string | null
   uploadAttemptId: string | null
   actualCostCents: number
   estimatedCostCents: number | null
@@ -56,6 +63,10 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }
 
+function throwIfTransferAborted(signal: AbortSignal) {
+  if (signal.aborted) throw new DOMException('Media transfer was cancelled.', 'AbortError')
+}
+
 export function MediaIngestionWorkbench({
   tenantId,
   venueId,
@@ -81,17 +92,41 @@ export function MediaIngestionWorkbench({
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [transferPhase, setTransferPhase] = useState<'hashing' | 'uploading' | 'finalizing'>(
+    'uploading',
+  )
   const [error, setError] = useState<string | null>(null)
   const [resumingProjectId, setResumingProjectId] = useState<string | null>(null)
   const [reconcilingProjectId, setReconcilingProjectId] = useState<string | null>(null)
   const [abortingProjectId, setAbortingProjectId] = useState<string | null>(null)
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null)
+  const activeTransfer = useRef<AbortController | null>(null)
+
+  useEffect(() => () => activeTransfer.current?.abort(), [])
+
+  async function fingerprintArchive(archive: File, signal: AbortSignal) {
+    setTransferPhase('hashing')
+    setUploadProgress(0)
+    return fingerprintMediaSource(archive, {
+      signal,
+      onProgress: (processed, total) =>
+        setUploadProgress(total === 0 ? 100 : Math.round((processed / total) * 100)),
+    })
+  }
 
   async function uploadArchive(
     projectId: string,
     archive: File,
-    uploadAttemptId = crypto.randomUUID(),
+    options: {
+      uploadAttemptId?: string
+      sourceIdentity?: MediaSourceIdentity
+      signal: AbortSignal
+    },
   ) {
+    const uploadAttemptId = options.uploadAttemptId ?? crypto.randomUUID()
+    setTransferPhase('uploading')
+    setUploadProgress(0)
+    throwIfTransferAborted(options.signal)
     const contentType =
       archive.type === 'application/x-zip-compressed'
         ? 'application/x-zip-compressed'
@@ -103,6 +138,7 @@ export function MediaIngestionWorkbench({
       filename: archive.name,
       bytes: archive.size,
       lastModified: archive.lastModified,
+      sourceIdentity: options.sourceIdentity,
       contentType,
     })
     const partCount = Math.ceil(archive.size / started.partSize)
@@ -115,6 +151,7 @@ export function MediaIngestionWorkbench({
 
     async function worker() {
       while (nextPartIndex < remainingPartNumbers.length) {
+        throwIfTransferAborted(options.signal)
         const partNumber = remainingPartNumbers[nextPartIndex++]
         if (partNumber === undefined) return
         const start = (partNumber - 1) * started.partSize
@@ -125,7 +162,8 @@ export function MediaIngestionWorkbench({
           uploadAttemptId,
           partNumber,
         })
-        const response = await fetch(url, { method: 'PUT', body })
+        throwIfTransferAborted(options.signal)
+        const response = await fetch(url, { method: 'PUT', body, signal: options.signal })
         if (!response.ok) throw new Error(`Upload part ${partNumber} failed (${response.status}).`)
         const etag = response.headers.get('etag')
         if (!etag) throw new Error('Storage CORS must expose the ETag response header.')
@@ -139,6 +177,8 @@ export function MediaIngestionWorkbench({
       Array.from({ length: Math.min(3, remainingPartNumbers.length) }, () => worker()),
     )
     parts.sort((a, b) => a.partNumber - b.partNumber)
+    throwIfTransferAborted(options.signal)
+    setTransferPhase('finalizing')
     await client.mediaIngestion.completeUpload.mutate({
       tenantId,
       projectId,
@@ -171,13 +211,28 @@ export function MediaIngestionWorkbench({
     setResumingProjectId(project.id)
     setError(null)
     setUploadProgress(0)
+    const controller = new AbortController()
+    activeTransfer.current = controller
     try {
-      await uploadArchive(project.id, archive, project.uploadAttemptId)
+      let sourceIdentity: MediaSourceIdentity | undefined
+      if (project.sourceFingerprintAlgorithm === MEDIA_SOURCE_FINGERPRINT_ALGORITHM) {
+        sourceIdentity = await fingerprintArchive(archive, controller.signal)
+      } else if (project.sourceFingerprintAlgorithm !== null) {
+        throw new Error(
+          'This upload uses an unsupported source identity. Abort it and start again.',
+        )
+      }
+      await uploadArchive(project.id, archive, {
+        uploadAttemptId: project.uploadAttemptId,
+        ...(sourceIdentity ? { sourceIdentity } : {}),
+        signal: controller.signal,
+      })
       router.refresh()
     } catch (resumeError) {
       setError(errorMessage(resumeError))
       router.refresh()
     } finally {
+      if (activeTransfer.current === controller) activeTransfer.current = null
       setResumingProjectId(null)
     }
   }
@@ -247,11 +302,19 @@ export function MediaIngestionWorkbench({
       setError('The source archive must be a .zip file.')
       return
     }
+    if (file.size <= 0 || file.size > MAX_MEDIA_SOURCE_BYTES) {
+      setError('The source archive must be between 1 byte and 5 GB.')
+      return
+    }
 
     setBusy(true)
     setError(null)
     setUploadProgress(0)
+    const controller = new AbortController()
+    activeTransfer.current = controller
     try {
+      const sourceIdentity = await fingerprintArchive(file, controller.signal)
+      throwIfTransferAborted(controller.signal)
       const project = await client.mediaIngestion.create.mutate({
         tenantId,
         venueId,
@@ -266,13 +329,15 @@ export function MediaIngestionWorkbench({
           videoSecondsPerSample,
         },
       })
-      await uploadArchive(project.id, file)
+      throwIfTransferAborted(controller.signal)
+      await uploadArchive(project.id, file, { sourceIdentity, signal: controller.signal })
       router.refresh()
       setFile(null)
     } catch (caught) {
       setError(errorMessage(caught))
       router.refresh()
     } finally {
+      if (activeTransfer.current === controller) activeTransfer.current = null
       setBusy(false)
     }
   }
@@ -400,7 +465,23 @@ export function MediaIngestionWorkbench({
 
         <div className="flex items-center justify-end gap-4">
           {busy ? (
-            <span className="text-sm text-pf-deep/60">Uploading {uploadProgress}%</span>
+            <span className="text-sm text-pf-deep/60">
+              {transferPhase === 'hashing'
+                ? 'Checking source'
+                : transferPhase === 'finalizing'
+                  ? 'Finalizing'
+                  : 'Uploading'}{' '}
+              {uploadProgress}%
+            </span>
+          ) : null}
+          {busy && transferPhase !== 'finalizing' ? (
+            <button
+              type="button"
+              onClick={() => activeTransfer.current?.abort()}
+              className="text-sm font-semibold text-pf-primary hover:text-pf-accent"
+            >
+              Cancel transfer
+            </button>
           ) : null}
           <button
             type="submit"
@@ -459,7 +540,21 @@ export function MediaIngestionWorkbench({
                 project.uploadAttemptId ? (
                   resumingProjectId === project.id ? (
                     <span className="ml-4 mt-3 inline-flex text-sm font-semibold text-pf-primary">
-                      Resuming {uploadProgress}%
+                      {transferPhase === 'hashing'
+                        ? 'Checking source'
+                        : transferPhase === 'finalizing'
+                          ? 'Finalizing'
+                          : 'Resuming'}{' '}
+                      {uploadProgress}%
+                      {transferPhase !== 'finalizing' ? (
+                        <button
+                          type="button"
+                          onClick={() => activeTransfer.current?.abort()}
+                          className="ml-3 text-pf-accent hover:text-pf-primary"
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
                     </span>
                   ) : (
                     <label className="ml-4 mt-3 inline-flex cursor-pointer text-sm font-semibold text-pf-primary hover:text-pf-accent">

@@ -1,5 +1,6 @@
 export const MAX_MEDIA_ARCHIVE_BYTES = 5 * 1024 * 1024 * 1024
 export const mediaIngestionModes = ['ECONOMY', 'BALANCED', 'FORENSIC'] as const
+export const MEDIA_SOURCE_FINGERPRINT_ALGORITHM = 'pathfinder-sha256-part-manifest-v1' as const
 
 export function safeMediaFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-180)
@@ -28,6 +29,7 @@ export const mediaIngestionProjectSelect = {
   sourceFileName: true,
   sourceBytes: true,
   sourceLastModified: true,
+  sourceFingerprintAlgorithm: true,
   uploadAttemptId: true,
   settings: true,
   coverage: true,
