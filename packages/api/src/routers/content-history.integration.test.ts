@@ -132,7 +132,7 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
     })
     expect(rows.map((row) => row.entityType)).toEqual(['VENUE', 'PLACE', 'KNOWLEDGE_ENTRY'])
     expect(rows.every((row) => row.operation === 'CREATE' && row.actorId === actorId)).toBe(true)
-    expect(rows.every((row) => row.snapshotSchemaVersion === 1)).toBe(true)
+    expect(rows.map((row) => row.snapshotSchemaVersion)).toEqual([1, 2, 2])
     expect(rows[0]!.sequence < rows[1]!.sequence && rows[1]!.sequence < rows[2]!.sequence).toBe(
       true,
     )
@@ -162,7 +162,11 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
       entityId: draft.id,
     })
     expect(draftVersions).toHaveLength(1)
-    expect(draftVersions[0]).toMatchObject({ operation: 'CREATE', actorId })
+    expect(draftVersions[0]).toMatchObject({
+      operation: 'CREATE',
+      actorId,
+      snapshotSchemaVersion: 1,
+    })
 
     await expect(
       caller.operationalUpdate.update({
@@ -396,6 +400,126 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
         expectedCurrentVersionId: applied.id,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('exactly restores schema-v2 place and knowledge provenance', async () => {
+    const caller = testRouter.createCaller(ctx('MANAGER'))
+    const sourcePackage = await db.venuePackage.create({
+      data: {
+        tenantId,
+        venueId,
+        draftKey: randomUUID(),
+        schemaVersion: 3,
+        payload: {},
+        payloadHash: 'a'.repeat(64),
+        baseDigest: 'b'.repeat(64),
+        validationReport: {},
+        previewPlan: {},
+        createdBy: actorId,
+      },
+    })
+    const importedAt = new Date('2026-08-01T01:02:03.004Z')
+    const humanConfirmedAt = new Date('2026-08-02T02:03:04.005Z')
+    const lastReviewedAt = new Date('2026-08-03T03:04:05.006Z')
+    const provenance = {
+      sourceType: 'curated-dataset',
+      authorship: 'AI_GENERATED',
+      sourceName: 'Museum source catalog',
+      sourceUrl: 'https://example.test/catalog',
+      importedAt,
+      humanConfirmedAt,
+      humanConfirmedBy: actorId,
+      lastReviewedAt,
+      lastReviewedBy: actorId,
+      sourcePackageId: sourcePackage.id,
+    } as const
+
+    await db.$transaction(async (tx) => {
+      await setContentVersionContext(tx, { actorId })
+      await tx.place.updateMany({ where: { id: placeId, tenantId }, data: provenance })
+      await tx.venueKnowledgeEntry.updateMany({
+        where: { id: knowledgeId, tenantId },
+        data: provenance,
+      })
+    })
+    const [placeTarget, knowledgeTarget] = await Promise.all([
+      db.contentVersion.findFirstOrThrow({
+        where: { tenantId, entityType: 'PLACE', entityId: placeId },
+        orderBy: { sequence: 'desc' },
+      }),
+      db.contentVersion.findFirstOrThrow({
+        where: { tenantId, entityType: 'KNOWLEDGE_ENTRY', entityId: knowledgeId },
+        orderBy: { sequence: 'desc' },
+      }),
+    ])
+    expect(placeTarget).toMatchObject({ snapshotSchemaVersion: 2, operation: 'UPDATE' })
+    expect(knowledgeTarget).toMatchObject({ snapshotSchemaVersion: 2, operation: 'UPDATE' })
+    expect(placeTarget.afterState).toMatchObject({
+      sourceType: provenance.sourceType,
+      authorship: provenance.authorship,
+      sourcePackageId: sourcePackage.id,
+    })
+
+    await db.$transaction(async (tx) => {
+      await setContentVersionContext(tx, { actorId })
+      const cleared = {
+        sourceType: 'UNKNOWN',
+        authorship: 'UNKNOWN',
+        sourceName: null,
+        sourceUrl: null,
+        importedAt: null,
+        humanConfirmedAt: null,
+        humanConfirmedBy: null,
+        lastReviewedAt: null,
+        lastReviewedBy: null,
+        sourcePackageId: null,
+      }
+      await tx.place.updateMany({ where: { id: placeId, tenantId }, data: cleared })
+      await tx.venueKnowledgeEntry.updateMany({
+        where: { id: knowledgeId, tenantId },
+        data: cleared,
+      })
+    })
+    const [placeCurrent, knowledgeCurrent] = await Promise.all([
+      db.contentVersion.findFirstOrThrow({
+        where: { tenantId, entityType: 'PLACE', entityId: placeId },
+        orderBy: { sequence: 'desc' },
+      }),
+      db.contentVersion.findFirstOrThrow({
+        where: { tenantId, entityType: 'KNOWLEDGE_ENTRY', entityId: knowledgeId },
+        orderBy: { sequence: 'desc' },
+      }),
+    ])
+
+    await caller.contentHistory.revert({
+      versionId: placeTarget.id,
+      expectedCurrentVersionId: placeCurrent.id,
+      snapshotSide: 'AFTER',
+    })
+    await caller.contentHistory.revert({
+      versionId: knowledgeTarget.id,
+      expectedCurrentVersionId: knowledgeCurrent.id,
+      snapshotSide: 'AFTER',
+    })
+
+    const [restoredPlace, restoredKnowledge] = await Promise.all([
+      db.place.findFirstOrThrow({ where: { id: placeId, tenantId } }),
+      db.venueKnowledgeEntry.findFirstOrThrow({ where: { id: knowledgeId, tenantId } }),
+    ])
+    for (const restored of [restoredPlace, restoredKnowledge]) {
+      expect(restored).toMatchObject({
+        sourceType: provenance.sourceType,
+        authorship: provenance.authorship,
+        sourceName: provenance.sourceName,
+        sourceUrl: provenance.sourceUrl,
+        importedAt,
+        humanConfirmedAt,
+        humanConfirmedBy: actorId,
+        lastReviewedAt,
+        lastReviewedBy: actorId,
+        sourcePackageId: sourcePackage.id,
+      })
+    }
   })
 
   it('waits for an in-flight edit and rejects the now-stale revert', async () => {

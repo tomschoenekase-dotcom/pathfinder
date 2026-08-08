@@ -167,6 +167,63 @@ const v2Draft = {
   validationReport: v2Preview.report,
 }
 
+const v3Preview = {
+  ...preview,
+  schemaVersion: 3,
+  mode: 'MUTATING_V3',
+  changes: {
+    venue: {
+      expectedVersionId: 'venue-version-reviewed',
+      change: [{ path: 'venue.identity.name', before: 'City Museum', after: 'City Museum V3' }],
+      unchanged: 10,
+    },
+    places: {
+      add: [{ itemKey: 'place-create-key', value: { name: 'New gallery', type: 'room' } }],
+      change: [
+        {
+          itemKey: 'place-update-key',
+          id: 'place-existing',
+          expectedVersionId: 'place-version-reviewed',
+          before: { name: 'Old gallery' },
+          after: { name: 'Updated gallery' },
+        },
+      ],
+      remove: [
+        {
+          itemKey: 'place-delete-key',
+          id: 'place-retired',
+          expectedVersionId: 'place-delete-version-reviewed',
+          before: { name: 'Retired gallery' },
+          dependencies: [{ entityType: 'TOUR_STOP', count: 2 }],
+        },
+      ],
+      unchanged: 4,
+    },
+    knowledgeEntries: {
+      add: [{ itemKey: 'knowledge-create-key', value: { title: 'New policy' } }],
+      change: [
+        {
+          itemKey: 'knowledge-update-key',
+          id: 'knowledge-existing',
+          expectedVersionId: 'knowledge-version-reviewed',
+          before: { title: 'Old policy' },
+          after: { title: 'Updated policy' },
+        },
+      ],
+      remove: [],
+      unchanged: 5,
+    },
+  },
+}
+
+const v3Draft = {
+  ...draft,
+  id: 'cpackagev3abc123456789',
+  schemaVersion: 3,
+  previewPlan: v3Preview,
+  validationReport: v3Preview.report,
+}
+
 describe('venue package workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -225,6 +282,29 @@ describe('venue package workspace', () => {
     expect(
       screen.getByText(
         'Branding URL fields are compatible external URL references. This package does not upload, copy, or host image assets.',
+      ),
+    ).toBeTruthy()
+    expect(mocks.preview).not.toHaveBeenCalled()
+  })
+
+  it('renders the complete saved V3 mutation plan and immutable review bindings', async () => {
+    mocks.list.mockResolvedValueOnce([v3Draft])
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(v3Draft.id))
+
+    expect(await screen.findByText('Exact mutating venue package preview')).toBeTruthy()
+    expect(screen.getByText('Mode: MUTATING_V3')).toBeTruthy()
+    expect(screen.getByText('Venue configuration changes (1)')).toBeTruthy()
+    expect(screen.getByText('Places: 1 added, 1 changed, 1 removed')).toBeTruthy()
+    expect(screen.getByText('Knowledge: 1 added, 1 changed, 0 removed')).toBeTruthy()
+    expect(screen.getByText(/"itemKey": "place-create-key"/)).toBeTruthy()
+    expect(screen.getByText(/"expectedVersionId": "place-version-reviewed"/)).toBeTruthy()
+    expect(screen.getByText(/"entityType": "TOUR_STOP"/)).toBeTruthy()
+    expect(screen.getByText(/"expectedVersionId": "knowledge-version-reviewed"/)).toBeTruthy()
+    expect(
+      screen.getByText(
+        /Version IDs bind updates and removals to the exact reviewed entity history/,
       ),
     ).toBeTruthy()
     expect(mocks.preview).not.toHaveBeenCalled()

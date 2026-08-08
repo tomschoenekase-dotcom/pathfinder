@@ -7,6 +7,7 @@ import {
   VenuePackagePayload,
   VenuePackagePayloadV1,
   VenuePackagePayloadV2,
+  VenuePackagePayloadV3,
   VenuePackageSemanticDuplicateScan,
   VenuePackageStoredPreview,
 } from './venue-package'
@@ -18,6 +19,40 @@ const knowledge = (index: number) => ({
   isEnabled: true,
 })
 
+const provenance = {
+  sourceType: 'curated-notes',
+  sourceName: 'Visitor services handbook',
+  sourceUrl: 'https://example.com/visitor-services',
+  contentOrigin: 'HUMAN_AUTHORED' as const,
+}
+
+const itemKey = (index: number) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`
+
+const existingId = (index: number) => `cm${index.toString().padStart(23, '0')}`
+
+const completePlace = (name: string) => ({
+  name,
+  type: 'attraction',
+  itemType: 'physical_place',
+  shortDescription: null,
+  longDescription: null,
+  lat: null,
+  lng: null,
+  tags: ['visitor-facing'],
+  importanceScore: 50,
+  areaName: null,
+  hours: null,
+  photoUrl: null,
+  isActive: true,
+})
+
+const completeKnowledge = (title: string) => ({
+  title,
+  category: 'FAQ',
+  content: `Content for ${title}`,
+  isEnabled: true,
+})
+
 describe('venue package schema', () => {
   it('preserves strict frozen V1 parsing and rejects unsupported versions and fields', () => {
     expect(
@@ -25,7 +60,7 @@ describe('venue package schema', () => {
     ).toBe(false)
     expect(
       VenuePackagePayload.safeParse({
-        schemaVersion: 3,
+        schemaVersion: 4,
         places: [],
         knowledgeEntries: [knowledge(1)],
       }).success,
@@ -52,6 +87,169 @@ describe('venue package schema', () => {
         knowledgeEntries: [],
       }).success,
     ).toBe(false)
+  })
+
+  it('strictly parses V3 create, update, and delete operations with complete desired states', () => {
+    const parsed = VenuePackagePayloadV3.parse({
+      schemaVersion: 3,
+      places: {
+        create: [
+          {
+            itemKey: itemKey(1),
+            provenance,
+            value: { name: 'New gallery', type: 'gallery', tags: [], importanceScore: 20 },
+          },
+        ],
+        update: [
+          {
+            itemKey: itemKey(2),
+            provenance,
+            id: existingId(1),
+            value: completePlace('Updated gallery'),
+          },
+        ],
+        delete: [{ itemKey: itemKey(3), provenance, id: existingId(2) }],
+      },
+      knowledgeEntries: {
+        create: [{ itemKey: itemKey(4), provenance, value: knowledge(1) }],
+        update: [
+          {
+            itemKey: itemKey(5),
+            provenance,
+            id: existingId(3),
+            value: completeKnowledge('Updated accessibility'),
+          },
+        ],
+        delete: [{ itemKey: itemKey(6), provenance, id: existingId(4) }],
+      },
+    })
+
+    expect(parsed.places.create).toHaveLength(1)
+    expect(parsed.places.update[0]?.value).toEqual(completePlace('Updated gallery'))
+    expect(parsed.knowledgeEntries.delete).toEqual([
+      { itemKey: itemKey(6), provenance, id: existingId(4) },
+    ])
+
+    const missingDesiredField = {
+      schemaVersion: 3,
+      places: {
+        create: [],
+        update: [
+          {
+            itemKey: itemKey(7),
+            provenance,
+            id: existingId(5),
+            value: { ...completePlace('Partial update'), isActive: undefined },
+          },
+        ],
+        delete: [],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    }
+    expect(VenuePackagePayload.safeParse(missingDesiredField).success).toBe(false)
+    expect(
+      VenuePackagePayload.safeParse({
+        ...missingDesiredField,
+        places: {
+          ...missingDesiredField.places,
+          update: [{ ...missingDesiredField.places.update[0], unexpected: true }],
+        },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('enforces V3 item identity, single-target, and shared operation-count invariants', () => {
+    const duplicateItemKey = VenuePackagePayload.safeParse({
+      schemaVersion: 3,
+      places: {
+        create: [
+          { itemKey: itemKey(1), provenance, value: { name: 'A', type: 'room' } },
+          { itemKey: itemKey(1), provenance, value: { name: 'B', type: 'room' } },
+        ],
+        update: [],
+        delete: [],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+    expect(duplicateItemKey.success).toBe(false)
+    if (!duplicateItemKey.success) {
+      expect(duplicateItemKey.error.issues.some((issue) => issue.message.includes('unique'))).toBe(
+        true,
+      )
+    }
+
+    const duplicateTarget = VenuePackagePayload.safeParse({
+      schemaVersion: 3,
+      places: {
+        create: [],
+        update: [
+          {
+            itemKey: itemKey(2),
+            provenance,
+            id: existingId(1),
+            value: completePlace('Changed'),
+          },
+        ],
+        delete: [{ itemKey: itemKey(3), provenance, id: existingId(1) }],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+    expect(duplicateTarget.success).toBe(false)
+    if (!duplicateTarget.success) {
+      expect(
+        duplicateTarget.error.issues.some((issue) => issue.message.includes('targeted only once')),
+      ).toBe(true)
+    }
+
+    const tooManyOperations = VenuePackagePayload.safeParse({
+      schemaVersion: 3,
+      places: {
+        create: Array.from({ length: VENUE_PACKAGE_ITEM_LIMIT + 1 }, (_, index) => ({
+          itemKey: itemKey(index + 1),
+          provenance,
+          value: { name: `Place ${index}`, type: 'room' },
+        })),
+        update: [],
+        delete: [],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+    expect(tooManyOperations.success).toBe(false)
+    if (!tooManyOperations.success) {
+      expect(
+        tooManyOperations.error.issues.some((issue) => issue.message.includes('at most 500')),
+      ).toBe(true)
+    }
+  })
+
+  it('accepts only credential-free HTTP(S) provenance URLs', () => {
+    const parseSourceUrl = (sourceUrl: string) =>
+      VenuePackagePayload.safeParse({
+        schemaVersion: 3,
+        places: {
+          create: [
+            {
+              itemKey: itemKey(1),
+              provenance: { ...provenance, sourceUrl },
+              value: { name: 'Lobby', type: 'room' },
+            },
+          ],
+          update: [],
+          delete: [],
+        },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      }).success
+
+    expect(parseSourceUrl('https://example.com/source')).toBe(true)
+    expect(parseSourceUrl('http://example.com/source')).toBe(true)
+    expect(parseSourceUrl('ftp://example.com/source')).toBe(false)
+    expect(parseSourceUrl('https://user:secret@example.com/source')).toBe(false)
+    expect(parseSourceUrl('https://example.com/source?access_token=secret')).toBe(false)
+    expect(parseSourceUrl('https://example.com/source?sig=azure-sas-secret')).toBe(false)
+    expect(parseSourceUrl('https://example.com/source#access_token=oauth-secret')).toBe(false)
+    expect(parseSourceUrl('https://example.com/source?%73ig=encoded-secret')).toBe(false)
+    expect(parseSourceUrl('https://example.com/source?access_%74oken=encoded-secret')).toBe(false)
+    expect(parseSourceUrl('https://example.com/source#public-section')).toBe(true)
   })
 
   it('accepts strict V2 venue patches with omission as no-change and null as clear', () => {
@@ -174,6 +372,53 @@ describe('venue package schema', () => {
     )
     expect(canonicalVenuePackagePayload('venue_a', omitted)).not.toBe(
       canonicalVenuePackagePayload('venue_b', omitted),
+    )
+
+    const v3Base = VenuePackagePayloadV3.parse({
+      schemaVersion: 3,
+      places: {
+        create: [
+          {
+            itemKey: itemKey(1),
+            provenance,
+            value: { name: 'Lobby', type: 'room' },
+          },
+        ],
+        update: [],
+        delete: [],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+    const v3DifferentIdentity = VenuePackagePayloadV3.parse({
+      ...v3Base,
+      places: {
+        ...v3Base.places,
+        create: [{ ...v3Base.places.create[0]!, itemKey: itemKey(2) }],
+      },
+    })
+    const v3DifferentProvenance = VenuePackagePayloadV3.parse({
+      ...v3Base,
+      places: {
+        ...v3Base.places,
+        create: [
+          {
+            ...v3Base.places.create[0]!,
+            provenance: { ...provenance, sourceName: 'A different source' },
+          },
+        ],
+      },
+    })
+    expect(canonicalVenuePackagePayload('venue_a', v3Base)).toBe(
+      canonicalVenuePackagePayload('venue_a', v3Base),
+    )
+    expect(canonicalVenuePackagePayload('venue_a', v3Base)).not.toBe(
+      canonicalVenuePackagePayload('venue_a', v3DifferentIdentity),
+    )
+    expect(canonicalVenuePackagePayload('venue_a', v3Base)).not.toBe(
+      canonicalVenuePackagePayload('venue_a', v3DifferentProvenance),
+    )
+    expect(canonicalVenuePackagePayload('venue_a', v3Base)).not.toBe(
+      canonicalVenuePackagePayload('venue_b', v3Base),
     )
   })
 
@@ -348,5 +593,39 @@ describe('venue package schema', () => {
     expect(VenuePackageAppliedEntities.safeParse({ ...v2Manifest, schemaVersion: 1 }).success).toBe(
       false,
     )
+
+    const v3Manifest = {
+      schemaVersion: 3,
+      rollbackContractVersion: 2,
+      postApplyDigest: 'e'.repeat(64),
+      effects: [
+        {
+          itemKey: itemKey(1),
+          entityType: 'PLACE',
+          entityId: existingId(1),
+          operation: 'UPDATE',
+          applyVersionId: itemKey(2),
+          snapshotSchemaVersion: 2,
+          beforeState: { name: 'Old lobby' },
+          afterState: { name: 'New lobby' },
+        },
+      ],
+    }
+    expect(VenuePackageAppliedEntities.safeParse(v3Manifest).success).toBe(true)
+    expect(
+      VenuePackageAppliedEntities.safeParse({ ...v3Manifest, rollbackContractVersion: 1 }).success,
+    ).toBe(false)
+    expect(
+      VenuePackageAppliedEntities.safeParse({
+        ...v3Manifest,
+        effects: [{ ...v3Manifest.effects[0], providerResponse: {} }],
+      }).success,
+    ).toBe(false)
+    expect(
+      VenuePackageAppliedEntities.safeParse({
+        ...v3Manifest,
+        effects: [{ ...v3Manifest.effects[0], beforeState: undefined }],
+      }).success,
+    ).toBe(false)
   })
 })

@@ -35,6 +35,66 @@ export type VenuePackageCandidateEmbeddings = {
   knowledgeEntries: VenuePackageSemanticDuplicateCandidate[]
 }
 
+type SemanticPlaceInput = {
+  value: {
+    name: string
+    type: string
+    itemType?: string | null | undefined
+    shortDescription?: string | null | undefined
+    longDescription?: string | null | undefined
+    tags: string[]
+    areaName?: string | null | undefined
+    hours?: string | null | undefined
+  }
+  path: string
+  excludeId?: string
+}
+
+type SemanticKnowledgeInput = {
+  value: { title: string; category: string; content: string; isEnabled: boolean }
+  path: string
+  excludeId?: string
+}
+
+export function venuePackageSemanticInputs(payload: VenuePackagePayload): {
+  places: SemanticPlaceInput[]
+  knowledgeEntries: SemanticKnowledgeInput[]
+} {
+  if (payload.schemaVersion !== 3) {
+    return {
+      places: payload.places.map((value, index) => ({ value, path: `places.${index}.name` })),
+      knowledgeEntries: payload.knowledgeEntries.map((value, index) => ({
+        value,
+        path: `knowledgeEntries.${index}.title`,
+      })),
+    }
+  }
+  return {
+    places: [
+      ...payload.places.create.map((operation, index) => ({
+        value: operation.value,
+        path: `places.create.${index}.value.name`,
+      })),
+      ...payload.places.update.map((operation, index) => ({
+        value: operation.value,
+        path: `places.update.${index}.value.name`,
+        excludeId: operation.id,
+      })),
+    ],
+    knowledgeEntries: [
+      ...payload.knowledgeEntries.create.map((operation, index) => ({
+        value: operation.value,
+        path: `knowledgeEntries.create.${index}.value.title`,
+      })),
+      ...payload.knowledgeEntries.update.map((operation, index) => ({
+        value: operation.value,
+        path: `knowledgeEntries.update.${index}.value.title`,
+        excludeId: operation.id,
+      })),
+    ],
+  }
+}
+
 function normalizeLabel(value: string): string {
   return value
     .trim()
@@ -102,7 +162,8 @@ export async function generateVenuePackageCandidateEmbeddings(params: {
   usageSink: AiUsageSink
   shouldAbort?: () => boolean
 }): Promise<VenuePackageCandidateEmbeddings> {
-  const placeTexts = params.payload.places.map((place) =>
+  const inputs = venuePackageSemanticInputs(params.payload)
+  const placeTexts = inputs.places.map(({ value: place }) =>
     buildPlaceText({
       name: place.name,
       type: place.type,
@@ -114,7 +175,7 @@ export async function generateVenuePackageCandidateEmbeddings(params: {
       hours: place.hours ?? null,
     }),
   )
-  const knowledgeTexts = params.payload.knowledgeEntries.map((entry) =>
+  const knowledgeTexts = inputs.knowledgeEntries.map(({ value: entry }) =>
     buildKnowledgeEntryText(entry),
   )
   const [placeResult, knowledgeResult] = await Promise.allSettled([
@@ -141,10 +202,19 @@ export async function generateVenuePackageCandidateEmbeddings(params: {
   const placeEmbeddings = placeResult.value
   const knowledgeEmbeddings = knowledgeResult.value
   return {
-    places: placeEmbeddings.map((embedding, draftIndex) => ({ draftIndex, embedding })),
+    places: placeEmbeddings.map((embedding, draftIndex) => ({
+      draftIndex,
+      embedding,
+      ...(inputs.places[draftIndex]?.excludeId
+        ? { excludeId: inputs.places[draftIndex]!.excludeId }
+        : {}),
+    })),
     knowledgeEntries: knowledgeEmbeddings.map((embedding, draftIndex) => ({
       draftIndex,
       embedding,
+      ...(inputs.knowledgeEntries[draftIndex]?.excludeId
+        ? { excludeId: inputs.knowledgeEntries[draftIndex]!.excludeId }
+        : {}),
     })),
   }
 }
@@ -158,6 +228,7 @@ type SemanticWarningCandidate = {
 function inPackageWarnings(params: {
   entityType: 'places' | 'knowledgeEntries'
   labels: string[]
+  paths: string[]
   candidates: VenuePackageSemanticDuplicateCandidate[]
 }): SemanticWarningCandidate[] {
   const warnings: SemanticWarningCandidate[] = []
@@ -178,14 +249,8 @@ function inPackageWarnings(params: {
       }
     }
     if (best) {
-      const path =
-        params.entityType === 'places'
-          ? `places.${candidate.draftIndex}.name`
-          : `knowledgeEntries.${candidate.draftIndex}.title`
-      const targetPath =
-        params.entityType === 'places'
-          ? `places.${best.index}.name`
-          : `knowledgeEntries.${best.index}.title`
+      const path = params.paths[candidate.draftIndex]!
+      const targetPath = params.paths[best.index]!
       warnings.push({
         issue: {
           code: 'SEMANTIC_DUPLICATE_IN_PACKAGE',
@@ -222,17 +287,18 @@ export function buildIncompleteSemanticScan(params: {
   coverage: VenuePackageSemanticCoverage
 }): { scan: VenuePackageSemanticDuplicateScan; errors: VenuePackageIssue[] } {
   const errors: VenuePackageIssue[] = []
+  const inputs = venuePackageSemanticInputs(params.payload)
   const scopes = {
     places: {
       embeddingProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
-      inputCount: params.payload.places.length,
+      inputCount: inputs.places.length,
       scannedInputCount: 0,
       existingCount: params.coverage.places.eligibleCount,
       scannedExistingCount: params.coverage.places.searchableCount,
     },
     knowledgeEntries: {
       embeddingProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
-      inputCount: params.payload.knowledgeEntries.length,
+      inputCount: inputs.knowledgeEntries.length,
       scannedInputCount: 0,
       existingCount: params.coverage.knowledgeEntries.eligibleCount,
       scannedExistingCount: params.coverage.knowledgeEntries.searchableCount,
@@ -262,20 +328,21 @@ export function buildNotRunSemanticScan(params: {
   existingPlaceCount: number
   existingKnowledgeCount: number
 }): VenuePackageSemanticDuplicateScan {
+  const inputs = venuePackageSemanticInputs(params.payload)
   return {
     status: 'NOT_RUN',
     similarityThreshold: VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
     scopes: {
       places: {
         embeddingProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
-        inputCount: params.payload.places.length,
+        inputCount: inputs.places.length,
         scannedInputCount: 0,
         existingCount: params.existingPlaceCount,
         scannedExistingCount: 0,
       },
       knowledgeEntries: {
         embeddingProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
-        inputCount: params.payload.knowledgeEntries.length,
+        inputCount: inputs.knowledgeEntries.length,
         scannedInputCount: 0,
         existingCount: params.existingKnowledgeCount,
         scannedExistingCount: 0,
@@ -292,6 +359,7 @@ export async function analyzeVenuePackageSemanticDuplicates(params: {
   coverage: VenuePackageSemanticCoverage
   candidates: VenuePackageCandidateEmbeddings
 }): Promise<{ scan: VenuePackageSemanticDuplicateScan; warnings: VenuePackageIssue[] }> {
+  const inputs = venuePackageSemanticInputs(params.payload)
   const maxCosineDistance = 1 - VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD
   const [placeMatches, knowledgeMatches] = await Promise.all([
     findVenuePackagePlaceSemanticDuplicates(params.db, {
@@ -313,24 +381,26 @@ export async function analyzeVenuePackageSemanticDuplicates(params: {
   const warningCandidates: SemanticWarningCandidate[] = [
     ...inPackageWarnings({
       entityType: 'places',
-      labels: params.payload.places.map((place) => place.name),
+      labels: inputs.places.map((item) => item.value.name),
+      paths: inputs.places.map((item) => item.path),
       candidates: params.candidates.places,
     }),
     ...inPackageWarnings({
       entityType: 'knowledgeEntries',
-      labels: params.payload.knowledgeEntries.map((entry) => entry.title),
+      labels: inputs.knowledgeEntries.map((item) => item.value.title),
+      paths: inputs.knowledgeEntries.map((item) => item.path),
       candidates: params.candidates.knowledgeEntries,
     }),
     ...placeMatches
       .filter(
         (match) =>
           normalizeLabel(match.existingLabel) !==
-          normalizeLabel(params.payload.places[match.draftIndex]!.name),
+          normalizeLabel(inputs.places[match.draftIndex]!.value.name),
       )
       .map((match) => ({
         issue: {
           code: 'SEMANTIC_DUPLICATE_EXISTING_CONTENT',
-          path: `places.${match.draftIndex}.name`,
+          path: inputs.places[match.draftIndex]!.path,
           message: `Semantically similar to existing place ${match.existingId} “${match.existingLabel}” (similarity ${quantizedSimilarity(1 - match.cosineDistance)}).`,
         },
         similarity: 1 - match.cosineDistance,
@@ -340,12 +410,12 @@ export async function analyzeVenuePackageSemanticDuplicates(params: {
       .filter(
         (match) =>
           normalizeLabel(match.existingLabel) !==
-          normalizeLabel(params.payload.knowledgeEntries[match.draftIndex]!.title),
+          normalizeLabel(inputs.knowledgeEntries[match.draftIndex]!.value.title),
       )
       .map((match) => ({
         issue: {
           code: 'SEMANTIC_DUPLICATE_EXISTING_CONTENT',
-          path: `knowledgeEntries.${match.draftIndex}.title`,
+          path: inputs.knowledgeEntries[match.draftIndex]!.path,
           message: `Semantically similar to existing knowledge ${match.existingId} “${match.existingLabel}” (similarity ${quantizedSimilarity(1 - match.cosineDistance)}).`,
         },
         similarity: 1 - match.cosineDistance,
@@ -360,14 +430,14 @@ export async function analyzeVenuePackageSemanticDuplicates(params: {
       scopes: {
         places: {
           embeddingProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
-          inputCount: params.payload.places.length,
+          inputCount: inputs.places.length,
           scannedInputCount: params.candidates.places.length,
           existingCount: params.coverage.places.eligibleCount,
           scannedExistingCount: params.coverage.places.searchableCount,
         },
         knowledgeEntries: {
           embeddingProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
-          inputCount: params.payload.knowledgeEntries.length,
+          inputCount: inputs.knowledgeEntries.length,
           scannedInputCount: params.candidates.knowledgeEntries.length,
           existingCount: params.coverage.knowledgeEntries.eligibleCount,
           scannedExistingCount: params.coverage.knowledgeEntries.searchableCount,

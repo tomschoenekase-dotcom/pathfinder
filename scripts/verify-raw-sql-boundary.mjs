@@ -41,19 +41,19 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/venue-package-semantic-duplicates.ts',
     method: '$queryRaw',
-    hash: '60a11fc86822e36b39f67474b816ae5caab624eee51f4190dc26787c03d5c863',
+    hash: 'ec62a926017b4a92b557826492c23c69ca0dca7939eb44c81c54eb3cb29b4336',
     policy: 'tenant-and-venue',
   },
   {
     file: 'packages/db/src/helpers/venue-package-semantic-duplicates.ts',
     method: '$queryRaw',
-    hash: '152348c678d4e0eb86f70bee839e2e2093f9e4d2287cf0282a8f79a4bafdb672',
+    hash: '2752c8221f7086e6d85a223b7cda5db7ca956d3a25f40dccbbb5580c38b6d1c4',
     policy: 'tenant-and-venue',
   },
   {
     file: 'packages/db/src/helpers/venue-package-semantic-duplicates.ts',
     method: '$queryRaw',
-    hash: 'c1c8a810d825bdb6dea9eef61a12abba9a30ff7a01fd4ed13a67cbbdc0ff5550',
+    hash: '5c5c0997e54f1b14fdf172b7d5b7b1801034b84c0e02bb3acd3f05141ed351bc',
     policy: 'tenant-and-venue',
   },
   {
@@ -78,6 +78,30 @@ const approvedOperations = [
     file: 'packages/db/src/helpers/content-version-context.ts',
     method: '$executeRaw',
     hash: 'f28fd9aa5617bff72b76ee6b4a651e3a5c486a8a44a96500361d71c103fd3fd3',
+    policy: 'transaction-content-history-context',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
+    hash: '9ccd41762a4ccb60ee4e28199bef30cfef8fb0ae10b6c4c2a445e032cc62b356',
+    policy: 'transaction-content-history-context',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
+    hash: '175d67ebe56f69da7dec92181e81611dcee0cc452aa119869916131addc3e7c0',
+    policy: 'transaction-content-history-context',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
+    hash: 'cd5bb9920d3a963f06d894c51a04cda1c2b3baa759ee5c8e5275c16b0af49a94',
+    policy: 'transaction-content-history-context',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
+    hash: '7431972afdc1ba30a8e8e22f53931236195fd7878538c3e588fc8d994107d69c',
     policy: 'transaction-content-history-context',
   },
   {

@@ -92,6 +92,23 @@ const placeSnapshotSchema = z
   })
   .strict()
 
+const directProvenanceSnapshotSchema = z.object({
+  sourceType: z.string(),
+  authorship: z.string(),
+  sourceName: nullableString,
+  sourceUrl: nullableString,
+  importedAt: z.coerce.date().nullable(),
+  humanConfirmedAt: z.coerce.date().nullable(),
+  humanConfirmedBy: nullableString,
+  lastReviewedAt: z.coerce.date().nullable(),
+  lastReviewedBy: nullableString,
+  sourcePackageId: nullableString,
+})
+
+const placeSnapshotV2Schema = placeSnapshotSchema
+  .extend(directProvenanceSnapshotSchema.shape)
+  .strict()
+
 const knowledgeSnapshotSchema = z
   .object({
     id: z.string(),
@@ -102,6 +119,10 @@ const knowledgeSnapshotSchema = z
     content: z.string(),
     isEnabled: z.boolean(),
   })
+  .strict()
+
+const knowledgeSnapshotV2Schema = knowledgeSnapshotSchema
+  .extend(directProvenanceSnapshotSchema.shape)
   .strict()
 
 const operationalUpdateSnapshotSchema = z
@@ -196,12 +217,40 @@ function placeMutableData(snapshot: z.infer<typeof placeSnapshotSchema>) {
   }
 }
 
+function provenanceMutableData(snapshot: z.infer<typeof directProvenanceSnapshotSchema>) {
+  return {
+    sourceType: snapshot.sourceType,
+    authorship: snapshot.authorship,
+    sourceName: snapshot.sourceName,
+    sourceUrl: snapshot.sourceUrl,
+    importedAt: snapshot.importedAt,
+    humanConfirmedAt: snapshot.humanConfirmedAt,
+    humanConfirmedBy: snapshot.humanConfirmedBy,
+    lastReviewedAt: snapshot.lastReviewedAt,
+    lastReviewedBy: snapshot.lastReviewedBy,
+    sourcePackageId: snapshot.sourcePackageId,
+  }
+}
+
+function placeMutableDataV2(snapshot: z.infer<typeof placeSnapshotV2Schema>) {
+  return { ...placeMutableData(snapshot), ...provenanceMutableData(snapshot) }
+}
+
 function placeData(snapshot: z.infer<typeof placeSnapshotSchema>) {
   return {
     id: snapshot.id,
     tenantId: snapshot.tenantId,
     venueId: snapshot.venueId,
     ...placeMutableData(snapshot),
+  }
+}
+
+function placeDataV2(snapshot: z.infer<typeof placeSnapshotV2Schema>) {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    venueId: snapshot.venueId,
+    ...placeMutableDataV2(snapshot),
   }
 }
 
@@ -214,12 +263,25 @@ function knowledgeMutableData(snapshot: z.infer<typeof knowledgeSnapshotSchema>)
   }
 }
 
+function knowledgeMutableDataV2(snapshot: z.infer<typeof knowledgeSnapshotV2Schema>) {
+  return { ...knowledgeMutableData(snapshot), ...provenanceMutableData(snapshot) }
+}
+
 function knowledgeData(snapshot: z.infer<typeof knowledgeSnapshotSchema>) {
   return {
     id: snapshot.id,
     tenantId: snapshot.tenantId,
     venueId: snapshot.venueId,
     ...knowledgeMutableData(snapshot),
+  }
+}
+
+function knowledgeDataV2(snapshot: z.infer<typeof knowledgeSnapshotV2Schema>) {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    venueId: snapshot.venueId,
+    ...knowledgeMutableDataV2(snapshot),
   }
 }
 
@@ -400,7 +462,10 @@ export const contentHistoryRouter = router({
             actorId: ctx.session.userId,
             revertedFromId: target.id,
           })
-          if (target.snapshotSchemaVersion !== 1) invalidSnapshot()
+          const isDirectProvenanceSnapshot =
+            target.snapshotSchemaVersion === 2 &&
+            (target.entityType === 'PLACE' || target.entityType === 'KNOWLEDGE_ENTRY')
+          if (target.snapshotSchemaVersion !== 1 && !isDirectProvenanceSnapshot) invalidSnapshot()
           const targetState =
             input.snapshotSide === 'BEFORE' ? target.beforeState : target.afterState
 
@@ -463,23 +528,30 @@ export const contentHistoryRouter = router({
                 select: { id: true },
               })
               if (!parentVenue) invalidSnapshot()
-              const snapshot = parseSnapshot(placeSnapshotSchema, targetState)
+              const snapshot = isDirectProvenanceSnapshot
+                ? parseSnapshot(placeSnapshotV2Schema, targetState)
+                : parseSnapshot(placeSnapshotSchema, targetState)
               if (
                 snapshot.tenantId !== tenantId ||
                 snapshot.id !== target.entityId ||
                 snapshot.venueId !== target.venueId
               )
                 invalidSnapshot()
-              const data = placeData(snapshot)
               if (current) {
                 const updated = await tx.place.updateMany({
                   where: { id: target.entityId, tenantId },
-                  data: placeMutableData(snapshot),
+                  data: isDirectProvenanceSnapshot
+                    ? placeMutableDataV2(snapshot as z.infer<typeof placeSnapshotV2Schema>)
+                    : placeMutableData(snapshot),
                 })
                 if (updated.count !== 1)
                   throw new TRPCError({ code: 'CONFLICT', message: 'Place changed during revert' })
               } else {
-                await tx.place.create({ data })
+                await tx.place.create({
+                  data: isDirectProvenanceSnapshot
+                    ? placeDataV2(snapshot as z.infer<typeof placeSnapshotV2Schema>)
+                    : placeData(snapshot),
+                })
               }
             }
           } else if (target.entityType === 'KNOWLEDGE_ENTRY') {
@@ -508,18 +580,21 @@ export const contentHistoryRouter = router({
                 select: { id: true },
               })
               if (!parentVenue) invalidSnapshot()
-              const snapshot = parseSnapshot(knowledgeSnapshotSchema, targetState)
+              const snapshot = isDirectProvenanceSnapshot
+                ? parseSnapshot(knowledgeSnapshotV2Schema, targetState)
+                : parseSnapshot(knowledgeSnapshotSchema, targetState)
               if (
                 snapshot.tenantId !== tenantId ||
                 snapshot.id !== target.entityId ||
                 snapshot.venueId !== target.venueId
               )
                 invalidSnapshot()
-              const data = knowledgeData(snapshot)
               if (current) {
                 const updated = await tx.venueKnowledgeEntry.updateMany({
                   where: { id: target.entityId, tenantId },
-                  data: knowledgeMutableData(snapshot),
+                  data: isDirectProvenanceSnapshot
+                    ? knowledgeMutableDataV2(snapshot as z.infer<typeof knowledgeSnapshotV2Schema>)
+                    : knowledgeMutableData(snapshot),
                 })
                 if (updated.count !== 1)
                   throw new TRPCError({
@@ -527,7 +602,11 @@ export const contentHistoryRouter = router({
                     message: 'Knowledge entry changed during revert',
                   })
               } else {
-                await tx.venueKnowledgeEntry.create({ data })
+                await tx.venueKnowledgeEntry.create({
+                  data: isDirectProvenanceSnapshot
+                    ? knowledgeDataV2(snapshot as z.infer<typeof knowledgeSnapshotV2Schema>)
+                    : knowledgeData(snapshot),
+                })
               }
             }
           } else {

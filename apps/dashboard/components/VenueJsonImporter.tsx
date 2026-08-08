@@ -327,9 +327,11 @@ export function VenueJsonImporter({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-semibold text-gray-900">
-                {preview.schemaVersion === 2
-                  ? 'Exact venue configuration patch + additive preview'
-                  : 'Exact additive preview'}
+                {preview.schemaVersion === 3
+                  ? 'Exact mutating venue package preview'
+                  : preview.schemaVersion === 2
+                    ? 'Exact venue configuration patch + additive preview'
+                    : 'Exact additive preview'}
               </h3>
               <p className="mt-1 font-mono text-xs text-gray-500">{preview.payloadHash}</p>
             </div>
@@ -407,7 +409,7 @@ export function VenueJsonImporter({
             </div>
           )}
 
-          {preview.schemaVersion === 2 && (
+          {preview.schemaVersion !== 1 && (
             <div className="mt-4 rounded-md border border-indigo-200 bg-indigo-50 p-4">
               <h4 className="text-sm font-semibold text-indigo-900">
                 Venue configuration changes ({preview.changes.venue.change.length})
@@ -444,43 +446,95 @@ export function VenueJsonImporter({
             </div>
           )}
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-md border border-gray-200 p-4">
-              <h4 className="text-sm font-semibold text-gray-900">
-                Places to add ({preview.changes.places.add.length})
-              </h4>
-              <ul className="mt-2 space-y-1 text-sm text-gray-700">
-                {preview.changes.places.add.map((place, index) => (
-                  <li key={`${place.name}-${index}`} className="rounded bg-gray-50 p-2">
-                    <pre className="whitespace-pre-wrap text-xs">
-                      {JSON.stringify(place, null, 2)}
-                    </pre>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-gray-500">
-                {preview.changes.places.unchanged} existing places unchanged; 0 changed; 0 removed.
+          {preview.schemaVersion === 3 ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {(
+                [
+                  ['Places', preview.changes.places],
+                  ['Knowledge', preview.changes.knowledgeEntries],
+                ] as const
+              ).map(([label, changes]) => (
+                <div key={label} className="rounded-md border border-gray-200 p-4">
+                  <h4 className="text-sm font-semibold text-gray-900">
+                    {label}: {changes.add.length} added, {changes.change.length} changed,{' '}
+                    {changes.remove.length} removed
+                  </h4>
+                  {(
+                    [
+                      ['Add', changes.add],
+                      ['Change', changes.change],
+                      ['Remove', changes.remove],
+                    ] as const
+                  ).map(([operation, rows]) => (
+                    <div key={operation} className="mt-3">
+                      <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                        {operation} ({rows.length})
+                      </h5>
+                      {rows.length === 0 ? (
+                        <p className="mt-1 text-xs text-gray-500">None.</p>
+                      ) : (
+                        <ul className="mt-1 space-y-2 text-sm text-gray-700">
+                          {rows.map((row) => (
+                            <li key={row.itemKey} className="rounded bg-gray-50 p-2">
+                              <pre className="whitespace-pre-wrap text-xs">
+                                {JSON.stringify(row, null, 2)}
+                              </pre>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                  <p className="mt-3 text-xs text-gray-500">
+                    {changes.unchanged} existing {label.toLowerCase()} unchanged.
+                  </p>
+                </div>
+              ))}
+              <p className="md:col-span-2 text-xs text-gray-600">
+                Version IDs bind updates and removals to the exact reviewed entity history.
+                Dependency rows identify records that must be resolved before a removal can apply.
               </p>
             </div>
-            <div className="rounded-md border border-gray-200 p-4">
-              <h4 className="text-sm font-semibold text-gray-900">
-                Knowledge to add ({preview.changes.knowledgeEntries.add.length})
-              </h4>
-              <ul className="mt-2 space-y-1 text-sm text-gray-700">
-                {preview.changes.knowledgeEntries.add.map((entry, index) => (
-                  <li key={`${entry.title}-${index}`} className="rounded bg-gray-50 p-2">
-                    <pre className="whitespace-pre-wrap text-xs">
-                      {JSON.stringify(entry, null, 2)}
-                    </pre>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-gray-500">
-                {preview.changes.knowledgeEntries.unchanged} existing entries unchanged; 0 changed;
-                0 removed.
-              </p>
+          ) : (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="rounded-md border border-gray-200 p-4">
+                <h4 className="text-sm font-semibold text-gray-900">
+                  Places to add ({preview.changes.places.add.length})
+                </h4>
+                <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                  {preview.changes.places.add.map((place, index) => (
+                    <li key={`${place.name}-${index}`} className="rounded bg-gray-50 p-2">
+                      <pre className="whitespace-pre-wrap text-xs">
+                        {JSON.stringify(place, null, 2)}
+                      </pre>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-gray-500">
+                  {preview.changes.places.unchanged} existing places unchanged; 0 changed; 0
+                  removed.
+                </p>
+              </div>
+              <div className="rounded-md border border-gray-200 p-4">
+                <h4 className="text-sm font-semibold text-gray-900">
+                  Knowledge to add ({preview.changes.knowledgeEntries.add.length})
+                </h4>
+                <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                  {preview.changes.knowledgeEntries.add.map((entry, index) => (
+                    <li key={`${entry.title}-${index}`} className="rounded bg-gray-50 p-2">
+                      <pre className="whitespace-pre-wrap text-xs">
+                        {JSON.stringify(entry, null, 2)}
+                      </pre>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-gray-500">
+                  {preview.changes.knowledgeEntries.unchanged} existing entries unchanged; 0
+                  changed; 0 removed.
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </section>
       )}
 

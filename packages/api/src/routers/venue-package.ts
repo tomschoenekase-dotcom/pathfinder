@@ -5,6 +5,8 @@ import { logger } from '@pathfinder/config'
 import {
   getVenuePackageSemanticCoverage,
   lockVenueContentMutation,
+  setContentVersionContext,
+  type ContentVersionSourceProvenance,
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
@@ -14,26 +16,40 @@ import {
   VenuePackageAppliedEntities,
   VenuePackageAppliedEntitiesV1,
   VenuePackageAppliedEntitiesV2,
+  VenuePackageAppliedEntitiesV3,
   VenuePackageByIdInput,
   VenuePackageDraftInput,
   VenuePackageLifecycleInput,
   VenuePackagePayload,
+  VenuePackagePlaceDesiredState,
+  VenuePackagePlaceSnapshot,
   VenuePackagePreviewInput,
+  VenuePackageKnowledgeDesiredState,
+  VenuePackageKnowledgeSnapshot,
   VenuePackageStoredPreview,
   VenuePackageValidationReport,
   VenuePackageVenueChange,
   VenuePackageVenueSnapshot,
   type VenuePackageIssue,
+  type VenuePackagePayloadV3,
+  type VenuePackageSourceProvenance,
 } from '../schemas/venue-package'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import {
+  planVenuePackageRollback,
+  venuePackageSnapshotsEqual,
+  type JsonSnapshot,
+  type VenuePackageInversePlan,
+} from '../lib/venue-package-rollback'
 import {
   analyzeVenuePackageSemanticDuplicates,
   buildIncompleteSemanticScan,
   buildNotRunSemanticScan,
   generateVenuePackageCandidateEmbeddings,
   sortVenuePackageIssues,
+  venuePackageSemanticInputs,
   VENUE_PACKAGE_SEMANTIC_PROFILES,
   VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
 } from '../lib/venue-package-semantic-analysis'
@@ -42,11 +58,14 @@ import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
 
 type DbClient = TRPCContext['db']
+type PlaceCreateData = Parameters<DbClient['place']['create']>[0]['data']
+type KnowledgeCreateData = Parameters<DbClient['venueKnowledgeEntry']['create']>[0]['data']
 type PackagePayload = VenuePackagePayload
 
 const venuePackageVenueSelect = {
   id: true,
   guideMode: true,
+  aiFeaturedPlaceId: true,
   name: true,
   description: true,
   category: true,
@@ -98,6 +117,52 @@ function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
+function deterministicUuid(namespace: string): string {
+  const hex = createHash('sha256').update(namespace).digest('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+function venuePackageItemKey(packageId: string): string {
+  return deterministicUuid(`pathfinder:venue-package:${packageId}:venue`)
+}
+
+function sourceProvenance(
+  provenance: VenuePackageSourceProvenance,
+  importedAt: Date,
+  humanConfirmedAt: Date,
+) {
+  return {
+    sourceType: provenance.sourceType,
+    ...(provenance.sourceName !== undefined ? { sourceName: provenance.sourceName } : {}),
+    ...(provenance.sourceUrl !== undefined ? { sourceUrl: provenance.sourceUrl } : {}),
+    contentOrigin: provenance.contentOrigin,
+    importedAt: importedAt.toISOString(),
+    humanConfirmedAt: humanConfirmedAt.toISOString(),
+    lastReviewedAt: humanConfirmedAt.toISOString(),
+  }
+}
+
+function directProvenanceData(input: {
+  provenance: VenuePackageSourceProvenance
+  packageId: string
+  importedAt: Date
+  humanConfirmedAt: Date
+  humanConfirmedBy: string
+}) {
+  return {
+    sourceType: input.provenance.sourceType,
+    authorship: input.provenance.contentOrigin,
+    sourceName: input.provenance.sourceName ?? null,
+    sourceUrl: input.provenance.sourceUrl ?? null,
+    importedAt: input.importedAt,
+    humanConfirmedAt: input.humanConfirmedAt,
+    humanConfirmedBy: input.humanConfirmedBy,
+    lastReviewedAt: input.humanConfirmedAt,
+    lastReviewedBy: input.humanConfirmedBy,
+    sourcePackageId: input.packageId,
+  }
+}
+
 function jsonValue(value: unknown): object {
   return JSON.parse(JSON.stringify(value)) as object
 }
@@ -139,7 +204,7 @@ function venueSnapshot(venue: PackageVenue): VenuePackageVenueSnapshot {
 }
 
 function venuePatchData(payload: PackagePayload): Partial<VenuePackageVenueSnapshot> {
-  if (payload.schemaVersion !== 2 || !payload.venue) return {}
+  if (payload.schemaVersion === 1 || !payload.venue) return {}
   const { identity, branding, aiBehavior } = payload.venue
   return {
     ...(identity?.name !== undefined ? { name: identity.name } : {}),
@@ -225,6 +290,63 @@ async function contentState(db: DbClient, tenantId: string, venueId: string) {
   return { places, knowledgeEntries }
 }
 
+async function contentStateWithProvenance(db: DbClient, tenantId: string, venueId: string) {
+  const [places, knowledgeEntries] = await Promise.all([
+    db.place.findMany({
+      where: { tenantId, venueId },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        itemType: true,
+        shortDescription: true,
+        longDescription: true,
+        lat: true,
+        lng: true,
+        tags: true,
+        importanceScore: true,
+        areaName: true,
+        hours: true,
+        photoUrl: true,
+        isActive: true,
+        sourceType: true,
+        authorship: true,
+        sourceName: true,
+        sourceUrl: true,
+        importedAt: true,
+        humanConfirmedAt: true,
+        humanConfirmedBy: true,
+        lastReviewedAt: true,
+        lastReviewedBy: true,
+        sourcePackageId: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
+    db.venueKnowledgeEntry.findMany({
+      where: { tenantId, venueId },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        content: true,
+        isEnabled: true,
+        sourceType: true,
+        authorship: true,
+        sourceName: true,
+        sourceUrl: true,
+        importedAt: true,
+        humanConfirmedAt: true,
+        humanConfirmedBy: true,
+        lastReviewedAt: true,
+        lastReviewedBy: true,
+        sourcePackageId: true,
+      },
+      orderBy: { id: 'asc' },
+    }),
+  ])
+  return { places, knowledgeEntries }
+}
+
 async function contentStateDigest(db: DbClient, tenantId: string, venueId: string) {
   return digest(await contentState(db, tenantId, venueId))
 }
@@ -236,6 +358,13 @@ async function packageStateDigest(
   schemaVersion: PackagePayload['schemaVersion'],
 ) {
   if (schemaVersion === 1) return contentStateDigest(db, tenantId, venueId)
+  if (schemaVersion === 3) {
+    const [venue, content] = await Promise.all([
+      assertVenue(db, tenantId, venueId),
+      contentStateWithProvenance(db, tenantId, venueId),
+    ])
+    return digest({ venue: venueSnapshot(venue), ...content })
+  }
   const [venue, content] = await Promise.all([
     assertVenue(db, tenantId, venueId),
     contentState(db, tenantId, venueId),
@@ -243,31 +372,120 @@ async function packageStateDigest(
   return digest({ venue: venueSnapshot(venue), ...content })
 }
 
+function semanticCoverageParams(payload: PackagePayload) {
+  const inputs = venuePackageSemanticInputs(payload)
+  return {
+    scanPlaces: inputs.places.length > 0,
+    scanKnowledgeEntries: inputs.knowledgeEntries.length > 0,
+    ...(payload.schemaVersion === 3
+      ? {
+          excludedPlaceIds: [...payload.places.update, ...payload.places.delete].map(
+            (operation) => operation.id,
+          ),
+          excludedKnowledgeEntryIds: [
+            ...payload.knowledgeEntries.update,
+            ...payload.knowledgeEntries.delete,
+          ].map((operation) => operation.id),
+        }
+      : {}),
+  }
+}
+
+function placeDesiredSnapshot(
+  id: string,
+  value: VenuePackagePlaceDesiredState,
+): VenuePackagePlaceSnapshot {
+  return VenuePackagePlaceSnapshot.parse({ id, ...value })
+}
+
+function knowledgeDesiredSnapshot(
+  id: string,
+  value: VenuePackageKnowledgeDesiredState,
+): VenuePackageKnowledgeSnapshot {
+  return VenuePackageKnowledgeSnapshot.parse({ id, ...value })
+}
+
+function currentPlaceSnapshot(
+  value: Awaited<ReturnType<typeof contentState>>['places'][number],
+): VenuePackagePlaceSnapshot {
+  return VenuePackagePlaceSnapshot.parse(value)
+}
+
+function currentKnowledgeSnapshot(
+  value: Awaited<ReturnType<typeof contentState>>['knowledgeEntries'][number],
+): VenuePackageKnowledgeSnapshot {
+  return VenuePackageKnowledgeSnapshot.parse(value)
+}
+
 function duplicateWarnings(
   payload: PackagePayload,
   current: Awaited<ReturnType<typeof contentState>>,
 ) {
   const warnings: Array<{ code: string; path: string; message: string }> = []
-  const existingPlaceNames = new Set(
-    current.places.filter((place) => place.isActive).map((place) => normalizeLabel(place.name)),
+  const existingPlaceNames = new Map(
+    current.places
+      .filter((place) => place.isActive)
+      .map((place) => [normalizeLabel(place.name), place.id]),
   )
-  const existingKnowledgeTitles = new Set(
-    current.knowledgeEntries.map((entry) => normalizeLabel(entry.title)),
+  const existingKnowledgeTitles = new Map(
+    current.knowledgeEntries.map((entry) => [normalizeLabel(entry.title), entry.id]),
   )
 
+  const placeCandidates =
+    payload.schemaVersion === 3
+      ? [
+          ...payload.places.create.map((operation, index) => ({
+            name: operation.value.name,
+            path: `places.create.${index}.value.name`,
+            excludeId: null,
+          })),
+          ...payload.places.update.map((operation, index) => ({
+            name: operation.value.name,
+            path: `places.update.${index}.value.name`,
+            excludeId: operation.id,
+          })),
+        ]
+      : payload.places.map((place, index) => ({
+          name: place.name,
+          path: `places.${index}.name`,
+          excludeId: null,
+        }))
+  const knowledgeCandidates =
+    payload.schemaVersion === 3
+      ? [
+          ...payload.knowledgeEntries.create.map((operation, index) => ({
+            title: operation.value.title,
+            path: `knowledgeEntries.create.${index}.value.title`,
+            excludeId: null,
+          })),
+          ...payload.knowledgeEntries.update.map((operation, index) => ({
+            title: operation.value.title,
+            path: `knowledgeEntries.update.${index}.value.title`,
+            excludeId: operation.id,
+          })),
+        ]
+      : payload.knowledgeEntries.map((entry, index) => ({
+          title: entry.title,
+          path: `knowledgeEntries.${index}.title`,
+          excludeId: null,
+        }))
+
   const seenPlaces = new Set<string>()
-  payload.places.forEach((place, index) => {
+  placeCandidates.forEach((place) => {
     const normalized = normalizeLabel(place.name)
     if (seenPlaces.has(normalized)) {
       warnings.push({
         code: 'DUPLICATE_IN_PACKAGE',
-        path: `places.${index}.name`,
+        path: place.path,
         message: `Another package place has the normalized name “${normalized}”.`,
       })
-    } else if (existingPlaceNames.has(normalized)) {
+    } else if (
+      existingPlaceNames.has(normalized) &&
+      existingPlaceNames.get(normalized) !== place.excludeId
+    ) {
       warnings.push({
         code: 'DUPLICATE_EXISTING_CONTENT',
-        path: `places.${index}.name`,
+        path: place.path,
         message: `An active venue place already has the normalized name “${normalized}”.`,
       })
     }
@@ -275,18 +493,21 @@ function duplicateWarnings(
   })
 
   const seenKnowledge = new Set<string>()
-  payload.knowledgeEntries.forEach((entry, index) => {
+  knowledgeCandidates.forEach((entry) => {
     const normalized = normalizeLabel(entry.title)
     if (seenKnowledge.has(normalized)) {
       warnings.push({
         code: 'DUPLICATE_IN_PACKAGE',
-        path: `knowledgeEntries.${index}.title`,
+        path: entry.path,
         message: `Another package knowledge entry has the normalized title “${normalized}”.`,
       })
-    } else if (existingKnowledgeTitles.has(normalized)) {
+    } else if (
+      existingKnowledgeTitles.has(normalized) &&
+      existingKnowledgeTitles.get(normalized) !== entry.excludeId
+    ) {
       warnings.push({
         code: 'DUPLICATE_EXISTING_CONTENT',
-        path: `knowledgeEntries.${index}.title`,
+        path: entry.path,
         message: `Venue knowledge already has the normalized title “${normalized}”.`,
       })
     }
@@ -294,6 +515,65 @@ function duplicateWarnings(
   })
 
   return sortVenuePackageIssues(warnings)
+}
+
+async function latestTargetVersions(
+  db: DbClient,
+  tenantId: string,
+  venueId: string,
+  placeIds: string[],
+  knowledgeIds: string[],
+  includeVenue: boolean,
+) {
+  if (!includeVenue && placeIds.length === 0 && knowledgeIds.length === 0)
+    return new Map<string, string>()
+  const versions = await db.contentVersion.findMany({
+    where: {
+      tenantId,
+      venueId,
+      OR: [
+        ...(includeVenue ? [{ entityType: 'VENUE', entityId: venueId }] : []),
+        ...(placeIds.length > 0 ? [{ entityType: 'PLACE', entityId: { in: placeIds } }] : []),
+        ...(knowledgeIds.length > 0
+          ? [{ entityType: 'KNOWLEDGE_ENTRY', entityId: { in: knowledgeIds } }]
+          : []),
+      ],
+    },
+    select: { id: true, entityType: true, entityId: true },
+    orderBy: { sequence: 'desc' },
+  })
+  const latest = new Map<string, string>()
+  for (const version of versions) {
+    const key = `${version.entityType}:${version.entityId}`
+    if (!latest.has(key)) latest.set(key, version.id)
+  }
+  return latest
+}
+
+async function placeDeleteDependencies(
+  db: DbClient,
+  tenantId: string,
+  venueId: string,
+  ids: string[],
+  featuredPlaceId: string | null,
+) {
+  const result = new Map<string, Array<{ type: string; count: number }>>()
+  if (ids.length === 0) return result
+  const scope = { tenantId, venueId, placeId: { in: ids } }
+  const [updates, events, rollups] = await Promise.all([
+    db.operationalUpdate.groupBy({ by: ['placeId'], where: scope, _count: { _all: true } }),
+    db.analyticsEvent.groupBy({ by: ['placeId'], where: scope, _count: { _all: true } }),
+    db.dailyRollup.groupBy({ by: ['placeId'], where: scope, _count: { _all: true } }),
+  ])
+  const add = (id: string | null, type: string, count: number) => {
+    if (!id || count === 0) return
+    result.set(id, [...(result.get(id) ?? []), { type, count }])
+  }
+  updates.forEach((row) => add(row.placeId, 'operational-updates', row._count._all))
+  events.forEach((row) => add(row.placeId, 'analytics-events', row._count._all))
+  rollups.forEach((row) => add(row.placeId, 'daily-rollups', row._count._all))
+  if (featuredPlaceId && ids.includes(featuredPlaceId)) add(featuredPlaceId, 'featured-place', 1)
+  return result
 }
 
 async function buildPreview(
@@ -307,6 +587,269 @@ async function buildPreview(
   const currentVenue = venueSnapshot(venue)
   const exactVenueChanges = venueChanges(payload, currentVenue)
   const errors: Array<{ code: string; path: string; message: string }> = []
+
+  if (payload.schemaVersion === 3) {
+    const operationCount =
+      payload.places.create.length +
+      payload.places.update.length +
+      payload.places.delete.length +
+      payload.knowledgeEntries.create.length +
+      payload.knowledgeEntries.update.length +
+      payload.knowledgeEntries.delete.length
+    if (operationCount === 0 && exactVenueChanges.length === 0) {
+      errors.push({
+        code: 'NO_CHANGES',
+        path: 'venue',
+        message: 'The venue already matches the requested package configuration.',
+      })
+    }
+    const currentPlaces = new Map(current.places.map((place) => [place.id, place]))
+    const currentKnowledge = new Map(current.knowledgeEntries.map((entry) => [entry.id, entry]))
+    const placeTargets = [...payload.places.update, ...payload.places.delete]
+    const knowledgeTargets = [
+      ...payload.knowledgeEntries.update,
+      ...payload.knowledgeEntries.delete,
+    ]
+    const versions = await latestTargetVersions(
+      db,
+      tenantId,
+      venueId,
+      placeTargets.map((operation) => operation.id),
+      knowledgeTargets.map((operation) => operation.id),
+      exactVenueChanges.length > 0,
+    )
+    const expectedVenueVersionId = versions.get(`VENUE:${venueId}`) ?? null
+    if (exactVenueChanges.length > 0 && !expectedVenueVersionId) {
+      errors.push({
+        code: 'HISTORY_MISSING',
+        path: 'venue',
+        message: 'The venue lacks required version history.',
+      })
+    }
+    const dependencies = await placeDeleteDependencies(
+      db,
+      tenantId,
+      venueId,
+      payload.places.delete.map((operation) => operation.id),
+      venue.aiFeaturedPlaceId,
+    )
+    const placeChanges = payload.places.update.flatMap((operation, index) => {
+      const currentPlace = currentPlaces.get(operation.id)
+      const path = `places.update.${index}`
+      if (!currentPlace) {
+        errors.push({
+          code: 'TARGET_NOT_FOUND',
+          path,
+          message: 'The target place does not exist in this venue.',
+        })
+        return []
+      }
+      const expectedVersionId = versions.get(`PLACE:${operation.id}`)
+      if (!expectedVersionId) {
+        errors.push({
+          code: 'HISTORY_MISSING',
+          path,
+          message: 'The target place lacks required version history.',
+        })
+        return []
+      }
+      const before = currentPlaceSnapshot(currentPlace)
+      const desired = placeDesiredSnapshot(operation.id, operation.value)
+      if (JSON.stringify(before) === JSON.stringify(desired)) {
+        errors.push({
+          code: 'NO_CHANGES',
+          path,
+          message: 'The place already matches the complete desired state.',
+        })
+        return []
+      }
+      return [
+        {
+          itemKey: operation.itemKey,
+          id: operation.id,
+          expectedVersionId,
+          before,
+          after: operation.value,
+        },
+      ]
+    })
+    const placeRemovals = payload.places.delete.flatMap((operation, index) => {
+      const currentPlace = currentPlaces.get(operation.id)
+      const path = `places.delete.${index}`
+      if (!currentPlace) {
+        errors.push({
+          code: 'TARGET_NOT_FOUND',
+          path,
+          message: 'The target place does not exist in this venue.',
+        })
+        return []
+      }
+      const expectedVersionId = versions.get(`PLACE:${operation.id}`)
+      if (!expectedVersionId) {
+        errors.push({
+          code: 'HISTORY_MISSING',
+          path,
+          message: 'The target place lacks required version history.',
+        })
+        return []
+      }
+      const blockers = dependencies.get(operation.id) ?? []
+      if (blockers.length > 0) {
+        errors.push({
+          code: 'DELETE_BLOCKED',
+          path,
+          message: `The place has retained dependencies: ${blockers.map((item) => `${item.type} (${item.count})`).join(', ')}.`,
+        })
+      }
+      return [
+        {
+          itemKey: operation.itemKey,
+          id: operation.id,
+          expectedVersionId,
+          before: currentPlaceSnapshot(currentPlace),
+          dependencies: blockers,
+        },
+      ]
+    })
+    const knowledgeChanges = payload.knowledgeEntries.update.flatMap((operation, index) => {
+      const currentEntry = currentKnowledge.get(operation.id)
+      const path = `knowledgeEntries.update.${index}`
+      if (!currentEntry) {
+        errors.push({
+          code: 'TARGET_NOT_FOUND',
+          path,
+          message: 'The target knowledge entry does not exist in this venue.',
+        })
+        return []
+      }
+      const expectedVersionId = versions.get(`KNOWLEDGE_ENTRY:${operation.id}`)
+      if (!expectedVersionId) {
+        errors.push({
+          code: 'HISTORY_MISSING',
+          path,
+          message: 'The target knowledge entry lacks required version history.',
+        })
+        return []
+      }
+      const before = currentKnowledgeSnapshot(currentEntry)
+      const desired = knowledgeDesiredSnapshot(operation.id, operation.value)
+      if (JSON.stringify(before) === JSON.stringify(desired)) {
+        errors.push({
+          code: 'NO_CHANGES',
+          path,
+          message: 'The knowledge entry already matches the complete desired state.',
+        })
+        return []
+      }
+      return [
+        {
+          itemKey: operation.itemKey,
+          id: operation.id,
+          expectedVersionId,
+          before,
+          after: operation.value,
+        },
+      ]
+    })
+    const knowledgeRemovals = payload.knowledgeEntries.delete.flatMap((operation, index) => {
+      const currentEntry = currentKnowledge.get(operation.id)
+      const path = `knowledgeEntries.delete.${index}`
+      if (!currentEntry) {
+        errors.push({
+          code: 'TARGET_NOT_FOUND',
+          path,
+          message: 'The target knowledge entry does not exist in this venue.',
+        })
+        return []
+      }
+      const expectedVersionId = versions.get(`KNOWLEDGE_ENTRY:${operation.id}`)
+      if (!expectedVersionId) {
+        errors.push({
+          code: 'HISTORY_MISSING',
+          path,
+          message: 'The target knowledge entry lacks required version history.',
+        })
+        return []
+      }
+      return [
+        {
+          itemKey: operation.itemKey,
+          id: operation.id,
+          expectedVersionId,
+          before: currentKnowledgeSnapshot(currentEntry),
+          dependencies: [],
+        },
+      ]
+    })
+    if (venue.guideMode === 'location_aware') {
+      payload.places.create.forEach((operation, index) => {
+        if (operation.value.lat === undefined || operation.value.lng === undefined) {
+          errors.push({
+            code: 'LOCATION_REQUIRED',
+            path: `places.create.${index}.value`,
+            message: 'Latitude and longitude are required for this location-aware venue.',
+          })
+        }
+      })
+      payload.places.update.forEach((operation, index) => {
+        if (
+          operation.value.isActive &&
+          (operation.value.lat === null || operation.value.lng === null)
+        ) {
+          errors.push({
+            code: 'LOCATION_REQUIRED',
+            path: `places.update.${index}.value`,
+            message: 'Active places require latitude and longitude in this location-aware venue.',
+          })
+        }
+      })
+    }
+    const baseDigest = await packageStateDigest(db, tenantId, venueId, 3)
+    const payloadHash = digest(canonicalVenuePackagePayload(venueId, payload))
+    const report = VenuePackageValidationReport.parse({
+      errors: sortVenuePackageIssues(errors),
+      warnings: duplicateWarnings(payload, current),
+      semanticDuplicateScan: buildNotRunSemanticScan({
+        payload,
+        existingPlaceCount: current.places.filter((place) => place.isActive).length,
+        existingKnowledgeCount: current.knowledgeEntries.filter((entry) => entry.isEnabled).length,
+      }),
+    })
+    return {
+      schemaVersion: 3 as const,
+      payloadHash,
+      baseDigest,
+      mode: 'MUTATING_V3' as const,
+      warningDigest: digest(report.warnings),
+      report,
+      changes: {
+        venue: {
+          expectedVersionId: expectedVenueVersionId,
+          change: exactVenueChanges,
+          unchanged: Object.keys(venueChangePaths).length - exactVenueChanges.length,
+        },
+        places: {
+          add: payload.places.create.map((operation) => ({
+            itemKey: operation.itemKey,
+            value: operation.value,
+          })),
+          change: placeChanges,
+          remove: placeRemovals,
+          unchanged: Math.max(0, current.places.length - placeTargets.length),
+        },
+        knowledgeEntries: {
+          add: payload.knowledgeEntries.create.map((operation) => ({
+            itemKey: operation.itemKey,
+            value: operation.value,
+          })),
+          change: knowledgeChanges,
+          remove: knowledgeRemovals,
+          unchanged: Math.max(0, current.knowledgeEntries.length - knowledgeTargets.length),
+        },
+      },
+    }
+  }
+
   if (
     payload.schemaVersion === 2 &&
     exactVenueChanges.length === 0 &&
@@ -450,6 +993,9 @@ function assertStoredEvidenceCurrent(params: {
   ) {
     conflict('Venue package deterministic validation evidence changed')
   }
+  if (JSON.stringify(params.stored.changes) !== JSON.stringify(params.deterministic.changes)) {
+    conflict('Venue package exact review plan changed; create a new preview')
+  }
 }
 
 async function findPackage(db: DbClient, tenantId: string, id: string) {
@@ -487,9 +1033,714 @@ function parsePayload(value: unknown, expectedSchemaVersion?: number): PackagePa
   return result.data
 }
 
+async function readPackageEffectVersion(input: {
+  db: DbClient
+  tenantId: string
+  venueId: string
+  packageId: string
+  itemKey: string
+  action: 'APPLY' | 'REVERT'
+  entityType: 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY'
+  entityId: string
+  operation: 'CREATE' | 'UPDATE' | 'DELETE'
+}) {
+  const version = await input.db.contentVersion.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      venuePackageId: input.packageId,
+      venuePackageItemKey: input.itemKey,
+      venuePackageAction: input.action,
+    },
+    select: {
+      id: true,
+      entityType: true,
+      entityId: true,
+      operation: true,
+      beforeState: true,
+      afterState: true,
+      snapshotSchemaVersion: true,
+    },
+  })
+  if (
+    !version ||
+    version.entityType !== input.entityType ||
+    version.entityId !== input.entityId ||
+    version.operation !== input.operation
+  ) {
+    conflict('Package mutation did not produce the expected immutable history record')
+  }
+  return version
+}
+
+async function applyVersionThreePackage(input: {
+  db: DbClient
+  tenantId: string
+  actorId: string
+  packageId: string
+  venueId: string
+  approvedAt: Date
+  approvedBy: string
+  payload: VenuePackagePayloadV3
+}) {
+  const importedAt = new Date()
+  const effects: VenuePackageAppliedEntitiesV3['effects'] = []
+  const establishContext = async (itemKey: string, provenance: VenuePackageSourceProvenance) => {
+    await setContentVersionContext(input.db, {
+      actorId: input.actorId,
+      venuePackage: {
+        venuePackageId: input.packageId,
+        itemKey,
+        action: 'APPLY',
+        sourceProvenance: sourceProvenance(provenance, importedAt, input.approvedAt),
+      },
+    })
+  }
+  const record = async (effect: {
+    itemKey: string
+    entityType: 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY'
+    entityId: string
+    operation: 'CREATE' | 'UPDATE' | 'DELETE'
+  }) => {
+    const version = await readPackageEffectVersion({
+      db: input.db,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      packageId: input.packageId,
+      action: 'APPLY',
+      ...effect,
+    })
+    effects.push({
+      ...effect,
+      applyVersionId: version.id,
+      snapshotSchemaVersion: version.snapshotSchemaVersion,
+      beforeState: version.beforeState as Record<string, unknown> | null,
+      afterState: version.afterState as Record<string, unknown> | null,
+    })
+  }
+
+  const currentVenue = venueSnapshot(await assertVenue(input.db, input.tenantId, input.venueId))
+  const venueData = changedVenuePatchData(input.payload, currentVenue)
+  if (Object.keys(venueData).length > 0) {
+    const itemKey = venuePackageItemKey(input.packageId)
+    const provenance: VenuePackageSourceProvenance = {
+      sourceType: 'PATHFINDER_VENUE_PACKAGE',
+      sourceName: `Venue package ${input.packageId}`,
+      contentOrigin: 'HUMAN_AUTHORED',
+    }
+    await establishContext(itemKey, provenance)
+    const changed = await input.db.venue.updateMany({
+      where: { id: input.venueId, tenantId: input.tenantId },
+      data: venueData,
+    })
+    if (changed.count !== 1) conflict('Venue changed during package application')
+    await record({ itemKey, entityType: 'VENUE', entityId: input.venueId, operation: 'UPDATE' })
+  }
+
+  for (const operation of input.payload.places.create) {
+    await establishContext(operation.itemKey, operation.provenance)
+    const place = await input.db.place.create({
+      data: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        name: operation.value.name,
+        type: operation.value.type,
+        ...(operation.value.itemType !== undefined ? { itemType: operation.value.itemType } : {}),
+        ...(operation.value.shortDescription !== undefined
+          ? { shortDescription: operation.value.shortDescription }
+          : {}),
+        ...(operation.value.longDescription !== undefined
+          ? { longDescription: operation.value.longDescription }
+          : {}),
+        ...(operation.value.lat !== undefined ? { lat: operation.value.lat } : {}),
+        ...(operation.value.lng !== undefined ? { lng: operation.value.lng } : {}),
+        tags: operation.value.tags,
+        importanceScore: operation.value.importanceScore,
+        ...(operation.value.areaName !== undefined ? { areaName: operation.value.areaName } : {}),
+        ...(operation.value.hours !== undefined ? { hours: operation.value.hours } : {}),
+        ...(operation.value.photoUrl !== undefined ? { photoUrl: operation.value.photoUrl } : {}),
+        ...directProvenanceData({
+          provenance: operation.provenance,
+          packageId: input.packageId,
+          importedAt,
+          humanConfirmedAt: input.approvedAt,
+          humanConfirmedBy: input.approvedBy,
+        }),
+      },
+      select: { id: true },
+    })
+    await record({
+      itemKey: operation.itemKey,
+      entityType: 'PLACE',
+      entityId: place.id,
+      operation: 'CREATE',
+    })
+  }
+  for (const operation of input.payload.places.update) {
+    await establishContext(operation.itemKey, operation.provenance)
+    const changed = await input.db.place.updateMany({
+      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+      data: {
+        ...operation.value,
+        ...directProvenanceData({
+          provenance: operation.provenance,
+          packageId: input.packageId,
+          importedAt,
+          humanConfirmedAt: input.approvedAt,
+          humanConfirmedBy: input.approvedBy,
+        }),
+      },
+    })
+    if (changed.count !== 1) conflict('Place changed during package application')
+    await record({
+      itemKey: operation.itemKey,
+      entityType: 'PLACE',
+      entityId: operation.id,
+      operation: 'UPDATE',
+    })
+  }
+  for (const operation of input.payload.places.delete) {
+    await establishContext(operation.itemKey, operation.provenance)
+    const changed = await input.db.place.deleteMany({
+      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+    })
+    if (changed.count !== 1) conflict('Place changed during package application')
+    await record({
+      itemKey: operation.itemKey,
+      entityType: 'PLACE',
+      entityId: operation.id,
+      operation: 'DELETE',
+    })
+  }
+
+  for (const operation of input.payload.knowledgeEntries.create) {
+    await establishContext(operation.itemKey, operation.provenance)
+    const entry = await input.db.venueKnowledgeEntry.create({
+      data: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        ...operation.value,
+        ...directProvenanceData({
+          provenance: operation.provenance,
+          packageId: input.packageId,
+          importedAt,
+          humanConfirmedAt: input.approvedAt,
+          humanConfirmedBy: input.approvedBy,
+        }),
+      },
+      select: { id: true },
+    })
+    await record({
+      itemKey: operation.itemKey,
+      entityType: 'KNOWLEDGE_ENTRY',
+      entityId: entry.id,
+      operation: 'CREATE',
+    })
+  }
+  for (const operation of input.payload.knowledgeEntries.update) {
+    await establishContext(operation.itemKey, operation.provenance)
+    const changed = await input.db.venueKnowledgeEntry.updateMany({
+      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+      data: {
+        ...operation.value,
+        ...directProvenanceData({
+          provenance: operation.provenance,
+          packageId: input.packageId,
+          importedAt,
+          humanConfirmedAt: input.approvedAt,
+          humanConfirmedBy: input.approvedBy,
+        }),
+      },
+    })
+    if (changed.count !== 1) conflict('Knowledge entry changed during package application')
+    await record({
+      itemKey: operation.itemKey,
+      entityType: 'KNOWLEDGE_ENTRY',
+      entityId: operation.id,
+      operation: 'UPDATE',
+    })
+  }
+  for (const operation of input.payload.knowledgeEntries.delete) {
+    await establishContext(operation.itemKey, operation.provenance)
+    const changed = await input.db.venueKnowledgeEntry.deleteMany({
+      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
+    })
+    if (changed.count !== 1) conflict('Knowledge entry changed during package application')
+    await record({
+      itemKey: operation.itemKey,
+      entityType: 'KNOWLEDGE_ENTRY',
+      entityId: operation.id,
+      operation: 'DELETE',
+    })
+  }
+  return effects
+}
+
+const mutableEntityFields = {
+  VENUE: new Set([
+    'name',
+    'slug',
+    'description',
+    'guideNotes',
+    'aiGuideNotes',
+    'aiFeaturedPlaceId',
+    'aiTone',
+    'aiGuideName',
+    'chatTheme',
+    'chatAccentColor',
+    'chatFont',
+    'chatLogoUrl',
+    'chatBannerUrl',
+    'category',
+    'guideMode',
+    'defaultCenterLat',
+    'defaultCenterLng',
+    'geoBoundary',
+    'isActive',
+  ]),
+  PLACE: new Set([
+    'name',
+    'type',
+    'itemType',
+    'shortDescription',
+    'longDescription',
+    'lat',
+    'lng',
+    'tags',
+    'importanceScore',
+    'areaName',
+    'hours',
+    'photoUrl',
+    'isActive',
+    'sourceType',
+    'authorship',
+    'sourceName',
+    'sourceUrl',
+    'importedAt',
+    'humanConfirmedAt',
+    'humanConfirmedBy',
+    'lastReviewedAt',
+    'lastReviewedBy',
+    'sourcePackageId',
+  ]),
+  KNOWLEDGE_ENTRY: new Set([
+    'title',
+    'category',
+    'content',
+    'isEnabled',
+    'sourceType',
+    'authorship',
+    'sourceName',
+    'sourceUrl',
+    'importedAt',
+    'humanConfirmedAt',
+    'humanConfirmedBy',
+    'lastReviewedAt',
+    'lastReviewedBy',
+    'sourcePackageId',
+  ]),
+} as const
+
+const provenanceDateFields = new Set(['importedAt', 'humanConfirmedAt', 'lastReviewedAt'])
+
+function mutationValue(
+  entityType: keyof typeof mutableEntityFields,
+  field: string,
+  value: unknown,
+) {
+  if (provenanceDateFields.has(field) && typeof value === 'string') return new Date(value)
+  return value
+}
+
+function mutationData(
+  entityType: keyof typeof mutableEntityFields,
+  snapshot: JsonSnapshot,
+): Record<string, unknown> {
+  const allowed = mutableEntityFields[entityType]
+  const data: Record<string, unknown> = {}
+  for (const [field, value] of Object.entries(snapshot)) {
+    if (allowed.has(field)) data[field] = mutationValue(entityType, field, value)
+  }
+  return data
+}
+
+function casWhere(
+  entityType: keyof typeof mutableEntityFields,
+  expected: JsonSnapshot,
+): Record<string, unknown> {
+  const where: Record<string, unknown> = {}
+  for (const [field, value] of Object.entries(mutationData(entityType, expected))) {
+    where[field] = field === 'tags' && Array.isArray(value) ? { equals: value } : value
+  }
+  return where
+}
+
+async function currentEntitySnapshot(input: {
+  db: DbClient
+  tenantId: string
+  venueId: string
+  entityType: 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY'
+  entityId: string
+}): Promise<JsonSnapshot | null> {
+  if (input.entityType === 'VENUE') {
+    const row = await input.db.venue.findFirst({
+      where: { id: input.entityId, tenantId: input.tenantId },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        slug: true,
+        description: true,
+        guideNotes: true,
+        aiGuideNotes: true,
+        aiFeaturedPlaceId: true,
+        aiTone: true,
+        aiGuideName: true,
+        chatTheme: true,
+        chatAccentColor: true,
+        chatFont: true,
+        chatLogoUrl: true,
+        chatBannerUrl: true,
+        category: true,
+        guideMode: true,
+        defaultCenterLat: true,
+        defaultCenterLng: true,
+        geoBoundary: true,
+        isActive: true,
+      },
+    })
+    return row ? (jsonValue({ ...row, venueId: row.id }) as JsonSnapshot) : null
+  }
+  if (input.entityType === 'PLACE') {
+    const row = await input.db.place.findFirst({
+      where: { id: input.entityId, tenantId: input.tenantId, venueId: input.venueId },
+      select: {
+        id: true,
+        tenantId: true,
+        venueId: true,
+        name: true,
+        type: true,
+        itemType: true,
+        shortDescription: true,
+        longDescription: true,
+        lat: true,
+        lng: true,
+        tags: true,
+        importanceScore: true,
+        areaName: true,
+        hours: true,
+        photoUrl: true,
+        isActive: true,
+        sourceType: true,
+        authorship: true,
+        sourceName: true,
+        sourceUrl: true,
+        importedAt: true,
+        humanConfirmedAt: true,
+        humanConfirmedBy: true,
+        lastReviewedAt: true,
+        lastReviewedBy: true,
+        sourcePackageId: true,
+      },
+    })
+    return row ? (jsonValue(row) as JsonSnapshot) : null
+  }
+  const row = await input.db.venueKnowledgeEntry.findFirst({
+    where: { id: input.entityId, tenantId: input.tenantId, venueId: input.venueId },
+    select: {
+      id: true,
+      tenantId: true,
+      venueId: true,
+      title: true,
+      category: true,
+      content: true,
+      isEnabled: true,
+      sourceType: true,
+      authorship: true,
+      sourceName: true,
+      sourceUrl: true,
+      importedAt: true,
+      humanConfirmedAt: true,
+      humanConfirmedBy: true,
+      lastReviewedAt: true,
+      lastReviewedBy: true,
+      sourcePackageId: true,
+    },
+  })
+  return row ? (jsonValue(row) as JsonSnapshot) : null
+}
+
+function parseContentVersionSourceProvenance(value: unknown): ContentVersionSourceProvenance {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    conflict('Package history provenance is invalid')
+  }
+  const record = value as Record<string, unknown>
+  if (
+    typeof record.sourceType !== 'string' ||
+    (record.sourceName !== undefined && typeof record.sourceName !== 'string') ||
+    (record.sourceUrl !== undefined && typeof record.sourceUrl !== 'string') ||
+    (record.contentOrigin !== 'HUMAN_AUTHORED' && record.contentOrigin !== 'AI_GENERATED') ||
+    typeof record.importedAt !== 'string' ||
+    typeof record.humanConfirmedAt !== 'string' ||
+    typeof record.lastReviewedAt !== 'string'
+  ) {
+    conflict('Package history provenance is invalid')
+  }
+  return record as ContentVersionSourceProvenance
+}
+
+type PlannedVersionThreeRollback = {
+  effect: VenuePackageAppliedEntitiesV3['effects'][number]
+  plan: VenuePackageInversePlan
+  provenance: ContentVersionSourceProvenance
+}
+
+async function planVersionThreeRollback(input: {
+  db: DbClient
+  tenantId: string
+  venueId: string
+  packageId: string
+  manifest: VenuePackageAppliedEntitiesV3
+}): Promise<PlannedVersionThreeRollback[]> {
+  const versionIds = new Set<string>()
+  const itemKeys = new Set<string>()
+  const entityKeys = new Set<string>()
+  const plans: PlannedVersionThreeRollback[] = []
+  for (const effect of input.manifest.effects) {
+    const entityKey = `${effect.entityType}:${effect.entityId}`
+    if (
+      versionIds.has(effect.applyVersionId) ||
+      itemKeys.has(effect.itemKey) ||
+      entityKeys.has(entityKey)
+    ) {
+      conflict('Venue package rollback manifest contains duplicate effects')
+    }
+    versionIds.add(effect.applyVersionId)
+    itemKeys.add(effect.itemKey)
+    entityKeys.add(entityKey)
+
+    const applied = await input.db.contentVersion.findFirst({
+      where: {
+        id: effect.applyVersionId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        entityType: effect.entityType,
+        entityId: effect.entityId,
+        operation: effect.operation,
+        venuePackageId: input.packageId,
+        venuePackageItemKey: effect.itemKey,
+        venuePackageAction: 'APPLY',
+      },
+      select: {
+        id: true,
+        sequence: true,
+        beforeState: true,
+        afterState: true,
+        snapshotSchemaVersion: true,
+        sourceProvenance: true,
+      },
+    })
+    if (
+      !applied ||
+      applied.snapshotSchemaVersion !== effect.snapshotSchemaVersion ||
+      !venuePackageSnapshotsEqual(applied.beforeState, effect.beforeState) ||
+      !venuePackageSnapshotsEqual(applied.afterState, effect.afterState)
+    ) {
+      conflict('Venue package rollback manifest does not match immutable history')
+    }
+    const later = await input.db.contentVersion.findMany({
+      where: {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        entityType: effect.entityType,
+        entityId: effect.entityId,
+        sequence: { gt: applied.sequence },
+      },
+      select: {
+        id: true,
+        entityType: true,
+        entityId: true,
+        operation: true,
+        beforeState: true,
+        afterState: true,
+        revertedFromId: true,
+      },
+      orderBy: { sequence: 'asc' },
+    })
+    const laterVersionIds = new Set(later.map((version) => version.id))
+    const externalAncestorIds = [
+      ...new Set(
+        later
+          .map((version) => version.revertedFromId)
+          .filter(
+            (id): id is string =>
+              id != null && id !== effect.applyVersionId && !laterVersionIds.has(id),
+          ),
+      ),
+    ]
+    const verifiedAncestors =
+      externalAncestorIds.length === 0
+        ? []
+        : await input.db.contentVersion.findMany({
+            where: {
+              id: { in: externalAncestorIds },
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              entityType: effect.entityType,
+              entityId: effect.entityId,
+              sequence: { lt: applied.sequence },
+            },
+            select: { id: true },
+          })
+    const currentState = await currentEntitySnapshot({
+      db: input.db,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      entityType: effect.entityType,
+      entityId: effect.entityId,
+    })
+    const planned = planVenuePackageRollback({
+      effect,
+      laterVersions: later.map((version) => ({
+        id: version.id,
+        entityType: version.entityType as 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY',
+        entityId: version.entityId,
+        operation: version.operation as 'CREATE' | 'UPDATE' | 'DELETE',
+        beforeState: version.beforeState as JsonSnapshot | null,
+        afterState: version.afterState as JsonSnapshot | null,
+        revertedFromId: version.revertedFromId,
+      })),
+      knownAncestorVersionIds: verifiedAncestors.map((version) => version.id),
+      currentState,
+    })
+    if (!planned.ok) {
+      conflict(`Venue package rollback conflicts with later content: ${planned.message}`)
+    }
+    plans.push({
+      effect,
+      plan: planned.plan,
+      provenance: parseContentVersionSourceProvenance(applied.sourceProvenance),
+    })
+  }
+  const createdPlaceDeletes = plans
+    .filter((item) => item.effect.entityType === 'PLACE' && item.plan.operation === 'DELETE')
+    .map((item) => item.effect.entityId)
+  if (createdPlaceDeletes.length > 0) {
+    const venue = await assertVenue(input.db, input.tenantId, input.venueId)
+    const dependencies = await placeDeleteDependencies(
+      input.db,
+      input.tenantId,
+      input.venueId,
+      createdPlaceDeletes,
+      venue.aiFeaturedPlaceId,
+    )
+    const blocked = createdPlaceDeletes.find((id) => (dependencies.get(id) ?? []).length > 0)
+    if (blocked) {
+      const blockers = dependencies.get(blocked) ?? []
+      conflict(
+        `Created package place has retained dependencies: ${blockers
+          .map((item) => `${item.type} (${item.count})`)
+          .join(', ')}`,
+      )
+    }
+  }
+  return plans
+}
+
+async function executeVersionThreeRollback(input: {
+  db: DbClient
+  tenantId: string
+  venueId: string
+  packageId: string
+  actorId: string
+  plans: PlannedVersionThreeRollback[]
+}) {
+  for (const item of [...input.plans].reverse()) {
+    await setContentVersionContext(input.db, {
+      actorId: input.actorId,
+      revertedFromId: item.effect.applyVersionId,
+      venuePackage: {
+        venuePackageId: input.packageId,
+        itemKey: item.effect.itemKey,
+        action: 'REVERT',
+        sourceProvenance: item.provenance,
+      },
+    })
+    const scope = { id: item.effect.entityId, tenantId: input.tenantId }
+    let inverseOperation: 'CREATE' | 'UPDATE' | 'DELETE'
+    if (item.plan.operation === 'DELETE') {
+      inverseOperation = 'DELETE'
+      const where = {
+        ...scope,
+        ...(item.effect.entityType === 'VENUE' ? {} : { venueId: input.venueId }),
+        ...casWhere(item.effect.entityType, item.plan.expectedState),
+      }
+      const removed =
+        item.effect.entityType === 'PLACE'
+          ? await input.db.place.deleteMany({ where })
+          : item.effect.entityType === 'KNOWLEDGE_ENTRY'
+            ? await input.db.venueKnowledgeEntry.deleteMany({ where })
+            : { count: 0 }
+      if (removed.count !== 1) conflict('Created package content changed during rollback')
+    } else if (item.plan.operation === 'CREATE') {
+      inverseOperation = 'CREATE'
+      const state = item.plan.state
+      if (
+        state.id !== item.effect.entityId ||
+        state.tenantId !== input.tenantId ||
+        state.venueId !== input.venueId
+      ) {
+        conflict('Package rollback create snapshot has invalid scope')
+      }
+      const data = {
+        id: item.effect.entityId,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        ...mutationData(item.effect.entityType, state),
+      }
+      if (item.effect.entityType === 'PLACE') {
+        await input.db.place.create({ data: data as PlaceCreateData })
+      } else if (item.effect.entityType === 'KNOWLEDGE_ENTRY') {
+        await input.db.venueKnowledgeEntry.create({
+          data: data as KnowledgeCreateData,
+        })
+      } else conflict('Venue package rollback cannot recreate a venue')
+    } else {
+      inverseOperation = 'UPDATE'
+      if (item.plan.unsetFields.length > 0 || item.plan.expectedUnsetFields.length > 0) {
+        conflict('Package rollback patch contains unsupported sparse snapshots')
+      }
+      const where = {
+        ...scope,
+        ...(item.effect.entityType === 'VENUE' ? {} : { venueId: input.venueId }),
+        ...casWhere(item.effect.entityType, item.plan.expectedFields),
+      }
+      const data = mutationData(item.effect.entityType, item.plan.fields)
+      const changed =
+        item.effect.entityType === 'VENUE'
+          ? await input.db.venue.updateMany({ where, data })
+          : item.effect.entityType === 'PLACE'
+            ? await input.db.place.updateMany({ where, data })
+            : await input.db.venueKnowledgeEntry.updateMany({ where, data })
+      if (changed.count !== 1) conflict('Package content changed during rollback')
+    }
+    await readPackageEffectVersion({
+      db: input.db,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      packageId: input.packageId,
+      itemKey: item.effect.itemKey,
+      action: 'REVERT',
+      entityType: item.effect.entityType,
+      entityId: item.effect.entityId,
+      operation: inverseOperation,
+    })
+  }
+}
+
 function matchesPlace(
   current: Awaited<ReturnType<typeof contentState>>['places'][number],
-  expected: VenuePackageAppliedEntities['places'][number],
+  expected: VenuePackageAppliedEntitiesV1['places'][number],
 ) {
   return (
     current.id === expected.id &&
@@ -511,7 +1762,7 @@ function matchesPlace(
 
 function matchesKnowledge(
   current: Awaited<ReturnType<typeof contentState>>['knowledgeEntries'][number],
-  expected: VenuePackageAppliedEntities['knowledgeEntries'][number],
+  expected: VenuePackageAppliedEntitiesV1['knowledgeEntries'][number],
 ) {
   return (
     current.id === expected.id &&
@@ -623,8 +1874,7 @@ export const venuePackageRouter = router({
           venueId: input.venueId,
           placeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
           knowledgeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
-          scanPlaces: input.payload.places.length > 0,
-          scanKnowledgeEntries: input.payload.knowledgeEntries.length > 0,
+          ...semanticCoverageParams(input.payload),
         })
         const incomplete = buildIncompleteSemanticScan({ payload: input.payload, coverage })
         if (incomplete.errors.length > 0) {
@@ -818,8 +2068,7 @@ export const venuePackageRouter = router({
             venueId: input.venueId,
             placeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
             knowledgeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
-            scanPlaces: input.payload.places.length > 0,
-            scanKnowledgeEntries: input.payload.knowledgeEntries.length > 0,
+            ...semanticCoverageParams(input.payload),
           })
           const incomplete = buildIncompleteSemanticScan({ payload: input.payload, coverage })
           if (incomplete.errors.length > 0) {
@@ -1034,6 +2283,66 @@ export const venuePackageRouter = router({
       }
 
       try {
+        if (payload.schemaVersion === 3) {
+          if (!existing.approvedAt || !existing.approvedBy) {
+            conflict('Approved venue package is missing reviewer evidence')
+          }
+          const effects = await applyVersionThreePackage({
+            db: ctx.db,
+            tenantId,
+            actorId: ctx.session.userId,
+            packageId: existing.id,
+            venueId: existing.venueId,
+            approvedAt: existing.approvedAt,
+            approvedBy: existing.approvedBy,
+            payload,
+          })
+          const postApplyDigest = await packageStateDigest(
+            ctx.db,
+            tenantId,
+            existing.venueId,
+            payload.schemaVersion,
+          )
+          const appliedEntities = VenuePackageAppliedEntitiesV3.parse({
+            schemaVersion: 3,
+            rollbackContractVersion: 2,
+            postApplyDigest,
+            effects,
+          })
+          const now = new Date()
+          const changed = await ctx.db.venuePackage.updateMany({
+            where: {
+              id: input.id,
+              tenantId,
+              status: 'APPROVED',
+              updatedAt: input.expectedUpdatedAt,
+            },
+            data: {
+              status: 'APPLIED',
+              appliedBy: ctx.session.userId,
+              appliedAt: now,
+              appliedCommandKey: input.commandKey,
+              appliedEntities: jsonValue(appliedEntities),
+            },
+          })
+          if (changed.count !== 1) conflict()
+          const applied = await findPackage(ctx.db, tenantId, input.id)
+          if (!applied) conflict()
+          await writeAuditLogStrict(
+            {
+              tenantId,
+              actorId: ctx.session.userId,
+              actorRole: ctx.session.role ?? 'MANAGER',
+              action: 'venue-package.applied',
+              targetType: 'VenuePackage',
+              targetId: input.id,
+              beforeState: auditState(existing),
+              afterState: auditState(applied),
+            },
+            ctx.db,
+          )
+          return applied
+        }
         let appliedVenue: VenuePackageAppliedEntitiesV2['venue'] = null
         if (payload.schemaVersion === 2) {
           const before = venueSnapshot(await assertVenue(ctx.db, tenantId, existing.venueId))
@@ -1158,9 +2467,15 @@ export const venuePackageRouter = router({
       } catch (error) {
         if (
           error instanceof TRPCError ||
-          (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002')
+          (typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            (error.code === 'P2002' || error.code === 'P2003'))
         ) {
           if (error instanceof TRPCError) throw error
+          if (error.code === 'P2003') {
+            conflict('Package deletion acquired a retained dependency; refresh and review it again')
+          }
           conflict('Venue-package command key was already used')
         }
         throw error
@@ -1186,6 +2501,73 @@ export const venuePackageRouter = router({
       if (!manifestResult.success) conflict('Venue package rollback manifest is invalid')
       const manifest = manifestResult.data
       const payload = parsePayload(existing.payload, existing.schemaVersion)
+      if (payload.schemaVersion === 3) {
+        if (!('rollbackContractVersion' in manifest) || manifest.schemaVersion !== 3) {
+          conflict('Venue package rollback manifest version is inconsistent')
+        }
+        const plans = await planVersionThreeRollback({
+          db: ctx.db,
+          tenantId,
+          venueId: existing.venueId,
+          packageId: existing.id,
+          manifest,
+        })
+        try {
+          await executeVersionThreeRollback({
+            db: ctx.db,
+            tenantId,
+            venueId: existing.venueId,
+            packageId: existing.id,
+            actorId: ctx.session.userId,
+            plans,
+          })
+        } catch (error) {
+          if (
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            error.code === 'P2003'
+          ) {
+            conflict('Package rollback acquired a retained dependency; refresh and review it again')
+          }
+          throw error
+        }
+        const now = new Date()
+        const changed = await ctx.db.venuePackage.updateMany({
+          where: {
+            id: input.id,
+            tenantId,
+            status: 'APPLIED',
+            updatedAt: input.expectedUpdatedAt,
+          },
+          data: {
+            status: 'REVERTED',
+            revertedBy: ctx.session.userId,
+            revertedAt: now,
+            revertedCommandKey: input.commandKey,
+          },
+        })
+        if (changed.count !== 1) conflict()
+        const reverted = await findPackage(ctx.db, tenantId, input.id)
+        if (!reverted) conflict()
+        await writeAuditLogStrict(
+          {
+            tenantId,
+            actorId: ctx.session.userId,
+            actorRole: ctx.session.role ?? 'MANAGER',
+            action: 'venue-package.reverted',
+            targetType: 'VenuePackage',
+            targetId: input.id,
+            beforeState: auditState(existing),
+            afterState: auditState(reverted),
+          },
+          ctx.db,
+        )
+        return reverted
+      }
+      if ('rollbackContractVersion' in manifest) {
+        conflict('Venue package rollback manifest version is inconsistent')
+      }
       const current = await contentState(ctx.db, tenantId, existing.venueId)
       if (
         (payload.schemaVersion === 1 && 'schemaVersion' in manifest) ||

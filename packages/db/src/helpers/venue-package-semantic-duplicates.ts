@@ -22,6 +22,7 @@ export type VenuePackageSemanticCoverage = {
 export type VenuePackageSemanticDuplicateCandidate = {
   draftIndex: number
   embedding: number[]
+  excludeId?: string
 }
 
 export type VenuePackageSemanticDuplicateMatch = {
@@ -83,7 +84,11 @@ function candidateJson(candidates: VenuePackageSemanticDuplicateCandidate[]): st
           `Semantic duplicate embeddings must contain ${EMBEDDING_DIMENSIONS} finite values`,
         )
       }
-      return { draftIndex: candidate.draftIndex, vectorText: `[${candidate.embedding.join(',')}]` }
+      return {
+        draftIndex: candidate.draftIndex,
+        vectorText: `[${candidate.embedding.join(',')}]`,
+        excludeId: candidate.excludeId ?? null,
+      }
     }),
   )
 }
@@ -103,10 +108,14 @@ export async function getVenuePackageSemanticCoverage(
     knowledgeProfile: string
     scanPlaces: boolean
     scanKnowledgeEntries: boolean
+    excludedPlaceIds?: string[]
+    excludedKnowledgeEntryIds?: string[]
   },
 ): Promise<VenuePackageSemanticCoverage> {
   validateScope({ ...params, profile: params.placeProfile })
   validateScope({ ...params, profile: params.knowledgeProfile })
+  const excludedPlaceIds = JSON.stringify(params.excludedPlaceIds ?? [])
+  const excludedKnowledgeEntryIds = JSON.stringify(params.excludedKnowledgeEntryIds ?? [])
 
   const rows = await client.$queryRaw<CoverageRow[]>`
     WITH place_coverage AS MATERIALIZED (
@@ -133,6 +142,7 @@ export async function getVenuePackageSemanticCoverage(
         AND p.tenant_id = ${params.tenantId}
         AND p.venue_id = ${params.venueId}
         AND p.is_active = true
+        AND p.id NOT IN (SELECT jsonb_array_elements_text(${excludedPlaceIds}::jsonb))
     ),
     knowledge_coverage AS MATERIALIZED (
       SELECT
@@ -158,6 +168,7 @@ export async function getVenuePackageSemanticCoverage(
         AND k.tenant_id = ${params.tenantId}
         AND k.venue_id = ${params.venueId}
         AND k.is_enabled = true
+        AND k.id NOT IN (SELECT jsonb_array_elements_text(${excludedKnowledgeEntryIds}::jsonb))
     )
     SELECT
       p.eligible AS place_eligible,
@@ -207,7 +218,8 @@ export async function findVenuePackagePlaceSemanticDuplicates(
     WITH draft_candidates AS MATERIALIZED (
       SELECT
         (value ->> 'draftIndex')::int AS draft_index,
-        (value ->> 'vectorText')::vector(1536) AS embedding
+        (value ->> 'vectorText')::vector(1536) AS embedding,
+        value ->> 'excludeId' AS exclude_id
       FROM jsonb_array_elements(${candidates}::jsonb) AS value
     ),
     existing_candidates AS MATERIALIZED (
@@ -240,6 +252,7 @@ export async function findVenuePackagePlaceSemanticDuplicates(
         (existing.embedding <=> draft.embedding)::double precision AS cosine_distance
       FROM existing_candidates existing
       WHERE (existing.embedding <=> draft.embedding) <= ${params.maxCosineDistance}
+        AND (draft.exclude_id IS NULL OR existing.id <> draft.exclude_id)
       ORDER BY (existing.embedding <=> draft.embedding) ASC, existing.id ASC
       LIMIT 1
     ) matched
@@ -272,7 +285,8 @@ export async function findVenuePackageKnowledgeSemanticDuplicates(
     WITH draft_candidates AS MATERIALIZED (
       SELECT
         (value ->> 'draftIndex')::int AS draft_index,
-        (value ->> 'vectorText')::vector(1536) AS embedding
+        (value ->> 'vectorText')::vector(1536) AS embedding,
+        value ->> 'excludeId' AS exclude_id
       FROM jsonb_array_elements(${candidates}::jsonb) AS value
     ),
     existing_candidates AS MATERIALIZED (
@@ -305,6 +319,7 @@ export async function findVenuePackageKnowledgeSemanticDuplicates(
         (existing.embedding <=> draft.embedding)::double precision AS cosine_distance
       FROM existing_candidates existing
       WHERE (existing.embedding <=> draft.embedding) <= ${params.maxCosineDistance}
+        AND (draft.exclude_id IS NULL OR existing.id <> draft.exclude_id)
       ORDER BY (existing.embedding <=> draft.embedding) ASC, existing.id ASC
       LIMIT 1
     ) matched

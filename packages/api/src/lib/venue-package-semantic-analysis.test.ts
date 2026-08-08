@@ -22,13 +22,18 @@ vi.mock('@pathfinder/db', () => ({
   findVenuePackagePlaceSemanticDuplicates: vi.fn(),
 }))
 
-import type { VenuePackageIssue, VenuePackagePayload } from '../schemas/venue-package'
+import type {
+  VenuePackageIssue,
+  VenuePackagePayload,
+  VenuePackagePayloadV3,
+} from '../schemas/venue-package'
 import {
   analyzeVenuePackageSemanticDuplicates,
   buildIncompleteSemanticScan,
   generateVenuePackageCandidateEmbeddings,
   sortVenuePackageIssues,
   VENUE_PACKAGE_EMBEDDING_BATCH_SIZE,
+  venuePackageSemanticInputs,
 } from './venue-package-semantic-analysis'
 
 const emptyCoverage = (): VenuePackageSemanticCoverage => ({
@@ -60,6 +65,82 @@ const payload = (placeNames: string[], knowledgeTitles: string[] = []): VenuePac
     content: `Content for ${title}`,
     isEnabled: true,
   })),
+})
+
+const v3Payload = (): VenuePackagePayloadV3 => ({
+  schemaVersion: 3,
+  places: {
+    create: [
+      {
+        itemKey: '00000000-0000-4000-8000-000000000001',
+        provenance: { sourceType: 'curated-notes', contentOrigin: 'HUMAN_AUTHORED' },
+        value: { name: 'New gallery', type: 'gallery', tags: [], importanceScore: 10 },
+      },
+    ],
+    update: [
+      {
+        itemKey: '00000000-0000-4000-8000-000000000002',
+        provenance: { sourceType: 'curated-notes', contentOrigin: 'HUMAN_AUTHORED' },
+        id: 'cm00000000000000000000001',
+        value: {
+          name: 'Updated gallery',
+          type: 'gallery',
+          itemType: null,
+          shortDescription: null,
+          longDescription: null,
+          lat: null,
+          lng: null,
+          tags: [],
+          importanceScore: 20,
+          areaName: null,
+          hours: null,
+          photoUrl: null,
+          isActive: true,
+        },
+      },
+    ],
+    delete: [
+      {
+        itemKey: '00000000-0000-4000-8000-000000000003',
+        provenance: { sourceType: 'curated-notes', contentOrigin: 'HUMAN_AUTHORED' },
+        id: 'cm00000000000000000000002',
+      },
+    ],
+  },
+  knowledgeEntries: {
+    create: [
+      {
+        itemKey: '00000000-0000-4000-8000-000000000004',
+        provenance: { sourceType: 'handbook', contentOrigin: 'HUMAN_AUTHORED' },
+        value: {
+          title: 'New accessibility guidance',
+          category: 'ACCESSIBILITY',
+          content: 'New guidance',
+          isEnabled: true,
+        },
+      },
+    ],
+    update: [
+      {
+        itemKey: '00000000-0000-4000-8000-000000000005',
+        provenance: { sourceType: 'handbook', contentOrigin: 'HUMAN_AUTHORED' },
+        id: 'cm00000000000000000000003',
+        value: {
+          title: 'Updated accessibility guidance',
+          category: 'ACCESSIBILITY',
+          content: 'Updated guidance',
+          isEnabled: true,
+        },
+      },
+    ],
+    delete: [
+      {
+        itemKey: '00000000-0000-4000-8000-000000000006',
+        provenance: { sourceType: 'handbook', contentOrigin: 'HUMAN_AUTHORED' },
+        id: 'cm00000000000000000000004',
+      },
+    ],
+  },
 })
 
 describe('venue package semantic analysis', () => {
@@ -129,6 +210,74 @@ describe('venue package semantic analysis', () => {
     expect(result.errors[1]!.message).toContain(
       '2 item(s) lack embeddings and 1 item(s) lack a current compatible embedding claim',
     )
+  })
+
+  it('includes V3 creates and updates with self-exclusion while excluding deletes', async () => {
+    const input = v3Payload()
+    const semanticInputs = venuePackageSemanticInputs(input)
+
+    expect(semanticInputs.places).toEqual([
+      {
+        value: input.places.create[0]!.value,
+        path: 'places.create.0.value.name',
+      },
+      {
+        value: input.places.update[0]!.value,
+        path: 'places.update.0.value.name',
+        excludeId: 'cm00000000000000000000001',
+      },
+    ])
+    expect(semanticInputs.knowledgeEntries).toEqual([
+      {
+        value: input.knowledgeEntries.create[0]!.value,
+        path: 'knowledgeEntries.create.0.value.title',
+      },
+      {
+        value: input.knowledgeEntries.update[0]!.value,
+        path: 'knowledgeEntries.update.0.value.title',
+        excludeId: 'cm00000000000000000000003',
+      },
+    ])
+
+    const incomplete = buildIncompleteSemanticScan({ payload: input, coverage: emptyCoverage() })
+    expect(incomplete.scan.scopes.places.inputCount).toBe(2)
+    expect(incomplete.scan.scopes.knowledgeEntries.inputCount).toBe(2)
+
+    vi.mocked(generateEmbeddings).mockImplementation(async ({ texts }) => ({
+      embeddings: texts.map((_, index) => [index + 1]),
+      provider: 'openai',
+      model: 'test-embedding',
+      pricingVersion: 'test-v1',
+      usage: {
+        inputTokens: texts.length,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      },
+      estimatedCostUsd: 0,
+      latencyMs: 1,
+      attempts: 1,
+    }))
+    const candidates = await generateVenuePackageCandidateEmbeddings({
+      payload: input,
+      usageSink: vi.fn().mockResolvedValue(undefined),
+    })
+    expect(candidates.places).toEqual([
+      { draftIndex: 0, embedding: [1] },
+      {
+        draftIndex: 1,
+        embedding: [2],
+        excludeId: 'cm00000000000000000000001',
+      },
+    ])
+    expect(candidates.knowledgeEntries).toEqual([
+      { draftIndex: 0, embedding: [1] },
+      {
+        draftIndex: 1,
+        embedding: [2],
+        excludeId: 'cm00000000000000000000003',
+      },
+    ])
   })
 
   it('finds complete in-package and existing-content matches in stable issue order', async () => {

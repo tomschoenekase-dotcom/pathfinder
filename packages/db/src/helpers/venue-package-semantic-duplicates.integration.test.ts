@@ -365,6 +365,32 @@ integrationDescribe('venue-package semantic duplicates (disposable PostgreSQL)',
         incompatibleVectorCount: 4,
       },
     })
+
+    await expect(
+      getVenuePackageSemanticCoverage(db, {
+        tenantId,
+        venueId,
+        placeProfile,
+        knowledgeProfile,
+        scanPlaces: true,
+        scanKnowledgeEntries: true,
+        excludedPlaceIds: [placeIds.tieA],
+        excludedKnowledgeEntryIds: [knowledgeIds.current],
+      }),
+    ).resolves.toEqual({
+      places: {
+        eligibleCount: 5,
+        searchableCount: 2,
+        missingVectorCount: 1,
+        incompatibleVectorCount: 2,
+      },
+      knowledgeEntries: {
+        eligibleCount: 5,
+        searchableCount: 0,
+        missingVectorCount: 1,
+        incompatibleVectorCount: 4,
+      },
+    })
   })
 
   it('uses only current COMPLETE claims and orders strongest matches then ID ties', async () => {
@@ -377,6 +403,7 @@ integrationDescribe('venue-package semantic duplicates (disposable PostgreSQL)',
         candidates: [
           { draftIndex: 2, embedding: vectorB },
           { draftIndex: 0, embedding: vectorA },
+          { draftIndex: 1, embedding: vectorA, excludeId: placeIds.tieA },
         ],
       }),
     ).resolves.toEqual([
@@ -385,6 +412,13 @@ integrationDescribe('venue-package semantic duplicates (disposable PostgreSQL)',
         draftIndex: 0,
         existingId: placeIds.tieA,
         existingLabel: placeIds.tieA,
+        cosineDistance: 0,
+      },
+      {
+        entityType: 'PLACE',
+        draftIndex: 1,
+        existingId: placeIds.tieB,
+        existingLabel: placeIds.tieB,
         cosineDistance: 0,
       },
       {
@@ -425,5 +459,15 @@ integrationDescribe('venue-package semantic duplicates (disposable PostgreSQL)',
         cosineDistance: 0,
       },
     ])
+
+    await expect(
+      findVenuePackageKnowledgeSemanticDuplicates(db, {
+        tenantId,
+        venueId,
+        profile: knowledgeProfile,
+        maxCosineDistance: 0,
+        candidates: [{ draftIndex: 2, embedding: vectorB, excludeId: knowledgeIds.current }],
+      }),
+    ).resolves.toEqual([])
   })
 })

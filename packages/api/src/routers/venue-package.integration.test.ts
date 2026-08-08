@@ -43,6 +43,9 @@ import { db, lockVenueContentMutation } from '@pathfinder/db'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
+import type { VenuePackagePayloadV3, VenuePackageSourceProvenance } from '../schemas/venue-package'
+import { knowledgeRouter } from './knowledge'
+import { placeRouter } from './place'
 import { venueRouter } from './venue'
 import { venuePackageRouter } from './venue-package'
 
@@ -69,7 +72,12 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
   const tenantId = `venue-package-tenant-${suffix}`
   const otherTenantId = `venue-package-other-${suffix}`
   const actorId = `venue-package-user-${suffix}`
-  const testRouter = router({ venue: venueRouter, venuePackage: venuePackageRouter })
+  const testRouter = router({
+    knowledge: knowledgeRouter,
+    place: placeRouter,
+    venue: venueRouter,
+    venuePackage: venuePackageRouter,
+  })
   let venueId = ''
   let concurrentVenueId = ''
   let failureVenueId = ''
@@ -128,6 +136,76 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
           completedAt: new Date(),
         },
       })
+    }
+  }
+
+  function packageProvenance(label: string) {
+    return {
+      sourceType: 'INTEGRATION_FIXTURE',
+      sourceName: label,
+      sourceUrl: `https://example.invalid/pathfinder/${label.toLowerCase().replaceAll(' ', '-')}`,
+      contentOrigin: 'HUMAN_AUTHORED' as const,
+    }
+  }
+
+  async function applyVersionThree(targetVenueId: string, payload: VenuePackagePayloadV3) {
+    const caller = testRouter.createCaller(ctx())
+    const draft = await caller.venuePackage.createDraft({
+      venueId: targetVenueId,
+      payload,
+      draftKey: randomUUID(),
+    })
+    expect(draft.preview.report.errors).toEqual([])
+    expect(draft.preview.report.semanticDuplicateScan.status).toBe('COMPLETE')
+    const approved = await caller.venuePackage.approve({
+      id: draft.id,
+      expectedUpdatedAt: draft.updatedAt,
+      commandKey: randomUUID(),
+      acknowledgedWarningDigest: draft.preview.warningDigest,
+      acknowledgedPayloadHash: draft.payloadHash,
+    })
+    const applied = await caller.venuePackage.applyPackage({
+      id: draft.id,
+      expectedUpdatedAt: approved.updatedAt,
+      commandKey: randomUUID(),
+    })
+    return { caller, draft, approved, applied }
+  }
+
+  function versionThreePlaceUpdatePayload(
+    placeId: string,
+    itemKey: string,
+    name: string,
+  ): VenuePackagePayloadV3 {
+    return {
+      schemaVersion: 3,
+      places: {
+        create: [],
+        update: [
+          {
+            itemKey,
+            provenance: packageProvenance(`${name} source`),
+            id: placeId,
+            value: {
+              name,
+              type: 'room',
+              itemType: 'room',
+              shortDescription: null,
+              longDescription: null,
+              lat: null,
+              lng: null,
+              tags: ['package'],
+              importanceScore: 70,
+              areaName: null,
+              hours: '09:00-17:00',
+              photoUrl: null,
+              isActive: true,
+            },
+          },
+        ],
+        delete: [],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
     }
   }
 
@@ -475,6 +553,704 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     await expect(db.venue.count({ where: { id: configVenueId, tenantId } })).resolves.toBe(1)
   })
 
+  it('atomically applies and exactly reverts a mixed V3 package with per-effect provenance', async () => {
+    const targetVenue = await createVenue('Mixed V3 venue')
+    const legacyReviewedAt = new Date('2026-07-01T12:00:00.000Z')
+    const legacyProvenance = {
+      sourceType: 'LEGACY_FIXTURE',
+      authorship: 'HUMAN_AUTHORED',
+      sourceName: 'Original curator notes',
+      sourceUrl: 'https://example.invalid/pathfinder/original-curator-notes',
+      importedAt: new Date('2026-06-30T12:00:00.000Z'),
+      humanConfirmedAt: legacyReviewedAt,
+      humanConfirmedBy: actorId,
+      lastReviewedAt: legacyReviewedAt,
+      lastReviewedBy: actorId,
+    }
+    const placeToUpdate = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Original update place',
+        type: 'room',
+        itemType: 'room',
+        shortDescription: 'Original short description',
+        longDescription: 'Original long description',
+        lat: 41.1,
+        lng: -87.1,
+        tags: ['original'],
+        importanceScore: 15,
+        areaName: 'Original wing',
+        hours: '09:00-17:00',
+        photoUrl: 'https://example.invalid/original-place.png',
+        ...legacyProvenance,
+      },
+    })
+    const placeToDelete = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Original delete place',
+        type: 'exhibit',
+        tags: ['remove'],
+        importanceScore: 10,
+        ...legacyProvenance,
+      },
+    })
+    const knowledgeToUpdate = await db.venueKnowledgeEntry.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        title: 'Original update knowledge',
+        category: 'FAQ',
+        content: 'Original update content.',
+        isEnabled: true,
+        ...legacyProvenance,
+      },
+    })
+    const knowledgeToDelete = await db.venueKnowledgeEntry.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        title: 'Original delete knowledge',
+        category: 'Policy',
+        content: 'Original delete content.',
+        isEnabled: false,
+        ...legacyProvenance,
+      },
+    })
+    const originalVenue = await db.venue.findFirstOrThrow({
+      where: { id: targetVenue.id, tenantId },
+    })
+    const itemKeys = {
+      placeCreate: '00000000-0000-4000-8000-000000000101',
+      placeUpdate: '00000000-0000-4000-8000-000000000102',
+      placeDelete: '00000000-0000-4000-8000-000000000103',
+      knowledgeCreate: '00000000-0000-4000-8000-000000000104',
+      knowledgeUpdate: '00000000-0000-4000-8000-000000000105',
+      knowledgeDelete: '00000000-0000-4000-8000-000000000106',
+    } as const
+    const payload: VenuePackagePayloadV3 = {
+      schemaVersion: 3,
+      venue: { identity: { name: 'Mixed V3 venue refreshed' } },
+      places: {
+        create: [
+          {
+            itemKey: itemKeys.placeCreate,
+            provenance: packageProvenance('Place create source'),
+            value: {
+              name: 'Created V3 place',
+              type: 'amenity',
+              itemType: 'amenity',
+              tags: ['created'],
+              importanceScore: 80,
+            },
+          },
+        ],
+        update: [
+          {
+            itemKey: itemKeys.placeUpdate,
+            provenance: packageProvenance('Place update source'),
+            id: placeToUpdate.id,
+            value: {
+              name: 'Updated V3 place',
+              type: 'exhibit',
+              itemType: 'exhibit',
+              shortDescription: 'Updated short description',
+              longDescription: 'Updated long description',
+              lat: 42.2,
+              lng: -88.2,
+              tags: ['updated'],
+              importanceScore: 95,
+              areaName: 'Updated wing',
+              hours: '10:00-18:00',
+              photoUrl: 'https://example.invalid/updated-place.png',
+              isActive: false,
+            },
+          },
+        ],
+        delete: [
+          {
+            itemKey: itemKeys.placeDelete,
+            provenance: packageProvenance('Place delete source'),
+            id: placeToDelete.id,
+          },
+        ],
+      },
+      knowledgeEntries: {
+        create: [
+          {
+            itemKey: itemKeys.knowledgeCreate,
+            provenance: packageProvenance('Knowledge create source'),
+            value: {
+              title: 'Created V3 knowledge',
+              category: 'Accessibility',
+              content: 'Created V3 content.',
+              isEnabled: true,
+            },
+          },
+        ],
+        update: [
+          {
+            itemKey: itemKeys.knowledgeUpdate,
+            provenance: packageProvenance('Knowledge update source'),
+            id: knowledgeToUpdate.id,
+            value: {
+              title: 'Updated V3 knowledge',
+              category: 'Directions',
+              content: 'Updated V3 content.',
+              isEnabled: false,
+            },
+          },
+        ],
+        delete: [
+          {
+            itemKey: itemKeys.knowledgeDelete,
+            provenance: packageProvenance('Knowledge delete source'),
+            id: knowledgeToDelete.id,
+          },
+        ],
+      },
+    }
+
+    const { caller, approved, applied } = await applyVersionThree(targetVenue.id, payload)
+    expect(applied).toMatchObject({ status: 'APPLIED', appliedBy: actorId })
+    const manifest = applied.appliedEntities as {
+      schemaVersion: number
+      rollbackContractVersion: number
+      effects: Array<{
+        itemKey: string
+        entityType: string
+        entityId: string
+        operation: string
+        applyVersionId: string
+        beforeState: Record<string, unknown> | null
+        afterState: Record<string, unknown> | null
+      }>
+    }
+    expect(manifest).toMatchObject({ schemaVersion: 3, rollbackContractVersion: 2 })
+    expect(manifest.effects).toHaveLength(7)
+    expect(new Set(manifest.effects.map((effect) => effect.applyVersionId)).size).toBe(7)
+    expect(new Set(manifest.effects.map((effect) => effect.itemKey)).size).toBe(7)
+
+    const createdPlaceEffect = manifest.effects.find(
+      (effect) => effect.itemKey === itemKeys.placeCreate,
+    )!
+    const createdKnowledgeEffect = manifest.effects.find(
+      (effect) => effect.itemKey === itemKeys.knowledgeCreate,
+    )!
+    const updatedPlaceEffect = manifest.effects.find(
+      (effect) => effect.itemKey === itemKeys.placeUpdate,
+    )!
+    const deletedPlaceEffect = manifest.effects.find(
+      (effect) => effect.itemKey === itemKeys.placeDelete,
+    )!
+    const updatedKnowledgeEffect = manifest.effects.find(
+      (effect) => effect.itemKey === itemKeys.knowledgeUpdate,
+    )!
+    const deletedKnowledgeEffect = manifest.effects.find(
+      (effect) => effect.itemKey === itemKeys.knowledgeDelete,
+    )!
+    await expect(
+      db.venue.findFirstOrThrow({ where: { id: targetVenue.id, tenantId } }),
+    ).resolves.toMatchObject({ name: payload.venue!.identity!.name })
+    const updatedPlace = await db.place.findFirstOrThrow({
+      where: { id: placeToUpdate.id, tenantId, venueId: targetVenue.id },
+    })
+    const expectedDirectProvenance = (provenance: VenuePackageSourceProvenance) => ({
+      sourceType: provenance.sourceType,
+      authorship: provenance.contentOrigin,
+      sourceName: provenance.sourceName ?? null,
+      sourceUrl: provenance.sourceUrl ?? null,
+      importedAt: updatedPlace.importedAt,
+      humanConfirmedAt: approved.approvedAt,
+      humanConfirmedBy: actorId,
+      lastReviewedAt: approved.approvedAt,
+      lastReviewedBy: actorId,
+      sourcePackageId: applied.id,
+    })
+    expect(updatedPlace).toMatchObject({
+      ...payload.places.update[0]!.value,
+      ...expectedDirectProvenance(payload.places.update[0]!.provenance),
+    })
+    expect(updatedPlace.importedAt).not.toBeNull()
+    const createdPlace = await db.place.findFirstOrThrow({
+      where: { id: createdPlaceEffect.entityId, tenantId },
+    })
+    expect(createdPlace).toMatchObject({
+      name: payload.places.create[0]!.value.name,
+      ...expectedDirectProvenance(payload.places.create[0]!.provenance),
+    })
+    const updatedKnowledge = await db.venueKnowledgeEntry.findFirstOrThrow({
+      where: { id: knowledgeToUpdate.id, tenantId },
+    })
+    expect(updatedKnowledge).toMatchObject({
+      ...payload.knowledgeEntries.update[0]!.value,
+      ...expectedDirectProvenance(payload.knowledgeEntries.update[0]!.provenance),
+    })
+    const createdKnowledge = await db.venueKnowledgeEntry.findFirstOrThrow({
+      where: { id: createdKnowledgeEffect.entityId, tenantId },
+    })
+    expect(createdKnowledge).toMatchObject({
+      title: payload.knowledgeEntries.create[0]!.value.title,
+      ...expectedDirectProvenance(payload.knowledgeEntries.create[0]!.provenance),
+    })
+    await expect(
+      Promise.all([
+        db.place.count({ where: { id: placeToDelete.id, tenantId } }),
+        db.venueKnowledgeEntry.count({ where: { id: knowledgeToDelete.id, tenantId } }),
+      ]),
+    ).resolves.toEqual([0, 0])
+
+    const applyVersions = await db.contentVersion.findMany({
+      where: {
+        tenantId,
+        venueId: targetVenue.id,
+        venuePackageId: applied.id,
+        venuePackageAction: 'APPLY',
+      },
+      orderBy: { sequence: 'asc' },
+    })
+    expect(applyVersions).toHaveLength(7)
+    const provenanceByItemKey = new Map<string, VenuePackageSourceProvenance>([
+      [itemKeys.placeCreate, payload.places.create[0]!.provenance],
+      [itemKeys.placeUpdate, payload.places.update[0]!.provenance],
+      [itemKeys.placeDelete, payload.places.delete[0]!.provenance],
+      [itemKeys.knowledgeCreate, payload.knowledgeEntries.create[0]!.provenance],
+      [itemKeys.knowledgeUpdate, payload.knowledgeEntries.update[0]!.provenance],
+      [itemKeys.knowledgeDelete, payload.knowledgeEntries.delete[0]!.provenance],
+    ])
+    for (const version of applyVersions) {
+      const effect = manifest.effects.find((candidate) => candidate.applyVersionId === version.id)
+      expect(effect).toBeDefined()
+      const expectedSource = provenanceByItemKey.get(effect!.itemKey) ?? {
+        sourceType: 'PATHFINDER_VENUE_PACKAGE',
+        sourceName: `Venue package ${applied.id}`,
+        contentOrigin: 'HUMAN_AUTHORED' as const,
+      }
+      expect(version).toMatchObject({
+        entityType: effect!.entityType,
+        entityId: effect!.entityId,
+        operation: effect!.operation,
+        venuePackageItemKey: effect!.itemKey,
+        venuePackageAction: 'APPLY',
+        sourceProvenance: {
+          ...expectedSource,
+          importedAt: updatedPlace.importedAt!.toISOString(),
+          humanConfirmedAt: approved.approvedAt!.toISOString(),
+          lastReviewedAt: approved.approvedAt!.toISOString(),
+        },
+      })
+    }
+
+    const reverted = await caller.venuePackage.revertPackage({
+      id: applied.id,
+      expectedUpdatedAt: applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+    expect(reverted).toMatchObject({ status: 'REVERTED', revertedBy: actorId })
+    await expect(
+      db.venue.findFirstOrThrow({ where: { id: targetVenue.id, tenantId } }),
+    ).resolves.toMatchObject({ name: originalVenue.name })
+    const restoredPlaceToUpdate = await db.place.findFirstOrThrow({
+      where: { id: placeToUpdate.id, tenantId },
+    })
+    const restoredPlaceToDelete = await db.place.findFirstOrThrow({
+      where: { id: placeToDelete.id, tenantId },
+    })
+    const restoredKnowledgeToUpdate = await db.venueKnowledgeEntry.findFirstOrThrow({
+      where: { id: knowledgeToUpdate.id, tenantId },
+    })
+    const restoredKnowledgeToDelete = await db.venueKnowledgeEntry.findFirstOrThrow({
+      where: { id: knowledgeToDelete.id, tenantId },
+    })
+    expect(JSON.parse(JSON.stringify(restoredPlaceToUpdate))).toMatchObject(
+      updatedPlaceEffect.beforeState!,
+    )
+    expect(JSON.parse(JSON.stringify(restoredPlaceToDelete))).toMatchObject(
+      deletedPlaceEffect.beforeState!,
+    )
+    expect(JSON.parse(JSON.stringify(restoredKnowledgeToUpdate))).toMatchObject(
+      updatedKnowledgeEffect.beforeState!,
+    )
+    expect(JSON.parse(JSON.stringify(restoredKnowledgeToDelete))).toMatchObject(
+      deletedKnowledgeEffect.beforeState!,
+    )
+    await expect(
+      Promise.all([
+        db.place.count({ where: { id: createdPlaceEffect.entityId, tenantId } }),
+        db.venueKnowledgeEntry.count({ where: { id: createdKnowledgeEffect.entityId, tenantId } }),
+      ]),
+    ).resolves.toEqual([0, 0])
+    const revertVersions = await db.contentVersion.findMany({
+      where: {
+        tenantId,
+        venueId: targetVenue.id,
+        venuePackageId: applied.id,
+        venuePackageAction: 'REVERT',
+      },
+    })
+    expect(revertVersions).toHaveLength(7)
+    expect(new Set(revertVersions.map((version) => version.revertedFromId))).toEqual(
+      new Set(manifest.effects.map((effect) => effect.applyVersionId)),
+    )
+  })
+
+  it('preserves a later disjoint field update while reverting a V3 package update', async () => {
+    const targetVenue = await createVenue('Disjoint V3 venue')
+    const original = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Disjoint original name',
+        type: 'room',
+        itemType: 'room',
+        tags: ['original'],
+        importanceScore: 20,
+        hours: '09:00-17:00',
+      },
+    })
+    const payload = versionThreePlaceUpdatePayload(
+      original.id,
+      '00000000-0000-4000-8000-000000000201',
+      'Disjoint package name',
+    )
+    const { caller, applied } = await applyVersionThree(targetVenue.id, payload)
+
+    await caller.place.update({ id: original.id, hours: 'Open late by manual review' })
+    const manualVersion = await db.contentVersion.findFirstOrThrow({
+      where: {
+        tenantId,
+        venueId: targetVenue.id,
+        entityType: 'PLACE',
+        entityId: original.id,
+        venuePackageId: null,
+      },
+      orderBy: { sequence: 'desc' },
+    })
+    expect(manualVersion).toMatchObject({ operation: 'UPDATE', actorId })
+
+    await caller.venuePackage.revertPackage({
+      id: applied.id,
+      expectedUpdatedAt: applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+    await expect(
+      db.place.findFirstOrThrow({ where: { id: original.id, tenantId } }),
+    ).resolves.toMatchObject({
+      name: original.name,
+      tags: original.tags,
+      importanceScore: original.importanceScore,
+      hours: 'Open late by manual review',
+      sourceType: original.sourceType,
+      authorship: original.authorship,
+      sourcePackageId: original.sourcePackageId,
+    })
+    await expect(
+      db.contentVersion.count({
+        where: {
+          tenantId,
+          venueId: targetVenue.id,
+          venuePackageId: applied.id,
+          venuePackageAction: 'REVERT',
+        },
+      }),
+    ).resolves.toBe(1)
+  })
+
+  it('preserves a later disjoint venue field while reverting a V3 venue patch', async () => {
+    const targetVenue = await createVenue('Disjoint V3 venue settings')
+    const payload: VenuePackagePayloadV3 = {
+      schemaVersion: 3,
+      venue: { identity: { name: 'Package venue name' } },
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    }
+    const { caller, applied } = await applyVersionThree(targetVenue.id, payload)
+
+    await caller.venue.update({
+      id: targetVenue.id,
+      description: 'Later manual description',
+    })
+    await caller.venuePackage.revertPackage({
+      id: applied.id,
+      expectedUpdatedAt: applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+
+    await expect(
+      db.venue.findFirstOrThrow({ where: { id: targetVenue.id, tenantId } }),
+    ).resolves.toMatchObject({
+      name: targetVenue.name,
+      description: 'Later manual description',
+    })
+  })
+
+  it('reverts stacked V3 updates in reverse order without stranding the earlier package', async () => {
+    const targetVenue = await createVenue('Stacked V3 venue')
+    const original = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Stacked original name',
+        type: 'room',
+        itemType: 'room',
+        tags: ['original'],
+        importanceScore: 10,
+        hours: '09:00-17:00',
+      },
+    })
+    const packageA = await applyVersionThree(
+      targetVenue.id,
+      versionThreePlaceUpdatePayload(
+        original.id,
+        '00000000-0000-4000-8000-000000000211',
+        'Stacked package A',
+      ),
+    )
+    const packageB = await applyVersionThree(
+      targetVenue.id,
+      versionThreePlaceUpdatePayload(
+        original.id,
+        '00000000-0000-4000-8000-000000000212',
+        'Stacked package B',
+      ),
+    )
+
+    await packageB.caller.venuePackage.revertPackage({
+      id: packageB.applied.id,
+      expectedUpdatedAt: packageB.applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+    await packageA.caller.venuePackage.revertPackage({
+      id: packageA.applied.id,
+      expectedUpdatedAt: packageA.applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+
+    await expect(
+      db.place.findFirstOrThrow({ where: { id: original.id, tenantId } }),
+    ).resolves.toMatchObject({
+      name: original.name,
+      tags: original.tags,
+      importanceScore: original.importanceScore,
+      sourceType: original.sourceType,
+      authorship: original.authorship,
+      sourcePackageId: original.sourcePackageId,
+    })
+  })
+
+  it('reverts disjoint stacked V3 venue packages in either order', async () => {
+    const targetVenue = await createVenue('Disjoint stacked V3 venue')
+    const packageA = await applyVersionThree(targetVenue.id, {
+      schemaVersion: 3,
+      venue: { identity: { name: 'Package A venue name' } },
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+    const packageB = await applyVersionThree(targetVenue.id, {
+      schemaVersion: 3,
+      venue: { guideNotes: 'Package B guide notes' },
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+
+    await packageA.caller.venuePackage.revertPackage({
+      id: packageA.applied.id,
+      expectedUpdatedAt: packageA.applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+    await expect(
+      db.venue.findFirstOrThrow({ where: { id: targetVenue.id, tenantId } }),
+    ).resolves.toMatchObject({ name: targetVenue.name, guideNotes: 'Package B guide notes' })
+
+    await packageB.caller.venuePackage.revertPackage({
+      id: packageB.applied.id,
+      expectedUpdatedAt: packageB.applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+    await expect(
+      db.venue.findFirstOrThrow({ where: { id: targetVenue.id, tenantId } }),
+    ).resolves.toMatchObject({ name: targetVenue.name, guideNotes: targetVenue.guideNotes })
+  })
+
+  it('reports retained place dependencies before a V3 delete can be approved', async () => {
+    const targetVenue = await createVenue('Blocked V3 delete venue')
+    const place = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Retained analytics place',
+        type: 'room',
+      },
+    })
+    await db.analyticsEvent.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        sessionId: `session-${randomUUID()}`,
+        eventType: 'place_viewed',
+        placeId: place.id,
+        occurredAt: new Date(),
+      },
+    })
+    const caller = testRouter.createCaller(ctx())
+    const draft = await caller.venuePackage.createDraft({
+      venueId: targetVenue.id,
+      draftKey: randomUUID(),
+      payload: {
+        schemaVersion: 3,
+        places: {
+          create: [],
+          update: [],
+          delete: [
+            {
+              itemKey: '00000000-0000-4000-8000-000000000221',
+              provenance: packageProvenance('Blocked delete source'),
+              id: place.id,
+            },
+          ],
+        },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+    })
+
+    expect(draft.preview.report.errors).toEqual([
+      expect.objectContaining({
+        code: 'DELETE_BLOCKED',
+        path: 'places.delete.0',
+        message: expect.stringContaining('analytics-events (1)'),
+      }),
+    ])
+    await expect(
+      caller.venuePackage.approve({
+        id: draft.id,
+        expectedUpdatedAt: draft.updatedAt,
+        commandKey: randomUUID(),
+        acknowledgedWarningDigest: draft.preview.warningDigest,
+        acknowledgedPayloadHash: draft.payloadHash,
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+  })
+
+  it('refuses to remove a package-created place after it gains a retained dependency', async () => {
+    const targetVenue = await createVenue('Retained V3 create venue')
+    const { caller, applied } = await applyVersionThree(targetVenue.id, {
+      schemaVersion: 3,
+      places: {
+        create: [
+          {
+            itemKey: '00000000-0000-4000-8000-000000000222',
+            provenance: packageProvenance('Retained create source'),
+            value: {
+              name: 'Later referenced place',
+              type: 'room',
+              tags: [],
+              importanceScore: 0,
+            },
+          },
+        ],
+        update: [],
+        delete: [],
+      },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    })
+    const manifest = applied.appliedEntities as {
+      effects: Array<{ entityType: string; entityId: string }>
+    }
+    const placeId = manifest.effects.find((effect) => effect.entityType === 'PLACE')!.entityId
+    await db.analyticsEvent.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        sessionId: `session-${randomUUID()}`,
+        eventType: 'place_viewed',
+        placeId,
+        occurredAt: new Date(),
+      },
+    })
+
+    await expect(
+      caller.venuePackage.revertPackage({
+        id: applied.id,
+        expectedUpdatedAt: applied.updatedAt,
+        commandKey: randomUUID(),
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('retained dependencies'),
+    })
+    await expect(
+      Promise.all([
+        db.place.count({ where: { id: placeId, tenantId } }),
+        db.contentVersion.count({
+          where: {
+            tenantId,
+            venuePackageId: applied.id,
+            venuePackageAction: 'REVERT',
+          },
+        }),
+        db.venuePackage.count({ where: { id: applied.id, tenantId, status: 'APPLIED' } }),
+      ]),
+    ).resolves.toEqual([1, 0, 1])
+  })
+
+  it('rejects overlapping later changes before any V3 rollback write', async () => {
+    const targetVenue = await createVenue('Overlap V3 venue')
+    const original = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Overlap original name',
+        type: 'room',
+        itemType: 'room',
+        tags: ['original'],
+        importanceScore: 25,
+        hours: '08:00-16:00',
+      },
+    })
+    const payload = versionThreePlaceUpdatePayload(
+      original.id,
+      '00000000-0000-4000-8000-000000000301',
+      'Overlap package name',
+    )
+    const { caller, applied } = await applyVersionThree(targetVenue.id, payload)
+    await caller.place.update({ id: original.id, name: 'Later overlapping manual name' })
+    const versionsBefore = await db.contentVersion.count({
+      where: { tenantId, venueId: targetVenue.id, entityType: 'PLACE', entityId: original.id },
+    })
+
+    await expect(
+      caller.venuePackage.revertPackage({
+        id: applied.id,
+        expectedUpdatedAt: applied.updatedAt,
+        commandKey: randomUUID(),
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('conflicts with later content'),
+    })
+    await expect(
+      db.place.findFirstOrThrow({ where: { id: original.id, tenantId } }),
+    ).resolves.toMatchObject({ name: 'Later overlapping manual name' })
+    await expect(
+      Promise.all([
+        db.contentVersion.count({
+          where: { tenantId, venueId: targetVenue.id, entityType: 'PLACE', entityId: original.id },
+        }),
+        db.contentVersion.count({
+          where: {
+            tenantId,
+            venueId: targetVenue.id,
+            venuePackageId: applied.id,
+            venuePackageAction: 'REVERT',
+          },
+        }),
+        db.venuePackage.count({ where: { id: applied.id, tenantId, status: 'APPLIED' } }),
+      ]),
+    ).resolves.toEqual([versionsBefore, 0, 1])
+  })
+
   it('serializes ordinary venue settings and deletion through the package content lock', async () => {
     const caller = testRouter.createCaller(ctx())
     let signalLockAcquired!: () => void
@@ -772,6 +1548,172 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
         db.venueKnowledgeEntry.count({ where: { tenantId, venueId: serializedVenueId } }),
       ]),
     ).resolves.toEqual([1, 1, 0])
+  })
+
+  it('rejects V3 ABA drift when content returns to the reviewed values with newer history', async () => {
+    const targetVenue = await createVenue('V3 ABA venue')
+    const original = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Reviewed place state',
+        type: 'room',
+        itemType: 'room',
+        tags: ['reviewed'],
+        importanceScore: 30,
+      },
+    })
+    const caller = testRouter.createCaller(ctx())
+    const payload = versionThreePlaceUpdatePayload(
+      original.id,
+      '00000000-0000-4000-8000-000000000401',
+      'Package target state',
+    )
+    const draft = await caller.venuePackage.createDraft({
+      venueId: targetVenue.id,
+      payload,
+      draftKey: randomUUID(),
+    })
+    if (draft.preview.schemaVersion !== 3) throw new Error('Expected a V3 preview')
+    const reviewedVersionId = draft.preview.changes.places.change[0]?.expectedVersionId
+    const approved = await caller.venuePackage.approve({
+      id: draft.id,
+      expectedUpdatedAt: draft.updatedAt,
+      commandKey: randomUUID(),
+      acknowledgedWarningDigest: draft.preview.warningDigest,
+      acknowledgedPayloadHash: draft.payloadHash,
+    })
+
+    await caller.place.update({ id: original.id, name: 'Intervening place state' })
+    await caller.place.update({ id: original.id, name: original.name })
+    const latestVersion = await db.contentVersion.findFirstOrThrow({
+      where: { tenantId, venueId: targetVenue.id, entityType: 'PLACE', entityId: original.id },
+      orderBy: { sequence: 'desc' },
+      select: { id: true },
+    })
+    expect(latestVersion.id).not.toBe(reviewedVersionId)
+
+    await expect(
+      caller.venuePackage.applyPackage({
+        id: draft.id,
+        expectedUpdatedAt: approved.updatedAt,
+        commandKey: randomUUID(),
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('exact review plan changed'),
+    })
+    await expect(
+      Promise.all([
+        db.place.findFirstOrThrow({ where: { id: original.id, tenantId } }),
+        db.contentVersion.count({
+          where: {
+            tenantId,
+            venueId: targetVenue.id,
+            venuePackageId: draft.id,
+            venuePackageAction: 'APPLY',
+          },
+        }),
+        db.venuePackage.count({ where: { id: draft.id, tenantId, status: 'APPROVED' } }),
+      ]),
+    ).resolves.toEqual([expect.objectContaining({ name: original.name }), 0, 1])
+  })
+
+  it('rejects V3 venue ABA drift after immutable review', async () => {
+    const targetVenue = await createVenue('V3 venue ABA reviewed')
+    const caller = testRouter.createCaller(ctx())
+    const payload: VenuePackagePayloadV3 = {
+      schemaVersion: 3,
+      venue: { identity: { name: 'V3 venue package target' } },
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    }
+    const draft = await caller.venuePackage.createDraft({
+      venueId: targetVenue.id,
+      payload,
+      draftKey: randomUUID(),
+    })
+    if (draft.preview.schemaVersion !== 3) throw new Error('Expected a V3 preview')
+    const reviewedVersionId = draft.preview.changes.venue.expectedVersionId
+    expect(reviewedVersionId).toBeTruthy()
+    const approved = await caller.venuePackage.approve({
+      id: draft.id,
+      expectedUpdatedAt: draft.updatedAt,
+      commandKey: randomUUID(),
+      acknowledgedWarningDigest: draft.preview.warningDigest,
+      acknowledgedPayloadHash: draft.payloadHash,
+    })
+
+    await caller.venue.update({ id: targetVenue.id, name: 'V3 venue intervening state' })
+    await caller.venue.update({ id: targetVenue.id, name: targetVenue.name })
+    const latestVersion = await db.contentVersion.findFirstOrThrow({
+      where: {
+        tenantId,
+        venueId: targetVenue.id,
+        entityType: 'VENUE',
+        entityId: targetVenue.id,
+      },
+      orderBy: { sequence: 'desc' },
+      select: { id: true },
+    })
+    expect(latestVersion.id).not.toBe(reviewedVersionId)
+
+    await expect(
+      caller.venuePackage.applyPackage({
+        id: draft.id,
+        expectedUpdatedAt: approved.updatedAt,
+        commandKey: randomUUID(),
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('exact review plan changed'),
+    })
+    await expect(
+      Promise.all([
+        db.venue.findFirstOrThrow({ where: { id: targetVenue.id, tenantId } }),
+        db.contentVersion.count({
+          where: {
+            tenantId,
+            venueId: targetVenue.id,
+            venuePackageId: draft.id,
+            venuePackageAction: 'APPLY',
+          },
+        }),
+        db.venuePackage.count({ where: { id: draft.id, tenantId, status: 'APPROVED' } }),
+      ]),
+    ).resolves.toEqual([expect.objectContaining({ name: targetVenue.name }), 0, 1])
+  })
+
+  it('enforces credential-free provenance URLs at the database boundary', async () => {
+    const targetVenue = await createVenue('V3 provenance URL constraint venue')
+    const place = await db.place.create({
+      data: {
+        tenantId,
+        venueId: targetVenue.id,
+        name: 'Provenance URL constraint place',
+        type: 'room',
+      },
+    })
+
+    for (const sourceUrl of [
+      'https://example.test/source?sig=azure-sas-secret',
+      'https://example.test/source#access_token=oauth-secret',
+      'https://example.test/source?%73ig=encoded-secret',
+      'https://example.test/source?access_%74oken=encoded-secret',
+    ]) {
+      await expect(
+        db.$executeRaw`
+          UPDATE places
+          SET source_url = ${sourceUrl}
+          WHERE id = ${place.id}
+            AND tenant_id = ${tenantId}
+            AND venue_id = ${targetVenue.id}
+        `,
+      ).rejects.toThrow(/places_provenance_shape_check|check constraint/iu)
+    }
+    await expect(
+      db.place.findFirstOrThrow({ where: { id: place.id, tenantId }, select: { sourceUrl: true } }),
+    ).resolves.toEqual({ sourceUrl: null })
   })
 
   it('rolls back every content and lifecycle write after a late provider-content failure', async () => {

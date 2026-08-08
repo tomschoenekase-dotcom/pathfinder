@@ -276,32 +276,56 @@ model Place {
   hours              String?
   photoUrl           String?             @map("photo_url")
   isActive           Boolean             @default(true) @map("is_active")
+  sourceType         String              @default("UNKNOWN") @map("source_type")
+  authorship         String              @default("UNKNOWN")
+  sourceName         String?             @map("source_name")
+  sourceUrl          String?             @map("source_url")
+  importedAt         DateTime?           @map("imported_at")
+  humanConfirmedAt   DateTime?           @map("human_confirmed_at")
+  humanConfirmedBy   String?             @map("human_confirmed_by")
+  lastReviewedAt     DateTime?           @map("last_reviewed_at")
+  lastReviewedBy     String?             @map("last_reviewed_by")
+  sourcePackageId    String?             @map("source_package_id")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   venue              Venue               @relation(fields: [venueId], references: [id], onDelete: Restrict)
   operationalUpdates OperationalUpdate[]
   analyticsEvents    AnalyticsEvent[]
   dailyRollups       DailyRollup[]
+  sourcePackage      VenuePackage?       @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([venueId])
+  @@index([tenantId, sourcePackageId])
   @@map("places")
 }
 
 model VenueKnowledgeEntry {
-  id        String   @id @default(cuid())
-  tenantId  String   @map("tenant_id")
-  venueId   String   @map("venue_id")
-  title     String
-  category  String
-  content   String
-  isEnabled Boolean  @default(true) @map("is_enabled")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  venue     Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  id               String        @id @default(cuid())
+  tenantId         String        @map("tenant_id")
+  venueId          String        @map("venue_id")
+  title            String
+  category         String
+  content          String
+  isEnabled        Boolean       @default(true) @map("is_enabled")
+  sourceType       String        @default("UNKNOWN") @map("source_type")
+  authorship       String        @default("UNKNOWN")
+  sourceName       String?       @map("source_name")
+  sourceUrl        String?       @map("source_url")
+  importedAt       DateTime?     @map("imported_at")
+  humanConfirmedAt DateTime?     @map("human_confirmed_at")
+  humanConfirmedBy String?       @map("human_confirmed_by")
+  lastReviewedAt   DateTime?     @map("last_reviewed_at")
+  lastReviewedBy   String?       @map("last_reviewed_by")
+  sourcePackageId  String?       @map("source_package_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  venue            Venue         @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  sourcePackage    VenuePackage? @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId])
   @@index([venueId])
+  @@index([tenantId, sourcePackageId])
   @@map("venue_knowledge_entries")
 }
 
@@ -309,25 +333,33 @@ model VenueKnowledgeEntry {
 /// operational-update content. Snapshots exclude derived embeddings and mutable
 /// update timestamps so background refreshes do not create false revisions.
 model ContentVersion {
-  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sequence              BigInt   @unique @default(autoincrement())
-  tenantId              String   @map("tenant_id")
-  venueId               String   @map("venue_id")
-  entityType            String   @map("entity_type")
-  entityId              String   @map("entity_id")
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sequence              BigInt        @unique @default(autoincrement())
+  tenantId              String        @map("tenant_id")
+  venueId               String        @map("venue_id")
+  entityType            String        @map("entity_type")
+  entityId              String        @map("entity_id")
   operation             String
-  beforeState           Json?    @map("before_state")
-  afterState            Json?    @map("after_state")
-  actorId               String?  @map("actor_id")
-  revertedFromId        String?  @map("reverted_from_id") @db.Uuid
-  snapshotSchemaVersion Int      @default(1) @map("snapshot_schema_version")
-  createdAt             DateTime @default(now()) @map("created_at")
-  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  beforeState           Json?         @map("before_state")
+  afterState            Json?         @map("after_state")
+  actorId               String?       @map("actor_id")
+  revertedFromId        String?       @map("reverted_from_id") @db.Uuid
+  venuePackageId        String?       @map("venue_package_id")
+  venuePackageItemKey   String?       @map("venue_package_item_key") @db.Uuid
+  venuePackageAction    String?       @map("venue_package_action")
+  sourceProvenance      Json?         @map("source_provenance")
+  snapshotSchemaVersion Int           @default(1) @map("snapshot_schema_version")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  tenant                Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venuePackage          VenuePackage? @relation(fields: [venuePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
+  @@unique([venuePackageId, venuePackageAction, venuePackageItemKey], map: "content_versions_package_action_item_key_key")
+  @@unique([venuePackageId, venuePackageAction, entityType, entityId], map: "content_versions_package_action_entity_key")
   @@index([tenantId, entityType, entityId, sequence])
   @@index([tenantId, entityType, sequence])
   @@index([tenantId, venueId, sequence])
   @@index([revertedFromId])
+  @@index([tenantId, venuePackageId, venuePackageAction, sequence], map: "content_versions_package_history_idx")
   @@map("content_versions")
 }
 
@@ -353,34 +385,37 @@ model VenueContentImportReceipt {
 /// Immutable, reviewable revision of the currently supported venue-content
 /// package. Lifecycle metadata is mutable only through guarded state changes.
 model VenuePackage {
-  id                    String                         @id @default(cuid())
-  tenantId              String                         @map("tenant_id")
-  venueId               String                         @map("venue_id")
-  draftKey              String                         @map("draft_key") @db.Uuid
-  schemaVersion         Int                            @map("schema_version")
-  payload               Json
-  payloadHash           String                         @map("payload_hash") @db.Char(64)
-  baseDigest            String                         @map("base_digest") @db.Char(64)
-  validationReport      Json                           @map("validation_report")
-  previewPlan           Json                           @map("preview_plan")
-  status                VenuePackageStatus             @default(DRAFT)
-  createdBy             String                         @map("created_by")
-  approvedBy            String?                        @map("approved_by")
-  approvedAt            DateTime?                      @map("approved_at")
-  approvedCommandKey    String?                        @map("approved_command_key") @db.Uuid
-  approvalWarningDigest String?                        @map("approval_warning_digest") @db.Char(64)
-  approvedWarningCodes  Json?                          @map("approved_warning_codes")
-  appliedBy             String?                        @map("applied_by")
-  appliedAt             DateTime?                      @map("applied_at")
-  appliedCommandKey     String?                        @map("applied_command_key") @db.Uuid
-  appliedEntities       Json?                          @map("applied_entities")
-  revertedBy            String?                        @map("reverted_by")
-  revertedAt            DateTime?                      @map("reverted_at")
-  revertedCommandKey    String?                        @map("reverted_command_key") @db.Uuid
-  createdAt             DateTime                       @default(now()) @map("created_at")
-  updatedAt             DateTime                       @updatedAt @map("updated_at")
-  tenant                Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  duplicateAnalysis     VenuePackageDuplicateAnalysis?
+  id                      String                         @id @default(cuid())
+  tenantId                String                         @map("tenant_id")
+  venueId                 String                         @map("venue_id")
+  draftKey                String                         @map("draft_key") @db.Uuid
+  schemaVersion           Int                            @map("schema_version")
+  payload                 Json
+  payloadHash             String                         @map("payload_hash") @db.Char(64)
+  baseDigest              String                         @map("base_digest") @db.Char(64)
+  validationReport        Json                           @map("validation_report")
+  previewPlan             Json                           @map("preview_plan")
+  status                  VenuePackageStatus             @default(DRAFT)
+  createdBy               String                         @map("created_by")
+  approvedBy              String?                        @map("approved_by")
+  approvedAt              DateTime?                      @map("approved_at")
+  approvedCommandKey      String?                        @map("approved_command_key") @db.Uuid
+  approvalWarningDigest   String?                        @map("approval_warning_digest") @db.Char(64)
+  approvedWarningCodes    Json?                          @map("approved_warning_codes")
+  appliedBy               String?                        @map("applied_by")
+  appliedAt               DateTime?                      @map("applied_at")
+  appliedCommandKey       String?                        @map("applied_command_key") @db.Uuid
+  appliedEntities         Json?                          @map("applied_entities")
+  revertedBy              String?                        @map("reverted_by")
+  revertedAt              DateTime?                      @map("reverted_at")
+  revertedCommandKey      String?                        @map("reverted_command_key") @db.Uuid
+  createdAt               DateTime                       @default(now()) @map("created_at")
+  updatedAt               DateTime                       @updatedAt @map("updated_at")
+  tenant                  Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  duplicateAnalysis       VenuePackageDuplicateAnalysis?
+  contentVersions         ContentVersion[]
+  sourcedPlaces           Place[]
+  sourcedKnowledgeEntries VenueKnowledgeEntry[]
 
   @@unique([id, tenantId, venueId])
   @@unique([tenantId, venueId, draftKey])

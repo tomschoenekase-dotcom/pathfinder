@@ -105,6 +105,8 @@ describe('venue package semantic duplicate helpers', () => {
         knowledgeProfile: 'openai:knowledge:1536',
         scanPlaces: true,
         scanKnowledgeEntries: false,
+        excludedPlaceIds: ['place_update', 'place_delete'],
+        excludedKnowledgeEntryIds: ['knowledge_update'],
       }),
     ).resolves.toEqual({
       places: {
@@ -127,10 +129,12 @@ describe('venue package semantic duplicate helpers', () => {
       true,
       'tenant_1',
       'venue_1',
+      '["place_update","place_delete"]',
       'openai:knowledge:1536',
       false,
       'tenant_1',
       'venue_1',
+      '["knowledge_update"]',
     ])
     expect((queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')).toContain(
       'claim.content_updated_at = p.updated_at',

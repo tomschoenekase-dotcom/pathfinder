@@ -6,6 +6,11 @@ export {
   lockOperationalUpdateCapacity,
   setContentVersionContext,
 } from './helpers/content-version-context'
+export type {
+  ContentVersionPackageAction,
+  ContentVersionPackageContext,
+  ContentVersionSourceProvenance,
+} from './helpers/content-version-context'
 export { lockVenueContentMutation, lockVenueReportMutation } from './helpers/venue-content-lock'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'
 export {
