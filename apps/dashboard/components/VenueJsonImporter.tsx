@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { VenuePackagePayload } from '@pathfinder/api'
+import type { VenuePackagePayload, VenuePackageStoredPreview } from '@pathfinder/api'
 
 import { createTRPCClient } from '../lib/trpc'
 
 type Client = ReturnType<typeof createTRPCClient>
-type Preview = Awaited<ReturnType<Client['venuePackage']['preview']['mutate']>>
+type Preview = VenuePackageStoredPreview
 type PackageRecord = Awaited<ReturnType<Client['venuePackage']['list']['query']>>[number]
 
 type VenueJsonImporterProps = {
@@ -49,6 +49,13 @@ function errorMessage(error: unknown): string {
     : 'The venue-package action could not be confirmed.'
 }
 
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) return null
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('code' in data)) return null
+  return typeof data.code === 'string' ? data.code : null
+}
+
 function statusClass(status: PackageRecord['status']) {
   if (status === 'APPLIED') return 'bg-green-100 text-green-800'
   if (status === 'APPROVED') return 'bg-blue-100 text-blue-800'
@@ -78,7 +85,12 @@ export function VenueJsonImporter({
   async function loadPackages(preferredId?: string) {
     const rows = await client.venuePackage.list.query({ venueId })
     setPackages(rows)
-    if (preferredId) setSelected(rows.find((row) => row.id === preferredId) ?? null)
+    if (preferredId) {
+      const preferred = rows.find((row) => row.id === preferredId) ?? null
+      setSelected(preferred)
+      setPreview(preferred?.previewPlan ?? null)
+      setWarningsAcknowledged(false)
+    }
     return rows
   }
 
@@ -131,6 +143,11 @@ export function VenueJsonImporter({
       setDraftKey(crypto.randomUUID())
       setNotice(draft.replayed ? 'This exact draft already exists.' : 'Draft saved for review.')
     } catch (cause) {
+      // A terminal analysis receipt deliberately cannot be redriven because the
+      // provider has no idempotency boundary. Give an unchanged payload a fresh
+      // identity only when the server explicitly requires one; retain the key
+      // for ambiguous/transient failures so response-loss replay remains safe.
+      if (errorCode(cause) === 'PRECONDITION_FAILED') setDraftKey(crypto.randomUUID())
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -142,11 +159,8 @@ export function VenueJsonImporter({
     const current = rows.find((row) => row.id === packageId)
     if (current) {
       setText(JSON.stringify(current.payload, null, 2))
-      try {
-        await runPreview(current.payload as VenuePackagePayload)
-      } catch {
-        setPreview(null)
-      }
+      setPreview(current.previewPlan)
+      setWarningsAcknowledged(false)
     }
     setNotice('Package or venue content changed. The current revision was refreshed for review.')
   }
@@ -211,7 +225,7 @@ export function VenueJsonImporter({
   function selectPackage(pkg: PackageRecord) {
     setSelected(pkg)
     setText(JSON.stringify(pkg.payload, null, 2))
-    setPreview(null)
+    setPreview(pkg.previewPlan)
     setWarningsAcknowledged(false)
     setSelectedIsStale(false)
     setError(null)
@@ -219,6 +233,7 @@ export function VenueJsonImporter({
   }
 
   const warningCount = preview?.report.warnings.length ?? 0
+  const semanticScanComplete = preview?.report.semanticDuplicateScan.status === 'COMPLETE'
 
   return (
     <div className="space-y-6">
@@ -327,6 +342,41 @@ export function VenueJsonImporter({
             </div>
           )}
 
+          <div
+            className={`mt-4 rounded-md border p-4 ${
+              preview.report.semanticDuplicateScan.status === 'COMPLETE'
+                ? 'border-green-200 bg-green-50'
+                : preview.report.semanticDuplicateScan.status === 'INCOMPLETE'
+                  ? 'border-red-200 bg-red-50'
+                  : 'border-blue-200 bg-blue-50'
+            }`}
+          >
+            <h4 className="text-sm font-semibold text-gray-900">
+              Semantic duplicate scan: {preview.report.semanticDuplicateScan.status}
+            </h4>
+            {(['places', 'knowledgeEntries'] as const).map((scopeName) => {
+              const scope = preview.report.semanticDuplicateScan.scopes[scopeName]
+              return (
+                <p key={scopeName} className="mt-1 text-xs text-gray-700">
+                  {scopeName === 'places' ? 'Places' : 'Knowledge'}: {scope.scannedInputCount}/
+                  {scope.inputCount} draft items and {scope.scannedExistingCount}/
+                  {scope.existingCount} existing items compared.
+                </p>
+              )
+            })}
+            {preview.report.semanticDuplicateScan.status === 'NOT_RUN' && (
+              <p className="mt-2 text-sm text-blue-800">
+                The semantic scan runs when this preview is saved as an immutable draft.
+              </p>
+            )}
+            {preview.report.semanticDuplicateScan.status === 'INCOMPLETE' && (
+              <p className="mt-2 text-sm text-red-800">
+                This draft is retained as evidence but cannot be approved or applied. Repair
+                embeddings, then save a new draft.
+              </p>
+            )}
+          </div>
+
           {warningCount > 0 && (
             <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4">
               <h4 className="text-sm font-semibold text-amber-800">Warnings</h4>
@@ -414,7 +464,13 @@ export function VenueJsonImporter({
                         <button
                           type="button"
                           onClick={() => void runLifecycle('approve')}
-                          disabled={busy || !preview || (warningCount > 0 && !warningsAcknowledged)}
+                          disabled={
+                            busy ||
+                            !preview ||
+                            !semanticScanComplete ||
+                            preview.report.errors.length > 0 ||
+                            (warningCount > 0 && !warningsAcknowledged)
+                          }
                           className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                         >
                           Approve
@@ -424,7 +480,13 @@ export function VenueJsonImporter({
                         <button
                           type="button"
                           onClick={() => void runLifecycle('apply')}
-                          disabled={busy || selectedIsStale}
+                          disabled={
+                            busy ||
+                            selectedIsStale ||
+                            !preview ||
+                            !semanticScanComplete ||
+                            preview.report.errors.length > 0
+                          }
                           className="rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                         >
                           Apply approved package

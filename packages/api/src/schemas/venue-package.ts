@@ -66,6 +66,117 @@ export const VenuePackageApprovalInput = VenuePackageLifecycleInput.extend({
   acknowledgedPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict()
 
+export const VenuePackageIssue = z
+  .object({
+    code: z.string().min(1),
+    path: z.string(),
+    message: z.string().min(1),
+  })
+  .strict()
+
+const VenuePackageSemanticScope = z
+  .object({
+    embeddingProfile: z.string().min(1),
+    inputCount: z.number().int().nonnegative(),
+    scannedInputCount: z.number().int().nonnegative(),
+    existingCount: z.number().int().nonnegative(),
+    scannedExistingCount: z.number().int().nonnegative(),
+  })
+  .strict()
+
+export const VenuePackageSemanticDuplicateScan = z
+  .object({
+    status: z.enum(['NOT_RUN', 'COMPLETE', 'INCOMPLETE']),
+    similarityThreshold: z.number().finite().min(-1).max(1),
+    scopes: z
+      .object({
+        places: VenuePackageSemanticScope,
+        knowledgeEntries: VenuePackageSemanticScope,
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((scan, ctx) => {
+    for (const [name, scope] of Object.entries(scan.scopes)) {
+      if (scope.scannedInputCount > scope.inputCount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['scopes', name, 'scannedInputCount'],
+          message: 'Scanned input count cannot exceed input count',
+        })
+      }
+      if (scope.scannedExistingCount > scope.existingCount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['scopes', name, 'scannedExistingCount'],
+          message: 'Scanned existing count cannot exceed existing count',
+        })
+      }
+      if (
+        scan.status === 'COMPLETE' &&
+        (scope.scannedInputCount !== scope.inputCount ||
+          scope.scannedExistingCount !== scope.existingCount)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['scopes', name],
+          message: 'Complete semantic scans must cover every input and existing item',
+        })
+      }
+      if (
+        scan.status === 'NOT_RUN' &&
+        (scope.scannedInputCount !== 0 || scope.scannedExistingCount !== 0)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['scopes', name],
+          message: 'A semantic scan that has not run cannot report scanned items',
+        })
+      }
+    }
+  })
+
+export const VenuePackageValidationReport = z
+  .object({
+    errors: z.array(VenuePackageIssue),
+    warnings: z.array(VenuePackageIssue),
+    semanticDuplicateScan: VenuePackageSemanticDuplicateScan,
+  })
+  .strict()
+
+const EmptyChangeSet = z.array(z.unknown()).max(0)
+
+export const VenuePackageStoredPreview = z
+  .object({
+    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION),
+    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+    baseDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    mode: z.literal('ADDITIVE_V1'),
+    warningDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    report: VenuePackageValidationReport,
+    changes: z
+      .object({
+        places: z
+          .object({
+            add: z.array(PlaceInput),
+            change: EmptyChangeSet,
+            remove: EmptyChangeSet,
+            unchanged: z.number().int().nonnegative(),
+          })
+          .strict(),
+        knowledgeEntries: z
+          .object({
+            add: z.array(KnowledgeEntryInput.strict()),
+            change: EmptyChangeSet,
+            remove: EmptyChangeSet,
+            unchanged: z.number().int().nonnegative(),
+          })
+          .strict(),
+      })
+      .strict(),
+  })
+  .strict()
+
 export const VenuePackageAppliedEntities = z
   .object({
     postApplyDigest: z.string().regex(/^[a-f0-9]{64}$/),
@@ -112,3 +223,7 @@ export type VenuePackageDraftInput = z.infer<typeof VenuePackageDraftInput>
 export type VenuePackagePreviewInput = z.infer<typeof VenuePackagePreviewInput>
 export type VenuePackageLifecycleInput = z.infer<typeof VenuePackageLifecycleInput>
 export type VenuePackageAppliedEntities = z.infer<typeof VenuePackageAppliedEntities>
+export type VenuePackageIssue = z.infer<typeof VenuePackageIssue>
+export type VenuePackageSemanticDuplicateScan = z.infer<typeof VenuePackageSemanticDuplicateScan>
+export type VenuePackageValidationReport = z.infer<typeof VenuePackageValidationReport>
+export type VenuePackageStoredPreview = z.infer<typeof VenuePackageStoredPreview>

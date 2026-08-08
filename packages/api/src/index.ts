@@ -40,4 +40,5 @@ export {
   VenuePackageDraftInput,
   VenuePackageLifecycleInput,
   VenuePackagePayload,
+  VenuePackageStoredPreview,
 } from './schemas/venue-package'

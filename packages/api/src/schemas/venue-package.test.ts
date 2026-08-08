@@ -4,6 +4,8 @@ import {
   canonicalVenuePackagePayload,
   VENUE_PACKAGE_ITEM_LIMIT,
   VenuePackagePayload,
+  VenuePackageSemanticDuplicateScan,
+  VenuePackageStoredPreview,
 } from './venue-package'
 
 const knowledge = (index: number) => ({
@@ -66,5 +68,90 @@ describe('venue package schema', () => {
     expect(canonicalVenuePackagePayload('venue_a', payload)).not.toBe(
       canonicalVenuePackagePayload('venue_b', payload),
     )
+  })
+
+  it('requires complete semantic scans to cover every input and existing item', () => {
+    const scope = {
+      embeddingProfile: 'test-profile',
+      inputCount: 1,
+      scannedInputCount: 1,
+      existingCount: 2,
+      scannedExistingCount: 2,
+    }
+    expect(
+      VenuePackageSemanticDuplicateScan.safeParse({
+        status: 'COMPLETE',
+        similarityThreshold: 0.86,
+        scopes: { places: scope, knowledgeEntries: scope },
+      }).success,
+    ).toBe(true)
+    expect(
+      VenuePackageSemanticDuplicateScan.safeParse({
+        status: 'COMPLETE',
+        similarityThreshold: 0.86,
+        scopes: {
+          places: { ...scope, scannedExistingCount: 1 },
+          knowledgeEntries: scope,
+        },
+      }).success,
+    ).toBe(false)
+    expect(
+      VenuePackageSemanticDuplicateScan.safeParse({
+        status: 'NOT_RUN',
+        similarityThreshold: 0.86,
+        scopes: { places: scope, knowledgeEntries: scope },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('strictly validates persisted preview evidence', () => {
+    const payload = VenuePackagePayload.parse({
+      schemaVersion: 1,
+      places: [],
+      knowledgeEntries: [knowledge(1)],
+    })
+    const scope = {
+      embeddingProfile: 'test-profile',
+      inputCount: 0,
+      scannedInputCount: 0,
+      existingCount: 0,
+      scannedExistingCount: 0,
+    }
+    const preview = {
+      schemaVersion: 1,
+      payloadHash: 'a'.repeat(64),
+      baseDigest: 'b'.repeat(64),
+      warningDigest: 'c'.repeat(64),
+      mode: 'ADDITIVE_V1',
+      report: {
+        errors: [],
+        warnings: [],
+        semanticDuplicateScan: {
+          status: 'COMPLETE',
+          similarityThreshold: 0.86,
+          scopes: {
+            places: scope,
+            knowledgeEntries: { ...scope, inputCount: 1, scannedInputCount: 1 },
+          },
+        },
+      },
+      changes: {
+        places: { add: [], change: [], remove: [], unchanged: 0 },
+        knowledgeEntries: { add: payload.knowledgeEntries, change: [], remove: [], unchanged: 0 },
+      },
+    }
+    expect(VenuePackageStoredPreview.safeParse(preview).success).toBe(true)
+    expect(VenuePackageStoredPreview.safeParse({ ...preview, providerResponse: {} }).success).toBe(
+      false,
+    )
+    expect(
+      VenuePackageStoredPreview.safeParse({
+        ...preview,
+        changes: {
+          ...preview.changes,
+          places: { ...preview.changes.places, change: [{ id: 'unsupported' }] },
+        },
+      }).success,
+    ).toBe(false)
   })
 })

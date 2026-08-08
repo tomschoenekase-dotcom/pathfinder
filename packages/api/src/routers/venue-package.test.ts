@@ -1,14 +1,70 @@
 import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
+import { generateEmbeddings } from '@pathfinder/ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@pathfinder/config', () => ({
+  logger: { error: vi.fn() },
+}))
+
+vi.mock('@pathfinder/ai', () => ({
+  AI_EMBEDDING_MODEL_KEYS: {
+    PLACE_CONTENT: 'place-content',
+    KNOWLEDGE_CONTENT: 'knowledge-content',
+  },
+  AiGatewayError: class AiGatewayError extends Error {
+    code = 'provider-error'
+  },
+  getAiEmbeddingProfile: (key: string) => `test-profile:${key}`,
+  generateEmbeddings: vi.fn(async ({ texts, usageSink }) => {
+    await usageSink({
+      provider: 'test',
+      model: 'test-embedding',
+      pricingVersion: 'test-v1',
+      usage: {
+        inputTokens: texts.length,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      },
+      estimatedCostUsd: 0,
+      latencyMs: 1,
+      attempts: 1,
+      success: true,
+    })
+    return { embeddings: texts.map(() => Array(1_536).fill(0.01)) }
+  }),
+}))
+
 vi.mock('@pathfinder/db', () => ({
+  buildKnowledgeEntryText: vi.fn((entry) => `${entry.title}\n${entry.content}`),
+  buildPlaceText: vi.fn((place) => place.name),
+  findVenuePackageKnowledgeSemanticDuplicates: vi.fn().mockResolvedValue([]),
+  findVenuePackagePlaceSemanticDuplicates: vi.fn().mockResolvedValue([]),
+  getVenuePackageSemanticCoverage: vi.fn().mockResolvedValue({
+    places: {
+      eligibleCount: 0,
+      searchableCount: 0,
+      missingVectorCount: 0,
+      incompatibleVectorCount: 0,
+    },
+    knowledgeEntries: {
+      eligibleCount: 0,
+      searchableCount: 0,
+      missingVectorCount: 0,
+      incompatibleVectorCount: 0,
+    },
+  }),
   lockVenueContentMutation: vi.fn().mockResolvedValue(undefined),
   setContentVersionContext: vi.fn().mockResolvedValue(undefined),
   writeAuditLogStrict: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { setContentVersionContext, writeAuditLogStrict } from '@pathfinder/db'
+import {
+  getVenuePackageSemanticCoverage,
+  setContentVersionContext,
+  writeAuditLogStrict,
+} from '@pathfinder/db'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -24,8 +80,12 @@ const knowledgeCreateManyAndReturn = vi.fn()
 const knowledgeDeleteMany = vi.fn()
 const packageFindFirst = vi.fn()
 const packageFindMany = vi.fn()
-const packageCreateMany = vi.fn()
+const packageCreate = vi.fn()
 const packageUpdateMany = vi.fn()
+const analysisFindFirst = vi.fn()
+const analysisCreate = vi.fn()
+const analysisUpdateMany = vi.fn()
+const aiUsageCreate = vi.fn()
 const auditLogCreate = vi.fn()
 
 const mockDb = {
@@ -44,9 +104,15 @@ const mockDb = {
   venuePackage: {
     findFirst: packageFindFirst,
     findMany: packageFindMany,
-    createMany: packageCreateMany,
+    create: packageCreate,
     updateMany: packageUpdateMany,
   },
+  venuePackageDuplicateAnalysis: {
+    findFirst: analysisFindFirst,
+    create: analysisCreate,
+    updateMany: analysisUpdateMany,
+  },
+  aiUsageEvent: { create: aiUsageCreate },
   auditLog: { create: auditLogCreate },
 } as unknown as TRPCContext['db']
 
@@ -70,6 +136,44 @@ function digest(value: unknown) {
 
 const emptyBaseDigest = digest({ places: [], knowledgeEntries: [] })
 const emptyWarningDigest = digest([])
+const completeSemanticScan = {
+  status: 'COMPLETE' as const,
+  similarityThreshold: 0.86,
+  scopes: {
+    places: {
+      embeddingProfile: 'test-profile:place-content',
+      inputCount: 0,
+      scannedInputCount: 0,
+      existingCount: 0,
+      scannedExistingCount: 0,
+    },
+    knowledgeEntries: {
+      embeddingProfile: 'test-profile:knowledge-content',
+      inputCount: 1,
+      scannedInputCount: 1,
+      existingCount: 0,
+      scannedExistingCount: 0,
+    },
+  },
+}
+const baseReport = { errors: [], warnings: [], semanticDuplicateScan: completeSemanticScan }
+const basePreview = {
+  schemaVersion: 1 as const,
+  payloadHash: digest(canonicalVenuePackagePayload(venueId, payload)),
+  baseDigest: emptyBaseDigest,
+  mode: 'ADDITIVE_V1' as const,
+  warningDigest: emptyWarningDigest,
+  report: baseReport,
+  changes: {
+    places: { add: [], change: [], remove: [], unchanged: 0 },
+    knowledgeEntries: {
+      add: payload.knowledgeEntries,
+      change: [],
+      remove: [],
+      unchanged: 0,
+    },
+  },
+}
 const basePackage = {
   id: packageId,
   tenantId: 'tenant_1',
@@ -79,8 +183,8 @@ const basePackage = {
   payload,
   payloadHash: digest(canonicalVenuePackagePayload(venueId, payload)),
   baseDigest: emptyBaseDigest,
-  validationReport: { errors: [], warnings: [] },
-  previewPlan: {},
+  validationReport: baseReport,
+  previewPlan: basePreview,
   status: 'DRAFT' as const,
   createdBy: 'user_manager',
   approvedBy: null,
@@ -114,10 +218,15 @@ function context(role: 'STAFF' | 'MANAGER' | 'OWNER'): TRPCContext {
 
 describe('venue package router', () => {
   beforeEach(() => {
-    vi.resetAllMocks()
+    vi.clearAllMocks()
     venueFindFirst.mockResolvedValue({ id: venueId, guideMode: 'non_location' })
     placeFindMany.mockResolvedValue([])
     knowledgeFindMany.mockResolvedValue([])
+    packageFindFirst.mockResolvedValue(null)
+    analysisFindFirst.mockResolvedValue(null)
+    analysisCreate.mockResolvedValue({ id: 'analysis-1' })
+    analysisUpdateMany.mockResolvedValue({ count: 1 })
+    aiUsageCreate.mockResolvedValue({ id: 'usage-1' })
   })
 
   it('denies STAFF preview before any database access', async () => {
@@ -155,36 +264,133 @@ describe('venue package router', () => {
       },
       changes: { knowledgeEntries: { add: payload.knowledgeEntries, change: [], remove: [] } },
     })
-    expect(packageCreateMany).not.toHaveBeenCalled()
+    expect(packageCreate).not.toHaveBeenCalled()
   })
 
   it('persists a validated immutable draft and audits only the winning claim', async () => {
-    packageCreateMany.mockResolvedValueOnce({ count: 1 })
-    packageFindFirst.mockResolvedValueOnce(basePackage).mockResolvedValueOnce(basePackage)
+    analysisFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'analysis-1',
+      payloadHash: basePackage.payloadHash,
+      baseDigest: basePackage.baseDigest,
+    })
+    packageCreate.mockResolvedValueOnce(basePackage)
 
     const result = await testRouter
       .createCaller(context('MANAGER'))
       .venuePackage.createDraft({ venueId, payload, draftKey })
 
     expect(result).toMatchObject({ id: packageId, status: 'DRAFT', replayed: false })
-    expect(packageCreateMany).toHaveBeenCalledWith(
+    expect(packageCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: [
-          expect.objectContaining({
-            tenantId: 'tenant_1',
-            venueId,
-            schemaVersion: 1,
-            baseDigest: emptyBaseDigest,
-          }),
-        ],
-        skipDuplicates: true,
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId,
+          schemaVersion: 1,
+          baseDigest: emptyBaseDigest,
+        }),
       }),
     )
-    expect(setContentVersionContext).toHaveBeenCalledWith(mockDb, { actorId: 'user_manager' })
+    expect(setContentVersionContext).not.toHaveBeenCalled()
+    expect(aiUsageCreate).toHaveBeenCalledOnce()
+    expect(analysisUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETE' }) }),
+    )
     expect(writeAuditLogStrict).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'venue-package.created-draft', targetId: packageId }),
       mockDb,
     )
+  })
+
+  it('returns an exact draft replay without coverage or provider work', async () => {
+    packageFindFirst.mockResolvedValueOnce(basePackage)
+
+    const result = await testRouter
+      .createCaller(context('MANAGER'))
+      .venuePackage.createDraft({ venueId, payload, draftKey })
+
+    expect(result).toMatchObject({ id: packageId, replayed: true, preview: basePreview })
+    expect(getVenuePackageSemanticCoverage).not.toHaveBeenCalled()
+    expect(generateEmbeddings).not.toHaveBeenCalled()
+    expect(analysisCreate).not.toHaveBeenCalled()
+  })
+
+  it('persists incomplete evidence without provider work and blocks approval', async () => {
+    vi.mocked(getVenuePackageSemanticCoverage).mockResolvedValueOnce({
+      places: {
+        eligibleCount: 0,
+        searchableCount: 0,
+        missingVectorCount: 0,
+        incompatibleVectorCount: 0,
+      },
+      knowledgeEntries: {
+        eligibleCount: 1,
+        searchableCount: 0,
+        missingVectorCount: 1,
+        incompatibleVectorCount: 0,
+      },
+    })
+    packageCreate.mockImplementationOnce(async ({ data }) => ({
+      ...basePackage,
+      validationReport: data.validationReport,
+      previewPlan: data.previewPlan,
+    }))
+
+    const draft = await testRouter
+      .createCaller(context('MANAGER'))
+      .venuePackage.createDraft({ venueId, payload, draftKey })
+
+    expect(draft.preview.report.semanticDuplicateScan.status).toBe('INCOMPLETE')
+    expect(draft.preview.report.errors).toEqual([
+      expect.objectContaining({ code: 'SEMANTIC_SCAN_INCOMPLETE' }),
+    ])
+    expect(generateEmbeddings).not.toHaveBeenCalled()
+    expect(analysisCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETE' }) }),
+    )
+
+    const incompletePackage = {
+      ...basePackage,
+      validationReport: draft.preview.report,
+      previewPlan: draft.preview,
+    }
+    packageFindFirst
+      .mockResolvedValueOnce(incompletePackage)
+      .mockResolvedValueOnce(incompletePackage)
+    await expect(
+      testRouter.createCaller(context('OWNER')).venuePackage.approve({
+        id: packageId,
+        expectedUpdatedAt: updatedAt,
+        commandKey,
+        acknowledgedWarningDigest: draft.preview.warningDigest,
+        acknowledgedPayloadHash: draft.preview.payloadHash,
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(packageUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when independent usage persistence fails', async () => {
+    analysisFindFirst.mockResolvedValueOnce(null)
+    aiUsageCreate.mockRejectedValueOnce(new Error('SECRET_SENTINEL database failure'))
+
+    await expect(
+      testRouter
+        .createCaller(context('MANAGER'))
+        .venuePackage.createDraft({ venueId, payload, draftKey }),
+    ).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Duplicate analysis could not complete; no draft was saved.',
+    })
+    expect(packageCreate).not.toHaveBeenCalled()
+    expect(analysisUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          errorCode: 'usage-persistence-failed',
+        }),
+      }),
+    )
+    expect(JSON.stringify(analysisUpdateMany.mock.calls)).not.toContain('SECRET_SENTINEL')
+    expect(writeAuditLogStrict).not.toHaveBeenCalled()
   })
 
   it('blocks approval when venue content drifted after preview', async () => {
@@ -222,35 +428,25 @@ describe('venue package router', () => {
   })
 
   it('requires OWNER and a server-matching warning acknowledgement for approval', async () => {
-    const warnedPayload = {
-      ...payload,
-      knowledgeEntries: [payload.knowledgeEntries[0]!, { ...payload.knowledgeEntries[0]! }],
-    }
-    const warnedPackage = {
-      ...basePackage,
-      payload: warnedPayload,
-      payloadHash: digest(canonicalVenuePackagePayload(venueId, warnedPayload)),
-    }
-
     await expect(
       testRouter.createCaller(context('MANAGER')).venuePackage.approve({
         id: packageId,
         expectedUpdatedAt: updatedAt,
         commandKey,
         acknowledgedWarningDigest: '0'.repeat(64),
-        acknowledgedPayloadHash: warnedPackage.payloadHash,
+        acknowledgedPayloadHash: basePackage.payloadHash,
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(packageFindFirst).not.toHaveBeenCalled()
 
-    packageFindFirst.mockResolvedValueOnce(warnedPackage).mockResolvedValueOnce(warnedPackage)
+    packageFindFirst.mockResolvedValueOnce(basePackage).mockResolvedValueOnce(basePackage)
     await expect(
       testRouter.createCaller(context('OWNER')).venuePackage.approve({
         id: packageId,
         expectedUpdatedAt: updatedAt,
         commandKey,
         acknowledgedWarningDigest: '0'.repeat(64),
-        acknowledgedPayloadHash: warnedPackage.payloadHash,
+        acknowledgedPayloadHash: basePackage.payloadHash,
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(packageUpdateMany).not.toHaveBeenCalled()

@@ -98,6 +98,17 @@ export {
   storePlaceEmbeddingForScope,
 } from './helpers/semantic-search'
 export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'
+export {
+  findVenuePackageKnowledgeSemanticDuplicates,
+  findVenuePackagePlaceSemanticDuplicates,
+  getVenuePackageSemanticCoverage,
+} from './helpers/venue-package-semantic-duplicates'
+export type {
+  SemanticVectorCoverage,
+  VenuePackageSemanticCoverage,
+  VenuePackageSemanticDuplicateCandidate,
+  VenuePackageSemanticDuplicateMatch,
+} from './helpers/venue-package-semantic-duplicates'
 export { buildKnowledgeEntryText, buildPlaceText } from './helpers/content-text'
 export { embeddingSourceHash } from './helpers/embedding-identity'
 export type { EmbeddingSourceEntity } from './helpers/embedding-identity'

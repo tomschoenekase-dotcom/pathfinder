@@ -39,6 +39,24 @@ const approvedPolicies = new Set([
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
   {
+    file: 'packages/db/src/helpers/venue-package-semantic-duplicates.ts',
+    method: '$queryRaw',
+    hash: '60a11fc86822e36b39f67474b816ae5caab624eee51f4190dc26787c03d5c863',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/venue-package-semantic-duplicates.ts',
+    method: '$queryRaw',
+    hash: '152348c678d4e0eb86f70bee839e2e2093f9e4d2287cf0282a8f79a4bafdb672',
+    policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/db/src/helpers/venue-package-semantic-duplicates.ts',
+    method: '$queryRaw',
+    hash: 'c1c8a810d825bdb6dea9eef61a12abba9a30ff7a01fd4ed13a67cbbdc0ff5550',
+    policy: 'tenant-and-venue',
+  },
+  {
     file: 'packages/db/src/helpers/venue-content-lock.ts',
     method: '$executeRaw',
     hash: 'daa2dc53e993865ebc671cc1dee04d1085ea1fbf70f976b84a024176f5e4b785',

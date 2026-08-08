@@ -1,6 +1,43 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@pathfinder/ai', () => ({
+  AI_EMBEDDING_MODEL_KEYS: {
+    PLACE_CONTENT: 'place-content',
+    KNOWLEDGE_CONTENT: 'knowledge-content',
+  },
+  AiGatewayError: class AiGatewayError extends Error {
+    code = 'provider-error'
+  },
+  getAiEmbeddingProfile: (key: string) => `integration-profile:${key}`,
+  generateEmbeddings: vi.fn(async ({ texts, usageSink }) => {
+    await usageSink({
+      provider: 'integration-test',
+      model: 'deterministic-embedding',
+      pricingVersion: 'test-v1',
+      usage: {
+        inputTokens: texts.length,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      },
+      estimatedCostUsd: 0,
+      latencyMs: 1,
+      attempts: 1,
+      success: true,
+    })
+    return {
+      embeddings: texts.map((text: string, textIndex: number) => {
+        const vector = Array(1_536).fill(0)
+        vector[(text.length + textIndex) % vector.length] = 1
+        return vector
+      }),
+    }
+  }),
+}))
+
+import { generateEmbeddings } from '@pathfinder/ai'
 
 import { db, lockVenueContentMutation } from '@pathfinder/db'
 
@@ -60,6 +97,37 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     })
   }
 
+  async function markCurrentKnowledgeSearchable(targetVenueId: string) {
+    const entries = await db.venueKnowledgeEntry.findMany({
+      where: { tenantId, venueId: targetVenueId, isEnabled: true },
+      select: { id: true, updatedAt: true },
+    })
+    const vector = `[1,${Array(1_535).fill(0).join(',')}]`
+    for (const entry of entries) {
+      await db.$executeRaw`
+        UPDATE venue_knowledge_entries
+        SET embedding = ${vector}::vector(1536)
+        WHERE id = ${entry.id}
+          AND tenant_id = ${tenantId}
+          AND venue_id = ${targetVenueId}
+      `
+      await db.embeddingWorkClaim.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          venueId: targetVenueId,
+          entityType: 'KNOWLEDGE_ENTRY',
+          entityId: entry.id,
+          contentUpdatedAt: entry.updatedAt,
+          sourceHash: createHash('sha256').update(entry.id).digest('hex'),
+          embeddingProfile: 'integration-profile:knowledge-content',
+          status: 'COMPLETE',
+          completedAt: new Date(),
+        },
+      })
+    }
+  }
+
   beforeAll(async () => {
     assertDisposableDatabase()
     await db.tenant.createMany({
@@ -101,7 +169,11 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     const preview = await caller.venuePackage.preview({ venueId, payload })
     expect(preview).toMatchObject({
       mode: 'ADDITIVE_V1',
-      report: { errors: [], warnings: [] },
+      report: {
+        errors: [],
+        warnings: [],
+        semanticDuplicateScan: { status: 'NOT_RUN' },
+      },
       changes: {
         places: { add: payload.places },
         knowledgeEntries: { add: payload.knowledgeEntries },
@@ -117,10 +189,50 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
 
     const draftKey = randomUUID()
     const draft = await caller.venuePackage.createDraft({ venueId, payload, draftKey })
+    const providerCallsAfterDraft = vi.mocked(generateEmbeddings).mock.calls.length
     const replay = await caller.venuePackage.createDraft({ venueId, payload, draftKey })
     expect(draft).toMatchObject({ status: 'DRAFT', replayed: false })
     expect(replay).toMatchObject({ id: draft.id, status: 'DRAFT', replayed: true })
-    expect(draft.previewPlan).toEqual(preview)
+    expect(draft.preview.report.semanticDuplicateScan.status).toBe('COMPLETE')
+    expect(draft.previewPlan).toEqual(draft.preview)
+    expect(vi.mocked(generateEmbeddings).mock.calls.length).toBe(providerCallsAfterDraft)
+    await expect(
+      db.venuePackageDuplicateAnalysis.findFirst({
+        where: { tenantId, venueId, draftKey },
+      }),
+    ).resolves.toMatchObject({ status: 'COMPLETE', draftId: draft.id })
+    const storedAnalysis = await db.venuePackageDuplicateAnalysis.findFirstOrThrow({
+      where: { tenantId, venueId, draftKey },
+    })
+    const emittedUsageEvents = await db.aiUsageEvent.findMany({
+      where: {
+        tenantId,
+        venueId,
+        feature: 'venue-package-duplicate-analysis',
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    })
+    expect(emittedUsageEvents).toHaveLength(2)
+    expect(
+      [...(storedAnalysis.usageEventIds as string[])].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    ).toEqual(emittedUsageEvents.map(({ id }) => id))
+    await expect(
+      db.venuePackageDuplicateAnalysis.updateMany({
+        where: { id: storedAnalysis.id, tenantId, venueId },
+        data: { payloadHash: '0'.repeat(64) },
+      }),
+    ).rejects.toThrow(/identity is immutable/i)
+    await expect(
+      db.venuePackageDuplicateAnalysis.deleteMany({
+        where: { id: storedAnalysis.id, tenantId, venueId },
+      }),
+    ).rejects.toThrow(/immutable evidence/i)
+    await expect(db.$executeRaw`TRUNCATE TABLE venue_package_duplicate_analyses`).rejects.toThrow(
+      /immutable evidence/i,
+    )
 
     const approvalCommandKey = randomUUID()
     const approved = await caller.venuePackage.approve({
@@ -242,6 +354,10 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
         db.venueKnowledgeEntry.count({ where: { tenantId, venueId: concurrentVenueId } }),
       ]),
     ).resolves.toEqual([1, 1])
+
+    // Production workers make newly applied content searchable asynchronously.
+    // Complete that boundary explicitly before proving the next package revision.
+    await markCurrentKnowledgeSearchable(concurrentVenueId)
 
     const nextPayload = {
       schemaVersion: 1 as const,

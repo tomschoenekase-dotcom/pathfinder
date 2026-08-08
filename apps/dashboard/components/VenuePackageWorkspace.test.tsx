@@ -53,13 +53,38 @@ const payload = {
   ],
 }
 
+const completeSemanticDuplicateScan = {
+  status: 'COMPLETE' as const,
+  similarityThreshold: 0.9,
+  scopes: {
+    places: {
+      embeddingProfile: 'openai:text-embedding-3-small:1536',
+      inputCount: 1,
+      scannedInputCount: 1,
+      existingCount: 2,
+      scannedExistingCount: 2,
+    },
+    knowledgeEntries: {
+      embeddingProfile: 'openai:text-embedding-3-small:1536',
+      inputCount: 1,
+      scannedInputCount: 1,
+      existingCount: 3,
+      scannedExistingCount: 3,
+    },
+  },
+}
+
 const preview = {
   schemaVersion: 1,
   payloadHash: 'a'.repeat(64),
   baseDigest: 'b'.repeat(64),
   warningDigest: 'c'.repeat(64),
   mode: 'ADDITIVE_V1',
-  report: { errors: [], warnings: [] },
+  report: {
+    errors: [],
+    warnings: [],
+    semanticDuplicateScan: completeSemanticDuplicateScan,
+  },
   changes: {
     places: { add: payload.places, change: [], remove: [], unchanged: 2 },
     knowledgeEntries: { add: payload.knowledgeEntries, change: [], remove: [], unchanged: 3 },
@@ -146,7 +171,138 @@ describe('venue package workspace', () => {
     expect(mocks.applyPackage).not.toHaveBeenCalled()
   })
 
-  it('requires warning acknowledgement before a saved draft can be approved', async () => {
+  it('rotates only a terminal draft identity so unchanged JSON can be retried', async () => {
+    const terminalError = Object.assign(
+      new Error('This draft key has terminal duplicate-analysis evidence; use a new key.'),
+      { data: { code: 'PRECONDITION_FAILED' } },
+    )
+    mocks.createDraft
+      .mockRejectedValueOnce(terminalError)
+      .mockResolvedValueOnce({ ...draft, preview, replayed: false })
+    mocks.list.mockResolvedValueOnce([]).mockResolvedValueOnce([draft])
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview on server' }))
+    expect(await screen.findByText('Semantic duplicate scan: COMPLETE')).toBeTruthy()
+    const save = screen.getByRole('button', { name: 'Save immutable draft' })
+    fireEvent.click(save)
+    expect((await screen.findByRole('alert')).textContent).toContain('terminal duplicate-analysis')
+    await waitFor(() => expect(mocks.createDraft).toHaveBeenCalledTimes(1))
+    const firstKey = mocks.createDraft.mock.calls[0]?.[0].draftKey
+
+    fireEvent.click(save)
+    expect(await screen.findByText('Draft saved for review.')).toBeTruthy()
+    const secondKey = mocks.createDraft.mock.calls[1]?.[0].draftKey
+    expect(secondKey).not.toBe(firstKey)
+  })
+
+  it('renders complete semantic evidence from a selected package without requesting a new preview', async () => {
+    mocks.list.mockResolvedValueOnce([draft])
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(draft.id))
+
+    expect(await screen.findByText('Semantic duplicate scan: COMPLETE')).toBeTruthy()
+    expect(
+      screen.getByText(/Places: 1\/1 draft items and 2\/2 existing items compared/),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/Knowledge: 1\/1 draft items and 3\/3 existing items compared/),
+    ).toBeTruthy()
+    expect(mocks.preview).not.toHaveBeenCalled()
+  })
+
+  it('retains incomplete saved evidence but blocks approval without requesting a new preview', async () => {
+    const incompletePreview = {
+      ...preview,
+      warningDigest: 'e'.repeat(64),
+      report: {
+        errors: [],
+        warnings: [],
+        semanticDuplicateScan: {
+          ...completeSemanticDuplicateScan,
+          status: 'INCOMPLETE' as const,
+          scopes: {
+            ...completeSemanticDuplicateScan.scopes,
+            places: {
+              ...completeSemanticDuplicateScan.scopes.places,
+              scannedInputCount: 0,
+              scannedExistingCount: 1,
+            },
+          },
+        },
+      },
+    }
+    const incompleteDraft = {
+      ...draft,
+      validationReport: incompletePreview.report,
+      previewPlan: incompletePreview,
+    }
+    mocks.list.mockResolvedValueOnce([incompleteDraft])
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(draft.id))
+
+    expect(await screen.findByText('Semantic duplicate scan: INCOMPLETE')).toBeTruthy()
+    expect(screen.getByText(/retained as evidence but cannot be approved or applied/)).toBeTruthy()
+    expect(
+      screen.getByText(/Places: 0\/1 draft items and 1\/2 existing items compared/),
+    ).toBeTruthy()
+    const approve = screen.getByRole('button', { name: 'Approve' })
+    expect((approve as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(approve)
+    expect(mocks.approve).not.toHaveBeenCalled()
+    expect(mocks.preview).not.toHaveBeenCalled()
+  })
+
+  it('blocks applying a legacy approved package with incomplete semantic evidence', async () => {
+    const incompletePreview = {
+      ...preview,
+      report: {
+        errors: [
+          {
+            code: 'SEMANTIC_SCAN_INCOMPLETE',
+            path: 'semanticDuplicateScan',
+            message: 'This package predates semantic duplicate analysis.',
+          },
+        ],
+        warnings: [],
+        semanticDuplicateScan: {
+          ...completeSemanticDuplicateScan,
+          status: 'INCOMPLETE' as const,
+          scopes: {
+            places: {
+              ...completeSemanticDuplicateScan.scopes.places,
+              scannedInputCount: 0,
+              scannedExistingCount: 0,
+            },
+            knowledgeEntries: {
+              ...completeSemanticDuplicateScan.scopes.knowledgeEntries,
+              scannedInputCount: 0,
+              scannedExistingCount: 0,
+            },
+          },
+        },
+      },
+    }
+    const approvedLegacy = {
+      ...draft,
+      status: 'APPROVED',
+      validationReport: incompletePreview.report,
+      previewPlan: incompletePreview,
+    }
+    mocks.list.mockResolvedValueOnce([approvedLegacy])
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(draft.id))
+
+    const apply = screen.getByRole('button', { name: 'Apply approved package' })
+    expect((apply as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(apply)
+    expect(mocks.applyPackage).not.toHaveBeenCalled()
+  })
+
+  it('uses one acknowledgement for combined exact and semantic warnings before approval', async () => {
     const warningPreview = {
       ...preview,
       warningDigest: 'd'.repeat(64),
@@ -158,7 +314,13 @@ describe('venue package workspace', () => {
             path: 'places.0.name',
             message: 'An active venue place already has this normalized name.',
           },
+          {
+            code: 'SEMANTIC_DUPLICATE_EXISTING_CONTENT',
+            path: 'knowledgeEntries.0.title',
+            message: 'This entry is semantically similar to existing venue knowledge.',
+          },
         ],
+        semanticDuplicateScan: completeSemanticDuplicateScan,
       },
     }
     mocks.preview.mockResolvedValue(warningPreview)
@@ -170,15 +332,29 @@ describe('venue package workspace', () => {
     })
     mocks.list
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ ...draft, validationReport: warningPreview.report }])
       .mockResolvedValueOnce([
-        { ...draft, status: 'APPROVED', validationReport: warningPreview.report },
+        {
+          ...draft,
+          validationReport: warningPreview.report,
+          previewPlan: warningPreview,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          ...draft,
+          status: 'APPROVED',
+          validationReport: warningPreview.report,
+          previewPlan: warningPreview,
+        },
       ])
     mocks.approve.mockResolvedValue({ ...draft, status: 'APPROVED' })
 
     render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
     fireEvent.click(screen.getByRole('button', { name: 'Preview on server' }))
     expect(await screen.findByText(/already has this normalized name/)).toBeTruthy()
+    expect(screen.getByText(/semantically similar to existing venue knowledge/)).toBeTruthy()
+    expect(screen.getByText('I reviewed all 2 warnings.')).toBeTruthy()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'Save immutable draft' }))
     expect(await screen.findByText('Draft saved for review.')).toBeTruthy()
     expect(mocks.preview).toHaveBeenCalledTimes(2)

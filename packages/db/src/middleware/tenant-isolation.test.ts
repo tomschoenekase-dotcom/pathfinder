@@ -88,6 +88,7 @@ describe('tenantIsolationMiddleware', () => {
       'ContentVersion',
       'VenueContentImportReceipt',
       'VenuePackage',
+      'VenuePackageDuplicateAnalysis',
       'VisitorSession',
       'AiUsageEvent',
       'AiUsageDailyRollup',
