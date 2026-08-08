@@ -163,7 +163,8 @@ jobs:
         run: pnpm --dir packages/db exec vitest run src/helpers/membership-sync.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_CLERK_WEBHOOK_DB_INTEGRATION: '1'
-      - run: pnpm turbo run build
+      - name: Build and verify browser bundles contain no server secrets
+        run: pnpm verify:client-bundles
       - run: pnpm turbo run typecheck
       - run: pnpm turbo run lint
       - run: pnpm turbo run test

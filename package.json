@@ -19,6 +19,7 @@
     "verify:tenant-registry": "node scripts/verify-tenant-registry.mjs",
     "verify:docker-context": "node scripts/verify-docker-context-boundary.mjs",
     "verify:docker-context:effective": "node scripts/verify-docker-context-effective.mjs",
+    "verify:client-bundles": "node scripts/verify-client-bundle-secrets.mjs",
     "test:watch": "vitest",
     "verify:staging": "node scripts/verify-staging-config.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
