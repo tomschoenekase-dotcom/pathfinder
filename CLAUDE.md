@@ -125,6 +125,9 @@ Rules:
 
 - Business logic lives in `packages/api/src/routers/`.
 - Apps mount/call `appRouter`; apps do not define tRPC procedures.
+- Platform-admin procedures live in the domain modules under `packages/api/src/routers/admin/`.
+  `_admin.ts` and `media-ingestion.ts` are composition-only; do not add inline procedures to them
+  or grow a production admin router module beyond the enforced 400-line boundary.
 - Browser tRPC clients are owned by route-scoped `TRPCProvider` boundaries, keyed to the active
   tenant, platform-admin user, or public venue. Existing event-driven workflows call the stable
   provider client through `useTRPCClient`; never construct a client inside a component. New

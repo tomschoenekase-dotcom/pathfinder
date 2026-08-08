@@ -175,8 +175,11 @@ Mounted under these namespaces in `root.ts`:
 - **`analytics`** (`routers/analytics.ts`) — `trackEvent` (public, guest telemetry ingest +
   guest-session bookkeeping) and tenant-scoped read queries: `getDailyStats` (from `DailyRollup`),
   `getTopQuestions` (groups recent `message.sent` events), and weekly-digest getters.
-- **`admin`** (`routers/admin/_admin.ts`) — `adminProcedure` only: `listClients`, `createClient`,
-  `updateClientStatus`, `triggerDigest`. Uses `withTenantIsolationBypass` and `writeAuditLog`.
+- **`admin`** (`routers/admin/`) — `adminProcedure` only. Composition-only `_admin.ts` merges
+  domain routers for overview, client reads/analytics/management, chatlogs, answer analysis,
+  report configuration/lifecycle, and digest operations. Composition-only `media-ingestion.ts`
+  similarly merges project, upload, completion, and lifecycle domains. Cross-tenant operations
+  use the reviewed `withTenantIsolationBypass` and audit boundaries inside those domain modules.
 
 ### 4.4 Input schemas
 
