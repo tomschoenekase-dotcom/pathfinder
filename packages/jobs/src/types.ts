@@ -29,6 +29,10 @@ export type WeeklyReportRecoveryJobPayload = WeeklyReportJobPayload & {
   observedLeaseToken: string
 }
 
+export type GenerationDispatchKickJobPayload = {
+  dispatchId: string
+}
+
 export type DailyRollupJobPayload = {
   tenantId: string
   date: string

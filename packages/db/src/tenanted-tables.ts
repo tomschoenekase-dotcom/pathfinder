@@ -20,6 +20,7 @@ export const TENANTED_TABLES = [
   'AdminChatlogNote',
   'WeeklyReport',
   'AnswerAnalysisSnapshot',
+  'GenerationRequestDispatch',
   'VenueWeeklyTheme',
   'MediaIngestionProject',
   'MediaIngestionAsset',

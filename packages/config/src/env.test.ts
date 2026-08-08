@@ -192,3 +192,39 @@ describe('GENERATION_RECOVERY_ENABLED', () => {
     ).toThrow()
   })
 })
+
+describe('GENERATION_DISPATCH_ENABLED', () => {
+  it('defaults to enabled in production', () => {
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'production' })
+        .GENERATION_DISPATCH_ENABLED,
+    ).toBe(true)
+  })
+
+  it.each(['staging', 'preview'] as const)('defaults to disabled in %s', (RAILWAY_ENVIRONMENT) => {
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).GENERATION_DISPATCH_ENABLED,
+    ).toBe(false)
+  })
+
+  it('allows an explicit staging enable without enabling business schedulers or recovery', () => {
+    const parsed = envSchema.parse({
+      ...requiredEnvironment,
+      RAILWAY_ENVIRONMENT: 'staging',
+      GENERATION_DISPATCH_ENABLED: 'true',
+    })
+    expect(parsed.GENERATION_DISPATCH_ENABLED).toBe(true)
+    expect(parsed.WORKER_SCHEDULERS_ENABLED).toBe(false)
+    expect(parsed.GENERATION_RECOVERY_ENABLED).toBe(false)
+  })
+
+  it('rejects an invalid generation dispatch override', () => {
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        GENERATION_DISPATCH_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})

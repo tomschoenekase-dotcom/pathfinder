@@ -20,6 +20,11 @@ const rawEnvSchema = z
     // cron. Production defaults on; staging/preview require explicit rollout.
     EMBEDDING_DISPATCH_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Durable generation request publication is correctness infrastructure.
+    // Production defaults on after the additive outbox migration; non-production
+    // environments require an explicit canary opt-in.
+    GENERATION_DISPATCH_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Expired generation recovery is correctness infrastructure, separate from
     // business cron. Staging/preview require an explicit canary opt-in.
     GENERATION_RECOVERY_ENABLED: z.enum(['true', 'false']).optional(),
@@ -85,6 +90,10 @@ export const envSchema = rawEnvSchema.transform((values) => ({
     values.EMBEDDING_DISPATCH_ENABLED === undefined
       ? values.RAILWAY_ENVIRONMENT === 'production'
       : values.EMBEDDING_DISPATCH_ENABLED === 'true',
+  GENERATION_DISPATCH_ENABLED:
+    values.GENERATION_DISPATCH_ENABLED === undefined
+      ? values.RAILWAY_ENVIRONMENT === 'production'
+      : values.GENERATION_DISPATCH_ENABLED === 'true',
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
 }))
 

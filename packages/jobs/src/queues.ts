@@ -23,6 +23,10 @@ export const WEEKLY_REPORT_RETRY_BACKOFF = 'weekly-report-retry'
 export const GENERATION_RECOVERY_QUEUE = queueName('generation-recovery')
 export const GENERATION_RECOVERY_SCHEDULER_JOB = 'generation-recovery-scheduler'
 
+export const GENERATION_DISPATCH_QUEUE = queueName('generation-dispatch')
+export const GENERATION_DISPATCH_SCHEDULER_JOB = 'generation-dispatch-scheduler'
+export const GENERATION_DISPATCH_KICK_JOB = 'generation-dispatch-kick'
+
 export const DAILY_ROLLUP_QUEUE = queueName('daily-rollup')
 export const DAILY_ROLLUP_PROCESS_JOB = 'daily-rollup-process'
 export const DAILY_ROLLUP_SCHEDULER_JOB = 'daily-rollup-scheduler'

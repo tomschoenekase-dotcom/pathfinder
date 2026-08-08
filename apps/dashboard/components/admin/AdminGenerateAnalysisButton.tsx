@@ -4,6 +4,11 @@ import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
 import { createTRPCClient } from '../../lib/trpc'
+import {
+  clearGenerationRequestAttempt,
+  getOrCreateGenerationRequestAttempt,
+  type GenerationRequestAttempt,
+} from '../../lib/generation-request-idempotency'
 
 type AdminGenerateAnalysisButtonProps = {
   tenantId: string
@@ -26,18 +31,31 @@ export function AdminGenerateAnalysisButton({
 
   const [pending, setPending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const attemptRef = useRef<GenerationRequestAttempt | null>(null)
 
   async function handleClick() {
     setPending(true)
     setErrorMessage(null)
 
     try {
+      const requestInput = {
+        kind: 'answer-analysis' as const,
+        tenantId,
+        venueId,
+        rangeStart,
+        rangeEnd,
+      }
+      const attempt = await getOrCreateGenerationRequestAttempt(requestInput, attemptRef.current)
+      attemptRef.current = attempt
       const result = await clientRef.current!.admin.generateAnswerAnalysis.mutate({
         tenantId,
         venueId,
         rangeStart,
         rangeEnd,
+        requestId: attempt.requestId,
       })
+      clearGenerationRequestAttempt(requestInput, attempt)
+      attemptRef.current = null
       router.push(`/admin/clients/${tenantId}/venues/${venueId}/analysis/${result.snapshotId}`)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to queue analysis.')

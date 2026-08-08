@@ -4,11 +4,13 @@ const mocks = vi.hoisted(() => ({
   executeRaw: vi.fn(),
   answerFindFirst: vi.fn(),
   reportFindFirst: vi.fn(),
+  transaction: vi.fn(),
   bypass: vi.fn(async (operation: () => Promise<unknown>) => operation()),
 }))
 
 vi.mock('../client', () => ({
   db: {
+    $transaction: mocks.transaction,
     $executeRaw: mocks.executeRaw,
     answerAnalysisSnapshot: { findFirst: mocks.answerFindFirst },
     weeklyReport: { findFirst: mocks.reportFindFirst },
@@ -51,10 +53,25 @@ function expectExactRecoveryPredicate(call: unknown[]): void {
   expect(sql).toContain('execution_lease_token = ?::uuid')
   expect(sql).toContain('execution_lease_expires_at IS NOT NULL')
   expect(sql).toContain('execution_lease_expires_at <= clock_timestamp()')
+  expect(sql).toContain("status = 'FAILED'")
+  expect(sql).toContain('AND execution_lease_token IS NULL')
+  expect(sql).toContain('execution_lease_expires_at IS NULL')
+  expect(sql.match(/recovery_lineage_token = \?::uuid/g)).toHaveLength(2)
+  expect(sql).toMatch(/SET[\s\S]*recovery_lineage_token = \?::uuid[\s\S]*WHERE/)
 }
 
 describe('generation execution claims', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.executeRaw.mockResolvedValue(1)
+    mocks.transaction.mockImplementation(async (operation: (tx: unknown) => Promise<unknown>) =>
+      operation({
+        $executeRaw: mocks.executeRaw,
+        answerAnalysisSnapshot: { findFirst: mocks.answerFindFirst },
+        weeklyReport: { findFirst: mocks.reportFindFirst },
+      }),
+    )
+  })
 
   it('uses a fresh internal UUID and the DB-clock lease duration for answer analysis', async () => {
     mocks.executeRaw.mockResolvedValueOnce(1)
@@ -76,6 +93,9 @@ describe('generation execution claims', () => {
       rangeStart,
       rangeEnd,
     ])
+    expect((mocks.executeRaw.mock.calls[0]![0] as readonly string[]).join('?')).toContain(
+      'recovery_lineage_token = NULL',
+    )
     expect(mocks.answerFindFirst).not.toHaveBeenCalled()
   })
 
@@ -96,6 +116,9 @@ describe('generation execution claims', () => {
       rangeStart,
       rangeEnd,
     ])
+    expect((mocks.executeRaw.mock.calls[0]![0] as readonly string[]).join('?')).toContain(
+      'recovery_lineage_token = NULL',
+    )
     expect(mocks.reportFindFirst).not.toHaveBeenCalled()
   })
 
@@ -192,11 +215,13 @@ describe('generation execution claims', () => {
     expect(mocks.executeRaw.mock.calls[0]!.slice(1)).toEqual([
       result.leaseToken,
       GENERATION_EXECUTION_LEASE_MS,
+      observedLeaseToken,
       'snapshot_1',
       'tenant_1',
       'venue_1',
       rangeStart,
       rangeEnd,
+      observedLeaseToken,
       observedLeaseToken,
     ])
     expectExactRecoveryPredicate(mocks.executeRaw.mock.calls[0]!)
@@ -217,15 +242,32 @@ describe('generation execution claims', () => {
     expect(mocks.executeRaw.mock.calls[0]!.slice(1)).toEqual([
       result.leaseToken,
       GENERATION_EXECUTION_LEASE_MS,
+      observedLeaseToken,
       'report_1',
       'tenant_1',
       'venue_1',
       rangeStart,
       rangeEnd,
       observedLeaseToken,
+      observedLeaseToken,
     ])
     expectExactRecoveryPredicate(mocks.executeRaw.mock.calls[0]!)
     expect(mocks.reportFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('permits a fenced recovery retry after the prior attempt failed and cleared its lease', async () => {
+    mocks.executeRaw.mockResolvedValueOnce(1)
+    const result = await acquireAnswerAnalysisRecoveryExecution({
+      ...analysisIdentity,
+      observedLeaseToken,
+    })
+    expect(result.state).toBe('acquired')
+    const sql = (mocks.executeRaw.mock.calls[0]?.[0] as readonly string[]).join('?')
+    expect(sql).toContain("OR (status = 'FAILED'")
+    expect(sql).toContain('AND execution_lease_token IS NULL')
+    expect(sql).toContain("status = 'GENERATING'")
+    expect(sql).toContain('error = NULL')
+    expect(sql).toContain('recovery_lineage_token = ?::uuid')
   })
 
   it.each([

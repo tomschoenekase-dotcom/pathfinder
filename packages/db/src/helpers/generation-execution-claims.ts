@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto'
 import { db } from '../client'
 import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 
+// The runtime value is Prisma's transaction-scoped extended client. Its generated
+// structural type is not assignable to Prisma.TransactionClient under exact optionals.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RawExecutor = any
+
 // Generation calls may legitimately take tens of seconds. Five minutes gives a worker
 // ample headroom while keeping crash recovery bounded without requiring lease renewal.
 export const GENERATION_EXECUTION_LEASE_MS = 5 * 60 * 1_000
@@ -47,19 +52,76 @@ function validateObservedLeaseToken(observedLeaseToken: string): void {
   }
 }
 
+async function consumeAnswerAnalysisDispatch(
+  tx: RawExecutor,
+  params: AcquireAnswerAnalysisExecutionParams,
+): Promise<void> {
+  const receiptId = randomUUID()
+  const consumed = await tx.$executeRaw`
+    INSERT INTO generation_request_dispatches
+      (id, tenant_id, venue_id, kind, record_id, range_start, range_end,
+       status, consumed_at, answer_analysis_snapshot_id, created_at, updated_at)
+    VALUES (${receiptId}, ${params.tenantId}, ${params.venueId}, 'ANSWER_ANALYSIS',
+      ${params.snapshotId}, ${params.rangeStart}, ${params.rangeEnd}, 'CONSUMED',
+      clock_timestamp(), ${params.snapshotId}, clock_timestamp(), clock_timestamp())
+    ON CONFLICT (tenant_id, kind, record_id) DO UPDATE SET
+      status='CONSUMED', consumed_at=clock_timestamp(), lease_token=NULL,
+      lease_expires_at=NULL, last_error=NULL, updated_at=clock_timestamp()
+    WHERE generation_request_dispatches.tenant_id=${params.tenantId}
+      AND generation_request_dispatches.venue_id=${params.venueId}
+      AND generation_request_dispatches.kind='ANSWER_ANALYSIS'
+      AND generation_request_dispatches.record_id=${params.snapshotId}
+      AND generation_request_dispatches.answer_analysis_snapshot_id=${params.snapshotId}
+      AND generation_request_dispatches.weekly_report_id IS NULL
+      AND generation_request_dispatches.range_start=${params.rangeStart}
+      AND generation_request_dispatches.range_end=${params.rangeEnd}
+  `
+  if (consumed !== 1)
+    throw new Error('Generation dispatch did not match the acquired answer-analysis scope.')
+}
+
+async function consumeWeeklyReportDispatch(
+  tx: RawExecutor,
+  params: AcquireWeeklyReportExecutionParams,
+): Promise<void> {
+  const receiptId = randomUUID()
+  const consumed = await tx.$executeRaw`
+    INSERT INTO generation_request_dispatches
+      (id, tenant_id, venue_id, kind, record_id, range_start, range_end,
+       status, consumed_at, weekly_report_id, created_at, updated_at)
+    VALUES (${receiptId}, ${params.tenantId}, ${params.venueId}, 'WEEKLY_REPORT',
+      ${params.reportId}, ${params.weekStart}, ${params.weekEnd}, 'CONSUMED',
+      clock_timestamp(), ${params.reportId}, clock_timestamp(), clock_timestamp())
+    ON CONFLICT (tenant_id, kind, record_id) DO UPDATE SET
+      status='CONSUMED', consumed_at=clock_timestamp(), lease_token=NULL,
+      lease_expires_at=NULL, last_error=NULL, updated_at=clock_timestamp()
+    WHERE generation_request_dispatches.tenant_id=${params.tenantId}
+      AND generation_request_dispatches.venue_id=${params.venueId}
+      AND generation_request_dispatches.kind='WEEKLY_REPORT'
+      AND generation_request_dispatches.record_id=${params.reportId}
+      AND generation_request_dispatches.weekly_report_id=${params.reportId}
+      AND generation_request_dispatches.answer_analysis_snapshot_id IS NULL
+      AND generation_request_dispatches.range_start=${params.weekStart}
+      AND generation_request_dispatches.range_end=${params.weekEnd}
+  `
+  if (consumed !== 1)
+    throw new Error('Generation dispatch did not match the acquired weekly-report scope.')
+}
+
 export async function acquireAnswerAnalysisExecution(
   params: AcquireAnswerAnalysisExecutionParams,
 ): Promise<GenerationExecutionAcquisition> {
   const leaseToken = randomUUID()
-  const acquired = await withTenantIsolationBypass(
-    () =>
-      db.$executeRaw`
+  return withTenantIsolationBypass(() =>
+    db.$transaction(async (tx) => {
+      const acquired = await tx.$executeRaw`
       UPDATE answer_analysis_snapshots
       SET
         status = 'GENERATING',
         error = NULL,
         execution_lease_token = ${leaseToken}::uuid,
-        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond'
+        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond',
+        recovery_lineage_token = NULL
       WHERE id = ${params.snapshotId}
         AND tenant_id = ${params.tenantId}
         AND venue_id = ${params.venueId}
@@ -70,41 +132,44 @@ export async function acquireAnswerAnalysisExecution(
           execution_lease_token IS NULL
           OR execution_lease_expires_at <= clock_timestamp()
         )
-    `,
-  )
-  if (acquired === 1) return { state: 'acquired', leaseToken }
+    `
+      if (acquired === 1) {
+        await consumeAnswerAnalysisDispatch(tx, params)
+        return { state: 'acquired', leaseToken }
+      }
 
-  const current = await withTenantIsolationBypass(() =>
-    db.answerAnalysisSnapshot.findFirst({
-      where: {
-        id: params.snapshotId,
-        tenantId: params.tenantId,
-        venueId: params.venueId,
-        rangeStart: params.rangeStart,
-        rangeEnd: params.rangeEnd,
-      },
-      select: { status: true },
+      const current = await tx.answerAnalysisSnapshot.findFirst({
+        where: {
+          id: params.snapshotId,
+          tenantId: params.tenantId,
+          venueId: params.venueId,
+          rangeStart: params.rangeStart,
+          rangeEnd: params.rangeEnd,
+        },
+        select: { status: true },
+      })
+      if (!current) return { state: 'missing' }
+      if (current.status === 'GENERATING' || current.status === 'FAILED') return { state: 'leased' }
+      await consumeAnswerAnalysisDispatch(tx, params)
+      return { state: 'terminal' }
     }),
   )
-  if (!current) return { state: 'missing' }
-  return current.status === 'GENERATING' || current.status === 'FAILED'
-    ? { state: 'leased' }
-    : { state: 'terminal' }
 }
 
 export async function acquireWeeklyReportExecution(
   params: AcquireWeeklyReportExecutionParams,
 ): Promise<GenerationExecutionAcquisition> {
   const leaseToken = randomUUID()
-  const acquired = await withTenantIsolationBypass(
-    () =>
-      db.$executeRaw`
+  return withTenantIsolationBypass(() =>
+    db.$transaction(async (tx) => {
+      const acquired = await tx.$executeRaw`
       UPDATE weekly_reports
       SET
         status = 'GENERATING',
         error = NULL,
         execution_lease_token = ${leaseToken}::uuid,
-        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond'
+        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond',
+        recovery_lineage_token = NULL
       WHERE id = ${params.reportId}
         AND tenant_id = ${params.tenantId}
         AND venue_id = ${params.venueId}
@@ -115,26 +180,28 @@ export async function acquireWeeklyReportExecution(
           execution_lease_token IS NULL
           OR execution_lease_expires_at <= clock_timestamp()
         )
-    `,
-  )
-  if (acquired === 1) return { state: 'acquired', leaseToken }
+    `
+      if (acquired === 1) {
+        await consumeWeeklyReportDispatch(tx, params)
+        return { state: 'acquired', leaseToken }
+      }
 
-  const current = await withTenantIsolationBypass(() =>
-    db.weeklyReport.findFirst({
-      where: {
-        id: params.reportId,
-        tenantId: params.tenantId,
-        venueId: params.venueId,
-        weekStart: params.weekStart,
-        weekEnd: params.weekEnd,
-      },
-      select: { status: true },
+      const current = await tx.weeklyReport.findFirst({
+        where: {
+          id: params.reportId,
+          tenantId: params.tenantId,
+          venueId: params.venueId,
+          weekStart: params.weekStart,
+          weekEnd: params.weekEnd,
+        },
+        select: { status: true },
+      })
+      if (!current) return { state: 'missing' }
+      if (current.status === 'GENERATING' || current.status === 'FAILED') return { state: 'leased' }
+      await consumeWeeklyReportDispatch(tx, params)
+      return { state: 'terminal' }
     }),
   )
-  if (!current) return { state: 'missing' }
-  return current.status === 'GENERATING' || current.status === 'FAILED'
-    ? { state: 'leased' }
-    : { state: 'terminal' }
 }
 
 export async function acquireAnswerAnalysisRecoveryExecution(
@@ -142,40 +209,51 @@ export async function acquireAnswerAnalysisRecoveryExecution(
 ): Promise<GenerationRecoveryExecutionAcquisition> {
   validateObservedLeaseToken(params.observedLeaseToken)
   const leaseToken = randomUUID()
-  const acquired = await withTenantIsolationBypass(
-    () =>
-      db.$executeRaw`
+  return withTenantIsolationBypass(() =>
+    db.$transaction(async (tx) => {
+      const acquired = await tx.$executeRaw`
       UPDATE answer_analysis_snapshots
       SET
+        status = 'GENERATING',
+        error = NULL,
         execution_lease_token = ${leaseToken}::uuid,
-        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond'
+        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond',
+        recovery_lineage_token = ${params.observedLeaseToken}::uuid
       WHERE id = ${params.snapshotId}
         AND tenant_id = ${params.tenantId}
         AND venue_id = ${params.venueId}
         AND range_start = ${params.rangeStart}
         AND range_end = ${params.rangeEnd}
-        AND status = 'GENERATING'
-        AND execution_lease_token = ${params.observedLeaseToken}::uuid
-        AND execution_lease_expires_at IS NOT NULL
-        AND execution_lease_expires_at <= clock_timestamp()
-    `,
-  )
-  if (acquired === 1) return { state: 'acquired', leaseToken }
+        AND ((status = 'GENERATING'
+          AND execution_lease_token = ${params.observedLeaseToken}::uuid
+          AND execution_lease_expires_at IS NOT NULL
+          AND execution_lease_expires_at <= clock_timestamp())
+          OR (status = 'FAILED'
+            AND execution_lease_token IS NULL
+            AND execution_lease_expires_at IS NULL
+            AND recovery_lineage_token = ${params.observedLeaseToken}::uuid))
+    `
+      if (acquired === 1) {
+        await consumeAnswerAnalysisDispatch(tx, params)
+        return { state: 'acquired', leaseToken }
+      }
 
-  const current = await withTenantIsolationBypass(() =>
-    db.answerAnalysisSnapshot.findFirst({
-      where: {
-        id: params.snapshotId,
-        tenantId: params.tenantId,
-        venueId: params.venueId,
-        rangeStart: params.rangeStart,
-        rangeEnd: params.rangeEnd,
-      },
-      select: { status: true },
+      const current = await tx.answerAnalysisSnapshot.findFirst({
+        where: {
+          id: params.snapshotId,
+          tenantId: params.tenantId,
+          venueId: params.venueId,
+          rangeStart: params.rangeStart,
+          rangeEnd: params.rangeEnd,
+        },
+        select: { status: true },
+      })
+      if (!current) return { state: 'missing' }
+      if (current.status !== 'COMPLETE') return { state: 'ineligible' }
+      await consumeAnswerAnalysisDispatch(tx, params)
+      return { state: 'terminal' }
     }),
   )
-  if (!current) return { state: 'missing' }
-  return current.status === 'COMPLETE' ? { state: 'terminal' } : { state: 'ineligible' }
 }
 
 export async function acquireWeeklyReportRecoveryExecution(
@@ -183,40 +261,50 @@ export async function acquireWeeklyReportRecoveryExecution(
 ): Promise<GenerationRecoveryExecutionAcquisition> {
   validateObservedLeaseToken(params.observedLeaseToken)
   const leaseToken = randomUUID()
-  const acquired = await withTenantIsolationBypass(
-    () =>
-      db.$executeRaw`
+  return withTenantIsolationBypass(() =>
+    db.$transaction(async (tx) => {
+      const acquired = await tx.$executeRaw`
       UPDATE weekly_reports
       SET
+        status = 'GENERATING',
+        error = NULL,
         execution_lease_token = ${leaseToken}::uuid,
-        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond'
+        execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond',
+        recovery_lineage_token = ${params.observedLeaseToken}::uuid
       WHERE id = ${params.reportId}
         AND tenant_id = ${params.tenantId}
         AND venue_id = ${params.venueId}
         AND week_start = ${params.weekStart}
         AND week_end = ${params.weekEnd}
-        AND status = 'GENERATING'
-        AND execution_lease_token = ${params.observedLeaseToken}::uuid
-        AND execution_lease_expires_at IS NOT NULL
-        AND execution_lease_expires_at <= clock_timestamp()
-    `,
-  )
-  if (acquired === 1) return { state: 'acquired', leaseToken }
+        AND ((status = 'GENERATING'
+          AND execution_lease_token = ${params.observedLeaseToken}::uuid
+          AND execution_lease_expires_at IS NOT NULL
+          AND execution_lease_expires_at <= clock_timestamp())
+          OR (status = 'FAILED'
+            AND execution_lease_token IS NULL
+            AND execution_lease_expires_at IS NULL
+            AND recovery_lineage_token = ${params.observedLeaseToken}::uuid))
+    `
+      if (acquired === 1) {
+        await consumeWeeklyReportDispatch(tx, params)
+        return { state: 'acquired', leaseToken }
+      }
 
-  const current = await withTenantIsolationBypass(() =>
-    db.weeklyReport.findFirst({
-      where: {
-        id: params.reportId,
-        tenantId: params.tenantId,
-        venueId: params.venueId,
-        weekStart: params.weekStart,
-        weekEnd: params.weekEnd,
-      },
-      select: { status: true },
+      const current = await tx.weeklyReport.findFirst({
+        where: {
+          id: params.reportId,
+          tenantId: params.tenantId,
+          venueId: params.venueId,
+          weekStart: params.weekStart,
+          weekEnd: params.weekEnd,
+        },
+        select: { status: true },
+      })
+      if (!current) return { state: 'missing' }
+      if (current.status !== 'DRAFT' && current.status !== 'PUBLISHED')
+        return { state: 'ineligible' }
+      await consumeWeeklyReportDispatch(tx, params)
+      return { state: 'terminal' }
     }),
   )
-  if (!current) return { state: 'missing' }
-  return current.status === 'DRAFT' || current.status === 'PUBLISHED'
-    ? { state: 'terminal' }
-    : { state: 'ineligible' }
 }

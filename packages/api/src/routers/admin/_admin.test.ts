@@ -28,10 +28,13 @@ const {
   weeklyReportUpdateMany,
   venueFindFirst,
   venueCreate,
+  generationRequestDispatchFindFirst,
+  generationRequestDispatchCreate,
+  auditLogCreate,
+  dbTransaction,
   writeAuditLogMock,
   enqueueWeeklyDigest,
-  enqueueAnswerAnalysis,
-  enqueueWeeklyReport,
+  enqueueGenerationDispatchKick,
   createOrganizationMock,
   currentUserMock,
   loggerWarn,
@@ -62,10 +65,13 @@ const {
   weeklyReportUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   venueCreate: vi.fn(),
+  generationRequestDispatchFindFirst: vi.fn(),
+  generationRequestDispatchCreate: vi.fn(),
+  auditLogCreate: vi.fn(),
+  dbTransaction: vi.fn(),
   writeAuditLogMock: vi.fn(),
   enqueueWeeklyDigest: vi.fn(),
-  enqueueAnswerAnalysis: vi.fn(),
-  enqueueWeeklyReport: vi.fn(),
+  enqueueGenerationDispatchKick: vi.fn(),
   createOrganizationMock: vi.fn(),
   currentUserMock: vi.fn(),
   loggerWarn: vi.fn(),
@@ -75,8 +81,8 @@ vi.mock('@pathfinder/config/logger', () => ({
   logger: { warn: loggerWarn },
 }))
 
-vi.mock('@pathfinder/db', () => ({
-  db: {
+vi.mock('@pathfinder/db', () => {
+  const transactionDb = {
     tenant: {
       findMany: tenantFindMany,
       findUnique: tenantFindUnique,
@@ -127,15 +133,26 @@ vi.mock('@pathfinder/db', () => ({
       findFirst: venueFindFirst,
       create: venueCreate,
     },
-  },
-  writeAuditLog: writeAuditLogMock,
-  withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
-}))
+    generationRequestDispatch: {
+      findFirst: generationRequestDispatchFindFirst,
+      create: generationRequestDispatchCreate,
+    },
+    auditLog: { create: auditLogCreate },
+  }
+  return {
+    db: {
+      ...transactionDb,
+      $transaction: (callback: (transaction: typeof transactionDb) => Promise<unknown>) =>
+        dbTransaction(callback, transactionDb),
+    },
+    writeAuditLog: writeAuditLogMock,
+    withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
+  }
+})
 
 vi.mock('@pathfinder/jobs', () => ({
   enqueueWeeklyDigest,
-  enqueueAnswerAnalysis,
-  enqueueWeeklyReport,
+  enqueueGenerationDispatchKick,
 }))
 
 vi.mock('@pathfinder/auth', async (importOriginal) => {
@@ -149,6 +166,7 @@ vi.mock('@pathfinder/auth', async (importOriginal) => {
 
 import { router } from '../../core'
 import type { TRPCContext } from '../../context'
+import { generationRequestHash } from '../../lib/generation-request-identity'
 import { adminRouter } from './_admin'
 
 const baseCtx = {
@@ -190,6 +208,17 @@ describe('admin router', () => {
     visitorSessionUpdateMany.mockResolvedValue({ count: 1 })
     answerAnalysisSnapshotUpdateMany.mockResolvedValue({ count: 1 })
     weeklyReportUpdateMany.mockResolvedValue({ count: 1 })
+    dbTransaction.mockImplementation(
+      async (callback: (transaction: unknown) => Promise<unknown>, transaction: unknown) =>
+        callback(transaction),
+    )
+    generationRequestDispatchFindFirst.mockResolvedValue(null)
+    generationRequestDispatchCreate.mockImplementation(async ({ data }) => ({
+      id: data.id,
+      recordId: data.recordId,
+      requestHash: data.requestHash,
+      status: 'PENDING',
+    }))
   })
 
   it('admin.triggerDigest creates a digest for the current week and enqueues it', async () => {
@@ -592,19 +621,17 @@ describe('admin router', () => {
     expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
-  it('admin.generateAnswerAnalysis proves venue ownership before create and enqueue', async () => {
+  it('admin.generateAnswerAnalysis atomically creates domain, dispatch, and audit', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
 
     const caller = testRouter.createCaller(adminCtx())
-    await expect(
-      caller.admin.generateAnswerAnalysis({
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        rangeStart: '2026-07-01T00:00:00.000Z',
-        rangeEnd: '2026-07-31T23:59:59.999Z',
-      }),
-    ).resolves.toEqual({ snapshotId: 'snapshot_1' })
+    const result = await caller.admin.generateAnswerAnalysis({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      rangeStart: '2026-07-01T00:00:00.000Z',
+      rangeEnd: '2026-07-31T23:59:59.999Z',
+      requestId: '11111111-1111-4111-8111-111111111111',
+    })
 
     expect(venueFindFirst).toHaveBeenCalledWith({
       where: { id: 'venue_1', tenantId: 'tenant_1' },
@@ -619,119 +646,108 @@ describe('admin router', () => {
         }),
       }),
     )
-    expect(enqueueAnswerAnalysis).toHaveBeenCalledWith(
+    expect(generationRequestDispatchCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        snapshotId: 'snapshot_1',
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          kind: 'ANSWER_ANALYSIS',
+          requestId: '11111111-1111-4111-8111-111111111111',
+          requestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+          answerAnalysisSnapshotId: expect.any(String),
+        }),
       }),
     )
-    expect(writeAuditLogMock).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      actorId: 'admin_1',
-      actorRole: 'PLATFORM_ADMIN',
-      action: 'admin.answer_analysis.requested',
-      targetType: 'AnswerAnalysisSnapshot',
-      targetId: 'snapshot_1',
-      afterState: {
-        venueId: 'venue_1',
-        rangeStart: '2026-07-01T00:00:00.000Z',
-        rangeEnd: '2026-07-31T23:59:59.999Z',
-      },
+    expect(auditLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'admin.answer_analysis.requested',
+          targetId: result.snapshotId,
+        }),
+      }),
+    )
+    expect(enqueueGenerationDispatchKick).toHaveBeenCalledWith(expect.any(String))
+    expect(result).toEqual({
+      snapshotId: expect.any(String),
+      requestId: '11111111-1111-4111-8111-111111111111',
+      dispatchState: 'PENDING',
+      replayed: false,
     })
-    expect(answerAnalysisSnapshotCreate.mock.invocationCallOrder[0]).toBeLessThan(
-      writeAuditLogMock.mock.invocationCallOrder[0]!,
-    )
-    expect(writeAuditLogMock.mock.invocationCallOrder[0]).toBeLessThan(
-      enqueueAnswerAnalysis.mock.invocationCallOrder[0]!,
-    )
   })
 
-  it('admin.generateAnswerAnalysis records a safe exact failure and preserves enqueue rejection', async () => {
-    const enqueueError = new Error('redis://private-host queue unavailable')
+  it('admin.generateAnswerAnalysis preserves durable success when the best-effort kick fails', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
-    enqueueAnswerAnalysis.mockRejectedValueOnce(enqueueError)
+    enqueueGenerationDispatchKick.mockRejectedValueOnce(
+      new Error('redis://private-host queue unavailable'),
+    )
 
     const caller = testRouter.createCaller(adminCtx())
-    await expect(
-      caller.admin.generateAnswerAnalysis({
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        rangeStart: '2026-07-01T00:00:00.000Z',
-        rangeEnd: '2026-07-31T23:59:59.999Z',
-      }),
-    ).rejects.toMatchObject({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Answer analysis could not be queued.',
-      cause: enqueueError,
-    })
-
-    expect(answerAnalysisSnapshotUpdateMany).toHaveBeenCalledWith({
-      where: {
-        id: 'snapshot_1',
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        status: 'GENERATING',
-        executionLeaseToken: null,
-        executionLeaseExpiresAt: null,
-      },
-      data: {
-        status: 'FAILED',
-        error: 'Answer analysis enqueue could not be confirmed.',
-        generatedAt: null,
-      },
-    })
-    expect(JSON.stringify(answerAnalysisSnapshotUpdateMany.mock.calls)).not.toContain(
-      'private-host',
-    )
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'admin.answer_analysis.requested',
-        targetId: 'snapshot_1',
-      }),
-    )
-    expect(loggerWarn).not.toHaveBeenCalled()
-  })
-
-  it('admin.generateAnswerAnalysis preserves enqueue rejection when compensation misses', async () => {
-    const enqueueError = new Error('queue response lost')
-    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
-    enqueueAnswerAnalysis.mockRejectedValueOnce(enqueueError)
-    answerAnalysisSnapshotUpdateMany.mockResolvedValueOnce({ count: 0 })
-
-    const caller = testRouter.createCaller(adminCtx())
-    await expect(
-      caller.admin.generateAnswerAnalysis({
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        rangeStart: '2026-07-01T00:00:00.000Z',
-        rangeEnd: '2026-07-31T23:59:59.999Z',
-      }),
-    ).rejects.toMatchObject({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Answer analysis could not be queued.',
-      cause: enqueueError,
-    })
-
-    expect(loggerWarn).toHaveBeenCalledWith({
-      action: 'admin.answer-analysis.enqueue-compensation.missed',
+    const result = await caller.admin.generateAnswerAnalysis({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
-      snapshotId: 'snapshot_1',
-      error: 'Answer analysis enqueue state no longer matched.',
+      rangeStart: '2026-07-01T00:00:00.000Z',
+      rangeEnd: '2026-07-31T23:59:59.999Z',
+      requestId: '22222222-2222-4222-8222-222222222222',
     })
+
+    expect(result).toEqual({
+      snapshotId: expect.any(String),
+      requestId: '22222222-2222-4222-8222-222222222222',
+      dispatchState: 'PENDING',
+      replayed: false,
+    })
+    expect(answerAnalysisSnapshotUpdateMany).not.toHaveBeenCalled()
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin.answer-analysis.dispatch-kick.failed',
+        error: 'Durable analysis request is pending dispatcher retry.',
+      }),
+    )
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private-host')
   })
 
-  it('admin.generateAnswerAnalysis preserves enqueue rejection when compensation throws', async () => {
-    const enqueueError = new Error('queue response lost')
-    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
-    enqueueAnswerAnalysis.mockRejectedValueOnce(enqueueError)
-    answerAnalysisSnapshotUpdateMany.mockRejectedValueOnce(
-      new TypeError('database credentials must stay private'),
-    )
+  it('admin.generateAnswerAnalysis replays an exact request without duplicate writes', async () => {
+    generationRequestDispatchFindFirst.mockResolvedValueOnce({
+      id: 'dispatch_existing',
+      recordId: 'snapshot_existing',
+      requestHash: generationRequestHash({
+        kind: 'ANSWER_ANALYSIS',
+        venueId: 'venue_1',
+        rangeStart: new Date('2026-07-01T00:00:00.000Z'),
+        rangeEnd: new Date('2026-07-31T23:59:59.999Z'),
+      }),
+      status: 'PENDING',
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    const result = await caller.admin.generateAnswerAnalysis({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      rangeStart: '2026-07-01T00:00:00.000Z',
+      rangeEnd: '2026-07-31T23:59:59.999Z',
+      requestId: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(result).toEqual({
+      snapshotId: 'snapshot_existing',
+      requestId: '33333333-3333-4333-8333-333333333333',
+      dispatchState: 'PENDING',
+      replayed: true,
+    })
+    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(answerAnalysisSnapshotCreate).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).toHaveBeenCalledWith('dispatch_existing')
+  })
+
+  it('admin.generateAnswerAnalysis rejects reuse of a request ID for changed input', async () => {
+    generationRequestDispatchFindFirst.mockResolvedValueOnce({
+      id: 'dispatch_existing',
+      recordId: 'snapshot_existing',
+      requestHash: '0'.repeat(64),
+      status: 'PENDING',
+    })
 
     const caller = testRouter.createCaller(adminCtx())
     await expect(
@@ -740,22 +756,17 @@ describe('admin router', () => {
         venueId: 'venue_1',
         rangeStart: '2026-07-01T00:00:00.000Z',
         rangeEnd: '2026-07-31T23:59:59.999Z',
+        requestId: '44444444-4444-4444-8444-444444444444',
       }),
     ).rejects.toMatchObject({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Answer analysis could not be queued.',
-      cause: enqueueError,
+      code: 'CONFLICT',
+      message: 'Request ID was already used for different analysis input.',
     })
 
-    expect(loggerWarn).toHaveBeenCalledWith({
-      action: 'admin.answer-analysis.enqueue-compensation.failed',
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-      snapshotId: 'snapshot_1',
-      error: 'Answer analysis enqueue failure could not be recorded.',
-      errorType: 'TypeError',
-    })
-    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('credentials')
+    expect(answerAnalysisSnapshotCreate).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
   })
 
   it('admin.generateAnswerAnalysis rejects a venue mismatch before create or enqueue', async () => {
@@ -768,6 +779,7 @@ describe('admin router', () => {
         venueId: 'other_tenant_venue',
         rangeStart: '2026-07-01T00:00:00.000Z',
         rangeEnd: '2026-07-31T23:59:59.999Z',
+        requestId: '55555555-5555-4555-8555-555555555555',
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
 
@@ -776,8 +788,9 @@ describe('admin router', () => {
       select: { id: true },
     })
     expect(answerAnalysisSnapshotCreate).not.toHaveBeenCalled()
-    expect(enqueueAnswerAnalysis).not.toHaveBeenCalled()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
   })
 
   it('admin.getAnswerAnalysis binds the detail read to tenant, venue, and snapshot', async () => {
@@ -889,9 +902,8 @@ describe('admin router', () => {
     expect(createOrganizationMock).not.toHaveBeenCalled()
   })
 
-  it('admin.generateWeeklyReportDraft always creates a new row (no reuse) and accepts a custom title', async () => {
+  it('admin.generateWeeklyReportDraft atomically creates domain, dispatch, and audit', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
 
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.generateWeeklyReportDraft({
@@ -900,10 +912,15 @@ describe('admin router', () => {
       weekStart: '2026-07-01T00:00:00.000Z',
       weekEnd: '2026-07-15T23:59:59.999Z',
       title: 'My custom report title',
+      requestId: '66666666-6666-4666-8666-666666666666',
     })
 
-    expect(result).toEqual({ reportId: 'report_new' })
-    expect(weeklyReportFindUnique).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      reportId: expect.any(String),
+      requestId: '66666666-6666-4666-8666-666666666666',
+      dispatchState: 'PENDING',
+      replayed: false,
+    })
     expect(weeklyReportCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -912,28 +929,27 @@ describe('admin router', () => {
         }),
       }),
     )
-    expect(enqueueWeeklyReport).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1', reportId: 'report_new' }),
+    expect(generationRequestDispatchCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          kind: 'WEEKLY_REPORT',
+          requestId: '66666666-6666-4666-8666-666666666666',
+          requestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+          weeklyReportId: expect.any(String),
+        }),
+      }),
     )
-    expect(writeAuditLogMock).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      actorId: 'admin_1',
-      actorRole: 'PLATFORM_ADMIN',
-      action: 'admin.report.requested',
-      targetType: 'WeeklyReport',
-      targetId: 'report_new',
-      afterState: {
-        venueId: 'venue_1',
-        weekStart: '2026-07-01T00:00:00.000Z',
-        weekEnd: '2026-07-15T23:59:59.999Z',
-      },
-    })
-    expect(weeklyReportCreate.mock.invocationCallOrder[0]).toBeLessThan(
-      writeAuditLogMock.mock.invocationCallOrder[0]!,
+    expect(auditLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'admin.report.requested',
+          targetId: result.reportId,
+        }),
+      }),
     )
-    expect(writeAuditLogMock.mock.invocationCallOrder[0]).toBeLessThan(
-      enqueueWeeklyReport.mock.invocationCallOrder[0]!,
-    )
+    expect(enqueueGenerationDispatchKick).toHaveBeenCalledWith(expect.any(String))
   })
 
   it('admin.generateWeeklyReportDraft rejects a venue outside the supplied tenant', async () => {
@@ -947,6 +963,7 @@ describe('admin router', () => {
         venueId: 'other_tenant_venue',
         weekStart: '2026-07-01T00:00:00.000Z',
         weekEnd: '2026-07-07T23:59:59.999Z',
+        requestId: '77777777-7777-4777-8777-777777777777',
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
 
@@ -955,104 +972,104 @@ describe('admin router', () => {
       select: { id: true },
     })
     expect(weeklyReportCreate).not.toHaveBeenCalled()
-    expect(enqueueWeeklyReport).not.toHaveBeenCalled()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
   })
 
-  it('admin.generateWeeklyReportDraft compensates a failed enqueue and preserves the original cause', async () => {
-    const enqueueError = new Error('redis://private-host queue unavailable')
-    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
-    enqueueWeeklyReport.mockRejectedValueOnce(enqueueError)
+  it('admin.generateWeeklyReportDraft replays an exact request without duplicate writes', async () => {
+    generationRequestDispatchFindFirst.mockResolvedValueOnce({
+      id: 'dispatch_existing',
+      recordId: 'report_existing',
+      requestHash: generationRequestHash({
+        kind: 'WEEKLY_REPORT',
+        venueId: 'venue_1',
+        rangeStart: new Date('2026-07-01T00:00:00.000Z'),
+        rangeEnd: new Date('2026-07-07T23:59:59.999Z'),
+        title: 'PathFinder Weekly Report',
+      }),
+      status: 'PENDING',
+    })
 
     const caller = testRouter.createCaller(adminCtx())
-    const operation = caller.admin.generateWeeklyReportDraft({
+    const result = await caller.admin.generateWeeklyReportDraft({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       weekStart: '2026-07-01T00:00:00.000Z',
       weekEnd: '2026-07-07T23:59:59.999Z',
+      requestId: '88888888-8888-4888-8888-888888888888',
     })
 
-    await expect(operation).rejects.toMatchObject({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Weekly report could not be queued.',
-      cause: enqueueError,
+    expect(result).toEqual({
+      reportId: 'report_existing',
+      requestId: '88888888-8888-4888-8888-888888888888',
+      dispatchState: 'PENDING',
+      replayed: true,
     })
-    expect(weeklyReportUpdateMany).toHaveBeenCalledWith({
-      where: {
-        id: 'report_new',
+    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(weeklyReportCreate).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).toHaveBeenCalledWith('dispatch_existing')
+  })
+
+  it('admin.generateWeeklyReportDraft rejects reuse of a request ID for changed input', async () => {
+    generationRequestDispatchFindFirst.mockResolvedValueOnce({
+      id: 'dispatch_existing',
+      recordId: 'report_existing',
+      requestHash: 'f'.repeat(64),
+      status: 'PENDING',
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
         tenantId: 'tenant_1',
         venueId: 'venue_1',
-        status: 'GENERATING',
-        executionLeaseToken: null,
-        executionLeaseExpiresAt: null,
-      },
-      data: {
-        status: 'FAILED',
-        error: 'Weekly report enqueue could not be confirmed.',
-        generatedAt: null,
-      },
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+        title: 'Changed title',
+        requestId: '99999999-9999-4999-8999-999999999999',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Request ID was already used for different report input.',
     })
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'admin.report.requested', targetId: 'report_new' }),
+
+    expect(weeklyReportCreate).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
+  })
+
+  it('admin.generateWeeklyReportDraft preserves durable success when the best-effort kick fails', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    enqueueGenerationDispatchKick.mockRejectedValueOnce(
+      new Error('redis://private-host queue unavailable'),
     )
-    expect(JSON.stringify(weeklyReportUpdateMany.mock.calls)).not.toContain('private-host')
-    expect(loggerWarn).not.toHaveBeenCalled()
-  })
-
-  it('admin.generateWeeklyReportDraft emits a sanitized warning when compensation misses', async () => {
-    const enqueueError = new Error('redis://private-host queue unavailable')
-    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
-    enqueueWeeklyReport.mockRejectedValueOnce(enqueueError)
-    weeklyReportUpdateMany.mockResolvedValueOnce({ count: 0 })
 
     const caller = testRouter.createCaller(adminCtx())
-    await expect(
-      caller.admin.generateWeeklyReportDraft({
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        weekStart: '2026-07-01T00:00:00.000Z',
-        weekEnd: '2026-07-07T23:59:59.999Z',
-      }),
-    ).rejects.toMatchObject({ cause: enqueueError })
-
-    expect(loggerWarn).toHaveBeenCalledWith({
-      action: 'admin.weekly-report.enqueue-compensation.missed',
+    const result = await caller.admin.generateWeeklyReportDraft({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
-      reportId: 'report_new',
-      error: 'Weekly report enqueue state no longer matched.',
+      weekStart: '2026-07-01T00:00:00.000Z',
+      weekEnd: '2026-07-07T23:59:59.999Z',
+      requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     })
-    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private-host')
-  })
 
-  it('admin.generateWeeklyReportDraft emits a sanitized warning when compensation fails', async () => {
-    const enqueueError = new Error('redis://private-host queue unavailable')
-    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
-    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
-    enqueueWeeklyReport.mockRejectedValueOnce(enqueueError)
-    weeklyReportUpdateMany.mockRejectedValueOnce(new TypeError('postgres://secret@private-host'))
-
-    const caller = testRouter.createCaller(adminCtx())
-    await expect(
-      caller.admin.generateWeeklyReportDraft({
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-        weekStart: '2026-07-01T00:00:00.000Z',
-        weekEnd: '2026-07-07T23:59:59.999Z',
+    expect(result).toEqual({
+      reportId: expect.any(String),
+      requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      dispatchState: 'PENDING',
+      replayed: false,
+    })
+    expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+    expect(loggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin.weekly-report.dispatch-kick.failed',
+        error: 'Durable report request is pending dispatcher retry.',
       }),
-    ).rejects.toMatchObject({ cause: enqueueError })
-
-    expect(loggerWarn).toHaveBeenCalledWith({
-      action: 'admin.weekly-report.enqueue-compensation.failed',
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-      reportId: 'report_new',
-      error: 'Weekly report enqueue failure could not be recorded.',
-      errorType: 'TypeError',
-    })
-    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('secret')
+    )
     expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private-host')
   })
 

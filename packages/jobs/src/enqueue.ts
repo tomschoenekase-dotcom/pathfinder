@@ -22,6 +22,8 @@ import {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
+  GENERATION_DISPATCH_KICK_JOB,
+  GENERATION_DISPATCH_QUEUE,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -43,6 +45,7 @@ import type {
   DailyRollupJobPayload,
   EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
+  GenerationDispatchKickJobPayload,
   SendWelcomeEmailJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
@@ -51,6 +54,29 @@ import type {
 
 const queueCache = new Map<string, Queue>()
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+const GENERATION_DISPATCH_ID_MAX_LENGTH = 200
+
+function validateGenerationDispatchId(dispatchId: string): void {
+  if (
+    typeof dispatchId !== 'string' ||
+    dispatchId.trim().length === 0 ||
+    dispatchId.length > GENERATION_DISPATCH_ID_MAX_LENGTH
+  ) {
+    throw new Error(
+      `Generation dispatch ID must be a nonempty opaque identifier of at most ${GENERATION_DISPATCH_ID_MAX_LENGTH} characters`,
+    )
+  }
+}
+
+function generationDispatchJobId(
+  target: 'kick' | 'answer-analysis' | 'weekly-report',
+  dispatchId: string,
+): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['pathfinder-generation-dispatch-v1', target, dispatchId]))
+    .digest('hex')
+  return `generation-dispatch-${target}-${digest}`
+}
 
 function normalizeObservedLeaseToken(observedLeaseToken: string): string {
   if (!UUID_PATTERN.test(observedLeaseToken)) {
@@ -100,6 +126,11 @@ const answerAnalysisJobOptions: JobsOptions = {
   removeOnFail: 5000,
 }
 
+const answerAnalysisRecoveryJobOptions: JobsOptions = {
+  ...answerAnalysisJobOptions,
+  removeOnFail: true,
+}
+
 const weeklyReportJobOptions: JobsOptions = {
   attempts: 6,
   backoff: {
@@ -107,6 +138,18 @@ const weeklyReportJobOptions: JobsOptions = {
   },
   removeOnComplete: 1000,
   removeOnFail: 5000,
+}
+
+const weeklyReportRecoveryJobOptions: JobsOptions = {
+  ...weeklyReportJobOptions,
+  removeOnFail: true,
+}
+
+const generationDispatchKickJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 5_000 },
+  removeOnComplete: 1000,
+  removeOnFail: true,
 }
 
 const dailyRollupJobOptions: JobsOptions = {
@@ -206,6 +249,33 @@ export async function enqueueAnswerAnalysis(payload: AnswerAnalysisJobPayload): 
   })
 }
 
+export async function enqueueGenerationDispatchKick(dispatchId: string): Promise<void> {
+  validateGenerationDispatchId(dispatchId)
+  const payload: GenerationDispatchKickJobPayload = { dispatchId }
+
+  await getQueue(GENERATION_DISPATCH_QUEUE).add(GENERATION_DISPATCH_KICK_JOB, payload, {
+    ...generationDispatchKickJobOptions,
+    jobId: generationDispatchJobId('kick', dispatchId),
+  })
+
+  logger.info({ action: 'jobs.generation-dispatch.kick-enqueued' })
+}
+
+export async function enqueueAnswerAnalysisDispatch(
+  payload: AnswerAnalysisJobPayload,
+  dispatchId: string,
+): Promise<void> {
+  validateGenerationDispatchId(dispatchId)
+
+  await getQueue(ANSWER_ANALYSIS_QUEUE).add(ANSWER_ANALYSIS_PROCESS_JOB, payload, {
+    ...answerAnalysisJobOptions,
+    removeOnFail: true,
+    jobId: generationDispatchJobId('answer-analysis', dispatchId),
+  })
+
+  logger.info({ action: 'jobs.answer-analysis.dispatch-enqueued' })
+}
+
 export async function enqueueAnswerAnalysisRecovery(
   payload: AnswerAnalysisJobPayload,
   observedLeaseToken: string,
@@ -224,7 +294,7 @@ export async function enqueueAnswerAnalysisRecovery(
     ANSWER_ANALYSIS_RECOVERY_JOB,
     { ...payload, observedLeaseToken: normalizedLeaseToken },
     {
-      ...answerAnalysisJobOptions,
+      ...answerAnalysisRecoveryJobOptions,
       jobId,
     },
   )
@@ -248,6 +318,21 @@ export async function enqueueWeeklyReport(payload: WeeklyReportJobPayload): Prom
   })
 }
 
+export async function enqueueWeeklyReportDispatch(
+  payload: WeeklyReportJobPayload,
+  dispatchId: string,
+): Promise<void> {
+  validateGenerationDispatchId(dispatchId)
+
+  await getQueue(WEEKLY_REPORT_QUEUE).add(WEEKLY_REPORT_PROCESS_JOB, payload, {
+    ...weeklyReportJobOptions,
+    removeOnFail: true,
+    jobId: generationDispatchJobId('weekly-report', dispatchId),
+  })
+
+  logger.info({ action: 'jobs.weekly-report.dispatch-enqueued' })
+}
+
 export async function enqueueWeeklyReportRecovery(
   payload: WeeklyReportJobPayload,
   observedLeaseToken: string,
@@ -266,7 +351,7 @@ export async function enqueueWeeklyReportRecovery(
     WEEKLY_REPORT_RECOVERY_JOB,
     { ...payload, observedLeaseToken: normalizedLeaseToken },
     {
-      ...weeklyReportJobOptions,
+      ...weeklyReportRecoveryJobOptions,
       jobId,
     },
   )

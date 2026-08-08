@@ -52,6 +52,7 @@ model Tenant {
   embeddingWorkClaims         EmbeddingWorkClaim[]
   embeddingDispatches         EmbeddingDispatch[]
   venueContentImportReceipts  VenueContentImportReceipt[]
+  generationRequestDispatches GenerationRequestDispatch[]
 
   @@map("tenants")
 }
@@ -178,49 +179,50 @@ enum AnswerAnalysisStatus {
 }
 
 model Venue {
-  id                      String                       @id @default(cuid())
-  tenantId                String                       @map("tenant_id")
-  name                    String
-  slug                    String
-  description             String?
-  guideNotes              String?                      @map("guide_notes")
-  aiGuideNotes            String?                      @map("ai_guide_notes")
-  aiFeaturedPlaceId       String?                      @map("ai_featured_place_id")
-  aiTone                  String?                      @default("FRIENDLY") @map("ai_tone")
-  aiGuideName             String?                      @map("ai_guide_name")
-  chatTheme               String?                      @default("default") @map("chat_theme")
-  chatAccentColor         String?                      @map("chat_accent_color")
-  chatFont                String?                      @default("jakarta") @map("chat_font")
-  chatLogoUrl             String?                      @map("chat_logo_url")
-  chatBannerUrl           String?                      @map("chat_banner_url")
-  category                String?
-  guideMode               String                       @default("location_aware") @map("guide_mode")
-  defaultCenterLat        Float?                       @map("default_center_lat")
-  defaultCenterLng        Float?                       @map("default_center_lng")
-  geoBoundary             Json?                        @map("geo_boundary")
-  isActive                Boolean                      @default(true) @map("is_active")
-  createdAt               DateTime                     @default(now()) @map("created_at")
-  updatedAt               DateTime                     @updatedAt @map("updated_at")
-  tenant                  Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  places                  Place[]
-  sessions                VisitorSession[]
-  adapters                DataAdapter[]
-  operationalUpdates      OperationalUpdate[]
-  analyticsEvents         AnalyticsEvent[]
-  dailyRollups            DailyRollup[]
-  questionClusters        QuestionCluster[]
-  knowledgeEntries        VenueKnowledgeEntry[]
-  engagementResponses     EngagementQuestionResponse[]
-  adminChatlogNotes       AdminChatlogNote[]
-  weeklyReports           WeeklyReport[]
-  answerAnalysisSnapshots AnswerAnalysisSnapshot[]
-  weeklyThemes            VenueWeeklyTheme[]
-  mediaIngestionProjects  MediaIngestionProject[]
-  aiUsageEvents           AiUsageEvent[]
-  aiUsageDailyRollups     AiUsageDailyRollup[]
-  embeddingWorkClaims     EmbeddingWorkClaim[]
-  embeddingDispatches     EmbeddingDispatch[]
-  contentImportReceipts   VenueContentImportReceipt[]
+  id                          String                       @id @default(cuid())
+  tenantId                    String                       @map("tenant_id")
+  name                        String
+  slug                        String
+  description                 String?
+  guideNotes                  String?                      @map("guide_notes")
+  aiGuideNotes                String?                      @map("ai_guide_notes")
+  aiFeaturedPlaceId           String?                      @map("ai_featured_place_id")
+  aiTone                      String?                      @default("FRIENDLY") @map("ai_tone")
+  aiGuideName                 String?                      @map("ai_guide_name")
+  chatTheme                   String?                      @default("default") @map("chat_theme")
+  chatAccentColor             String?                      @map("chat_accent_color")
+  chatFont                    String?                      @default("jakarta") @map("chat_font")
+  chatLogoUrl                 String?                      @map("chat_logo_url")
+  chatBannerUrl               String?                      @map("chat_banner_url")
+  category                    String?
+  guideMode                   String                       @default("location_aware") @map("guide_mode")
+  defaultCenterLat            Float?                       @map("default_center_lat")
+  defaultCenterLng            Float?                       @map("default_center_lng")
+  geoBoundary                 Json?                        @map("geo_boundary")
+  isActive                    Boolean                      @default(true) @map("is_active")
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  tenant                      Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  places                      Place[]
+  sessions                    VisitorSession[]
+  adapters                    DataAdapter[]
+  operationalUpdates          OperationalUpdate[]
+  analyticsEvents             AnalyticsEvent[]
+  dailyRollups                DailyRollup[]
+  questionClusters            QuestionCluster[]
+  knowledgeEntries            VenueKnowledgeEntry[]
+  engagementResponses         EngagementQuestionResponse[]
+  adminChatlogNotes           AdminChatlogNote[]
+  weeklyReports               WeeklyReport[]
+  answerAnalysisSnapshots     AnswerAnalysisSnapshot[]
+  weeklyThemes                VenueWeeklyTheme[]
+  mediaIngestionProjects      MediaIngestionProject[]
+  aiUsageEvents               AiUsageEvent[]
+  aiUsageDailyRollups         AiUsageDailyRollup[]
+  embeddingWorkClaims         EmbeddingWorkClaim[]
+  embeddingDispatches         EmbeddingDispatch[]
+  contentImportReceipts       VenueContentImportReceipt[]
+  generationRequestDispatches GenerationRequestDispatch[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -682,27 +684,30 @@ model WeeklyDigest {
 }
 
 model WeeklyReport {
-  id                      String             @id @default(cuid())
-  tenantId                String             @map("tenant_id")
-  venueId                 String             @map("venue_id")
-  weekStart               DateTime           @map("week_start")
-  weekEnd                 DateTime           @map("week_end")
-  status                  WeeklyReportStatus @default(GENERATING)
-  title                   String             @default("PathFinder Weekly Report")
-  content                 String?
-  answerCount             Int                @default(0) @map("answer_count")
-  sessionCount            Int                @default(0) @map("session_count")
-  error                   String?
-  generatedAt             DateTime?          @map("generated_at")
-  publishedAt             DateTime?          @map("published_at")
-  createdBy               String             @map("created_by")
-  createdAt               DateTime           @default(now()) @map("created_at")
-  updatedAt               DateTime           @updatedAt @map("updated_at")
-  executionLeaseToken     String?            @map("execution_lease_token") @db.Uuid
-  executionLeaseExpiresAt DateTime?          @map("execution_lease_expires_at")
-  tenant                  Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                   Venue              @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  id                        String                     @id @default(cuid())
+  tenantId                  String                     @map("tenant_id")
+  venueId                   String                     @map("venue_id")
+  weekStart                 DateTime                   @map("week_start")
+  weekEnd                   DateTime                   @map("week_end")
+  status                    WeeklyReportStatus         @default(GENERATING)
+  title                     String                     @default("PathFinder Weekly Report")
+  content                   String?
+  answerCount               Int                        @default(0) @map("answer_count")
+  sessionCount              Int                        @default(0) @map("session_count")
+  error                     String?
+  generatedAt               DateTime?                  @map("generated_at")
+  publishedAt               DateTime?                  @map("published_at")
+  createdBy                 String                     @map("created_by")
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+  executionLeaseToken       String?                    @map("execution_lease_token") @db.Uuid
+  executionLeaseExpiresAt   DateTime?                  @map("execution_lease_expires_at")
+  recoveryLineageToken      String?                    @map("recovery_lineage_token") @db.Uuid
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                     Venue                      @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  generationRequestDispatch GenerationRequestDispatch?
 
+  @@unique([id, tenantId, venueId])
   @@index([venueId, weekStart])
   @@index([tenantId, venueId, weekStart])
   @@index([status])
@@ -711,26 +716,74 @@ model WeeklyReport {
 }
 
 model AnswerAnalysisSnapshot {
-  id                      String               @id @default(cuid())
-  tenantId                String               @map("tenant_id")
-  venueId                 String               @map("venue_id")
-  rangeStart              DateTime             @map("range_start")
-  rangeEnd                DateTime             @map("range_end")
-  status                  AnswerAnalysisStatus @default(GENERATING)
-  summary                 Json?
-  answerCount             Int                  @default(0) @map("answer_count")
-  error                   String?
-  generatedAt             DateTime?            @map("generated_at")
-  createdBy               String               @map("created_by")
-  createdAt               DateTime             @default(now()) @map("created_at")
-  executionLeaseToken     String?              @map("execution_lease_token") @db.Uuid
-  executionLeaseExpiresAt DateTime?            @map("execution_lease_expires_at")
-  tenant                  Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                   Venue                @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  id                        String                     @id @default(cuid())
+  tenantId                  String                     @map("tenant_id")
+  venueId                   String                     @map("venue_id")
+  rangeStart                DateTime                   @map("range_start")
+  rangeEnd                  DateTime                   @map("range_end")
+  status                    AnswerAnalysisStatus       @default(GENERATING)
+  summary                   Json?
+  answerCount               Int                        @default(0) @map("answer_count")
+  error                     String?
+  generatedAt               DateTime?                  @map("generated_at")
+  createdBy                 String                     @map("created_by")
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  executionLeaseToken       String?                    @map("execution_lease_token") @db.Uuid
+  executionLeaseExpiresAt   DateTime?                  @map("execution_lease_expires_at")
+  recoveryLineageToken      String?                    @map("recovery_lineage_token") @db.Uuid
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                     Venue                      @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  generationRequestDispatch GenerationRequestDispatch?
 
+  @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, createdAt])
   @@index([status, executionLeaseExpiresAt])
   @@map("answer_analysis_snapshots")
+}
+
+model GenerationRequestDispatch {
+  id                       String                   @id @default(cuid())
+  tenantId                 String                   @map("tenant_id")
+  venueId                  String                   @map("venue_id")
+  kind                     GenerationRequestKind
+  requestId                String?                  @map("request_id") @db.Uuid
+  requestHash              String?                  @map("request_hash")
+  recordId                 String                   @map("record_id")
+  rangeStart               DateTime                 @map("range_start")
+  rangeEnd                 DateTime                 @map("range_end")
+  status                   GenerationDispatchStatus @default(PENDING)
+  attempts                 Int                      @default(0)
+  nextAttemptAt            DateTime                 @default(now()) @map("next_attempt_at")
+  leaseToken               String?                  @map("lease_token") @db.Uuid
+  leaseExpiresAt           DateTime?                @map("lease_expires_at")
+  lastError                String?                  @map("last_error")
+  consumedAt               DateTime?                @map("consumed_at")
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+  answerAnalysisSnapshotId String?                  @unique @map("answer_analysis_snapshot_id")
+  weeklyReportId           String?                  @unique @map("weekly_report_id")
+  tenant                   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                    Venue                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  answerAnalysisSnapshot   AnswerAnalysisSnapshot?  @relation(fields: [answerAnalysisSnapshotId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+  weeklyReport             WeeklyReport?            @relation(fields: [weeklyReportId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict)
+
+  @@unique([tenantId, kind, requestId])
+  @@unique([tenantId, kind, recordId])
+  @@unique([answerAnalysisSnapshotId, tenantId, venueId])
+  @@unique([weeklyReportId, tenantId, venueId])
+  @@index([status, nextAttemptAt, leaseExpiresAt, createdAt])
+  @@index([tenantId, venueId, createdAt])
+  @@map("generation_request_dispatches")
+}
+
+enum GenerationRequestKind {
+  ANSWER_ANALYSIS
+  WEEKLY_REPORT
+}
+
+enum GenerationDispatchStatus {
+  PENDING
+  CONSUMED
 }
 
 /// Admin-only workspace for turning a venue media archive into reviewed,

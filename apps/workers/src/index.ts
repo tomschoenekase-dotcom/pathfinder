@@ -25,6 +25,9 @@ import {
   EMBED_PLACE_RETRY_BACKOFF,
   EMBEDDING_DISPATCH_QUEUE,
   EMBEDDING_DISPATCH_SCHEDULER_JOB,
+  GENERATION_DISPATCH_KICK_JOB,
+  GENERATION_DISPATCH_QUEUE,
+  GENERATION_DISPATCH_SCHEDULER_JOB,
   GENERATION_RECOVERY_QUEUE,
   GENERATION_RECOVERY_SCHEDULER_JOB,
   enqueueAnalyticsEnrichment,
@@ -40,6 +43,7 @@ import {
   type AnalyticsEnrichmentJobPayload,
   type EmbedKnowledgeEntryJobPayload,
   type EmbedPlaceJobPayload,
+  type GenerationDispatchKickJobPayload,
   type SendWelcomeEmailJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
@@ -64,6 +68,7 @@ import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
+import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
@@ -82,6 +87,7 @@ const DAILY_ROLLUP_CRON = '0 1 * * *'
 // Runs after the daily rollup (01:00) so its pure-SQL rows already exist.
 const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
 const EMBEDDING_DISPATCH_CRON = '* * * * *'
+const GENERATION_DISPATCH_CRON = '* * * * *'
 const GENERATION_RECOVERY_CRON = '* * * * *'
 
 function startOfUtcWeek(date: Date): Date {
@@ -425,6 +431,17 @@ async function handleEmbeddingDispatchQueueJob(job: Job<Record<string, never>>) 
   throw new Error(`Unsupported embedding dispatch job: ${job.name}`)
 }
 
+async function handleGenerationDispatchQueueJob(
+  job: Job<GenerationDispatchKickJobPayload | Record<string, never>>,
+) {
+  if (job.name === GENERATION_DISPATCH_SCHEDULER_JOB || job.name === GENERATION_DISPATCH_KICK_JOB) {
+    await processGenerationDispatches()
+    return
+  }
+
+  throw new Error(`Unsupported generation dispatch job: ${job.name}`)
+}
+
 async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>) {
   if (job.name === GENERATION_RECOVERY_SCHEDULER_JOB) {
     await processGenerationRecovery(getJobExecutionMetadata(job))
@@ -511,6 +528,7 @@ export async function startWorkers() {
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
   const embedPlaceQueue = new Queue(EMBED_PLACE_QUEUE, { connection })
   const embeddingDispatchQueue = new Queue(EMBEDDING_DISPATCH_QUEUE, { connection })
+  const generationDispatchQueue = new Queue(GENERATION_DISPATCH_QUEUE, { connection })
   const generationRecoveryQueue = new Queue(GENERATION_RECOVERY_QUEUE, { connection })
   const analyticsEnrichmentQueue = new Queue(ANALYTICS_ENRICHMENT_QUEUE, { connection })
   const answerAnalysisQueue = new Queue(ANSWER_ANALYSIS_QUEUE, { connection })
@@ -522,6 +540,7 @@ export async function startWorkers() {
     { name: DAILY_ROLLUP_QUEUE, close: () => dailyRollupQueue.close() },
     { name: EMBED_PLACE_QUEUE, close: () => embedPlaceQueue.close() },
     { name: EMBEDDING_DISPATCH_QUEUE, close: () => embeddingDispatchQueue.close() },
+    { name: GENERATION_DISPATCH_QUEUE, close: () => generationDispatchQueue.close() },
     { name: GENERATION_RECOVERY_QUEUE, close: () => generationRecoveryQueue.close() },
     { name: ANALYTICS_ENRICHMENT_QUEUE, close: () => analyticsEnrichmentQueue.close() },
     { name: ANSWER_ANALYSIS_QUEUE, close: () => answerAnalysisQueue.close() },
@@ -602,6 +621,27 @@ export async function startWorkers() {
             },
           ),
         remove: () => embeddingDispatchQueue.removeJobScheduler(EMBEDDING_DISPATCH_SCHEDULER_JOB),
+      },
+    ])
+
+    await applySchedulerState(env.GENERATION_DISPATCH_ENABLED, [
+      {
+        upsert: () =>
+          generationDispatchQueue.upsertJobScheduler(
+            GENERATION_DISPATCH_SCHEDULER_JOB,
+            { pattern: GENERATION_DISPATCH_CRON },
+            {
+              name: GENERATION_DISPATCH_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 10,
+                removeOnFail: 50,
+              },
+            },
+          ),
+        remove: () => generationDispatchQueue.removeJobScheduler(GENERATION_DISPATCH_SCHEDULER_JOB),
       },
     ])
 
@@ -713,6 +753,15 @@ export async function startWorkers() {
   const embeddingDispatchWorker = observeWorkerRuntime(
     EMBEDDING_DISPATCH_QUEUE,
     new Worker(EMBEDDING_DISPATCH_QUEUE, handleEmbeddingDispatchQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
+  // Keep kick consumption active even when recurring dispatch scans are disabled.
+  const generationDispatchWorker = observeWorkerRuntime(
+    GENERATION_DISPATCH_QUEUE,
+    new Worker(GENERATION_DISPATCH_QUEUE, handleGenerationDispatchQueueJob, {
       connection,
       concurrency: 1,
     }),
@@ -834,6 +883,7 @@ export async function startWorkers() {
     { name: EMBED_PLACE_QUEUE, worker: embedPlaceWorker },
     { name: EMBED_KNOWLEDGE_ENTRY_QUEUE, worker: embedKnowledgeEntryWorker },
     { name: EMBEDDING_DISPATCH_QUEUE, worker: embeddingDispatchWorker },
+    { name: GENERATION_DISPATCH_QUEUE, worker: generationDispatchWorker },
     { name: GENERATION_RECOVERY_QUEUE, worker: generationRecoveryWorker },
     { name: ANALYTICS_ENRICHMENT_QUEUE, worker: analyticsEnrichmentWorker },
     { name: SEND_EMAIL_QUEUE, worker: sendEmailWorker },
@@ -851,6 +901,7 @@ export async function startWorkers() {
     action: 'workers.started',
     recurringSchedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
     embeddingDispatchEnabled: env.EMBEDDING_DISPATCH_ENABLED,
+    generationDispatchEnabled: env.GENERATION_DISPATCH_ENABLED,
     generationRecoveryEnabled: env.GENERATION_RECOVERY_ENABLED,
     queues: [
       WEEKLY_DIGEST_QUEUE,
@@ -858,6 +909,7 @@ export async function startWorkers() {
       EMBED_PLACE_QUEUE,
       EMBED_KNOWLEDGE_ENTRY_QUEUE,
       EMBEDDING_DISPATCH_QUEUE,
+      GENERATION_DISPATCH_QUEUE,
       GENERATION_RECOVERY_QUEUE,
       ANALYTICS_ENRICHMENT_QUEUE,
       ANSWER_ANALYSIS_QUEUE,
@@ -928,6 +980,8 @@ export async function startWorkers() {
     embedKnowledgeEntryWorker,
     embeddingDispatchQueue,
     embeddingDispatchWorker,
+    generationDispatchQueue,
+    generationDispatchWorker,
     generationRecoveryQueue,
     generationRecoveryWorker,
     embedPlaceQueue,

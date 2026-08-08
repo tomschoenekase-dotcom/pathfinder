@@ -1,13 +1,19 @@
+import { randomUUID } from 'node:crypto'
+
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config/logger'
 import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
-import { enqueueAnswerAnalysis, enqueueWeeklyDigest, enqueueWeeklyReport } from '@pathfinder/jobs'
+import { enqueueGenerationDispatchKick, enqueueWeeklyDigest } from '@pathfinder/jobs'
 import { createOrganization, currentUser } from '@pathfinder/auth'
 import { adminProcedure } from '../../trpc'
 import { router } from '../../core'
 import { CreateVenueInput } from '../../schemas/venue'
+import {
+  effectiveWeeklyReportTitle,
+  generationRequestHash,
+} from '../../lib/generation-request-identity'
 import { slugify, uniqueSlug } from '../venue'
 
 function startOfCurrentUtcWeek(date: Date): Date {
@@ -28,6 +34,15 @@ function endOfUtcWeek(weekStart: Date): Date {
   result.setUTCHours(23, 59, 59, 999)
 
   return result
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002'
+  )
 }
 
 async function uniqueTenantSlug(base: string): Promise<string> {
@@ -965,101 +980,124 @@ export const adminRouter = router({
         venueId: z.string(),
         rangeStart: z.string().datetime(),
         rangeEnd: z.string().datetime(),
+        requestId: z.string().uuid(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const venue = await withTenantIsolationBypass(async () =>
-        db.venue.findFirst({
-          where: { id: input.venueId, tenantId: input.tenantId },
-          select: { id: true },
-        }),
-      )
-      if (!venue) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
-
-      const snapshot = await withTenantIsolationBypass(async () => {
-        return db.answerAnalysisSnapshot.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            rangeStart: new Date(input.rangeStart),
-            rangeEnd: new Date(input.rangeEnd),
-            status: 'GENERATING',
-            createdBy: ctx.session.userId,
-          },
-          select: { id: true },
-        })
+      const rangeStart = new Date(input.rangeStart)
+      const rangeEnd = new Date(input.rangeEnd)
+      const requestHash = generationRequestHash({
+        kind: 'ANSWER_ANALYSIS',
+        venueId: input.venueId,
+        rangeStart,
+        rangeEnd,
       })
 
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.answer_analysis.requested',
-        targetType: 'AnswerAnalysisSnapshot',
-        targetId: snapshot.id,
-        afterState: {
-          venueId: input.venueId,
-          rangeStart: input.rangeStart,
-          rangeEnd: input.rangeEnd,
-        },
-      })
-
-      try {
-        await enqueueAnswerAnalysis({
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          rangeStart: input.rangeStart,
-          rangeEnd: input.rangeEnd,
-          snapshotId: snapshot.id,
-        })
-      } catch (error) {
-        try {
-          const compensation = await withTenantIsolationBypass(() =>
-            db.answerAnalysisSnapshot.updateMany({
+      const createOrReplay = () =>
+        withTenantIsolationBypass(() =>
+          db.$transaction(async (transaction) => {
+            const existing = await transaction.generationRequestDispatch.findFirst({
               where: {
-                id: snapshot.id,
+                tenantId: input.tenantId,
+                kind: 'ANSWER_ANALYSIS',
+                requestId: input.requestId,
+              },
+              select: { id: true, recordId: true, requestHash: true, status: true },
+            })
+            if (existing) {
+              if (existing.requestHash !== requestHash) {
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: 'Request ID was already used for different analysis input.',
+                })
+              }
+              return { ...existing, replayed: true }
+            }
+
+            const venue = await transaction.venue.findFirst({
+              where: { id: input.venueId, tenantId: input.tenantId },
+              select: { id: true },
+            })
+            if (!venue) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+            }
+
+            const snapshotId = randomUUID()
+            const dispatchId = randomUUID()
+            await transaction.answerAnalysisSnapshot.create({
+              data: {
+                id: snapshotId,
                 tenantId: input.tenantId,
                 venueId: input.venueId,
+                rangeStart,
+                rangeEnd,
                 status: 'GENERATING',
-                executionLeaseToken: null,
-                executionLeaseExpiresAt: null,
+                createdBy: ctx.session.userId,
               },
-              data: {
-                status: 'FAILED',
-                error: 'Answer analysis enqueue could not be confirmed.',
-                generatedAt: null,
-              },
-            }),
-          )
-          if (compensation.count !== 1) {
-            logger.warn({
-              action: 'admin.answer-analysis.enqueue-compensation.missed',
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              snapshotId: snapshot.id,
-              error: 'Answer analysis enqueue state no longer matched.',
             })
-          }
-        } catch (compensationError) {
-          logger.warn({
-            action: 'admin.answer-analysis.enqueue-compensation.failed',
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            snapshotId: snapshot.id,
-            error: 'Answer analysis enqueue failure could not be recorded.',
-            errorType: compensationError instanceof Error ? compensationError.name : 'UnknownError',
-          })
-        }
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Answer analysis could not be queued.',
-          cause: error,
-        })
+            const dispatch = await transaction.generationRequestDispatch.create({
+              data: {
+                id: dispatchId,
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                kind: 'ANSWER_ANALYSIS',
+                requestId: input.requestId,
+                requestHash,
+                recordId: snapshotId,
+                rangeStart,
+                rangeEnd,
+                answerAnalysisSnapshotId: snapshotId,
+              },
+              select: { id: true, recordId: true, requestHash: true, status: true },
+            })
+            await transaction.auditLog.create({
+              data: {
+                tenantId: input.tenantId,
+                actorId: ctx.session.userId,
+                actorRole: 'PLATFORM_ADMIN',
+                action: 'admin.answer_analysis.requested',
+                targetType: 'AnswerAnalysisSnapshot',
+                targetId: snapshotId,
+                afterState: {
+                  venueId: input.venueId,
+                  rangeStart: rangeStart.toISOString(),
+                  rangeEnd: rangeEnd.toISOString(),
+                  requestId: input.requestId,
+                },
+              },
+            })
+            return { ...dispatch, replayed: false }
+          }),
+        )
+
+      let durableRequest
+      try {
+        durableRequest = await createOrReplay()
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error
+        durableRequest = await createOrReplay()
       }
 
-      return { snapshotId: snapshot.id }
+      if (durableRequest.status === 'PENDING') {
+        try {
+          await enqueueGenerationDispatchKick(durableRequest.id)
+        } catch {
+          logger.warn({
+            action: 'admin.answer-analysis.dispatch-kick.failed',
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            snapshotId: durableRequest.recordId,
+            error: 'Durable analysis request is pending dispatcher retry.',
+          })
+        }
+      }
+
+      return {
+        snapshotId: durableRequest.recordId,
+        requestId: input.requestId,
+        dispatchState: durableRequest.status,
+        replayed: durableRequest.replayed,
+      }
     }),
 
   listAnswerAnalyses: adminProcedure
@@ -1106,109 +1144,127 @@ export const adminRouter = router({
         weekStart: z.string().datetime(),
         weekEnd: z.string().datetime(),
         title: z.string().min(1).max(200).optional(),
+        requestId: z.string().uuid(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const weekStart = new Date(input.weekStart)
       const weekEnd = new Date(input.weekEnd)
 
-      const venue = await withTenantIsolationBypass(async () =>
-        db.venue.findFirst({
-          where: { id: input.venueId, tenantId: input.tenantId },
-          select: { id: true },
-        }),
-      )
-      if (!venue) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
-
-      // Reports are no longer one-per-venue-per-week — every generate creates its own
-      // independent row, covering whatever range and title the admin picked. This also
-      // avoids the old find-or-reuse-existing-row behavior silently regenerating on top
-      // of a prior (possibly stuck) attempt for the "same" week.
-      const report = await withTenantIsolationBypass(async () => {
-        return db.weeklyReport.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            weekStart,
-            weekEnd,
-            status: 'GENERATING',
-            createdBy: ctx.session.userId,
-            ...(input.title !== undefined ? { title: input.title } : {}),
-          },
-          select: { id: true },
-        })
+      const title = effectiveWeeklyReportTitle(input.title)
+      const requestHash = generationRequestHash({
+        kind: 'WEEKLY_REPORT',
+        venueId: input.venueId,
+        rangeStart: weekStart,
+        rangeEnd: weekEnd,
+        title,
       })
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.report.requested',
-        targetType: 'WeeklyReport',
-        targetId: report.id,
-        afterState: {
-          venueId: input.venueId,
-          weekStart: input.weekStart,
-          weekEnd: input.weekEnd,
-        },
-      })
-
-      try {
-        await enqueueWeeklyReport({
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          weekStart: input.weekStart,
-          weekEnd: input.weekEnd,
-          reportId: report.id,
-        })
-      } catch (error) {
-        try {
-          const compensation = await withTenantIsolationBypass(() =>
-            db.weeklyReport.updateMany({
+      const createOrReplay = () =>
+        withTenantIsolationBypass(() =>
+          db.$transaction(async (transaction) => {
+            const existing = await transaction.generationRequestDispatch.findFirst({
               where: {
-                id: report.id,
+                tenantId: input.tenantId,
+                kind: 'WEEKLY_REPORT',
+                requestId: input.requestId,
+              },
+              select: { id: true, recordId: true, requestHash: true, status: true },
+            })
+            if (existing) {
+              if (existing.requestHash !== requestHash) {
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: 'Request ID was already used for different report input.',
+                })
+              }
+              return { ...existing, replayed: true }
+            }
+
+            const venue = await transaction.venue.findFirst({
+              where: { id: input.venueId, tenantId: input.tenantId },
+              select: { id: true },
+            })
+            if (!venue) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+            }
+
+            const reportId = randomUUID()
+            const dispatchId = randomUUID()
+            await transaction.weeklyReport.create({
+              data: {
+                id: reportId,
                 tenantId: input.tenantId,
                 venueId: input.venueId,
+                weekStart,
+                weekEnd,
                 status: 'GENERATING',
-                executionLeaseToken: null,
-                executionLeaseExpiresAt: null,
+                title,
+                createdBy: ctx.session.userId,
               },
-              data: {
-                status: 'FAILED',
-                error: 'Weekly report enqueue could not be confirmed.',
-                generatedAt: null,
-              },
-            }),
-          )
-          if (compensation.count !== 1) {
-            logger.warn({
-              action: 'admin.weekly-report.enqueue-compensation.missed',
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              reportId: report.id,
-              error: 'Weekly report enqueue state no longer matched.',
             })
-          }
-        } catch (compensationError) {
-          logger.warn({
-            action: 'admin.weekly-report.enqueue-compensation.failed',
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            reportId: report.id,
-            error: 'Weekly report enqueue failure could not be recorded.',
-            errorType: compensationError instanceof Error ? compensationError.name : 'UnknownError',
-          })
-        }
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Weekly report could not be queued.',
-          cause: error,
-        })
+            const dispatch = await transaction.generationRequestDispatch.create({
+              data: {
+                id: dispatchId,
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                kind: 'WEEKLY_REPORT',
+                requestId: input.requestId,
+                requestHash,
+                recordId: reportId,
+                rangeStart: weekStart,
+                rangeEnd: weekEnd,
+                weeklyReportId: reportId,
+              },
+              select: { id: true, recordId: true, requestHash: true, status: true },
+            })
+            await transaction.auditLog.create({
+              data: {
+                tenantId: input.tenantId,
+                actorId: ctx.session.userId,
+                actorRole: 'PLATFORM_ADMIN',
+                action: 'admin.report.requested',
+                targetType: 'WeeklyReport',
+                targetId: reportId,
+                afterState: {
+                  venueId: input.venueId,
+                  weekStart: weekStart.toISOString(),
+                  weekEnd: weekEnd.toISOString(),
+                  requestId: input.requestId,
+                },
+              },
+            })
+            return { ...dispatch, replayed: false }
+          }),
+        )
+
+      let durableRequest
+      try {
+        durableRequest = await createOrReplay()
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error
+        durableRequest = await createOrReplay()
       }
 
-      return { reportId: report.id }
+      if (durableRequest.status === 'PENDING') {
+        try {
+          await enqueueGenerationDispatchKick(durableRequest.id)
+        } catch {
+          logger.warn({
+            action: 'admin.weekly-report.dispatch-kick.failed',
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            reportId: durableRequest.recordId,
+            error: 'Durable report request is pending dispatcher retry.',
+          })
+        }
+      }
+
+      return {
+        reportId: durableRequest.recordId,
+        requestId: input.requestId,
+        dispatchState: durableRequest.status,
+        replayed: durableRequest.replayed,
+      }
     }),
 
   listWeeklyReports: adminProcedure

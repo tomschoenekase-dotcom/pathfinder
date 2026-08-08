@@ -23,17 +23,22 @@ vi.mock('./connection', () => ({ getBullMQConnection: vi.fn(() => ({})) }))
 import {
   closeJobQueues,
   enqueueAnswerAnalysis,
+  enqueueAnswerAnalysisDispatch,
   enqueueAnswerAnalysisRecovery,
   enqueueEmbedKnowledgeEntry,
   enqueueEmbedPlace,
   enqueueMediaIngestion,
+  enqueueGenerationDispatchKick,
   enqueueWelcomeEmail,
   enqueueWeeklyReport,
+  enqueueWeeklyReportDispatch,
   enqueueWeeklyReportRecovery,
 } from './enqueue'
 
 const LEASE_TOKEN_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const LEASE_TOKEN_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const DISPATCH_ID_A = 'dispatch/opaque-A_123'
+const DISPATCH_ID_B = 'dispatch/opaque-B_456'
 const answerAnalysisPayload = {
   tenantId: 'tenant_1',
   venueId: 'venue_1',
@@ -188,6 +193,135 @@ describe('job enqueues', () => {
   })
 
   it.each([
+    ['empty', ''],
+    ['whitespace', '   '],
+    ['overlong', 'x'.repeat(201)],
+  ])(
+    'rejects an %s generation dispatch identity before touching a queue',
+    async (_label, dispatchId) => {
+      const enqueues = [
+        () => enqueueGenerationDispatchKick(dispatchId),
+        () => enqueueAnswerAnalysisDispatch(answerAnalysisPayload, dispatchId),
+        () => enqueueWeeklyReportDispatch(weeklyReportPayload, dispatchId),
+      ]
+
+      for (const enqueue of enqueues) {
+        await expect(enqueue()).rejects.toThrow('Generation dispatch ID must be a nonempty opaque')
+      }
+      expect(mocks.queue).not.toHaveBeenCalled()
+      expect(mocks.add).not.toHaveBeenCalled()
+      expect(mocks.loggerInfo).not.toHaveBeenCalled()
+    },
+  )
+
+  it('derives stable, target-separated opaque dispatch job IDs', async () => {
+    await enqueueGenerationDispatchKick(DISPATCH_ID_A)
+    await enqueueGenerationDispatchKick(DISPATCH_ID_A)
+    await enqueueGenerationDispatchKick(DISPATCH_ID_B)
+    await enqueueAnswerAnalysisDispatch(answerAnalysisPayload, DISPATCH_ID_A)
+    await enqueueAnswerAnalysisDispatch(answerAnalysisPayload, DISPATCH_ID_A)
+    await enqueueAnswerAnalysisDispatch(answerAnalysisPayload, DISPATCH_ID_B)
+    await enqueueWeeklyReportDispatch(weeklyReportPayload, DISPATCH_ID_A)
+
+    const [kick, kickReplay, otherKick, answer, answerReplay, otherAnswer, report] =
+      mocks.add.mock.calls
+    expect(kickReplay![2].jobId).toBe(kick![2].jobId)
+    expect(answerReplay![2].jobId).toBe(answer![2].jobId)
+    expect(otherKick![2].jobId).not.toBe(kick![2].jobId)
+    expect(otherAnswer![2].jobId).not.toBe(answer![2].jobId)
+    expect(answer![2].jobId).not.toBe(kick![2].jobId)
+    expect(report![2].jobId).not.toBe(answer![2].jobId)
+    expect(kick![2].jobId).toMatch(/^generation-dispatch-kick-[a-f0-9]{64}$/u)
+    expect(answer![2].jobId).toMatch(/^generation-dispatch-answer-analysis-[a-f0-9]{64}$/u)
+    expect(report![2].jobId).toMatch(/^generation-dispatch-weekly-report-[a-f0-9]{64}$/u)
+    expect(JSON.stringify(mocks.add.mock.calls.map((call) => call[2].jobId))).not.toContain(
+      DISPATCH_ID_A,
+    )
+  })
+
+  it('uses bounded kick retries and exact compatibility payloads for dispatch work', async () => {
+    await enqueueGenerationDispatchKick(DISPATCH_ID_A)
+    await enqueueAnswerAnalysisDispatch(answerAnalysisPayload, DISPATCH_ID_A)
+    await enqueueWeeklyReportDispatch(weeklyReportPayload, DISPATCH_ID_A)
+
+    expect(mocks.add).toHaveBeenNthCalledWith(
+      1,
+      'generation-dispatch-kick',
+      { dispatchId: DISPATCH_ID_A },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+        removeOnComplete: 1000,
+        removeOnFail: true,
+        jobId: expect.stringMatching(/^generation-dispatch-kick-[a-f0-9]{64}$/u),
+      },
+    )
+    expect(mocks.add).toHaveBeenNthCalledWith(2, 'answer-analysis-process', answerAnalysisPayload, {
+      attempts: 6,
+      backoff: { type: 'answer-analysis-retry' },
+      removeOnComplete: 1000,
+      removeOnFail: true,
+      jobId: expect.stringMatching(/^generation-dispatch-answer-analysis-[a-f0-9]{64}$/u),
+    })
+    expect(mocks.add).toHaveBeenNthCalledWith(3, 'weekly-report-process', weeklyReportPayload, {
+      attempts: 6,
+      backoff: { type: 'weekly-report-retry' },
+      removeOnComplete: 1000,
+      removeOnFail: true,
+      jobId: expect.stringMatching(/^generation-dispatch-weekly-report-[a-f0-9]{64}$/u),
+    })
+  })
+
+  it('preserves retained-failure options only for ordinary legacy generation jobs', async () => {
+    await enqueueAnswerAnalysis(answerAnalysisPayload)
+    await enqueueWeeklyReport(weeklyReportPayload)
+
+    expect(mocks.add).toHaveBeenNthCalledWith(
+      1,
+      'answer-analysis-process',
+      answerAnalysisPayload,
+      expect.objectContaining({
+        attempts: 6,
+        backoff: { type: 'answer-analysis-retry' },
+        removeOnComplete: 1000,
+        removeOnFail: 5000,
+      }),
+    )
+    expect(mocks.add).toHaveBeenNthCalledWith(
+      2,
+      'weekly-report-process',
+      weeklyReportPayload,
+      expect.objectContaining({
+        attempts: 6,
+        backoff: { type: 'weekly-report-retry' },
+        removeOnComplete: 1000,
+        removeOnFail: 5000,
+      }),
+    )
+  })
+
+  it('logs dispatch enqueue outcomes without dispatch or domain identity inputs', async () => {
+    await enqueueGenerationDispatchKick(DISPATCH_ID_A)
+    await enqueueAnswerAnalysisDispatch(answerAnalysisPayload, DISPATCH_ID_A)
+    await enqueueWeeklyReportDispatch(weeklyReportPayload, DISPATCH_ID_B)
+
+    expect(mocks.loggerInfo.mock.calls).toEqual([
+      [{ action: 'jobs.generation-dispatch.kick-enqueued' }],
+      [{ action: 'jobs.answer-analysis.dispatch-enqueued' }],
+      [{ action: 'jobs.weekly-report.dispatch-enqueued' }],
+    ])
+    const serializedLogs = JSON.stringify(mocks.loggerInfo.mock.calls)
+    for (const sensitive of [
+      DISPATCH_ID_A,
+      DISPATCH_ID_B,
+      ...Object.values(answerAnalysisPayload),
+      ...Object.values(weeklyReportPayload),
+    ]) {
+      expect(serializedLogs).not.toContain(sensitive)
+    }
+  })
+
+  it.each([
     ['answer analysis', () => enqueueAnswerAnalysisRecovery(answerAnalysisPayload, 'not-a-uuid')],
     ['weekly report', () => enqueueWeeklyReportRecovery(weeklyReportPayload, 'not-a-uuid')],
   ])('rejects an invalid %s recovery token before opening a queue', async (_label, enqueue) => {
@@ -232,7 +366,7 @@ describe('job enqueues', () => {
     expect(reportRecoveryId).not.toContain(LEASE_TOKEN_A)
   })
 
-  it('uses a token-fenced answer-analysis recovery payload with ordinary retry options', async () => {
+  it('uses a token-fenced answer-analysis recovery payload that removes exhausted failures', async () => {
     await enqueueAnswerAnalysisRecovery(answerAnalysisPayload, LEASE_TOKEN_A)
 
     expect(mocks.add).toHaveBeenCalledWith(
@@ -242,13 +376,13 @@ describe('job enqueues', () => {
         attempts: 6,
         backoff: { type: 'answer-analysis-retry' },
         removeOnComplete: 1000,
-        removeOnFail: 5000,
+        removeOnFail: true,
         jobId: expect.stringMatching(/^generation-recovery-answer-analysis-[a-f0-9]{64}$/u),
       }),
     )
   })
 
-  it('uses a token-fenced weekly-report recovery payload with ordinary retry options', async () => {
+  it('uses a token-fenced weekly-report recovery payload that removes exhausted failures', async () => {
     await enqueueWeeklyReportRecovery(weeklyReportPayload, LEASE_TOKEN_A)
 
     expect(mocks.add).toHaveBeenCalledWith(
@@ -258,7 +392,7 @@ describe('job enqueues', () => {
         attempts: 6,
         backoff: { type: 'weekly-report-retry' },
         removeOnComplete: 1000,
-        removeOnFail: 5000,
+        removeOnFail: true,
         jobId: expect.stringMatching(/^generation-recovery-weekly-report-[a-f0-9]{64}$/u),
       }),
     )

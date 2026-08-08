@@ -40,6 +40,22 @@ export {
 } from './helpers/embedding-dispatches'
 export type { LeasedEmbeddingDispatch } from './helpers/embedding-dispatches'
 export {
+  adoptLegacyNullLeaseGenerationDispatches,
+  deferGenerationRequestDispatch,
+  failGenerationRequestDispatch,
+  GENERATION_DISPATCH_BATCH_SIZE,
+  GENERATION_DISPATCH_DEFER_MS,
+  GENERATION_DISPATCH_LEASE_MS,
+  GENERATION_DISPATCH_MAX_ERROR_LENGTH,
+  leaseGenerationRequestDispatches,
+  settleProgressedGenerationRequestDispatch,
+  settleGenerationRequestDispatch,
+} from './helpers/generation-request-dispatches'
+export type {
+  ExactGenerationRequestDispatch,
+  LeasedGenerationRequestDispatch,
+} from './helpers/generation-request-dispatches'
+export {
   EMBEDDING_FRESHNESS_CANARY_MAX,
   insertEmbeddingFreshnessCanary,
 } from './helpers/embedding-freshness-canary'

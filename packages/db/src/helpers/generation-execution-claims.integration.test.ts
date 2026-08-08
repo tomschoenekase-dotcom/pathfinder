@@ -82,6 +82,7 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
   })
 
   afterAll(async () => {
+    await db.generationRequestDispatch.deleteMany({ where: { tenantId } })
     await db.answerAnalysisSnapshot.deleteMany({ where: { tenantId } })
     await db.weeklyReport.deleteMany({ where: { tenantId } })
     await db.venue.deleteMany({ where: { tenantId } })
@@ -151,13 +152,17 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
 
   it('reacquires FAILED answer analysis and clears the prior error', async () => {
     const identity = await createAnalysis('FAILED')
+    await db.answerAnalysisSnapshot.updateMany({
+      where: { id: identity.snapshotId, tenantId, venueId },
+      data: { recoveryLineageToken: randomUUID() },
+    })
     const acquired = await acquireAnswerAnalysisExecution(identity)
     expect(acquired).toMatchObject({ state: 'acquired' })
     expect(
       await db.answerAnalysisSnapshot.findFirstOrThrow({
         where: { id: identity.snapshotId, tenantId, venueId },
       }),
-    ).toMatchObject({ status: 'GENERATING', error: null })
+    ).toMatchObject({ status: 'GENERATING', error: null, recoveryLineageToken: null })
   })
 
   it('rejects a half-present answer-analysis lease at the database boundary', async () => {
@@ -248,13 +253,17 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
 
   it('reacquires a FAILED weekly report and clears the prior error', async () => {
     const identity = await createReport('FAILED')
+    await db.weeklyReport.updateMany({
+      where: { id: identity.reportId, tenantId, venueId },
+      data: { recoveryLineageToken: randomUUID() },
+    })
     const acquired = await acquireWeeklyReportExecution(identity)
     expect(acquired).toMatchObject({ state: 'acquired' })
     expect(
       await db.weeklyReport.findFirstOrThrow({
         where: { id: identity.reportId, tenantId, venueId },
       }),
-    ).toMatchObject({ status: 'GENERATING', error: null })
+    ).toMatchObject({ status: 'GENERATING', error: null, recoveryLineageToken: null })
   })
 
   it('rejects a half-present weekly-report lease at the database boundary', async () => {
@@ -291,6 +300,45 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
       'answer_analysis_snapshots_status_execution_lease_expires_at_idx',
       'weekly_reports_status_execution_lease_expires_at_idx',
     ])
+  })
+
+  it('rejects either half of a durable request identity at the database boundary', async () => {
+    const identity = await createAnalysis()
+    const base = {
+      tenantId,
+      venueId,
+      kind: 'ANSWER_ANALYSIS' as const,
+      recordId: identity.snapshotId,
+      rangeStart,
+      rangeEnd,
+      answerAnalysisSnapshotId: identity.snapshotId,
+    }
+
+    await expect(
+      db.generationRequestDispatch.create({
+        data: {
+          id: randomUUID(),
+          ...base,
+          requestId: randomUUID(),
+          requestHash: null,
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      db.generationRequestDispatch.create({
+        data: {
+          id: randomUUID(),
+          ...base,
+          requestId: null,
+          requestHash: 'a'.repeat(64),
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      db.generationRequestDispatch.count({
+        where: { tenantId, recordId: identity.snapshotId },
+      }),
+    ).resolves.toBe(0)
   })
 
   it.each(['DRAFT', 'PUBLISHED'] as const)(
@@ -362,7 +410,7 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
     expect(acquired[0].leaseToken).not.toBe(observedLeaseToken)
   })
 
-  it('prevents delayed token A from acquiring expired answer-analysis takeover token B', async () => {
+  it('allows only token B lineage after chained answer-analysis recovery owner C fails', async () => {
     const identity = await createAnalysis()
     const tokenA = randomUUID()
     await db.answerAnalysisSnapshot.updateMany({
@@ -372,28 +420,65 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
         executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z'),
       },
     })
-    const takeover = await acquireAnswerAnalysisRecoveryExecution({
+    const tokenBTakeover = await acquireAnswerAnalysisRecoveryExecution({
       ...identity,
       observedLeaseToken: tokenA,
     })
-    if (takeover.state !== 'acquired') throw new Error('Expected recovery takeover')
+    if (tokenBTakeover.state !== 'acquired') throw new Error('Expected token B recovery takeover')
+    const tokenB = tokenBTakeover.leaseToken
     await db.answerAnalysisSnapshot.updateMany({
       where: { id: identity.snapshotId, tenantId, venueId },
       data: { executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
     })
+    const tokenCTakeover = await acquireAnswerAnalysisRecoveryExecution({
+      ...identity,
+      observedLeaseToken: tokenB,
+    })
+    if (tokenCTakeover.state !== 'acquired') throw new Error('Expected token C recovery takeover')
+    const tokenC = tokenCTakeover.leaseToken
+    await expect(
+      db.answerAnalysisSnapshot.updateMany({
+        where: {
+          id: identity.snapshotId,
+          tenantId,
+          venueId,
+          status: 'GENERATING',
+          executionLeaseToken: tokenC,
+        },
+        data: {
+          status: 'FAILED',
+          error: 'synthetic recovery owner C failure',
+          executionLeaseToken: null,
+          executionLeaseExpiresAt: null,
+        },
+      }),
+    ).resolves.toEqual({ count: 1 })
+    await expect(
+      db.answerAnalysisSnapshot.findFirstOrThrow({
+        where: { id: identity.snapshotId, tenantId, venueId },
+        select: { status: true, executionLeaseToken: true, recoveryLineageToken: true },
+      }),
+    ).resolves.toEqual({
+      status: 'FAILED',
+      executionLeaseToken: null,
+      recoveryLineageToken: tokenB,
+    })
 
     await expect(
-      acquireAnswerAnalysisRecoveryExecution({ ...identity, observedLeaseToken: tokenA }),
+      acquireAnswerAnalysisRecoveryExecution({
+        ...identity,
+        observedLeaseToken: tokenA,
+      }),
     ).resolves.toEqual({ state: 'ineligible' })
     await expect(
       acquireAnswerAnalysisRecoveryExecution({
         ...identity,
-        observedLeaseToken: takeover.leaseToken,
+        observedLeaseToken: tokenB,
       }),
     ).resolves.toMatchObject({ state: 'acquired' })
   })
 
-  it('prevents delayed token A from acquiring expired weekly-report takeover token B', async () => {
+  it('allows only token B lineage after chained weekly-report recovery owner C fails', async () => {
     const identity = await createReport()
     const tokenA = randomUUID()
     await db.weeklyReport.updateMany({
@@ -403,28 +488,81 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
         executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z'),
       },
     })
-    const takeover = await acquireWeeklyReportRecoveryExecution({
+    const tokenBTakeover = await acquireWeeklyReportRecoveryExecution({
       ...identity,
       observedLeaseToken: tokenA,
     })
-    if (takeover.state !== 'acquired') throw new Error('Expected recovery takeover')
+    if (tokenBTakeover.state !== 'acquired') throw new Error('Expected token B recovery takeover')
+    const tokenB = tokenBTakeover.leaseToken
     await db.weeklyReport.updateMany({
       where: { id: identity.reportId, tenantId, venueId },
       data: { executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
     })
+    const tokenCTakeover = await acquireWeeklyReportRecoveryExecution({
+      ...identity,
+      observedLeaseToken: tokenB,
+    })
+    if (tokenCTakeover.state !== 'acquired') throw new Error('Expected token C recovery takeover')
+    const tokenC = tokenCTakeover.leaseToken
+    await expect(
+      db.weeklyReport.updateMany({
+        where: {
+          id: identity.reportId,
+          tenantId,
+          venueId,
+          status: 'GENERATING',
+          executionLeaseToken: tokenC,
+        },
+        data: {
+          status: 'FAILED',
+          error: 'synthetic recovery owner C failure',
+          executionLeaseToken: null,
+          executionLeaseExpiresAt: null,
+        },
+      }),
+    ).resolves.toEqual({ count: 1 })
+    await expect(
+      db.weeklyReport.findFirstOrThrow({
+        where: { id: identity.reportId, tenantId, venueId },
+        select: { status: true, executionLeaseToken: true, recoveryLineageToken: true },
+      }),
+    ).resolves.toEqual({
+      status: 'FAILED',
+      executionLeaseToken: null,
+      recoveryLineageToken: tokenB,
+    })
 
     await expect(
-      acquireWeeklyReportRecoveryExecution({ ...identity, observedLeaseToken: tokenA }),
+      acquireWeeklyReportRecoveryExecution({
+        ...identity,
+        observedLeaseToken: tokenA,
+      }),
     ).resolves.toEqual({ state: 'ineligible' })
     await expect(
       acquireWeeklyReportRecoveryExecution({
         ...identity,
-        observedLeaseToken: takeover.leaseToken,
+        observedLeaseToken: tokenB,
       }),
     ).resolves.toMatchObject({ state: 'acquired' })
   })
 
-  it('does no answer-analysis recovery work for active, null, failed, terminal, missing, or range mismatch', async () => {
+  it('recovers a FAILED/null answer analysis exactly once under contention', async () => {
+    const failed = await createAnalysis('FAILED')
+    const matchingLineage = randomUUID()
+    await db.answerAnalysisSnapshot.updateMany({
+      where: { id: failed.snapshotId, tenantId, venueId },
+      data: { recoveryLineageToken: matchingLineage },
+    })
+    const results = await Promise.all(
+      Array.from({ length: 32 }, () =>
+        acquireAnswerAnalysisRecoveryExecution({ ...failed, observedLeaseToken: matchingLineage }),
+      ),
+    )
+    expect(results.filter((result) => result.state === 'acquired')).toHaveLength(1)
+    expect(results.filter((result) => result.state === 'ineligible')).toHaveLength(31)
+  })
+
+  it('does no answer-analysis recovery work for active, null, terminal, missing, or range mismatch', async () => {
     const active = await createAnalysis()
     const activeToken = randomUUID()
     await db.answerAnalysisSnapshot.updateMany({
@@ -441,10 +579,6 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
     const noLease = await createAnalysis()
     await expect(
       acquireAnswerAnalysisRecoveryExecution({ ...noLease, observedLeaseToken: randomUUID() }),
-    ).resolves.toEqual({ state: 'ineligible' })
-    const failed = await createAnalysis('FAILED')
-    await expect(
-      acquireAnswerAnalysisRecoveryExecution({ ...failed, observedLeaseToken: randomUUID() }),
     ).resolves.toEqual({ state: 'ineligible' })
     const terminal = await createAnalysis('COMPLETE')
     await expect(
@@ -466,7 +600,23 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
     ).resolves.toEqual({ state: 'missing' })
   })
 
-  it('does no weekly-report recovery work for active, null, failed, terminal, missing, or range mismatch', async () => {
+  it('recovers a FAILED/null weekly report exactly once under contention', async () => {
+    const failed = await createReport('FAILED')
+    const matchingLineage = randomUUID()
+    await db.weeklyReport.updateMany({
+      where: { id: failed.reportId, tenantId, venueId },
+      data: { recoveryLineageToken: matchingLineage },
+    })
+    const results = await Promise.all(
+      Array.from({ length: 32 }, () =>
+        acquireWeeklyReportRecoveryExecution({ ...failed, observedLeaseToken: matchingLineage }),
+      ),
+    )
+    expect(results.filter((result) => result.state === 'acquired')).toHaveLength(1)
+    expect(results.filter((result) => result.state === 'ineligible')).toHaveLength(31)
+  })
+
+  it('does no weekly-report recovery work for active, null, terminal, missing, or range mismatch', async () => {
     const active = await createReport()
     const activeToken = randomUUID()
     await db.weeklyReport.updateMany({
@@ -483,10 +633,6 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
     const noLease = await createReport()
     await expect(
       acquireWeeklyReportRecoveryExecution({ ...noLease, observedLeaseToken: randomUUID() }),
-    ).resolves.toEqual({ state: 'ineligible' })
-    const failed = await createReport('FAILED')
-    await expect(
-      acquireWeeklyReportRecoveryExecution({ ...failed, observedLeaseToken: randomUUID() }),
     ).resolves.toEqual({ state: 'ineligible' })
     const terminal = await createReport('DRAFT')
     await expect(

@@ -123,6 +123,50 @@ staging release shell. The disposable wrapper intentionally has no external-host
 8. Run the smoke tests below. Any failure blocks production promotion; fix it
    in a new commit and repeat the entire exact-SHA procedure.
 
+## Durable generation dispatch canary
+
+Answer-analysis and weekly-report requests now commit the domain row, request receipt, and audit
+entry in one transaction. A dispatcher publishes the durable receipt to BullMQ, and the target
+worker consumes the receipt only when it acquires the exact database execution claim. API kick
+jobs are consumed on every worker deployment; `GENERATION_DISPATCH_ENABLED` controls only the
+once-per-minute fallback scan that repairs a lost kick or an older `GENERATING` row with both
+lease fields null.
+
+Run this canary before generation recovery and only against independently verified staging
+PostgreSQL and Redis resources:
+
+1. Deploy the exact release SHA with `GENERATION_DISPATCH_ENABLED=false` and keep workers stopped
+   until migration `20260809010000_add_generation_request_dispatches` is confirmed complete. The
+   migration is additive and backfills eligible legacy null-lease rows; do not start an older
+   worker against newly created receipts during the rollout.
+2. Start every worker replica on the same SHA. Submit one synthetic answer-analysis request and
+   one synthetic weekly-report request with opaque UUID request IDs. Confirm each API response is
+   durable `PENDING` success, each receipt becomes `CONSUMED` only after the exact target job
+   claims its row, and each target reaches its expected terminal state.
+3. Replay both requests with the same UUID and identical normalized input. Confirm the original
+   record IDs are returned and no second domain row, audit entry, provider call, or target job is
+   created. Reuse one UUID with changed input and confirm a conflict with no writes.
+4. In a controlled synthetic test, make the API kick enqueue unavailable while PostgreSQL remains
+   available. Confirm the API still returns durable success and the receipt remains `PENDING`.
+   Restore Redis, set `GENERATION_DISPATCH_ENABLED=true` uniformly, restart the worker replicas,
+   and verify the fallback scheduler publishes and consumes that exact receipt.
+5. Verify one synthetic legacy `GENERATING` row with null lease fields is adopted, dispatched, and
+   consumed. Inspect sanitized dispatcher counts for adopted, leased, progressed, accepted,
+   deferred, failed, and superseded work. Confirm request hashes, generated content, credentials,
+   and raw dependency errors are absent from logs.
+6. Observe at least two scheduler intervals and record pending count, oldest pending age, retry
+   attempts, last safe error, target terminal outcomes, and exhausted BullMQ jobs. Persistent age
+   growth, repeated failure-persistence errors, or any duplicate provider execution blocks
+   promotion.
+
+To stop fallback scanning, set `GENERATION_DISPATCH_ENABLED=false` on every worker replica and
+restart them together, then verify the repeat scheduler was removed. Kick consumption remains
+active so already committed API requests can still progress. Before reverting application code,
+stop request ingress and workers, prove there are no `PENDING` receipts or active generation jobs,
+and preserve audit evidence. Do not drop the additive table automatically: consumed receipts are
+the idempotency record needed by clients retrying an uncertain response. Prefer roll-forward if
+any receipt exists.
+
 ## Generation recovery canary
 
 Generation recovery is a separate, default-off safety mechanism for answer-analysis and weekly-
