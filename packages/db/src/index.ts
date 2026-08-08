@@ -1,6 +1,10 @@
 export { db } from './client'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
+export {
+  lockContentVersionEntity,
+  setContentVersionContext,
+} from './helpers/content-version-context'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'
 export {
   acquireAnswerAnalysisExecution,

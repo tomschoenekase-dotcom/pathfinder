@@ -1,8 +1,12 @@
 import Link from 'next/link'
+import { auth } from '@clerk/nextjs/server'
 import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
 import { createDashboardCaller } from '../../../../lib/server-caller'
+import { ContentHistoryPanel } from '../../../../components/ContentHistoryPanel'
+import { DeletedContentHistoryPanel } from '../../../../components/DeletedContentHistoryPanel'
+import { DeletedVenueHistoryPanel } from '../../../../components/DeletedVenueHistoryPanel'
 
 type VenueDetailPageProps = {
   params: Promise<{
@@ -58,6 +62,8 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
   const { onboarded } = await searchParams
   const justOnboarded = onboarded === '1'
   const caller = await createDashboardCaller('/venues/detail')
+  const { orgRole } = await auth()
+  const canRestoreDeletedVenues = orgRole === 'org:admin' || orgRole === 'org:owner'
 
   try {
     const venue = await caller.venue.getById({ id: venueId })
@@ -208,6 +214,10 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
               <GuideNotes notes={aiConfig.aiGuideNotes ?? null} />
             </div>
           </section>
+
+          <ContentHistoryPanel entityType="VENUE" entityId={venue.id} title="Venue history" />
+          <DeletedContentHistoryPanel venueId={venue.id} />
+          {canRestoreDeletedVenues ? <DeletedVenueHistoryPanel /> : null}
 
           <section className="overflow-hidden rounded-[2rem] border border-pf-light bg-pf-white shadow-sm">
             <div className="border-b border-pf-light px-6 py-5">

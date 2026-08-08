@@ -1,11 +1,15 @@
 import Link from 'next/link'
+import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 
 import { createDashboardCaller } from '../../../lib/server-caller'
+import { DeletedVenueHistoryPanel } from '../../../components/DeletedVenueHistoryPanel'
 
 export default async function VenuesPage() {
   const caller = await createDashboardCaller('/venues')
   const venues = await caller.venue.list()
+  const { orgRole } = await auth()
+  const canRestoreDeletedVenues = orgRole === 'org:admin' || orgRole === 'org:owner'
 
   if (venues.length > 0) {
     redirect(`/venues/${venues[0]!.id}`)
@@ -36,6 +40,7 @@ export default async function VenuesPage() {
             Create your chatbot
           </Link>
         </section>
+        {canRestoreDeletedVenues ? <DeletedVenueHistoryPanel /> : null}
       </div>
     </main>
   )

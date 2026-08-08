@@ -4,7 +4,12 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config/logger'
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import {
+  db,
+  setContentVersionContext,
+  withTenantIsolationBypass,
+  writeAuditLog,
+} from '@pathfinder/db'
 import { enqueueGenerationDispatchKick, enqueueWeeklyDigest } from '@pathfinder/jobs'
 import { createOrganization, currentUser } from '@pathfinder/auth'
 import { adminProcedure } from '../../trpc'
@@ -14,7 +19,7 @@ import {
   effectiveWeeklyReportTitle,
   generationRequestHash,
 } from '../../lib/generation-request-identity'
-import { slugify, uniqueSlug } from '../venue'
+import { slugify } from '../venue'
 
 function startOfCurrentUtcWeek(date: Date): Date {
   const result = new Date(date)
@@ -637,61 +642,62 @@ export const adminRouter = router({
         })
       }
 
-      const { tenant, venue } = await withTenantIsolationBypass(async () => {
-        const tenant = await db.tenant.create({
-          data: { id: organization.id, name: input.clientName, slug: organization.slug },
-        })
+      const { tenant, venue } = await withTenantIsolationBypass(() =>
+        db.$transaction(async (tx) => {
+          await setContentVersionContext(tx, { actorId: ctx.session.userId })
+          const tenant = await tx.tenant.create({
+            data: { id: organization.id, name: input.clientName, slug: organization.slug },
+          })
 
-        await db.user.upsert({
-          where: { id: ctx.session.userId },
-          create: { id: ctx.session.userId, email: adminEmail },
-          update: { email: adminEmail },
-        })
+          await tx.user.upsert({
+            where: { id: ctx.session.userId },
+            create: { id: ctx.session.userId, email: adminEmail },
+            update: { email: adminEmail },
+          })
 
-        await db.tenantMembership.upsert({
-          where: {
-            tenantId: organization.id,
-            tenantId_userId: { tenantId: organization.id, userId: ctx.session.userId },
-          },
-          create: {
-            tenantId: organization.id,
-            userId: ctx.session.userId,
-            role: 'OWNER',
-            status: 'ACTIVE',
-            joinedAt: new Date(),
-          },
-          update: { role: 'OWNER', status: 'ACTIVE' },
-        })
+          await tx.tenantMembership.upsert({
+            where: {
+              tenantId: organization.id,
+              tenantId_userId: { tenantId: organization.id, userId: ctx.session.userId },
+            },
+            create: {
+              tenantId: organization.id,
+              userId: ctx.session.userId,
+              role: 'OWNER',
+              status: 'ACTIVE',
+              joinedAt: new Date(),
+            },
+            update: { role: 'OWNER', status: 'ACTIVE' },
+          })
 
-        const venueSlug = await uniqueSlug(
-          db,
-          organization.id,
-          slugify(input.venue.slug ?? input.venue.name),
-        )
+          const venueSlug = slugify(input.venue.slug ?? input.venue.name)
 
-        const venue = await db.venue.create({
-          data: {
-            tenantId: organization.id,
-            name: input.venue.name,
-            slug: venueSlug,
-            guideMode: input.venue.guideMode ?? 'location_aware',
-            ...(input.venue.description !== undefined
-              ? { description: input.venue.description }
-              : {}),
-            ...(input.venue.guideNotes !== undefined ? { guideNotes: input.venue.guideNotes } : {}),
-            ...(input.venue.category !== undefined ? { category: input.venue.category } : {}),
-            ...(input.venue.defaultCenterLat !== undefined
-              ? { defaultCenterLat: input.venue.defaultCenterLat }
-              : {}),
-            ...(input.venue.defaultCenterLng !== undefined
-              ? { defaultCenterLng: input.venue.defaultCenterLng }
-              : {}),
-          },
-          select: { id: true, name: true, slug: true },
-        })
+          const venue = await tx.venue.create({
+            data: {
+              tenantId: organization.id,
+              name: input.venue.name,
+              slug: venueSlug,
+              guideMode: input.venue.guideMode ?? 'location_aware',
+              ...(input.venue.description !== undefined
+                ? { description: input.venue.description }
+                : {}),
+              ...(input.venue.guideNotes !== undefined
+                ? { guideNotes: input.venue.guideNotes }
+                : {}),
+              ...(input.venue.category !== undefined ? { category: input.venue.category } : {}),
+              ...(input.venue.defaultCenterLat !== undefined
+                ? { defaultCenterLat: input.venue.defaultCenterLat }
+                : {}),
+              ...(input.venue.defaultCenterLng !== undefined
+                ? { defaultCenterLng: input.venue.defaultCenterLng }
+                : {}),
+            },
+            select: { id: true, name: true, slug: true },
+          })
 
-        return { tenant, venue }
-      })
+          return { tenant, venue }
+        }),
+      )
 
       await writeAuditLog({
         tenantId: organization.id,

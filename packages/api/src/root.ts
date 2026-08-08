@@ -4,6 +4,7 @@ import { adminRouter } from './routers/admin/_admin'
 import { mediaIngestionRouter } from './routers/admin/media-ingestion'
 import { analyticsRouter } from './routers/analytics'
 import { chatRouter } from './routers/chat'
+import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
@@ -16,6 +17,7 @@ export const appRouter = router({
   mediaIngestion: mediaIngestionRouter,
   analytics: analyticsRouter,
   chat: chatRouter,
+  contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,

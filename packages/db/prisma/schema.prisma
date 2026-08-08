@@ -65,6 +65,7 @@ model Tenant {
   embeddingDispatches         EmbeddingDispatch[]
   venueContentImportReceipts  VenueContentImportReceipt[]
   generationRequestDispatches GenerationRequestDispatch[]
+  contentVersions             ContentVersion[]
 
   @@map("tenants")
 }
@@ -289,6 +290,32 @@ model VenueKnowledgeEntry {
   @@index([tenantId])
   @@index([venueId])
   @@map("venue_knowledge_entries")
+}
+
+/// Append-only, database-triggered history for venue, place, and knowledge
+/// content. Snapshots intentionally exclude embeddings and timestamps so
+/// derived-vector refreshes do not create false content revisions.
+model ContentVersion {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sequence              BigInt   @unique @default(autoincrement())
+  tenantId              String   @map("tenant_id")
+  venueId               String   @map("venue_id")
+  entityType            String   @map("entity_type")
+  entityId              String   @map("entity_id")
+  operation             String
+  beforeState           Json?    @map("before_state")
+  afterState            Json?    @map("after_state")
+  actorId               String?  @map("actor_id")
+  revertedFromId        String?  @map("reverted_from_id") @db.Uuid
+  snapshotSchemaVersion Int      @default(1) @map("snapshot_schema_version")
+  createdAt             DateTime @default(now()) @map("created_at")
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, entityType, entityId, sequence])
+  @@index([tenantId, entityType, sequence])
+  @@index([tenantId, venueId, sequence])
+  @@index([revertedFromId])
+  @@map("content_versions")
 }
 
 /// Durable identity for one venue-content import attempt. The receipt is

@@ -16,6 +16,7 @@ const placeCreate = vi.fn()
 const placeUpdateMany = vi.fn()
 const placeDeleteMany = vi.fn()
 const dbTransaction = vi.fn()
+const dbExecuteRaw = vi.fn()
 
 const mockDb = {
   venue: { findFirst: venueFindFirst },
@@ -27,6 +28,7 @@ const mockDb = {
     deleteMany: placeDeleteMany,
   },
   $transaction: dbTransaction,
+  $executeRaw: dbExecuteRaw,
 } as unknown as TRPCContext['db']
 
 // ---------------------------------------------------------------------------
@@ -111,6 +113,10 @@ const placeInput = {
 describe('place router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    dbExecuteRaw.mockResolvedValue(1)
+    dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
+      callback(mockDb),
+    )
   })
 
   // --- place.list ---

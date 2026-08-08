@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db } from '@pathfinder/db'
+import { db, setContentVersionContext } from '@pathfinder/db'
 
 import {
   BulkCreateKnowledgeEntriesInput,
@@ -10,6 +10,7 @@ import {
 } from '../schemas/knowledge'
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
+import { withContentVersionActor } from '../middleware/content-version-actor'
 import { tenantProcedure } from '../trpc'
 
 export { BulkCreateKnowledgeEntriesInput, CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput }
@@ -62,6 +63,7 @@ export const knowledgeRouter = router({
 
   create: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
     .input(CreateKnowledgeEntryInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -98,27 +100,31 @@ export const knowledgeRouter = router({
 
       await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
 
-      const entries = await ctx.db.$transaction(
-        input.entries.map((entry) =>
-          ctx.db.venueKnowledgeEntry.create({
-            data: {
-              tenantId,
-              venueId: input.venueId,
-              title: entry.title,
-              category: entry.category,
-              content: entry.content,
-              isEnabled: entry.isEnabled,
-            },
-            select: knowledgeEntrySelect,
-          }),
-        ),
-      )
+      const entries = await ctx.db.$transaction(async (tx) => {
+        await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        return Promise.all(
+          input.entries.map((entry) =>
+            tx.venueKnowledgeEntry.create({
+              data: {
+                tenantId,
+                venueId: input.venueId,
+                title: entry.title,
+                category: entry.category,
+                content: entry.content,
+                isEnabled: entry.isEnabled,
+              },
+              select: knowledgeEntrySelect,
+            }),
+          ),
+        )
+      })
 
       return { count: entries.length, entries }
     }),
 
   update: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
     .input(UpdateKnowledgeEntryInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -150,6 +156,7 @@ export const knowledgeRouter = router({
 
   delete: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId

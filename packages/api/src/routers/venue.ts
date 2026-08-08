@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db } from '@pathfinder/db'
+import { db, setContentVersionContext } from '@pathfinder/db'
 import { enqueueEmbedPlace } from '@pathfinder/jobs'
 import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
@@ -16,6 +16,7 @@ import {
 
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
+import { withContentVersionActor } from '../middleware/content-version-actor'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
 type Db = typeof db
@@ -244,6 +245,7 @@ export const venueRouter = router({
 
   create: tenantProcedure
     .use(requireRole('OWNER'))
+    .use(withContentVersionActor)
     .input(CreateVenueInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -257,6 +259,7 @@ export const venueRouter = router({
             name: input.name,
             slug,
             ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
             ...(input.category !== undefined ? { category: input.category } : {}),
             guideMode: input.guideMode ?? 'location_aware',
             ...(input.defaultCenterLat !== undefined
@@ -282,6 +285,7 @@ export const venueRouter = router({
 
   update: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
     .input(UpdateVenueInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -352,6 +356,7 @@ export const venueRouter = router({
       }
 
       return ctx.db.$transaction(async (tx) => {
+        await setContentVersionContext(tx, { actorId: ctx.session.userId })
         const claimed = await tx.venueContentImportReceipt.createMany({
           data: [
             {
@@ -437,48 +442,43 @@ export const venueRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-
-      const venue = await ctx.db.venue.findFirst({
-        where: { id: input.venueId, tenantId },
-        select: { id: true, tenantId: true },
-      })
-
-      if (!venue || venue.tenantId !== tenantId) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
-
-      if (input.aiFeaturedPlaceId) {
-        const place = await ctx.db.place.findFirst({
-          where: {
-            id: input.aiFeaturedPlaceId,
-            venueId: input.venueId,
-            tenantId,
-          },
-          select: { id: true },
+      const updated = await ctx.db.$transaction(async (tx) => {
+        await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        const venue = await tx.venue.findFirst({
+          where: { id: input.venueId, tenantId },
+          select: { id: true, tenantId: true },
         })
 
-        if (!place) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
+        if (!venue || venue.tenantId !== tenantId) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
         }
-      }
 
-      const data = Object.fromEntries(
-        Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
-      )
+        if (input.aiFeaturedPlaceId) {
+          const place = await tx.place.findFirst({
+            where: { id: input.aiFeaturedPlaceId, venueId: input.venueId, tenantId },
+            select: { id: true },
+          })
+          if (!place) throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
+        }
 
-      await ctx.db.venue.updateMany({
-        where: { id: input.venueId, tenantId },
-        data,
+        const data = Object.fromEntries(
+          Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
+        )
+        const changed = await tx.venue.updateMany({
+          where: { id: input.venueId, tenantId },
+          data,
+        })
+        if (changed.count !== 1) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
+        }
+
+        const saved = await tx.venue.findFirst({
+          where: { id: input.venueId, tenantId },
+          select: venueAiConfigSelect,
+        })
+        if (!saved) throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
+        return saved
       })
-
-      const updated = await ctx.db.venue.findFirst({
-        where: { id: input.venueId, tenantId },
-        select: venueAiConfigSelect,
-      })
-
-      if (!updated) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
 
       // Re-embed any places that are missing an embedding. Failures are logged and do not block the save.
       const unembeddedIds = await ctx.db.$queryRaw<{ id: string; updatedAt: Date }[]>`
@@ -531,39 +531,38 @@ export const venueRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
+      const updated = await ctx.db.$transaction(async (tx) => {
+        await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        const venue = await tx.venue.findFirst({
+          where: { id: input.venueId, tenantId },
+          select: { id: true },
+        })
+        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
 
-      const venue = await ctx.db.venue.findFirst({
-        where: { id: input.venueId, tenantId },
-        select: { id: true },
+        const data = Object.fromEntries(
+          Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
+        )
+        const changed = await tx.venue.updateMany({
+          where: { id: input.venueId, tenantId },
+          data,
+        })
+        if (changed.count !== 1) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
+        }
+
+        const saved = await tx.venue.findFirst({
+          where: { id: input.venueId, tenantId },
+          select: {
+            chatTheme: true,
+            chatAccentColor: true,
+            chatFont: true,
+            chatLogoUrl: true,
+            chatBannerUrl: true,
+          },
+        })
+        if (!saved) throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
+        return saved
       })
-
-      if (!venue) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
-
-      const data = Object.fromEntries(
-        Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
-      )
-
-      await ctx.db.venue.updateMany({
-        where: { id: input.venueId, tenantId },
-        data,
-      })
-
-      const updated = await ctx.db.venue.findFirst({
-        where: { id: input.venueId, tenantId },
-        select: {
-          chatTheme: true,
-          chatAccentColor: true,
-          chatFont: true,
-          chatLogoUrl: true,
-          chatBannerUrl: true,
-        },
-      })
-
-      if (!updated) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
 
       try {
         await emitEvent({
@@ -581,6 +580,7 @@ export const venueRouter = router({
 
   delete: tenantProcedure
     .use(requireRole('OWNER'))
+    .use(withContentVersionActor)
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId

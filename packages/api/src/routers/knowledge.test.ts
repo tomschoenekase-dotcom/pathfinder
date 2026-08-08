@@ -12,6 +12,7 @@ const entryCreate = vi.fn()
 const entryUpdateMany = vi.fn()
 const entryDeleteMany = vi.fn()
 const dbTransaction = vi.fn()
+const dbExecuteRaw = vi.fn()
 
 const mockDb = {
   venue: { findFirst: venueFindFirst },
@@ -23,6 +24,7 @@ const mockDb = {
     deleteMany: entryDeleteMany,
   },
   $transaction: dbTransaction,
+  $executeRaw: dbExecuteRaw,
 } as unknown as TRPCContext['db']
 
 const baseCtx = { db: mockDb, headers: new Headers() }
@@ -70,6 +72,10 @@ const entryRow = {
 describe('knowledge router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    dbExecuteRaw.mockResolvedValue(1)
+    dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
+      callback(mockDb),
+    )
   })
 
   it('knowledge.list returns only entries for the caller tenant and venue', async () => {

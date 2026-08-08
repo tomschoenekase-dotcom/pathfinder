@@ -44,6 +44,7 @@ const importReceiptFindFirst = vi.fn()
 const importReceiptCreateMany = vi.fn()
 const dbQueryRaw = vi.fn()
 const dbTransaction = vi.fn()
+const dbExecuteRaw = vi.fn()
 
 const mockDb = {
   venue: {
@@ -61,6 +62,7 @@ const mockDb = {
   },
   $queryRaw: dbQueryRaw,
   $transaction: dbTransaction,
+  $executeRaw: dbExecuteRaw,
 } as unknown as TRPCContext['db']
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,7 @@ describe('venue router', () => {
     importReceiptCreateMany.mockResolvedValue({ count: 1 })
     placeCreateMany.mockResolvedValue({ count: 1 })
     knowledgeEntryCreateMany.mockResolvedValue({ count: 1 })
+    dbExecuteRaw.mockResolvedValue(1)
     dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -556,6 +559,15 @@ describe('venue router', () => {
   // --- venue.updateAiConfig ---
 
   it('saves AI config and enqueues every scoped unembedded place', async () => {
+    let transactionCommitted = false
+    dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) => {
+      const result = await callback(mockDb)
+      transactionCommitted = true
+      return result
+    })
+    enqueueEmbedPlaceMock.mockImplementation(async () => {
+      expect(transactionCommitted).toBe(true)
+    })
     const place1UpdatedAt = new Date('2026-08-07T18:00:00.123Z')
     const place2UpdatedAt = new Date('2026-08-07T18:00:00.456Z')
     venueFindFirst

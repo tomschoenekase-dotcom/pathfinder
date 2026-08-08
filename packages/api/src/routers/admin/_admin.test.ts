@@ -146,6 +146,7 @@ vi.mock('@pathfinder/db', () => {
         dbTransaction(callback, transactionDb),
     },
     writeAuditLog: writeAuditLogMock,
+    setContentVersionContext: vi.fn().mockResolvedValue(undefined),
     withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
   }
 })

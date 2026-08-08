@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
 import { PlaceForm } from '../../../../../../../components/PlaceForm'
+import { ContentHistoryPanel } from '../../../../../../../components/ContentHistoryPanel'
 import { createDashboardCaller } from '../../../../../../../lib/server-caller'
 
 type EditPlacePageProps = {
@@ -65,6 +66,7 @@ export default async function EditPlacePage({ params }: EditPlacePageProps) {
               isActive: place.isActive,
             }}
           />
+          <ContentHistoryPanel entityType="PLACE" entityId={placeId} title="Guide item history" />
         </div>
       </main>
     )

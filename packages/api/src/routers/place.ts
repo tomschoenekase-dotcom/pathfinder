@@ -1,12 +1,13 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db } from '@pathfinder/db'
+import { db, setContentVersionContext } from '@pathfinder/db'
 
 import { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from '../schemas/place'
 
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
+import { withContentVersionActor } from '../middleware/content-version-actor'
 import { tenantProcedure } from '../trpc'
 
 type Db = typeof db
@@ -99,6 +100,7 @@ export const placeRouter = router({
 
   create: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
     .input(CreatePlaceInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -134,6 +136,7 @@ export const placeRouter = router({
 
   update: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
     .input(UpdatePlaceInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -168,6 +171,7 @@ export const placeRouter = router({
 
   delete: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
     .input(z.object({ id: z.string().cuid() }))
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -208,29 +212,34 @@ export const placeRouter = router({
 
       await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
 
-      const created = await ctx.db.$transaction(
-        input.places.map((p) =>
-          ctx.db.place.create({
-            data: {
-              tenantId,
-              venueId: input.venueId,
-              name: p.name,
-              type: p.type,
-              ...(p.itemType !== undefined ? { itemType: p.itemType } : {}),
-              ...(p.lat !== undefined ? { lat: p.lat } : {}),
-              ...(p.lng !== undefined ? { lng: p.lng } : {}),
-              tags: p.tags,
-              importanceScore: p.importanceScore,
-              ...(p.shortDescription !== undefined ? { shortDescription: p.shortDescription } : {}),
-              ...(p.longDescription !== undefined ? { longDescription: p.longDescription } : {}),
-              ...(p.areaName !== undefined ? { areaName: p.areaName } : {}),
-              ...(p.hours !== undefined ? { hours: p.hours } : {}),
-              ...(p.photoUrl !== undefined ? { photoUrl: p.photoUrl } : {}),
-            },
-            select: placeSelect,
-          }),
-        ),
-      )
+      const created = await ctx.db.$transaction(async (tx) => {
+        await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        return Promise.all(
+          input.places.map((p) =>
+            tx.place.create({
+              data: {
+                tenantId,
+                venueId: input.venueId,
+                name: p.name,
+                type: p.type,
+                ...(p.itemType !== undefined ? { itemType: p.itemType } : {}),
+                ...(p.lat !== undefined ? { lat: p.lat } : {}),
+                ...(p.lng !== undefined ? { lng: p.lng } : {}),
+                tags: p.tags,
+                importanceScore: p.importanceScore,
+                ...(p.shortDescription !== undefined
+                  ? { shortDescription: p.shortDescription }
+                  : {}),
+                ...(p.longDescription !== undefined ? { longDescription: p.longDescription } : {}),
+                ...(p.areaName !== undefined ? { areaName: p.areaName } : {}),
+                ...(p.hours !== undefined ? { hours: p.hours } : {}),
+                ...(p.photoUrl !== undefined ? { photoUrl: p.photoUrl } : {}),
+              },
+              select: placeSelect,
+            }),
+          ),
+        )
+      })
 
       return { count: created.length, places: created }
     }),

@@ -29,11 +29,49 @@ const approvedPolicies = new Set([
   'tenant-optional-venue-cursor-audit',
   'tenant-venue-revision-canary-insert',
   'tenant-venue-exact-invariant-repair',
+  'transaction-content-history-context',
+  'tenant-content-history-entity-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
+    hash: '847fa7ac679ecfb036d7bf675f4eb6da381e3f183487b3601d402f68b690ec45',
+    policy: 'transaction-content-history-context',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
+    hash: 'f28fd9aa5617bff72b76ee6b4a651e3a5c486a8a44a96500361d71c103fd3fd3',
+    policy: 'transaction-content-history-context',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$executeRaw',
+    hash: 'daa2dc53e993865ebc671cc1dee04d1085ea1fbf70f976b84a024176f5e4b785',
+    policy: 'tenant-content-history-entity-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$queryRaw',
+    hash: '2679d81ae1880a220185b63a111b458048e20db8c2648b236dd7e742ad41e42f',
+    policy: 'tenant-content-history-entity-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$queryRaw',
+    hash: '49ae29957c480c5f3f70af0ea124cb2e022f59d89cbd4c70143979129e2a0812',
+    policy: 'tenant-content-history-entity-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$queryRaw',
+    hash: '2e827b7734fc4c676c8316a0e7a5eda20c940d74f63b1d3cb41ed1e006ed4edf',
+    policy: 'tenant-content-history-entity-lock',
+  },
   {
     file: 'packages/db/src/helpers/embedding-claim-repair.ts',
     method: '$queryRaw',

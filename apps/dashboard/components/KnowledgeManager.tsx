@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from '@pathfinder/api/schemas'
 
 import { createTRPCClient } from '../lib/trpc'
+import { ContentHistoryPanel } from './ContentHistoryPanel'
 
 type KnowledgeEntry = {
   id: string
@@ -68,6 +69,7 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
   const [formError, setFormError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [historyEntry, setHistoryEntry] = useState<KnowledgeEntry | null>(null)
 
   function startCreate() {
     setEditingEntry(null)
@@ -224,6 +226,13 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
+                          onClick={() => setHistoryEntry(entry)}
+                          className="inline-flex min-h-9 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+                        >
+                          History
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => startEdit(entry)}
                           className="inline-flex min-h-9 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
                         >
@@ -247,6 +256,16 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             </table>
           </div>
         )}
+        {historyEntry ? (
+          <div className="border-t border-pf-light p-4">
+            <ContentHistoryPanel
+              key={historyEntry.id}
+              entityType="KNOWLEDGE_ENTRY"
+              entityId={historyEntry.id}
+              title={`${historyEntry.title} history`}
+            />
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">

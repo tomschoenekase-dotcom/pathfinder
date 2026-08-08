@@ -4,6 +4,7 @@ export const TENANTED_TABLES = [
   'Venue',
   'Place',
   'VenueKnowledgeEntry',
+  'ContentVersion',
   'VenueContentImportReceipt',
   'VisitorSession',
   'AiUsageEvent',

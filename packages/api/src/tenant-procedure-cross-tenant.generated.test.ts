@@ -4,19 +4,24 @@ const harness = vi.hoisted(() => {
   type Touch = { kind: 'db-touch' | 'external-touch'; path: string; args: unknown[] }
   const dbTouches: Touch[] = []
   const externalTouches: Touch[] = []
-
-  const makeDbProxy = (parts: string[]): unknown =>
-    new Proxy(() => undefined, {
+  function makeDbProxy(parts: string[]): unknown {
+    return new Proxy(() => undefined, {
       get(_target, property) {
         if (property === 'then') return undefined
         return makeDbProxy([...parts, String(property)])
       },
       apply(_target, _thisArg, args: unknown[]) {
+        if (parts.join('.') === '$transaction' && typeof args[0] === 'function') {
+          return (args[0] as (tx: unknown) => unknown)(rootDb)
+        }
         const touch: Touch = { kind: 'db-touch', path: parts.join('.'), args }
         dbTouches.push(touch)
         return Promise.reject(touch)
       },
     })
+  }
+
+  const rootDb = makeDbProxy([])
 
   const external = (path: string) =>
     vi.fn((...args: unknown[]) => {
@@ -26,7 +31,7 @@ const harness = vi.hoisted(() => {
     })
 
   return {
-    db: makeDbProxy([]),
+    db: rootDb,
     dbTouches,
     externalTouches,
     inviteOrganizationMember: external('external.inviteOrganizationMember'),
@@ -36,6 +41,7 @@ const harness = vi.hoisted(() => {
 
 vi.mock('@pathfinder/db', () => ({
   db: harness.db,
+  setContentVersionContext: vi.fn().mockResolvedValue(undefined),
   writeAuditLog: vi.fn(),
 }))
 
@@ -63,6 +69,7 @@ import type { TenantRole } from '@pathfinder/auth'
 import { router } from './core'
 import type { TRPCContext } from './context'
 import { analyticsRouter } from './routers/analytics'
+import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
@@ -75,6 +82,7 @@ const ATTACKER_TENANT_ID = 'tenant_attacker'
 
 const testRouter = router({
   analytics: analyticsRouter,
+  contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,

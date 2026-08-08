@@ -263,6 +263,36 @@ drain only those staging recovery jobs under an approved incident procedure. Do 
 ordinary generation jobs or broad queue namespaces. Preserve failed-job and `JobRecord` evidence
 before any drain.
 
+## Content-history migration canary
+
+`20260809030000_add_content_versions` establishes immutable baselines and capture triggers for
+venues, places, and knowledge entries. It takes `SHARE ROW EXCLUSIVE` locks on all three source
+tables for the transaction so no write can land between a baseline scan and trigger installation.
+Treat the lock window as a planned staging write drain, not as a zero-downtime assumption.
+
+1. Before the migration, record exact row counts for `venues`, `places`, and
+   `venue_knowledge_entries`, current long-running transactions, and the release SHA. Measure the
+   migration on a disposable populated clone at representative row counts. Schedule a write drain
+   if the measured lock duration exceeds the approved staging request budget.
+2. Stop or drain dashboard/API writers and content-import jobs. Confirm no active transaction is
+   writing the three source tables, then run `prisma migrate deploy` from the release artifact.
+   Abort promotion if the migration waits unexpectedly or application write errors appear.
+3. After commit, confirm exactly one `CREATE` baseline per pre-existing source row, all rows have
+   `snapshot_schema_version = 1`, and the three capture triggers plus UPDATE/DELETE/TRUNCATE guard
+   are installed. Counts must match the recorded preflight counts by entity type.
+4. Using synthetic staging content, perform one create, content update, embedding-only update, and
+   delete. Confirm the first three content changes produce actor-attributed versions in increasing
+   sequence, the embedding-only update produces none, and the portal can restore the deletion.
+5. Confirm cross-tenant history reads and reverts are denied, an attempted history-row mutation is
+   rejected, and the migration is idempotent (`prisma migrate deploy` reports no pending work).
+
+If the migration transaction fails, do not mark it applied manually: its explicit transaction must
+leave no partial table, functions, triggers, or baselines. Diagnose and roll forward with a corrected
+migration. After a successful migration, application rollback should retain `content_versions`, its
+guards, and capture triggers; older application code does not depend on them, and dropping immutable
+recovery evidence is destructive. Pause writers before rolling back application code. A destructive
+down migration or history deletion requires a separately approved retention and incident decision.
+
 ## Staging smoke tests
 
 - Request the public web `/api/health` endpoint and record the status code and

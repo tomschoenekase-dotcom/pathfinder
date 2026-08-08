@@ -140,6 +140,10 @@ jobs:
         run: pnpm --dir packages/api exec vitest run src/routers/venue-import.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_VENUE_IMPORT_DB_INTEGRATION: '1'
+      - name: Verify content history capture, isolation, and revert
+        run: pnpm --dir packages/api exec vitest run src/routers/content-history.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_CONTENT_HISTORY_DB_INTEGRATION: '1'
       - name: Verify Clerk webhook receipt concurrency and rollback
         run: pnpm --dir packages/db exec vitest run src/helpers/membership-sync.integration.test.ts --pool=forks --maxWorkers=1
         env:
