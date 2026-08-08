@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, setContentVersionContext } from '@pathfinder/db'
+import { db, lockVenueContentMutation, setContentVersionContext } from '@pathfinder/db'
 import { enqueueEmbedPlace } from '@pathfinder/jobs'
 import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
@@ -357,6 +357,7 @@ export const venueRouter = router({
 
       return ctx.db.$transaction(async (tx) => {
         await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
         const claimed = await tx.venueContentImportReceipt.createMany({
           data: [
             {

@@ -31,3 +31,13 @@ export {
   OperationalUpdateTypeInput,
   UpdateOperationalUpdateInput,
 } from './schemas/operational-update'
+export {
+  canonicalVenuePackagePayload,
+  VENUE_PACKAGE_ITEM_LIMIT,
+  VENUE_PACKAGE_SCHEMA_VERSION,
+  VenuePackageAppliedEntities,
+  VenuePackageByIdInput,
+  VenuePackageDraftInput,
+  VenuePackageLifecycleInput,
+  VenuePackagePayload,
+} from './schemas/venue-package'

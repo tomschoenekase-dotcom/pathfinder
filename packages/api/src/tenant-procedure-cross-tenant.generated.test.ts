@@ -43,6 +43,7 @@ vi.mock('@pathfinder/db', () => ({
   db: harness.db,
   lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
   lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),
+  lockVenueContentMutation: vi.fn().mockResolvedValue(undefined),
   setContentVersionContext: vi.fn().mockResolvedValue(undefined),
   writeAuditLog: vi.fn(),
   writeAuditLogStrict: vi.fn(),
@@ -79,6 +80,7 @@ import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
 import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
+import { venuePackageRouter } from './routers/venue-package'
 import cases from './testing/tenant-procedure-cases.json'
 
 const ATTACKER_TENANT_ID = 'tenant_attacker'
@@ -92,6 +94,7 @@ const testRouter = router({
   place: placeRouter,
   tenant: tenantRouter,
   venue: venueRouter,
+  venuePackage: venuePackageRouter,
 })
 
 type ProcedureCase = {

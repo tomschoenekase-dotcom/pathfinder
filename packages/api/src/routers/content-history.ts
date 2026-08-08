@@ -5,6 +5,7 @@ import { z } from 'zod'
 import {
   lockContentVersionEntity,
   lockOperationalUpdateCapacity,
+  lockVenueContentMutation,
   setContentVersionContext,
 } from '@pathfinder/db'
 
@@ -367,6 +368,10 @@ export const contentHistoryRouter = router({
           })
           if (!target) {
             throw new TRPCError({ code: 'NOT_FOUND', message: 'Content version not found' })
+          }
+
+          if (target.entityType !== 'OPERATIONAL_UPDATE') {
+            await lockVenueContentMutation(tx, { tenantId, venueId: target.venueId })
           }
 
           await lockContentVersionEntity(tx, {

@@ -62,8 +62,16 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
   const { onboarded } = await searchParams
   const justOnboarded = onboarded === '1'
   const caller = await createDashboardCaller('/venues/detail')
-  const { orgRole } = await auth()
+  const { orgRole, sessionClaims } = await auth()
   const canRestoreDeletedVenues = orgRole === 'org:admin' || orgRole === 'org:owner'
+  const isPlatformAdmin =
+    (sessionClaims?.publicMetadata as { platform_role?: string } | undefined)?.platform_role ===
+    'PLATFORM_ADMIN'
+  const canManageVenuePackages =
+    isPlatformAdmin ||
+    orgRole === 'org:manager' ||
+    orgRole === 'org:admin' ||
+    orgRole === 'org:owner'
 
   try {
     const venue = await caller.venue.getById({ id: venueId })
@@ -118,12 +126,14 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
               >
                 Knowledge Base
               </Link>
-              <Link
-                href={`/venues/${venue.id}/import`}
-                className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
-              >
-                Import JSON
-              </Link>
+              {canManageVenuePackages ? (
+                <Link
+                  href={`/venues/${venue.id}/import`}
+                  className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+                >
+                  Venue packages
+                </Link>
+              ) : null}
               {webUrl ? (
                 <a
                   href={guestChatUrl}

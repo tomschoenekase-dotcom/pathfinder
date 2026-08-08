@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { auth } from '@clerk/nextjs/server'
 import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
 
@@ -11,6 +12,17 @@ type ImportVenuePageProps = {
 
 export default async function ImportVenuePage({ params }: ImportVenuePageProps) {
   const { venueId } = await params
+  const { orgRole, sessionClaims } = await auth()
+  const isPlatformAdmin =
+    (sessionClaims?.publicMetadata as { platform_role?: string } | undefined)?.platform_role ===
+    'PLATFORM_ADMIN'
+  const canManage =
+    isPlatformAdmin ||
+    orgRole === 'org:manager' ||
+    orgRole === 'org:admin' ||
+    orgRole === 'org:owner'
+  if (!canManage) notFound()
+  const canPublish = isPlatformAdmin || orgRole === 'org:admin' || orgRole === 'org:owner'
   const caller = await createDashboardCaller('/venues/import')
 
   try {
@@ -28,11 +40,18 @@ export default async function ImportVenuePage({ params }: ImportVenuePageProps) 
           </Link>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-pf-accent">
-              Venue content
+              Venue content lifecycle
             </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep">Import JSON</h1>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep">
+              Venue packages
+            </h1>
           </div>
-          <VenueJsonImporter venueId={venueId} venueName={venue.name} guideMode={guideMode} />
+          <VenueJsonImporter
+            venueId={venueId}
+            venueName={venue.name}
+            guideMode={guideMode}
+            canPublish={canPublish}
+          />
         </div>
       </main>
     )

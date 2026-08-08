@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, setContentVersionContext } from '@pathfinder/db'
+import { db, lockVenueContentMutation, setContentVersionContext } from '@pathfinder/db'
 
 import { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from '../schemas/place'
 
@@ -106,6 +106,7 @@ export const placeRouter = router({
       const tenantId = ctx.session.activeTenantId
 
       await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.venueId })
 
       const place = await ctx.db.place.create({
         data: {
@@ -143,12 +144,13 @@ export const placeRouter = router({
 
       const existing = await ctx.db.place.findFirst({
         where: { id: input.id, tenantId },
-        select: { id: true },
+        select: { id: true, venueId: true },
       })
 
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
       }
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: existing.venueId })
 
       const { id, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
@@ -178,12 +180,13 @@ export const placeRouter = router({
 
       const place = await ctx.db.place.findFirst({
         where: { id: input.id, tenantId },
-        select: { id: true },
+        select: { id: true, venueId: true },
       })
 
       if (!place) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
       }
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: place.venueId })
 
       await ctx.db.place.deleteMany({ where: { id: input.id, tenantId } })
 
@@ -214,6 +217,7 @@ export const placeRouter = router({
 
       const created = await ctx.db.$transaction(async (tx) => {
         await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
         return Promise.all(
           input.places.map((p) =>
             tx.place.create({

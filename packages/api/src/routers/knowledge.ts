@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, setContentVersionContext } from '@pathfinder/db'
+import { db, lockVenueContentMutation, setContentVersionContext } from '@pathfinder/db'
 
 import {
   BulkCreateKnowledgeEntriesInput,
@@ -69,6 +69,7 @@ export const knowledgeRouter = router({
       const tenantId = ctx.session.activeTenantId
 
       await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.venueId })
 
       const entry = await ctx.db.venueKnowledgeEntry.create({
         data: {
@@ -102,6 +103,7 @@ export const knowledgeRouter = router({
 
       const entries = await ctx.db.$transaction(async (tx) => {
         await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
         return Promise.all(
           input.entries.map((entry) =>
             tx.venueKnowledgeEntry.create({
@@ -130,12 +132,13 @@ export const knowledgeRouter = router({
       const tenantId = ctx.session.activeTenantId
       const existing = await ctx.db.venueKnowledgeEntry.findFirst({
         where: { id: input.id, tenantId },
-        select: { id: true },
+        select: { id: true, venueId: true },
       })
 
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge entry not found' })
       }
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: existing.venueId })
 
       const { id, ...raw } = input
       const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
@@ -162,12 +165,13 @@ export const knowledgeRouter = router({
       const tenantId = ctx.session.activeTenantId
       const existing = await ctx.db.venueKnowledgeEntry.findFirst({
         where: { id: input.id, tenantId },
-        select: { id: true },
+        select: { id: true, venueId: true },
       })
 
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge entry not found' })
       }
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: existing.venueId })
 
       await ctx.db.venueKnowledgeEntry.deleteMany({ where: { id: input.id, tenantId } })
 

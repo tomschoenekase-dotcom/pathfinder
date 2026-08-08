@@ -11,6 +11,7 @@ import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
 import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
+import { venuePackageRouter } from './routers/venue-package'
 
 export const appRouter = router({
   admin: adminRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   operationalUpdate: operationalUpdateRouter,
   tenant: tenantRouter,
   venue: venueRouter,
+  venuePackage: venuePackageRouter,
   place: placeRouter,
   health: publicProcedure.query(() => ({
     ok: true,

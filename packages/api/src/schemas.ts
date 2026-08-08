@@ -28,6 +28,16 @@ export {
   UpdateKnowledgeEntryInput,
 } from './schemas/knowledge'
 export {
+  canonicalVenuePackagePayload,
+  VENUE_PACKAGE_ITEM_LIMIT,
+  VENUE_PACKAGE_SCHEMA_VERSION,
+  VenuePackageAppliedEntities,
+  VenuePackageByIdInput,
+  VenuePackageDraftInput,
+  VenuePackageLifecycleInput,
+  VenuePackagePayload,
+} from './schemas/venue-package'
+export {
   CreateEngagementQuestionInput,
   EngagementQuestionTypeInput,
   UpdateEngagementQuestionInput,

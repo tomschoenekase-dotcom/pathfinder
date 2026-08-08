@@ -1,43 +1,30 @@
 'use client'
 
-import { useRef, useState, type ChangeEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/api/schemas'
+import type { VenuePackagePayload } from '@pathfinder/api'
 
 import { createTRPCClient } from '../lib/trpc'
-import {
-  clearVenueContentImportAttempt,
-  getOrCreateVenueContentImportAttempt,
-} from '../lib/venue-import-idempotency'
 
-type GuideMode = 'location_aware' | 'non_location'
-
-type ImportIssue = {
-  message: string
-  severity: 'error' | 'warning'
-}
-
-type ParsedImport = {
-  places: Array<ReturnType<typeof PlaceInput.parse>>
-  knowledgeEntries: Array<ReturnType<typeof KnowledgeEntryInput.parse>>
-  issues: ImportIssue[]
-}
+type Client = ReturnType<typeof createTRPCClient>
+type Preview = Awaited<ReturnType<Client['venuePackage']['preview']['mutate']>>
+type PackageRecord = Awaited<ReturnType<Client['venuePackage']['list']['query']>>[number]
 
 type VenueJsonImporterProps = {
   venueId: string
   venueName: string
-  guideMode: GuideMode
+  guideMode: 'location_aware' | 'non_location'
+  canPublish?: boolean
 }
 
 const EXAMPLE_JSON = `{
   "schemaVersion": 1,
   "places": [
     {
-      "title": "Butterfly Conservatory",
+      "name": "Butterfly Conservatory",
       "type": "exhibit",
       "itemType": "exhibit",
-      "description": "A warm indoor habitat with free-flying butterflies.",
+      "shortDescription": "A warm indoor habitat with free-flying butterflies.",
       "lat": 41.8812,
       "lng": -87.6237,
       "tags": ["family", "indoor"],
@@ -50,329 +37,417 @@ const EXAMPLE_JSON = `{
     {
       "title": "Accessibility",
       "category": "Accessibility",
-      "content": "Wheelchair-accessible entrances are available at the main gate."
+      "content": "Wheelchair-accessible entrances are available at the main gate.",
+      "isEnabled": true
     }
   ]
 }`
 
-function getErrorMessage(error: unknown): string {
+function errorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
-    : 'Import completion could not be confirmed.'
+    : 'The venue-package action could not be confirmed.'
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function statusClass(status: PackageRecord['status']) {
+  if (status === 'APPLIED') return 'bg-green-100 text-green-800'
+  if (status === 'APPROVED') return 'bg-blue-100 text-blue-800'
+  if (status === 'REVERTED') return 'bg-gray-100 text-gray-700'
+  return 'bg-amber-100 text-amber-800'
 }
 
-function formatIssues(issues: { message: string }[]): string {
-  return issues.map((issue) => issue.message).join(', ')
-}
+export function VenueJsonImporter({
+  venueId,
+  venueName,
+  guideMode,
+  canPublish = true,
+}: VenueJsonImporterProps) {
+  const client = useMemo(() => createTRPCClient(), [])
+  const [text, setText] = useState(EXAMPLE_JSON)
+  const [preview, setPreview] = useState<Preview | null>(null)
+  const [packages, setPackages] = useState<PackageRecord[]>([])
+  const [selected, setSelected] = useState<PackageRecord | null>(null)
+  const [warningsAcknowledged, setWarningsAcknowledged] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [draftKey, setDraftKey] = useState(() => crypto.randomUUID())
+  const [selectedIsStale, setSelectedIsStale] = useState(false)
+  const commandKeys = useRef(new Map<string, string>())
 
-function parseImport(text: string, guideMode: GuideMode): ParsedImport | null {
-  const issues: ImportIssue[] = []
-  let raw: unknown
-
-  try {
-    raw = JSON.parse(text)
-  } catch {
-    return {
-      places: [],
-      knowledgeEntries: [],
-      issues: [{ severity: 'error', message: 'The file is not valid JSON.' }],
-    }
+  async function loadPackages(preferredId?: string) {
+    const rows = await client.venuePackage.list.query({ venueId })
+    setPackages(rows)
+    if (preferredId) setSelected(rows.find((row) => row.id === preferredId) ?? null)
+    return rows
   }
 
-  if (!isRecord(raw)) {
-    return {
-      places: [],
-      knowledgeEntries: [],
-      issues: [{ severity: 'error', message: 'The JSON root must be an object.' }],
-    }
-  }
+  useEffect(() => {
+    void loadPackages().catch((cause) => setError(errorMessage(cause)))
+    // The typed client is stable for this component lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [venueId])
 
-  if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) {
-    issues.push({ severity: 'error', message: 'schemaVersion must be 1.' })
-  }
-
-  const rawPlaces = raw.places
-  const rawKnowledgeEntries = raw.knowledgeEntries
-  if (rawPlaces !== undefined && !Array.isArray(rawPlaces)) {
-    issues.push({ severity: 'error', message: 'places must be an array.' })
-  }
-  if (rawKnowledgeEntries !== undefined && !Array.isArray(rawKnowledgeEntries)) {
-    issues.push({ severity: 'error', message: 'knowledgeEntries must be an array.' })
-  }
-
-  const places = Array.isArray(rawPlaces)
-    ? rawPlaces.flatMap((item, index) => {
-        if (!isRecord(item)) {
-          issues.push({ severity: 'error', message: `Guide item ${index + 1} must be an object.` })
-          return []
-        }
-
-        const candidate = {
-          name: item.title ?? item.name,
-          type:
-            item.type ??
-            (guideMode === 'non_location' ? (item.itemType ?? 'general_info') : undefined),
-          itemType: item.itemType,
-          shortDescription: item.shortDescription,
-          longDescription: item.description ?? item.longDescription,
-          lat: item.lat,
-          lng: item.lng,
-          tags: item.tags,
-          importanceScore: item.importanceScore,
-          areaName: item.areaName,
-          hours: item.hours,
-          photoUrl: item.photoUrl,
-        }
-        const parsed = PlaceInput.safeParse(candidate)
-        const label =
-          typeof candidate.name === 'string' && candidate.name
-            ? candidate.name
-            : `Guide item ${index + 1}`
-
-        if (!parsed.success) {
-          issues.push({
-            severity: 'error',
-            message: `${label}: ${formatIssues(parsed.error.issues)}`,
-          })
-          return []
-        }
-        if (
-          guideMode === 'location_aware' &&
-          (parsed.data.lat === undefined || parsed.data.lng === undefined)
-        ) {
-          issues.push({
-            severity: 'error',
-            message: `${label}: latitude and longitude are required for this venue.`,
-          })
-          return []
-        }
-        if ((parsed.data.lat === undefined) !== (parsed.data.lng === undefined)) {
-          issues.push({
-            severity: 'error',
-            message: `${label}: latitude and longitude must be supplied together.`,
-          })
-          return []
-        }
-        if (parsed.data.longDescription === undefined) {
-          issues.push({
-            severity: 'warning',
-            message: `${label}: no description will be imported.`,
-          })
-        }
-        return [parsed.data]
-      })
-    : []
-
-  const knowledgeEntries = Array.isArray(rawKnowledgeEntries)
-    ? rawKnowledgeEntries.flatMap((item, index) => {
-        if (!isRecord(item)) {
-          issues.push({
-            severity: 'error',
-            message: `Knowledge entry ${index + 1} must be an object.`,
-          })
-          return []
-        }
-        const parsed = KnowledgeEntryInput.safeParse({
-          title: item.title,
-          category: item.category,
-          content: item.content,
-          isEnabled: item.isEnabled,
-        })
-        if (!parsed.success) {
-          issues.push({
-            severity: 'error',
-            message: `Knowledge entry ${index + 1}: ${formatIssues(parsed.error.issues)}`,
-          })
-          return []
-        }
-        return [parsed.data]
-      })
-    : []
-
-  if (
-    places.length === 0 &&
-    knowledgeEntries.length === 0 &&
-    !issues.some((issue) => issue.severity === 'error')
-  ) {
-    issues.push({
-      severity: 'error',
-      message: 'Include at least one guide item or knowledge entry.',
-    })
-  }
-
-  return { places, knowledgeEntries, issues }
-}
-
-export function VenueJsonImporter({ venueId, venueName, guideMode }: VenueJsonImporterProps) {
-  const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) clientRef.current = createTRPCClient()
-  const client = clientRef.current
-  const importAttemptRef = useRef<Awaited<
-    ReturnType<typeof getOrCreateVenueContentImportAttempt>
-  > | null>(null)
-
-  const [jsonText, setJsonText] = useState('')
-  const [parsedImport, setParsedImport] = useState<ParsedImport | null>(null)
-  const [isImporting, setIsImporting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-
-  function validate(text: string) {
-    importAttemptRef.current = null
-    setJsonText(text)
-    setSubmitError(null)
-    setSuccessMessage(null)
-    setParsedImport(parseImport(text, guideMode))
-  }
-
-  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    validate(await file.text())
-    event.target.value = ''
-  }
-
-  async function handleImport() {
-    if (!parsedImport || parsedImport.issues.some((issue) => issue.severity === 'error')) return
-
-    setIsImporting(true)
-    setSubmitError(null)
+  function parseText(): VenuePackagePayload {
     try {
-      const payload = {
-        venueId,
-        places: parsedImport.places,
-        knowledgeEntries: parsedImport.knowledgeEntries,
-      }
-      const attempt =
-        importAttemptRef.current ?? (await getOrCreateVenueContentImportAttempt(payload))
-      importAttemptRef.current = attempt
-      const result = await client.venue.importContent.mutate({
-        ...payload,
-        idempotencyKey: attempt.idempotencyKey,
-      })
-      setSuccessMessage(
-        `Imported ${result.placeCount} guide items and ${result.knowledgeEntryCount} knowledge entries.`,
-      )
-      setJsonText('')
-      setParsedImport(null)
-      clearVenueContentImportAttempt(venueId, attempt)
-      importAttemptRef.current = null
-      router.refresh()
-    } catch (error) {
-      setSubmitError(
-        `${getErrorMessage(error)} Retry this unchanged import safely; PathFinder will reuse its attempt identity.`,
-      )
-    } finally {
-      setIsImporting(false)
+      return JSON.parse(text) as VenuePackagePayload
+    } catch {
+      throw new Error('The package is not valid JSON.')
     }
   }
 
-  const errorCount = parsedImport?.issues.filter((issue) => issue.severity === 'error').length ?? 0
-  const warningCount =
-    parsedImport?.issues.filter((issue) => issue.severity === 'warning').length ?? 0
-  const canImport =
-    parsedImport !== null &&
-    errorCount === 0 &&
-    (parsedImport.places.length > 0 || parsedImport.knowledgeEntries.length > 0)
+  async function runPreview(payload = parseText()) {
+    const next = await client.venuePackage.preview.mutate({ venueId, payload })
+    setPreview(next)
+    setWarningsAcknowledged(false)
+    return next
+  }
+
+  async function handlePreview() {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await runPreview()
+    } catch (cause) {
+      setPreview(null)
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSaveDraft() {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const payload = parseText()
+      const checked = await runPreview(payload)
+      if (checked.report.errors.length > 0) throw new Error('Resolve every preview error first.')
+      const draft = await client.venuePackage.createDraft.mutate({ venueId, payload, draftKey })
+      await loadPackages(draft.id)
+      setPreview(draft.preview)
+      setDraftKey(crypto.randomUUID())
+      setNotice(draft.replayed ? 'This exact draft already exists.' : 'Draft saved for review.')
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refreshConflict(packageId: string) {
+    const rows = await loadPackages(packageId)
+    const current = rows.find((row) => row.id === packageId)
+    if (current) {
+      setText(JSON.stringify(current.payload, null, 2))
+      try {
+        await runPreview(current.payload as VenuePackagePayload)
+      } catch {
+        setPreview(null)
+      }
+    }
+    setNotice('Package or venue content changed. The current revision was refreshed for review.')
+  }
+
+  async function runLifecycle(action: 'approve' | 'apply' | 'revert') {
+    if (!selected) return
+    if (action === 'approve' && preview?.report.warnings.length && !warningsAcknowledged) {
+      setError('Acknowledge every warning before approval.')
+      return
+    }
+    if (
+      action === 'revert' &&
+      !window.confirm('Revert every unchanged item created by this package?')
+    ) {
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const commandIdentity = `${selected.id}:${action}:${selected.updatedAt.toISOString()}`
+      const commandKey = commandKeys.current.get(commandIdentity) ?? crypto.randomUUID()
+      commandKeys.current.set(commandIdentity, commandKey)
+      const input = { id: selected.id, expectedUpdatedAt: selected.updatedAt, commandKey }
+      const result =
+        action === 'approve'
+          ? await client.venuePackage.approve.mutate({
+              ...input,
+              acknowledgedWarningDigest: preview?.warningDigest ?? '',
+              acknowledgedPayloadHash: preview?.payloadHash ?? '',
+            })
+          : action === 'apply'
+            ? await client.venuePackage.applyPackage.mutate(input)
+            : await client.venuePackage.revertPackage.mutate(input)
+      await loadPackages(result.id)
+      setNotice(
+        action === 'approve'
+          ? 'Package approved. Application remains a separate action.'
+          : action === 'apply'
+            ? 'Package applied atomically.'
+            : 'Package reverted to its exact approved base.',
+      )
+    } catch (cause) {
+      const message = errorMessage(cause)
+      if (/conflict|changed|refresh|already applied/i.test(message)) {
+        setSelectedIsStale(true)
+        try {
+          await refreshConflict(selected.id)
+        } catch {
+          setNotice(
+            'The action conflicted, and automatic refresh also failed. Reload before retrying.',
+          )
+        }
+      }
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function selectPackage(pkg: PackageRecord) {
+    setSelected(pkg)
+    setText(JSON.stringify(pkg.payload, null, 2))
+    setPreview(null)
+    setWarningsAcknowledged(false)
+    setSelectedIsStale(false)
+    setError(null)
+    setNotice(null)
+  }
+
+  const warningCount = preview?.report.warnings.length ?? 0
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-pf-deep">Import venue content</h2>
-        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-          Import guide items and knowledge entries for {venueName}. A guide item&apos;s{' '}
-          <code>title</code> becomes its name, and <code>description</code> becomes its long
-          description.
+      <section className="rounded-lg border border-gray-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-gray-900">Venue package workspace</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          {venueName} ·{' '}
+          {guideMode === 'location_aware' ? 'Location-aware guide' : 'Non-location guide'}
         </p>
-        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-          This venue is{' '}
-          {guideMode === 'location_aware'
-            ? 'location-aware, so every guide item needs latitude and longitude.'
-            : 'not location-aware, so coordinates are optional.'}
+        <p className="mt-2 text-sm text-gray-600">
+          Schema v1 is additive and supports only places and knowledge entries. Unknown sections and
+          nested fields are rejected by the server instead of being discarded.
         </p>
 
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <label className="inline-flex min-h-11 cursor-pointer items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5">
-            Choose JSON file
-            <input
-              className="sr-only"
-              type="file"
-              accept="application/json,.json"
-              onChange={handleFileChange}
-            />
-          </label>
+        <label
+          className="mt-5 block text-sm font-medium text-gray-700"
+          htmlFor="venue-package-json"
+        >
+          Canonical package JSON
+        </label>
+        <textarea
+          id="venue-package-json"
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value)
+            setDraftKey(crypto.randomUUID())
+            setPreview(null)
+            setSelected(null)
+            setWarningsAcknowledged(false)
+          }}
+          rows={22}
+          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          spellCheck={false}
+        />
+        <input
+          type="file"
+          accept="application/json,.json"
+          className="mt-3 block text-sm text-gray-600"
+          aria-label="Load venue package JSON file"
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (!file) return
+            void file.text().then((contents) => {
+              setText(contents)
+              setDraftKey(crypto.randomUUID())
+              setPreview(null)
+              setSelected(null)
+              setWarningsAcknowledged(false)
+            })
+          }}
+        />
+
+        <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => validate(EXAMPLE_JSON)}
-            className="inline-flex min-h-11 items-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+            onClick={() => void handlePreview()}
+            disabled={busy}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
           >
-            Load example
+            Preview on server
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSaveDraft()}
+            disabled={busy || !preview || preview.report.errors.length > 0}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Save immutable draft
           </button>
         </div>
 
-        <label className="mt-5 block text-sm font-medium text-pf-deep/70" htmlFor="venue-json">
-          JSON content
-        </label>
-        <textarea
-          id="venue-json"
-          value={jsonText}
-          onChange={(event) => validate(event.target.value)}
-          placeholder="Paste your venue JSON here"
-          spellCheck={false}
-          className="mt-2 min-h-96 w-full rounded-lg border border-pf-light bg-pf-surface px-4 py-3 font-mono text-sm text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-        />
+        {error && (
+          <p role="alert" className="mt-4 whitespace-pre-wrap text-sm text-red-700">
+            {error}
+          </p>
+        )}
+        {notice && (
+          <p role="status" className="mt-4 text-sm text-green-700">
+            {notice}
+          </p>
+        )}
       </section>
 
-      {parsedImport ? (
-        <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {preview && (
+        <section className="rounded-lg border border-gray-200 bg-white p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold text-pf-deep">Import preview</h2>
-              <p className="mt-1 text-sm text-pf-deep/60">
-                {parsedImport.places.length} guide items and {parsedImport.knowledgeEntries.length}{' '}
-                knowledge entries ready.
-              </p>
+              <h3 className="font-semibold text-gray-900">Exact additive preview</h3>
+              <p className="mt-1 font-mono text-xs text-gray-500">{preview.payloadHash}</p>
             </div>
-            <button
-              type="button"
-              disabled={!canImport || isImporting}
-              onClick={() => void handleImport()}
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
-            >
-              {isImporting ? 'Importing...' : 'Import content'}
-            </button>
+            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+              {preview.mode}
+            </span>
           </div>
 
-          {errorCount > 0 || warningCount > 0 ? (
-            <div className="mt-5 space-y-2">
-              {parsedImport.issues.map((issue, index) => (
-                <p
-                  key={`${issue.severity}-${index}`}
-                  className={`rounded-lg border px-4 py-3 text-sm ${issue.severity === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}
-                >
-                  {issue.message}
-                </p>
-              ))}
+          {preview.report.errors.length > 0 && (
+            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-4">
+              <h4 className="text-sm font-semibold text-red-800">Errors</h4>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-red-700">
+                {preview.report.errors.map((issue) => (
+                  <li key={`${issue.path}-${issue.code}`}>
+                    <code>{issue.path}</code>: {issue.message}
+                  </li>
+                ))}
+              </ul>
             </div>
-          ) : null}
-          {submitError ? (
-            <p className="mt-5 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {submitError}
-            </p>
-          ) : null}
-        </section>
-      ) : null}
+          )}
 
-      {successMessage ? (
-        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          {successMessage}
-        </p>
-      ) : null}
+          {warningCount > 0 && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4">
+              <h4 className="text-sm font-semibold text-amber-800">Warnings</h4>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-700">
+                {preview.report.warnings.map((issue) => (
+                  <li key={`${issue.path}-${issue.code}`}>
+                    <code>{issue.path}</code>: {issue.message}
+                  </li>
+                ))}
+              </ul>
+              <label className="mt-3 flex items-center gap-2 text-sm text-amber-900">
+                <input
+                  type="checkbox"
+                  checked={warningsAcknowledged}
+                  onChange={(event) => setWarningsAcknowledged(event.target.checked)}
+                />
+                I reviewed all {warningCount} warning{warningCount === 1 ? '' : 's'}.
+              </label>
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-md border border-gray-200 p-4">
+              <h4 className="text-sm font-semibold text-gray-900">
+                Places to add ({preview.changes.places.add.length})
+              </h4>
+              <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                {preview.changes.places.add.map((place, index) => (
+                  <li key={`${place.name}-${index}`} className="rounded bg-gray-50 p-2">
+                    <pre className="whitespace-pre-wrap text-xs">
+                      {JSON.stringify(place, null, 2)}
+                    </pre>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-gray-500">
+                {preview.changes.places.unchanged} existing places unchanged; 0 changed; 0 removed.
+              </p>
+            </div>
+            <div className="rounded-md border border-gray-200 p-4">
+              <h4 className="text-sm font-semibold text-gray-900">
+                Knowledge to add ({preview.changes.knowledgeEntries.add.length})
+              </h4>
+              <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                {preview.changes.knowledgeEntries.add.map((entry, index) => (
+                  <li key={`${entry.title}-${index}`} className="rounded bg-gray-50 p-2">
+                    <pre className="whitespace-pre-wrap text-xs">
+                      {JSON.stringify(entry, null, 2)}
+                    </pre>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-gray-500">
+                {preview.changes.knowledgeEntries.unchanged} existing entries unchanged; 0 changed;
+                0 removed.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="rounded-lg border border-gray-200 bg-white p-6">
+        <h3 className="font-semibold text-gray-900">Durable package history</h3>
+        {packages.length === 0 ? (
+          <p className="mt-3 text-sm text-gray-500">No saved package revisions yet.</p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {packages.map((pkg) => (
+              <div key={pkg.id} className="rounded-md border border-gray-200 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button type="button" className="text-left" onClick={() => selectPackage(pkg)}>
+                    <span className="font-mono text-xs text-gray-500">{pkg.id}</span>
+                    <span
+                      className={`ml-3 rounded-full px-2 py-1 text-xs font-medium ${statusClass(pkg.status)}`}
+                    >
+                      {pkg.status}
+                    </span>
+                    <span className="ml-3 text-xs text-gray-500">
+                      {new Date(pkg.createdAt).toLocaleString()}
+                    </span>
+                  </button>
+                  {selected?.id === pkg.id && (
+                    <div className="flex flex-wrap gap-2">
+                      {pkg.status === 'DRAFT' && canPublish && (
+                        <button
+                          type="button"
+                          onClick={() => void runLifecycle('approve')}
+                          disabled={busy || !preview || (warningCount > 0 && !warningsAcknowledged)}
+                          className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                      )}
+                      {pkg.status === 'APPROVED' && canPublish && (
+                        <button
+                          type="button"
+                          onClick={() => void runLifecycle('apply')}
+                          disabled={busy || selectedIsStale}
+                          className="rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                        >
+                          Apply approved package
+                        </button>
+                      )}
+                      {pkg.status === 'APPLIED' && canPublish && (
+                        <button
+                          type="button"
+                          onClick={() => void runLifecycle('revert')}
+                          disabled={busy}
+                          className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
+                        >
+                          Revert package
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

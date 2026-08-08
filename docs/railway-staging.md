@@ -335,6 +335,46 @@ draining writers; retain the new columns and immutable versions. Reverting to co
 rows as implicitly published would be unsafe, so a same-SHA forward fix is preferred. Dropping the
 history trigger or rows requires separate retention and incident approval.
 
+## Venue-package lifecycle migration canary
+
+`20260809050000_add_venue_packages` adds an immutable review aggregate for strict schema-v1 venue
+packages. It does not rewrite venue content. The migration creates one enum, one table, lifecycle
+and immutability guards, a tenant relation, and tenant-scoped draft/command idempotency indexes.
+
+1. Confirm the target with the disposable-migration guard and record the release SHA. No external
+   migration is authorized while the `DIRECT_DATABASE_URL` incident remains unresolved.
+2. Apply all migrations to a populated disposable clone. Confirm 42 finished migrations, then run
+   the guarded deploy again and require `No pending migrations to apply`.
+3. Verify the draft/approval/application/revert command-key indexes,
+   `venue_packages_lifecycle_check`, `venue_packages_revision_guard`, and
+   `venue_packages_truncate_guard` exist. Direct immutable-field update, delete, truncate, and an
+   illegal lifecycle jump must fail without changing the revision.
+4. Preview a strict v1 package and confirm it writes no content. Save and replay one explicit draft
+   key, approve with the exact warning digest, then apply it. Confirm all places, knowledge, content
+   versions, embedding dispatches, audit evidence, package status, and rollback manifest commit
+   together. Retry each command key and require no duplicate write.
+5. Apply two approved same-base packages concurrently and require one winner, one conflict, and one
+   content set. Inject a late knowledge insert failure and require no place, knowledge, applied audit,
+   or status transition. Revert an unchanged applied package and require the exact base digest;
+   mutate venue content after apply and require the aggregate revert to fail closed. After a clean
+   revert, require the same payload with a new draft key to create a new DRAFT. Apply a later package
+   revision without rewriting the prior APPLIED revision.
+
+Schema v1 is deliberately additive and supports only places and knowledge entries. Missing or
+unsupported schema versions, unknown root sections, and unknown nested fields fail input parsing
+before a draft or content write. A structurally valid package with a server validation error may be
+retained as immutable DRAFT evidence, but approval and application remain blocked. Normalized exact
+duplicates are warnings whose exact digest must be acknowledged server-side; semantic duplicate
+detection and broader venue-package sections remain future work and must not be claimed by this
+canary.
+
+Application rollback is a same-SHA forward fix or `git revert` while retaining package revisions.
+There is no automated Prisma down migration; any schema downgrade requires a separately reviewed
+manual change after revision retention is resolved.
+Do not delete package rows: the database guard intentionally makes revisions immutable. A package's
+own `revertPackage` action is allowed only while all authoritative venue content still matches its
+post-apply digest; otherwise use manual reviewed recovery rather than a partial rollback.
+
 ## Staging smoke tests
 
 - Request the public web `/api/health` endpoint and record the status code and

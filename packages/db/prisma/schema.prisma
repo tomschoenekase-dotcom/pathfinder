@@ -64,6 +64,7 @@ model Tenant {
   embeddingWorkClaims         EmbeddingWorkClaim[]
   embeddingDispatches         EmbeddingDispatch[]
   venueContentImportReceipts  VenueContentImportReceipt[]
+  venuePackages               VenuePackage[]
   generationRequestDispatches GenerationRequestDispatch[]
   contentVersions             ContentVersion[]
 
@@ -193,6 +194,13 @@ enum AnswerAnalysisStatus {
   GENERATING
   COMPLETE
   FAILED
+}
+
+enum VenuePackageStatus {
+  DRAFT
+  APPROVED
+  APPLIED
+  REVERTED
 }
 
 model Venue {
@@ -335,6 +343,46 @@ model VenueContentImportReceipt {
   @@unique([tenantId, venueId, idempotencyKey])
   @@index([tenantId, venueId, createdAt])
   @@map("venue_content_import_receipts")
+}
+
+/// Immutable, reviewable revision of the currently supported venue-content
+/// package. Lifecycle metadata is mutable only through guarded state changes.
+model VenuePackage {
+  id                    String             @id @default(cuid())
+  tenantId              String             @map("tenant_id")
+  venueId               String             @map("venue_id")
+  draftKey              String             @map("draft_key") @db.Uuid
+  schemaVersion         Int                @map("schema_version")
+  payload               Json
+  payloadHash           String             @map("payload_hash") @db.Char(64)
+  baseDigest            String             @map("base_digest") @db.Char(64)
+  validationReport      Json               @map("validation_report")
+  previewPlan           Json               @map("preview_plan")
+  status                VenuePackageStatus @default(DRAFT)
+  createdBy             String             @map("created_by")
+  approvedBy            String?            @map("approved_by")
+  approvedAt            DateTime?          @map("approved_at")
+  approvedCommandKey    String?            @map("approved_command_key") @db.Uuid
+  approvalWarningDigest String?            @map("approval_warning_digest") @db.Char(64)
+  approvedWarningCodes  Json?              @map("approved_warning_codes")
+  appliedBy             String?            @map("applied_by")
+  appliedAt             DateTime?          @map("applied_at")
+  appliedCommandKey     String?            @map("applied_command_key") @db.Uuid
+  appliedEntities       Json?              @map("applied_entities")
+  revertedBy            String?            @map("reverted_by")
+  revertedAt            DateTime?          @map("reverted_at")
+  revertedCommandKey    String?            @map("reverted_command_key") @db.Uuid
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, venueId, draftKey])
+  @@unique([tenantId, approvedCommandKey])
+  @@unique([tenantId, appliedCommandKey])
+  @@unique([tenantId, revertedCommandKey])
+  @@index([tenantId, venueId, createdAt])
+  @@index([tenantId, status, updatedAt])
+  @@map("venue_packages")
 }
 
 model VisitorSession {
