@@ -72,7 +72,13 @@ const approvedOperations = [
     policy: 'tenant-venue-exact-invariant-repair',
   },
   {
-    file: 'apps/web/app/api/health/route.ts',
+    file: 'packages/db/src/helpers/health.ts',
+    method: '$executeRaw',
+    hash: '97e65da8188e2a7988bd7afe8ac2091a6fa8552d036cf92031bcd6a28dbc96a1',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/health.ts',
     method: '$queryRaw',
     hash: '1730fc082ddaf286020215008c78754a2d980d4e7aefc39e339c6684fca76e7c',
     policy: 'system-probe',

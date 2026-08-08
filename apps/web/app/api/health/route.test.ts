@@ -1,25 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const dependencyMocks = vi.hoisted(() => ({
-  queryRaw: vi.fn(),
-  ping: vi.fn(),
+  checkDatabase: vi.fn(),
+  checkQueue: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
-  db: {
-    $queryRaw: dependencyMocks.queryRaw,
-  },
+  checkDatabaseConnection: dependencyMocks.checkDatabase,
 }))
 
 vi.mock('@pathfinder/jobs', () => ({
-  getBullMQConnection: vi.fn(() => ({ ping: dependencyMocks.ping })),
+  checkBullMQConnection: dependencyMocks.checkQueue,
 }))
 
 import { GET } from './route'
 
 beforeEach(() => {
-  dependencyMocks.queryRaw.mockReset().mockResolvedValue(1)
-  dependencyMocks.ping.mockReset().mockResolvedValue('PONG')
+  dependencyMocks.checkDatabase.mockReset().mockResolvedValue(1)
+  dependencyMocks.checkQueue.mockReset().mockResolvedValue('PONG')
 })
 
 afterEach(() => {
@@ -43,13 +41,15 @@ describe('health route', () => {
       environment: expect.any(String),
       revision: expect.any(String),
     })
+    expect(dependencyMocks.checkDatabase).toHaveBeenCalledWith(2_000)
+    expect(dependencyMocks.checkQueue).toHaveBeenCalledWith(2_000)
   })
 
   it.each(['database', 'queue'])('returns 503 when the %s check fails', async (dependency) => {
     if (dependency === 'database') {
-      dependencyMocks.queryRaw.mockRejectedValue(new Error('database unavailable'))
+      dependencyMocks.checkDatabase.mockRejectedValue(new Error('database unavailable'))
     } else {
-      dependencyMocks.ping.mockRejectedValue(new Error('queue unavailable'))
+      dependencyMocks.checkQueue.mockRejectedValue(new Error('queue unavailable'))
     }
 
     const response = await GET()
@@ -60,7 +60,7 @@ describe('health route', () => {
 
   it('bounds dependency checks and reports a timeout as unavailable', async () => {
     vi.useFakeTimers()
-    dependencyMocks.queryRaw.mockImplementation(() => new Promise(() => undefined))
+    dependencyMocks.checkDatabase.mockImplementation(() => new Promise(() => undefined))
 
     const responsePromise = GET()
     await vi.advanceTimersByTimeAsync(2_000)
@@ -72,6 +72,24 @@ describe('health route', () => {
       deps: {
         db: 'timeout',
         queue: 'up',
+      },
+    })
+  })
+
+  it('bounds a queue check even if the client ignores its deadline', async () => {
+    vi.useFakeTimers()
+    dependencyMocks.checkQueue.mockImplementation(() => new Promise(() => undefined))
+
+    const responsePromise = GET()
+    await vi.advanceTimersByTimeAsync(2_000)
+    const response = await responsePromise
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      deps: {
+        db: 'up',
+        queue: 'timeout',
       },
     })
   })

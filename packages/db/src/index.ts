@@ -26,6 +26,7 @@ export type {
 } from './helpers/embedding-work-claims'
 export type { JobFailureDisposition, WriteJobRecordParams } from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'
+export { checkDatabaseConnection } from './helpers/health'
 export { handleClerkEvent, mapClerkRoleToTenantRole } from './helpers/membership-sync'
 export type { ClerkWebhookEvent } from './helpers/membership-sync'
 export {

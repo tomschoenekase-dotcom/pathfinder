@@ -1,5 +1,5 @@
-import { db } from '@pathfinder/db'
-import { getBullMQConnection } from '@pathfinder/jobs'
+import { checkDatabaseConnection } from '@pathfinder/db'
+import { checkBullMQConnection } from '@pathfinder/jobs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -15,8 +15,8 @@ interface DeploymentIdentity {
 }
 
 interface HealthDependencies {
-  checkDatabase: () => Promise<unknown>
-  checkQueue: () => Promise<unknown>
+  checkDatabase: (timeoutMs: number) => Promise<unknown>
+  checkQueue: (timeoutMs: number) => Promise<unknown>
   deployment: DeploymentIdentity
   timeoutMs?: number
 }
@@ -33,14 +33,14 @@ function deploymentIdentity(): DeploymentIdentity {
 }
 
 async function dependencyStatus(
-  check: () => Promise<unknown>,
+  check: (timeoutMs: number) => Promise<unknown>,
   timeoutMs: number,
 ): Promise<DependencyStatus> {
   let timeout: ReturnType<typeof setTimeout> | undefined
 
   try {
     await Promise.race([
-      Promise.resolve().then(check),
+      Promise.resolve().then(() => check(timeoutMs)),
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => reject(DEPENDENCY_TIMEOUT), timeoutMs)
         timeout.unref?.()
@@ -86,11 +86,7 @@ function createHealthHandler({
 }
 
 export const GET = createHealthHandler({
-  checkDatabase: () => {
-    // Deliberate system-level raw SQL probe: SELECT 1 reads no tenant table or
-    // tenant data, so a tenant_id bind is neither available nor required.
-    return db.$queryRaw`SELECT 1`
-  },
-  checkQueue: () => getBullMQConnection().ping(),
+  checkDatabase: checkDatabaseConnection,
+  checkQueue: checkBullMQConnection,
   deployment: deploymentIdentity(),
 })
