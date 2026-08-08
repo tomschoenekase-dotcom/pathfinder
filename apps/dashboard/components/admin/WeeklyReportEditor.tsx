@@ -11,6 +11,7 @@ type WeeklyReportEditorProps = {
   reportId: string
   initialTitle: string
   initialContent: string
+  initialUpdatedAt: string
   status: 'GENERATING' | 'DRAFT' | 'PUBLISHED' | 'FAILED'
 }
 
@@ -20,6 +21,7 @@ export function WeeklyReportEditor({
   reportId,
   initialTitle,
   initialContent,
+  initialUpdatedAt,
   status,
 }: WeeklyReportEditorProps) {
   const router = useRouter()
@@ -30,6 +32,7 @@ export function WeeklyReportEditor({
 
   const [title, setTitle] = useState(initialTitle)
   const [content, setContent] = useState(initialContent)
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState(initialUpdatedAt)
   const [currentStatus, setCurrentStatus] = useState(status)
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -42,13 +45,15 @@ export function WeeklyReportEditor({
     setErrorMessage(null)
 
     try {
-      await clientRef.current!.admin.updateWeeklyReportDraft.mutate({
+      const result = await clientRef.current!.admin.updateWeeklyReportDraft.mutate({
         tenantId,
         venueId,
         reportId,
         title,
         content,
+        expectedUpdatedAt,
       })
+      setExpectedUpdatedAt(result.updatedAt)
       setMessage('Draft saved.')
       router.refresh()
     } catch (error) {

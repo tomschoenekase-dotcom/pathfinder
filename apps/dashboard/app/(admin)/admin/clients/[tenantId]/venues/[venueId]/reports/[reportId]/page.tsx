@@ -52,6 +52,7 @@ export default async function AdminReportDetailPage({ params }: AdminReportDetai
           reportId={report.id}
           initialTitle={report.title}
           initialContent={report.content ?? ''}
+          initialUpdatedAt={report.updatedAt.toISOString()}
           status={report.status}
         />
       )}

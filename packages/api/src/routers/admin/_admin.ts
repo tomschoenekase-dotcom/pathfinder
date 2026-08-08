@@ -1249,6 +1249,7 @@ export const adminRouter = router({
         tenantId: z.string(),
         venueId: z.string(),
         reportId: z.string(),
+        expectedUpdatedAt: z.string().datetime(),
         title: z.string().min(1).max(200).optional(),
         content: z.string().min(1).max(10_000),
       }),
@@ -1261,7 +1262,7 @@ export const adminRouter = router({
             tenantId: input.tenantId,
             venueId: input.venueId,
           },
-          select: { status: true },
+          select: { status: true, updatedAt: true },
         }),
       )
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
@@ -1272,6 +1273,18 @@ export const adminRouter = router({
         })
       }
 
+      const expectedUpdatedAt = new Date(input.expectedUpdatedAt)
+      if (existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'This report was edited elsewhere. Reload it before saving again.',
+        })
+      }
+
+      // Make each successful draft-save token strictly newer than the token it consumed,
+      // even when two operations fall in the same clock millisecond.
+      const nextUpdatedAt = new Date(Math.max(Date.now(), expectedUpdatedAt.getTime() + 1))
+
       const updated = await withTenantIsolationBypass(async () => {
         return db.weeklyReport.updateMany({
           where: {
@@ -1279,9 +1292,11 @@ export const adminRouter = router({
             tenantId: input.tenantId,
             venueId: input.venueId,
             status: 'DRAFT',
+            updatedAt: expectedUpdatedAt,
           },
           data: {
             content: input.content,
+            updatedAt: nextUpdatedAt,
             ...(input.title !== undefined ? { title: input.title } : {}),
           },
         })
@@ -1302,7 +1317,7 @@ export const adminRouter = router({
         targetId: input.reportId,
       })
 
-      return { ok: true }
+      return { ok: true, updatedAt: nextUpdatedAt.toISOString() }
     }),
 
   publishWeeklyReport: adminProcedure

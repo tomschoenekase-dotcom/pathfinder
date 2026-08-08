@@ -183,6 +183,8 @@ function nonAdminCtx(): TRPCContext {
 const testRouter = router({ admin: adminRouter })
 
 describe('admin router', () => {
+  const reportRevision = new Date('2026-08-08T12:00:00.000Z')
+
   beforeEach(() => {
     vi.resetAllMocks()
     visitorSessionUpdateMany.mockResolvedValue({ count: 1 })
@@ -1086,7 +1088,7 @@ describe('admin router', () => {
   it.each(['PUBLISHED', 'GENERATING', 'FAILED'])(
     'admin.updateWeeklyReportDraft throws BAD_REQUEST on a %s report',
     async (status) => {
-      weeklyReportFindFirst.mockResolvedValueOnce({ status })
+      weeklyReportFindFirst.mockResolvedValueOnce({ status, updatedAt: reportRevision })
 
       const caller = testRouter.createCaller(adminCtx())
 
@@ -1095,12 +1097,13 @@ describe('admin router', () => {
           tenantId: 'tenant_1',
           venueId: 'venue_1',
           reportId: 'report_1',
+          expectedUpdatedAt: reportRevision.toISOString(),
           content: 'Edited content',
         }),
       ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
       expect(weeklyReportFindFirst).toHaveBeenCalledWith({
         where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
-        select: { status: true },
+        select: { status: true, updatedAt: true },
       })
       expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
       expect(writeAuditLogMock).not.toHaveBeenCalled()
@@ -1117,6 +1120,7 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'wrong_venue',
         reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
         content: 'Edited content',
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
@@ -1125,34 +1129,46 @@ describe('admin router', () => {
   })
 
   it('admin.updateWeeklyReportDraft uses an exact DRAFT CAS and audit-logs a successful edit', async () => {
-    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT' })
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', updatedAt: reportRevision })
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(reportRevision.getTime())
 
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.updateWeeklyReportDraft({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       reportId: 'report_1',
+      expectedUpdatedAt: reportRevision.toISOString(),
       title: 'Edited title',
       content: 'Edited content',
     })
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({
+      ok: true,
+      updatedAt: expect.any(String),
+    })
+    const nextUpdatedAt = new Date(result.updatedAt)
+    expect(nextUpdatedAt.getTime()).toBe(reportRevision.getTime() + 1)
     expect(weeklyReportUpdateMany).toHaveBeenCalledWith({
       where: {
         id: 'report_1',
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         status: 'DRAFT',
+        updatedAt: reportRevision,
       },
-      data: { title: 'Edited title', content: 'Edited content' },
+      data: { title: 'Edited title', content: 'Edited content', updatedAt: nextUpdatedAt },
     })
     expect(writeAuditLogMock).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'admin.report.edited', targetId: 'report_1' }),
     )
+    expect(weeklyReportUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      writeAuditLogMock.mock.invocationCallOrder[0]!,
+    )
+    dateNow.mockRestore()
   })
 
   it('admin.updateWeeklyReportDraft returns CONFLICT without an audit when its DRAFT CAS misses', async () => {
-    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT' })
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', updatedAt: reportRevision })
     weeklyReportUpdateMany.mockResolvedValueOnce({ count: 0 })
 
     const caller = testRouter.createCaller(adminCtx())
@@ -1161,6 +1177,7 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
         content: 'Edited content',
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
@@ -1171,9 +1188,31 @@ describe('admin router', () => {
           tenantId: 'tenant_1',
           venueId: 'venue_1',
           status: 'DRAFT',
+          updatedAt: reportRevision,
         },
       }),
     )
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.updateWeeklyReportDraft rejects a stale revision before attempting its CAS', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({
+      status: 'DRAFT',
+      updatedAt: new Date('2026-08-08T12:01:00.000Z'),
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.updateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
+        content: 'Stale edited content',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+
+    expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
     expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
