@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdtemp, mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import type { Readable } from 'node:stream'
+import { Writable, type Readable } from 'node:stream'
 
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import OpenAI from 'openai'
@@ -26,9 +26,19 @@ import {
   recordJobFailure,
   type JobExecutionInput,
 } from '../lib/job-execution'
+import {
+  forwardReadableErrors,
+  jsonArrayExceedsCharacterLimit,
+  MediaArchiveByteBudget,
+  MediaTextRetentionBudget,
+  readUtf8TextPrefix,
+} from '../lib/media-archive'
 
 const MAX_FILES = 10_000
 const MAX_EXPANDED_BYTES = 20 * 1024 * 1024 * 1024
+const MAX_RETAINED_TEXT_CHARACTERS = 250_000
+const MAX_TEXT_CHARACTERS_PER_FILE = 100_000
+const MAX_SYNTHESIS_JSON_CHARACTERS = 1_000_000
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.tif', '.tiff'])
 const videoExtensions = new Set(['.mp4', '.mov', '.m4v', '.avi', '.webm'])
 const audioExtensions = new Set(['.mp3', '.m4a', '.wav', '.aac', '.ogg'])
@@ -224,51 +234,80 @@ async function downloadAndExtract(objectKey: string, destination: string) {
     new GetObjectCommand({ Bucket: bucket, Key: objectKey }),
   )
   if (!response.Body) throw new Error('The uploaded archive is empty.')
-  const zip = (response.Body as unknown as Readable).pipe(unzipper.Parse({ forceStream: true }))
+  const source = response.Body as unknown as Readable
+  const zip = unzipper.Parse({ forceStream: true })
+  const detachSourceErrorForwarder = forwardReadableErrors(source, zip)
+  source.pipe(zip)
   const extracted: Array<{ filename: string; path: string; bytes: number }> = []
-  let expandedBytes = 0
+  const byteBudget = new MediaArchiveByteBudget(MAX_EXPANDED_BYTES)
   let entriesSeen = 0
+  let activeEntry: unzipper.Entry | null = null
 
-  for await (const rawEntry of zip) {
-    const entry = rawEntry as unzipper.Entry
-    entriesSeen++
-    if (entriesSeen > MAX_FILES) throw new Error(`Archive exceeds ${MAX_FILES} entries.`)
-    if (entry.type === 'Directory') {
-      entry.autodrain()
-      continue
+  try {
+    for await (const rawEntry of zip) {
+      const entry = rawEntry as unzipper.Entry
+      activeEntry = entry
+      entriesSeen++
+      if (entriesSeen > MAX_FILES) throw new Error(`Archive exceeds ${MAX_FILES} entries.`)
+      if (entry.type === 'Directory') {
+        entry.autodrain()
+        activeEntry = null
+        continue
+      }
+      const declaredBytes = Number(
+        (entry.vars as typeof entry.vars & { uncompressedSize?: number }).uncompressedSize ?? 0,
+      )
+      if (
+        declaredBytes > MAX_EXPANDED_BYTES ||
+        byteBudget.totalBytes + declaredBytes > MAX_EXPANDED_BYTES
+      ) {
+        throw new Error('Archive declares more than the 20 GB expanded-size safety limit.')
+      }
+      const originalName = entry.path.replace(/\\/g, '/')
+      const cleanName = basename(originalName)
+      const mediaType = classify(cleanName)
+      const counter = byteBudget.createEntryCounter()
+      if (!mediaType || !cleanName || cleanName.startsWith('.')) {
+        await pipeline(
+          entry,
+          counter,
+          new Writable({
+            write(_chunk, _encoding, callback) {
+              callback()
+            },
+          }),
+        )
+        activeEntry = null
+        continue
+      }
+      const target = join(
+        destination,
+        `${String(extracted.length + 1).padStart(5, '0')}-${cleanName}`,
+      )
+      await pipeline(entry, counter, createWriteStream(target, { flags: 'wx' }))
+      extracted.push({ filename: originalName, path: target, bytes: counter.bytes })
+      activeEntry = null
     }
-    const declaredBytes = Number(
-      (entry.vars as typeof entry.vars & { uncompressedSize?: number }).uncompressedSize ?? 0,
-    )
-    if (declaredBytes > MAX_EXPANDED_BYTES || expandedBytes + declaredBytes > MAX_EXPANDED_BYTES) {
-      throw new Error('Archive declares more than the 20 GB expanded-size safety limit.')
-    }
-    const originalName = entry.path.replace(/\\/g, '/')
-    const cleanName = basename(originalName)
-    const mediaType = classify(cleanName)
-    if (!mediaType || !cleanName || cleanName.startsWith('.')) {
-      entry.autodrain()
-      continue
-    }
-    const target = join(
-      destination,
-      `${String(extracted.length + 1).padStart(5, '0')}-${cleanName}`,
-    )
-    await pipeline(entry, createWriteStream(target, { flags: 'wx' }))
-    const bytes = (await stat(target)).size
-    expandedBytes += bytes
-    if (expandedBytes > MAX_EXPANDED_BYTES)
-      throw new Error('Archive expands beyond the 20 GB safety limit.')
-    extracted.push({ filename: originalName, path: target, bytes })
+  } catch (error) {
+    activeEntry?.destroy()
+    zip.destroy()
+    source.destroy()
+    throw error
+  } finally {
+    detachSourceErrorForwarder()
   }
   return extracted
 }
 
 async function synthesize(openai: OpenAI, venueName: string, context: string, analyses: unknown[]) {
   let evidence: unknown[] = analyses
-  if (JSON.stringify(evidence).length > 250_000) {
+  if (jsonArrayExceedsCharacterLimit(evidence, MAX_RETAINED_TEXT_CHARACTERS)) {
     const summaries: unknown[] = []
     for (let index = 0; index < evidence.length; index += 35) {
+      const batch = evidence.slice(index, index + 35)
+      if (jsonArrayExceedsCharacterLimit(batch, MAX_SYNTHESIS_JSON_CHARACTERS)) {
+        throw new Error('Media evidence batch exceeds the synthesis memory limit.')
+      }
       const response = await openai.chat.completions.create({
         model:
           process.env.MEDIA_SYNTHESIS_MODEL ?? process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
@@ -279,7 +318,7 @@ async function synthesize(openai: OpenAI, venueName: string, context: string, an
             content:
               'Condense this evidence batch into JSON while preserving every named object, verbatim label fact, source ID, spatial clue, contradiction, and uncertainty. Merge nothing unless the evidence explicitly establishes a duplicate.',
           },
-          { role: 'user', content: JSON.stringify(evidence.slice(index, index + 35)) },
+          { role: 'user', content: JSON.stringify(batch) },
         ],
       })
       const text = response.choices[0]?.message.content
@@ -287,6 +326,9 @@ async function synthesize(openai: OpenAI, venueName: string, context: string, an
       summaries.push(parseJson(text))
     }
     evidence = summaries
+  }
+  if (jsonArrayExceedsCharacterLimit(evidence, MAX_SYNTHESIS_JSON_CHARACTERS)) {
+    throw new Error('Media evidence exceeds the synthesis memory limit.')
   }
   const compact = JSON.stringify(evidence)
   const response = await openai.chat.completions.create({
@@ -376,6 +418,7 @@ export async function processMediaIngestionJob(
       analysis: Analysis
     }> = []
     const analysesByHash = new Map<string, Analysis>()
+    const textRetention = new MediaTextRetentionBudget(MAX_RETAINED_TEXT_CHARACTERS)
 
     await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
@@ -447,7 +490,17 @@ export async function processMediaIngestionJob(
           mediaType === 'DOCUMENT' &&
           textExtensions.has(extname(file.filename).toLowerCase())
         ) {
-          analysis = emptyAnalysis((await readFile(file.path, 'utf8')).slice(0, 100_000))
+          const allowance = textRetention.allowance(MAX_TEXT_CHARACTERS_PER_FILE)
+          if (allowance === 0) {
+            analysis = emptyAnalysis(
+              'Text file inventoried but not retained.',
+              'The media job reached its retained-text safety limit.',
+            )
+          } else {
+            const text = await readUtf8TextPrefix(file.path, allowance)
+            textRetention.retain(text)
+            analysis = emptyAnalysis(text)
+          }
         } else {
           analysis = emptyAnalysis(
             'File inventoried but not analyzed.',

@@ -10,8 +10,9 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    choose a ZIP up to 5 GB.
 3. The browser uploads directly to S3-compatible object storage in 16 MB multipart chunks. Three
    chunks run concurrently; the archive never passes through a Next.js request body.
-4. A single-concurrency BullMQ worker safely extracts supported files with a 10,000-file and 20 GB
-   expanded-size ceiling.
+4. A single-concurrency BullMQ worker safely extracts supported files with a 10,000-entry and 20 GB
+   actual expanded-byte ceiling. Every non-directory entry counts, including ignored formats, and
+   the crossing chunk is rejected before it reaches disk.
 5. Every supported image is inventoried and analyzed by default. Exact SHA-256 duplicates reuse an
    existing analysis while retaining their own source row. Videos are sampled at the configured
    interval with a 120-frame ceiling. Standalone narration and video audio are transcribed.
@@ -60,6 +61,9 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   image bytes or prompt payloads.
 - ZIP paths are flattened to generated local names, so archive path traversal cannot select the
   extraction destination.
+- Text context is streamed into at most a 100,000-character per-file prefix rather than loaded into
+  memory in full. One job retains at most 250,000 text characters, and synthesis refuses an evidence
+  batch or final evidence payload above its one-million-character memory ceiling.
 - Temporary extracted data is removed after success or failure.
 
 ## Current supported formats
