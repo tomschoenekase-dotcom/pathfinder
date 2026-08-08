@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   mkdtemp: vi.fn(),
   projectFindFirst: vi.fn(),
   projectUpdateMany: vi.fn(),
+  assetUpsert: vi.fn(),
   rm: vi.fn(),
   updateJobRecord: vi.fn(),
   withTenantIsolationBypass: vi.fn(),
@@ -24,6 +25,9 @@ vi.mock('@pathfinder/db', () => ({
       findFirst: mocks.projectFindFirst,
       updateMany: mocks.projectUpdateMany,
     },
+    mediaIngestionAsset: {
+      upsert: mocks.assetUpsert,
+    },
   },
   updateJobRecord: mocks.updateJobRecord,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
@@ -34,7 +38,12 @@ vi.mock('@pathfinder/jobs', () => ({
   MEDIA_INGESTION_QUEUE: 'test-media-ingestion',
 }))
 
-import { cleanupMediaWorkDir, processMediaIngestionJob } from './media-ingestion'
+import { assignMediaSourceIds } from '../lib/media-source-id'
+import {
+  cleanupMediaWorkDir,
+  persistMediaIngestionAsset,
+  processMediaIngestionJob,
+} from './media-ingestion'
 
 const payload = {
   tenantId: 'tenant_1',
@@ -59,6 +68,7 @@ describe('media ingestion lifecycle', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+    mocks.assetUpsert.mockResolvedValue({ id: 'asset_1' })
   })
 
   it('treats a stale generation as complete without claiming or starting provider work', async () => {
@@ -208,5 +218,72 @@ describe('media ingestion lifecycle', () => {
       projectId: 'project_1',
       error: 'file busy',
     })
+  })
+
+  it('persists colliding archive labels as distinct, correctly paired assets across retries', async () => {
+    const files = assignMediaSourceIds([
+      { filename: 'a/P001-front.jpg', bytes: 101 },
+      { filename: 'b/P001-label.jpg', bytes: 202 },
+    ])
+    const analyses = [
+      { summary: 'front', visibleText: [], objects: [], spatialClues: [], uncertainties: [] },
+      { summary: 'label', visibleText: [], objects: [], spatialClues: [], uncertainties: [] },
+    ]
+
+    for (let replay = 0; replay < 2; replay++) {
+      for (let index = 0; index < files.length; index++) {
+        await persistMediaIngestionAsset({
+          tenantId: payload.tenantId,
+          projectId: payload.projectId,
+          sourceObjectKey: project.sourceObjectKey,
+          file: files[index]!,
+          mediaType: 'IMAGE',
+          sha256: `hash-${index}`,
+          outcome: { status: 'COMPLETE', analysis: analyses[index]! },
+        })
+      }
+    }
+
+    const firstSourceId = files[0]!.sourceId
+    const secondSourceId = files[1]!.sourceId
+    expect(firstSourceId).toBe('P001')
+    expect(secondSourceId).toMatch(/^P001-00002-[0-9a-f]{12}$/u)
+    expect(secondSourceId).not.toBe(firstSourceId)
+    expect(mocks.assetUpsert).toHaveBeenCalledTimes(4)
+
+    for (const callOffset of [0, 2]) {
+      expect(mocks.assetUpsert).toHaveBeenNthCalledWith(callOffset + 1, {
+        where: { projectId_sourceId: { projectId: 'project_1', sourceId: firstSourceId } },
+        create: expect.objectContaining({
+          sourceId: firstSourceId,
+          filename: 'a/P001-front.jpg',
+          objectKey: 'test/project.zip#a/P001-front.jpg',
+          bytes: 101n,
+          analysis: analyses[0],
+        }),
+        update: expect.objectContaining({
+          filename: 'a/P001-front.jpg',
+          objectKey: 'test/project.zip#a/P001-front.jpg',
+          bytes: 101n,
+          analysis: analyses[0],
+        }),
+      })
+      expect(mocks.assetUpsert).toHaveBeenNthCalledWith(callOffset + 2, {
+        where: { projectId_sourceId: { projectId: 'project_1', sourceId: secondSourceId } },
+        create: expect.objectContaining({
+          sourceId: secondSourceId,
+          filename: 'b/P001-label.jpg',
+          objectKey: 'test/project.zip#b/P001-label.jpg',
+          bytes: 202n,
+          analysis: analyses[1],
+        }),
+        update: expect.objectContaining({
+          filename: 'b/P001-label.jpg',
+          objectKey: 'test/project.zip#b/P001-label.jpg',
+          bytes: 202n,
+          analysis: analyses[1],
+        }),
+      })
+    }
   })
 })

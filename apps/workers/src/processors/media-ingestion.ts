@@ -32,6 +32,7 @@ import {
   MediaTextRetentionBudget,
   readUtf8TextPrefix,
 } from '../lib/media-archive'
+import { assignMediaSourceIds } from '../lib/media-source-id'
 import { runBoundedLeafProcess } from '../lib/bounded-process'
 
 const MAX_FILES = 10_000
@@ -66,6 +67,55 @@ type Analysis = {
   uncertainties: string[]
 }
 
+type MediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
+
+type PersistMediaIngestionAssetParams = {
+  tenantId: string
+  projectId: string
+  sourceObjectKey: string
+  file: { filename: string; bytes: number; sourceId: string }
+  mediaType: MediaType
+  sha256: string
+  outcome: { status: 'COMPLETE'; analysis: Analysis } | { status: 'FAILED'; error: string }
+}
+
+export async function persistMediaIngestionAsset(
+  params: PersistMediaIngestionAssetParams,
+): Promise<void> {
+  const identity = {
+    filename: params.file.filename,
+    mediaType: params.mediaType,
+    objectKey: `${params.sourceObjectKey}#${params.file.filename}`,
+    bytes: BigInt(params.file.bytes),
+    sha256: params.sha256,
+  }
+
+  await withTenantIsolationBypass(() =>
+    db.mediaIngestionAsset.upsert({
+      where: {
+        projectId_sourceId: { projectId: params.projectId, sourceId: params.file.sourceId },
+      },
+      create: {
+        tenantId: params.tenantId,
+        projectId: params.projectId,
+        sourceId: params.file.sourceId,
+        ...identity,
+        status: params.outcome.status,
+        ...(params.outcome.status === 'COMPLETE'
+          ? { analysis: params.outcome.analysis }
+          : { error: params.outcome.error }),
+      },
+      update: {
+        ...identity,
+        status: params.outcome.status,
+        ...(params.outcome.status === 'COMPLETE'
+          ? { analysis: params.outcome.analysis, error: null }
+          : { error: params.outcome.error }),
+      },
+    }),
+  )
+}
+
 function storageClient() {
   const accessKeyId = process.env.STORAGE_ACCESS_KEY_ID
   const secretAccessKey = process.env.STORAGE_SECRET_ACCESS_KEY
@@ -81,7 +131,7 @@ function storageClient() {
   })
 }
 
-function classify(filename: string): 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | null {
+function classify(filename: string): MediaType | null {
   const extension = extname(filename).toLowerCase()
   if (imageExtensions.has(extension)) return 'IMAGE'
   if (videoExtensions.has(extension)) return 'VIDEO'
@@ -414,7 +464,7 @@ export async function processMediaIngestionJob(
       detectDuplicates?: boolean
       videoSecondsPerSample?: number
     }
-    const files = await downloadAndExtract(project.sourceObjectKey, workDir)
+    const files = assignMediaSourceIds(await downloadAndExtract(project.sourceObjectKey, workDir))
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const analyses: Array<{
       sourceId: string
@@ -443,10 +493,7 @@ export async function processMediaIngestionJob(
 
     for (let index = 0; index < files.length; index++) {
       const file = files[index]!
-      const sourceId =
-        basename(file.filename)
-          .match(/(?:P|V)\d{3,4}/i)?.[0]
-          ?.toUpperCase() ?? `S${String(index + 1).padStart(4, '0')}`
+      const sourceId = file.sourceId
       const mediaType = classify(file.filename)!
       const sha256 = await sha256File(file.path)
       let analysis: Analysis
@@ -518,46 +565,28 @@ export async function processMediaIngestionJob(
         }
         analysesByHash.set(sha256, analysis)
         analyses.push({ sourceId, filename: file.filename, mediaType, analysis })
-        await withTenantIsolationBypass(() =>
-          db.mediaIngestionAsset.upsert({
-            where: { projectId_sourceId: { projectId: project.id, sourceId } },
-            create: {
-              tenantId: payload.tenantId,
-              projectId: project.id,
-              sourceId,
-              filename: file.filename,
-              mediaType,
-              objectKey: `${project.sourceObjectKey}#${file.filename}`,
-              bytes: BigInt(file.bytes),
-              sha256,
-              status: 'COMPLETE',
-              analysis,
-            },
-            update: { status: 'COMPLETE', analysis, sha256, error: null },
-          }),
-        )
+        await persistMediaIngestionAsset({
+          tenantId: payload.tenantId,
+          projectId: project.id,
+          sourceObjectKey: project.sourceObjectKey,
+          file,
+          mediaType,
+          sha256,
+          outcome: { status: 'COMPLETE', analysis },
+        })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown asset analysis error'
         analysis = emptyAnalysis('Analysis failed.', message)
         analyses.push({ sourceId, filename: file.filename, mediaType, analysis })
-        await withTenantIsolationBypass(() =>
-          db.mediaIngestionAsset.upsert({
-            where: { projectId_sourceId: { projectId: project.id, sourceId } },
-            create: {
-              tenantId: payload.tenantId,
-              projectId: project.id,
-              sourceId,
-              filename: file.filename,
-              mediaType,
-              objectKey: `${project.sourceObjectKey}#${file.filename}`,
-              bytes: BigInt(file.bytes),
-              sha256,
-              status: 'FAILED',
-              error: message,
-            },
-            update: { status: 'FAILED', error: message },
-          }),
-        )
+        await persistMediaIngestionAsset({
+          tenantId: payload.tenantId,
+          projectId: project.id,
+          sourceObjectKey: project.sourceObjectKey,
+          file,
+          mediaType,
+          sha256,
+          outcome: { status: 'FAILED', error: message },
+        })
       }
       const progress = 10 + Math.round(((index + 1) / Math.max(files.length, 1)) * 75)
       await withTenantIsolationBypass(() =>
