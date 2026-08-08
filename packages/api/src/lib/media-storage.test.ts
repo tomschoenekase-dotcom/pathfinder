@@ -3,11 +3,14 @@ import {
   CompleteMultipartUploadCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  ListPartsCommand,
 } from '@aws-sdk/client-s3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  canonicalMediaUploadEtag,
   finishMediaUpload,
+  listReusableMediaUploadParts,
   MEDIA_UPLOAD_PART_SIZE,
   mediaUploadPartCount,
   normalizeMediaUploadParts,
@@ -55,6 +58,62 @@ describe('media storage contract', () => {
     expect(() => normalizeMediaUploadParts([{ partNumber: 1, etag: 'one' }], 2)).toThrow(
       /exactly 2/,
     )
+  })
+
+  it('canonicalizes transport quoting without changing the storage ETag value', () => {
+    expect(canonicalMediaUploadEtag('  "etag-value"  ')).toBe('etag-value')
+    expect(canonicalMediaUploadEtag('etag-value')).toBe('etag-value')
+  })
+
+  it('lists paginated reusable parts and excludes parts with the wrong byte length', async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({
+        Parts: [
+          { PartNumber: 1, ETag: 'one', Size: MEDIA_UPLOAD_PART_SIZE },
+          { PartNumber: 2, ETag: 'wrong-size', Size: 1 },
+        ],
+        IsTruncated: true,
+        NextPartNumberMarker: '2',
+      })
+      .mockResolvedValueOnce({
+        Parts: [{ PartNumber: 3, ETag: 'three', Size: 7 }],
+        IsTruncated: false,
+      })
+
+    await expect(
+      listReusableMediaUploadParts(
+        'staging/project.zip',
+        'upload-1',
+        MEDIA_UPLOAD_PART_SIZE * 2 + 7,
+        { send } as MediaStorageTransport,
+      ),
+    ).resolves.toEqual([
+      { partNumber: 1, etag: 'one', size: MEDIA_UPLOAD_PART_SIZE },
+      { partNumber: 3, etag: 'three', size: 7 },
+    ])
+
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(ListPartsCommand)
+    expect((send.mock.calls[1]?.[0] as ListPartsCommand).input.PartNumberMarker).toBe('2')
+  })
+
+  it('rejects invalid multipart resume metadata and non-advancing pagination', async () => {
+    await expect(
+      listReusableMediaUploadParts('staging/project.zip', 'upload-1', 10, {
+        send: vi.fn().mockResolvedValue({
+          Parts: [{ PartNumber: 1, ETag: undefined, Size: 10 }],
+        }),
+      }),
+    ).rejects.toThrow(/invalid multipart resume metadata/)
+
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ IsTruncated: true, NextPartNumberMarker: '1' })
+      .mockResolvedValueOnce({ IsTruncated: true, NextPartNumberMarker: '1' })
+    await expect(
+      listReusableMediaUploadParts('staging/project.zip', 'upload-1', 10, { send }),
+    ).rejects.toThrow(/invalid multipart resume pagination/)
   })
 
   it('completes, inspects, and returns the exact server-observed size', async () => {

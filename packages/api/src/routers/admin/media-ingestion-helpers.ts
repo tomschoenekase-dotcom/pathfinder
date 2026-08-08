@@ -27,6 +27,7 @@ export const mediaIngestionProjectSelect = {
   progress: true,
   sourceFileName: true,
   sourceBytes: true,
+  sourceLastModified: true,
   uploadAttemptId: true,
   settings: true,
   coverage: true,
@@ -41,6 +42,12 @@ export const mediaIngestionProjectSelect = {
   completedAt: true,
 } as const
 
-export function serializeMediaIngestionProject<T extends { sourceBytes: bigint | null }>(row: T) {
-  return { ...row, sourceBytes: row.sourceBytes === null ? null : Number(row.sourceBytes) }
+export function serializeMediaIngestionProject<
+  T extends { sourceBytes: bigint | null; sourceLastModified: bigint | null },
+>(row: T) {
+  return {
+    ...row,
+    sourceBytes: row.sourceBytes === null ? null : Number(row.sourceBytes),
+    sourceLastModified: row.sourceLastModified == null ? null : Number(row.sourceLastModified),
+  }
 }

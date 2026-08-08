@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   beginMediaUpload: vi.fn(),
   enqueueMediaIngestion: vi.fn(),
   finishMediaUpload: vi.fn(),
+  listReusableMediaUploadParts: vi.fn(),
   loggerWarn: vi.fn(),
   projectFindFirst: vi.fn(),
   projectUpdateMany: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('../../lib/media-storage', async (importOriginal) => ({
   abortMediaUpload: mocks.abortMediaUpload,
   beginMediaUpload: mocks.beginMediaUpload,
   finishMediaUpload: mocks.finishMediaUpload,
+  listReusableMediaUploadParts: mocks.listReusableMediaUploadParts,
   signMediaUploadPart: mocks.signMediaUploadPart,
 }))
 
@@ -74,6 +76,9 @@ describe('media ingestion router', () => {
       partSize: 16 * 1024 * 1024,
     })
     mocks.finishMediaUpload.mockResolvedValue({ bytes: 10 })
+    mocks.listReusableMediaUploadParts.mockResolvedValue([
+      { partNumber: 1, etag: 'etag_1', size: 10 },
+    ])
     mocks.enqueueMediaIngestion.mockResolvedValue(undefined)
     mocks.projectUpdateMany.mockResolvedValue({ count: 1 })
     mocks.writeAuditLog.mockResolvedValue(undefined)
@@ -234,9 +239,10 @@ describe('media ingestion router', () => {
         uploadAttemptId: ATTEMPT_ID,
         filename: 'visit.zip',
         bytes: 10,
+        lastModified: 123456,
         contentType: 'application/zip',
       }),
-    ).resolves.toEqual({ partSize: 16 * 1024 * 1024 })
+    ).resolves.toEqual({ partSize: 16 * 1024 * 1024, parts: [] })
 
     expect(mocks.beginMediaUpload).toHaveBeenCalledOnce()
     expect(mocks.projectUpdateMany).toHaveBeenNthCalledWith(1, {
@@ -250,6 +256,7 @@ describe('media ingestion router', () => {
         stage: 'creating-upload',
         uploadAttemptId: ATTEMPT_ID,
         storageUploadId: null,
+        sourceLastModified: 123456n,
         sourceContentType: 'application/zip',
         uploadStartedAt: expect.any(Date),
       }),
@@ -274,6 +281,8 @@ describe('media ingestion router', () => {
       stage: 'upload',
       sourceFileName: 'visit.zip',
       sourceBytes: 10n,
+      sourceLastModified: 0n,
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
       sourceContentType: 'application/zip',
       uploadAttemptId: ATTEMPT_ID,
       storageUploadId: 'server_secret_upload_id',
@@ -289,7 +298,82 @@ describe('media ingestion router', () => {
         bytes: 10,
         contentType: 'application/zip',
       }),
-    ).resolves.toEqual({ partSize: 16 * 1024 * 1024 })
+    ).resolves.toEqual({
+      partSize: 16 * 1024 * 1024,
+      parts: [{ partNumber: 1, etag: 'etag_1', size: 10 }],
+    })
+
+    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects a resume selection with a different browser file identity', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'UPLOADING',
+      stage: 'upload',
+      sourceFileName: 'visit.zip',
+      sourceBytes: 10n,
+      sourceLastModified: 123456n,
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceContentType: 'application/zip',
+      uploadAttemptId: ATTEMPT_ID,
+      storageUploadId: 'server_secret_upload_id',
+    })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        filename: 'visit.zip',
+        bytes: 10,
+        lastModified: 123457,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+
+    expect(mocks.listReusableMediaUploadParts).not.toHaveBeenCalled()
+    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('reports an expired storage upload as a recoverable conflict', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'UPLOADING',
+      stage: 'upload',
+      sourceFileName: 'visit.zip',
+      sourceBytes: 10n,
+      sourceLastModified: 0n,
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceContentType: 'application/zip',
+      uploadAttemptId: ATTEMPT_ID,
+      storageUploadId: 'expired_storage_upload',
+    })
+    mocks.listReusableMediaUploadParts.mockRejectedValueOnce(
+      Object.assign(new Error('storage detail'), { name: 'NoSuchUpload' }),
+    )
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({
+        code: 'CONFLICT',
+        message: 'This multipart upload expired. Abort it and start again.',
+      }),
+    )
 
     expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
     expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
@@ -313,7 +397,7 @@ describe('media ingestion router', () => {
         bytes: 10,
         contentType: 'application/zip',
       }),
-    ).resolves.toEqual({ partSize: 16 * 1024 * 1024 })
+    ).resolves.toEqual({ partSize: 16 * 1024 * 1024, parts: [] })
 
     expect(mocks.abortMediaUpload).not.toHaveBeenCalled()
     expect(mocks.projectFindFirst).toHaveBeenLastCalledWith({
@@ -673,6 +757,31 @@ describe('media ingestion router', () => {
         parts: [{ partNumber: 1, etag: 'etag_1' }],
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.finishMediaUpload).not.toHaveBeenCalled()
+  })
+
+  it('rejects stale client ETags before claiming completion', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      storageUploadId: 'storage_upload_1',
+    })
+    mocks.listReusableMediaUploadParts.mockResolvedValueOnce([
+      { partNumber: 1, etag: 'storage_etag', size: 10 },
+    ])
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.completeUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        parts: [{ partNumber: 1, etag: 'stale_etag' }],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
     expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
     expect(mocks.finishMediaUpload).not.toHaveBeenCalled()
   })

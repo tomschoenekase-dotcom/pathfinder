@@ -4,6 +4,7 @@ import {
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  ListPartsCommand,
   S3Client,
   UploadPartCommand,
 } from '@aws-sdk/client-s3'
@@ -17,6 +18,7 @@ type MediaStorageCommand =
   | CreateMultipartUploadCommand
   | DeleteObjectCommand
   | HeadObjectCommand
+  | ListPartsCommand
   | UploadPartCommand
 
 export type MediaStorageTransport = {
@@ -47,6 +49,13 @@ export function normalizeMediaUploadParts(
     }
   }
   return normalized
+}
+
+export function canonicalMediaUploadEtag(etag: string): string {
+  const trimmed = etag.trim()
+  return trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')
+    ? trimmed.slice(1, -1)
+    : trimmed
 }
 
 function storageConfig() {
@@ -93,6 +102,94 @@ export async function signMediaUploadPart(key: string, uploadId: string, partNum
     new UploadPartCommand({ Bucket: bucket, Key: key, UploadId: uploadId, PartNumber: partNumber }),
     { expiresIn: 60 * 60 },
   )
+}
+
+export type ReusableMediaUploadPart = {
+  partNumber: number
+  etag: string
+  size: number
+}
+
+export async function listMediaUploadParts(
+  key: string,
+  uploadId: string,
+  expectedPartCount: number,
+  storage: MediaStorageTransport = client() as unknown as MediaStorageTransport,
+): Promise<ReusableMediaUploadPart[]> {
+  const { bucket } = storageConfig()
+  if (!Number.isSafeInteger(expectedPartCount) || expectedPartCount <= 0) {
+    throw new Error('Expected media upload part count must be a positive safe integer.')
+  }
+  const parts = new Map<number, ReusableMediaUploadPart>()
+  const seenMarkers = new Set<string>()
+  let partNumberMarker: string | undefined
+
+  for (;;) {
+    const result = (await storage.send(
+      new ListPartsCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId: uploadId,
+        PartNumberMarker: partNumberMarker,
+        MaxParts: Math.min(1000, expectedPartCount),
+      }),
+    )) as {
+      Parts?: Array<{ PartNumber?: number; ETag?: string; Size?: number }>
+      IsTruncated?: boolean
+      NextPartNumberMarker?: string
+    }
+
+    for (const part of result.Parts ?? []) {
+      if (
+        !Number.isSafeInteger(part.PartNumber) ||
+        part.PartNumber === undefined ||
+        part.PartNumber < 1 ||
+        part.PartNumber > expectedPartCount ||
+        typeof part.ETag !== 'string' ||
+        part.ETag.length === 0 ||
+        !Number.isSafeInteger(part.Size) ||
+        part.Size === undefined ||
+        part.Size <= 0
+      ) {
+        throw new Error('Storage returned invalid multipart resume metadata.')
+      }
+      if (parts.has(part.PartNumber)) {
+        throw new Error('Storage returned duplicate multipart resume metadata.')
+      }
+      parts.set(part.PartNumber, {
+        partNumber: part.PartNumber,
+        etag: part.ETag,
+        size: part.Size,
+      })
+    }
+
+    if (!result.IsTruncated) break
+    const nextMarker = result.NextPartNumberMarker
+    if (!nextMarker || seenMarkers.has(nextMarker)) {
+      throw new Error('Storage returned invalid multipart resume pagination.')
+    }
+    seenMarkers.add(nextMarker)
+    partNumberMarker = nextMarker
+  }
+
+  return [...parts.values()].sort((left, right) => left.partNumber - right.partNumber)
+}
+
+export async function listReusableMediaUploadParts(
+  key: string,
+  uploadId: string,
+  expectedBytes: number,
+  storage: MediaStorageTransport = client() as unknown as MediaStorageTransport,
+): Promise<ReusableMediaUploadPart[]> {
+  const expectedCount = mediaUploadPartCount(expectedBytes)
+  const parts = await listMediaUploadParts(key, uploadId, expectedCount, storage)
+  return parts.filter((part) => {
+    const expectedSize =
+      part.partNumber === expectedCount
+        ? expectedBytes - MEDIA_UPLOAD_PART_SIZE * (expectedCount - 1)
+        : MEDIA_UPLOAD_PART_SIZE
+    return part.size === expectedSize
+  })
 }
 
 export async function finishMediaUpload(

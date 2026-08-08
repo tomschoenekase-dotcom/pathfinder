@@ -7,7 +7,9 @@ import { enqueueMediaIngestion } from '@pathfinder/jobs'
 
 import { router } from '../../core'
 import {
+  canonicalMediaUploadEtag,
   finishMediaUpload,
+  listReusableMediaUploadParts,
   mediaUploadPartCount,
   normalizeMediaUploadParts,
   signMediaUploadPart,
@@ -97,9 +99,9 @@ export const mediaIngestionCompleteUploadRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Active upload not found.' })
       }
       const expectedBytes = Number(project.sourceBytes)
-      let parts: Array<{ partNumber: number; etag: string }>
+      let submittedParts: Array<{ partNumber: number; etag: string }>
       try {
-        parts = normalizeMediaUploadParts(input.parts, mediaUploadPartCount(expectedBytes))
+        submittedParts = normalizeMediaUploadParts(input.parts, mediaUploadPartCount(expectedBytes))
       } catch (error) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -107,6 +109,26 @@ export const mediaIngestionCompleteUploadRouter = router({
           cause: error,
         })
       }
+      const storageParts = await listReusableMediaUploadParts(
+        project.sourceObjectKey,
+        project.storageUploadId,
+        expectedBytes,
+      )
+      const exactStorageMatch =
+        storageParts.length === submittedParts.length &&
+        storageParts.every(
+          (part, index) =>
+            part.partNumber === submittedParts[index]?.partNumber &&
+            canonicalMediaUploadEtag(part.etag) ===
+              canonicalMediaUploadEtag(submittedParts[index]?.etag ?? ''),
+        )
+      if (!exactStorageMatch) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Uploaded parts changed; refresh the resumable upload state and try again.',
+        })
+      }
+      const parts = storageParts.map(({ partNumber, etag }) => ({ partNumber, etag }))
       const claimed = await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
           where: {

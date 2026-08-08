@@ -11,6 +11,8 @@ import {
   abortMediaUpload,
   beginMediaUpload,
   finishMediaUpload,
+  listReusableMediaUploadParts,
+  MEDIA_UPLOAD_PART_SIZE,
   signMediaUploadPart,
   type MediaStorageTransport,
 } from './media-storage'
@@ -79,26 +81,54 @@ integrationDescribe('media storage (disposable S3-compatible integration)', () =
     storage.destroy()
   })
 
-  it('presigns, completes, and verifies exact uploaded bytes', async () => {
+  it('lists a partial multipart upload, resumes it, and verifies exact completed bytes', async () => {
     const key = 'verified/archive.zip'
-    const body = new TextEncoder().encode('disposable media storage proof')
+    const firstBody = new Uint8Array(MEDIA_UPLOAD_PART_SIZE).fill(97)
+    const secondBody = new TextEncoder().encode('disposable media storage proof')
+    const expectedBytes = firstBody.byteLength + secondBody.byteLength
     const started = await beginMediaUpload(key, 'application/zip')
-    const url = await signMediaUploadPart(key, started.uploadId, 1)
-    const response = await fetch(url, { method: 'PUT', body })
-    expect(response.ok).toBe(true)
-    const etag = response.headers.get('etag')
-    expect(etag).toBeTruthy()
+    const firstUrl = await signMediaUploadPart(key, started.uploadId, 1)
+    const firstResponse = await fetch(firstUrl, { method: 'PUT', body: firstBody })
+    expect(firstResponse.ok).toBe(true)
+    const firstEtag = firstResponse.headers.get('etag')
+    expect(firstEtag).toBeTruthy()
+
+    await expect(
+      listReusableMediaUploadParts(
+        key,
+        started.uploadId,
+        expectedBytes,
+        storage as unknown as MediaStorageTransport,
+      ),
+    ).resolves.toEqual([{ partNumber: 1, etag: firstEtag, size: MEDIA_UPLOAD_PART_SIZE }])
+
+    const secondUrl = await signMediaUploadPart(key, started.uploadId, 2)
+    const secondResponse = await fetch(secondUrl, { method: 'PUT', body: secondBody })
+    expect(secondResponse.ok).toBe(true)
+    const secondEtag = secondResponse.headers.get('etag')
+    expect(secondEtag).toBeTruthy()
+
+    const completedParts = await listReusableMediaUploadParts(
+      key,
+      started.uploadId,
+      expectedBytes,
+      storage as unknown as MediaStorageTransport,
+    )
+    expect(completedParts).toEqual([
+      { partNumber: 1, etag: firstEtag, size: MEDIA_UPLOAD_PART_SIZE },
+      { partNumber: 2, etag: secondEtag, size: secondBody.byteLength },
+    ])
 
     await expect(
       finishMediaUpload(
         key,
         started.uploadId,
-        [{ partNumber: 1, etag: etag! }],
-        body.byteLength,
+        completedParts.map(({ partNumber, etag }) => ({ partNumber, etag })),
+        expectedBytes,
         5 * 1024 * 1024 * 1024,
         storage as unknown as MediaStorageTransport,
       ),
-    ).resolves.toEqual({ bytes: body.byteLength })
+    ).resolves.toEqual({ bytes: expectedBytes })
   })
 
   it('aborts an incomplete upload so it is no longer listed', async () => {

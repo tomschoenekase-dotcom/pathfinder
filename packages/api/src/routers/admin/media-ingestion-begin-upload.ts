@@ -6,10 +6,16 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { currentDeploymentStorageKey } from '../../lib/deployment-storage-key'
-import { abortMediaUpload, beginMediaUpload, MEDIA_UPLOAD_PART_SIZE } from '../../lib/media-storage'
+import {
+  abortMediaUpload,
+  beginMediaUpload,
+  listReusableMediaUploadParts,
+  MEDIA_UPLOAD_PART_SIZE,
+} from '../../lib/media-storage'
 import { adminProcedure } from '../../trpc'
 import {
   MAX_MEDIA_ARCHIVE_BYTES as MAX_ARCHIVE_BYTES,
+  isNoSuchMediaUpload,
   safeMediaFileName as safeFileName,
 } from './media-ingestion-helpers'
 
@@ -22,6 +28,7 @@ export const mediaIngestionBeginUploadRouter = router({
         uploadAttemptId: z.string().uuid(),
         filename: z.string().trim().min(1).max(255),
         bytes: z.number().int().positive().max(MAX_ARCHIVE_BYTES),
+        lastModified: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
         contentType: z.enum(['application/zip', 'application/x-zip-compressed']),
       }),
     )
@@ -32,10 +39,12 @@ export const mediaIngestionBeginUploadRouter = router({
           select: {
             id: true,
             venueId: true,
+            sourceObjectKey: true,
             status: true,
             stage: true,
             sourceFileName: true,
             sourceBytes: true,
+            sourceLastModified: true,
             sourceContentType: true,
             uploadAttemptId: true,
             storageUploadId: true,
@@ -49,10 +58,36 @@ export const mediaIngestionBeginUploadRouter = router({
         project.uploadAttemptId === input.uploadAttemptId &&
         project.sourceFileName === input.filename &&
         project.sourceBytes === BigInt(input.bytes) &&
+        project.sourceLastModified === BigInt(input.lastModified) &&
         project.sourceContentType === input.contentType &&
+        project.sourceObjectKey &&
         project.storageUploadId
       ) {
-        return { partSize: MEDIA_UPLOAD_PART_SIZE }
+        let reusableParts: Awaited<ReturnType<typeof listReusableMediaUploadParts>>
+        try {
+          reusableParts = await listReusableMediaUploadParts(
+            project.sourceObjectKey,
+            project.storageUploadId,
+            input.bytes,
+          )
+        } catch (error) {
+          if (isNoSuchMediaUpload(error)) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'This multipart upload expired. Abort it and start again.',
+              cause: error,
+            })
+          }
+          throw error
+        }
+        return {
+          partSize: MEDIA_UPLOAD_PART_SIZE,
+          parts: reusableParts.map(({ partNumber, etag, size }) => ({
+            partNumber,
+            etag,
+            size,
+          })),
+        }
       }
       if (!['DRAFT', 'FAILED'].includes(project.status)) {
         throw new TRPCError({ code: 'CONFLICT', message: 'This project already has an upload.' })
@@ -73,6 +108,7 @@ export const mediaIngestionBeginUploadRouter = router({
             sourceObjectKey: objectKey,
             sourceFileName: input.filename,
             sourceBytes: BigInt(input.bytes),
+            sourceLastModified: BigInt(input.lastModified),
             sourceContentType: input.contentType,
             uploadAttemptId: input.uploadAttemptId,
             uploadStartedAt: new Date(),
@@ -163,7 +199,7 @@ export const mediaIngestionBeginUploadRouter = router({
             }),
           )
           if (readback?.stage === 'upload' && readback.storageUploadId === started.uploadId) {
-            return { partSize: started.partSize }
+            return { partSize: started.partSize, parts: [] }
           }
         } catch (readbackError) {
           logger.warn({
@@ -236,6 +272,6 @@ export const mediaIngestionBeginUploadRouter = router({
         }
         throw persistenceError
       }
-      return { partSize: started.partSize }
+      return { partSize: started.partSize, parts: [] }
     }),
 })

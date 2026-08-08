@@ -982,6 +982,7 @@ model MediaIngestionProject {
   sourceObjectKey    String?               @map("source_object_key")
   sourceFileName     String?               @map("source_file_name")
   sourceBytes        BigInt?               @map("source_bytes")
+  sourceLastModified BigInt?               @map("source_last_modified")
   uploadAttemptId    String?               @map("upload_attempt_id") @db.Uuid
   storageUploadId    String?               @map("storage_upload_id")
   uploadStartedAt    DateTime?             @map("upload_started_at")

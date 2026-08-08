@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { planMediaUploadResume } from '../../lib/media-upload-resume'
 
 type Mode = 'ECONOMY' | 'BALANCED' | 'FORENSIC'
 type Project = {
@@ -16,6 +17,7 @@ type Project = {
   progress: number
   sourceFileName: string | null
   sourceBytes: number | null
+  sourceLastModified: number | null
   uploadAttemptId: string | null
   actualCostCents: number
   estimatedCostCents: number | null
@@ -80,11 +82,15 @@ export function MediaIngestionWorkbench({
   const [busy, setBusy] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [resumingProjectId, setResumingProjectId] = useState<string | null>(null)
   const [abortingProjectId, setAbortingProjectId] = useState<string | null>(null)
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null)
 
-  async function uploadArchive(projectId: string, archive: File) {
-    const uploadAttemptId = crypto.randomUUID()
+  async function uploadArchive(
+    projectId: string,
+    archive: File,
+    uploadAttemptId = crypto.randomUUID(),
+  ) {
     const contentType =
       archive.type === 'application/x-zip-compressed'
         ? 'application/x-zip-compressed'
@@ -95,16 +101,21 @@ export function MediaIngestionWorkbench({
       uploadAttemptId,
       filename: archive.name,
       bytes: archive.size,
+      lastModified: archive.lastModified,
       contentType,
     })
     const partCount = Math.ceil(archive.size / started.partSize)
-    const parts: Array<{ partNumber: number; etag: string }> = []
-    let uploadedBytes = 0
-    let nextPart = 1
+    const plan = planMediaUploadResume(partCount, started.parts)
+    const parts = [...plan.parts]
+    const remainingPartNumbers = plan.remainingPartNumbers
+    let uploadedBytes = plan.uploadedBytes
+    let nextPartIndex = 0
+    setUploadProgress(Math.round((uploadedBytes / archive.size) * 100))
 
     async function worker() {
-      while (nextPart <= partCount) {
-        const partNumber = nextPart++
+      while (nextPartIndex < remainingPartNumbers.length) {
+        const partNumber = remainingPartNumbers[nextPartIndex++]
+        if (partNumber === undefined) return
         const start = (partNumber - 1) * started.partSize
         const body = archive.slice(start, Math.min(start + started.partSize, archive.size))
         const { url } = await client.mediaIngestion.signPart.mutate({
@@ -123,7 +134,9 @@ export function MediaIngestionWorkbench({
       }
     }
 
-    await Promise.all(Array.from({ length: Math.min(3, partCount) }, () => worker()))
+    await Promise.all(
+      Array.from({ length: Math.min(3, remainingPartNumbers.length) }, () => worker()),
+    )
     parts.sort((a, b) => a.partNumber - b.partNumber)
     await client.mediaIngestion.completeUpload.mutate({
       tenantId,
@@ -131,6 +144,41 @@ export function MediaIngestionWorkbench({
       uploadAttemptId,
       parts,
     })
+  }
+
+  async function resumeUpload(project: Project, archive: File) {
+    if (
+      !project.uploadAttemptId ||
+      project.sourceFileName === null ||
+      project.sourceBytes === null ||
+      project.sourceLastModified === null
+    ) {
+      setError('This upload does not have a resumable source identity. Abort it and start again.')
+      return
+    }
+    if (
+      archive.name !== project.sourceFileName ||
+      archive.size !== project.sourceBytes ||
+      archive.lastModified !== project.sourceLastModified
+    ) {
+      setError(
+        `Choose the original ${project.sourceFileName} file (${formatBytes(project.sourceBytes)}).`,
+      )
+      return
+    }
+
+    setResumingProjectId(project.id)
+    setError(null)
+    setUploadProgress(0)
+    try {
+      await uploadArchive(project.id, archive, project.uploadAttemptId)
+      router.refresh()
+    } catch (resumeError) {
+      setError(errorMessage(resumeError))
+      router.refresh()
+    } finally {
+      setResumingProjectId(null)
+    }
   }
 
   async function abortUpload(project: Project) {
@@ -336,7 +384,7 @@ export function MediaIngestionWorkbench({
           ) : null}
           <button
             type="submit"
-            disabled={busy || !name.trim()}
+            disabled={busy || resumingProjectId !== null || !name.trim()}
             className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? 'Creating intake…' : 'Upload and analyze'}
@@ -385,11 +433,35 @@ export function MediaIngestionWorkbench({
                   Open intake →
                 </Link>
                 {project.status === 'UPLOADING' &&
+                project.stage === 'upload' &&
+                project.uploadAttemptId ? (
+                  resumingProjectId === project.id ? (
+                    <span className="ml-4 mt-3 inline-flex text-sm font-semibold text-pf-primary">
+                      Resuming {uploadProgress}%
+                    </span>
+                  ) : (
+                    <label className="ml-4 mt-3 inline-flex cursor-pointer text-sm font-semibold text-pf-primary hover:text-pf-accent">
+                      Resume upload
+                      <input
+                        type="file"
+                        accept=".zip,application/zip,application/x-zip-compressed"
+                        disabled={busy || resumingProjectId !== null}
+                        className="sr-only"
+                        onChange={(event) => {
+                          const archive = event.target.files?.[0]
+                          event.target.value = ''
+                          if (archive) void resumeUpload(project, archive)
+                        }}
+                      />
+                    </label>
+                  )
+                ) : null}
+                {project.status === 'UPLOADING' &&
                 (project.stage === 'upload' || project.stage === 'aborting') &&
                 project.uploadAttemptId ? (
                   <button
                     type="button"
-                    disabled={abortingProjectId === project.id}
+                    disabled={abortingProjectId === project.id || resumingProjectId === project.id}
                     onClick={() => void abortUpload(project)}
                     className="ml-4 mt-3 inline-flex text-sm font-semibold text-rose-700 hover:text-rose-900 disabled:opacity-50"
                   >
