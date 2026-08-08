@@ -59,6 +59,7 @@ export type AnalyticsEnrichmentJobPayload = {
 
 export type SendWelcomeEmailJobPayload = {
   tenantId: string
+  deliveryId: string
   to: string
   recipientName: string | null
   orgName: string

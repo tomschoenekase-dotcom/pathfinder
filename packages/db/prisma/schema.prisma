@@ -21,6 +21,18 @@ model User {
   @@map("users")
 }
 
+model ClerkWebhookReceipt {
+  providerEventId          String   @id @map("provider_event_id")
+  eventType                String   @map("event_type")
+  payloadHash              String   @map("payload_hash")
+  welcomeEmailMembershipId String?  @map("welcome_email_membership_id")
+  processedAt              DateTime @default(now()) @map("processed_at")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("clerk_webhook_receipts")
+}
+
 model Tenant {
   id                          String                       @id
   name                        String
@@ -58,17 +70,21 @@ model Tenant {
 }
 
 model TenantMembership {
-  id        String           @id @default(cuid())
-  tenantId  String           @map("tenant_id")
-  userId    String           @map("user_id")
-  role      TenantRole
-  status    MembershipStatus @default(ACTIVE)
-  invitedBy String?          @map("invited_by")
-  joinedAt  DateTime?        @map("joined_at")
-  createdAt DateTime         @default(now()) @map("created_at")
-  updatedAt DateTime         @updatedAt @map("updated_at")
-  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user      User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  id                           String           @id @default(cuid())
+  tenantId                     String           @map("tenant_id")
+  userId                       String           @map("user_id")
+  role                         TenantRole
+  status                       MembershipStatus @default(ACTIVE)
+  invitedBy                    String?          @map("invited_by")
+  joinedAt                     DateTime?        @map("joined_at")
+  clerkEventTimestamp          BigInt           @default(dbgenerated("(FLOOR(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000))::BIGINT")) @map("clerk_event_timestamp")
+  clerkCursorIsCutoverBaseline Boolean          @default(true) @map("clerk_cursor_is_cutover_baseline")
+  welcomeEmailAttemptedAt      DateTime?        @map("welcome_email_attempted_at")
+  welcomeEmailDeliveredAt      DateTime?        @map("welcome_email_delivered_at")
+  createdAt                    DateTime         @default(now()) @map("created_at")
+  updatedAt                    DateTime         @updatedAt @map("updated_at")
+  tenant                       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user                         User             @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, userId])
   @@index([tenantId])

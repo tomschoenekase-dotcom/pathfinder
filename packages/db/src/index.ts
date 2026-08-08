@@ -67,8 +67,24 @@ export type {
 export type { JobFailureDisposition, WriteJobRecordParams } from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'
 export { checkDatabaseConnection } from './helpers/health'
-export { handleClerkEvent, mapClerkRoleToTenantRole } from './helpers/membership-sync'
-export type { ClerkWebhookEvent } from './helpers/membership-sync'
+export {
+  CLERK_WEBHOOK_EVENT_TYPE_MAX_LENGTH,
+  CLERK_WEBHOOK_PROVIDER_EVENT_ID_MAX_LENGTH,
+  CLERK_WEBHOOK_TRANSACTION_MAX_ATTEMPTS,
+  ClerkWebhookReceiptConflictError,
+  beginWelcomeEmailDeliveryAttempt,
+  getWelcomeEmailDeliveryState,
+  handleClerkEvent,
+  isClerkWebhookReceiptConflictError,
+  markWelcomeEmailDeliveryComplete,
+  mapClerkRoleToTenantRole,
+} from './helpers/membership-sync'
+export type {
+  ClerkWebhookEvent,
+  ClerkWebhookProcessingResult,
+  VerifiedClerkEventIdentity,
+  WelcomeEmailDeliveryState,
+} from './helpers/membership-sync'
 export {
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
@@ -87,6 +103,7 @@ export type {
   JobRecord,
   JobStatus,
   AuditLog,
+  ClerkWebhookReceipt,
   DataAdapter,
   DailyRollup,
   MembershipStatus,

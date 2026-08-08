@@ -28,7 +28,7 @@ export const TENANTED_TABLES = [
   'EmbeddingDispatch',
 ] as const
 
-export const PLATFORM_TABLES = ['User', 'Tenant', 'PlatformConfig'] as const
+export const PLATFORM_TABLES = ['User', 'Tenant', 'PlatformConfig', 'ClerkWebhookReceipt'] as const
 
 // Models in this list deliberately support both tenant-attributed and
 // platform-wide rows. They must remain explicit because neither silently

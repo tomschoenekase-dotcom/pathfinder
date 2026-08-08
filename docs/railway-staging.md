@@ -123,6 +123,60 @@ staging release shell. The disposable wrapper intentionally has no external-host
 8. Run the smoke tests below. Any failure blocks production promotion; fix it
    in a new commit and repeat the entire exact-SHA procedure.
 
+## Clerk webhook receipt canary
+
+Migration `20260809020000_add_clerk_webhook_receipts` adds a platform-scoped receipt table plus
+membership occurrence and welcome-completion fields. The receipt stores no raw payload, signature,
+tenant ID, Clerk user ID, or email; its optional welcome pointer is an opaque internal membership
+ID. The migration stamps every existing membership with its application-time millisecond cutoff;
+pre-cutover deliveries are therefore stale by construction. Any later membership row missing a
+cursor fails closed with a retryable dependency error instead of accepting an event as its baseline.
+Deploy the dashboard schema and application from the same release SHA. Do not run a new
+dashboard or worker replica against the old schema, and drain old replicas before accepting
+evidence; mixed versions cannot prove the receipt or delivery boundary.
+
+1. Using only the staging Clerk instance and synthetic identities, deliver one membership event
+   and then replay the same signed delivery. Confirm one receipt, one membership transition, and
+   one audit row. The replay must return 200 without another state or audit write.
+2. Concurrently redeliver the same verified event ID and payload. Confirm exactly one caller owns
+   the transition and all others resolve as exact replays. Then send two distinct event IDs for
+   the same already-applied transition and confirm both receipts exist but only one audit row was
+   needed.
+3. Reuse a verified event ID with different content in a controlled synthetic request. Confirm a
+   contained 200 acknowledgement, no membership mutation, one sanitized conflict signal, and no
+   raw body, identity data, signature, or payload hash in application logs. Clerk retries every
+   non-2xx response, so returning 409 here would create a futile retry loop.
+4. Force an audit persistence failure in a disposable test, not in shared staging. Confirm the
+   receipt, user, membership, and audit transaction all roll back and the same delivery succeeds
+   cleanly after the failure is removed.
+5. The welcome-email enqueue intentionally remains outside the database transaction. If enqueue
+   fails after the receipt commits, the route returns 503 and an exact replay tries the same
+   deterministic membership delivery again. The worker checks the durable membership completion
+   timestamp before sending, persists a pre-provider attempt timestamp, and supplies a stable opaque
+   provider idempotency key; after a provider success it persists completion before acknowledging
+   the job. Resend retains idempotency keys for only
+   [24 hours](https://resend.com/docs/dashboard/emails/idempotency-keys), so automatic retries stop
+   after a conservative 23-hour window when provider success is still ambiguous. Reconcile that
+   delivery against the provider before any manual resend. Confirm enqueue failure recovery,
+   immediate provider retry, the expired-attempt manual-reconciliation gate, and replay after BullMQ
+   completion retention with an allow-listed test recipient. A member removed before delivery is
+   durably cancelled and must not receive a later welcome if an old receipt is replayed.
+6. Deliver a newer demotion followed by an older OWNER event with different provider IDs, then a
+   newer removal followed by an older activation. Confirm the signed millisecond cursor stays at
+   the newest event, the lower role/removal remains authoritative, and stale receipts create no
+   membership or audit mutation. For equal timestamps, removal and the least-privileged role win.
+7. Inspect a sample of pre-existing synthetic memberships and confirm they received a cutover
+   cursor/baseline. Replay pre-cutover escalation and reactivation events; they must create only
+   receipts and leave role/status/audit unchanged. Replay delayed pre-cutover demotion and removal;
+   they must still reduce access while retaining the cutoff cursor. Confirm a membership created by
+   the admin path also receives the database default baseline rather than a null cursor.
+
+Rollback should retain the additive receipt table because it is the durable replay record. Stop
+Clerk ingress, drain dashboard replicas, and prefer roll-forward. Reverting application code while
+receipts exist reopens duplicate membership/audit behavior and removing the membership cursor can
+reopen stale-event authorization regressions; dropping receipts or cursor/completion columns is not
+an automatic rollback step.
+
 ## Durable generation dispatch canary
 
 Answer-analysis and weekly-report requests now commit the domain row, request receipt, and audit

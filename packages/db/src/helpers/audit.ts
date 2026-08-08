@@ -32,8 +32,13 @@ function auditLogData(params: WriteAuditLogParams) {
   return data
 }
 
-export async function writeAuditLogStrict(params: WriteAuditLogParams): Promise<void> {
-  await db.auditLog.create({ data: auditLogData(params) })
+type AuditLogClient = Pick<typeof db, 'auditLog'>
+
+export async function writeAuditLogStrict(
+  params: WriteAuditLogParams,
+  client: AuditLogClient = db,
+): Promise<void> {
+  await client.auditLog.create({ data: auditLogData(params) })
 }
 
 export async function writeAuditLog(params: WriteAuditLogParams): Promise<void> {

@@ -153,7 +153,7 @@ describe('job enqueues', () => {
     expect(first![1]).toEqual(payload)
   })
 
-  it('scopes welcome-email deduplication to the tenant and recipient without leaking user ID', async () => {
+  it('scopes welcome-email deduplication to tenant and durable delivery without exposing its ID', async () => {
     const payload = {
       tenantId: 'tenant_1',
       to: 'recipient@example.com',
@@ -161,10 +161,10 @@ describe('job enqueues', () => {
       orgName: 'Test Org',
     }
 
-    await enqueueWelcomeEmail(payload, 'user_1')
-    await enqueueWelcomeEmail(payload, 'user_2')
-    await enqueueWelcomeEmail(payload, 'user_1')
-    await enqueueWelcomeEmail({ ...payload, tenantId: 'tenant_2' }, 'user_1')
+    await enqueueWelcomeEmail(payload, 'membership_1')
+    await enqueueWelcomeEmail(payload, 'membership_2')
+    await enqueueWelcomeEmail(payload, 'membership_1')
+    await enqueueWelcomeEmail({ ...payload, tenantId: 'tenant_2' }, 'membership_1')
 
     expect(mocks.add).toHaveBeenCalledTimes(4)
     const [first, second, retry, otherTenant] = mocks.add.mock.calls
@@ -172,25 +172,33 @@ describe('job enqueues', () => {
     expect(retry![2].jobId).toBe(first![2].jobId)
     expect(otherTenant![2].jobId).not.toBe(first![2].jobId)
     expect(first![2].jobId).toMatch(/^send-welcome-email-[a-f0-9]{64}$/u)
-    expect(JSON.stringify(mocks.add.mock.calls)).not.toContain('user_1')
-    expect(JSON.stringify(mocks.add.mock.calls)).not.toContain('user_2')
-    expect(first![1]).toEqual(payload)
+    expect(first![1]).toEqual({ ...payload, deliveryId: 'membership_1' })
+    expect(first![1].deliveryId).toBe(retry![1].deliveryId)
+    expect(first![1].deliveryId).not.toBe(second![1].deliveryId)
+    expect(otherTenant![1].deliveryId).toBe(first![1].deliveryId)
+    expect(JSON.stringify(mocks.add.mock.calls.map((call) => call[2].jobId))).not.toContain(
+      'membership_',
+    )
+    expect(JSON.stringify(mocks.loggerInfo.mock.calls)).not.toContain('membership_')
   })
 
-  it('rejects a missing welcome recipient identity before touching the queue', async () => {
-    await expect(
-      enqueueWelcomeEmail(
-        {
-          tenantId: 'tenant_1',
-          to: 'recipient@example.com',
-          recipientName: null,
-          orgName: 'Test Org',
-        },
-        '',
-      ),
-    ).rejects.toThrow('recipient user ID is required')
-    expect(mocks.add).not.toHaveBeenCalled()
-  })
+  it.each(['', '   ', 'x'.repeat(201)])(
+    'rejects an invalid welcome delivery identity before touching the queue',
+    async (deliveryId) => {
+      await expect(
+        enqueueWelcomeEmail(
+          {
+            tenantId: 'tenant_1',
+            to: 'recipient@example.com',
+            recipientName: null,
+            orgName: 'Test Org',
+          },
+          deliveryId,
+        ),
+      ).rejects.toThrow('delivery ID must be a nonempty opaque identifier')
+      expect(mocks.add).not.toHaveBeenCalled()
+    },
+  )
 
   it.each([
     ['empty', ''],

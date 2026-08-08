@@ -225,7 +225,11 @@ Mounted under these namespaces in `root.ts`:
 - `job-records.ts` — `writeJobRecord()` / `updateJobRecord()` for worker visibility.
 - `membership-sync.ts` — `handleClerkEvent()` turns Clerk webhooks
   (`organization.created`, `organizationMembership.*`) into `Tenant`/`User`/`TenantMembership` rows,
-  mapping Clerk org roles → tenant roles, soft-deleting on removal, writing audit logs.
+  mapping Clerk org roles → tenant roles and soft-deleting on removal. Each verified provider
+  event is claimed in a platform-scoped receipt table; the receipt, membership transition, and
+  audit row commit atomically. A signed millisecond occurrence cursor prevents delayed events
+  from restoring older privileges or reactivating a removed member. Exact delivery replays are
+  state no-ops but can retry a welcome enqueue until its durable membership completion marker is set.
 - `semantic-search.ts` — `searchPlacesByEmbedding()` (raw pgvector `<=>` cosine query, manual
   `tenant_id` bind, annotates each row with Haversine distance) and `storePlaceEmbedding()`
   (raw `UPDATE … embedding = …::vector`). pgvector's `vector(1536)` type isn't expressible in
@@ -338,7 +342,10 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 - Venue + place CRUD pages, AI controls form, chat design form, operational updates, analytics page,
   onboarding flow. Forms use react-hook-form + the shared Zod schemas from `packages/api`.
 - Hosts the **Clerk webhook** route (`/api/webhooks/clerk`) — verifies the Svix signature, then
-  calls `handleClerkEvent`, always returning 200 to avoid Clerk retry storms.
+  hashes and durably claims the verified delivery before applying membership state. Invalid
+  signatures return 401; reused identities with conflicting content are contained, logged, and
+  acknowledged with 200 to stop futile provider retries; retryable database or welcome-queue
+  failures return 503 so Clerk can redeliver.
 
 ### 8.3 `apps/admin` — platform-owner console (built, not deployed)
 

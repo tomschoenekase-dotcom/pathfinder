@@ -5,45 +5,49 @@ const tenantUpsertMock = vi.fn()
 const userFindUniqueMock = vi.fn()
 const userUpsertMock = vi.fn()
 const userUpdateMock = vi.fn()
-const membershipUpsertMock = vi.fn()
+const membershipCreateMock = vi.fn()
 const membershipFindUniqueMock = vi.fn()
 const membershipUpdateMock = vi.fn()
+const membershipFindFirstMock = vi.fn()
+const membershipUpdateManyMock = vi.fn()
 const auditLogCreateMock = vi.fn()
+const receiptCreateManyMock = vi.fn()
+const receiptFindUniqueMock = vi.fn()
+const receiptUpdateMock = vi.fn()
+const transactionMock = vi.fn()
 const loggerWarnMock = vi.fn()
 const loggerInfoMock = vi.fn()
 
-vi.mock('../client', () => ({
-  db: {
-    tenant: {
-      findUnique: tenantFindUniqueMock,
-      upsert: tenantUpsertMock,
-    },
-    user: {
-      findUnique: userFindUniqueMock,
-      upsert: userUpsertMock,
-      update: userUpdateMock,
-    },
-    tenantMembership: {
-      upsert: membershipUpsertMock,
-      findUnique: membershipFindUniqueMock,
-      update: membershipUpdateMock,
-    },
-    auditLog: {
-      create: auditLogCreateMock,
-    },
+const transactionDb = {
+  tenant: { findUnique: tenantFindUniqueMock, upsert: tenantUpsertMock },
+  user: { findUnique: userFindUniqueMock, upsert: userUpsertMock, update: userUpdateMock },
+  tenantMembership: {
+    create: membershipCreateMock,
+    findUnique: membershipFindUniqueMock,
+    findFirst: membershipFindFirstMock,
+    update: membershipUpdateMock,
+    updateMany: membershipUpdateManyMock,
   },
+  auditLog: { create: auditLogCreateMock },
+  clerkWebhookReceipt: {
+    createMany: receiptCreateManyMock,
+    findUnique: receiptFindUniqueMock,
+    update: receiptUpdateMock,
+  },
+}
+
+vi.mock('../client', () => ({
+  db: { ...transactionDb, $transaction: transactionMock },
 }))
 
 vi.mock('@pathfinder/config/logger', () => ({
-  logger: {
-    warn: loggerWarnMock,
-    info: loggerInfoMock,
-    error: vi.fn(),
-  },
+  logger: { warn: loggerWarnMock, info: loggerInfoMock, error: vi.fn() },
 }))
 
 const TENANT_ID = 'org_tenant1'
 const USER_ID = 'user_abc'
+const EVENT_TIMESTAMP = 1_700_000_000_000
+const VERIFIED_IDENTITY = { providerEventId: 'evt_verified_1', payloadHash: 'a'.repeat(64) }
 
 const membershipData = {
   organization: { id: TENANT_ID },
@@ -58,206 +62,253 @@ const membershipData = {
 
 const membershipDataWithoutEmail = {
   organization: { id: TENANT_ID },
-  public_user_data: {
-    user_id: USER_ID,
-    first_name: 'Alice',
-    last_name: 'Smith',
-  },
+  public_user_data: { user_id: USER_ID, first_name: 'Alice', last_name: 'Smith' },
   role: 'org:admin',
 }
 
+beforeEach(() => {
+  for (const mock of [
+    tenantFindUniqueMock,
+    tenantUpsertMock,
+    userFindUniqueMock,
+    userUpsertMock,
+    userUpdateMock,
+    membershipCreateMock,
+    membershipFindUniqueMock,
+    membershipUpdateMock,
+    membershipFindFirstMock,
+    membershipUpdateManyMock,
+    auditLogCreateMock,
+    receiptCreateManyMock,
+    receiptFindUniqueMock,
+    receiptUpdateMock,
+    transactionMock,
+    loggerWarnMock,
+    loggerInfoMock,
+  ]) {
+    mock.mockReset()
+  }
+  transactionMock.mockImplementation(async (callback) => callback(transactionDb))
+  receiptCreateManyMock.mockResolvedValue({ count: 1 })
+  auditLogCreateMock.mockResolvedValue({ id: 'audit_1' })
+  membershipFindUniqueMock.mockResolvedValue(null)
+  membershipCreateMock.mockResolvedValue({ id: 'mem_1', role: 'OWNER', status: 'ACTIVE' })
+  membershipUpdateMock.mockResolvedValue({ id: 'mem_1', role: 'OWNER', status: 'ACTIVE' })
+  membershipUpdateManyMock.mockResolvedValue({ count: 1 })
+  receiptUpdateMock.mockResolvedValue({ providerEventId: VERIFIED_IDENTITY.providerEventId })
+})
+
 describe('mapClerkRoleToTenantRole', () => {
-  it('maps org:admin → OWNER', async () => {
+  it.each([
+    ['org:admin', 'OWNER'],
+    ['org:owner', 'OWNER'],
+    ['org:manager', 'MANAGER'],
+    ['org:member', 'STAFF'],
+    ['org:custom_role', 'STAFF'],
+  ])('maps %s to %s', async (clerkRole, expected) => {
     const { mapClerkRoleToTenantRole } = await import('./membership-sync')
-    expect(mapClerkRoleToTenantRole('org:admin')).toBe('OWNER')
-  })
-
-  it('maps org:owner → OWNER', async () => {
-    const { mapClerkRoleToTenantRole } = await import('./membership-sync')
-    expect(mapClerkRoleToTenantRole('org:owner')).toBe('OWNER')
-  })
-
-  it('maps org:manager → MANAGER', async () => {
-    const { mapClerkRoleToTenantRole } = await import('./membership-sync')
-    expect(mapClerkRoleToTenantRole('org:manager')).toBe('MANAGER')
-  })
-
-  it('maps org:member → STAFF', async () => {
-    const { mapClerkRoleToTenantRole } = await import('./membership-sync')
-    expect(mapClerkRoleToTenantRole('org:member')).toBe('STAFF')
-  })
-
-  it('maps unknown roles → STAFF', async () => {
-    const { mapClerkRoleToTenantRole } = await import('./membership-sync')
-    expect(mapClerkRoleToTenantRole('org:custom_role')).toBe('STAFF')
+    expect(mapClerkRoleToTenantRole(clerkRole)).toBe(expected)
   })
 })
 
-describe('syncMembershipCreated (via handleClerkEvent)', () => {
-  beforeEach(() => {
-    tenantFindUniqueMock.mockReset()
-    userFindUniqueMock.mockReset()
-    userUpsertMock.mockReset()
-    userUpdateMock.mockReset()
-    membershipFindUniqueMock.mockReset()
-    membershipUpsertMock.mockReset()
-    auditLogCreateMock.mockReset()
-    loggerWarnMock.mockReset()
-
-    auditLogCreateMock.mockResolvedValue({ id: 'audit_1' })
-    membershipFindUniqueMock.mockResolvedValue(null)
-  })
-
-  it('upserts User and TenantMembership when tenant exists', async () => {
-    tenantFindUniqueMock.mockResolvedValueOnce({ id: TENANT_ID })
-    userUpsertMock.mockResolvedValueOnce({ id: USER_ID })
-    membershipUpsertMock.mockResolvedValueOnce({
-      id: 'mem_1',
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      role: 'OWNER',
-      status: 'ACTIVE',
-    })
-
+describe('verified Clerk receipt transaction', () => {
+  it('rejects malformed identity without opening a transaction', async () => {
     const { handleClerkEvent } = await import('./membership-sync')
-    await handleClerkEvent({ type: 'organizationMembership.created', data: membershipData })
+    const event = {
+      type: 'organization.created' as const,
+      data: { id: TENANT_ID, name: 'T', slug: 't' },
+      timestamp: EVENT_TIMESTAMP,
+    }
 
-    expect(userUpsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: USER_ID },
-        create: expect.objectContaining({ id: USER_ID, email: 'alice@example.com' }),
-      }),
-    )
-    expect(membershipUpsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          tenantId: TENANT_ID,
-          tenantId_userId: { tenantId: TENANT_ID, userId: USER_ID },
-        },
-        create: expect.objectContaining({
-          tenantId: TENANT_ID,
-          userId: USER_ID,
-          role: 'OWNER',
-          status: 'ACTIVE',
-        }),
-        update: expect.objectContaining({ role: 'OWNER', status: 'ACTIVE' }),
-      }),
-    )
-    expect(auditLogCreateMock).toHaveBeenCalled()
+    await expect(
+      handleClerkEvent(event, { providerEventId: ' ', payloadHash: 'a'.repeat(64) }),
+    ).rejects.toThrow('event ID')
+    await expect(
+      handleClerkEvent(event, { providerEventId: 'evt', payloadHash: 'A'.repeat(64) }),
+    ).rejects.toThrow('lowercase SHA-256')
+    expect(transactionMock).not.toHaveBeenCalled()
   })
 
-  it('fails retryably before writes when tenant does not exist yet', async () => {
-    tenantFindUniqueMock.mockResolvedValueOnce(null)
-
+  it('claims and processes inside one serializable transaction', async () => {
+    tenantUpsertMock.mockResolvedValue({ id: TENANT_ID })
     const { handleClerkEvent } = await import('./membership-sync')
     await expect(
-      handleClerkEvent({ type: 'organizationMembership.created', data: membershipData }),
-    ).rejects.toThrow('dependency is not ready')
+      handleClerkEvent(
+        {
+          type: 'organization.created',
+          data: { id: TENANT_ID, name: 'T', slug: 't' },
+          timestamp: EVENT_TIMESTAMP,
+        },
+        VERIFIED_IDENTITY,
+      ),
+    ).resolves.toEqual({ replayed: false, welcomeEmailDeliveryId: null })
 
-    expect(userUpsertMock).not.toHaveBeenCalled()
-    expect(membershipUpsertMock).not.toHaveBeenCalled()
-    expect(loggerWarnMock).toHaveBeenCalledWith(
+    expect(transactionMock).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    })
+    expect(receiptCreateManyMock).toHaveBeenCalledWith({
+      data: {
+        providerEventId: VERIFIED_IDENTITY.providerEventId,
+        eventType: 'organization.created',
+        payloadHash: VERIFIED_IDENTITY.payloadHash,
+      },
+      skipDuplicates: true,
+    })
+  })
+
+  it('returns an exact replay without state or audit writes', async () => {
+    receiptCreateManyMock.mockResolvedValue({ count: 0 })
+    receiptFindUniqueMock.mockResolvedValue({
+      eventType: 'organizationMembership.created',
+      payloadHash: VERIFIED_IDENTITY.payloadHash,
+      welcomeEmailMembershipId: 'mem_1',
+    })
+    const { handleClerkEvent } = await import('./membership-sync')
+
+    await expect(
+      handleClerkEvent(
+        {
+          type: 'organizationMembership.created',
+          data: membershipData,
+          timestamp: EVENT_TIMESTAMP,
+        },
+        VERIFIED_IDENTITY,
+      ),
+    ).resolves.toEqual({ replayed: true, welcomeEmailDeliveryId: 'mem_1' })
+    expect(membershipCreateMock).not.toHaveBeenCalled()
+    expect(auditLogCreateMock).not.toHaveBeenCalled()
+  })
+
+  it('throws the exported conflict error for a mismatched duplicate', async () => {
+    receiptCreateManyMock.mockResolvedValue({ count: 0 })
+    receiptFindUniqueMock.mockResolvedValue({
+      eventType: 'organizationMembership.created',
+      payloadHash: 'b'.repeat(64),
+    })
+    const { handleClerkEvent, isClerkWebhookReceiptConflictError } =
+      await import('./membership-sync')
+
+    const error = await handleClerkEvent(
+      {
+        type: 'organizationMembership.created',
+        data: membershipData,
+        timestamp: EVENT_TIMESTAMP,
+      },
+      VERIFIED_IDENTITY,
+    ).catch((caught: unknown) => caught)
+    expect(isClerkWebhookReceiptConflictError(error)).toBe(true)
+    expect(membershipCreateMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['P2002', 'P2034'])(
+    'retries %s transaction conflicts at most three times',
+    async (code) => {
+      transactionMock
+        .mockRejectedValueOnce({ code })
+        .mockRejectedValueOnce({ code })
+        .mockResolvedValueOnce({ replayed: false, welcomeEmailDeliveryId: null })
+      const { handleClerkEvent } = await import('./membership-sync')
+
+      await expect(
+        handleClerkEvent(
+          {
+            type: 'organization.created',
+            data: { id: TENANT_ID, name: 'T', slug: 't' },
+            timestamp: EVENT_TIMESTAMP,
+          },
+          VERIFIED_IDENTITY,
+        ),
+      ).resolves.toEqual({ replayed: false, welcomeEmailDeliveryId: null })
+      expect(transactionMock).toHaveBeenCalledTimes(3)
+    },
+  )
+
+  it('propagates an audit failure so the transaction can roll back the receipt and state', async () => {
+    tenantFindUniqueMock.mockResolvedValue({ id: TENANT_ID })
+    userUpsertMock.mockResolvedValue({ id: USER_ID })
+    auditLogCreateMock.mockRejectedValue(new Error('audit unavailable'))
+    const { handleClerkEvent } = await import('./membership-sync')
+
+    await expect(
+      handleClerkEvent(
+        {
+          type: 'organizationMembership.created',
+          data: membershipData,
+          timestamp: EVENT_TIMESTAMP,
+        },
+        VERIFIED_IDENTITY,
+      ),
+    ).rejects.toThrow('audit unavailable')
+  })
+})
+
+describe('membership synchronization', () => {
+  it('creates the user, active membership, and audit when the tenant exists', async () => {
+    tenantFindUniqueMock.mockResolvedValue({ id: TENANT_ID })
+    userUpsertMock.mockResolvedValue({ id: USER_ID })
+    const { handleClerkEvent } = await import('./membership-sync')
+
+    await handleClerkEvent(
+      {
+        type: 'organizationMembership.created',
+        data: membershipData,
+        timestamp: EVENT_TIMESTAMP,
+      },
+      VERIFIED_IDENTITY,
+    )
+    expect(userUpsertMock).toHaveBeenCalledWith(expect.objectContaining({ where: { id: USER_ID } }))
+    expect(membershipCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'clerk.webhook.tenant_not_found',
-        tenantId: TENANT_ID,
+        data: expect.objectContaining({ role: 'OWNER', status: 'ACTIVE' }),
       }),
     )
+    expect(receiptUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { welcomeEmailMembershipId: 'mem_1' } }),
+    )
+    expect(auditLogCreateMock).toHaveBeenCalledOnce()
+  })
+
+  it('fails before user or membership writes when the tenant is absent', async () => {
+    tenantFindUniqueMock.mockResolvedValue(null)
+    const { handleClerkEvent } = await import('./membership-sync')
+
+    await expect(
+      handleClerkEvent(
+        {
+          type: 'organizationMembership.updated',
+          data: membershipData,
+          timestamp: EVENT_TIMESTAMP,
+        },
+        VERIFIED_IDENTITY,
+      ),
+    ).rejects.toThrow('dependency is not ready')
+    expect(userUpsertMock).not.toHaveBeenCalled()
+    expect(membershipCreateMock).not.toHaveBeenCalled()
+    expect(loggerWarnMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT_ID }))
     expect(loggerWarnMock.mock.calls[0]?.[0]).not.toHaveProperty('userId')
   })
 
-  it('calling created event twice does not fail (upsert idempotency)', async () => {
+  it('preserves an existing email when an update omits it', async () => {
     tenantFindUniqueMock.mockResolvedValue({ id: TENANT_ID })
-    userUpsertMock.mockResolvedValue({ id: USER_ID })
-    membershipUpsertMock.mockResolvedValue({
+    userFindUniqueMock.mockResolvedValue({ id: USER_ID })
+    userUpdateMock.mockResolvedValue({ id: USER_ID })
+    membershipFindUniqueMock.mockResolvedValue({
       id: 'mem_1',
-      tenantId: TENANT_ID,
-      userId: USER_ID,
       role: 'OWNER',
       status: 'ACTIVE',
+      clerkEventTimestamp: BigInt(EVENT_TIMESTAMP - 1),
+      welcomeEmailDeliveredAt: null,
     })
-    membershipFindUniqueMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ role: 'OWNER', status: 'ACTIVE' })
-
     const { handleClerkEvent } = await import('./membership-sync')
-    await handleClerkEvent({ type: 'organizationMembership.created', data: membershipData })
-    await handleClerkEvent({ type: 'organizationMembership.created', data: membershipData })
 
-    expect(membershipUpsertMock).toHaveBeenCalledTimes(2)
-    expect(auditLogCreateMock).toHaveBeenCalledOnce()
-  })
-})
-
-describe('syncMembershipUpdated (via handleClerkEvent)', () => {
-  beforeEach(() => {
-    tenantFindUniqueMock.mockReset()
-    userFindUniqueMock.mockReset()
-    userUpsertMock.mockReset()
-    userUpdateMock.mockReset()
-    membershipFindUniqueMock.mockReset()
-    membershipUpsertMock.mockReset()
-    auditLogCreateMock.mockReset()
-    loggerWarnMock.mockReset()
-    auditLogCreateMock.mockResolvedValue({ id: 'audit_1' })
-  })
-
-  it('upserts the user dependency before an update-first membership event', async () => {
-    tenantFindUniqueMock.mockResolvedValueOnce({ id: TENANT_ID })
-    userUpsertMock.mockResolvedValueOnce({ id: USER_ID })
-    membershipFindUniqueMock.mockResolvedValueOnce(null)
-    membershipUpsertMock.mockResolvedValueOnce({
-      id: 'mem_1',
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      role: 'OWNER',
-      status: 'ACTIVE',
-    })
-
-    const { handleClerkEvent } = await import('./membership-sync')
-    await handleClerkEvent({ type: 'organizationMembership.updated', data: membershipData })
-
-    expect(userUpsertMock).toHaveBeenCalledWith(expect.objectContaining({ where: { id: USER_ID } }))
-    expect(userUpsertMock.mock.invocationCallOrder[0]).toBeLessThan(
-      membershipUpsertMock.mock.invocationCallOrder[0]!,
+    await handleClerkEvent(
+      {
+        type: 'organizationMembership.updated',
+        data: membershipDataWithoutEmail,
+        timestamp: EVENT_TIMESTAMP,
+      },
+      VERIFIED_IDENTITY,
     )
-    expect(membershipUpsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({ tenantId: TENANT_ID, userId: USER_ID }),
-      }),
-    )
-  })
-
-  it('fails retryably before user or membership writes when the tenant is missing', async () => {
-    tenantFindUniqueMock.mockResolvedValueOnce(null)
-
-    const { handleClerkEvent } = await import('./membership-sync')
-    await expect(
-      handleClerkEvent({ type: 'organizationMembership.updated', data: membershipData }),
-    ).rejects.toThrow('dependency is not ready')
-
-    expect(userUpsertMock).not.toHaveBeenCalled()
-    expect(membershipFindUniqueMock).not.toHaveBeenCalled()
-    expect(membershipUpsertMock).not.toHaveBeenCalled()
-  })
-
-  it('preserves an existing email when an update payload omits email addresses', async () => {
-    tenantFindUniqueMock.mockResolvedValueOnce({ id: TENANT_ID })
-    userFindUniqueMock.mockResolvedValueOnce({ id: USER_ID })
-    userUpdateMock.mockResolvedValueOnce({ id: USER_ID })
-    membershipFindUniqueMock.mockResolvedValueOnce({ role: 'OWNER', status: 'ACTIVE' })
-    membershipUpsertMock.mockResolvedValueOnce({
-      id: 'mem_1',
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      role: 'OWNER',
-      status: 'ACTIVE',
-    })
-    const { handleClerkEvent } = await import('./membership-sync')
-    await handleClerkEvent({
-      type: 'organizationMembership.updated',
-      data: membershipDataWithoutEmail,
-    })
-
     expect(userUpsertMock).not.toHaveBeenCalled()
     expect(userUpdateMock).toHaveBeenCalledWith({
       where: { id: USER_ID },
@@ -267,48 +318,81 @@ describe('syncMembershipUpdated (via handleClerkEvent)', () => {
   })
 
   it('fails before membership writes when an unknown user has no email', async () => {
-    tenantFindUniqueMock.mockResolvedValueOnce({ id: TENANT_ID })
-    userFindUniqueMock.mockResolvedValueOnce(null)
+    tenantFindUniqueMock.mockResolvedValue({ id: TENANT_ID })
+    userFindUniqueMock.mockResolvedValue(null)
     const { handleClerkEvent } = await import('./membership-sync')
     await expect(
-      handleClerkEvent({
-        type: 'organizationMembership.updated',
-        data: membershipDataWithoutEmail,
-      }),
+      handleClerkEvent(
+        {
+          type: 'organizationMembership.updated',
+          data: membershipDataWithoutEmail,
+          timestamp: EVENT_TIMESTAMP,
+        },
+        VERIFIED_IDENTITY,
+      ),
     ).rejects.toThrow('user dependency is not ready')
-
-    expect(userUpdateMock).not.toHaveBeenCalled()
-    expect(membershipFindUniqueMock).not.toHaveBeenCalled()
-    expect(membershipUpsertMock).not.toHaveBeenCalled()
-  })
-})
-
-describe('syncMembershipDeleted (via handleClerkEvent)', () => {
-  beforeEach(() => {
-    membershipFindUniqueMock.mockReset()
-    membershipUpdateMock.mockReset()
-    auditLogCreateMock.mockReset()
-    loggerWarnMock.mockReset()
-
-    auditLogCreateMock.mockResolvedValue({ id: 'audit_1' })
+    expect(membershipCreateMock).not.toHaveBeenCalled()
   })
 
-  it('sets status REMOVED and does not delete the row', async () => {
-    membershipFindUniqueMock.mockResolvedValueOnce({ id: 'mem_1', role: 'OWNER', status: 'ACTIVE' })
-    membershipUpdateMock.mockResolvedValueOnce({
-      id: 'mem_1',
-      tenantId: TENANT_ID,
-      userId: USER_ID,
+  it('fails closed when an existing membership has no cutover cursor', async () => {
+    tenantFindUniqueMock.mockResolvedValue({ id: TENANT_ID })
+    membershipFindUniqueMock.mockResolvedValue({
+      id: 'mem_legacy',
       role: 'OWNER',
-      status: 'REMOVED',
+      status: 'ACTIVE',
+      clerkEventTimestamp: null,
+      welcomeEmailDeliveredAt: null,
     })
-
     const { handleClerkEvent } = await import('./membership-sync')
-    await handleClerkEvent({ type: 'organizationMembership.deleted', data: membershipData })
 
+    await expect(
+      handleClerkEvent(
+        {
+          type: 'organizationMembership.updated',
+          data: { ...membershipData, role: 'org:manager' },
+          timestamp: EVENT_TIMESTAMP,
+        },
+        VERIFIED_IDENTITY,
+      ),
+    ).rejects.toThrow('cursor dependency is not ready')
+
+    expect(userUpsertMock).not.toHaveBeenCalled()
+    expect(membershipUpdateMock).not.toHaveBeenCalled()
+    expect(auditLogCreateMock).not.toHaveBeenCalled()
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'clerk.webhook.membership_cursor_missing',
+        tenantId: TENANT_ID,
+      }),
+    )
+  })
+
+  it('marks an existing membership removed and audits the transition', async () => {
+    membershipFindUniqueMock.mockResolvedValue({
+      id: 'mem_1',
+      role: 'OWNER',
+      status: 'ACTIVE',
+      clerkEventTimestamp: BigInt(EVENT_TIMESTAMP - 1),
+      welcomeEmailDeliveredAt: null,
+    })
+    membershipUpdateMock.mockResolvedValue({ id: 'mem_1', status: 'REMOVED' })
+    const { handleClerkEvent } = await import('./membership-sync')
+
+    await handleClerkEvent(
+      {
+        type: 'organizationMembership.deleted',
+        data: membershipData,
+        timestamp: EVENT_TIMESTAMP,
+      },
+      VERIFIED_IDENTITY,
+    )
     expect(membershipUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { status: 'REMOVED' },
+        data: expect.objectContaining({
+          status: 'REMOVED',
+          clerkEventTimestamp: BigInt(EVENT_TIMESTAMP),
+          welcomeEmailDeliveredAt: expect.any(Date),
+        }),
       }),
     )
     expect(auditLogCreateMock).toHaveBeenCalledWith(
@@ -320,33 +404,77 @@ describe('syncMembershipDeleted (via handleClerkEvent)', () => {
     )
   })
 
-  it('fails retryably when a delete arrives before the membership exists', async () => {
-    membershipFindUniqueMock.mockResolvedValueOnce(null)
-
-    const { handleClerkEvent } = await import('./membership-sync')
-    await expect(
-      handleClerkEvent({ type: 'organizationMembership.deleted', data: membershipData }),
-    ).rejects.toThrow('membership dependency is not ready')
-
-    expect(membershipUpdateMock).not.toHaveBeenCalled()
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'clerk.webhook.membership_not_found_on_delete',
-      }),
-    )
-  })
-
-  it('treats an already-removed membership as an idempotent delete replay', async () => {
-    membershipFindUniqueMock.mockResolvedValueOnce({
+  it('treats an already removed membership as a state-level no-op', async () => {
+    membershipFindUniqueMock.mockResolvedValue({
       id: 'mem_1',
       role: 'OWNER',
       status: 'REMOVED',
+      clerkEventTimestamp: BigInt(EVENT_TIMESTAMP),
+      welcomeEmailDeliveredAt: new Date('2026-08-08T00:00:00.000Z'),
     })
-
     const { handleClerkEvent } = await import('./membership-sync')
-    await handleClerkEvent({ type: 'organizationMembership.deleted', data: membershipData })
-
+    await handleClerkEvent(
+      {
+        type: 'organizationMembership.deleted',
+        data: membershipData,
+        timestamp: EVENT_TIMESTAMP,
+      },
+      VERIFIED_IDENTITY,
+    )
     expect(membershipUpdateMock).not.toHaveBeenCalled()
     expect(auditLogCreateMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('welcome email durable completion', () => {
+  it('skips a delivery that is already complete or whose membership is inactive', async () => {
+    membershipFindFirstMock.mockResolvedValue({
+      status: 'ACTIVE',
+      welcomeEmailAttemptedAt: new Date('2026-08-07T23:00:00.000Z'),
+      welcomeEmailDeliveredAt: new Date('2026-08-08T00:00:00.000Z'),
+    })
+    const { getWelcomeEmailDeliveryState } = await import('./membership-sync')
+
+    await expect(getWelcomeEmailDeliveryState(TENANT_ID, 'mem_1')).resolves.toEqual({
+      complete: true,
+      attemptedAt: new Date('2026-08-07T23:00:00.000Z'),
+    })
+    expect(membershipFindFirstMock).toHaveBeenCalledWith({
+      where: { id: 'mem_1', tenantId: TENANT_ID },
+      select: {
+        status: true,
+        welcomeEmailAttemptedAt: true,
+        welcomeEmailDeliveredAt: true,
+      },
+    })
+  })
+
+  it('persists the first provider attempt before returning it to the worker', async () => {
+    const { beginWelcomeEmailDeliveryAttempt } = await import('./membership-sync')
+
+    const state = await beginWelcomeEmailDeliveryAttempt(TENANT_ID, 'mem_1')
+
+    expect(state).toEqual({ complete: false, attemptedAt: expect.any(Date) })
+    expect(membershipUpdateManyMock).toHaveBeenCalledWith({
+      where: {
+        id: 'mem_1',
+        tenantId: TENANT_ID,
+        status: 'ACTIVE',
+        welcomeEmailAttemptedAt: null,
+        welcomeEmailDeliveredAt: null,
+      },
+      data: { welcomeEmailAttemptedAt: expect.any(Date) },
+    })
+  })
+
+  it('persists completion with tenant and membership predicates', async () => {
+    const { markWelcomeEmailDeliveryComplete } = await import('./membership-sync')
+
+    await markWelcomeEmailDeliveryComplete(TENANT_ID, 'mem_1')
+
+    expect(membershipUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: 'mem_1', tenantId: TENANT_ID, welcomeEmailDeliveredAt: null },
+      data: { welcomeEmailDeliveredAt: expect.any(Date) },
+    })
   })
 })

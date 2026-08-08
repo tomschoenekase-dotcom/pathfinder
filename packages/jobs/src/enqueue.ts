@@ -55,6 +55,7 @@ import type {
 const queueCache = new Map<string, Queue>()
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 const GENERATION_DISPATCH_ID_MAX_LENGTH = 200
+const WELCOME_EMAIL_DELIVERY_DOMAIN = 'pathfinder-welcome-email-v1'
 
 function validateGenerationDispatchId(dispatchId: string): void {
   if (
@@ -414,18 +415,23 @@ export async function enqueueAnalyticsEnrichment(
 }
 
 export async function enqueueWelcomeEmail(
-  payload: SendWelcomeEmailJobPayload,
-  recipientUserId: string,
+  payload: Omit<SendWelcomeEmailJobPayload, 'deliveryId'>,
+  deliveryId: string,
 ): Promise<void> {
-  if (!recipientUserId) throw new Error('Welcome email recipient user ID is required')
+  if (typeof deliveryId !== 'string' || deliveryId.trim().length === 0 || deliveryId.length > 200) {
+    throw new Error(
+      'Welcome email delivery ID must be a nonempty opaque identifier of at most 200 characters',
+    )
+  }
 
-  const recipientIdentity = createHash('sha256')
-    .update(JSON.stringify([payload.tenantId, recipientUserId]))
+  const deliveryIdentity = createHash('sha256')
+    .update(JSON.stringify([WELCOME_EMAIL_DELIVERY_DOMAIN, payload.tenantId, deliveryId]))
     .digest('hex')
+  const jobPayload: SendWelcomeEmailJobPayload = { ...payload, deliveryId }
 
-  await getQueue(SEND_EMAIL_QUEUE).add(SEND_WELCOME_EMAIL_JOB, payload, {
+  await getQueue(SEND_EMAIL_QUEUE).add(SEND_WELCOME_EMAIL_JOB, jobPayload, {
     ...sendWelcomeEmailJobOptions,
-    jobId: `send-welcome-email-${recipientIdentity}`,
+    jobId: `send-welcome-email-${deliveryIdentity}`,
   })
 
   logger.info({

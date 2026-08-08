@@ -1,9 +1,11 @@
 export const dynamic = 'force-dynamic'
 
+import { createHash } from 'node:crypto'
+
 import { Webhook } from 'svix'
 
 import { env, logger } from '@pathfinder/config'
-import { handleClerkEvent } from '@pathfinder/db'
+import { handleClerkEvent, isClerkWebhookReceiptConflictError } from '@pathfinder/db'
 import { enqueueWelcomeEmail } from '@pathfinder/jobs'
 
 import type { ClerkWebhookEvent } from '@pathfinder/db'
@@ -47,9 +49,16 @@ export async function POST(req: Request): Promise<Response> {
 
   // 4. Process verified events. Dependency failures return 503 so Clerk can redeliver.
   try {
-    await handleClerkEvent(event)
+    const processing = await handleClerkEvent(event, {
+      providerEventId: svixId,
+      payloadHash: createHash('sha256').update(body, 'utf8').digest('hex'),
+    })
 
-    if (event.type === 'organizationMembership.created' && event.data.role === 'org:admin') {
+    if (
+      processing.welcomeEmailDeliveryId &&
+      event.type === 'organizationMembership.created' &&
+      event.data.role === 'org:admin'
+    ) {
       const email = event.data.public_user_data.email_addresses?.[0]?.email_address
 
       if (email) {
@@ -65,11 +74,23 @@ export async function POST(req: Request): Promise<Response> {
             recipientName,
             orgName: event.data.organization.name ?? '',
           },
-          event.data.public_user_data.user_id,
+          processing.welcomeEmailDeliveryId,
         )
       }
     }
   } catch (err) {
+    if (isClerkWebhookReceiptConflictError(err)) {
+      logger.error({
+        service: '@pathfinder/dashboard',
+        action: 'clerk.webhook.identity_conflict',
+        eventType: event.type,
+        error: 'Verified Clerk webhook identity conflicts with an existing receipt',
+      })
+      // The verified mismatch is contained and cannot succeed on retry. Clerk/Svix retries every
+      // non-2xx response, so acknowledge it after emitting the sanitized operator signal.
+      return new Response('Conflict acknowledged', { status: 200 })
+    }
+
     logger.error({
       service: '@pathfinder/dashboard',
       action: 'clerk.webhook.process_failed',

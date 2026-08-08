@@ -18,7 +18,7 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/daily-rollup.ts', 3],
   ['apps/workers/src/processors/embed-knowledge-entry.ts', 1],
   ['apps/workers/src/processors/embed-place.ts', 1],
-  ['apps/workers/src/processors/media-ingestion.ts', 9],
+  ['apps/workers/src/processors/media-ingestion.ts', 8],
   ['apps/workers/src/processors/weekly-digest.ts', 2],
   ['apps/workers/src/processors/weekly-report.ts', 2],
   ['packages/api/src/routers/admin/_admin.ts', 27],

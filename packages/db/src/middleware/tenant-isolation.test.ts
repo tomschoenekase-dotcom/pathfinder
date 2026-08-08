@@ -108,7 +108,12 @@ describe('tenantIsolationMiddleware', () => {
       'EmbeddingWorkClaim',
       'EmbeddingDispatch',
     ])
-    expect(PLATFORM_TABLES_LIST).toEqual(['User', 'Tenant', 'PlatformConfig'])
+    expect(PLATFORM_TABLES_LIST).toEqual([
+      'User',
+      'Tenant',
+      'PlatformConfig',
+      'ClerkWebhookReceipt',
+    ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual(['AuditLog', 'JobRecord'])
   })
 
