@@ -14,6 +14,11 @@ import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '
 import type { AnalyticsEnrichmentJobPayload } from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
 
 // ---------------------------------------------------------------------------
 // Tunables — ALL of these need tuning on real data. Kept here as named constants
@@ -578,8 +583,9 @@ async function enrichVenue(params: {
 
 export async function processAnalyticsEnrichmentJob(
   payload: AnalyticsEnrichmentJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const dayStart = startOfUtcDay(new Date(payload.date))
   const dayEnd = endOfUtcDay(dayStart)
@@ -589,11 +595,13 @@ export async function processAnalyticsEnrichmentJob(
   const jobRecordId = await writeJobRecord({
     queue: 'analytics-enrichment',
     jobName: 'analytics-enrichment-process',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
 
   try {
@@ -661,9 +669,11 @@ export async function processAnalyticsEnrichmentJob(
       themeCount: totalThemes,
     })
   } catch (error) {
-    await updateJobRecord(jobRecordId, {
-      status: 'FAILED',
-      error: error instanceof Error ? error.message : 'Unknown analytics enrichment error',
+    await recordJobFailure({
+      jobRecordId,
+      error,
+      errorMessage: error instanceof Error ? error.message : 'Unknown analytics enrichment error',
+      execution,
     })
 
     logger.error({

@@ -21,6 +21,12 @@ import {
   type MediaIngestionJobPayload,
 } from '@pathfinder/jobs'
 
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
+
 const MAX_FILES = 10_000
 const MAX_EXPANDED_BYTES = 20 * 1024 * 1024 * 1024
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.tif', '.tiff'])
@@ -305,17 +311,20 @@ async function synthesize(openai: OpenAI, venueName: string, context: string, an
 
 export async function processMediaIngestionJob(
   payload: MediaIngestionJobPayload,
-  bullJobId?: string,
+  executionInput?: JobExecutionInput,
 ) {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const recordId = await writeJobRecord({
     queue: MEDIA_INGESTION_QUEUE,
     jobName: MEDIA_INGESTION_PROCESS_JOB,
-    ...(bullJobId !== undefined ? { bullJobId } : {}),
+    ...(execution.bullJobId !== undefined ? { bullJobId: execution.bullJobId } : {}),
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
   let workDir: string | null = null
 
@@ -534,13 +543,22 @@ export async function processMediaIngestionJob(
     await updateJobRecord(recordId, { status: 'COMPLETE' })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown media ingestion error'
-    await withTenantIsolationBypass(() =>
-      db.mediaIngestionProject.updateMany({
-        where: { id: payload.projectId, tenantId: payload.tenantId },
-        data: { status: 'FAILED', error: message },
-      }),
-    )
-    await updateJobRecord(recordId, { status: 'FAILED', error: message })
+    await recordJobFailure({ jobRecordId: recordId, error, errorMessage: message, execution })
+
+    try {
+      await withTenantIsolationBypass(() =>
+        db.mediaIngestionProject.updateMany({
+          where: { id: payload.projectId, tenantId: payload.tenantId },
+          data: { status: 'FAILED', error: message },
+        }),
+      )
+    } catch (statusError) {
+      logger.warn({
+        action: 'media-ingestion.failure-status-persistence-failed',
+        projectId: payload.projectId,
+        error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
+      })
+    }
     logger.error({ action: 'media-ingestion.failed', projectId: payload.projectId, error: message })
     throw error
   } finally {

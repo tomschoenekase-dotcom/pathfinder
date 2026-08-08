@@ -63,6 +63,7 @@ import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
 import { applySchedulerState } from './scheduler-control'
+import { getJobExecutionMetadata } from './lib/job-execution'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
@@ -363,7 +364,7 @@ async function handleWeeklyDigestQueueJob(
   }
 
   if (job.name === WEEKLY_DIGEST_PROCESS_JOB) {
-    await processWeeklyDigestJob(job.data as WeeklyDigestJobPayload, job.id)
+    await processWeeklyDigestJob(job.data as WeeklyDigestJobPayload, getJobExecutionMetadata(job))
     return
   }
 
@@ -377,7 +378,7 @@ async function handleDailyRollupQueueJob(job: Job<DailyRollupJobPayload | Record
   }
 
   if (job.name === DAILY_ROLLUP_PROCESS_JOB) {
-    await processDailyRollupJob(job.data as DailyRollupJobPayload, job.id)
+    await processDailyRollupJob(job.data as DailyRollupJobPayload, getJobExecutionMetadata(job))
     return
   }
 
@@ -386,7 +387,7 @@ async function handleDailyRollupQueueJob(job: Job<DailyRollupJobPayload | Record
 
 async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>) {
   if (job.name === EMBED_PLACE_PROCESS_JOB) {
-    await processEmbedPlaceJob(job.data, job.id)
+    await processEmbedPlaceJob(job.data, getJobExecutionMetadata(job))
     return
   }
 
@@ -395,7 +396,7 @@ async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>) {
 
 async function handleEmbedKnowledgeEntryQueueJob(job: Job<EmbedKnowledgeEntryJobPayload>) {
   if (job.name === EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB) {
-    await processEmbedKnowledgeEntryJob(job.data, job.id)
+    await processEmbedKnowledgeEntryJob(job.data, getJobExecutionMetadata(job))
     return
   }
 
@@ -420,7 +421,10 @@ async function handleAnalyticsEnrichmentQueueJob(
   }
 
   if (job.name === ANALYTICS_ENRICHMENT_PROCESS_JOB) {
-    await processAnalyticsEnrichmentJob(job.data as AnalyticsEnrichmentJobPayload, job.id)
+    await processAnalyticsEnrichmentJob(
+      job.data as AnalyticsEnrichmentJobPayload,
+      getJobExecutionMetadata(job),
+    )
     return
   }
 
@@ -429,7 +433,7 @@ async function handleAnalyticsEnrichmentQueueJob(
 
 async function handleAnswerAnalysisQueueJob(job: Job<AnswerAnalysisJobPayload>) {
   if (job.name === ANSWER_ANALYSIS_PROCESS_JOB) {
-    await processAnswerAnalysisJob(job.data, job.id)
+    await processAnswerAnalysisJob(job.data, getJobExecutionMetadata(job))
     return
   }
 
@@ -438,7 +442,7 @@ async function handleAnswerAnalysisQueueJob(job: Job<AnswerAnalysisJobPayload>) 
 
 async function handleWeeklyReportQueueJob(job: Job<WeeklyReportJobPayload>) {
   if (job.name === WEEKLY_REPORT_PROCESS_JOB) {
-    await processWeeklyReportJob(job.data, job.id)
+    await processWeeklyReportJob(job.data, getJobExecutionMetadata(job))
     return
   }
 
@@ -447,7 +451,7 @@ async function handleWeeklyReportQueueJob(job: Job<WeeklyReportJobPayload>) {
 
 async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
   if (job.name === SEND_WELCOME_EMAIL_JOB) {
-    await processSendWelcomeEmailJob(job.data, job.id)
+    await processSendWelcomeEmailJob(job.data, getJobExecutionMetadata(job))
     return
   }
 
@@ -456,7 +460,7 @@ async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
 
 async function handleMediaIngestionQueueJob(job: Job<MediaIngestionJobPayload>) {
   if (job.name === MEDIA_INGESTION_PROCESS_JOB) {
-    await processMediaIngestionJob(job.data, job.id)
+    await processMediaIngestionJob(job.data, getJobExecutionMetadata(job))
     return
   }
 

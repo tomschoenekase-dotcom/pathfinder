@@ -172,6 +172,9 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'Place place_1 not found',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'UNRECOVERABLE',
     })
   })
 
@@ -188,6 +191,8 @@ describe('processEmbedPlaceJob', () => {
   })
 
   it('fails a malformed revision as unrecoverable before entity or provider work', async () => {
+    mocks.updateJobRecord.mockRejectedValueOnce(new Error('job record database unavailable'))
+
     await expect(
       processEmbedPlaceJob({ ...payload, contentUpdatedAt: 'legacy-missing-revision' }),
     ).rejects.toBeInstanceOf(UnrecoverableError)
@@ -197,6 +202,9 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'Embedding contentUpdatedAt must be an ISO UTC timestamp',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'UNRECOVERABLE',
     })
   })
 
@@ -251,6 +259,9 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'Identical embedding work is currently leased',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
   })
 
@@ -303,6 +314,9 @@ describe('processEmbedPlaceJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'scope changed',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
   })
 

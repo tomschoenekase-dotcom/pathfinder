@@ -18,20 +18,28 @@ import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
 import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
 
 export async function processEmbedPlaceJob(
   payload: EmbedPlaceJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const jobRecordId = await writeJobRecord({
     queue: 'embed-place',
     jobName: 'embed-place-process',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
   let claim: { claimId: string; leaseToken: string; venueId: string } | undefined
 
@@ -177,9 +185,11 @@ export async function processEmbedPlaceJob(
         })
       }
     }
-    await updateJobRecord(jobRecordId, {
-      status: 'FAILED',
-      error: error instanceof Error ? error.message : 'Unknown embed place error',
+    await recordJobFailure({
+      jobRecordId,
+      error,
+      errorMessage: error instanceof Error ? error.message : 'Unknown embed place error',
+      execution,
     })
 
     logger.error({

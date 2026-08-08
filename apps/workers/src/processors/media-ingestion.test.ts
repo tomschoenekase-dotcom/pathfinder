@@ -88,6 +88,9 @@ describe('media ingestion lifecycle', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('record_1', {
       status: 'FAILED',
       error: 'temp unavailable',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
     expect(mocks.rm).not.toHaveBeenCalled()
   })

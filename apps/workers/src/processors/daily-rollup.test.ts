@@ -375,11 +375,25 @@ describe('processDailyRollupJob AI cost rollups', () => {
     mocks.transaction.mockRejectedValueOnce(new Error('database unavailable'))
 
     await expect(
-      processDailyRollupJob({ tenantId: 'tenant_1', date: targetDate.toISOString() }),
+      processDailyRollupJob(
+        { tenantId: 'tenant_1', date: targetDate.toISOString() },
+        { bullJobId: 'daily_job_1', attemptNumber: 1, maxAttempts: 6 },
+      ),
     ).rejects.toThrow('database unavailable')
+    expect(mocks.writeJobRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bullJobId: 'daily_job_1',
+        status: 'RUNNING',
+        attemptNumber: 1,
+        maxAttempts: 6,
+      }),
+    )
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'database unavailable',
+      attemptNumber: 1,
+      maxAttempts: 6,
+      failureDisposition: 'RETRY_ELIGIBLE',
     })
   })
 })

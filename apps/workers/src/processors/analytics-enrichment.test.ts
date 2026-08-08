@@ -505,6 +505,9 @@ describe('processAnalyticsEnrichmentJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'OpenAI embedding request failed',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
   })
 

@@ -219,6 +219,35 @@ describe('processAnswerAnalysisJob', () => {
     })
   })
 
+  it('preserves the primary failure when auxiliary failure status persistence rejects', async () => {
+    const providerError = Object.assign(new Error('provider unavailable'), { status: 503 })
+    anthropicCreate.mockRejectedValueOnce(providerError)
+    mocks.snapshotUpdateMany.mockImplementation(async (params) => {
+      if (params.data.status === 'FAILED') throw new Error('snapshot database unavailable')
+      return { count: 1 }
+    })
+
+    await expect(processAnswerAnalysisJob(payload)).rejects.toMatchObject({
+      name: 'AiGatewayError',
+      message: 'provider unavailable',
+      code: 'provider-http-503',
+    })
+
+    const jobRecordOrder = mocks.updateJobRecord.mock.invocationCallOrder[0]
+    const failedSnapshotCallIndex = mocks.snapshotUpdateMany.mock.calls.findIndex(
+      ([params]) => params.data.status === 'FAILED',
+    )
+    const failedSnapshotOrder =
+      mocks.snapshotUpdateMany.mock.invocationCallOrder[failedSnapshotCallIndex]
+
+    expect(mocks.updateJobRecord).toHaveBeenCalledWith(
+      'job_record_1',
+      expect.objectContaining({ status: 'FAILED', error: 'provider unavailable' }),
+    )
+    expect(failedSnapshotCallIndex).toBeGreaterThanOrEqual(0)
+    expect(jobRecordOrder).toBeLessThan(failedSnapshotOrder as number)
+  })
+
   it('does not fail a successful analysis when usage persistence is unavailable', async () => {
     mocks.aiUsageEventCreate.mockRejectedValueOnce(new Error('usage database unavailable'))
 

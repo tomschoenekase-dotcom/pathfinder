@@ -5,6 +5,12 @@ import { env, logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass, writeJobRecord, updateJobRecord } from '@pathfinder/db'
 import type { WeeklyDigestJobPayload } from '@pathfinder/jobs'
 
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
+
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 const MESSAGE_CONTENT_LIMIT = 500
 const MINIMUM_SESSION_COUNT = 5
@@ -261,19 +267,22 @@ async function loadPromptSessions(payload: WeeklyDigestJobPayload) {
 
 export async function processWeeklyDigestJob(
   payload: WeeklyDigestJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   await markDigestStatus(payload, { status: 'PROCESSING' })
 
   const jobRecordId = await writeJobRecord({
     queue: 'weekly-digest',
     jobName: 'weekly-digest-process',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
 
   try {
@@ -341,18 +350,24 @@ export async function processWeeklyDigestJob(
       insightCount: insights.length,
     })
   } catch (error) {
-    await markDigestStatus(payload, { status: 'FAILED' })
+    const message = error instanceof Error ? error.message : 'Unknown weekly digest error'
+    await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
 
-    await updateJobRecord(jobRecordId, {
-      status: 'FAILED',
-      error: error instanceof Error ? error.message : 'Unknown weekly digest error',
-    })
-
+    try {
+      await markDigestStatus(payload, { status: 'FAILED' })
+    } catch (statusError) {
+      logger.warn({
+        action: 'workers.weekly-digest.failure-status-persistence-failed',
+        tenantId: payload.tenantId,
+        digestId: payload.digestId,
+        error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
+      })
+    }
     logger.error({
       action: 'workers.weekly-digest.failed',
       tenantId: payload.tenantId,
       digestId: payload.digestId,
-      error: error instanceof Error ? error.message : 'Unknown weekly digest error',
+      error: message,
       ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
     })
 

@@ -4,6 +4,12 @@ import { env, logger } from '@pathfinder/config'
 import { updateJobRecord, writeJobRecord } from '@pathfinder/db'
 import type { SendWelcomeEmailJobPayload } from '@pathfinder/jobs'
 
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
+
 type ResendClient = Pick<Resend, 'emails'>
 
 let resendClient: ResendClient | null = null
@@ -56,17 +62,20 @@ function buildEmailHtml(
 
 export async function processSendWelcomeEmailJob(
   payload: SendWelcomeEmailJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const jobRecordId = await writeJobRecord({
     queue: 'send-email',
     jobName: 'send-welcome-email',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
 
   try {
@@ -99,9 +108,11 @@ export async function processSendWelcomeEmailJob(
       tenantId: payload.tenantId,
     })
   } catch (error) {
-    await updateJobRecord(jobRecordId, {
-      status: 'FAILED',
-      error: error instanceof Error ? error.message : 'Unknown error',
+    await recordJobFailure({
+      jobRecordId,
+      error,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      execution,
     })
     throw error
   }

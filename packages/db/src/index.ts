@@ -24,7 +24,7 @@ export type {
   AcquireEmbeddingWorkParams,
   EmbeddingWorkAcquisition,
 } from './helpers/embedding-work-claims'
-export type { WriteJobRecordParams } from './helpers/job-records'
+export type { JobFailureDisposition, WriteJobRecordParams } from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'
 export { handleClerkEvent, mapClerkRoleToTenantRole } from './helpers/membership-sync'
 export type { ClerkWebhookEvent } from './helpers/membership-sync'

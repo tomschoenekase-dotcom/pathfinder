@@ -18,20 +18,28 @@ import { UnrecoverableError } from 'bullmq'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
 import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
 
 export async function processEmbedKnowledgeEntryJob(
   payload: EmbedKnowledgeEntryJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const jobRecordId = await writeJobRecord({
     queue: 'embed-knowledge-entry',
     jobName: 'embed-knowledge-entry-process',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
   let claim: { claimId: string; leaseToken: string; venueId: string } | undefined
 
@@ -167,9 +175,11 @@ export async function processEmbedKnowledgeEntryJob(
         })
       }
     }
-    await updateJobRecord(jobRecordId, {
-      status: 'FAILED',
-      error: error instanceof Error ? error.message : 'Unknown embed knowledge entry error',
+    await recordJobFailure({
+      jobRecordId,
+      error,
+      errorMessage: error instanceof Error ? error.message : 'Unknown embed knowledge entry error',
+      execution,
     })
 
     logger.error({

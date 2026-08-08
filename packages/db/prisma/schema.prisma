@@ -545,20 +545,25 @@ model VenueWeeklyTheme {
 }
 
 model JobRecord {
-  id          String    @id @default(cuid())
-  queue       String
-  jobName     String    @map("job_name")
-  bullJobId   String?   @unique @map("bull_job_id")
-  tenantId    String?   @map("tenant_id")
-  status      JobStatus
-  payload     Json      @default("{}")
-  error       String?
-  startedAt   DateTime  @map("started_at")
-  completedAt DateTime? @map("completed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id                 String                 @id @default(cuid())
+  queue              String
+  jobName            String                 @map("job_name")
+  bullJobId          String?                @unique @map("bull_job_id")
+  tenantId           String?                @map("tenant_id")
+  status             JobStatus
+  payload            Json                   @default("{}")
+  error              String?
+  attemptNumber      Int?                   @map("attempt_number")
+  maxAttempts        Int?                   @map("max_attempts")
+  failureDisposition JobFailureDisposition? @map("failure_disposition")
+  terminalAt         DateTime?              @map("terminal_at")
+  startedAt          DateTime               @map("started_at")
+  completedAt        DateTime?              @map("completed_at")
+  createdAt          DateTime               @default(now()) @map("created_at")
 
   @@unique([queue, bullJobId], map: "job_records_queue_bull_job_id_key")
   @@index([queue, status])
+  @@index([status, failureDisposition, terminalAt])
   @@index([tenantId, createdAt])
   @@index([createdAt])
   @@map("job_records")
@@ -615,6 +620,12 @@ enum JobStatus {
   RUNNING
   COMPLETE
   FAILED
+}
+
+enum JobFailureDisposition {
+  RETRY_ELIGIBLE
+  ATTEMPTS_EXHAUSTED
+  UNRECOVERABLE
 }
 
 enum EmbeddingWorkEntityType {

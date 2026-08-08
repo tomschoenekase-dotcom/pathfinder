@@ -49,6 +49,8 @@ describe('writeJobRecord', () => {
       bullJobId: 'weekly-report-report_1',
       status: 'RUNNING',
       startedAt: new Date('2026-07-05T00:00:00.000Z'),
+      attemptNumber: 2,
+      maxAttempts: 6,
     })
 
     expect(id).toBe('record_1')
@@ -61,9 +63,106 @@ describe('writeJobRecord', () => {
             bullJobId: 'weekly-report-report_1',
           },
         },
-        create: expect.objectContaining({ bullJobId: 'weekly-report-report_1', status: 'RUNNING' }),
-        update: expect.objectContaining({ bullJobId: 'weekly-report-report_1', status: 'RUNNING' }),
+        create: expect.objectContaining({
+          bullJobId: 'weekly-report-report_1',
+          status: 'RUNNING',
+          attemptNumber: 2,
+          maxAttempts: 6,
+          error: null,
+          completedAt: null,
+          failureDisposition: null,
+          terminalAt: null,
+        }),
+        update: expect.objectContaining({
+          bullJobId: 'weekly-report-report_1',
+          status: 'RUNNING',
+          attemptNumber: 2,
+          maxAttempts: 6,
+          error: null,
+          completedAt: null,
+          failureDisposition: null,
+          terminalAt: null,
+        }),
       }),
     )
+  })
+})
+
+describe('updateJobRecord', () => {
+  beforeEach(() => {
+    updateMock.mockReset()
+    updateMock.mockResolvedValue({ id: 'record_1' })
+  })
+
+  it('records retry-eligible failure without a terminal timestamp', async () => {
+    const { updateJobRecord } = await import('./job-records')
+    const completedAt = new Date('2026-08-07T23:58:00.000Z')
+
+    await updateJobRecord('record_1', {
+      status: 'FAILED',
+      error: 'temporary outage',
+      attemptNumber: 1,
+      maxAttempts: 6,
+      failureDisposition: 'RETRY_ELIGIBLE',
+      completedAt,
+    })
+
+    expect(updateMock).toHaveBeenCalledWith({
+      where: { id: 'record_1' },
+      data: {
+        status: 'FAILED',
+        error: 'temporary outage',
+        attemptNumber: 1,
+        maxAttempts: 6,
+        failureDisposition: 'RETRY_ELIGIBLE',
+        terminalAt: null,
+        completedAt,
+      },
+    })
+  })
+
+  it.each(['ATTEMPTS_EXHAUSTED', 'UNRECOVERABLE'] as const)(
+    'records %s failure with the attempt completion as terminal time',
+    async (failureDisposition) => {
+      const { updateJobRecord } = await import('./job-records')
+      const completedAt = new Date('2026-08-07T23:59:00.000Z')
+
+      await updateJobRecord('record_1', {
+        status: 'FAILED',
+        error: 'permanent failure',
+        attemptNumber: 6,
+        maxAttempts: 6,
+        failureDisposition,
+        completedAt,
+      })
+
+      expect(updateMock).toHaveBeenCalledWith({
+        where: { id: 'record_1' },
+        data: expect.objectContaining({
+          status: 'FAILED',
+          failureDisposition,
+          terminalAt: completedAt,
+          completedAt,
+        }),
+      })
+    },
+  )
+
+  it('clears stale failure lifecycle fields when the job completes', async () => {
+    const { updateJobRecord } = await import('./job-records')
+    const completedAt = new Date('2026-08-08T00:00:00.000Z')
+
+    await updateJobRecord('record_1', { status: 'COMPLETE', completedAt })
+
+    expect(updateMock).toHaveBeenCalledWith({
+      where: { id: 'record_1' },
+      data: {
+        status: 'COMPLETE',
+        error: null,
+        failureDisposition: null,
+        terminalAt: null,
+        completedAt,
+      },
+    })
   })
 })

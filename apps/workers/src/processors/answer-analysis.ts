@@ -11,6 +11,11 @@ import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '
 import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
 // Gate on combined signal (structured answers + general chat messages), not just
 // engagement-question answers — a venue with no configured questions answered yet can
 // still have plenty of informative guest chat to analyze.
@@ -226,19 +231,22 @@ function buildPrompt(params: {
 
 export async function processAnswerAnalysisJob(
   payload: AnswerAnalysisJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   await markSnapshotStatus(payload, { status: 'GENERATING', error: null })
 
   const jobRecordId = await writeJobRecord({
     queue: 'answer-analysis',
     jobName: 'answer-analysis-process',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
 
   try {
@@ -311,8 +319,19 @@ export async function processAnswerAnalysisJob(
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown answer analysis error'
-    await markSnapshotStatus(payload, { status: 'FAILED', error: message })
-    await updateJobRecord(jobRecordId, { status: 'FAILED', error: message })
+    await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+
+    try {
+      await markSnapshotStatus(payload, { status: 'FAILED', error: message })
+    } catch (statusError) {
+      logger.warn({
+        action: 'workers.answer-analysis.failure-status-persistence-failed',
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        snapshotId: payload.snapshotId,
+        error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
+      })
+    }
 
     logger.error({
       action: 'workers.answer-analysis.failed',

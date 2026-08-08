@@ -164,6 +164,9 @@ describe('processEmbedKnowledgeEntryJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'VenueKnowledgeEntry entry_1 not found',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'UNRECOVERABLE',
     })
   })
 
@@ -189,6 +192,9 @@ describe('processEmbedKnowledgeEntryJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'Embedding contentUpdatedAt must be an ISO UTC timestamp',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'UNRECOVERABLE',
     })
   })
 
@@ -245,6 +251,9 @@ describe('processEmbedKnowledgeEntryJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'Identical embedding work is currently leased',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
   })
 
@@ -284,6 +293,9 @@ describe('processEmbedKnowledgeEntryJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
       status: 'FAILED',
       error: 'scope changed',
+      attemptNumber: 1,
+      maxAttempts: 1,
+      failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
   })
 

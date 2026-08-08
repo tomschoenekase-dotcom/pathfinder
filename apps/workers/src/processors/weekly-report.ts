@@ -11,6 +11,11 @@ import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '
 import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
 
 const MAX_GENERAL_MESSAGES = 400
 const MESSAGE_CONTENT_LIMIT = 500
@@ -289,19 +294,22 @@ function buildReportPrompt(params: {
 
 export async function processWeeklyReportJob(
   payload: WeeklyReportJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   await markReportStatus(payload, { status: 'GENERATING', error: null })
 
   const jobRecordId = await writeJobRecord({
     queue: 'weekly-report',
     jobName: 'weekly-report-process',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
 
   try {
@@ -362,8 +370,19 @@ export async function processWeeklyReportJob(
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown weekly report error'
-    await markReportStatus(payload, { status: 'FAILED', error: message })
-    await updateJobRecord(jobRecordId, { status: 'FAILED', error: message })
+    await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+
+    try {
+      await markReportStatus(payload, { status: 'FAILED', error: message })
+    } catch (statusError) {
+      logger.warn({
+        action: 'workers.weekly-report.failure-status-persistence-failed',
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        reportId: payload.reportId,
+        error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
+      })
+    }
 
     logger.error({
       action: 'workers.weekly-report.failed',

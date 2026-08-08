@@ -3,6 +3,12 @@ import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { db, withTenantIsolationBypass, writeJobRecord, updateJobRecord } from '@pathfinder/db'
 import type { DailyRollupJobPayload } from '@pathfinder/jobs'
 
+import {
+  normalizeJobExecutionMetadata,
+  recordJobFailure,
+  type JobExecutionInput,
+} from '../lib/job-execution'
+
 type RollupRow = {
   tenantId: string
   venueId: string
@@ -352,8 +358,9 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
 
 export async function processDailyRollupJob(
   payload: DailyRollupJobPayload,
-  bullJobId?: string | null,
+  executionInput?: JobExecutionInput,
 ): Promise<void> {
+  const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const date = startOfUtcDay(new Date(payload.date))
   const nextDate = endOfUtcDay(date)
@@ -361,11 +368,13 @@ export async function processDailyRollupJob(
   const jobRecordId = await writeJobRecord({
     queue: 'daily-rollup',
     jobName: 'daily-rollup-process',
-    bullJobId: bullJobId ?? null,
+    bullJobId: execution.bullJobId ?? null,
     tenantId: payload.tenantId,
     status: 'RUNNING',
     payload: payload as unknown as Record<string, unknown>,
     startedAt,
+    attemptNumber: execution.attemptNumber,
+    maxAttempts: execution.maxAttempts,
   })
 
   try {
@@ -456,9 +465,11 @@ export async function processDailyRollupJob(
       aiCostRowCount: aiCostRollups.length,
     })
   } catch (error) {
-    await updateJobRecord(jobRecordId, {
-      status: 'FAILED',
-      error: error instanceof Error ? error.message : 'Unknown daily rollup error',
+    await recordJobFailure({
+      jobRecordId,
+      error,
+      errorMessage: error instanceof Error ? error.message : 'Unknown daily rollup error',
+      execution,
     })
 
     logger.error({
