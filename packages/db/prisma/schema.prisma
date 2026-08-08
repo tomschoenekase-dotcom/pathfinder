@@ -486,6 +486,9 @@ model AnalyticsEvent {
   @@map("analytics_events")
 }
 
+// Logical replacement uniqueness is enforced by four mutually exclusive partial
+// indexes because placeId/category are nullable. See the
+// 20260808023000_add_daily_rollup_logical_uniqueness migration.
 model DailyRollup {
   id       String   @id @default(cuid())
   tenantId String   @map("tenant_id")

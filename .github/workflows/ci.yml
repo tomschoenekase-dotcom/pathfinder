@@ -76,6 +76,10 @@ jobs:
         run: pnpm --dir apps/workers exec vitest run src/lib/embedding-freshness.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_EMBEDDING_DB_INTEGRATION: '1'
+      - name: Verify daily rollup logical uniqueness under contention
+        run: pnpm --dir packages/db exec vitest run src/helpers/daily-rollup-uniqueness.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_ROLLUP_DB_INTEGRATION: '1'
       - run: pnpm turbo run build
       - run: pnpm turbo run typecheck
       - run: pnpm turbo run lint
