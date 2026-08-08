@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listReusableMediaUploadParts: vi.fn(),
   loggerWarn: vi.fn(),
   projectFindFirst: vi.fn(),
+  projectFindMany: vi.fn(),
   projectUpdateMany: vi.fn(),
   signMediaUploadPart: vi.fn(),
   writeAuditLog: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('@pathfinder/db', () => ({
   db: {
     mediaIngestionProject: {
       findFirst: mocks.projectFindFirst,
+      findMany: mocks.projectFindMany,
       updateMany: mocks.projectUpdateMany,
     },
   },
@@ -54,6 +56,8 @@ const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111'
 const OTHER_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222'
 const UPPER_ATTEMPT_ID = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'
 const CANONICAL_UPPER_ATTEMPT_ID = UPPER_ATTEMPT_ID.toLowerCase()
+const ABANDONED_UPLOAD_STARTED_AT = new Date('2026-07-01T00:00:00.000Z')
+const ABANDONED_UPLOAD_CUTOFF = new Date('2026-07-02T00:00:00.000Z')
 
 function serializeCalls(value: unknown) {
   return JSON.stringify(value, (_key, item) => (typeof item === 'bigint' ? item.toString() : item))
@@ -85,6 +89,7 @@ describe('media ingestion router', () => {
     mocks.listReusableMediaUploadParts.mockResolvedValue([
       { partNumber: 1, etag: 'etag_1', size: 10 },
     ])
+    mocks.projectFindMany.mockResolvedValue([])
     mocks.enqueueMediaIngestion.mockResolvedValue(undefined)
     mocks.projectUpdateMany.mockResolvedValue({ count: 1 })
     mocks.writeAuditLog.mockResolvedValue(undefined)
@@ -1453,6 +1458,321 @@ describe('media ingestion router', () => {
     expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
   })
 
+  it('dry-runs a bounded exact-tenant abandoned upload scan by default', async () => {
+    mocks.projectFindMany.mockResolvedValueOnce([
+      {
+        id: 'project_1',
+        stage: 'upload',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+    ])
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.expireAbandonedUploads({
+        tenantId: 'tenant_1',
+        before: ABANDONED_UPLOAD_CUTOFF,
+        limit: 10,
+      }),
+    ).resolves.toEqual({
+      applied: false,
+      truncated: false,
+      candidates: [
+        {
+          projectId: 'project_1',
+          uploadAttemptId: ATTEMPT_ID,
+          uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+          stage: 'upload',
+        },
+      ],
+      results: [],
+    })
+
+    expect(mocks.projectFindMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: { in: ['upload', 'aborting'] },
+        uploadAttemptId: { not: null },
+        uploadStartedAt: { not: null, lte: ABANDONED_UPLOAD_CUTOFF },
+        sourceObjectKey: { not: null },
+        storageUploadId: { not: null },
+      },
+      select: {
+        id: true,
+        stage: true,
+        uploadAttemptId: true,
+        uploadStartedAt: true,
+        sourceObjectKey: true,
+        storageUploadId: true,
+      },
+      orderBy: [{ uploadStartedAt: 'asc' }, { id: 'asc' }],
+      take: 11,
+    })
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.abortMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.writeAuditLog).not.toHaveBeenCalled()
+  })
+
+  it('reports truncation without acting beyond the requested expiry cap', async () => {
+    mocks.projectFindMany.mockResolvedValueOnce([
+      {
+        id: 'project_1',
+        stage: 'upload',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+      {
+        id: 'project_2',
+        stage: 'upload',
+        uploadAttemptId: OTHER_ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/other-attempt/archive.zip',
+        storageUploadId: 'storage_upload_2',
+      },
+    ])
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.expireAbandonedUploads({
+        tenantId: 'tenant_1',
+        before: ABANDONED_UPLOAD_CUTOFF,
+        limit: 1,
+      }),
+    ).resolves.toEqual({
+      applied: false,
+      truncated: true,
+      candidates: [
+        {
+          projectId: 'project_1',
+          uploadAttemptId: ATTEMPT_ID,
+          uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+          stage: 'upload',
+        },
+      ],
+      results: [],
+    })
+    expect(mocks.projectFindMany).toHaveBeenCalledWith(expect.objectContaining({ take: 2 }))
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.abortMediaUpload).not.toHaveBeenCalled()
+  })
+
+  it('expires only the exact abandoned upload generation and audits terminal success', async () => {
+    mocks.projectFindMany.mockResolvedValueOnce([
+      {
+        id: 'project_1',
+        stage: 'upload',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+    ])
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.expireAbandonedUploads({
+        tenantId: 'tenant_1',
+        before: ABANDONED_UPLOAD_CUTOFF,
+        limit: 10,
+        dryRun: false,
+      }),
+    ).resolves.toEqual({
+      applied: true,
+      truncated: false,
+      candidates: [],
+      results: [{ projectId: 'project_1', uploadAttemptId: ATTEMPT_ID, outcome: 'cancelled' }],
+    })
+
+    expect(mocks.projectUpdateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'upload',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+      data: { stage: 'aborting', error: null },
+    })
+    expect(mocks.abortMediaUpload).toHaveBeenCalledWith(
+      'staging/media/project/attempt/archive.zip',
+      'storage_upload_1',
+    )
+    expect(mocks.projectUpdateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'aborting',
+        uploadAttemptId: ATTEMPT_ID,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+      data: {
+        status: 'CANCELLED',
+        stage: 'cancelled',
+        uploadAttemptId: null,
+        uploadStartedAt: null,
+        storageUploadId: null,
+        sourceObjectGeneration: null,
+        sourceContentType: null,
+        error: null,
+      },
+    })
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.media_ingestion.upload_expired' }),
+    )
+  })
+
+  it('skips storage when an abandoned generation changes after discovery', async () => {
+    mocks.projectFindMany.mockResolvedValueOnce([
+      {
+        id: 'project_1',
+        stage: 'upload',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+    ])
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.expireAbandonedUploads({
+        tenantId: 'tenant_1',
+        before: ABANDONED_UPLOAD_CUTOFF,
+        limit: 1,
+        dryRun: false,
+      }),
+    ).resolves.toEqual({
+      applied: true,
+      truncated: false,
+      candidates: [],
+      results: [{ projectId: 'project_1', uploadAttemptId: ATTEMPT_ID, outcome: 'state-changed' }],
+    })
+
+    expect(mocks.abortMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.writeAuditLog).not.toHaveBeenCalled()
+  })
+
+  it('keeps a first NoSuchUpload response unconfirmed for a later resumed abort', async () => {
+    mocks.projectFindMany.mockResolvedValueOnce([
+      {
+        id: 'project_1',
+        stage: 'upload',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+    ])
+    mocks.abortMediaUpload.mockRejectedValueOnce(
+      Object.assign(new Error('gone'), { name: 'NoSuchUpload' }),
+    )
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.expireAbandonedUploads({
+        tenantId: 'tenant_1',
+        before: ABANDONED_UPLOAD_CUTOFF,
+        limit: 1,
+        dryRun: false,
+      }),
+    ).resolves.toEqual({
+      applied: true,
+      truncated: false,
+      candidates: [],
+      results: [{ projectId: 'project_1', uploadAttemptId: ATTEMPT_ID, outcome: 'unconfirmed' }],
+    })
+
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'aborting',
+        uploadAttemptId: ATTEMPT_ID,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+      data: { stage: 'aborting', error: 'Media upload abort could not be confirmed.' },
+    })
+    expect(mocks.writeAuditLog).not.toHaveBeenCalled()
+  })
+
+  it('finishes a resumed abandoned abort when storage reports it already gone', async () => {
+    mocks.projectFindMany.mockResolvedValueOnce([
+      {
+        id: 'project_1',
+        stage: 'aborting',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+    ])
+    mocks.projectFindFirst.mockResolvedValueOnce({ id: 'project_1' })
+    mocks.abortMediaUpload.mockRejectedValueOnce(
+      Object.assign(new Error('gone'), { name: 'NoSuchUpload' }),
+    )
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.expireAbandonedUploads({
+        tenantId: 'tenant_1',
+        before: ABANDONED_UPLOAD_CUTOFF,
+        limit: 1,
+        dryRun: false,
+      }),
+    ).resolves.toEqual({
+      applied: true,
+      truncated: false,
+      candidates: [],
+      results: [{ projectId: 'project_1', uploadAttemptId: ATTEMPT_ID, outcome: 'cancelled' }],
+    })
+
+    expect(mocks.projectFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'aborting',
+        uploadAttemptId: ATTEMPT_ID,
+        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
+        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
+        storageUploadId: 'storage_upload_1',
+      },
+      select: { id: true },
+    })
+    expect(mocks.projectUpdateMany).toHaveBeenCalledOnce()
+    expect(mocks.writeAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.media_ingestion.upload_expired' }),
+    )
+  })
+
+  it('rejects an expiry cutoff in the future before scanning', async () => {
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.expireAbandonedUploads({
+        tenantId: 'tenant_1',
+        before: new Date(Date.now() + 60_000),
+        limit: 1,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+
+    expect(mocks.projectFindMany).not.toHaveBeenCalled()
+    expect(mocks.abortMediaUpload).not.toHaveBeenCalled()
+  })
+
   it('claims and aborts only the persisted attempt, then clears its upload capability', async () => {
     mocks.projectFindFirst.mockResolvedValueOnce({
       id: 'project_1',
@@ -1500,6 +1820,8 @@ describe('media ingestion router', () => {
         status: 'UPLOADING',
         stage: 'aborting',
         uploadAttemptId: ATTEMPT_ID,
+        sourceObjectKey: 'staging/tenant/venue/project.zip',
+        storageUploadId: 'server_storage_upload',
       },
       data: {
         status: 'CANCELLED',
@@ -1568,6 +1890,8 @@ describe('media ingestion router', () => {
         status: 'UPLOADING',
         stage: 'aborting',
         uploadAttemptId: ATTEMPT_ID,
+        sourceObjectKey: 'staging/tenant/venue/project.zip',
+        storageUploadId: 'server_storage_upload',
       },
       data: {
         status: 'CANCELLED',
@@ -1613,6 +1937,8 @@ describe('media ingestion router', () => {
         status: 'UPLOADING',
         stage: 'aborting',
         uploadAttemptId: ATTEMPT_ID,
+        sourceObjectKey: 'staging/tenant/venue/project.zip',
+        storageUploadId: 'server_storage_upload',
       },
       data: { stage: 'aborting', error: 'Media upload abort could not be confirmed.' },
     })
@@ -1666,6 +1992,8 @@ describe('media ingestion router', () => {
         status: 'UPLOADING',
         stage: 'aborting',
         uploadAttemptId: ATTEMPT_ID,
+        sourceObjectKey: 'staging/tenant/venue/project.zip',
+        storageUploadId: 'server_storage_upload',
       },
       data: { stage: 'aborting', error: 'Media upload abort could not be confirmed.' },
     })

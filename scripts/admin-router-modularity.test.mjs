@@ -42,6 +42,7 @@ const expectedMediaProcedures = [
   'beginUpload',
   'completeUpload',
   'create',
+  'expireAbandonedUploads',
   'get',
   'list',
   'reconcileUpload',

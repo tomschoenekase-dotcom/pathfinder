@@ -145,4 +145,41 @@ integrationDescribe('media storage (disposable S3-compatible integration)', () =
       expect.arrayContaining([expect.objectContaining({ Key: key, UploadId: started.uploadId })]),
     )
   })
+
+  it('aborts only the selected immutable upload generation', async () => {
+    const firstKey =
+      'staging/media-ingestion/t/tenant/v/project/11111111-1111-4111-8111-111111111111/archive.zip'
+    const secondKey =
+      'staging/media-ingestion/t/tenant/v/project/22222222-2222-4222-8222-222222222222/archive.zip'
+    const first = await beginMediaUpload(
+      firstKey,
+      'application/zip',
+      '11111111-1111-4111-8111-111111111111',
+    )
+    const second = await beginMediaUpload(
+      secondKey,
+      'application/zip',
+      '22222222-2222-4222-8222-222222222222',
+    )
+    const secondPartUrl = await signMediaUploadPart(secondKey, second.uploadId, 1)
+    const secondPartResponse = await fetch(secondPartUrl, {
+      method: 'PUT',
+      body: new TextEncoder().encode('sibling generation remains active'),
+    })
+    expect(secondPartResponse.ok).toBe(true)
+
+    await abortMediaUpload(firstKey, first.uploadId, storage as unknown as MediaStorageTransport)
+
+    const listed = await storage.send(new ListMultipartUploadsCommand({ Bucket: bucket }))
+    expect(listed.Uploads ?? []).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ Key: firstKey, UploadId: first.uploadId }),
+      ]),
+    )
+    expect(listed.Uploads ?? []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ Key: secondKey, UploadId: second.uploadId }),
+      ]),
+    )
+  })
 })

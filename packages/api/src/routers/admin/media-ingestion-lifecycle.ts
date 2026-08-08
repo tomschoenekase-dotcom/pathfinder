@@ -1,14 +1,12 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
 import { enqueueMediaIngestion } from '@pathfinder/jobs'
 
 import { router } from '../../core'
-import { abortMediaUpload } from '../../lib/media-storage'
 import { adminProcedure } from '../../trpc'
-import { isNoSuchMediaUpload as isNoSuchUpload } from './media-ingestion-helpers'
+import { settleClaimedMediaUploadAbort } from './media-ingestion-abort'
 
 export const mediaIngestionLifecycleRouter = router({
   retryEnqueue: adminProcedure
@@ -107,84 +105,16 @@ export const mediaIngestionLifecycleRouter = router({
           throw new TRPCError({ code: 'CONFLICT', message: 'The upload state already changed.' })
         }
       }
-      try {
-        await abortMediaUpload(project.sourceObjectKey, project.storageUploadId)
-      } catch (error) {
-        if (resumedAbort && isNoSuchUpload(error)) {
-          // A prior abort succeeded but its terminal database write was lost.
-        } else {
-          try {
-            const compensated = await withTenantIsolationBypass(() =>
-              db.mediaIngestionProject.updateMany({
-                where: {
-                  id: project.id,
-                  tenantId: input.tenantId,
-                  status: 'UPLOADING',
-                  stage: 'aborting',
-                  uploadAttemptId: input.uploadAttemptId,
-                },
-                data: {
-                  stage: 'aborting',
-                  error: 'Media upload abort could not be confirmed.',
-                },
-              }),
-            )
-            if (compensated.count !== 1) {
-              logger.warn({
-                action: 'media-ingestion.upload-abort-compensation.missed',
-                projectId: project.id,
-                uploadAttemptId: input.uploadAttemptId,
-              })
-            }
-          } catch (compensationError) {
-            logger.warn({
-              action: 'media-ingestion.upload-abort-compensation.failed',
-              projectId: project.id,
-              uploadAttemptId: input.uploadAttemptId,
-              error: 'Upload abort state persistence failed.',
-              errorType:
-                compensationError instanceof Error ? compensationError.name : 'UnknownError',
-            })
-          }
-          throw error
-        }
-      }
-      const cancelled = await withTenantIsolationBypass(() =>
-        db.mediaIngestionProject.updateMany({
-          where: {
-            id: project.id,
-            tenantId: input.tenantId,
-            status: 'UPLOADING',
-            stage: 'aborting',
-            uploadAttemptId: input.uploadAttemptId,
-          },
-          data: {
-            status: 'CANCELLED',
-            stage: 'cancelled',
-            uploadAttemptId: null,
-            uploadStartedAt: null,
-            storageUploadId: null,
-            sourceObjectGeneration: null,
-            sourceContentType: null,
-            error: null,
-          },
-        }),
-      )
-      if (cancelled.count !== 1) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'The abort result could not be recorded.',
-        })
-      }
-      await writeAuditLog({
+      return settleClaimedMediaUploadAbort({
         tenantId: input.tenantId,
+        projectId: project.id,
+        uploadAttemptId: input.uploadAttemptId,
+        sourceObjectKey: project.sourceObjectKey,
+        storageUploadId: project.storageUploadId,
+        resumedAbort,
         actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.media_ingestion.upload_aborted',
-        targetType: 'MediaIngestionProject',
-        targetId: project.id,
+        auditAction: 'admin.media_ingestion.upload_aborted',
       })
-      return { ok: true }
     }),
 
   saveReview: adminProcedure
