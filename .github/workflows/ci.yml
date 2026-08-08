@@ -14,7 +14,7 @@ jobs:
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: pathfinder_test
+          POSTGRES_DB: pathfinder_disposable_ci
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
@@ -31,8 +31,8 @@ jobs:
           --health-retries 5
     env:
       RAILWAY_ENVIRONMENT: staging
-      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_test
-      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_test
+      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
+      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
       REDIS_URL: redis://localhost:6379
       CLERK_SECRET_KEY: test_clerk_secret
       CLERK_PUBLISHABLE_KEY: test_clerk_pub
@@ -63,7 +63,11 @@ jobs:
       - run: pnpm verify:raw-sql
       - run: pnpm verify:tenant-procedures
       - run: pnpm --dir packages/db db:generate
-      - run: pnpm --dir packages/db exec prisma migrate deploy
+      - name: Apply migrations through the disposable-target guard
+        run: pnpm db:migrate:disposable -- --database pathfinder_disposable_ci --confirm-database pathfinder_disposable_ci
+        env:
+          PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
       - name: Verify embedding database concurrency and recovery
         run: pnpm --dir packages/db exec vitest run src/helpers/embedding-work-claims.integration.test.ts src/helpers/embedding-dispatches.integration.test.ts src/helpers/embedding-claim-repair.integration.test.ts --pool=forks --maxWorkers=1
         env:
@@ -76,3 +80,4 @@ jobs:
       - run: pnpm turbo run typecheck
       - run: pnpm turbo run lint
       - run: pnpm turbo run test
+      - run: pnpm test:scripts

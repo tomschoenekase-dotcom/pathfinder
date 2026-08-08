@@ -49,6 +49,40 @@ normally do not need every worker-only outbound credential.
 
 ## Release procedure
 
+Local destructive migration proofs must use the disposable-only wrapper, never the raw
+`db:migrate` or `db:migrate:prod` scripts. The wrapper accepts only an explicitly named
+`pathfinder_disposable_*` database on exact loopback, removes inherited Prisma and Node target
+overrides, and forces `DATABASE_URL` and `DIRECT_DATABASE_URL` to the same validated URL. Put the
+URL only in the purpose-specific environment variable, populated through a local secret-safe
+environment mechanism; never pass the URL as a CLI argument. The placeholders below are not
+literal credentials:
+
+```bash
+PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS=1 \
+PATHFINDER_DISPOSABLE_DATABASE_URL='postgresql://USER:PASSWORD@127.0.0.1:PORT/pathfinder_disposable_example' \
+pnpm db:migrate:disposable -- \
+  --database pathfinder_disposable_example \
+  --confirm-database pathfinder_disposable_example
+```
+
+PowerShell uses the same contract:
+
+```powershell
+$env:PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS = '1'
+$env:PATHFINDER_DISPOSABLE_DATABASE_URL = 'postgresql://USER:PASSWORD@127.0.0.1:PORT/pathfinder_disposable_example'
+pnpm db:migrate:disposable -- `
+  --database pathfinder_disposable_example `
+  --confirm-database pathfinder_disposable_example
+```
+
+Loopback coordinates do not prove server identity if a developer has deliberately installed a
+local tunnel or proxy. For evidence-grade proofs, create an exact-name disposable container on a
+dedicated port, verify `current_database()` and the finished migration count, then remove that
+exact container.
+
+The raw production migration command below remains reserved for an independently confirmed
+staging release shell. The disposable wrapper intentionally has no external-host escape hatch.
+
 1. Select a release commit and record its full SHA as `RELEASE_SHA` in the
    release evidence. Confirm the repository tests required for that commit have
    passed.
