@@ -7,6 +7,7 @@ import { createTRPCClient } from '../../lib/trpc'
 
 type WeeklyReportEditorProps = {
   tenantId: string
+  venueId: string
   reportId: string
   initialTitle: string
   initialContent: string
@@ -15,6 +16,7 @@ type WeeklyReportEditorProps = {
 
 export function WeeklyReportEditor({
   tenantId,
+  venueId,
   reportId,
   initialTitle,
   initialContent,
@@ -42,6 +44,7 @@ export function WeeklyReportEditor({
     try {
       await clientRef.current!.admin.updateWeeklyReportDraft.mutate({
         tenantId,
+        venueId,
         reportId,
         title,
         content,
@@ -65,7 +68,7 @@ export function WeeklyReportEditor({
     setErrorMessage(null)
 
     try {
-      await clientRef.current!.admin.publishWeeklyReport.mutate({ tenantId, reportId })
+      await clientRef.current!.admin.publishWeeklyReport.mutate({ tenantId, venueId, reportId })
       setCurrentStatus('PUBLISHED')
       setMessage('Report published.')
       router.refresh()

@@ -12,7 +12,7 @@ type AdminReportDetailPageProps = {
 export default async function AdminReportDetailPage({ params }: AdminReportDetailPageProps) {
   const { tenantId, venueId, reportId } = await params
   const caller = await createAdminCaller()
-  const report = await caller.admin.getWeeklyReport({ tenantId, reportId })
+  const report = await caller.admin.getWeeklyReport({ tenantId, venueId, reportId })
 
   return (
     <div className="space-y-8">
@@ -48,6 +48,7 @@ export default async function AdminReportDetailPage({ params }: AdminReportDetai
       ) : (
         <WeeklyReportEditor
           tenantId={tenantId}
+          venueId={venueId}
           reportId={report.id}
           initialTitle={report.title}
           initialContent={report.content ?? ''}

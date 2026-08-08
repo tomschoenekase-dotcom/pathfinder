@@ -136,6 +136,7 @@ async function markReportStatus(
     error?: string | null
     generatedAt?: Date | null
   },
+  expectedStatus: 'GENERATING',
 ): Promise<void> {
   await withTenantIsolationBypass(async () => {
     const result = await db.weeklyReport.updateMany({
@@ -143,14 +144,13 @@ async function markReportStatus(
         id: payload.reportId,
         tenantId: payload.tenantId,
         venueId: payload.venueId,
+        status: expectedStatus,
       },
       data,
     })
 
     if (result.count !== 1) {
-      throw new Error(
-        `Report ${payload.reportId} not found for tenant ${payload.tenantId} and venue ${payload.venueId}`,
-      )
+      throw new Error('The weekly-report ownership state no longer matched.')
     }
   })
 }
@@ -298,7 +298,6 @@ export async function processWeeklyReportJob(
 ): Promise<void> {
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
-  await markReportStatus(payload, { status: 'GENERATING', error: null })
 
   const jobRecordId = await writeJobRecord({
     queue: 'weekly-report',
@@ -313,6 +312,37 @@ export async function processWeeklyReportJob(
   })
 
   try {
+    const report = await withTenantIsolationBypass(() =>
+      db.weeklyReport.findFirst({
+        where: {
+          id: payload.reportId,
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+        },
+        select: { id: true },
+      }),
+    )
+    if (!report) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      return
+    }
+
+    const lifecycleGate = await withTenantIsolationBypass(() =>
+      db.weeklyReport.updateMany({
+        where: {
+          id: payload.reportId,
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          status: { in: ['GENERATING', 'FAILED'] },
+        },
+        data: { status: 'GENERATING', error: null },
+      }),
+    )
+    if (lifecycleGate.count !== 1) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      return
+    }
+
     const data = await loadReportData(payload)
     const prompt = buildReportPrompt({
       venueName: data.venue.name,
@@ -350,14 +380,18 @@ export async function processWeeklyReportJob(
       parsed,
     })
 
-    await markReportStatus(payload, {
-      status: 'DRAFT',
-      content,
-      answerCount: data.responses.length,
-      sessionCount: data.sessionCount,
-      error: null,
-      generatedAt: new Date(),
-    })
+    await markReportStatus(
+      payload,
+      {
+        status: 'DRAFT',
+        content,
+        answerCount: data.responses.length,
+        sessionCount: data.sessionCount,
+        error: null,
+        generatedAt: new Date(),
+      },
+      'GENERATING',
+    )
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({
@@ -373,7 +407,7 @@ export async function processWeeklyReportJob(
     await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
 
     try {
-      await markReportStatus(payload, { status: 'FAILED', error: message })
+      await markReportStatus(payload, { status: 'FAILED', error: message }, 'GENERATING')
     } catch (statusError) {
       logger.warn({
         action: 'workers.weekly-report.failure-status-persistence-failed',

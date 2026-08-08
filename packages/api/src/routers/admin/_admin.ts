@@ -1139,22 +1139,70 @@ export const adminRouter = router({
         })
       })
 
-      await enqueueWeeklyReport({
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        weekStart: input.weekStart,
-        weekEnd: input.weekEnd,
-        reportId: report.id,
-      })
-
       await writeAuditLog({
         tenantId: input.tenantId,
         actorId: ctx.session.userId,
         actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.report.draft_generated',
+        action: 'admin.report.requested',
         targetType: 'WeeklyReport',
         targetId: report.id,
+        afterState: {
+          venueId: input.venueId,
+          weekStart: input.weekStart,
+          weekEnd: input.weekEnd,
+        },
       })
+
+      try {
+        await enqueueWeeklyReport({
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          weekStart: input.weekStart,
+          weekEnd: input.weekEnd,
+          reportId: report.id,
+        })
+      } catch (error) {
+        try {
+          const compensation = await withTenantIsolationBypass(() =>
+            db.weeklyReport.updateMany({
+              where: {
+                id: report.id,
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                status: 'GENERATING',
+              },
+              data: {
+                status: 'FAILED',
+                error: 'Weekly report enqueue could not be confirmed.',
+                generatedAt: null,
+              },
+            }),
+          )
+          if (compensation.count !== 1) {
+            logger.warn({
+              action: 'admin.weekly-report.enqueue-compensation.missed',
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              reportId: report.id,
+              error: 'Weekly report enqueue state no longer matched.',
+            })
+          }
+        } catch (compensationError) {
+          logger.warn({
+            action: 'admin.weekly-report.enqueue-compensation.failed',
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            reportId: report.id,
+            error: 'Weekly report enqueue failure could not be recorded.',
+            errorType: compensationError instanceof Error ? compensationError.name : 'UnknownError',
+          })
+        }
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Weekly report could not be queued.',
+          cause: error,
+        })
+      }
 
       return { reportId: report.id }
     }),
@@ -1180,10 +1228,16 @@ export const adminRouter = router({
     ),
 
   getWeeklyReport: adminProcedure
-    .input(z.object({ tenantId: z.string(), reportId: z.string() }))
+    .input(z.object({ tenantId: z.string(), venueId: z.string(), reportId: z.string() }))
     .query(async ({ input }) => {
       const report = await withTenantIsolationBypass(async () =>
-        db.weeklyReport.findFirst({ where: { id: input.reportId, tenantId: input.tenantId } }),
+        db.weeklyReport.findFirst({
+          where: {
+            id: input.reportId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+          },
+        }),
       )
       if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
       return report
@@ -1193,6 +1247,7 @@ export const adminRouter = router({
     .input(
       z.object({
         tenantId: z.string(),
+        venueId: z.string(),
         reportId: z.string(),
         title: z.string().min(1).max(200).optional(),
         content: z.string().min(1).max(10_000),
@@ -1201,24 +1256,42 @@ export const adminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await withTenantIsolationBypass(async () =>
         db.weeklyReport.findFirst({
-          where: { id: input.reportId, tenantId: input.tenantId },
+          where: {
+            id: input.reportId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+          },
           select: { status: true },
         }),
       )
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
-      if (existing.status === 'PUBLISHED') {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Published reports cannot be edited.' })
+      if (existing.status !== 'DRAFT') {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Only a draft report can be edited.',
+        })
       }
 
-      await withTenantIsolationBypass(async () => {
-        await db.weeklyReport.updateMany({
-          where: { id: input.reportId, tenantId: input.tenantId },
+      const updated = await withTenantIsolationBypass(async () => {
+        return db.weeklyReport.updateMany({
+          where: {
+            id: input.reportId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            status: 'DRAFT',
+          },
           data: {
             content: input.content,
             ...(input.title !== undefined ? { title: input.title } : {}),
           },
         })
       })
+      if (updated.count !== 1) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Report state changed before the draft could be saved.',
+        })
+      }
 
       await writeAuditLog({
         tenantId: input.tenantId,
@@ -1233,11 +1306,15 @@ export const adminRouter = router({
     }),
 
   publishWeeklyReport: adminProcedure
-    .input(z.object({ tenantId: z.string(), reportId: z.string() }))
+    .input(z.object({ tenantId: z.string(), venueId: z.string(), reportId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await withTenantIsolationBypass(async () =>
         db.weeklyReport.findFirst({
-          where: { id: input.reportId, tenantId: input.tenantId },
+          where: {
+            id: input.reportId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+          },
           select: { status: true, content: true },
         }),
       )
@@ -1252,12 +1329,23 @@ export const adminRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Report has no content to publish.' })
       }
 
-      await withTenantIsolationBypass(async () => {
-        await db.weeklyReport.updateMany({
-          where: { id: input.reportId, tenantId: input.tenantId },
+      const updated = await withTenantIsolationBypass(async () => {
+        return db.weeklyReport.updateMany({
+          where: {
+            id: input.reportId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            status: 'DRAFT',
+          },
           data: { status: 'PUBLISHED', publishedAt: new Date() },
         })
       })
+      if (updated.count !== 1) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Report state changed before it could be published.',
+        })
+      }
 
       await writeAuditLog({
         tenantId: input.tenantId,

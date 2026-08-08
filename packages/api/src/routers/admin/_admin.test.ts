@@ -187,6 +187,7 @@ describe('admin router', () => {
     vi.resetAllMocks()
     visitorSessionUpdateMany.mockResolvedValue({ count: 1 })
     answerAnalysisSnapshotUpdateMany.mockResolvedValue({ count: 1 })
+    weeklyReportUpdateMany.mockResolvedValue({ count: 1 })
   })
 
   it('admin.triggerDigest creates a digest for the current week and enqueues it', async () => {
@@ -910,6 +911,25 @@ describe('admin router', () => {
     expect(enqueueWeeklyReport).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1', reportId: 'report_new' }),
     )
+    expect(writeAuditLogMock).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      actorId: 'admin_1',
+      actorRole: 'PLATFORM_ADMIN',
+      action: 'admin.report.requested',
+      targetType: 'WeeklyReport',
+      targetId: 'report_new',
+      afterState: {
+        venueId: 'venue_1',
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-15T23:59:59.999Z',
+      },
+    })
+    expect(weeklyReportCreate.mock.invocationCallOrder[0]).toBeLessThan(
+      writeAuditLogMock.mock.invocationCallOrder[0]!,
+    )
+    expect(writeAuditLogMock.mock.invocationCallOrder[0]).toBeLessThan(
+      enqueueWeeklyReport.mock.invocationCallOrder[0]!,
+    )
   })
 
   it('admin.generateWeeklyReportDraft rejects a venue outside the supplied tenant', async () => {
@@ -932,21 +952,229 @@ describe('admin router', () => {
     })
     expect(weeklyReportCreate).not.toHaveBeenCalled()
     expect(enqueueWeeklyReport).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
-  it('admin.updateWeeklyReportDraft throws BAD_REQUEST on a published report', async () => {
-    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'PUBLISHED' })
+  it('admin.generateWeeklyReportDraft compensates a failed enqueue and preserves the original cause', async () => {
+    const enqueueError = new Error('redis://private-host queue unavailable')
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
+    enqueueWeeklyReport.mockRejectedValueOnce(enqueueError)
+
+    const caller = testRouter.createCaller(adminCtx())
+    const operation = caller.admin.generateWeeklyReportDraft({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      weekStart: '2026-07-01T00:00:00.000Z',
+      weekEnd: '2026-07-07T23:59:59.999Z',
+    })
+
+    await expect(operation).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Weekly report could not be queued.',
+      cause: enqueueError,
+    })
+    expect(weeklyReportUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'report_new',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
+      data: {
+        status: 'FAILED',
+        error: 'Weekly report enqueue could not be confirmed.',
+        generatedAt: null,
+      },
+    })
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.report.requested', targetId: 'report_new' }),
+    )
+    expect(JSON.stringify(weeklyReportUpdateMany.mock.calls)).not.toContain('private-host')
+    expect(loggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('admin.generateWeeklyReportDraft emits a sanitized warning when compensation misses', async () => {
+    const enqueueError = new Error('redis://private-host queue unavailable')
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
+    enqueueWeeklyReport.mockRejectedValueOnce(enqueueError)
+    weeklyReportUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+      }),
+    ).rejects.toMatchObject({ cause: enqueueError })
+
+    expect(loggerWarn).toHaveBeenCalledWith({
+      action: 'admin.weekly-report.enqueue-compensation.missed',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      reportId: 'report_new',
+      error: 'Weekly report enqueue state no longer matched.',
+    })
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private-host')
+  })
+
+  it('admin.generateWeeklyReportDraft emits a sanitized warning when compensation fails', async () => {
+    const enqueueError = new Error('redis://private-host queue unavailable')
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    weeklyReportCreate.mockResolvedValueOnce({ id: 'report_new' })
+    enqueueWeeklyReport.mockRejectedValueOnce(enqueueError)
+    weeklyReportUpdateMany.mockRejectedValueOnce(new TypeError('postgres://secret@private-host'))
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+      }),
+    ).rejects.toMatchObject({ cause: enqueueError })
+
+    expect(loggerWarn).toHaveBeenCalledWith({
+      action: 'admin.weekly-report.enqueue-compensation.failed',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      reportId: 'report_new',
+      error: 'Weekly report enqueue failure could not be recorded.',
+      errorType: 'TypeError',
+    })
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('secret')
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private-host')
+  })
+
+  it('admin.getWeeklyReport scopes report detail to the supplied tenant and venue', async () => {
+    const report = { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' }
+    weeklyReportFindFirst.mockResolvedValueOnce(report)
+
+    const caller = testRouter.createCaller(adminCtx())
+    const result = await caller.admin.getWeeklyReport({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      reportId: 'report_1',
+    })
+
+    expect(weeklyReportFindFirst).toHaveBeenCalledWith({
+      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+    })
+    expect(result).toEqual(report)
+  })
+
+  it('admin.getWeeklyReport returns NOT_FOUND when the report is outside the supplied venue', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.getWeeklyReport({
+        tenantId: 'tenant_1',
+        venueId: 'wrong_venue',
+        reportId: 'report_1',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(weeklyReportFindFirst).toHaveBeenCalledWith({
+      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'wrong_venue' },
+    })
+  })
+
+  it.each(['PUBLISHED', 'GENERATING', 'FAILED'])(
+    'admin.updateWeeklyReportDraft throws BAD_REQUEST on a %s report',
+    async (status) => {
+      weeklyReportFindFirst.mockResolvedValueOnce({ status })
+
+      const caller = testRouter.createCaller(adminCtx())
+
+      await expect(
+        caller.admin.updateWeeklyReportDraft({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          reportId: 'report_1',
+          content: 'Edited content',
+        }),
+      ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+      expect(weeklyReportFindFirst).toHaveBeenCalledWith({
+        where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+        select: { status: true },
+      })
+      expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+      expect(writeAuditLogMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it('admin.updateWeeklyReportDraft returns NOT_FOUND for a report outside the supplied venue', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce(null)
 
     const caller = testRouter.createCaller(adminCtx())
 
     await expect(
       caller.admin.updateWeeklyReportDraft({
         tenantId: 'tenant_1',
+        venueId: 'wrong_venue',
         reportId: 'report_1',
         content: 'Edited content',
       }),
-    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.updateWeeklyReportDraft uses an exact DRAFT CAS and audit-logs a successful edit', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT' })
+
+    const caller = testRouter.createCaller(adminCtx())
+    const result = await caller.admin.updateWeeklyReportDraft({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      reportId: 'report_1',
+      title: 'Edited title',
+      content: 'Edited content',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(weeklyReportUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'DRAFT',
+      },
+      data: { title: 'Edited title', content: 'Edited content' },
+    })
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.report.edited', targetId: 'report_1' }),
+    )
+  })
+
+  it('admin.updateWeeklyReportDraft returns CONFLICT without an audit when its DRAFT CAS misses', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT' })
+    weeklyReportUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.updateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+        content: 'Edited content',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+    expect(weeklyReportUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'report_1',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          status: 'DRAFT',
+        },
+      }),
+    )
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
   it('admin.publishWeeklyReport throws BAD_REQUEST when status is not DRAFT', async () => {
@@ -955,8 +1183,14 @@ describe('admin router', () => {
     const caller = testRouter.createCaller(adminCtx())
 
     await expect(
-      caller.admin.publishWeeklyReport({ tenantId: 'tenant_1', reportId: 'report_1' }),
+      caller.admin.publishWeeklyReport({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
   it('admin.publishWeeklyReport throws BAD_REQUEST when the draft has no content', async () => {
@@ -965,9 +1199,33 @@ describe('admin router', () => {
     const caller = testRouter.createCaller(adminCtx())
 
     await expect(
-      caller.admin.publishWeeklyReport({ tenantId: 'tenant_1', reportId: 'report_1' }),
+      caller.admin.publishWeeklyReport({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.publishWeeklyReport returns NOT_FOUND for a report outside the supplied venue', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.publishWeeklyReport({
+        tenantId: 'tenant_1',
+        venueId: 'wrong_venue',
+        reportId: 'report_1',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(weeklyReportFindFirst).toHaveBeenCalledWith({
+      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'wrong_venue' },
+      select: { status: true, content: true },
+    })
+    expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
   it('admin.publishWeeklyReport publishes a valid draft and audit-logs it', async () => {
@@ -976,19 +1234,48 @@ describe('admin router', () => {
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.publishWeeklyReport({
       tenantId: 'tenant_1',
+      venueId: 'venue_1',
       reportId: 'report_1',
     })
 
     expect(result).toEqual({ ok: true })
-    expect(weeklyReportUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'report_1', tenantId: 'tenant_1' },
-        data: expect.objectContaining({ status: 'PUBLISHED' }),
-      }),
-    )
+    expect(weeklyReportUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'DRAFT',
+      },
+      data: expect.objectContaining({ status: 'PUBLISHED' }),
+    })
     expect(writeAuditLogMock).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'admin.report.published', targetId: 'report_1' }),
     )
+  })
+
+  it('admin.publishWeeklyReport returns CONFLICT without an audit when its DRAFT CAS misses', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', content: 'Some content' })
+    weeklyReportUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.publishWeeklyReport({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+    expect(weeklyReportUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'report_1',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          status: 'DRAFT',
+        },
+      }),
+    )
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
   it('all new admin.* chatlog/report/analysis procedures throw FORBIDDEN for non-admin users', async () => {
@@ -1006,7 +1293,11 @@ describe('admin router', () => {
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
     await expect(
-      caller.admin.publishWeeklyReport({ tenantId: 'tenant_1', reportId: 'report_1' }),
+      caller.admin.publishWeeklyReport({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 })

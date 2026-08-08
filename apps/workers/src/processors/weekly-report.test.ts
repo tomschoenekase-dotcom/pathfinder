@@ -4,6 +4,7 @@ import type { AnthropicMessagesClient } from '@pathfinder/ai'
 import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
+  reportFindFirst: vi.fn(),
   reportUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   sessionCount: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   db: {
-    weeklyReport: { updateMany: mocks.reportUpdateMany },
+    weeklyReport: { findFirst: mocks.reportFindFirst, updateMany: mocks.reportUpdateMany },
     venue: { findFirst: mocks.venueFindFirst },
     visitorSession: { count: mocks.sessionCount },
     message: { count: mocks.messageCount, findMany: mocks.messageFindMany },
@@ -68,6 +69,7 @@ describe('processWeeklyReportJob', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+    mocks.reportFindFirst.mockResolvedValue({ id: 'report_1' })
     mocks.reportUpdateMany.mockResolvedValue({ count: 1 })
     mocks.venueFindFirst.mockResolvedValue({ name: 'City Zoo', category: 'zoo' })
     mocks.sessionCount.mockResolvedValue(2)
@@ -94,6 +96,22 @@ describe('processWeeklyReportJob', () => {
   it('creates a draft and records tenant- and venue-attributed usage', async () => {
     await processWeeklyReportJob(payload, 'bull_job_1')
 
+    expect(mocks.reportFindFirst).toHaveBeenCalledWith({
+      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      select: { id: true },
+    })
+    expect(mocks.writeJobRecord.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.reportFindFirst.mock.invocationCallOrder[0] as number,
+    )
+    expect(mocks.reportUpdateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: { in: ['GENERATING', 'FAILED'] },
+      },
+      data: { status: 'GENERATING', error: null },
+    })
     expect(mocks.venueFindFirst).toHaveBeenCalledWith({
       where: { id: 'venue_1', tenantId: 'tenant_1' },
       select: { name: true, category: true },
@@ -115,7 +133,12 @@ describe('processWeeklyReportJob', () => {
       }),
     })
     expect(mocks.reportUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({
         status: 'DRAFT',
         answerCount: 1,
@@ -135,7 +158,12 @@ describe('processWeeklyReportJob', () => {
     expect(anthropicCreate).not.toHaveBeenCalled()
     expect(mocks.aiUsageEventCreate).not.toHaveBeenCalled()
     expect(mocks.reportUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'FAILED' }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith(
@@ -144,18 +172,37 @@ describe('processWeeklyReportJob', () => {
     )
   })
 
-  it('rejects a queue payload that does not match the report tenant and venue', async () => {
-    mocks.reportUpdateMany.mockResolvedValueOnce({ count: 0 })
+  it('completes a queue payload that does not match the report tenant and venue', async () => {
+    mocks.reportFindFirst.mockResolvedValueOnce(null)
 
-    await expect(processWeeklyReportJob(payload)).rejects.toThrow(
-      'Report report_1 not found for tenant tenant_1 and venue venue_1',
-    )
+    await expect(processWeeklyReportJob(payload)).resolves.toBeUndefined()
 
-    expect(mocks.reportUpdateMany).toHaveBeenCalledTimes(1)
-    expect(mocks.writeJobRecord).not.toHaveBeenCalled()
+    expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.writeJobRecord).toHaveBeenCalledOnce()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
+    expect(mocks.venueFindFirst).not.toHaveBeenCalled()
     expect(anthropicCreate).not.toHaveBeenCalled()
     expect(mocks.aiUsageEventCreate).not.toHaveBeenCalled()
   })
+
+  it.each(['DRAFT', 'PUBLISHED'])(
+    'completes a stale %s delivery when the lifecycle gate no longer matches',
+    async () => {
+      mocks.reportUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+      await expect(processWeeklyReportJob(payload)).resolves.toBeUndefined()
+
+      expect(mocks.reportUpdateMany).toHaveBeenCalledOnce()
+      expect(mocks.venueFindFirst).not.toHaveBeenCalled()
+      expect(mocks.sessionCount).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+        status: 'COMPLETE',
+      })
+    },
+  )
 
   it('preserves fenced multi-block JSON parsing and defensive array truncation', async () => {
     const oversizeReport = {
@@ -205,7 +252,12 @@ describe('processWeeklyReportJob', () => {
     }
     expect(failureUsage.estimatedCostUsd).toBeGreaterThan(0)
     expect(mocks.reportUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'FAILED' }),
     })
   })
@@ -228,7 +280,12 @@ describe('processWeeklyReportJob', () => {
       }),
     })
     expect(mocks.reportUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'FAILED' }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith(
@@ -237,13 +294,55 @@ describe('processWeeklyReportJob', () => {
     )
   })
 
+  it('preserves the provider failure when the exact FAILED write misses ownership state', async () => {
+    const providerError = Object.assign(new Error('provider unavailable'), { status: 503 })
+    anthropicCreate.mockRejectedValueOnce(providerError)
+    mocks.reportUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
+
+    await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
+      name: 'AiGatewayError',
+      message: 'provider unavailable',
+      code: 'provider-http-503',
+    })
+
+    expect(mocks.reportUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
+      data: { status: 'FAILED', error: 'provider unavailable' },
+    })
+  })
+
+  it('preserves the provider failure when the exact FAILED write rejects', async () => {
+    const providerError = Object.assign(new Error('provider unavailable'), { status: 503 })
+    anthropicCreate.mockRejectedValueOnce(providerError)
+    mocks.reportUpdateMany.mockImplementation(async (params) => {
+      if (params.data.status === 'FAILED') throw new Error('report database unavailable')
+      return { count: 1 }
+    })
+
+    await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
+      name: 'AiGatewayError',
+      message: 'provider unavailable',
+      code: 'provider-http-503',
+    })
+  })
+
   it('does not fail a valid report when usage persistence is unavailable', async () => {
     mocks.aiUsageEventCreate.mockRejectedValueOnce(new Error('usage database unavailable'))
 
     await expect(processWeeklyReportJob(payload)).resolves.toBeUndefined()
 
     expect(mocks.reportUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      where: {
+        id: 'report_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'DRAFT' }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })

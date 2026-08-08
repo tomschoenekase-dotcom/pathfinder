@@ -20,8 +20,8 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/embed-place.ts', 1],
   ['apps/workers/src/processors/media-ingestion.ts', 9],
   ['apps/workers/src/processors/weekly-digest.ts', 2],
-  ['apps/workers/src/processors/weekly-report.ts', 2],
-  ['packages/api/src/routers/admin/_admin.ts', 30],
+  ['apps/workers/src/processors/weekly-report.ts', 4],
+  ['packages/api/src/routers/admin/_admin.ts', 31],
   ['packages/api/src/routers/admin/media-ingestion.ts', 23],
   ['packages/db/src/helpers/job-records.ts', 3],
 ])
