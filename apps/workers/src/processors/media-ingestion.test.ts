@@ -41,6 +41,9 @@ vi.mock('@pathfinder/jobs', () => ({
 import { assignMediaSourceIds } from '../lib/media-source-id'
 import {
   cleanupMediaWorkDir,
+  MediaSynthesisSummaryBudget,
+  parseMediaAnalysisResponse,
+  parseMediaSynthesisResponse,
   persistMediaIngestionAsset,
   processMediaIngestionJob,
 } from './media-ingestion'
@@ -61,6 +64,217 @@ const project = {
   uploadAttemptId: payload.uploadAttemptId,
   venue: { name: 'Test Venue' },
 }
+
+describe('media ingestion provider output validation', () => {
+  it('accepts bounded analysis JSON wrapped in a markdown fence', () => {
+    expect(
+      parseMediaAnalysisResponse(`\`\`\`json
+        {
+          "summary": "A labeled entrance",
+          "visibleText": ["North Hall"],
+          "objects": [{"name": "door", "confidence": "confirmed"}],
+          "spatialClues": ["Sign is above the entrance"],
+          "uncertainties": []
+        }
+      \`\`\``),
+    ).toEqual({
+      summary: 'A labeled entrance',
+      visibleText: ['North Hall'],
+      objects: [{ name: 'door', confidence: 'confirmed' }],
+      spatialClues: ['Sign is above the entrance'],
+      uncertainties: [],
+    })
+  })
+
+  it.each([
+    ['invalid JSON', '{not-json'],
+    [
+      'missing fields',
+      JSON.stringify({ summary: 'Incomplete', visibleText: [], objects: [], spatialClues: [] }),
+    ],
+    [
+      'invalid confidence',
+      JSON.stringify({
+        summary: 'Bad confidence',
+        visibleText: [],
+        objects: [{ name: 'object', confidence: 'certain' }],
+        spatialClues: [],
+        uncertainties: [],
+      }),
+    ],
+    [
+      'oversized summary',
+      JSON.stringify({
+        summary: 'x'.repeat(50_001),
+        visibleText: [],
+        objects: [],
+        spatialClues: [],
+        uncertainties: [],
+      }),
+    ],
+  ])('rejects %s analysis output', (_caseName, response) => {
+    expect(() => parseMediaAnalysisResponse(response)).toThrow(/^Media analysis provider output/u)
+  })
+
+  it('accepts an import-compatible bounded synthesis draft', () => {
+    expect(
+      parseMediaSynthesisResponse(
+        JSON.stringify({
+          schemaVersion: 1,
+          places: [
+            {
+              title: 'North Hall',
+              type: 'exhibit',
+              itemType: 'exhibit',
+              description: 'A public exhibit hall.',
+              tags: ['indoor'],
+              importanceScore: 50,
+            },
+          ],
+          knowledgeEntries: [
+            { title: 'Hours', category: 'Operations', content: 'Open until five.' },
+          ],
+          questions: [{ id: 'Q-1', question: 'Is the hall accessible?' }],
+          coverage: { evidenceSources: 1, notes: [] },
+        }),
+      ),
+    ).toMatchObject({ schemaVersion: 1, questions: [{ id: 'Q-1' }] })
+  })
+
+  it.each([
+    [
+      'wrong schema version',
+      {
+        schemaVersion: 2,
+        places: [],
+        knowledgeEntries: [],
+        questions: [],
+        coverage: { evidenceSources: 0, notes: [] },
+      },
+    ],
+    [
+      'out-of-range importance',
+      {
+        schemaVersion: 1,
+        places: [
+          {
+            title: 'Hall',
+            type: 'exhibit',
+            itemType: 'exhibit',
+            description: 'Description',
+            tags: [],
+            importanceScore: 101,
+          },
+        ],
+        knowledgeEntries: [],
+        questions: [],
+        coverage: { evidenceSources: 0, notes: [] },
+      },
+    ],
+    [
+      'unexpected root field',
+      {
+        schemaVersion: 1,
+        places: [],
+        knowledgeEntries: [],
+        questions: [],
+        coverage: { evidenceSources: 0, notes: [] },
+        rawProviderDebug: 'must not persist',
+      },
+    ],
+    [
+      'malformed question',
+      {
+        schemaVersion: 1,
+        places: [],
+        knowledgeEntries: [],
+        questions: ['Missing an ID'],
+        coverage: { evidenceSources: 0, notes: [] },
+      },
+    ],
+    [
+      'unexpected nested field',
+      {
+        schemaVersion: 1,
+        places: [
+          {
+            title: 'Hall',
+            type: 'exhibit',
+            itemType: 'exhibit',
+            description: 'Description',
+            tags: [],
+            importanceScore: 50,
+            rawProviderDebug: 'must not persist',
+          },
+        ],
+        knowledgeEntries: [],
+        questions: [],
+        coverage: { evidenceSources: 1, notes: [] },
+      },
+    ],
+    [
+      'import-incompatible title length',
+      {
+        schemaVersion: 1,
+        places: [
+          {
+            title: 'x'.repeat(201),
+            type: 'exhibit',
+            itemType: 'exhibit',
+            description: 'Description',
+            tags: [],
+            importanceScore: 50,
+          },
+        ],
+        knowledgeEntries: [],
+        questions: [],
+        coverage: { evidenceSources: 1, notes: [] },
+      },
+    ],
+    [
+      'more than 500 import entries',
+      {
+        schemaVersion: 1,
+        places: [],
+        knowledgeEntries: Array.from({ length: 501 }, (_, index) => ({
+          title: `Entry ${index}`,
+          category: 'General',
+          content: 'Content',
+        })),
+        questions: [],
+        coverage: { evidenceSources: 501, notes: [] },
+      },
+    ],
+  ])('rejects synthesis output with %s', (_caseName, draft) => {
+    expect(() => parseMediaSynthesisResponse(JSON.stringify(draft))).toThrow(
+      /^Media synthesis provider output/u,
+    )
+  })
+
+  it('rejects provider JSON beyond the nesting bound', () => {
+    let nested: unknown = 'leaf'
+    for (let depth = 0; depth < 14; depth++) nested = { child: nested }
+    expect(() =>
+      parseMediaSynthesisResponse(
+        JSON.stringify({
+          schemaVersion: 1,
+          places: [],
+          knowledgeEntries: [],
+          questions: [{ id: 'Q-1', question: 'Nested?', nested }],
+          coverage: { evidenceSources: 0, notes: [] },
+        }),
+      ),
+    ).toThrow(/^Media synthesis provider output/u)
+  })
+
+  it('rejects batch summaries before cumulative provider output can exceed the memory budget', () => {
+    const budget = new MediaSynthesisSummaryBudget()
+    budget.retain({ summary: 'x'.repeat(600_000) })
+    expect(() => budget.retain({ summary: 'y'.repeat(600_000) })).toThrow(
+      'Media evidence summaries exceed the synthesis memory limit.',
+    )
+  })
+})
 
 describe('media ingestion lifecycle', () => {
   beforeEach(() => {

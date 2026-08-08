@@ -11,6 +11,7 @@ import OpenAI from 'openai'
 import sharp from 'sharp'
 import * as unzipper from 'unzipper'
 import ffmpegPath from 'ffmpeg-static'
+import { z } from 'zod'
 
 import { logger } from '@pathfinder/config'
 import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
@@ -40,12 +41,34 @@ const MAX_EXPANDED_BYTES = 20 * 1024 * 1024 * 1024
 const MAX_RETAINED_TEXT_CHARACTERS = 250_000
 const MAX_TEXT_CHARACTERS_PER_FILE = 100_000
 const MAX_SYNTHESIS_JSON_CHARACTERS = 1_000_000
+const MAX_PROVIDER_JSON_CHARACTERS = 1_000_000
+const MAX_PROVIDER_JSON_DEPTH = 12
+const MAX_PROVIDER_JSON_NODES = 50_000
+const MAX_PROVIDER_OBJECT_PROPERTIES = 1_000
+const MAX_PROVIDER_ARRAY_ITEMS = 10_000
+const MAX_PROVIDER_KEY_CHARACTERS = 200
+const MAX_PROVIDER_STRING_CHARACTERS = 100_000
 const FFMPEG_MAX_OUTPUT_BYTES = 64 * 1024
 const FFMPEG_TIMEOUT_MS = 15 * 60 * 1000
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.tif', '.tiff'])
 const videoExtensions = new Set(['.mp4', '.mov', '.m4v', '.avi', '.webm'])
 const audioExtensions = new Set(['.mp3', '.m4a', '.wav', '.aac', '.ogg'])
 const textExtensions = new Set(['.txt', '.md', '.csv', '.json'])
+
+export class MediaSynthesisSummaryBudget {
+  private retainedCharacters = 2 // Opening and closing JSON array delimiters.
+  private retainedItems = 0
+
+  retain(summary: unknown): void {
+    const separatorCharacters = this.retainedItems > 0 ? 1 : 0
+    const nextCharacters = JSON.stringify(summary).length + separatorCharacters
+    if (this.retainedCharacters + nextCharacters > MAX_SYNTHESIS_JSON_CHARACTERS) {
+      throw new Error('Media evidence summaries exceed the synthesis memory limit.')
+    }
+    this.retainedCharacters += nextCharacters
+    this.retainedItems += 1
+  }
+}
 
 export async function cleanupMediaWorkDir(workDir: string, projectId: string): Promise<void> {
   try {
@@ -66,6 +89,94 @@ type Analysis = {
   spatialClues: string[]
   uncertainties: string[]
 }
+
+const analysisSchema = z
+  .object({
+    summary: z.string().min(1).max(50_000),
+    visibleText: z.array(z.string().max(10_000)).max(1_000),
+    objects: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(1_000),
+            confidence: z.enum(['confirmed', 'probable', 'unverified']),
+          })
+          .strict(),
+      )
+      .max(1_000),
+    spatialClues: z.array(z.string().max(10_000)).max(1_000),
+    uncertainties: z.array(z.string().max(10_000)).max(1_000),
+  })
+  .strict()
+
+const synthesisPlaceSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    type: z.string().min(1).max(200),
+    itemType: z.enum([
+      'physical_place',
+      'exhibit',
+      'room',
+      'sculpture',
+      'service_step',
+      'faq',
+      'amenity',
+      'policy',
+      'activity',
+      'general_info',
+    ]),
+    description: z.string().max(2_000),
+    shortDescription: z.string().max(500).optional(),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+    tags: z.array(z.string().max(100)).max(100),
+    importanceScore: z.number().int().min(0).max(100),
+    areaName: z.string().max(200).optional(),
+    hours: z.string().max(200).optional(),
+    photoUrl: z.string().url().max(2_000).optional(),
+  })
+  .strict()
+  .superRefine((place, context) => {
+    if ((place.lat === undefined) !== (place.lng === undefined)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Latitude and longitude must be supplied together.',
+      })
+    }
+  })
+
+const synthesisKnowledgeEntrySchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    category: z.string().min(1).max(100),
+    content: z.string().min(1).max(5_000),
+    isEnabled: z.boolean().optional(),
+  })
+  .strict()
+
+const synthesisQuestionSchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    question: z.string().min(1).max(10_000),
+  })
+  .strict()
+
+const synthesisCoverageSchema = z
+  .object({
+    evidenceSources: z.number().int().min(0).max(MAX_FILES),
+    notes: z.array(z.string().max(1_000)).max(100),
+  })
+  .strict()
+
+const synthesisDraftSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    places: z.array(synthesisPlaceSchema).max(500),
+    knowledgeEntries: z.array(synthesisKnowledgeEntrySchema).max(500),
+    questions: z.array(synthesisQuestionSchema).max(500),
+    coverage: synthesisCoverageSchema,
+  })
+  .strict()
 
 type MediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
 
@@ -140,12 +251,85 @@ function classify(filename: string): MediaType | null {
   return null
 }
 
-function parseJson(text: string): unknown {
+function unwrapProviderJson(text: string): string {
   const unwrapped = text
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '')
-  return JSON.parse(unwrapped)
+  if (unwrapped.length > MAX_PROVIDER_JSON_CHARACTERS) {
+    throw new Error('Provider JSON exceeded the response size limit.')
+  }
+  return unwrapped
+}
+
+function assertBoundedProviderJson(value: unknown): void {
+  const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }]
+  let nodes = 0
+
+  while (stack.length > 0) {
+    const current = stack.pop()!
+    nodes += 1
+    if (nodes > MAX_PROVIDER_JSON_NODES) {
+      throw new Error('Provider JSON exceeded the structural node limit.')
+    }
+    if (current.depth > MAX_PROVIDER_JSON_DEPTH) {
+      throw new Error('Provider JSON exceeded the nesting limit.')
+    }
+    if (typeof current.value === 'string') {
+      if (current.value.length > MAX_PROVIDER_STRING_CHARACTERS) {
+        throw new Error('Provider JSON contained an oversized string.')
+      }
+      continue
+    }
+    if (typeof current.value === 'number') {
+      if (!Number.isFinite(current.value))
+        throw new Error('Provider JSON contained a nonfinite number.')
+      continue
+    }
+    if (current.value === null || typeof current.value === 'boolean') continue
+    if (Array.isArray(current.value)) {
+      if (current.value.length > MAX_PROVIDER_ARRAY_ITEMS) {
+        throw new Error('Provider JSON exceeded the array item limit.')
+      }
+      for (const item of current.value) stack.push({ value: item, depth: current.depth + 1 })
+      continue
+    }
+    if (typeof current.value === 'object') {
+      const entries = Object.entries(current.value)
+      if (entries.length > MAX_PROVIDER_OBJECT_PROPERTIES) {
+        throw new Error('Provider JSON exceeded the object property limit.')
+      }
+      for (const [key, item] of entries) {
+        if (key.length > MAX_PROVIDER_KEY_CHARACTERS) {
+          throw new Error('Provider JSON contained an oversized property name.')
+        }
+        stack.push({ value: item, depth: current.depth + 1 })
+      }
+      continue
+    }
+    throw new Error('Provider JSON contained an unsupported value.')
+  }
+}
+
+function parseProviderJson<T>(text: string, schema: z.ZodType<T>, label: string): T {
+  let value: unknown
+  try {
+    value = JSON.parse(unwrapProviderJson(text))
+    assertBoundedProviderJson(value)
+  } catch {
+    throw new Error(`${label} was not valid bounded JSON.`)
+  }
+  const parsed = schema.safeParse(value)
+  if (!parsed.success) throw new Error(`${label} did not match the required schema.`)
+  return parsed.data
+}
+
+export function parseMediaAnalysisResponse(text: string): Analysis {
+  return parseProviderJson(text, analysisSchema, 'Media analysis provider output')
+}
+
+export function parseMediaSynthesisResponse(text: string): z.infer<typeof synthesisDraftSchema> {
+  return parseProviderJson(text, synthesisDraftSchema, 'Media synthesis provider output')
 }
 
 function emptyAnalysis(summary: string, uncertainty?: string): Analysis {
@@ -199,7 +383,7 @@ async function analyzeImage(
   })
   const text = response.choices[0]?.message.content
   if (!text) throw new Error(`No visual analysis returned for ${sourceId}.`)
-  return parseJson(text) as Analysis
+  return parseMediaAnalysisResponse(text)
 }
 
 async function transcribe(openai: OpenAI, filePath: string): Promise<Analysis> {
@@ -349,6 +533,7 @@ async function synthesize(openai: OpenAI, venueName: string, context: string, an
   let evidence: unknown[] = analyses
   if (jsonArrayExceedsCharacterLimit(evidence, MAX_RETAINED_TEXT_CHARACTERS)) {
     const summaries: unknown[] = []
+    const summaryBudget = new MediaSynthesisSummaryBudget()
     for (let index = 0; index < evidence.length; index += 35) {
       const batch = evidence.slice(index, index + 35)
       if (jsonArrayExceedsCharacterLimit(batch, MAX_SYNTHESIS_JSON_CHARACTERS)) {
@@ -369,7 +554,13 @@ async function synthesize(openai: OpenAI, venueName: string, context: string, an
       })
       const text = response.choices[0]?.message.content
       if (!text) throw new Error('No batch evidence summary was returned.')
-      summaries.push(parseJson(text))
+      const summary = parseProviderJson(
+        text,
+        z.record(z.unknown()),
+        'Media batch-summary provider output',
+      )
+      summaryBudget.retain(summary)
+      summaries.push(summary)
     }
     evidence = summaries
   }
@@ -384,7 +575,7 @@ async function synthesize(openai: OpenAI, venueName: string, context: string, an
       {
         role: 'system',
         content:
-          'Build draft PathFinder import JSON from evidence summaries. Return schemaVersion 1, places, knowledgeEntries, questions, and coverage. Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Every place needs title, type, itemType, description, tags, importanceScore, and areaName when known. Put ambiguity that could change the guide in questions.',
+          'Build draft PathFinder import JSON from evidence summaries. Return exactly schemaVersion 1, places, knowledgeEntries, questions, and coverage. Every place needs title (max 200 characters), type, itemType (physical_place, exhibit, room, sculpture, service_step, faq, amenity, policy, activity, or general_info), description (max 2000 characters), tags, and importanceScore (integer 0-100); include areaName, hours, photoUrl, or paired lat/lng only when supported. Every knowledge entry needs title (max 200), category (max 100), and content (max 5000). Return at most 500 places, 500 knowledge entries, and 500 questions. Every question must contain only a stable id and question string. Coverage must contain exactly evidenceSources (a nonnegative integer) and notes (a string array). Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Put ambiguity that could change the guide in questions.',
       },
       {
         role: 'user',
@@ -394,7 +585,7 @@ async function synthesize(openai: OpenAI, venueName: string, context: string, an
   })
   const text = response.choices[0]?.message.content
   if (!text) throw new Error('No synthesis result was returned.')
-  return parseJson(text) as Record<string, unknown>
+  return parseMediaSynthesisResponse(text)
 }
 
 export async function processMediaIngestionJob(
