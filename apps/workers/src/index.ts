@@ -64,6 +64,7 @@ import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
 import { applySchedulerState } from './scheduler-control'
 import { getJobExecutionMetadata } from './lib/job-execution'
+import { createEscalatingShutdownHandler, createShutdownCoordinator } from './lib/worker-lifecycle'
 
 const WEEKLY_DIGEST_CRON = '0 23 * * 0'
 const DAILY_ROLLUP_CRON = '0 1 * * *'
@@ -541,52 +542,75 @@ export async function startWorkers() {
     },
   ])
 
-  const weeklyDigestWorker = new Worker(WEEKLY_DIGEST_QUEUE, handleWeeklyDigestQueueJob, {
-    connection,
-    concurrency: 2,
-    settings: {
-      backoffStrategy: (attemptsMade, type) => {
-        if (type === WEEKLY_DIGEST_RETRY_BACKOFF) {
-          return getWeeklyDigestBackoffDelay(attemptsMade)
-        }
+  const observeWorkerRuntime = <DataType, ResultType, NameType extends string>(
+    queueName: string,
+    worker: Worker<DataType, ResultType, NameType>,
+  ) => {
+    worker.on('error', (error) => {
+      logger.error({
+        action: 'workers.runtime.error',
+        queueName,
+        error: error.message,
+        ...(error.stack ? { stack: error.stack } : {}),
+      })
+    })
+    return worker
+  }
 
-        return 0
+  const weeklyDigestWorker = observeWorkerRuntime(
+    WEEKLY_DIGEST_QUEUE,
+    new Worker(WEEKLY_DIGEST_QUEUE, handleWeeklyDigestQueueJob, {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === WEEKLY_DIGEST_RETRY_BACKOFF) {
+            return getWeeklyDigestBackoffDelay(attemptsMade)
+          }
+
+          return 0
+        },
       },
-    },
-  })
+    }),
+  )
 
-  const dailyRollupWorker = new Worker(DAILY_ROLLUP_QUEUE, handleDailyRollupQueueJob, {
-    connection,
-    concurrency: 2,
-    settings: {
-      backoffStrategy: (attemptsMade, type) => {
-        if (type === DAILY_ROLLUP_RETRY_BACKOFF) {
-          return getDailyRollupBackoffDelay(attemptsMade)
-        }
+  const dailyRollupWorker = observeWorkerRuntime(
+    DAILY_ROLLUP_QUEUE,
+    new Worker(DAILY_ROLLUP_QUEUE, handleDailyRollupQueueJob, {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === DAILY_ROLLUP_RETRY_BACKOFF) {
+            return getDailyRollupBackoffDelay(attemptsMade)
+          }
 
-        return 0
+          return 0
+        },
       },
-    },
-  })
+    }),
+  )
 
-  const embedPlaceWorker = new Worker(EMBED_PLACE_QUEUE, handleEmbedPlaceQueueJob, {
-    connection,
-    concurrency: 2,
-    settings: {
-      backoffStrategy: (attemptsMade, type) => {
-        if (type === EMBED_PLACE_RETRY_BACKOFF) {
-          return getEmbedPlaceBackoffDelay(attemptsMade)
-        }
+  const embedPlaceWorker = observeWorkerRuntime(
+    EMBED_PLACE_QUEUE,
+    new Worker(EMBED_PLACE_QUEUE, handleEmbedPlaceQueueJob, {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === EMBED_PLACE_RETRY_BACKOFF) {
+            return getEmbedPlaceBackoffDelay(attemptsMade)
+          }
 
-        return 0
+          return 0
+        },
       },
-    },
-  })
+    }),
+  )
 
-  const embedKnowledgeEntryWorker = new Worker(
+  const embedKnowledgeEntryWorker = observeWorkerRuntime(
     EMBED_KNOWLEDGE_ENTRY_QUEUE,
-    handleEmbedKnowledgeEntryQueueJob,
-    {
+    new Worker(EMBED_KNOWLEDGE_ENTRY_QUEUE, handleEmbedKnowledgeEntryQueueJob, {
       connection,
       concurrency: 2,
       settings: {
@@ -598,19 +622,20 @@ export async function startWorkers() {
           return 0
         },
       },
-    },
+    }),
   )
 
-  const embeddingDispatchWorker = new Worker(
+  const embeddingDispatchWorker = observeWorkerRuntime(
     EMBEDDING_DISPATCH_QUEUE,
-    handleEmbeddingDispatchQueueJob,
-    { connection, concurrency: 1 },
+    new Worker(EMBEDDING_DISPATCH_QUEUE, handleEmbeddingDispatchQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
   )
 
-  const analyticsEnrichmentWorker = new Worker(
+  const analyticsEnrichmentWorker = observeWorkerRuntime(
     ANALYTICS_ENRICHMENT_QUEUE,
-    handleAnalyticsEnrichmentQueueJob,
-    {
+    new Worker(ANALYTICS_ENRICHMENT_QUEUE, handleAnalyticsEnrichmentQueueJob, {
       connection,
       concurrency: 2,
       settings: {
@@ -622,61 +647,73 @@ export async function startWorkers() {
           return 0
         },
       },
-    },
+    }),
   )
 
-  const sendEmailWorker = new Worker(SEND_EMAIL_QUEUE, handleSendEmailQueueJob, {
-    connection,
-    concurrency: 4,
-    settings: {
-      backoffStrategy: (attemptsMade, type) => {
-        if (type === SEND_WELCOME_EMAIL_RETRY_BACKOFF) {
-          return getSendWelcomeEmailBackoffDelay(attemptsMade)
-        }
+  const sendEmailWorker = observeWorkerRuntime(
+    SEND_EMAIL_QUEUE,
+    new Worker(SEND_EMAIL_QUEUE, handleSendEmailQueueJob, {
+      connection,
+      concurrency: 4,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === SEND_WELCOME_EMAIL_RETRY_BACKOFF) {
+            return getSendWelcomeEmailBackoffDelay(attemptsMade)
+          }
 
-        return 0
+          return 0
+        },
       },
-    },
-  })
+    }),
+  )
 
-  const answerAnalysisWorker = new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
-    connection,
-    concurrency: 2,
-    settings: {
-      backoffStrategy: (attemptsMade, type) => {
-        if (type === ANSWER_ANALYSIS_RETRY_BACKOFF) {
-          return getAnswerAnalysisBackoffDelay(attemptsMade)
-        }
+  const answerAnalysisWorker = observeWorkerRuntime(
+    ANSWER_ANALYSIS_QUEUE,
+    new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === ANSWER_ANALYSIS_RETRY_BACKOFF) {
+            return getAnswerAnalysisBackoffDelay(attemptsMade)
+          }
 
-        return 0
+          return 0
+        },
       },
-    },
-  })
+    }),
+  )
 
-  const weeklyReportWorker = new Worker(WEEKLY_REPORT_QUEUE, handleWeeklyReportQueueJob, {
-    connection,
-    concurrency: 2,
-    settings: {
-      backoffStrategy: (attemptsMade, type) => {
-        if (type === WEEKLY_REPORT_RETRY_BACKOFF) {
-          return getWeeklyReportBackoffDelay(attemptsMade)
-        }
+  const weeklyReportWorker = observeWorkerRuntime(
+    WEEKLY_REPORT_QUEUE,
+    new Worker(WEEKLY_REPORT_QUEUE, handleWeeklyReportQueueJob, {
+      connection,
+      concurrency: 2,
+      settings: {
+        backoffStrategy: (attemptsMade, type) => {
+          if (type === WEEKLY_REPORT_RETRY_BACKOFF) {
+            return getWeeklyReportBackoffDelay(attemptsMade)
+          }
 
-        return 0
+          return 0
+        },
       },
-    },
-  })
+    }),
+  )
 
   // A media job may hold several GB of temporary data and make many model calls,
   // so keep concurrency at one per worker process.
-  const mediaIngestionWorker = new Worker(MEDIA_INGESTION_QUEUE, handleMediaIngestionQueueJob, {
-    connection,
-    concurrency: 1,
-    settings: {
-      backoffStrategy: (attemptsMade, type) =>
-        type === MEDIA_INGESTION_RETRY_BACKOFF ? Math.min(attemptsMade * 60_000, 5 * 60_000) : 0,
-    },
-  })
+  const mediaIngestionWorker = observeWorkerRuntime(
+    MEDIA_INGESTION_QUEUE,
+    new Worker(MEDIA_INGESTION_QUEUE, handleMediaIngestionQueueJob, {
+      connection,
+      concurrency: 1,
+      settings: {
+        backoffStrategy: (attemptsMade, type) =>
+          type === MEDIA_INGESTION_RETRY_BACKOFF ? Math.min(attemptsMade * 60_000, 5 * 60_000) : 0,
+      },
+    }),
+  )
 
   const handleCompletedJob = (job: Job) => {
     logger.info({
@@ -698,27 +735,23 @@ export async function startWorkers() {
     })
   }
 
-  weeklyDigestWorker.on('completed', handleCompletedJob)
-  dailyRollupWorker.on('completed', handleCompletedJob)
-  embedPlaceWorker.on('completed', handleCompletedJob)
-  embedKnowledgeEntryWorker.on('completed', handleCompletedJob)
-  embeddingDispatchWorker.on('completed', handleCompletedJob)
-  analyticsEnrichmentWorker.on('completed', handleCompletedJob)
-  sendEmailWorker.on('completed', handleCompletedJob)
-  answerAnalysisWorker.on('completed', handleCompletedJob)
-  weeklyReportWorker.on('completed', handleCompletedJob)
-  mediaIngestionWorker.on('completed', handleCompletedJob)
+  const workers = [
+    { name: WEEKLY_DIGEST_QUEUE, worker: weeklyDigestWorker },
+    { name: DAILY_ROLLUP_QUEUE, worker: dailyRollupWorker },
+    { name: EMBED_PLACE_QUEUE, worker: embedPlaceWorker },
+    { name: EMBED_KNOWLEDGE_ENTRY_QUEUE, worker: embedKnowledgeEntryWorker },
+    { name: EMBEDDING_DISPATCH_QUEUE, worker: embeddingDispatchWorker },
+    { name: ANALYTICS_ENRICHMENT_QUEUE, worker: analyticsEnrichmentWorker },
+    { name: SEND_EMAIL_QUEUE, worker: sendEmailWorker },
+    { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
+    { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
+    { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
+  ]
 
-  weeklyDigestWorker.on('failed', handleFailedJob)
-  dailyRollupWorker.on('failed', handleFailedJob)
-  embedPlaceWorker.on('failed', handleFailedJob)
-  embedKnowledgeEntryWorker.on('failed', handleFailedJob)
-  embeddingDispatchWorker.on('failed', handleFailedJob)
-  analyticsEnrichmentWorker.on('failed', handleFailedJob)
-  sendEmailWorker.on('failed', handleFailedJob)
-  answerAnalysisWorker.on('failed', handleFailedJob)
-  weeklyReportWorker.on('failed', handleFailedJob)
-  mediaIngestionWorker.on('failed', handleFailedJob)
+  for (const { worker } of workers) {
+    worker.on('completed', handleCompletedJob)
+    worker.on('failed', handleFailedJob)
+  }
 
   logger.info({
     action: 'workers.started',
@@ -738,40 +771,65 @@ export async function startWorkers() {
     ],
   })
 
-  const shutdown = async () => {
-    logger.info({ action: 'workers.shutdown' })
-
-    await Promise.allSettled([
-      weeklyDigestWorker.close(),
-      dailyRollupWorker.close(),
-      embedPlaceWorker.close(),
-      embedKnowledgeEntryWorker.close(),
-      embeddingDispatchWorker.close(),
-      analyticsEnrichmentWorker.close(),
-      answerAnalysisWorker.close(),
-      weeklyReportWorker.close(),
-      sendEmailWorker.close(),
-      mediaIngestionWorker.close(),
-      weeklyDigestQueue.close(),
-      dailyRollupQueue.close(),
-      embedPlaceQueue.close(),
-      embeddingDispatchQueue.close(),
-      analyticsEnrichmentQueue.close(),
-      answerAnalysisQueue.close(),
-      weeklyReportQueue.close(),
-      mediaIngestionQueue.close(),
-      closeJobQueues(),
-      closeBullMQConnection(),
-    ])
-  }
-
-  process.once('SIGINT', () => {
-    void shutdown()
+  const shutdown = createShutdownCoordinator({
+    onStart: () => logger.info({ action: 'workers.shutdown' }),
+    phases: [
+      {
+        name: 'workers',
+        resources: workers.map(({ name, worker }) => ({ name, close: () => worker.close() })),
+      },
+      {
+        name: 'scheduler-queues',
+        resources: [
+          { name: WEEKLY_DIGEST_QUEUE, close: () => weeklyDigestQueue.close() },
+          { name: DAILY_ROLLUP_QUEUE, close: () => dailyRollupQueue.close() },
+          { name: EMBED_PLACE_QUEUE, close: () => embedPlaceQueue.close() },
+          { name: EMBEDDING_DISPATCH_QUEUE, close: () => embeddingDispatchQueue.close() },
+          { name: ANALYTICS_ENRICHMENT_QUEUE, close: () => analyticsEnrichmentQueue.close() },
+          { name: ANSWER_ANALYSIS_QUEUE, close: () => answerAnalysisQueue.close() },
+          { name: WEEKLY_REPORT_QUEUE, close: () => weeklyReportQueue.close() },
+          { name: MEDIA_INGESTION_QUEUE, close: () => mediaIngestionQueue.close() },
+        ],
+      },
+      {
+        name: 'enqueue-queues',
+        resources: [{ name: 'cached', close: closeJobQueues }],
+      },
+      {
+        name: 'connection',
+        resources: [{ name: 'bullmq', close: closeBullMQConnection }],
+      },
+    ],
   })
 
-  process.once('SIGTERM', () => {
-    void shutdown()
-  })
+  const handleShutdownSignal = createEscalatingShutdownHandler(
+    shutdown,
+    (error) => {
+      logger.error({
+        action: 'workers.shutdown.failed',
+        error: error instanceof Error ? error.message : 'Unknown worker shutdown error',
+        ...(error instanceof AggregateError
+          ? {
+              failures: error.errors.map((failure) =>
+                failure instanceof Error ? failure.message : 'Unknown resource close error',
+              ),
+            }
+          : {}),
+      })
+      process.exitCode = 1
+    },
+    () => {
+      logger.error({
+        action: 'workers.shutdown.forced',
+        error: 'Forced worker shutdown after a second termination signal.',
+        reason: 'second-signal',
+      })
+      process.exit(1)
+    },
+  )
+
+  process.once('SIGINT', handleShutdownSignal)
+  process.once('SIGTERM', handleShutdownSignal)
 
   return {
     analyticsEnrichmentQueue,

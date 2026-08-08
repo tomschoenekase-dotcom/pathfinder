@@ -266,8 +266,24 @@ export async function enqueueWelcomeEmail(payload: SendWelcomeEmailJobPayload): 
 }
 
 export async function closeJobQueues(): Promise<void> {
-  const queues = Array.from(queueCache.values())
-  queueCache.clear()
+  const queues = Array.from(queueCache.entries())
+  const results = await Promise.allSettled(
+    queues.map(([, queue]) => Promise.resolve().then(() => queue.close())),
+  )
+  const failures: Error[] = []
 
-  await Promise.all(queues.map(async (queue) => queue.close()))
+  results.forEach((result, index) => {
+    const [name, queue] = queues[index]!
+    if (result.status === 'fulfilled') {
+      if (queueCache.get(name) === queue) queueCache.delete(name)
+      return
+    }
+    const detail =
+      result.reason instanceof Error ? result.reason.message : 'Unknown queue close error'
+    failures.push(new Error(`${name}: ${detail}`, { cause: result.reason }))
+  })
+
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'One or more cached job queues failed to close.')
+  }
 }
