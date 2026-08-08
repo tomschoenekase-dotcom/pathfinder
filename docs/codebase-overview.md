@@ -393,9 +393,9 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
   knowledge-embedding work), `types.ts` (payload types). Database claim fencing—not BullMQ job ID
   reuse—is the provider-work deduplication boundary.
   Apps/routers enqueue through these; only the worker process constructs `Worker`s.
-- **Two-tier analytics, as designed:** raw `AnalyticsEvent` (recent/append-only) → nightly
-  `DailyRollup` (fast dashboard reads). Dashboard aggregate reads hit rollups/events, never OLTP
-  tables. PostHog (product analytics) is referenced in env but not wired in code.
+- **Internal analytics pipeline:** raw `AnalyticsEvent` (recent/append-only) → nightly `DailyRollup`
+  (fast dashboard reads). Dashboard aggregate reads hit rollups/events, never OLTP tables. No
+  third-party product-analytics vendor is selected or configured.
 
 ---
 
@@ -426,7 +426,7 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 - Services: dashboard, web (guest app), workers (no public URL), Redis. `apps/admin` not yet deployed.
 - Key env vars (validated by `packages/config/src/env.ts`): `DATABASE_URL`, `DIRECT_DATABASE_URL`,
   Clerk keys + `CLERK_WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `REDIS_URL`. Several
-  others (storage, Resend, PostHog, integration encryption) are declared but unused/optional.
+  others (storage, Resend, integration encryption) are declared but unused/optional.
 - `env.ts` skips strict validation during Next.js production builds (vars injected at runtime).
 
 ---
@@ -441,7 +441,7 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 | Feature flags for plan gating                                                 | Table + helpers exist, but the **key registry is empty** — nothing is gated                                                                           |
 | S3/R2 file uploads, presigned URLs                                            | Not implemented; venues use external image URLs (`chatLogoUrl`, `photoUrl`)                                                                           |
 | Email/notification dispatch, token refresh, booking-expiry jobs               | Not implemented; only daily-rollup + weekly-digest jobs exist                                                                                         |
-| PostHog product analytics                                                     | Env var only; not wired                                                                                                                               |
+| PostHog product analytics                                                     | Not selected or wired; obsolete live environment scaffolding was removed                                                                              |
 | Admin impersonation sessions                                                  | `AdminImpersonationSession` not in the current schema; not built                                                                                      |
 | Separate admin deployment                                                     | Built but **not deployed**; admin lives in the dashboard for now                                                                                      |
 | The AI venue-guide chatbot itself                                             | **The actual product** — not mentioned in the original architecture doc at all                                                                        |

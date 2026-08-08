@@ -62,9 +62,6 @@ const rawEnvSchema = z
     STORAGE_ACCESS_KEY_ID: z.string().optional(),
     STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
 
-    // Required from PACKET-14 (analytics) onward
-    POSTHOG_API_KEY: z.string().optional(),
-
     // Required when email is wired (post-MVP scaffolding)
     RESEND_API_KEY: z.string().optional(),
     RESEND_FROM_EMAIL: z.string().optional(),

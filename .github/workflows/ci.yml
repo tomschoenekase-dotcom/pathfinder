@@ -42,7 +42,6 @@ jobs:
       STORAGE_REGION: us-east-1
       STORAGE_ACCESS_KEY_ID: test
       STORAGE_SECRET_ACCESS_KEY: test
-      POSTHOG_API_KEY: test
       RESEND_API_KEY: test
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}

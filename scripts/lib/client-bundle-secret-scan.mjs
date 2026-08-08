@@ -44,10 +44,6 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('STORAGE_SECRET_ACCESS_KEY'),
     value: canary('STORAGE_SECRET_ACCESS_KEY'),
   },
-  POSTHOG_API_KEY: {
-    marker: canary('POSTHOG_API_KEY'),
-    value: canary('POSTHOG_API_KEY'),
-  },
   RESEND_API_KEY: {
     marker: canary('RESEND_API_KEY'),
     value: `re_${canary('RESEND_API_KEY')}`,

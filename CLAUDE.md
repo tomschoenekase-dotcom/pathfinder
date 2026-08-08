@@ -28,7 +28,7 @@ PathFinder is an AI-powered venue-guide chatbot platform.
 - `packages/config` owns shared logger, env, feature flag keys, eslint config, and tsconfig bases.
 - `packages/ui` is the shared presentational component package.
 
-Not built: listings, bookings, venue events, guest-user accounts, availability slots, PostHog wiring, general outbound integrations, and booking expiry jobs. Do not infer absence from older planning documents: multipart media storage, audited cookie-based admin impersonation, AI provider adapters, Clerk webhook processing, and welcome-email dispatch are implemented, although live-provider readiness still depends on environment configuration and stage evidence.
+Not built: listings, bookings, venue events, guest-user accounts, availability slots, third-party product analytics, general outbound integrations, and booking expiry jobs. No product-analytics vendor is currently selected or configured; older PostHog design references are historical, and the internal tenant analytics pipeline remains authoritative. Do not infer absence from older planning documents: multipart media storage, audited cookie-based admin impersonation, AI provider adapters, Clerk webhook processing, and welcome-email dispatch are implemented, although live-provider readiness still depends on environment configuration and stage evidence.
 
 ## Extensible Platform Constraints
 
