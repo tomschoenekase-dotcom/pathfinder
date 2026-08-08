@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
@@ -7,13 +9,44 @@ import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
 
 import { CreateVenueInput, UpdateVenueInput } from '../schemas/venue'
-import { ImportVenueContentInput } from '../schemas/venue-content'
+import {
+  canonicalVenueContentImportPayload,
+  ImportVenueContentInput,
+} from '../schemas/venue-content'
 
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
 type Db = typeof db
+
+type VenueContentImportReceiptResult = {
+  payloadHash: string
+  placeCount: number
+  knowledgeEntryCount: number
+}
+
+function venueContentImportPayloadHash(input: ImportVenueContentInput): string {
+  return createHash('sha256').update(canonicalVenueContentImportPayload(input)).digest('hex')
+}
+
+function replayVenueContentImport(
+  receipt: VenueContentImportReceiptResult,
+  payloadHash: string,
+): { placeCount: number; knowledgeEntryCount: number; replayed: true } {
+  if (receipt.payloadHash !== payloadHash) {
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: 'This import attempt key was already used for different content.',
+    })
+  }
+
+  return {
+    placeCount: receipt.placeCount,
+    knowledgeEntryCount: receipt.knowledgeEntryCount,
+    replayed: true,
+  }
+}
 
 async function embedPlace(place: { id: string; tenantId: string; updatedAt: Date }): Promise<void> {
   try {
@@ -291,6 +324,23 @@ export const venueRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
 
+      const receiptWhere = {
+        tenantId,
+        venueId: input.venueId,
+        idempotencyKey: input.idempotencyKey,
+      }
+      const receiptSelect = {
+        payloadHash: true,
+        placeCount: true,
+        knowledgeEntryCount: true,
+      } as const
+      const payloadHash = venueContentImportPayloadHash(input)
+      const existingReceipt = await ctx.db.venueContentImportReceipt.findFirst({
+        where: receiptWhere,
+        select: receiptSelect,
+      })
+      if (existingReceipt) return replayVenueContentImport(existingReceipt, payloadHash)
+
       if (
         venue.guideMode === 'location_aware' &&
         input.places.some((place) => place.lat === undefined || place.lng === undefined)
@@ -301,10 +351,35 @@ export const venueRouter = router({
         })
       }
 
-      const operations = [
-        ...input.places.map((place) =>
-          ctx.db.place.create({
-            data: {
+      return ctx.db.$transaction(async (tx) => {
+        const claimed = await tx.venueContentImportReceipt.createMany({
+          data: [
+            {
+              tenantId,
+              venueId: input.venueId,
+              idempotencyKey: input.idempotencyKey,
+              payloadHash,
+              placeCount: input.places.length,
+              knowledgeEntryCount: input.knowledgeEntries.length,
+            },
+          ],
+          skipDuplicates: true,
+        })
+
+        if (claimed.count === 0) {
+          const concurrentReceipt = await tx.venueContentImportReceipt.findFirst({
+            where: receiptWhere,
+            select: receiptSelect,
+          })
+          if (!concurrentReceipt) {
+            throw new Error('Venue content import receipt claim was lost')
+          }
+          return replayVenueContentImport(concurrentReceipt, payloadHash)
+        }
+
+        if (input.places.length > 0) {
+          await tx.place.createMany({
+            data: input.places.map((place) => ({
               tenantId,
               venueId: input.venueId,
               name: place.name,
@@ -323,31 +398,28 @@ export const venueRouter = router({
               ...(place.areaName !== undefined ? { areaName: place.areaName } : {}),
               ...(place.hours !== undefined ? { hours: place.hours } : {}),
               ...(place.photoUrl !== undefined ? { photoUrl: place.photoUrl } : {}),
-            },
-            select: { id: true },
-          }),
-        ),
-        ...input.knowledgeEntries.map((entry) =>
-          ctx.db.venueKnowledgeEntry.create({
-            data: {
+            })),
+          })
+        }
+        if (input.knowledgeEntries.length > 0) {
+          await tx.venueKnowledgeEntry.createMany({
+            data: input.knowledgeEntries.map((entry) => ({
               tenantId,
               venueId: input.venueId,
               title: entry.title,
               category: entry.category,
               content: entry.content,
               isEnabled: entry.isEnabled,
-            },
-            select: { id: true },
-          }),
-        ),
-      ]
+            })),
+          })
+        }
 
-      await ctx.db.$transaction(operations)
-
-      return {
-        placeCount: input.places.length,
-        knowledgeEntryCount: input.knowledgeEntries.length,
-      }
+        return {
+          placeCount: input.places.length,
+          knowledgeEntryCount: input.knowledgeEntries.length,
+          replayed: false as const,
+        }
+      })
     }),
 
   updateAiConfig: tenantProcedure

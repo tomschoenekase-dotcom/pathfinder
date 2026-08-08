@@ -51,6 +51,7 @@ model Tenant {
   aiUsageDailyRollups         AiUsageDailyRollup[]
   embeddingWorkClaims         EmbeddingWorkClaim[]
   embeddingDispatches         EmbeddingDispatch[]
+  venueContentImportReceipts  VenueContentImportReceipt[]
 
   @@map("tenants")
 }
@@ -219,6 +220,7 @@ model Venue {
   aiUsageDailyRollups     AiUsageDailyRollup[]
   embeddingWorkClaims     EmbeddingWorkClaim[]
   embeddingDispatches     EmbeddingDispatch[]
+  contentImportReceipts   VenueContentImportReceipt[]
 
   @@unique([tenantId, slug])
   @@index([tenantId])
@@ -269,6 +271,25 @@ model VenueKnowledgeEntry {
   @@index([tenantId])
   @@index([venueId])
   @@map("venue_knowledge_entries")
+}
+
+/// Durable identity for one venue-content import attempt. The receipt is
+/// committed atomically with imported content and stores no imported text.
+model VenueContentImportReceipt {
+  id                  String   @id @default(cuid())
+  tenantId            String   @map("tenant_id")
+  venueId             String   @map("venue_id")
+  idempotencyKey      String   @map("idempotency_key") @db.Uuid
+  payloadHash         String   @map("payload_hash") @db.Char(64)
+  placeCount          Int      @map("place_count")
+  knowledgeEntryCount Int      @map("knowledge_entry_count")
+  createdAt           DateTime @default(now()) @map("created_at")
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue               Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, venueId, idempotencyKey])
+  @@index([tenantId, venueId, createdAt])
+  @@map("venue_content_import_receipts")
 }
 
 model VisitorSession {

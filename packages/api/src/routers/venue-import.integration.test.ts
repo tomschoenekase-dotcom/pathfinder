@@ -104,6 +104,7 @@ integrationDescribe('venue content import (disposable PostgreSQL integration)', 
       DROP TRIGGER IF EXISTS pathfinder_test_reject_atomic_import ON venue_knowledge_entries
     `
     await db.$executeRaw`DROP FUNCTION IF EXISTS pathfinder_test_reject_atomic_import()`
+    await db.venueContentImportReceipt.deleteMany({ where: { tenantId } })
     await db.venueKnowledgeEntry.deleteMany({ where: { tenantId } })
     await db.place.deleteMany({ where: { tenantId } })
     await db.venue.deleteMany({ where: { tenantId } })
@@ -113,27 +114,85 @@ integrationDescribe('venue content import (disposable PostgreSQL integration)', 
 
   it('commits both collections together on success', async () => {
     const caller = testRouter.createCaller(managerCtx())
-    await expect(
-      caller.venue.importContent({
-        venueId,
-        places: [{ name: 'Successful place', type: 'room' }],
-        knowledgeEntries: [{ title: 'Successful knowledge', category: 'FAQ', content: 'Details' }],
-      }),
-    ).resolves.toEqual({ placeCount: 1, knowledgeEntryCount: 1 })
+    const input = {
+      venueId,
+      idempotencyKey: randomUUID(),
+      places: [{ name: 'Successful place', type: 'room' }],
+      knowledgeEntries: [{ title: 'Successful knowledge', category: 'FAQ', content: 'Details' }],
+    }
+    await expect(caller.venue.importContent(input)).resolves.toEqual({
+      placeCount: 1,
+      knowledgeEntryCount: 1,
+      replayed: false,
+    })
 
     await expect(
       Promise.all([
         db.place.count({ where: { tenantId, name: 'Successful place' } }),
         db.venueKnowledgeEntry.count({ where: { tenantId, title: 'Successful knowledge' } }),
+        db.venueContentImportReceipt.count({ where: { tenantId, venueId } }),
+        db.embeddingDispatch.count({ where: { tenantId, venueId } }),
       ]),
-    ).resolves.toEqual([1, 1])
+    ).resolves.toEqual([1, 1, 1, 2])
+
+    await expect(caller.venue.importContent(input)).resolves.toEqual({
+      placeCount: 1,
+      knowledgeEntryCount: 1,
+      replayed: true,
+    })
+    await expect(
+      Promise.all([
+        db.place.count({ where: { tenantId, name: 'Successful place' } }),
+        db.venueKnowledgeEntry.count({ where: { tenantId, title: 'Successful knowledge' } }),
+        db.venueContentImportReceipt.count({ where: { tenantId, venueId } }),
+        db.embeddingDispatch.count({ where: { tenantId, venueId } }),
+      ]),
+    ).resolves.toEqual([1, 1, 1, 2])
+
+    await expect(
+      caller.venue.importContent({
+        ...input,
+        places: [{ name: 'Changed replay', type: 'room' }],
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('converges concurrent exact retries on one receipt and content set', async () => {
+    const caller = testRouter.createCaller(managerCtx())
+    const input = {
+      venueId,
+      idempotencyKey: randomUUID(),
+      places: [{ name: 'Concurrent place', type: 'room' }],
+      knowledgeEntries: [{ title: 'Concurrent knowledge', category: 'FAQ', content: 'Details' }],
+    }
+
+    const results = await Promise.all(
+      Array.from({ length: 16 }, () => caller.venue.importContent(input)),
+    )
+    expect(results.filter((result) => !result.replayed)).toHaveLength(1)
+    expect(results.filter((result) => result.replayed)).toHaveLength(15)
+    expect(
+      results.every((result) => result.placeCount === 1 && result.knowledgeEntryCount === 1),
+    ).toBe(true)
+
+    await expect(
+      Promise.all([
+        db.place.count({ where: { tenantId, name: 'Concurrent place' } }),
+        db.venueKnowledgeEntry.count({ where: { tenantId, title: 'Concurrent knowledge' } }),
+        db.venueContentImportReceipt.count({
+          where: { tenantId, venueId, idempotencyKey: input.idempotencyKey },
+        }),
+      ]),
+    ).resolves.toEqual([1, 1, 1])
   })
 
   it('rolls back the place when a later knowledge insert fails', async () => {
     const caller = testRouter.createCaller(managerCtx())
+    const idempotencyKey = randomUUID()
     await expect(
       caller.venue.importContent({
         venueId,
+        idempotencyKey,
         places: [{ name: 'Must roll back', type: 'room' }],
         knowledgeEntries: [{ title: FAILURE_TITLE, category: 'FAQ', content: 'Details' }],
       }),
@@ -143,7 +202,24 @@ integrationDescribe('venue content import (disposable PostgreSQL integration)', 
       Promise.all([
         db.place.count({ where: { tenantId, name: 'Must roll back' } }),
         db.venueKnowledgeEntry.count({ where: { tenantId, title: FAILURE_TITLE } }),
+        db.venueContentImportReceipt.count({ where: { tenantId, venueId, idempotencyKey } }),
       ]),
-    ).resolves.toEqual([0, 0])
+    ).resolves.toEqual([0, 0, 0])
+
+    await expect(
+      caller.venue.importContent({
+        venueId,
+        idempotencyKey,
+        places: [{ name: 'Recovered place', type: 'room' }],
+        knowledgeEntries: [{ title: 'Recovered knowledge', category: 'FAQ', content: 'Details' }],
+      }),
+    ).resolves.toEqual({ placeCount: 1, knowledgeEntryCount: 1, replayed: false })
+    await expect(
+      Promise.all([
+        db.place.count({ where: { tenantId, name: 'Recovered place' } }),
+        db.venueKnowledgeEntry.count({ where: { tenantId, title: 'Recovered knowledge' } }),
+        db.venueContentImportReceipt.count({ where: { tenantId, venueId, idempotencyKey } }),
+      ]),
+    ).resolves.toEqual([1, 1, 1])
   })
 })

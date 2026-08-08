@@ -3,7 +3,11 @@
  * Import from '@pathfinder/api/schemas' in Client Components.
  */
 export { CreateVenueInput, UpdateVenueInput } from './schemas/venue'
-export { ImportVenueContentInput, VENUE_CONTENT_IMPORT_LIMIT } from './schemas/venue-content'
+export {
+  canonicalVenueContentImportPayload,
+  ImportVenueContentInput,
+  VENUE_CONTENT_IMPORT_LIMIT,
+} from './schemas/venue-content'
 export { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from './schemas/place'
 export {
   CreateOperationalUpdateInputBase,

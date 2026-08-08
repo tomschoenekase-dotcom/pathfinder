@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,6 +23,10 @@ import { enqueueEmbedPlace } from '@pathfinder/jobs'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
+import {
+  canonicalVenueContentImportPayload,
+  ImportVenueContentInput,
+} from '../schemas/venue-content'
 import { venueRouter } from './venue'
 
 // ---------------------------------------------------------------------------
@@ -32,8 +38,10 @@ const venueFindFirst = vi.fn()
 const venueCreate = vi.fn()
 const venueUpdateMany = vi.fn()
 const venueDeleteMany = vi.fn()
-const placeCreate = vi.fn()
-const knowledgeEntryCreate = vi.fn()
+const placeCreateMany = vi.fn()
+const knowledgeEntryCreateMany = vi.fn()
+const importReceiptFindFirst = vi.fn()
+const importReceiptCreateMany = vi.fn()
 const dbQueryRaw = vi.fn()
 const dbTransaction = vi.fn()
 
@@ -45,8 +53,12 @@ const mockDb = {
     updateMany: venueUpdateMany,
     deleteMany: venueDeleteMany,
   },
-  place: { create: placeCreate },
-  venueKnowledgeEntry: { create: knowledgeEntryCreate },
+  place: { createMany: placeCreateMany },
+  venueKnowledgeEntry: { createMany: knowledgeEntryCreateMany },
+  venueContentImportReceipt: {
+    findFirst: importReceiptFindFirst,
+    createMany: importReceiptCreateMany,
+  },
   $queryRaw: dbQueryRaw,
   $transaction: dbTransaction,
 } as unknown as TRPCContext['db']
@@ -98,6 +110,7 @@ function staffCtx(): TRPCContext {
 
 const testRouter = router({ venue: venueRouter })
 const enqueueEmbedPlaceMock = vi.mocked(enqueueEmbedPlace)
+const IMPORT_KEY = '11111111-1111-4111-8111-111111111111'
 
 const venueRow = {
   id: 'cuid1234567890abcdef',
@@ -120,6 +133,13 @@ const venueRow = {
 describe('venue router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    importReceiptFindFirst.mockResolvedValue(null)
+    importReceiptCreateMany.mockResolvedValue({ count: 1 })
+    placeCreateMany.mockResolvedValue({ count: 1 })
+    knowledgeEntryCreateMany.mockResolvedValue({ count: 1 })
+    dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
+      callback(mockDb),
+    )
   })
 
   // --- venue.list ---
@@ -299,50 +319,128 @@ describe('venue router', () => {
 
   it('venue.importContent creates places and knowledge in one transaction', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'location_aware' })
-    placeCreate.mockReturnValueOnce(Promise.resolve({ id: 'place_1' }))
-    knowledgeEntryCreate.mockReturnValueOnce(Promise.resolve({ id: 'knowledge_1' }))
-    dbTransaction.mockResolvedValueOnce([{ id: 'place_1' }, { id: 'knowledge_1' }])
 
     const caller = testRouter.createCaller(managerCtx())
     const result = await caller.venue.importContent({
       venueId: venueRow.id,
+      idempotencyKey: IMPORT_KEY,
       places: [{ name: 'Lobby', type: 'room', lat: 39.7, lng: -86.1 }],
       knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
     })
 
-    expect(result).toEqual({ placeCount: 1, knowledgeEntryCount: 1 })
+    expect(result).toEqual({ placeCount: 1, knowledgeEntryCount: 1, replayed: false })
     expect(dbTransaction).toHaveBeenCalledOnce()
-    expect(dbTransaction).toHaveBeenCalledWith([expect.any(Promise), expect.any(Promise)])
-    expect(placeCreate).toHaveBeenCalledWith(
+    expect(importReceiptCreateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          tenantId: 'tenant_1',
-          venueId: venueRow.id,
-          name: 'Lobby',
-        }),
+        data: [
+          expect.objectContaining({
+            tenantId: 'tenant_1',
+            venueId: venueRow.id,
+            idempotencyKey: IMPORT_KEY,
+            payloadHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+            placeCount: 1,
+            knowledgeEntryCount: 1,
+          }),
+        ],
+        skipDuplicates: true,
       }),
     )
-    expect(knowledgeEntryCreate).toHaveBeenCalledWith(
+    expect(placeCreateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          tenantId: 'tenant_1',
-          venueId: venueRow.id,
-          title: 'Policy',
-        }),
+        data: [
+          expect.objectContaining({
+            tenantId: 'tenant_1',
+            venueId: venueRow.id,
+            name: 'Lobby',
+          }),
+        ],
+      }),
+    )
+    expect(knowledgeEntryCreateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({
+            tenantId: 'tenant_1',
+            venueId: venueRow.id,
+            title: 'Policy',
+          }),
+        ],
       }),
     )
   })
 
+  it('venue.importContent returns a matching receipt without writing content', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
+    const caller = testRouter.createCaller(managerCtx())
+    const input = {
+      venueId: venueRow.id,
+      idempotencyKey: IMPORT_KEY,
+      places: [{ name: 'Lobby', type: 'room' }],
+      knowledgeEntries: [],
+    }
+    const payloadHash = createHash('sha256')
+      .update(canonicalVenueContentImportPayload(ImportVenueContentInput.parse(input)))
+      .digest('hex')
+    importReceiptFindFirst.mockReset().mockResolvedValueOnce({
+      payloadHash,
+      placeCount: 7,
+      knowledgeEntryCount: 3,
+    })
+
+    await expect(caller.venue.importContent(input)).resolves.toEqual({
+      placeCount: 7,
+      knowledgeEntryCount: 3,
+      replayed: true,
+    })
+    expect(dbTransaction).not.toHaveBeenCalled()
+    expect(placeCreateMany).not.toHaveBeenCalled()
+  })
+
+  it('venue.importContent rejects a reused key for different content', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
+    importReceiptFindFirst.mockResolvedValueOnce({
+      payloadHash: '0'.repeat(64),
+      placeCount: 1,
+      knowledgeEntryCount: 0,
+    })
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
+        places: [{ name: 'Changed', type: 'room' }],
+        knowledgeEntries: [],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+    expect(dbTransaction).not.toHaveBeenCalled()
+  })
+
+  it('venue.importContent fails closed when a skipped claim has no scoped receipt', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
+    importReceiptCreateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
+        places: [{ name: 'Lobby', type: 'room' }],
+        knowledgeEntries: [],
+      }),
+    ).rejects.toThrow('receipt claim was lost')
+    expect(placeCreateMany).not.toHaveBeenCalled()
+  })
+
   it('venue.importContent propagates transaction failure without a partial result', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
-    placeCreate.mockReturnValueOnce(Promise.resolve({ id: 'place_1' }))
-    knowledgeEntryCreate.mockReturnValueOnce(Promise.resolve({ id: 'knowledge_1' }))
     dbTransaction.mockRejectedValueOnce(new Error('transaction failed'))
 
     const caller = testRouter.createCaller(managerCtx())
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: [{ name: 'Lobby', type: 'room' }],
         knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
       }),
@@ -356,12 +454,13 @@ describe('venue router', () => {
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: [],
         knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
-    expect(placeCreate).not.toHaveBeenCalled()
-    expect(knowledgeEntryCreate).not.toHaveBeenCalled()
+    expect(placeCreateMany).not.toHaveBeenCalled()
+    expect(knowledgeEntryCreateMany).not.toHaveBeenCalled()
     expect(dbTransaction).not.toHaveBeenCalled()
   })
 
@@ -372,6 +471,7 @@ describe('venue router', () => {
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: [{ name: 'Lobby', type: 'room' }],
         knowledgeEntries: [],
       }),
@@ -381,17 +481,15 @@ describe('venue router', () => {
 
   it('venue.importContent allows omitted coordinates for a non-location venue', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
-    placeCreate.mockReturnValueOnce(Promise.resolve({ id: 'place_1' }))
-    dbTransaction.mockResolvedValueOnce([{ id: 'place_1' }])
-
     const caller = testRouter.createCaller(managerCtx())
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: [{ name: 'Lobby', type: 'room' }],
         knowledgeEntries: [],
       }),
-    ).resolves.toEqual({ placeCount: 1, knowledgeEntryCount: 0 })
+    ).resolves.toEqual({ placeCount: 1, knowledgeEntryCount: 0, replayed: false })
   })
 
   it('venue.importContent rejects unpaired and out-of-range coordinates before database access', async () => {
@@ -400,6 +498,7 @@ describe('venue router', () => {
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: [{ name: 'Lobby', type: 'room', lat: 39.7 }],
         knowledgeEntries: [],
       }),
@@ -407,6 +506,7 @@ describe('venue router', () => {
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: [{ name: 'Lobby', type: 'room', lat: 91, lng: -86.1 }],
         knowledgeEntries: [],
       }),
@@ -418,11 +518,17 @@ describe('venue router', () => {
     const caller = testRouter.createCaller(managerCtx())
 
     await expect(
-      caller.venue.importContent({ venueId: venueRow.id, places: [], knowledgeEntries: [] }),
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
+        places: [],
+        knowledgeEntries: [],
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: Array.from({ length: 501 }, (_, index) => ({
           name: `Place ${index}`,
           type: 'room',
@@ -439,6 +545,7 @@ describe('venue router', () => {
     await expect(
       caller.venue.importContent({
         venueId: venueRow.id,
+        idempotencyKey: IMPORT_KEY,
         places: [],
         knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
       }),

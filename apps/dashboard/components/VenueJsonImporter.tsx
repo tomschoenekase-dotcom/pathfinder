@@ -6,6 +6,10 @@ import { useRouter } from 'next/navigation'
 import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/api/schemas'
 
 import { createTRPCClient } from '../lib/trpc'
+import {
+  clearVenueContentImportAttempt,
+  getOrCreateVenueContentImportAttempt,
+} from '../lib/venue-import-idempotency'
 
 type GuideMode = 'location_aware' | 'non_location'
 
@@ -208,6 +212,9 @@ export function VenueJsonImporter({ venueId, venueName, guideMode }: VenueJsonIm
   const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
   if (clientRef.current === null) clientRef.current = createTRPCClient()
   const client = clientRef.current
+  const importAttemptRef = useRef<Awaited<
+    ReturnType<typeof getOrCreateVenueContentImportAttempt>
+  > | null>(null)
 
   const [jsonText, setJsonText] = useState('')
   const [parsedImport, setParsedImport] = useState<ParsedImport | null>(null)
@@ -216,6 +223,7 @@ export function VenueJsonImporter({ venueId, venueName, guideMode }: VenueJsonIm
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   function validate(text: string) {
+    importAttemptRef.current = null
     setJsonText(text)
     setSubmitError(null)
     setSuccessMessage(null)
@@ -235,20 +243,29 @@ export function VenueJsonImporter({ venueId, venueName, guideMode }: VenueJsonIm
     setIsImporting(true)
     setSubmitError(null)
     try {
-      const result = await client.venue.importContent.mutate({
+      const payload = {
         venueId,
         places: parsedImport.places,
         knowledgeEntries: parsedImport.knowledgeEntries,
+      }
+      const attempt =
+        importAttemptRef.current ?? (await getOrCreateVenueContentImportAttempt(payload))
+      importAttemptRef.current = attempt
+      const result = await client.venue.importContent.mutate({
+        ...payload,
+        idempotencyKey: attempt.idempotencyKey,
       })
       setSuccessMessage(
         `Imported ${result.placeCount} guide items and ${result.knowledgeEntryCount} knowledge entries.`,
       )
       setJsonText('')
       setParsedImport(null)
+      clearVenueContentImportAttempt(venueId, attempt)
+      importAttemptRef.current = null
       router.refresh()
     } catch (error) {
       setSubmitError(
-        `${getErrorMessage(error)} Verify venue content before retrying; a lost response can make completion status uncertain.`,
+        `${getErrorMessage(error)} Retry this unchanged import safely; PathFinder will reuse its attempt identity.`,
       )
     } finally {
       setIsImporting(false)
