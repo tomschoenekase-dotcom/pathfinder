@@ -19,6 +19,8 @@ const {
   tenantMembershipUpsert,
   adminChatlogNoteCreate,
   answerAnalysisSnapshotCreate,
+  answerAnalysisSnapshotFindFirst,
+  answerAnalysisSnapshotUpdateMany,
   weeklyReportFindUnique,
   weeklyReportCreate,
   weeklyReportUpdate,
@@ -32,6 +34,7 @@ const {
   enqueueWeeklyReport,
   createOrganizationMock,
   currentUserMock,
+  loggerWarn,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -50,6 +53,8 @@ const {
   tenantMembershipUpsert: vi.fn(),
   adminChatlogNoteCreate: vi.fn(),
   answerAnalysisSnapshotCreate: vi.fn(),
+  answerAnalysisSnapshotFindFirst: vi.fn(),
+  answerAnalysisSnapshotUpdateMany: vi.fn(),
   weeklyReportFindUnique: vi.fn(),
   weeklyReportCreate: vi.fn(),
   weeklyReportUpdate: vi.fn(),
@@ -63,6 +68,11 @@ const {
   enqueueWeeklyReport: vi.fn(),
   createOrganizationMock: vi.fn(),
   currentUserMock: vi.fn(),
+  loggerWarn: vi.fn(),
+}))
+
+vi.mock('@pathfinder/config/logger', () => ({
+  logger: { warn: loggerWarn },
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -103,6 +113,8 @@ vi.mock('@pathfinder/db', () => ({
     },
     answerAnalysisSnapshot: {
       create: answerAnalysisSnapshotCreate,
+      findFirst: answerAnalysisSnapshotFindFirst,
+      updateMany: answerAnalysisSnapshotUpdateMany,
     },
     weeklyReport: {
       findUnique: weeklyReportFindUnique,
@@ -174,6 +186,7 @@ describe('admin router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     visitorSessionUpdateMany.mockResolvedValue({ count: 1 })
+    answerAnalysisSnapshotUpdateMany.mockResolvedValue({ count: 1 })
   })
 
   it('admin.triggerDigest creates a digest for the current week and enqueues it', async () => {
@@ -432,11 +445,56 @@ describe('admin router', () => {
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 
+  it('admin.getSessionChatlog binds the detail read to tenant, venue, and session', async () => {
+    const session = { id: 'session_1', venueId: 'venue_1' }
+    visitorSessionFindFirst.mockResolvedValueOnce(session)
+
+    const result = await testRouter.createCaller(adminCtx()).admin.getSessionChatlog({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      sessionId: 'session_1',
+    })
+
+    expect(result).toBe(session)
+    expect(visitorSessionFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'session_1',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+        },
+      }),
+    )
+  })
+
+  it('admin.getSessionChatlog returns NOT_FOUND for a same-tenant venue mismatch', async () => {
+    visitorSessionFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.getSessionChatlog({
+        tenantId: 'tenant_1',
+        venueId: 'wrong_venue',
+        sessionId: 'session_1',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+
+    expect(visitorSessionFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'session_1',
+          tenantId: 'tenant_1',
+          venueId: 'wrong_venue',
+        },
+      }),
+    )
+  })
+
   it('admin.setSessionNotable writes an audit log with the correct action for true/false', async () => {
     const caller = testRouter.createCaller(adminCtx())
 
     await caller.admin.setSessionNotable({
       tenantId: 'tenant_1',
+      venueId: 'venue_1',
       sessionId: 'session_1',
       isNotable: true,
     })
@@ -446,6 +504,7 @@ describe('admin router', () => {
 
     await caller.admin.setSessionNotable({
       tenantId: 'tenant_1',
+      venueId: 'venue_1',
       sessionId: 'session_1',
       isNotable: false,
     })
@@ -461,12 +520,17 @@ describe('admin router', () => {
     await expect(
       caller.admin.setSessionNotable({
         tenantId: 'tenant_1',
+        venueId: 'venue_1',
         sessionId: 'other_tenant_session',
         isNotable: true,
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
     expect(visitorSessionUpdateMany).toHaveBeenCalledWith({
-      where: { id: 'other_tenant_session', tenantId: 'tenant_1' },
+      where: {
+        id: 'other_tenant_session',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      },
       data: { isNotable: true },
     })
     expect(writeAuditLogMock).not.toHaveBeenCalled()
@@ -559,6 +623,134 @@ describe('admin router', () => {
         snapshotId: 'snapshot_1',
       }),
     )
+    expect(writeAuditLogMock).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      actorId: 'admin_1',
+      actorRole: 'PLATFORM_ADMIN',
+      action: 'admin.answer_analysis.requested',
+      targetType: 'AnswerAnalysisSnapshot',
+      targetId: 'snapshot_1',
+      afterState: {
+        venueId: 'venue_1',
+        rangeStart: '2026-07-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+      },
+    })
+    expect(answerAnalysisSnapshotCreate.mock.invocationCallOrder[0]).toBeLessThan(
+      writeAuditLogMock.mock.invocationCallOrder[0]!,
+    )
+    expect(writeAuditLogMock.mock.invocationCallOrder[0]).toBeLessThan(
+      enqueueAnswerAnalysis.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('admin.generateAnswerAnalysis records a safe exact failure and preserves enqueue rejection', async () => {
+    const enqueueError = new Error('redis://private-host queue unavailable')
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
+    enqueueAnswerAnalysis.mockRejectedValueOnce(enqueueError)
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rangeStart: '2026-07-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Answer analysis could not be queued.',
+      cause: enqueueError,
+    })
+
+    expect(answerAnalysisSnapshotUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
+      data: {
+        status: 'FAILED',
+        error: 'Answer analysis enqueue could not be confirmed.',
+        generatedAt: null,
+      },
+    })
+    expect(JSON.stringify(answerAnalysisSnapshotUpdateMany.mock.calls)).not.toContain(
+      'private-host',
+    )
+    expect(writeAuditLogMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin.answer_analysis.requested',
+        targetId: 'snapshot_1',
+      }),
+    )
+    expect(loggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('admin.generateAnswerAnalysis preserves enqueue rejection when compensation misses', async () => {
+    const enqueueError = new Error('queue response lost')
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
+    enqueueAnswerAnalysis.mockRejectedValueOnce(enqueueError)
+    answerAnalysisSnapshotUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rangeStart: '2026-07-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Answer analysis could not be queued.',
+      cause: enqueueError,
+    })
+
+    expect(loggerWarn).toHaveBeenCalledWith({
+      action: 'admin.answer-analysis.enqueue-compensation.missed',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      snapshotId: 'snapshot_1',
+      error: 'Answer analysis enqueue state no longer matched.',
+    })
+  })
+
+  it('admin.generateAnswerAnalysis preserves enqueue rejection when compensation throws', async () => {
+    const enqueueError = new Error('queue response lost')
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
+    enqueueAnswerAnalysis.mockRejectedValueOnce(enqueueError)
+    answerAnalysisSnapshotUpdateMany.mockRejectedValueOnce(
+      new TypeError('database credentials must stay private'),
+    )
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rangeStart: '2026-07-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Answer analysis could not be queued.',
+      cause: enqueueError,
+    })
+
+    expect(loggerWarn).toHaveBeenCalledWith({
+      action: 'admin.answer-analysis.enqueue-compensation.failed',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      snapshotId: 'snapshot_1',
+      error: 'Answer analysis enqueue failure could not be recorded.',
+      errorType: 'TypeError',
+    })
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('credentials')
   })
 
   it('admin.generateAnswerAnalysis rejects a venue mismatch before create or enqueue', async () => {
@@ -581,6 +773,46 @@ describe('admin router', () => {
     expect(answerAnalysisSnapshotCreate).not.toHaveBeenCalled()
     expect(enqueueAnswerAnalysis).not.toHaveBeenCalled()
     expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.getAnswerAnalysis binds the detail read to tenant, venue, and snapshot', async () => {
+    const snapshot = { id: 'snapshot_1', venueId: 'venue_1', status: 'COMPLETE' }
+    answerAnalysisSnapshotFindFirst.mockResolvedValueOnce(snapshot)
+
+    const result = await testRouter.createCaller(adminCtx()).admin.getAnswerAnalysis({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      snapshotId: 'snapshot_1',
+    })
+
+    expect(result).toBe(snapshot)
+    expect(answerAnalysisSnapshotFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      },
+    })
+  })
+
+  it('admin.getAnswerAnalysis returns NOT_FOUND for a same-tenant venue mismatch', async () => {
+    answerAnalysisSnapshotFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.getAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'wrong_venue',
+        snapshotId: 'snapshot_1',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+
+    expect(answerAnalysisSnapshotFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'wrong_venue',
+      },
+    })
   })
 
   it('admin.createClientAndVenue creates the org, tenant, admin membership, and venue', async () => {
@@ -768,6 +1000,7 @@ describe('admin router', () => {
     await expect(
       caller.admin.setSessionNotable({
         tenantId: 'tenant_1',
+        venueId: 'venue_1',
         sessionId: 'session_1',
         isNotable: true,
       }),

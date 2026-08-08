@@ -6,12 +6,14 @@ import { createTRPCClient } from '../../lib/trpc'
 
 type AdminChatlogNotableToggleProps = {
   tenantId: string
+  venueId: string
   sessionId: string
   initialIsNotable: boolean
 }
 
 export function AdminChatlogNotableToggle({
   tenantId,
+  venueId,
   sessionId,
   initialIsNotable,
 }: AdminChatlogNotableToggleProps) {
@@ -32,6 +34,7 @@ export function AdminChatlogNotableToggle({
     try {
       await clientRef.current!.admin.setSessionNotable.mutate({
         tenantId,
+        venueId,
         sessionId,
         isNotable: nextValue,
       })

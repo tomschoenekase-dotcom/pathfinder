@@ -13,7 +13,7 @@ type AdminChatlogDetailPageProps = {
 export default async function AdminChatlogDetailPage({ params }: AdminChatlogDetailPageProps) {
   const { tenantId, venueId, sessionId } = await params
   const caller = await createAdminCaller()
-  const session = await caller.admin.getSessionChatlog({ tenantId, sessionId })
+  const session = await caller.admin.getSessionChatlog({ tenantId, venueId, sessionId })
 
   return (
     <div className="space-y-8">
@@ -41,6 +41,7 @@ export default async function AdminChatlogDetailPage({ params }: AdminChatlogDet
         </div>
         <AdminChatlogNotableToggle
           tenantId={tenantId}
+          venueId={venueId}
           sessionId={session.id}
           initialIsNotable={session.isNotable}
         />

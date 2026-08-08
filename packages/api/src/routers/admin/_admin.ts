@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
+import { logger } from '@pathfinder/config/logger'
 import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
 import { enqueueAnswerAnalysis, enqueueWeeklyDigest, enqueueWeeklyReport } from '@pathfinder/jobs'
 import { createOrganization, currentUser } from '@pathfinder/auth'
@@ -827,11 +828,15 @@ export const adminRouter = router({
     }),
 
   getSessionChatlog: adminProcedure
-    .input(z.object({ tenantId: z.string(), sessionId: z.string() }))
+    .input(z.object({ tenantId: z.string(), venueId: z.string(), sessionId: z.string() }))
     .query(async ({ input }) => {
       return withTenantIsolationBypass(async () => {
         const session = await db.visitorSession.findFirst({
-          where: { id: input.sessionId, tenantId: input.tenantId },
+          where: {
+            id: input.sessionId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+          },
           select: {
             id: true,
             venueId: true,
@@ -871,11 +876,22 @@ export const adminRouter = router({
     }),
 
   setSessionNotable: adminProcedure
-    .input(z.object({ tenantId: z.string(), sessionId: z.string(), isNotable: z.boolean() }))
+    .input(
+      z.object({
+        tenantId: z.string(),
+        venueId: z.string(),
+        sessionId: z.string(),
+        isNotable: z.boolean(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const updated = await withTenantIsolationBypass(async () => {
         return db.visitorSession.updateMany({
-          where: { id: input.sessionId, tenantId: input.tenantId },
+          where: {
+            id: input.sessionId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+          },
           data: { isNotable: input.isNotable },
         })
       })
@@ -976,13 +992,70 @@ export const adminRouter = router({
         })
       })
 
-      await enqueueAnswerAnalysis({
+      await writeAuditLog({
         tenantId: input.tenantId,
-        venueId: input.venueId,
-        rangeStart: input.rangeStart,
-        rangeEnd: input.rangeEnd,
-        snapshotId: snapshot.id,
+        actorId: ctx.session.userId,
+        actorRole: 'PLATFORM_ADMIN',
+        action: 'admin.answer_analysis.requested',
+        targetType: 'AnswerAnalysisSnapshot',
+        targetId: snapshot.id,
+        afterState: {
+          venueId: input.venueId,
+          rangeStart: input.rangeStart,
+          rangeEnd: input.rangeEnd,
+        },
       })
+
+      try {
+        await enqueueAnswerAnalysis({
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          rangeStart: input.rangeStart,
+          rangeEnd: input.rangeEnd,
+          snapshotId: snapshot.id,
+        })
+      } catch (error) {
+        try {
+          const compensation = await withTenantIsolationBypass(() =>
+            db.answerAnalysisSnapshot.updateMany({
+              where: {
+                id: snapshot.id,
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                status: 'GENERATING',
+              },
+              data: {
+                status: 'FAILED',
+                error: 'Answer analysis enqueue could not be confirmed.',
+                generatedAt: null,
+              },
+            }),
+          )
+          if (compensation.count !== 1) {
+            logger.warn({
+              action: 'admin.answer-analysis.enqueue-compensation.missed',
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              snapshotId: snapshot.id,
+              error: 'Answer analysis enqueue state no longer matched.',
+            })
+          }
+        } catch (compensationError) {
+          logger.warn({
+            action: 'admin.answer-analysis.enqueue-compensation.failed',
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            snapshotId: snapshot.id,
+            error: 'Answer analysis enqueue failure could not be recorded.',
+            errorType: compensationError instanceof Error ? compensationError.name : 'UnknownError',
+          })
+        }
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Answer analysis could not be queued.',
+          cause: error,
+        })
+      }
 
       return { snapshotId: snapshot.id }
     }),
@@ -1008,11 +1081,15 @@ export const adminRouter = router({
     ),
 
   getAnswerAnalysis: adminProcedure
-    .input(z.object({ tenantId: z.string(), snapshotId: z.string() }))
+    .input(z.object({ tenantId: z.string(), venueId: z.string(), snapshotId: z.string() }))
     .query(async ({ input }) => {
       const snapshot = await withTenantIsolationBypass(async () =>
         db.answerAnalysisSnapshot.findFirst({
-          where: { id: input.snapshotId, tenantId: input.tenantId },
+          where: {
+            id: input.snapshotId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+          },
         }),
       )
       if (!snapshot) throw new TRPCError({ code: 'NOT_FOUND', message: 'Analysis not found' })

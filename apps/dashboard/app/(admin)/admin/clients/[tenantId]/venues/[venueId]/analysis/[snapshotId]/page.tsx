@@ -48,7 +48,7 @@ function SectionList({ title, items }: { title: string; items: string[] }) {
 export default async function AdminAnalysisDetailPage({ params }: AdminAnalysisDetailPageProps) {
   const { tenantId, venueId, snapshotId } = await params
   const caller = await createAdminCaller()
-  const snapshot = await caller.admin.getAnswerAnalysis({ tenantId, snapshotId })
+  const snapshot = await caller.admin.getAnswerAnalysis({ tenantId, venueId, snapshotId })
   const summary = (snapshot.summary ?? {}) as AnalysisSummary
 
   return (
