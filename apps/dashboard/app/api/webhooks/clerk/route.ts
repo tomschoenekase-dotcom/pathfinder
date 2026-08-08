@@ -45,7 +45,7 @@ export async function POST(req: Request): Promise<Response> {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  // 4. Process event — return 200 even on DB errors to prevent Clerk retry loops
+  // 4. Process verified events. Dependency failures return 503 so Clerk can redeliver.
   try {
     await handleClerkEvent(event)
 
@@ -73,8 +73,11 @@ export async function POST(req: Request): Promise<Response> {
     logger.error({
       service: '@pathfinder/dashboard',
       action: 'clerk.webhook.process_failed',
-      error: err instanceof Error ? err.message : 'Unknown error',
+      eventType: event.type,
+      error: 'Verified Clerk webhook processing failed',
+      errorType: err instanceof Error ? err.name : 'UnknownError',
     })
+    return new Response('Service Unavailable', { status: 503 })
   }
 
   return new Response('OK', { status: 200 })

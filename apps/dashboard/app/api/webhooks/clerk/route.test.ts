@@ -93,4 +93,47 @@ describe('Clerk membership welcome webhook', () => {
     expect(mocks.handleClerkEvent).toHaveBeenCalledOnce()
     expect(mocks.enqueueWelcomeEmail).not.toHaveBeenCalled()
   })
+
+  it('returns 503 so Clerk can retry when membership synchronization fails', async () => {
+    mocks.verify.mockReturnValue(membershipEvent({ email: 'ada@example.com' }))
+    mocks.handleClerkEvent.mockRejectedValueOnce(new Error('database unavailable'))
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(503)
+    expect(mocks.enqueueWelcomeEmail).not.toHaveBeenCalled()
+    expect(mocks.loggerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'clerk.webhook.process_failed',
+        eventType: 'organizationMembership.created',
+        errorType: 'Error',
+      }),
+    )
+    expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain('database unavailable')
+    expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain('ada@example.com')
+    expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain('user_1')
+  })
+
+  it('returns 503 so Clerk can retry when welcome enqueue fails after an idempotent sync', async () => {
+    mocks.verify.mockReturnValue(membershipEvent({ email: 'ada@example.com' }))
+    mocks.enqueueWelcomeEmail.mockRejectedValueOnce(new Error('redis unavailable'))
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(503)
+    expect(mocks.handleClerkEvent).toHaveBeenCalledOnce()
+    expect(mocks.enqueueWelcomeEmail).toHaveBeenCalledOnce()
+  })
+
+  it('keeps invalid signatures non-retryable', async () => {
+    mocks.verify.mockImplementationOnce(() => {
+      throw new Error('invalid signature')
+    })
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(401)
+    expect(mocks.handleClerkEvent).not.toHaveBeenCalled()
+    expect(mocks.enqueueWelcomeEmail).not.toHaveBeenCalled()
+  })
 })

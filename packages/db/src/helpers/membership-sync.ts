@@ -87,29 +87,13 @@ async function syncTenantCreated(data: OrgCreatedData): Promise<void> {
 export async function syncMembershipCreated(data: OrgMembershipData): Promise<void> {
   const tenantId = data.organization.id
   const userId = data.public_user_data.user_id
-  const email = data.public_user_data.email_addresses?.[0]?.email_address ?? ''
-  const fullName =
-    [data.public_user_data.first_name, data.public_user_data.last_name].filter(Boolean).join(' ') ||
-    null
   const role = mapClerkRoleToTenantRole(data.role)
 
   // Verify tenant exists — Clerk may send membership.created before organization.created
-  const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
-  if (!tenant) {
-    logger.warn({
-      service: '@pathfinder/db',
-      action: 'clerk.webhook.tenant_not_found',
-      tenantId,
-      userId,
-    })
-    return
-  }
-
-  // Upsert the user record
-  await db.user.upsert({
-    where: { id: userId },
-    create: { id: userId, email, fullName },
-    update: { email, fullName },
+  await requireTenant(tenantId)
+  await upsertClerkUser(data)
+  const existing = await db.tenantMembership.findUnique({
+    where: { tenantId, tenantId_userId: { tenantId, userId } },
   })
 
   // Upsert the membership (idempotent — handles Clerk retries)
@@ -119,21 +103,27 @@ export async function syncMembershipCreated(data: OrgMembershipData): Promise<vo
     update: { role, status: 'ACTIVE' },
   })
 
-  await writeAuditLog({
-    tenantId,
-    actorId: userId,
-    actorRole: role,
-    action: 'member.synced',
-    targetType: 'TenantMembership',
-    targetId: membership.id,
-    afterState: { tenantId, userId, role, status: 'ACTIVE' },
-  })
+  if (membershipChanged(existing, role)) {
+    await writeAuditLog({
+      tenantId,
+      actorId: userId,
+      actorRole: role,
+      action: 'member.synced',
+      targetType: 'TenantMembership',
+      targetId: membership.id,
+      ...(existing ? { beforeState: { role: existing.role, status: existing.status } } : {}),
+      afterState: { tenantId, userId, role, status: 'ACTIVE' },
+    })
+  }
 }
 
 export async function syncMembershipUpdated(data: OrgMembershipData): Promise<void> {
   const tenantId = data.organization.id
   const userId = data.public_user_data.user_id
   const role = mapClerkRoleToTenantRole(data.role)
+
+  await requireTenant(tenantId)
+  await upsertClerkUser(data)
 
   const existing = await db.tenantMembership.findUnique({
     where: { tenantId, tenantId_userId: { tenantId, userId } },
@@ -145,16 +135,66 @@ export async function syncMembershipUpdated(data: OrgMembershipData): Promise<vo
     update: { role, status: 'ACTIVE' },
   })
 
-  await writeAuditLog({
+  if (membershipChanged(existing, role)) {
+    await writeAuditLog({
+      tenantId,
+      actorId: userId,
+      actorRole: role,
+      action: 'member.synced',
+      targetType: 'TenantMembership',
+      targetId: membership.id,
+      ...(existing ? { beforeState: { role: existing.role, status: existing.status } } : {}),
+      afterState: { role, status: 'ACTIVE' },
+    })
+  }
+}
+
+function membershipChanged(
+  existing: { role: string; status: string } | null,
+  role: TenantRole,
+): boolean {
+  return !existing || existing.role !== role || existing.status !== 'ACTIVE'
+}
+
+async function requireTenant(tenantId: string): Promise<void> {
+  const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
+  if (tenant) return
+
+  logger.warn({
+    service: '@pathfinder/db',
+    action: 'clerk.webhook.tenant_not_found',
     tenantId,
-    actorId: userId,
-    actorRole: role,
-    action: 'member.synced',
-    targetType: 'TenantMembership',
-    targetId: membership.id,
-    ...(existing ? { beforeState: { role: existing.role, status: existing.status } } : {}),
-    afterState: { role, status: 'ACTIVE' },
   })
+  throw new Error('Clerk webhook dependency is not ready')
+}
+
+async function upsertClerkUser(data: OrgMembershipData): Promise<void> {
+  const userId = data.public_user_data.user_id
+  const email = data.public_user_data.email_addresses?.[0]?.email_address
+  const fullName =
+    [data.public_user_data.first_name, data.public_user_data.last_name].filter(Boolean).join(' ') ||
+    null
+
+  if (email) {
+    await db.user.upsert({
+      where: { id: userId },
+      create: { id: userId, email, fullName },
+      update: { email, fullName },
+    })
+    return
+  }
+
+  const existing = await db.user.findUnique({ where: { id: userId }, select: { id: true } })
+  if (!existing) {
+    logger.warn({
+      service: '@pathfinder/db',
+      action: 'clerk.webhook.user_email_missing',
+      tenantId: data.organization.id,
+    })
+    throw new Error('Clerk webhook user dependency is not ready')
+  }
+
+  await db.user.update({ where: { id: userId }, data: { fullName } })
 }
 
 export async function syncMembershipDeleted(data: OrgMembershipData): Promise<void> {
@@ -171,10 +211,11 @@ export async function syncMembershipDeleted(data: OrgMembershipData): Promise<vo
       service: '@pathfinder/db',
       action: 'clerk.webhook.membership_not_found_on_delete',
       tenantId,
-      userId,
     })
-    return
+    throw new Error('Clerk webhook membership dependency is not ready')
   }
+
+  if (existing.status === 'REMOVED') return
 
   // Soft-delete: set status REMOVED, never hard-delete
   const membership = await db.tenantMembership.update({
