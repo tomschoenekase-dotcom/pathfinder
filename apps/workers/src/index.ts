@@ -12,6 +12,7 @@ import {
   ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
   closeBullMQConnection,
   closeJobQueues,
+  configureMediaIngestionGlobalConcurrency,
   DAILY_ROLLUP_PROCESS_JOB,
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
@@ -407,6 +408,8 @@ export async function startWorkers() {
   })
 
   await runStartupWithCleanup(async () => {
+    await configureMediaIngestionGlobalConcurrency(mediaIngestionQueue)
+
     await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
       {
         upsert: () =>
@@ -705,8 +708,9 @@ export async function startWorkers() {
     }),
   )
 
-  // A media job may hold several GB of temporary data and make many model calls,
-  // so keep concurrency at one per worker process.
+  // A media job may hold several GB of temporary data and make many model calls.
+  // The queue-global ceiling configured above serializes every worker replica;
+  // local concurrency remains one as a second, process-level boundary.
   const mediaIngestionWorker = observeWorkerRuntime(
     MEDIA_INGESTION_QUEUE,
     new Worker(MEDIA_INGESTION_QUEUE, handleMediaIngestionQueueJob, {

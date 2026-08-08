@@ -35,6 +35,7 @@ test('builds isolated, credential-free suite environments with exact confirmatio
     RUN_GENERATION_RECOVERY_REDIS_INTEGRATION: 'inherited',
     RUN_GENERATION_DISPATCH_REDIS_INTEGRATION: 'inherited',
     RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION: 'inherited',
+    RUN_MEDIA_ADMISSION_REDIS_INTEGRATION: 'inherited',
     PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION: 'inherited',
     PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: 'inherited',
     PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: 'inherited',
@@ -55,6 +56,7 @@ test('builds isolated, credential-free suite environments with exact confirmatio
   assert.equal(recovery.RUN_GENERATION_RECOVERY_REDIS_INTEGRATION, '1')
   assert.equal(recovery.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION, undefined)
   assert.equal(recovery.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION, undefined)
+  assert.equal(recovery.RUN_MEDIA_ADMISSION_REDIS_INTEGRATION, undefined)
   assert.equal(recovery.PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS, undefined)
   assert.equal(recovery.PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION, undefined)
   assert.equal(
@@ -75,6 +77,15 @@ test('builds isolated, credential-free suite environments with exact confirmatio
   assert.equal(
     redrive.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION,
     'pathfinder_disposable_terminal_redrive',
+  )
+  const mediaAdmission = buildDisposableRedisChildEnv(parent, 49_155, 'media-admission')
+  assert.equal(mediaAdmission.RUN_GENERATION_RECOVERY_REDIS_INTEGRATION, undefined)
+  assert.equal(mediaAdmission.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION, undefined)
+  assert.equal(mediaAdmission.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION, undefined)
+  assert.equal(mediaAdmission.RUN_MEDIA_ADMISSION_REDIS_INTEGRATION, '1')
+  assert.equal(
+    mediaAdmission.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION,
+    'pathfinder_disposable_media_admission',
   )
 })
 
@@ -375,11 +386,12 @@ test('runs all suites without a shell and always verifies exact-container cleanu
       repositoryRoot: 'C:/pathfinder',
     }),
   )
-  assert.equal(runtime.suiteEnvironments.length, 3)
+  assert.equal(runtime.suiteEnvironments.length, 4)
   assert.equal(runtime.isRunning(), false)
   assert.match(stdout.value, /recovery suite: 2\/2 passed/u)
   assert.match(stdout.value, /dispatch suite: 2\/2 passed/u)
   assert.match(stdout.value, /terminal-redrive suite: 2\/2 passed/u)
+  assert.match(stdout.value, /media-admission suite: 2\/2 passed/u)
   assert.match(stdout.value, /removed and verified absent/u)
 })
 

@@ -33,7 +33,7 @@ export function parsePublishedRedisPort(output) {
 
 export function buildDisposableRedisChildEnv(parentEnv, port, suite) {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) refuse('Redis port is invalid')
-  if (!['recovery', 'dispatch', 'terminal-redrive'].includes(suite)) {
+  if (!['recovery', 'dispatch', 'terminal-redrive', 'media-admission'].includes(suite)) {
     refuse('Redis suite is invalid')
   }
   const childEnv = {}
@@ -48,7 +48,7 @@ export function buildDisposableRedisChildEnv(parentEnv, port, suite) {
       continue
     }
     if (
-      /^(?:run_(?:generation_.*|terminal_redrive)_redis_integration|pathfinder_disposable_redis_confirmation)$/iu.test(
+      /^(?:run_(?:generation_.*|terminal_redrive|media_admission)_redis_integration|pathfinder_disposable_redis_confirmation)$/iu.test(
         key,
       )
     ) {
@@ -73,9 +73,12 @@ export function buildDisposableRedisChildEnv(parentEnv, port, suite) {
   } else if (suite === 'dispatch') {
     childEnv.RUN_GENERATION_DISPATCH_REDIS_INTEGRATION = '1'
     childEnv.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION = 'pathfinder_disposable_generation_dispatch'
-  } else {
+  } else if (suite === 'terminal-redrive') {
     childEnv.RUN_TERMINAL_REDRIVE_REDIS_INTEGRATION = '1'
     childEnv.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION = 'pathfinder_disposable_terminal_redrive'
+  } else {
+    childEnv.RUN_MEDIA_ADMISSION_REDIS_INTEGRATION = '1'
+    childEnv.PATHFINDER_DISPOSABLE_REDIS_CONFIRMATION = 'pathfinder_disposable_media_admission'
   }
   return childEnv
 }
@@ -245,6 +248,7 @@ function runSuite({
     recovery: 'src/generation-recovery.integration.test.ts',
     dispatch: 'src/generation-dispatch.integration.test.ts',
     'terminal-redrive': 'src/terminal-redrive.integration.test.ts',
+    'media-admission': 'src/media-ingestion-admission.integration.test.ts',
   }[suite]
   if (!file) refuse('Redis suite is invalid')
   const result = runNative(
@@ -286,7 +290,7 @@ export function runGuardedRedisSuite({
   stderr = process.stderr,
   repositoryRoot = resolve(fileURLToPath(new URL('../..', import.meta.url))),
 } = {}) {
-  if (!['recovery', 'dispatch', 'terminal-redrive'].includes(suite)) {
+  if (!['recovery', 'dispatch', 'terminal-redrive', 'media-admission'].includes(suite)) {
     refuse('Redis suite is invalid')
   }
   if (
@@ -378,7 +382,7 @@ export async function runDisposableRedisIntegration({
     const port = parsePublishedRedisPort(published.stdout)
     stdout.write(`Disposable Redis ready on exact loopback port ${port}.\n`)
 
-    for (const suite of ['recovery', 'dispatch', 'terminal-redrive']) {
+    for (const suite of ['recovery', 'dispatch', 'terminal-redrive', 'media-admission']) {
       runSuite({
         suite,
         port,

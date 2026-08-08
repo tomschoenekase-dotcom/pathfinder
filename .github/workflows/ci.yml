@@ -132,6 +132,11 @@ jobs:
         env:
           PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
           PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
+      - name: Verify cross-replica media admission
+        run: pnpm test:redis:media-admission
+        env:
+          PATHFINDER_ALLOW_EXISTING_DISPOSABLE_REDIS: '1'
+          PATHFINDER_EXISTING_DISPOSABLE_REDIS_CONFIRMATION: pathfinder_ci_owned_disposable_redis
       - name: Verify embedding freshness audit isolation
         run: pnpm --dir apps/workers exec vitest run src/lib/embedding-freshness.integration.test.ts --pool=forks --maxWorkers=1
         env:

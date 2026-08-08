@@ -53,6 +53,10 @@ export type {
 } from './terminal-redrive'
 export { checkBullMQConnection, closeBullMQConnection, getBullMQConnection } from './connection'
 export {
+  configureMediaIngestionGlobalConcurrency,
+  MEDIA_INGESTION_GLOBAL_CONCURRENCY,
+} from './media-ingestion-admission'
+export {
   closeJobQueues,
   enqueueAnswerAnalysis,
   enqueueAnswerAnalysisDispatch,

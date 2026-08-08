@@ -12,9 +12,11 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    chunks run concurrently; the archive never passes through a Next.js request body. The API signs
    only the declared number of parts, requires one contiguous completed part set, then reads the
    completed object's actual size from storage before it can queue processing.
-4. A single-concurrency BullMQ worker safely extracts supported files with a 10,000-entry and 20 GB
-   actual expanded-byte ceiling. Every non-directory entry counts, including ignored formats, and
-   the crossing chunk is rejected before it reaches disk.
+4. After the global-admission rollout gate below is complete, BullMQ admits at most one media job
+   across all healthy-Redis worker replicas, with local concurrency also held at one. The admitted
+   worker safely extracts supported files with a 10,000-entry and 20 GB actual expanded-byte ceiling.
+   Every non-directory entry counts, including ignored formats, and the crossing chunk is rejected
+   before it reaches disk.
 5. Every supported image is inventoried and analyzed by default. Exact SHA-256 duplicates reuse an
    existing analysis while retaining their own source row. Videos are sampled at the configured
    interval with a 120-frame ceiling. Each FFmpeg invocation has stdin disabled, a 15-minute
@@ -80,6 +82,30 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   reserve at most 10,000 operations across all BullMQ attempts; provider failures still consume the
   reservation, exact duplicate reuse does not, and only a new upload generation resets the counter.
   The media SDK performs no hidden retries; a BullMQ retry must reserve each provider operation again.
+- Worker startup writes and reads back BullMQ's environment-scoped queue-global concurrency of one
+  before constructing any media consumer. Redis failure therefore prevents a new worker replica from
+  starting media work. BullMQ job locks and stalled-job recovery own release after normal completion,
+  failure, or process loss; the setting is never removed during ordinary shutdown.
+
+## Global-admission rollout and rollback
+
+- The setting limits newly admitted work but does not preempt media jobs that were already active
+  before the first upgraded worker wrote it. Before resuming intake or declaring a rollout ready,
+  drain and terminate every old media-worker replica, verify the queue has no more than one active
+  media job, and record that every remaining replica uses a BullMQ version supporting queue-meta
+  global concurrency. Merely pausing intake while an incompatible replica remains is insufficient.
+- Production, staging, and preview queue names are distinct. Preview deployments still share the
+  same preview queue if they are pointed at one Redis instance; the staging isolation runbook already
+  requires separate Redis resources.
+- Queue-global concurrency is persistent Redis policy. Reverting application code does not remove
+  it, and normal worker cleanup must not remove it while another replica may be running. Intentional
+  removal requires a separately authorized, inspected `removeGlobalConcurrency()` operation after
+  pausing/draining the media queue, followed by an exact `getGlobalConcurrency()` readback.
+- This is a healthy-Redis admission boundary, not a strict distributed execution mutex. Redis/lock
+  loss can leave an old processor running until its own operation fails while BullMQ later recovers
+  the stalled job. Existing upload-generation database claims and provider-operation predicates stop
+  a recovered duplicate generation from claiming the same durable work, but cooperative cancellation
+  on lock loss remains a separate hardening item.
 
 ## Current supported formats
 
