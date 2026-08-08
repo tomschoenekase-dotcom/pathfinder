@@ -4,44 +4,133 @@ import { KnowledgeEntryInput } from './knowledge'
 import { PlaceInput } from './place'
 import { VENUE_CONTENT_IMPORT_LIMIT, canonicalVenueContentImportPayload } from './venue-content'
 
-export const VENUE_PACKAGE_SCHEMA_VERSION = 1 as const
+export const VENUE_PACKAGE_SCHEMA_VERSION_V1 = 1 as const
+export const VENUE_PACKAGE_SCHEMA_VERSION_V2 = 2 as const
+/** Legacy alias retained for callers that still emit the frozen additive V1 format. */
+export const VENUE_PACKAGE_SCHEMA_VERSION = VENUE_PACKAGE_SCHEMA_VERSION_V1
+export const VENUE_PACKAGE_LATEST_SCHEMA_VERSION = VENUE_PACKAGE_SCHEMA_VERSION_V2
 export const VENUE_PACKAGE_ITEM_LIMIT = VENUE_CONTENT_IMPORT_LIMIT
 
-export const VenuePackagePayload = z
+const VenueIdentityPatch = z
   .object({
-    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION),
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(1000).nullable().optional(),
+    category: z.string().max(100).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'Include at least one venue identity field')
+
+const VenueBrandingPatch = z
+  .object({
+    chatTheme: z
+      .enum(['default', 'forest', 'sunset', 'midnight', 'rose', 'dark'])
+      .nullable()
+      .optional(),
+    chatAccentColor: z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a hex colour e.g. #3A7BD5')
+      .nullable()
+      .optional(),
+    chatFont: z
+      .enum(['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'playfair'])
+      .nullable()
+      .optional(),
+    chatLogoUrl: z.string().url().max(500).nullable().optional(),
+    chatBannerUrl: z.string().url().max(500).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'Include at least one venue branding field')
+
+const VenueAiBehaviorPatch = z
+  .object({
+    aiGuideNotes: z.string().max(2000).nullable().optional(),
+    aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).nullable().optional(),
+    aiGuideName: z.string().max(80).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'Include at least one AI behavior field')
+
+export const VenuePackageVenuePatch = z
+  .object({
+    identity: VenueIdentityPatch.optional(),
+    guideNotes: z.string().max(2000).nullable().optional(),
+    branding: VenueBrandingPatch.optional(),
+    aiBehavior: VenueAiBehaviorPatch.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, 'Include at least one venue field')
+
+const VenuePackagePayloadV1Object = z
+  .object({
+    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION_V1),
     places: z.array(PlaceInput).max(VENUE_CONTENT_IMPORT_LIMIT),
     knowledgeEntries: z.array(KnowledgeEntryInput.strict()).max(VENUE_CONTENT_IMPORT_LIMIT),
   })
   .strict()
-  .superRefine((input, ctx) => {
-    if (input.places.length + input.knowledgeEntries.length === 0) {
+
+const VenuePackagePayloadV2Object = z
+  .object({
+    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION_V2),
+    venue: VenuePackageVenuePatch.optional(),
+    places: z.array(PlaceInput).max(VENUE_CONTENT_IMPORT_LIMIT).default([]),
+    knowledgeEntries: z
+      .array(KnowledgeEntryInput.strict())
+      .max(VENUE_CONTENT_IMPORT_LIMIT)
+      .default([]),
+  })
+  .strict()
+
+function validatePayloadOperations(
+  input: {
+    schemaVersion: 1 | 2
+    places: Array<{ lat?: number | undefined; lng?: number | undefined }>
+    knowledgeEntries: unknown[]
+    venue?: unknown
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    input.places.length + input.knowledgeEntries.length === 0 &&
+    (input.schemaVersion === VENUE_PACKAGE_SCHEMA_VERSION_V1 || input.venue === undefined)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        input.schemaVersion === VENUE_PACKAGE_SCHEMA_VERSION_V1
+          ? 'Include at least one guide item or knowledge entry'
+          : 'Include at least one venue field, guide item, or knowledge entry',
+    })
+  }
+
+  if (input.places.length + input.knowledgeEntries.length > VENUE_PACKAGE_ITEM_LIMIT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.too_big,
+      maximum: VENUE_PACKAGE_ITEM_LIMIT,
+      type: 'array',
+      inclusive: true,
+      message: `A venue package can contain at most ${VENUE_PACKAGE_ITEM_LIMIT} total items`,
+    })
+  }
+
+  input.places.forEach((place, index) => {
+    if ((place.lat === undefined) !== (place.lng === undefined)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Include at least one guide item or knowledge entry',
+        path: ['places', index],
+        message: 'Latitude and longitude must be supplied together',
       })
     }
-
-    if (input.places.length + input.knowledgeEntries.length > VENUE_PACKAGE_ITEM_LIMIT) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.too_big,
-        maximum: VENUE_PACKAGE_ITEM_LIMIT,
-        type: 'array',
-        inclusive: true,
-        message: `A venue package can contain at most ${VENUE_PACKAGE_ITEM_LIMIT} total items`,
-      })
-    }
-
-    input.places.forEach((place, index) => {
-      if ((place.lat === undefined) !== (place.lng === undefined)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['places', index],
-          message: 'Latitude and longitude must be supplied together',
-        })
-      }
-    })
   })
+}
+
+export const VenuePackagePayloadV1 =
+  VenuePackagePayloadV1Object.superRefine(validatePayloadOperations)
+export const VenuePackagePayloadV2 =
+  VenuePackagePayloadV2Object.superRefine(validatePayloadOperations)
+
+export const VenuePackagePayload = z
+  .discriminatedUnion('schemaVersion', [VenuePackagePayloadV1Object, VenuePackagePayloadV2Object])
+  .superRefine(validatePayloadOperations)
 
 export const VenuePackagePreviewInput = z
   .object({
@@ -145,85 +234,273 @@ export const VenuePackageValidationReport = z
   .strict()
 
 const EmptyChangeSet = z.array(z.unknown()).max(0)
+const Hash = z.string().regex(/^[a-f0-9]{64}$/)
 
-export const VenuePackageStoredPreview = z
+const PlaceAdditiveChanges = z
   .object({
-    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION),
-    payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
-    baseDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    add: z.array(PlaceInput),
+    change: EmptyChangeSet,
+    remove: EmptyChangeSet,
+    unchanged: z.number().int().nonnegative(),
+  })
+  .strict()
+
+const KnowledgeAdditiveChanges = z
+  .object({
+    add: z.array(KnowledgeEntryInput.strict()),
+    change: EmptyChangeSet,
+    remove: EmptyChangeSet,
+    unchanged: z.number().int().nonnegative(),
+  })
+  .strict()
+
+const nullableString = z.string().nullable()
+
+export const VenuePackageVenueSnapshot = z
+  .object({
+    // Snapshots are factual rollback evidence. They deliberately accept legacy
+    // values that predate today's write validation; only new patch values are bounded.
+    name: z.string(),
+    description: nullableString,
+    category: nullableString,
+    guideNotes: nullableString,
+    chatTheme: nullableString,
+    chatAccentColor: nullableString,
+    chatFont: nullableString,
+    chatLogoUrl: nullableString,
+    chatBannerUrl: nullableString,
+    aiGuideNotes: nullableString,
+    aiTone: nullableString,
+    aiGuideName: nullableString,
+  })
+  .strict()
+
+function venueStringChange<TPath extends string, TValue extends z.ZodTypeAny>(
+  path: TPath,
+  after: TValue,
+) {
+  return z.object({ path: z.literal(path), before: nullableString, after }).strict()
+}
+
+export const VenuePackageVenueChange = z.discriminatedUnion('path', [
+  z
+    .object({
+      path: z.literal('venue.identity.name'),
+      before: z.string(),
+      after: z.string().min(1).max(200),
+    })
+    .strict(),
+  venueStringChange('venue.identity.description', z.string().max(1000).nullable()),
+  venueStringChange('venue.identity.category', z.string().max(100).nullable()),
+  venueStringChange('venue.guideNotes', z.string().max(2000).nullable()),
+  venueStringChange(
+    'venue.branding.chatTheme',
+    z.enum(['default', 'forest', 'sunset', 'midnight', 'rose', 'dark']).nullable(),
+  ),
+  venueStringChange(
+    'venue.branding.chatAccentColor',
+    z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/)
+      .nullable(),
+  ),
+  venueStringChange(
+    'venue.branding.chatFont',
+    z.enum(['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'playfair']).nullable(),
+  ),
+  venueStringChange('venue.branding.chatLogoUrl', z.string().url().max(500).nullable()),
+  venueStringChange('venue.branding.chatBannerUrl', z.string().url().max(500).nullable()),
+  venueStringChange('venue.aiBehavior.aiGuideNotes', z.string().max(2000).nullable()),
+  venueStringChange(
+    'venue.aiBehavior.aiTone',
+    z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).nullable(),
+  ),
+  venueStringChange('venue.aiBehavior.aiGuideName', z.string().max(80).nullable()),
+])
+
+const StoredPreviewCommon = {
+  payloadHash: Hash,
+  baseDigest: Hash,
+  warningDigest: Hash,
+  report: VenuePackageValidationReport,
+}
+
+export const VenuePackageStoredPreviewV1 = z
+  .object({
+    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION_V1),
+    ...StoredPreviewCommon,
     mode: z.literal('ADDITIVE_V1'),
-    warningDigest: z.string().regex(/^[a-f0-9]{64}$/),
-    report: VenuePackageValidationReport,
     changes: z
       .object({
-        places: z
-          .object({
-            add: z.array(PlaceInput),
-            change: EmptyChangeSet,
-            remove: EmptyChangeSet,
-            unchanged: z.number().int().nonnegative(),
-          })
-          .strict(),
-        knowledgeEntries: z
-          .object({
-            add: z.array(KnowledgeEntryInput.strict()),
-            change: EmptyChangeSet,
-            remove: EmptyChangeSet,
-            unchanged: z.number().int().nonnegative(),
-          })
-          .strict(),
+        places: PlaceAdditiveChanges,
+        knowledgeEntries: KnowledgeAdditiveChanges,
       })
       .strict(),
   })
   .strict()
 
-export const VenuePackageAppliedEntities = z
+export const VenuePackageStoredPreviewV2 = z
   .object({
-    postApplyDigest: z.string().regex(/^[a-f0-9]{64}$/),
-    places: z.array(
-      z
-        .object({
-          id: z.string().cuid(),
-          name: z.string().min(1).max(200),
-          type: z.string().min(1),
-          itemType: z.string().nullable(),
-          shortDescription: z.string().nullable(),
-          longDescription: z.string().nullable(),
-          lat: z.number().nullable(),
-          lng: z.number().nullable(),
-          tags: z.array(z.string()),
-          importanceScore: z.number().int().min(0).max(100),
-          areaName: z.string().nullable(),
-          hours: z.string().nullable(),
-          photoUrl: z.string().nullable(),
-        })
-        .strict(),
-    ),
-    knowledgeEntries: z.array(KnowledgeEntryInput.extend({ id: z.string().cuid() }).strict()),
+    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION_V2),
+    ...StoredPreviewCommon,
+    mode: z.literal('CONFIG_PATCH_AND_ADDITIVE_V2'),
+    changes: z
+      .object({
+        venue: z
+          .object({
+            change: z.array(VenuePackageVenueChange),
+            unchanged: z.number().int().nonnegative(),
+          })
+          .strict(),
+        places: PlaceAdditiveChanges,
+        knowledgeEntries: KnowledgeAdditiveChanges,
+      })
+      .strict(),
   })
   .strict()
+
+export const VenuePackageStoredPreview = z.discriminatedUnion('schemaVersion', [
+  VenuePackageStoredPreviewV1,
+  VenuePackageStoredPreviewV2,
+])
+
+const AppliedPlace = z
+  .object({
+    id: z.string().cuid(),
+    name: z.string().min(1).max(200),
+    type: z.string().min(1),
+    itemType: nullableString,
+    shortDescription: nullableString,
+    longDescription: nullableString,
+    lat: z.number().nullable(),
+    lng: z.number().nullable(),
+    tags: z.array(z.string()),
+    importanceScore: z.number().int().min(0).max(100),
+    areaName: nullableString,
+    hours: nullableString,
+    photoUrl: nullableString,
+  })
+  .strict()
+
+const AppliedKnowledgeEntry = KnowledgeEntryInput.extend({ id: z.string().cuid() }).strict()
+
+export const VenuePackageAppliedEntitiesV1 = z
+  .object({
+    postApplyDigest: Hash,
+    places: z.array(AppliedPlace),
+    knowledgeEntries: z.array(AppliedKnowledgeEntry),
+  })
+  .strict()
+
+export const VenuePackageAppliedEntitiesV2 = z
+  .object({
+    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION_V2),
+    postApplyDigest: Hash,
+    venue: z
+      .object({ before: VenuePackageVenueSnapshot, after: VenuePackageVenueSnapshot })
+      .strict()
+      .nullable(),
+    places: z.array(AppliedPlace),
+    knowledgeEntries: z.array(AppliedKnowledgeEntry),
+  })
+  .strict()
+
+/** V1 has no discriminator in persisted rows, so the compatibility union is intentionally ordered. */
+export const VenuePackageAppliedEntities = z.union([
+  VenuePackageAppliedEntitiesV1,
+  VenuePackageAppliedEntitiesV2,
+])
+
+function canonicalVenuePatch(patch: z.infer<typeof VenuePackageVenuePatch> | undefined) {
+  if (!patch) return null
+  return {
+    ...(patch.identity
+      ? {
+          identity: {
+            ...(patch.identity.name !== undefined ? { name: patch.identity.name } : {}),
+            ...(patch.identity.description !== undefined
+              ? { description: patch.identity.description }
+              : {}),
+            ...(patch.identity.category !== undefined ? { category: patch.identity.category } : {}),
+          },
+        }
+      : {}),
+    ...(patch.guideNotes !== undefined ? { guideNotes: patch.guideNotes } : {}),
+    ...(patch.branding
+      ? {
+          branding: {
+            ...(patch.branding.chatTheme !== undefined
+              ? { chatTheme: patch.branding.chatTheme }
+              : {}),
+            ...(patch.branding.chatAccentColor !== undefined
+              ? { chatAccentColor: patch.branding.chatAccentColor }
+              : {}),
+            ...(patch.branding.chatFont !== undefined ? { chatFont: patch.branding.chatFont } : {}),
+            ...(patch.branding.chatLogoUrl !== undefined
+              ? { chatLogoUrl: patch.branding.chatLogoUrl }
+              : {}),
+            ...(patch.branding.chatBannerUrl !== undefined
+              ? { chatBannerUrl: patch.branding.chatBannerUrl }
+              : {}),
+          },
+        }
+      : {}),
+    ...(patch.aiBehavior
+      ? {
+          aiBehavior: {
+            ...(patch.aiBehavior.aiGuideNotes !== undefined
+              ? { aiGuideNotes: patch.aiBehavior.aiGuideNotes }
+              : {}),
+            ...(patch.aiBehavior.aiTone !== undefined ? { aiTone: patch.aiBehavior.aiTone } : {}),
+            ...(patch.aiBehavior.aiGuideName !== undefined
+              ? { aiGuideName: patch.aiBehavior.aiGuideName }
+              : {}),
+          },
+        }
+      : {}),
+  }
+}
 
 export function canonicalVenuePackagePayload(
   venueId: string,
   payload: z.infer<typeof VenuePackagePayload>,
 ): string {
+  const canonicalContent = canonicalVenueContentImportPayload({
+    venueId,
+    places: payload.places,
+    knowledgeEntries: payload.knowledgeEntries,
+  })
+  if (payload.schemaVersion === VENUE_PACKAGE_SCHEMA_VERSION_V1) {
+    return JSON.stringify([
+      'pathfinder:venue-package:canonical-v1',
+      payload.schemaVersion,
+      canonicalContent,
+    ])
+  }
   return JSON.stringify([
-    'pathfinder:venue-package:canonical-v1',
+    'pathfinder:venue-package:canonical-v2',
     payload.schemaVersion,
-    canonicalVenueContentImportPayload({
-      venueId,
-      places: payload.places,
-      knowledgeEntries: payload.knowledgeEntries,
-    }),
+    venueId,
+    canonicalVenuePatch(payload.venue),
+    canonicalContent,
   ])
 }
 
+export type VenuePackageVenuePatch = z.infer<typeof VenuePackageVenuePatch>
+export type VenuePackageVenueSnapshot = z.infer<typeof VenuePackageVenueSnapshot>
+export type VenuePackageVenueChange = z.infer<typeof VenuePackageVenueChange>
+export type VenuePackagePayloadV1 = z.infer<typeof VenuePackagePayloadV1>
+export type VenuePackagePayloadV2 = z.infer<typeof VenuePackagePayloadV2>
 export type VenuePackagePayload = z.infer<typeof VenuePackagePayload>
 export type VenuePackageDraftInput = z.infer<typeof VenuePackageDraftInput>
 export type VenuePackagePreviewInput = z.infer<typeof VenuePackagePreviewInput>
 export type VenuePackageLifecycleInput = z.infer<typeof VenuePackageLifecycleInput>
+export type VenuePackageAppliedEntitiesV1 = z.infer<typeof VenuePackageAppliedEntitiesV1>
+export type VenuePackageAppliedEntitiesV2 = z.infer<typeof VenuePackageAppliedEntitiesV2>
 export type VenuePackageAppliedEntities = z.infer<typeof VenuePackageAppliedEntities>
 export type VenuePackageIssue = z.infer<typeof VenuePackageIssue>
 export type VenuePackageSemanticDuplicateScan = z.infer<typeof VenuePackageSemanticDuplicateScan>
 export type VenuePackageValidationReport = z.infer<typeof VenuePackageValidationReport>
+export type VenuePackageStoredPreviewV1 = z.infer<typeof VenuePackageStoredPreviewV1>
+export type VenuePackageStoredPreviewV2 = z.infer<typeof VenuePackageStoredPreviewV2>
 export type VenuePackageStoredPreview = z.infer<typeof VenuePackageStoredPreview>

@@ -34,11 +34,17 @@ export {
 export {
   canonicalVenuePackagePayload,
   VENUE_PACKAGE_ITEM_LIMIT,
+  VENUE_PACKAGE_LATEST_SCHEMA_VERSION,
   VENUE_PACKAGE_SCHEMA_VERSION,
+  VENUE_PACKAGE_SCHEMA_VERSION_V1,
+  VENUE_PACKAGE_SCHEMA_VERSION_V2,
   VenuePackageAppliedEntities,
   VenuePackageByIdInput,
   VenuePackageDraftInput,
   VenuePackageLifecycleInput,
   VenuePackagePayload,
+  VenuePackagePayloadV1,
+  VenuePackagePayloadV2,
   VenuePackageStoredPreview,
+  VenuePackageVenuePatch,
 } from './schemas/venue-package'

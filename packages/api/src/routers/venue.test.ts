@@ -295,6 +295,7 @@ describe('venue router', () => {
     const result = await caller.venue.update({ id: 'cuid1234567890abcdef', name: 'Updated Zoo' })
 
     expect(result).toMatchObject({ name: 'Updated Zoo' })
+    expect(dbExecuteRaw).toHaveBeenCalled()
     expect(venueUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant_1' }) }),
     )
@@ -586,6 +587,7 @@ describe('venue router', () => {
     const caller = testRouter.createCaller(managerCtx())
     await caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: 'Keep it concise' })
 
+    expect(dbExecuteRaw).toHaveBeenCalled()
     expect(dbQueryRaw).toHaveBeenCalledOnce()
     expect(enqueueEmbedPlaceMock).toHaveBeenCalledTimes(2)
     expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(1, {
@@ -652,6 +654,7 @@ describe('venue router', () => {
     })
 
     expect(result).toMatchObject({ chatTheme: 'dark', chatFont: 'inter' })
+    expect(dbExecuteRaw).toHaveBeenCalled()
     expect(venueUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ chatTheme: 'dark', chatFont: 'inter' }),
@@ -688,6 +691,7 @@ describe('venue router', () => {
     const result = await caller.venue.delete({ id: 'cuid1234567890abcdef' })
 
     expect(result).toEqual({ id: 'cuid1234567890abcdef' })
+    expect(dbExecuteRaw).toHaveBeenCalled()
     expect(venueDeleteMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant_1' }) }),
     )
@@ -700,6 +704,20 @@ describe('venue router', () => {
 
     await expect(caller.venue.delete({ id: 'cuid1234567890abcdef' })).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }),
+    )
+  })
+
+  it('venue.delete reports retained package history as a conflict', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'cuid1234567890abcdef', _count: { places: 0 } })
+    venueDeleteMany.mockRejectedValueOnce({ code: 'P2003' })
+
+    const caller = testRouter.createCaller(ownerCtx())
+
+    await expect(caller.venue.delete({ id: 'cuid1234567890abcdef' })).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({
+        code: 'CONFLICT',
+        message: expect.stringContaining('dependent history'),
+      }),
     )
   })
 

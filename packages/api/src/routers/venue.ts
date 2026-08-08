@@ -290,6 +290,8 @@ export const venueRouter = router({
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.id })
+
       const existing = await ctx.db.venue.findFirst({
         where: { id: input.id, tenantId },
         select: { id: true },
@@ -445,6 +447,7 @@ export const venueRouter = router({
       const tenantId = ctx.session.activeTenantId
       const updated = await ctx.db.$transaction(async (tx) => {
         await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
         const venue = await tx.venue.findFirst({
           where: { id: input.venueId, tenantId },
           select: { id: true, tenantId: true },
@@ -534,6 +537,7 @@ export const venueRouter = router({
       const tenantId = ctx.session.activeTenantId
       const updated = await ctx.db.$transaction(async (tx) => {
         await setContentVersionContext(tx, { actorId: ctx.session.userId })
+        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
         const venue = await tx.venue.findFirst({
           where: { id: input.venueId, tenantId },
           select: { id: true },
@@ -586,6 +590,8 @@ export const venueRouter = router({
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.id })
+
       const venue = await ctx.db.venue.findFirst({
         where: { id: input.id, tenantId },
         select: { id: true, _count: { select: { places: true } } },
@@ -603,7 +609,26 @@ export const venueRouter = router({
       }
 
       // deleteMany accepts tenantId in where; delete does not (Prisma unique-key constraint)
-      await ctx.db.venue.deleteMany({ where: { id: input.id, tenantId } })
+      try {
+        const deleted = await ctx.db.venue.deleteMany({ where: { id: input.id, tenantId } })
+        if (deleted.count !== 1) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during deletion' })
+        }
+      } catch (error: unknown) {
+        if (
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          error.code === 'P2003'
+        ) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Retained package or other dependent history prevents deleting this venue',
+            cause: error,
+          })
+        }
+        throw error
+      }
 
       return { id: input.id }
     }),

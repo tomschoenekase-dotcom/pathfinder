@@ -63,6 +63,11 @@ function statusClass(status: PackageRecord['status']) {
   return 'bg-amber-100 text-amber-800'
 }
 
+function venueConfigValue(value: string | null, isAfter = false): string {
+  if (value === null) return isAfter ? 'null (clear)' : 'null'
+  return JSON.stringify(value)
+}
+
 export function VenueJsonImporter({
   venueId,
   venueName,
@@ -321,11 +326,15 @@ export function VenueJsonImporter({
         <section className="rounded-lg border border-gray-200 bg-white p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-semibold text-gray-900">Exact additive preview</h3>
+              <h3 className="font-semibold text-gray-900">
+                {preview.schemaVersion === 2
+                  ? 'Exact venue configuration patch + additive preview'
+                  : 'Exact additive preview'}
+              </h3>
               <p className="mt-1 font-mono text-xs text-gray-500">{preview.payloadHash}</p>
             </div>
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-              {preview.mode}
+              Mode: {preview.mode}
             </span>
           </div>
 
@@ -395,6 +404,43 @@ export function VenueJsonImporter({
                 />
                 I reviewed all {warningCount} warning{warningCount === 1 ? '' : 's'}.
               </label>
+            </div>
+          )}
+
+          {preview.schemaVersion === 2 && (
+            <div className="mt-4 rounded-md border border-indigo-200 bg-indigo-50 p-4">
+              <h4 className="text-sm font-semibold text-indigo-900">
+                Venue configuration changes ({preview.changes.venue.change.length})
+              </h4>
+              {preview.changes.venue.change.length === 0 ? (
+                <p className="mt-2 text-sm text-indigo-800">
+                  No venue configuration fields change.
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-2 text-sm text-indigo-900">
+                  {preview.changes.venue.change.map((change) => (
+                    <li key={change.path} className="rounded bg-white/70 p-2">
+                      <code className="block text-xs font-semibold">{change.path}</code>
+                      <span className="mt-1 block font-mono text-xs">
+                        {venueConfigValue(change.before)} → {venueConfigValue(change.after, true)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-xs text-indigo-700">
+                {preview.changes.venue.unchanged} venue configuration fields unchanged.
+              </p>
+              {preview.changes.venue.change.some(
+                (change) =>
+                  change.path === 'venue.branding.chatLogoUrl' ||
+                  change.path === 'venue.branding.chatBannerUrl',
+              ) && (
+                <p className="mt-2 text-xs text-indigo-800">
+                  Branding URL fields are compatible external URL references. This package does not
+                  upload, copy, or host image assets.
+                </p>
+              )}
             </div>
           )}
 

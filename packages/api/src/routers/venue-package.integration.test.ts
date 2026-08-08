@@ -43,6 +43,7 @@ import { db, lockVenueContentMutation } from '@pathfinder/db'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
+import { venueRouter } from './venue'
 import { venuePackageRouter } from './venue-package'
 
 const integrationDescribe =
@@ -68,12 +69,14 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
   const tenantId = `venue-package-tenant-${suffix}`
   const otherTenantId = `venue-package-other-${suffix}`
   const actorId = `venue-package-user-${suffix}`
-  const testRouter = router({ venuePackage: venuePackageRouter })
+  const testRouter = router({ venue: venueRouter, venuePackage: venuePackageRouter })
   let venueId = ''
   let concurrentVenueId = ''
   let failureVenueId = ''
   let serializedVenueId = ''
   let idempotentVenueId = ''
+  let configVenueId = ''
+  let settingsLockVenueId = ''
 
   function ctx(
     role: 'STAFF' | 'MANAGER' | 'OWNER' = 'OWNER',
@@ -141,6 +144,8 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     failureVenueId = (await createVenue('Failure venue')).id
     serializedVenueId = (await createVenue('Serialized venue')).id
     idempotentVenueId = (await createVenue('Idempotent venue')).id
+    configVenueId = (await createVenue('Configuration venue')).id
+    settingsLockVenueId = (await createVenue('Settings lock venue')).id
   })
 
   afterAll(async () => {
@@ -304,6 +309,226 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     })
     expect(newRevision).toMatchObject({ status: 'DRAFT', replayed: false })
     expect(newRevision.id).not.toBe(draft.id)
+  })
+
+  it('applies and restores a versioned venue configuration without provider spend', async () => {
+    const caller = testRouter.createCaller(ctx())
+    const payload = {
+      schemaVersion: 2 as const,
+      venue: {
+        identity: {
+          name: 'Configuration venue refreshed',
+          description: 'A portable venue identity patch.',
+          category: 'museum',
+        },
+        guideNotes: 'Keep directions concise.',
+        branding: {
+          chatTheme: 'forest' as const,
+          chatAccentColor: '#3A7BD5',
+          chatFont: 'inter' as const,
+          chatLogoUrl: 'https://example.invalid/pathfinder-logo.png',
+          chatBannerUrl: null,
+        },
+        aiBehavior: {
+          aiGuideNotes: 'Prefer accessible routes.',
+          aiTone: 'PROFESSIONAL' as const,
+          aiGuideName: 'Pip',
+        },
+      },
+      places: [],
+      knowledgeEntries: [],
+    }
+    await db.venue.updateMany({
+      where: { id: configVenueId, tenantId },
+      data: { chatBannerUrl: 'https://example.invalid/legacy-banner.png' },
+    })
+    const original = await db.venue.findFirstOrThrow({
+      where: { id: configVenueId, tenantId },
+    })
+    const providerCallsBefore = vi.mocked(generateEmbeddings).mock.calls.length
+    const preview = await caller.venuePackage.preview({ venueId: configVenueId, payload })
+    expect(preview).toMatchObject({
+      schemaVersion: 2,
+      mode: 'CONFIG_PATCH_AND_ADDITIVE_V2',
+      report: { errors: [], semanticDuplicateScan: { status: 'NOT_RUN' } },
+      changes: {
+        venue: {
+          change: expect.arrayContaining([
+            {
+              path: 'venue.identity.name',
+              before: original.name,
+              after: payload.venue.identity.name,
+            },
+            {
+              path: 'venue.branding.chatBannerUrl',
+              before: original.chatBannerUrl,
+              after: null,
+            },
+          ]),
+        },
+      },
+    })
+
+    const draft = await caller.venuePackage.createDraft({
+      venueId: configVenueId,
+      payload,
+      draftKey: randomUUID(),
+    })
+    expect(vi.mocked(generateEmbeddings).mock.calls.length).toBe(providerCallsBefore)
+    expect(draft.preview.report.semanticDuplicateScan).toMatchObject({
+      status: 'COMPLETE',
+      scopes: {
+        places: { inputCount: 0, scannedInputCount: 0 },
+        knowledgeEntries: { inputCount: 0, scannedInputCount: 0 },
+      },
+    })
+    const approved = await caller.venuePackage.approve({
+      id: draft.id,
+      expectedUpdatedAt: draft.updatedAt,
+      commandKey: randomUUID(),
+      acknowledgedWarningDigest: draft.preview.warningDigest,
+      acknowledgedPayloadHash: draft.payloadHash,
+    })
+    const applied = await caller.venuePackage.applyPackage({
+      id: draft.id,
+      expectedUpdatedAt: approved.updatedAt,
+      commandKey: randomUUID(),
+    })
+    expect(applied.appliedEntities).toMatchObject({
+      schemaVersion: 2,
+      venue: {
+        before: { name: original.name },
+        after: { name: payload.venue.identity.name },
+      },
+      places: [],
+      knowledgeEntries: [],
+    })
+    await expect(
+      db.venue.findFirstOrThrow({ where: { id: configVenueId, tenantId } }),
+    ).resolves.toMatchObject({
+      name: payload.venue.identity.name,
+      description: payload.venue.identity.description,
+      category: payload.venue.identity.category,
+      guideNotes: payload.venue.guideNotes,
+      chatTheme: payload.venue.branding.chatTheme,
+      chatAccentColor: payload.venue.branding.chatAccentColor,
+      chatFont: payload.venue.branding.chatFont,
+      chatLogoUrl: payload.venue.branding.chatLogoUrl,
+      chatBannerUrl: payload.venue.branding.chatBannerUrl,
+      aiGuideNotes: payload.venue.aiBehavior.aiGuideNotes,
+      aiTone: payload.venue.aiBehavior.aiTone,
+      aiGuideName: payload.venue.aiBehavior.aiGuideName,
+    })
+
+    await caller.venuePackage.revertPackage({
+      id: draft.id,
+      expectedUpdatedAt: applied.updatedAt,
+      commandKey: randomUUID(),
+    })
+    await expect(
+      db.venue.findFirstOrThrow({ where: { id: configVenueId, tenantId } }),
+    ).resolves.toMatchObject({
+      name: original.name,
+      description: original.description,
+      category: original.category,
+      guideNotes: original.guideNotes,
+      chatTheme: original.chatTheme,
+      chatAccentColor: original.chatAccentColor,
+      chatFont: original.chatFont,
+      chatLogoUrl: original.chatLogoUrl,
+      chatBannerUrl: original.chatBannerUrl,
+      aiGuideNotes: original.aiGuideNotes,
+      aiTone: original.aiTone,
+      aiGuideName: original.aiGuideName,
+    })
+    const venueHistory = await db.contentVersion.findMany({
+      where: {
+        tenantId,
+        venueId: configVenueId,
+        entityType: 'VENUE',
+        entityId: configVenueId,
+        actorId,
+      },
+      select: { operation: true, beforeState: true, afterState: true, actorId: true },
+      orderBy: { sequence: 'asc' },
+    })
+    expect(venueHistory).toHaveLength(2)
+    expect(venueHistory).toEqual([
+      expect.objectContaining({
+        operation: 'UPDATE',
+        actorId,
+        beforeState: expect.objectContaining({ name: original.name }),
+        afterState: expect.objectContaining({ name: payload.venue.identity.name }),
+      }),
+      expect.objectContaining({
+        operation: 'UPDATE',
+        actorId,
+        beforeState: expect.objectContaining({ name: payload.venue.identity.name }),
+        afterState: expect.objectContaining({ name: original.name }),
+      }),
+    ])
+
+    await expect(caller.venue.delete({ id: configVenueId })).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: expect.stringContaining('dependent history'),
+    })
+    await expect(db.venue.count({ where: { id: configVenueId, tenantId } })).resolves.toBe(1)
+  })
+
+  it('serializes ordinary venue settings and deletion through the package content lock', async () => {
+    const caller = testRouter.createCaller(ctx())
+    let signalLockAcquired!: () => void
+    let releaseLock!: () => void
+    const lockAcquired = new Promise<void>((resolve) => {
+      signalLockAcquired = resolve
+    })
+    const lockRelease = new Promise<void>((resolve) => {
+      releaseLock = resolve
+    })
+    const blocker = db.$transaction(async (tx) => {
+      await lockVenueContentMutation(tx, { tenantId, venueId: settingsLockVenueId })
+      signalLockAcquired()
+      await lockRelease
+    })
+    await lockAcquired
+
+    let updateSettled = false
+    const update = caller.venue
+      .update({ id: settingsLockVenueId, name: 'Settings lock venue updated' })
+      .finally(() => {
+        updateSettled = true
+      })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(updateSettled).toBe(false)
+    releaseLock()
+    await blocker
+    await expect(update).resolves.toMatchObject({ name: 'Settings lock venue updated' })
+
+    let signalDeleteLock!: () => void
+    let releaseDeleteLock!: () => void
+    const deleteLockAcquired = new Promise<void>((resolve) => {
+      signalDeleteLock = resolve
+    })
+    const deleteLockRelease = new Promise<void>((resolve) => {
+      releaseDeleteLock = resolve
+    })
+    const deleteBlocker = db.$transaction(async (tx) => {
+      await lockVenueContentMutation(tx, { tenantId, venueId: settingsLockVenueId })
+      signalDeleteLock()
+      await deleteLockRelease
+    })
+    await deleteLockAcquired
+
+    let deleteSettled = false
+    const deletion = caller.venue.delete({ id: settingsLockVenueId }).finally(() => {
+      deleteSettled = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(deleteSettled).toBe(false)
+    releaseDeleteLock()
+    await deleteBlocker
+    await expect(deletion).resolves.toEqual({ id: settingsLockVenueId })
+    await expect(db.venue.count({ where: { id: settingsLockVenueId, tenantId } })).resolves.toBe(0)
   })
 
   it('allows only one concurrent package application per venue', async () => {

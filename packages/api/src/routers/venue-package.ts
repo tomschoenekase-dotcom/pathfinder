@@ -12,6 +12,8 @@ import {
   canonicalVenuePackagePayload,
   VenuePackageApprovalInput,
   VenuePackageAppliedEntities,
+  VenuePackageAppliedEntitiesV1,
+  VenuePackageAppliedEntitiesV2,
   VenuePackageByIdInput,
   VenuePackageDraftInput,
   VenuePackageLifecycleInput,
@@ -19,6 +21,8 @@ import {
   VenuePackagePreviewInput,
   VenuePackageStoredPreview,
   VenuePackageValidationReport,
+  VenuePackageVenueChange,
+  VenuePackageVenueSnapshot,
   type VenuePackageIssue,
 } from '../schemas/venue-package'
 import { router } from '../core'
@@ -39,6 +43,23 @@ import { tenantProcedure } from '../trpc'
 
 type DbClient = TRPCContext['db']
 type PackagePayload = VenuePackagePayload
+
+const venuePackageVenueSelect = {
+  id: true,
+  guideMode: true,
+  name: true,
+  description: true,
+  category: true,
+  guideNotes: true,
+  chatTheme: true,
+  chatAccentColor: true,
+  chatFont: true,
+  chatLogoUrl: true,
+  chatBannerUrl: true,
+  aiGuideNotes: true,
+  aiTone: true,
+  aiGuideName: true,
+} as const
 
 const venuePackageSelect = {
   id: true,
@@ -92,10 +113,85 @@ function normalizeLabel(value: string): string {
 async function assertVenue(db: DbClient, tenantId: string, venueId: string) {
   const venue = await db.venue.findFirst({
     where: { id: venueId, tenantId },
-    select: { id: true, guideMode: true },
+    select: venuePackageVenueSelect,
   })
   if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
   return venue
+}
+
+type PackageVenue = Awaited<ReturnType<typeof assertVenue>>
+
+function venueSnapshot(venue: PackageVenue): VenuePackageVenueSnapshot {
+  return VenuePackageVenueSnapshot.parse({
+    name: venue.name,
+    description: venue.description,
+    category: venue.category,
+    guideNotes: venue.guideNotes,
+    chatTheme: venue.chatTheme,
+    chatAccentColor: venue.chatAccentColor,
+    chatFont: venue.chatFont,
+    chatLogoUrl: venue.chatLogoUrl,
+    chatBannerUrl: venue.chatBannerUrl,
+    aiGuideNotes: venue.aiGuideNotes,
+    aiTone: venue.aiTone,
+    aiGuideName: venue.aiGuideName,
+  })
+}
+
+function venuePatchData(payload: PackagePayload): Partial<VenuePackageVenueSnapshot> {
+  if (payload.schemaVersion !== 2 || !payload.venue) return {}
+  const { identity, branding, aiBehavior } = payload.venue
+  return {
+    ...(identity?.name !== undefined ? { name: identity.name } : {}),
+    ...(identity?.description !== undefined ? { description: identity.description } : {}),
+    ...(identity?.category !== undefined ? { category: identity.category } : {}),
+    ...(payload.venue.guideNotes !== undefined ? { guideNotes: payload.venue.guideNotes } : {}),
+    ...(branding?.chatTheme !== undefined ? { chatTheme: branding.chatTheme } : {}),
+    ...(branding?.chatAccentColor !== undefined
+      ? { chatAccentColor: branding.chatAccentColor }
+      : {}),
+    ...(branding?.chatFont !== undefined ? { chatFont: branding.chatFont } : {}),
+    ...(branding?.chatLogoUrl !== undefined ? { chatLogoUrl: branding.chatLogoUrl } : {}),
+    ...(branding?.chatBannerUrl !== undefined ? { chatBannerUrl: branding.chatBannerUrl } : {}),
+    ...(aiBehavior?.aiGuideNotes !== undefined ? { aiGuideNotes: aiBehavior.aiGuideNotes } : {}),
+    ...(aiBehavior?.aiTone !== undefined ? { aiTone: aiBehavior.aiTone } : {}),
+    ...(aiBehavior?.aiGuideName !== undefined ? { aiGuideName: aiBehavior.aiGuideName } : {}),
+  }
+}
+
+const venueChangePaths = {
+  name: 'venue.identity.name',
+  description: 'venue.identity.description',
+  category: 'venue.identity.category',
+  guideNotes: 'venue.guideNotes',
+  chatTheme: 'venue.branding.chatTheme',
+  chatAccentColor: 'venue.branding.chatAccentColor',
+  chatFont: 'venue.branding.chatFont',
+  chatLogoUrl: 'venue.branding.chatLogoUrl',
+  chatBannerUrl: 'venue.branding.chatBannerUrl',
+  aiGuideNotes: 'venue.aiBehavior.aiGuideNotes',
+  aiTone: 'venue.aiBehavior.aiTone',
+  aiGuideName: 'venue.aiBehavior.aiGuideName',
+} as const
+
+function venueChanges(payload: PackagePayload, current: VenuePackageVenueSnapshot) {
+  return Object.entries(venuePatchData(payload)).flatMap(([field, after]) => {
+    const key = field as keyof typeof venueChangePaths
+    const before = current[key]
+    if (before === after) return []
+    return [VenuePackageVenueChange.parse({ path: venueChangePaths[key], before, after })]
+  })
+}
+
+function changedVenuePatchData(
+  payload: PackagePayload,
+  current: VenuePackageVenueSnapshot,
+): Partial<VenuePackageVenueSnapshot> {
+  return Object.fromEntries(
+    Object.entries(venuePatchData(payload)).filter(
+      ([field, after]) => current[field as keyof VenuePackageVenueSnapshot] !== after,
+    ),
+  ) as Partial<VenuePackageVenueSnapshot>
 }
 
 async function contentState(db: DbClient, tenantId: string, venueId: string) {
@@ -131,6 +227,20 @@ async function contentState(db: DbClient, tenantId: string, venueId: string) {
 
 async function contentStateDigest(db: DbClient, tenantId: string, venueId: string) {
   return digest(await contentState(db, tenantId, venueId))
+}
+
+async function packageStateDigest(
+  db: DbClient,
+  tenantId: string,
+  venueId: string,
+  schemaVersion: PackagePayload['schemaVersion'],
+) {
+  if (schemaVersion === 1) return contentStateDigest(db, tenantId, venueId)
+  const [venue, content] = await Promise.all([
+    assertVenue(db, tenantId, venueId),
+    contentState(db, tenantId, venueId),
+  ])
+  return digest({ venue: venueSnapshot(venue), ...content })
 }
 
 function duplicateWarnings(
@@ -194,7 +304,21 @@ async function buildPreview(
 ) {
   const venue = await assertVenue(db, tenantId, venueId)
   const current = await contentState(db, tenantId, venueId)
+  const currentVenue = venueSnapshot(venue)
+  const exactVenueChanges = venueChanges(payload, currentVenue)
   const errors: Array<{ code: string; path: string; message: string }> = []
+  if (
+    payload.schemaVersion === 2 &&
+    exactVenueChanges.length === 0 &&
+    payload.places.length === 0 &&
+    payload.knowledgeEntries.length === 0
+  ) {
+    errors.push({
+      code: 'NO_CHANGES',
+      path: 'venue',
+      message: 'Every supplied venue value already matches the current venue configuration.',
+    })
+  }
   if (
     venue.guideMode === 'location_aware' &&
     payload.places.some((place) => place.lat === undefined || place.lng === undefined)
@@ -210,7 +334,8 @@ async function buildPreview(
     })
   }
 
-  const baseDigest = digest(current)
+  const baseDigest =
+    payload.schemaVersion === 1 ? digest(current) : digest({ venue: currentVenue, ...current })
   const payloadHash = digest(canonicalVenuePackagePayload(venueId, payload))
   const report = VenuePackageValidationReport.parse({
     errors: sortVenuePackageIssues(errors),
@@ -221,23 +346,40 @@ async function buildPreview(
       existingKnowledgeCount: current.knowledgeEntries.filter((entry) => entry.isEnabled).length,
     }),
   })
-  return {
-    schemaVersion: payload.schemaVersion,
-    payloadHash,
-    baseDigest,
-    mode: 'ADDITIVE_V1' as const,
-    warningDigest: digest(report.warnings),
-    report,
-    changes: {
-      places: { add: payload.places, change: [], remove: [], unchanged: current.places.length },
-      knowledgeEntries: {
-        add: payload.knowledgeEntries,
-        change: [],
-        remove: [],
-        unchanged: current.knowledgeEntries.length,
-      },
+  const contentChanges = {
+    places: { add: payload.places, change: [], remove: [], unchanged: current.places.length },
+    knowledgeEntries: {
+      add: payload.knowledgeEntries,
+      change: [],
+      remove: [],
+      unchanged: current.knowledgeEntries.length,
     },
   }
+  return payload.schemaVersion === 1
+    ? {
+        schemaVersion: 1 as const,
+        payloadHash,
+        baseDigest,
+        mode: 'ADDITIVE_V1' as const,
+        warningDigest: digest(report.warnings),
+        report,
+        changes: contentChanges,
+      }
+    : {
+        schemaVersion: 2 as const,
+        payloadHash,
+        baseDigest,
+        mode: 'CONFIG_PATCH_AND_ADDITIVE_V2' as const,
+        warningDigest: digest(report.warnings),
+        report,
+        changes: {
+          venue: {
+            change: exactVenueChanges,
+            unchanged: Object.keys(venueChangePaths).length - exactVenueChanges.length,
+          },
+          ...contentChanges,
+        },
+      }
 }
 
 function withSemanticEvidence(
@@ -260,13 +402,26 @@ function withSemanticEvidence(
   })
 }
 
-function parseStoredPreview(pkg: { validationReport: unknown; previewPlan: unknown }) {
+function parseStoredPreview(pkg: {
+  schemaVersion: number
+  payloadHash: string
+  baseDigest: string
+  validationReport: unknown
+  previewPlan: unknown
+}) {
   const report = VenuePackageValidationReport.safeParse(pkg.validationReport)
   const preview = VenuePackageStoredPreview.safeParse(pkg.previewPlan)
   if (!report.success || !preview.success)
     conflict('Stored venue package review evidence is invalid')
   if (JSON.stringify(report.data) !== JSON.stringify(preview.data.report)) {
     conflict('Stored venue package review evidence is inconsistent')
+  }
+  if (
+    preview.data.schemaVersion !== pkg.schemaVersion ||
+    preview.data.payloadHash !== pkg.payloadHash ||
+    preview.data.baseDigest !== pkg.baseDigest
+  ) {
+    conflict('Stored venue package review evidence does not match its immutable revision')
   }
   return preview.data
 }
@@ -323,9 +478,12 @@ function auditState(pkg: NonNullable<Awaited<ReturnType<typeof findPackage>>>) {
   }
 }
 
-function parsePayload(value: unknown): PackagePayload {
+function parsePayload(value: unknown, expectedSchemaVersion?: number): PackagePayload {
   const result = VenuePackagePayload.safeParse(value)
   if (!result.success) conflict('Stored venue package payload is invalid')
+  if (expectedSchemaVersion !== undefined && result.data.schemaVersion !== expectedSchemaVersion) {
+    conflict('Stored venue package payload version is inconsistent')
+  }
   return result.data
 }
 
@@ -782,7 +940,7 @@ export const venuePackageRouter = router({
         if (existing.approvedCommandKey === input.commandKey) return existing
         conflict('Only a draft venue package can be approved')
       }
-      const payload = parsePayload(existing.payload)
+      const payload = parsePayload(existing.payload, existing.schemaVersion)
       const deterministic = await buildPreview(ctx.db, tenantId, existing.venueId, payload)
       const stored = parseStoredPreview(existing)
       assertStoredEvidenceCurrent({ stored, deterministic })
@@ -861,7 +1019,7 @@ export const venuePackageRouter = router({
         if (existing.appliedCommandKey === input.commandKey) return existing
         conflict('Only an approved venue package can be applied')
       }
-      const payload = parsePayload(existing.payload)
+      const payload = parsePayload(existing.payload, existing.schemaVersion)
       const deterministic = await buildPreview(ctx.db, tenantId, existing.venueId, payload)
       const stored = parseStoredPreview(existing)
       assertStoredEvidenceCurrent({ stored, deterministic })
@@ -876,6 +1034,20 @@ export const venuePackageRouter = router({
       }
 
       try {
+        let appliedVenue: VenuePackageAppliedEntitiesV2['venue'] = null
+        if (payload.schemaVersion === 2) {
+          const before = venueSnapshot(await assertVenue(ctx.db, tenantId, existing.venueId))
+          const venueData = changedVenuePatchData(payload, before)
+          if (Object.keys(venueData).length > 0) {
+            const changedVenue = await ctx.db.venue.updateMany({
+              where: { id: existing.venueId, tenantId },
+              data: venueData,
+            })
+            if (changedVenue.count !== 1) conflict('Venue changed during package application')
+            const after = venueSnapshot(await assertVenue(ctx.db, tenantId, existing.venueId))
+            appliedVenue = { before, after }
+          }
+        }
         const places =
           payload.places.length === 0
             ? []
@@ -930,11 +1102,26 @@ export const venuePackageRouter = router({
                 })),
                 select: { id: true, title: true, category: true, content: true, isEnabled: true },
               })
-        const appliedEntities = VenuePackageAppliedEntities.parse({
-          postApplyDigest: await contentStateDigest(ctx.db, tenantId, existing.venueId),
-          places,
-          knowledgeEntries,
-        })
+        const postApplyDigest = await packageStateDigest(
+          ctx.db,
+          tenantId,
+          existing.venueId,
+          payload.schemaVersion,
+        )
+        const appliedEntities =
+          payload.schemaVersion === 1
+            ? VenuePackageAppliedEntitiesV1.parse({
+                postApplyDigest,
+                places,
+                knowledgeEntries,
+              })
+            : VenuePackageAppliedEntitiesV2.parse({
+                schemaVersion: 2,
+                postApplyDigest,
+                venue: appliedVenue,
+                places,
+                knowledgeEntries,
+              })
         const now = new Date()
         const changed = await ctx.db.venuePackage.updateMany({
           where: {
@@ -998,8 +1185,18 @@ export const venuePackageRouter = router({
       const manifestResult = VenuePackageAppliedEntities.safeParse(existing.appliedEntities)
       if (!manifestResult.success) conflict('Venue package rollback manifest is invalid')
       const manifest = manifestResult.data
+      const payload = parsePayload(existing.payload, existing.schemaVersion)
       const current = await contentState(ctx.db, tenantId, existing.venueId)
-      if (digest(current) !== manifest.postApplyDigest) {
+      if (
+        (payload.schemaVersion === 1 && 'schemaVersion' in manifest) ||
+        (payload.schemaVersion === 2 && !('schemaVersion' in manifest))
+      ) {
+        conflict('Venue package rollback manifest version is inconsistent')
+      }
+      if (
+        (await packageStateDigest(ctx.db, tenantId, existing.venueId, payload.schemaVersion)) !==
+        manifest.postApplyDigest
+      ) {
         conflict('Venue content changed after apply; automatic package rollback is unsafe')
       }
 
@@ -1034,7 +1231,17 @@ export const venuePackageRouter = router({
         },
       })
       if (removedPlaces.count !== manifest.places.length) conflict()
-      if ((await contentStateDigest(ctx.db, tenantId, existing.venueId)) !== existing.baseDigest) {
+      if ('schemaVersion' in manifest && manifest.venue) {
+        const restoredVenue = await ctx.db.venue.updateMany({
+          where: { id: existing.venueId, tenantId },
+          data: manifest.venue.before,
+        })
+        if (restoredVenue.count !== 1) conflict('Venue changed during package rollback')
+      }
+      if (
+        (await packageStateDigest(ctx.db, tenantId, existing.venueId, payload.schemaVersion)) !==
+        existing.baseDigest
+      ) {
         conflict('Venue package rollback did not restore the approved base state')
       }
 

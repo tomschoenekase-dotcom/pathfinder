@@ -72,6 +72,7 @@ import { canonicalVenuePackagePayload } from '../schemas/venue-package'
 import { venuePackageRouter } from './venue-package'
 
 const venueFindFirst = vi.fn()
+const venueUpdateMany = vi.fn()
 const placeFindMany = vi.fn()
 const placeCreateManyAndReturn = vi.fn()
 const placeDeleteMany = vi.fn()
@@ -90,7 +91,7 @@ const auditLogCreate = vi.fn()
 
 const mockDb = {
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(mockDb)),
-  venue: { findFirst: venueFindFirst },
+  venue: { findFirst: venueFindFirst, updateMany: venueUpdateMany },
   place: {
     findMany: placeFindMany,
     createManyAndReturn: placeCreateManyAndReturn,
@@ -128,6 +129,54 @@ const payload = {
   knowledgeEntries: [
     { title: 'Accessibility', category: 'FAQ', content: 'Step-free entry.', isEnabled: true },
   ],
+}
+
+const venueState = {
+  id: venueId,
+  name: 'Museum of Small Things',
+  description: 'Original description',
+  category: 'museum',
+  guideNotes: 'Original guide notes',
+  aiGuideNotes: 'Be concise.',
+  aiTone: 'FRIENDLY',
+  aiGuideName: 'Mina',
+  chatTheme: 'default',
+  chatAccentColor: '#112233',
+  chatFont: 'jakarta',
+  chatLogoUrl: null,
+  chatBannerUrl: null,
+  guideMode: 'non_location',
+}
+
+const venueSnapshot = {
+  name: venueState.name,
+  description: venueState.description,
+  category: venueState.category,
+  guideNotes: venueState.guideNotes,
+  chatTheme: venueState.chatTheme,
+  chatAccentColor: venueState.chatAccentColor,
+  chatFont: venueState.chatFont,
+  chatLogoUrl: venueState.chatLogoUrl,
+  chatBannerUrl: venueState.chatBannerUrl,
+  aiGuideNotes: venueState.aiGuideNotes,
+  aiTone: venueState.aiTone,
+  aiGuideName: venueState.aiGuideName,
+}
+
+const payloadV2 = {
+  schemaVersion: 2 as const,
+  venue: {
+    identity: { name: 'Small Things Gallery' },
+    branding: { chatAccentColor: '#A1B2C3', chatFont: 'jakarta' as const },
+  },
+  places: [],
+  knowledgeEntries: [],
+}
+
+const venueSnapshotAfterV2 = {
+  ...venueSnapshot,
+  name: payloadV2.venue.identity.name,
+  chatAccentColor: payloadV2.venue.branding.chatAccentColor,
 }
 
 function digest(value: unknown) {
@@ -203,6 +252,69 @@ const basePackage = {
   updatedAt,
 }
 
+const completeVenueOnlySemanticScan = {
+  status: 'COMPLETE' as const,
+  similarityThreshold: 0.86,
+  scopes: {
+    places: {
+      embeddingProfile: 'test-profile:place-content',
+      inputCount: 0,
+      scannedInputCount: 0,
+      existingCount: 0,
+      scannedExistingCount: 0,
+    },
+    knowledgeEntries: {
+      embeddingProfile: 'test-profile:knowledge-content',
+      inputCount: 0,
+      scannedInputCount: 0,
+      existingCount: 0,
+      scannedExistingCount: 0,
+    },
+  },
+}
+
+const basePreviewV2 = {
+  schemaVersion: 2 as const,
+  payloadHash: digest(canonicalVenuePackagePayload(venueId, payloadV2)),
+  baseDigest: digest({ venue: venueSnapshot, places: [], knowledgeEntries: [] }),
+  mode: 'CONFIG_PATCH_AND_ADDITIVE_V2' as const,
+  warningDigest: emptyWarningDigest,
+  report: {
+    errors: [],
+    warnings: [],
+    semanticDuplicateScan: completeVenueOnlySemanticScan,
+  },
+  changes: {
+    venue: {
+      change: [
+        {
+          path: 'venue.identity.name' as const,
+          before: venueSnapshot.name,
+          after: venueSnapshotAfterV2.name,
+        },
+        {
+          path: 'venue.branding.chatAccentColor' as const,
+          before: venueSnapshot.chatAccentColor,
+          after: venueSnapshotAfterV2.chatAccentColor,
+        },
+      ],
+      unchanged: 10,
+    },
+    places: { add: [], change: [], remove: [], unchanged: 0 },
+    knowledgeEntries: { add: [], change: [], remove: [], unchanged: 0 },
+  },
+}
+
+const basePackageV2 = {
+  ...basePackage,
+  schemaVersion: 2,
+  payload: payloadV2,
+  payloadHash: basePreviewV2.payloadHash,
+  baseDigest: basePreviewV2.baseDigest,
+  validationReport: basePreviewV2.report,
+  previewPlan: basePreviewV2,
+}
+
 function context(role: 'STAFF' | 'MANAGER' | 'OWNER'): TRPCContext {
   return {
     db: mockDb,
@@ -219,7 +331,8 @@ function context(role: 'STAFF' | 'MANAGER' | 'OWNER'): TRPCContext {
 describe('venue package router', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    venueFindFirst.mockResolvedValue({ id: venueId, guideMode: 'non_location' })
+    venueFindFirst.mockResolvedValue(venueState)
+    venueUpdateMany.mockResolvedValue({ count: 1 })
     placeFindMany.mockResolvedValue([])
     knowledgeFindMany.mockResolvedValue([])
     packageFindFirst.mockResolvedValue(null)
@@ -227,6 +340,8 @@ describe('venue package router', () => {
     analysisCreate.mockResolvedValue({ id: 'analysis-1' })
     analysisUpdateMany.mockResolvedValue({ count: 1 })
     aiUsageCreate.mockResolvedValue({ id: 'usage-1' })
+    placeDeleteMany.mockResolvedValue({ count: 0 })
+    knowledgeDeleteMany.mockResolvedValue({ count: 0 })
   })
 
   it('denies STAFF preview before any database access', async () => {
@@ -265,6 +380,85 @@ describe('venue package router', () => {
       changes: { knowledgeEntries: { add: payload.knowledgeEntries, change: [], remove: [] } },
     })
     expect(packageCreate).not.toHaveBeenCalled()
+  })
+
+  it('returns a deterministic V2 venue patch preview with exact paths and venue-bound base state', async () => {
+    const result = await testRouter
+      .createCaller(context('MANAGER'))
+      .venuePackage.preview({ venueId, payload: payloadV2 })
+
+    expect(result).toEqual({
+      ...basePreviewV2,
+      report: {
+        ...basePreviewV2.report,
+        semanticDuplicateScan: expect.objectContaining({ status: 'NOT_RUN' }),
+      },
+    })
+    expect(result.baseDigest).toBe(
+      digest({ venue: venueSnapshot, places: [], knowledgeEntries: [] }),
+    )
+    expect(result.baseDigest).not.toBe(emptyBaseDigest)
+    if (result.schemaVersion !== 2) throw new Error('Expected a schema-v2 preview')
+    expect(result.changes.venue.change).toEqual(basePreviewV2.changes.venue.change)
+  })
+
+  it('records an actionable error and blocks approval for a V2 package with no effective changes', async () => {
+    const noOpPayload = {
+      schemaVersion: 2 as const,
+      venue: { identity: { name: venueSnapshot.name } },
+      places: [],
+      knowledgeEntries: [],
+    }
+    const caller = testRouter.createCaller(context('OWNER'))
+    const preview = await caller.venuePackage.preview({ venueId, payload: noOpPayload })
+    expect(preview.report.errors).toEqual([
+      expect.objectContaining({ code: 'NO_CHANGES', path: 'venue' }),
+    ])
+    const noOpPackage = {
+      ...basePackageV2,
+      payload: noOpPayload,
+      payloadHash: preview.payloadHash,
+      baseDigest: preview.baseDigest,
+      validationReport: preview.report,
+      previewPlan: preview,
+    }
+    packageFindFirst.mockResolvedValueOnce(noOpPackage).mockResolvedValueOnce(noOpPackage)
+
+    await expect(
+      caller.venuePackage.approve({
+        id: packageId,
+        expectedUpdatedAt: updatedAt,
+        commandKey,
+        acknowledgedWarningDigest: preview.warningDigest,
+        acknowledgedPayloadHash: preview.payloadHash,
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(packageUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('saves a venue-only V2 draft with complete semantic evidence and no provider call', async () => {
+    analysisFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'analysis-1',
+      payloadHash: basePackageV2.payloadHash,
+      baseDigest: basePackageV2.baseDigest,
+    })
+    packageCreate.mockImplementationOnce(async ({ data }) => ({
+      ...basePackageV2,
+      validationReport: data.validationReport,
+      previewPlan: data.previewPlan,
+    }))
+
+    const result = await testRouter
+      .createCaller(context('MANAGER'))
+      .venuePackage.createDraft({ venueId, payload: payloadV2, draftKey })
+
+    expect(result).toMatchObject({ schemaVersion: 2, replayed: false })
+    expect(result.preview.report.semanticDuplicateScan).toEqual(completeVenueOnlySemanticScan)
+    expect(generateEmbeddings).not.toHaveBeenCalled()
+    expect(aiUsageCreate).not.toHaveBeenCalled()
+    expect(analysisUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETE' }) }),
+    )
   })
 
   it('persists a validated immutable draft and audits only the winning claim', async () => {
@@ -518,6 +712,190 @@ describe('venue package router', () => {
       expect.objectContaining({ action: 'venue-package.applied' }),
       mockDb,
     )
+  })
+
+  it('applies only changed supplied V2 venue fields and records an exact before/after manifest', async () => {
+    const approved = {
+      ...basePackageV2,
+      status: 'APPROVED' as const,
+      approvedBy: 'user_owner',
+      approvedAt: updatedAt,
+      approvedCommandKey: commandKey,
+      approvalWarningDigest: emptyWarningDigest,
+      approvedWarningCodes: [],
+    }
+    const postApplyDigest = digest({
+      venue: venueSnapshotAfterV2,
+      places: [],
+      knowledgeEntries: [],
+    })
+    const appliedEntities = {
+      schemaVersion: 2 as const,
+      postApplyDigest,
+      venue: { before: venueSnapshot, after: venueSnapshotAfterV2 },
+      places: [],
+      knowledgeEntries: [],
+    }
+    const applied = {
+      ...approved,
+      status: 'APPLIED' as const,
+      appliedBy: 'user_owner',
+      appliedAt: updatedAt,
+      appliedCommandKey: commandKey,
+      appliedEntities,
+    }
+    packageFindFirst
+      .mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce(applied)
+    venueFindFirst
+      .mockResolvedValueOnce(venueState)
+      .mockResolvedValueOnce(venueState)
+      .mockResolvedValueOnce({
+        ...venueState,
+        name: venueSnapshotAfterV2.name,
+        chatAccentColor: venueSnapshotAfterV2.chatAccentColor,
+      })
+      .mockResolvedValueOnce({
+        ...venueState,
+        name: venueSnapshotAfterV2.name,
+        chatAccentColor: venueSnapshotAfterV2.chatAccentColor,
+      })
+    packageUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    const result = await testRouter.createCaller(context('OWNER')).venuePackage.applyPackage({
+      id: packageId,
+      expectedUpdatedAt: updatedAt,
+      commandKey,
+    })
+
+    expect(result.status).toBe('APPLIED')
+    expect(venueUpdateMany).toHaveBeenCalledWith({
+      where: { id: venueId, tenantId: 'tenant_1' },
+      data: { name: venueSnapshotAfterV2.name, chatAccentColor: '#A1B2C3' },
+    })
+    expect(venueUpdateMany.mock.calls[0]?.[0].data).not.toHaveProperty('chatFont')
+    expect(packageUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'APPLIED',
+          appliedEntities,
+        }),
+      }),
+    )
+    expect(placeCreateManyAndReturn).not.toHaveBeenCalled()
+    expect(knowledgeCreateManyAndReturn).not.toHaveBeenCalled()
+  })
+
+  it('reverts a V2 venue patch to its exact before snapshot', async () => {
+    const postApplyDigest = digest({
+      venue: venueSnapshotAfterV2,
+      places: [],
+      knowledgeEntries: [],
+    })
+    const appliedPackage = {
+      ...basePackageV2,
+      status: 'APPLIED' as const,
+      approvedBy: 'user_owner',
+      approvedAt: updatedAt,
+      approvedCommandKey: commandKey,
+      approvalWarningDigest: emptyWarningDigest,
+      approvedWarningCodes: [],
+      appliedBy: 'user_owner',
+      appliedAt: updatedAt,
+      appliedCommandKey: commandKey,
+      appliedEntities: {
+        schemaVersion: 2 as const,
+        postApplyDigest,
+        venue: { before: venueSnapshot, after: venueSnapshotAfterV2 },
+        places: [],
+        knowledgeEntries: [],
+      },
+    }
+    const reverted = {
+      ...appliedPackage,
+      status: 'REVERTED' as const,
+      revertedBy: 'user_owner',
+      revertedAt: updatedAt,
+      revertedCommandKey: commandKey,
+    }
+    packageFindFirst
+      .mockResolvedValueOnce(appliedPackage)
+      .mockResolvedValueOnce(appliedPackage)
+      .mockResolvedValueOnce(reverted)
+    venueFindFirst
+      .mockResolvedValueOnce({
+        ...venueState,
+        name: venueSnapshotAfterV2.name,
+        chatAccentColor: venueSnapshotAfterV2.chatAccentColor,
+      })
+      .mockResolvedValueOnce(venueState)
+    packageUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    const result = await testRouter.createCaller(context('OWNER')).venuePackage.revertPackage({
+      id: packageId,
+      expectedUpdatedAt: updatedAt,
+      commandKey,
+    })
+
+    expect(result.status).toBe('REVERTED')
+    expect(venueUpdateMany).toHaveBeenCalledWith({
+      where: { id: venueId, tenantId: 'tenant_1' },
+      data: venueSnapshot,
+    })
+    expect(packageUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: 'APPLIED', updatedAt }),
+        data: expect.objectContaining({ status: 'REVERTED' }),
+      }),
+    )
+  })
+
+  it('rejects payload and rollback-manifest version mismatches before any write', async () => {
+    const mismatchedV1 = {
+      ...basePackage,
+      status: 'APPLIED' as const,
+      appliedEntities: {
+        schemaVersion: 2,
+        postApplyDigest: emptyBaseDigest,
+        venue: null,
+        places: [],
+        knowledgeEntries: [],
+      },
+    }
+    packageFindFirst.mockResolvedValueOnce(mismatchedV1).mockResolvedValueOnce(mismatchedV1)
+    const caller = testRouter.createCaller(context('OWNER'))
+    await expect(
+      caller.venuePackage.revertPackage({
+        id: packageId,
+        expectedUpdatedAt: updatedAt,
+        commandKey,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    const mismatchedV2 = {
+      ...basePackageV2,
+      status: 'APPLIED' as const,
+      appliedEntities: {
+        postApplyDigest: basePackageV2.baseDigest,
+        places: [],
+        knowledgeEntries: [],
+      },
+    }
+    packageFindFirst.mockResolvedValueOnce(mismatchedV2).mockResolvedValueOnce(mismatchedV2)
+    await expect(
+      caller.venuePackage.revertPackage({
+        id: packageId,
+        expectedUpdatedAt: updatedAt,
+        commandKey,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(knowledgeDeleteMany).not.toHaveBeenCalled()
+    expect(placeDeleteMany).not.toHaveBeenCalled()
+    expect(venueUpdateMany).not.toHaveBeenCalled()
+    expect(packageUpdateMany).not.toHaveBeenCalled()
+    expect(writeAuditLogStrict).not.toHaveBeenCalled()
   })
 
   it('refuses rollback after any venue-content drift and performs no delete', async () => {

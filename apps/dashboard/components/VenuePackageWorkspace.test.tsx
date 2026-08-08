@@ -115,6 +115,58 @@ const draft = {
   updatedAt,
 }
 
+const v2Payload = {
+  schemaVersion: 2,
+  venue: {
+    identity: { description: null },
+    branding: {
+      chatLogoUrl: 'https://cdn.example.test/venue-logo.png',
+      chatBannerUrl: null,
+    },
+  },
+  places: [],
+  knowledgeEntries: [],
+}
+
+const v2Preview = {
+  ...preview,
+  schemaVersion: 2,
+  mode: 'CONFIG_PATCH_AND_ADDITIVE_V2',
+  changes: {
+    venue: {
+      change: [
+        {
+          path: 'venue.identity.description',
+          before: 'Legacy venue description',
+          after: null,
+        },
+        {
+          path: 'venue.branding.chatLogoUrl',
+          before: null,
+          after: 'https://cdn.example.test/venue-logo.png',
+        },
+        {
+          path: 'venue.branding.chatBannerUrl',
+          before: 'https://cdn.example.test/old-banner.png',
+          after: null,
+        },
+      ],
+      unchanged: 8,
+    },
+    places: { add: [], change: [], remove: [], unchanged: 2 },
+    knowledgeEntries: { add: [], change: [], remove: [], unchanged: 3 },
+  },
+}
+
+const v2Draft = {
+  ...draft,
+  id: 'cpackagev2abc123456789',
+  schemaVersion: 2,
+  payload: v2Payload,
+  previewPlan: v2Preview,
+  validationReport: v2Preview.report,
+}
+
 describe('venue package workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -146,6 +198,36 @@ describe('venue package workspace', () => {
     )
     expect(screen.getByText(/2 existing places unchanged/)).toBeTruthy()
     expect(screen.getByText(/3 existing entries unchanged/)).toBeTruthy()
+    expect(screen.getByText('Exact additive preview')).toBeTruthy()
+    expect(screen.getByText('Mode: ADDITIVE_V1')).toBeTruthy()
+  })
+
+  it('renders a saved V2 configuration patch exactly without requesting another preview', async () => {
+    mocks.list.mockResolvedValueOnce([v2Draft])
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(v2Draft.id))
+
+    expect(
+      await screen.findByText('Exact venue configuration patch + additive preview'),
+    ).toBeTruthy()
+    expect(screen.getByText('Mode: CONFIG_PATCH_AND_ADDITIVE_V2')).toBeTruthy()
+    expect(screen.getByText('Venue configuration changes (3)')).toBeTruthy()
+    expect(screen.getByText('venue.identity.description')).toBeTruthy()
+    expect(screen.getByText('"Legacy venue description" → null (clear)')).toBeTruthy()
+    expect(screen.getByText('venue.branding.chatLogoUrl')).toBeTruthy()
+    expect(screen.getByText('null → "https://cdn.example.test/venue-logo.png"')).toBeTruthy()
+    expect(screen.getByText('venue.branding.chatBannerUrl')).toBeTruthy()
+    expect(
+      screen.getByText('"https://cdn.example.test/old-banner.png" → null (clear)'),
+    ).toBeTruthy()
+    expect(screen.getByText('8 venue configuration fields unchanged.')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Branding URL fields are compatible external URL references. This package does not upload, copy, or host image assets.',
+      ),
+    ).toBeTruthy()
+    expect(mocks.preview).not.toHaveBeenCalled()
   })
 
   it('shows strict server rejection and performs no draft or lifecycle write', async () => {
