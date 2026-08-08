@@ -54,7 +54,7 @@ const EXAMPLE_JSON = `{
 function getErrorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
-    : 'Import failed. Please try again.'
+    : 'Import completion could not be confirmed.'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -146,6 +146,13 @@ function parseImport(text: string, guideMode: GuideMode): ParsedImport | null {
           })
           return []
         }
+        if ((parsed.data.lat === undefined) !== (parsed.data.lng === undefined)) {
+          issues.push({
+            severity: 'error',
+            message: `${label}: latitude and longitude must be supplied together.`,
+          })
+          return []
+        }
         if (parsed.data.longDescription === undefined) {
           issues.push({
             severity: 'warning',
@@ -228,22 +235,21 @@ export function VenueJsonImporter({ venueId, venueName, guideMode }: VenueJsonIm
     setIsImporting(true)
     setSubmitError(null)
     try {
-      const results = await Promise.all([
-        parsedImport.places.length > 0
-          ? client.place.bulkCreate.mutate({ venueId, places: parsedImport.places })
-          : Promise.resolve({ count: 0 }),
-        parsedImport.knowledgeEntries.length > 0
-          ? client.knowledge.bulkCreate.mutate({ venueId, entries: parsedImport.knowledgeEntries })
-          : Promise.resolve({ count: 0 }),
-      ])
+      const result = await client.venue.importContent.mutate({
+        venueId,
+        places: parsedImport.places,
+        knowledgeEntries: parsedImport.knowledgeEntries,
+      })
       setSuccessMessage(
-        `Imported ${results[0].count} guide items and ${results[1].count} knowledge entries.`,
+        `Imported ${result.placeCount} guide items and ${result.knowledgeEntryCount} knowledge entries.`,
       )
       setJsonText('')
       setParsedImport(null)
       router.refresh()
     } catch (error) {
-      setSubmitError(getErrorMessage(error))
+      setSubmitError(
+        `${getErrorMessage(error)} Verify venue content before retrying; a lost response can make completion status uncertain.`,
+      )
     } finally {
       setIsImporting(false)
     }

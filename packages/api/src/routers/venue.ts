@@ -7,6 +7,7 @@ import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
 
 import { CreateVenueInput, UpdateVenueInput } from '../schemas/venue'
+import { ImportVenueContentInput } from '../schemas/venue-content'
 
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
@@ -274,6 +275,79 @@ export const venueRouter = router({
       })
 
       return updated!
+    }),
+
+  importContent: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(ImportVenueContentInput)
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: { id: true, guideMode: true },
+      })
+
+      if (!venue) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
+      if (
+        venue.guideMode === 'location_aware' &&
+        input.places.some((place) => place.lat === undefined || place.lng === undefined)
+      ) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Latitude and longitude are required for every guide item at this venue',
+        })
+      }
+
+      const operations = [
+        ...input.places.map((place) =>
+          ctx.db.place.create({
+            data: {
+              tenantId,
+              venueId: input.venueId,
+              name: place.name,
+              type: place.type,
+              ...(place.itemType !== undefined ? { itemType: place.itemType } : {}),
+              ...(place.lat !== undefined ? { lat: place.lat } : {}),
+              ...(place.lng !== undefined ? { lng: place.lng } : {}),
+              tags: place.tags,
+              importanceScore: place.importanceScore,
+              ...(place.shortDescription !== undefined
+                ? { shortDescription: place.shortDescription }
+                : {}),
+              ...(place.longDescription !== undefined
+                ? { longDescription: place.longDescription }
+                : {}),
+              ...(place.areaName !== undefined ? { areaName: place.areaName } : {}),
+              ...(place.hours !== undefined ? { hours: place.hours } : {}),
+              ...(place.photoUrl !== undefined ? { photoUrl: place.photoUrl } : {}),
+            },
+            select: { id: true },
+          }),
+        ),
+        ...input.knowledgeEntries.map((entry) =>
+          ctx.db.venueKnowledgeEntry.create({
+            data: {
+              tenantId,
+              venueId: input.venueId,
+              title: entry.title,
+              category: entry.category,
+              content: entry.content,
+              isEnabled: entry.isEnabled,
+            },
+            select: { id: true },
+          }),
+        ),
+      ]
+
+      await ctx.db.$transaction(operations)
+
+      return {
+        placeCount: input.places.length,
+        knowledgeEntryCount: input.knowledgeEntries.length,
+      }
     }),
 
   updateAiConfig: tenantProcedure

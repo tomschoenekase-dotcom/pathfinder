@@ -32,7 +32,10 @@ const venueFindFirst = vi.fn()
 const venueCreate = vi.fn()
 const venueUpdateMany = vi.fn()
 const venueDeleteMany = vi.fn()
+const placeCreate = vi.fn()
+const knowledgeEntryCreate = vi.fn()
 const dbQueryRaw = vi.fn()
+const dbTransaction = vi.fn()
 
 const mockDb = {
   venue: {
@@ -42,7 +45,10 @@ const mockDb = {
     updateMany: venueUpdateMany,
     deleteMany: venueDeleteMany,
   },
+  place: { create: placeCreate },
+  venueKnowledgeEntry: { create: knowledgeEntryCreate },
   $queryRaw: dbQueryRaw,
+  $transaction: dbTransaction,
 } as unknown as TRPCContext['db']
 
 // ---------------------------------------------------------------------------
@@ -287,6 +293,157 @@ describe('venue router', () => {
     await expect(
       caller.venue.update({ id: 'cuid1234567890abcdef', name: 'X' }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+  })
+
+  // --- venue.importContent ---
+
+  it('venue.importContent creates places and knowledge in one transaction', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'location_aware' })
+    placeCreate.mockReturnValueOnce(Promise.resolve({ id: 'place_1' }))
+    knowledgeEntryCreate.mockReturnValueOnce(Promise.resolve({ id: 'knowledge_1' }))
+    dbTransaction.mockResolvedValueOnce([{ id: 'place_1' }, { id: 'knowledge_1' }])
+
+    const caller = testRouter.createCaller(managerCtx())
+    const result = await caller.venue.importContent({
+      venueId: venueRow.id,
+      places: [{ name: 'Lobby', type: 'room', lat: 39.7, lng: -86.1 }],
+      knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
+    })
+
+    expect(result).toEqual({ placeCount: 1, knowledgeEntryCount: 1 })
+    expect(dbTransaction).toHaveBeenCalledOnce()
+    expect(dbTransaction).toHaveBeenCalledWith([expect.any(Promise), expect.any(Promise)])
+    expect(placeCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: venueRow.id,
+          name: 'Lobby',
+        }),
+      }),
+    )
+    expect(knowledgeEntryCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: venueRow.id,
+          title: 'Policy',
+        }),
+      }),
+    )
+  })
+
+  it('venue.importContent propagates transaction failure without a partial result', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
+    placeCreate.mockReturnValueOnce(Promise.resolve({ id: 'place_1' }))
+    knowledgeEntryCreate.mockReturnValueOnce(Promise.resolve({ id: 'knowledge_1' }))
+    dbTransaction.mockRejectedValueOnce(new Error('transaction failed'))
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: [{ name: 'Lobby', type: 'room' }],
+        knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
+      }),
+    ).rejects.toThrow('transaction failed')
+  })
+
+  it('venue.importContent rejects a foreign venue before creating records', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: [],
+        knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(placeCreate).not.toHaveBeenCalled()
+    expect(knowledgeEntryCreate).not.toHaveBeenCalled()
+    expect(dbTransaction).not.toHaveBeenCalled()
+  })
+
+  it('venue.importContent enforces location-aware coordinates on the server', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'location_aware' })
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: [{ name: 'Lobby', type: 'room' }],
+        knowledgeEntries: [],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(dbTransaction).not.toHaveBeenCalled()
+  })
+
+  it('venue.importContent allows omitted coordinates for a non-location venue', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
+    placeCreate.mockReturnValueOnce(Promise.resolve({ id: 'place_1' }))
+    dbTransaction.mockResolvedValueOnce([{ id: 'place_1' }])
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: [{ name: 'Lobby', type: 'room' }],
+        knowledgeEntries: [],
+      }),
+    ).resolves.toEqual({ placeCount: 1, knowledgeEntryCount: 0 })
+  })
+
+  it('venue.importContent rejects unpaired and out-of-range coordinates before database access', async () => {
+    const caller = testRouter.createCaller(managerCtx())
+
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: [{ name: 'Lobby', type: 'room', lat: 39.7 }],
+        knowledgeEntries: [],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: [{ name: 'Lobby', type: 'room', lat: 91, lng: -86.1 }],
+        knowledgeEntries: [],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(venueFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('venue.importContent rejects empty and oversized payloads before database access', async () => {
+    const caller = testRouter.createCaller(managerCtx())
+
+    await expect(
+      caller.venue.importContent({ venueId: venueRow.id, places: [], knowledgeEntries: [] }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: Array.from({ length: 501 }, (_, index) => ({
+          name: `Place ${index}`,
+          type: 'room',
+        })),
+        knowledgeEntries: [],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+    expect(venueFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('venue.importContent with STAFF role throws FORBIDDEN without database access', async () => {
+    const caller = testRouter.createCaller(staffCtx())
+
+    await expect(
+      caller.venue.importContent({
+        venueId: venueRow.id,
+        places: [],
+        knowledgeEntries: [{ title: 'Policy', category: 'FAQ', content: 'Details' }],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+    expect(venueFindFirst).not.toHaveBeenCalled()
   })
 
   // --- venue.updateAiConfig ---
