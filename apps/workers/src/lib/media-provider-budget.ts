@@ -35,7 +35,9 @@ export async function reserveMediaProviderOperation(
 export async function executeMediaProviderOperation<T>(
   reserve: () => Promise<void>,
   operation: () => Promise<T>,
+  assertActive?: () => void,
 ): Promise<T> {
   await reserve()
+  assertActive?.()
   return operation()
 }

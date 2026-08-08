@@ -79,6 +79,10 @@ import {
 } from './scheduled-tenant-fanout'
 import { getJobExecutionMetadata } from './lib/job-execution'
 import {
+  cancelAllMediaJobsAfterWorkerError,
+  cancelMediaJobsAfterLockRenewalFailure,
+} from './lib/media-job-cancellation'
+import {
   createEscalatingShutdownHandler,
   createShutdownCoordinator,
   runStartupWithCleanup,
@@ -361,9 +365,13 @@ async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
   throw new Error(`Unsupported send-email job: ${job.name}`)
 }
 
-async function handleMediaIngestionQueueJob(job: Job<MediaIngestionJobPayload>) {
+async function handleMediaIngestionQueueJob(
+  job: Job<MediaIngestionJobPayload>,
+  _token?: string,
+  signal?: AbortSignal,
+) {
   if (job.name === MEDIA_INGESTION_PROCESS_JOB) {
-    await processMediaIngestionJob(job.data, getJobExecutionMetadata(job))
+    await processMediaIngestionJob(job.data, getJobExecutionMetadata(job), signal)
     return
   }
 
@@ -722,6 +730,18 @@ export async function startWorkers() {
       },
     }),
   )
+  mediaIngestionWorker.on('lockRenewalFailed', (jobIds) => {
+    const cancelled = cancelMediaJobsAfterLockRenewalFailure(mediaIngestionWorker, jobIds)
+    logger.error({
+      action: 'media-ingestion.lock-renewal-failed',
+      affectedJobs: jobIds.length,
+      cancelledJobs: cancelled,
+      error: 'Worker lost one or more media job locks.',
+    })
+  })
+  mediaIngestionWorker.on('error', () => {
+    cancelAllMediaJobsAfterWorkerError(mediaIngestionWorker)
+  })
 
   const handleCompletedJob = (job: Job) => {
     logger.info({

@@ -86,6 +86,12 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   before constructing any media consumer. Redis failure therefore prevents a new worker replica from
   starting media work. BullMQ job locks and stalled-job recovery own release after normal completion,
   failure, or process loss; the setting is never removed during ordinary shutdown.
+- The media processor uses BullMQ's cancellation signal. Exact job IDs are cancelled when lock renewal
+  fails, and a media-worker Redis/runtime error conservatively cancels every job tracked by that media
+  Worker only. Cancellation reaches object download and extraction, hashing, text reads, OpenAI
+  requests, provider reservation boundaries, FFmpeg children, generated-output cleanup, and durable
+  write boundaries. A claimed generation is recorded as retryable `FAILED` before the error returns so
+  stalled-job recovery can reclaim it; temporary files are removed in every path.
 
 ## Global-admission rollout and rollback
 
@@ -101,11 +107,11 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   it, and normal worker cleanup must not remove it while another replica may be running. Intentional
   removal requires a separately authorized, inspected `removeGlobalConcurrency()` operation after
   pausing/draining the media queue, followed by an exact `getGlobalConcurrency()` readback.
-- This is a healthy-Redis admission boundary, not a strict distributed execution mutex. Redis/lock
-  loss can leave an old processor running until its own operation fails while BullMQ later recovers
-  the stalled job. Existing upload-generation database claims and provider-operation predicates stop
-  a recovered duplicate generation from claiming the same durable work, but cooperative cancellation
-  on lock loss remains a separate hardening item.
+- This is a healthy-Redis admission boundary, not a strict distributed execution mutex. Cooperative
+  cancellation sharply bounds an old processor after Redis/lock loss, but it cannot revoke a provider
+  request or database statement that completed in the narrow interval before that operation observed
+  the signal. Generation predicates, durable provider reservations, and status claims limit the
+  resulting stale-write window; a process crash still relies on BullMQ stalled-job recovery.
 
 ## Current supported formats
 

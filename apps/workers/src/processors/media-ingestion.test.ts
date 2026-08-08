@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { PassThrough } from 'node:stream'
 
 const mocks = vi.hoisted(() => ({
   loggerWarn: vi.fn(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   updateJobRecord: vi.fn(),
   withTenantIsolationBypass: vi.fn(),
   writeJobRecord: vi.fn(),
+  storageSend: vi.fn(),
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -37,10 +39,18 @@ vi.mock('@pathfinder/jobs', () => ({
   MEDIA_INGESTION_PROCESS_JOB: 'media-ingestion-process',
   MEDIA_INGESTION_QUEUE: 'test-media-ingestion',
 }))
+vi.mock('@aws-sdk/client-s3', () => ({
+  GetObjectCommand: class GetObjectCommand {},
+  S3Client: class S3Client {
+    send = mocks.storageSend
+  },
+}))
 
 import { assignMediaSourceIds } from '../lib/media-source-id'
+import { MediaJobCancelledError } from '../lib/media-job-cancellation'
 import {
   cleanupMediaWorkDir,
+  downloadAndExtract,
   MediaGeneratedOutputCleanupError,
   MediaSynthesisSummaryBudget,
   parseMediaAnalysisResponse,
@@ -278,6 +288,46 @@ describe('media ingestion provider output validation', () => {
   })
 })
 
+describe('media ingestion archive cancellation', () => {
+  it('interrupts a stalled object stream and normalizes the abort', async () => {
+    const previous = {
+      bucket: process.env.STORAGE_BUCKET,
+      accessKeyId: process.env.STORAGE_ACCESS_KEY_ID,
+      secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY,
+      region: process.env.STORAGE_REGION,
+    }
+    process.env.STORAGE_BUCKET = 'test-bucket'
+    process.env.STORAGE_ACCESS_KEY_ID = 'test-access-key'
+    process.env.STORAGE_SECRET_ACCESS_KEY = 'test-secret-key'
+    process.env.STORAGE_REGION = 'us-east-1'
+    const source = new PassThrough()
+    mocks.storageSend.mockResolvedValueOnce({ Body: source })
+    const controller = new AbortController()
+
+    try {
+      const result = downloadAndExtract('test/archive.zip', 'unused', controller.signal)
+      await new Promise((resolve) => setImmediate(resolve))
+      controller.abort()
+
+      await expect(result).rejects.toBeInstanceOf(MediaJobCancelledError)
+      expect(source.destroyed).toBe(true)
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        const key =
+          name === 'bucket'
+            ? 'STORAGE_BUCKET'
+            : name === 'accessKeyId'
+              ? 'STORAGE_ACCESS_KEY_ID'
+              : name === 'secretAccessKey'
+                ? 'STORAGE_SECRET_ACCESS_KEY'
+                : 'STORAGE_REGION'
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  })
+})
+
 describe('media ingestion lifecycle', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -285,6 +335,76 @@ describe('media ingestion lifecycle', () => {
     mocks.writeJobRecord.mockResolvedValue('record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.assetUpsert.mockResolvedValue({ id: 'asset_1' })
+  })
+
+  it('rejects a pre-aborted delivery without creating durable job state', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      processMediaIngestionJob(payload, 'bull_cancelled', controller.signal),
+    ).rejects.toBeInstanceOf(MediaJobCancelledError)
+    expect(mocks.writeJobRecord).not.toHaveBeenCalled()
+    expect(mocks.projectFindFirst).not.toHaveBeenCalled()
+    expect(mocks.mkdtemp).not.toHaveBeenCalled()
+  })
+
+  it('records retryable failure and cleans temp data when cancellation follows the claim', async () => {
+    const controller = new AbortController()
+    mocks.projectFindFirst.mockResolvedValueOnce(project)
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
+    mocks.mkdtemp.mockImplementationOnce(async () => {
+      controller.abort()
+      return 'C:/temp/media-cancelled'
+    })
+    mocks.rm.mockResolvedValueOnce(undefined)
+
+    await expect(
+      processMediaIngestionJob(payload, 'bull_cancelled', controller.signal),
+    ).rejects.toBeInstanceOf(MediaJobCancelledError)
+
+    expect(mocks.assetUpsert).not.toHaveBeenCalled()
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: payload.projectId,
+        tenantId: payload.tenantId,
+        uploadAttemptId: payload.uploadAttemptId,
+      },
+      data: {
+        status: 'FAILED',
+        error: 'Media ingestion stopped after the worker lost its job lock.',
+      },
+    })
+    expect(mocks.rm).toHaveBeenCalledWith('C:/temp/media-cancelled', {
+      recursive: true,
+      force: true,
+    })
+  })
+
+  it('normalizes an aborted dependency error before retryable failure persistence', async () => {
+    const controller = new AbortController()
+    mocks.projectFindFirst.mockResolvedValueOnce(project)
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
+    mocks.mkdtemp.mockImplementationOnce(async () => {
+      controller.abort()
+      throw new DOMException('provider-specific abort', 'AbortError')
+    })
+
+    await expect(
+      processMediaIngestionJob(payload, 'bull_cancelled_dependency', controller.signal),
+    ).rejects.toBeInstanceOf(MediaJobCancelledError)
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: payload.projectId,
+        tenantId: payload.tenantId,
+        uploadAttemptId: payload.uploadAttemptId,
+      },
+      data: {
+        status: 'FAILED',
+        error: 'Media ingestion stopped after the worker lost its job lock.',
+      },
+    })
+    expect(mocks.rm).not.toHaveBeenCalled()
   })
 
   it('treats a stale generation as complete without claiming or starting provider work', async () => {

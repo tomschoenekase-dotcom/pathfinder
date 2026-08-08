@@ -73,4 +73,19 @@ describe('durable media provider-operation budget', () => {
     )
     expect(notDispatched).not.toHaveBeenCalled()
   })
+
+  it('charges but does not dispatch if ownership is lost during reservation', async () => {
+    const reserve = vi.fn(async () => undefined)
+    const operation = vi.fn(async () => 'unexpected')
+    const assertActive = vi.fn(() => {
+      throw new Error('ownership lost')
+    })
+
+    await expect(executeMediaProviderOperation(reserve, operation, assertActive)).rejects.toThrow(
+      'ownership lost',
+    )
+    expect(reserve).toHaveBeenCalledOnce()
+    expect(assertActive).toHaveBeenCalledOnce()
+    expect(operation).not.toHaveBeenCalled()
+  })
 })

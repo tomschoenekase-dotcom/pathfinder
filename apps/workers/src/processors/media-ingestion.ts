@@ -36,6 +36,7 @@ import {
 } from '../lib/media-archive'
 import { assignMediaSourceIds } from '../lib/media-source-id'
 import { runBoundedLeafProcess } from '../lib/bounded-process'
+import { assertMediaJobActive, MediaJobCancelledError } from '../lib/media-job-cancellation'
 import {
   executeMediaProviderOperation,
   reserveMediaProviderOperation,
@@ -220,12 +221,14 @@ type PersistMediaIngestionAssetParams = {
   file: { filename: string; bytes: number; sourceId: string }
   mediaType: MediaType
   sha256: string
+  signal?: AbortSignal
   outcome: { status: 'COMPLETE'; analysis: Analysis } | { status: 'FAILED'; error: string }
 }
 
 export async function persistMediaIngestionAsset(
   params: PersistMediaIngestionAssetParams,
 ): Promise<void> {
+  assertMediaJobActive(params.signal)
   const identity = {
     filename: params.file.filename,
     mediaType: params.mediaType,
@@ -382,41 +385,51 @@ async function analyzeImage(
   sourceId: string,
   context: string,
   mode: string,
+  signal?: AbortSignal,
 ): Promise<Analysis> {
+  assertMediaJobActive(signal)
   const jpeg = await sharp(filePath)
     .rotate()
     .resize({ width: mode === 'FORENSIC' ? 2200 : 1600, height: 2200, fit: 'inside' })
     .jpeg({ quality: mode === 'ECONOMY' ? 72 : 84 })
     .toBuffer()
-  const response = await executeMediaProviderOperation(reserveProviderOperation, () =>
-    openai.chat.completions.create({
-      model: process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
-      response_format: { type: 'json_object' },
-      messages: [
+  assertMediaJobActive(signal)
+  const response = await executeMediaProviderOperation(
+    reserveProviderOperation,
+    () =>
+      openai.chat.completions.create(
         {
-          role: 'system',
-          content:
-            'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]).',
-        },
-        {
-          role: 'user',
-          content: [
+          model: process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
+          response_format: { type: 'json_object' },
+          messages: [
             {
-              type: 'text',
-              text: `Source ${sourceId}. Project context (context is not visual evidence):\n${context.slice(0, 12_000)}`,
+              role: 'system',
+              content:
+                'You are a forensic venue-documentation analyst. Report only what this image supports. Transcribe readable labels verbatim, including apparent errors. Never identify an object from shape alone. Separate confirmed, probable, and unverified identifications. Return JSON with summary, visibleText (string[]), objects ({name, confidence}[]), spatialClues (string[]), and uncertainties (string[]).',
             },
             {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
-                detail: mode === 'FORENSIC' ? 'high' : 'low',
-              },
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Source ${sourceId}. Project context (context is not visual evidence):\n${context.slice(0, 12_000)}`,
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
+                    detail: mode === 'FORENSIC' ? 'high' : 'low',
+                  },
+                },
+              ],
             },
           ],
         },
-      ],
-    }),
+        signal ? { signal } : undefined,
+      ),
+    () => assertMediaJobActive(signal),
   )
+  assertMediaJobActive(signal)
   const text = response.choices[0]?.message.content
   if (!text) throw new Error(`No visual analysis returned for ${sourceId}.`)
   return parseMediaAnalysisResponse(text)
@@ -426,17 +439,32 @@ async function transcribe(
   openai: OpenAI,
   reserveProviderOperation: ReserveProviderOperation,
   filePath: string,
+  signal?: AbortSignal,
 ): Promise<Analysis> {
-  const result = await executeMediaProviderOperation(reserveProviderOperation, () =>
-    openai.audio.transcriptions.create({
-      file: createReadStream(filePath),
-      model: process.env.MEDIA_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
-    }),
+  assertMediaJobActive(signal)
+  const result = await executeMediaProviderOperation(
+    reserveProviderOperation,
+    () =>
+      openai.audio.transcriptions.create(
+        {
+          file: createReadStream(filePath),
+          model: process.env.MEDIA_TRANSCRIPTION_MODEL ?? 'gpt-4o-mini-transcribe',
+        },
+        signal ? { signal } : undefined,
+      ),
+    () => assertMediaJobActive(signal),
   )
+  assertMediaJobActive(signal)
   return emptyAnalysis(result.text)
 }
 
-async function extractVideoFrames(filePath: string, outputDir: string, interval: number) {
+async function extractVideoFrames(
+  filePath: string,
+  outputDir: string,
+  interval: number,
+  signal?: AbortSignal,
+) {
+  assertMediaJobActive(signal)
   if (!ffmpegPath) throw new Error('ffmpeg is unavailable in this worker build.')
   const executable = ffmpegPath
   await mkdir(outputDir, { recursive: true })
@@ -458,13 +486,16 @@ async function extractVideoFrames(filePath: string, outputDir: string, interval:
     {
       label: 'ffmpeg frame extraction',
       maxOutputBytesPerStream: FFMPEG_MAX_OUTPUT_BYTES,
+      ...(signal ? { signal } : {}),
       timeoutMs: FFMPEG_TIMEOUT_MS,
     },
   )
+  assertMediaJobActive(signal)
   return (await readdir(outputDir)).filter((name) => name.endsWith('.jpg')).sort()
 }
 
-async function extractVideoAudio(filePath: string, outputPath: string) {
+async function extractVideoAudio(filePath: string, outputPath: string, signal?: AbortSignal) {
+  assertMediaJobActive(signal)
   if (!ffmpegPath) throw new Error('ffmpeg is unavailable in this worker build.')
   const executable = ffmpegPath
   await runBoundedLeafProcess(
@@ -488,23 +519,38 @@ async function extractVideoAudio(filePath: string, outputPath: string) {
     {
       label: 'ffmpeg audio extraction',
       maxOutputBytesPerStream: FFMPEG_MAX_OUTPUT_BYTES,
+      ...(signal ? { signal } : {}),
       timeoutMs: FFMPEG_TIMEOUT_MS,
     },
   )
+  assertMediaJobActive(signal)
 }
 
-async function sha256File(filePath: string) {
+async function sha256File(filePath: string, signal?: AbortSignal) {
+  assertMediaJobActive(signal)
   const hash = createHash('sha256')
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk as Buffer)
+  const stream = createReadStream(filePath, signal ? { signal } : undefined)
+  for await (const chunk of stream) {
+    assertMediaJobActive(signal)
+    hash.update(chunk as Buffer)
+  }
+  assertMediaJobActive(signal)
   return hash.digest('hex')
 }
 
-async function downloadAndExtract(objectKey: string, destination: string) {
+export async function downloadAndExtract(
+  objectKey: string,
+  destination: string,
+  signal?: AbortSignal,
+) {
+  assertMediaJobActive(signal)
   const bucket = process.env.STORAGE_BUCKET
   if (!bucket) throw new Error('STORAGE_BUCKET is not configured.')
   const response = await storageClient().send(
     new GetObjectCommand({ Bucket: bucket, Key: objectKey }),
+    signal ? { abortSignal: signal } : undefined,
   )
+  assertMediaJobActive(signal)
   if (!response.Body) throw new Error('The uploaded archive is empty.')
   const source = response.Body as unknown as Readable
   const zip = unzipper.Parse({ forceStream: true })
@@ -514,9 +560,19 @@ async function downloadAndExtract(objectKey: string, destination: string) {
   const byteBudget = new MediaArchiveByteBudget(MAX_EXPANDED_BYTES)
   let entriesSeen = 0
   let activeEntry: unzipper.Entry | null = null
+  const abortStreams = () => {
+    const cancellation = new MediaJobCancelledError()
+    activeEntry?.destroy(cancellation)
+    zip.destroy(cancellation)
+    source.destroy(cancellation)
+  }
+  signal?.addEventListener('abort', abortStreams, { once: true })
+  if (signal?.aborted) abortStreams()
 
   try {
+    assertMediaJobActive(signal)
     for await (const rawEntry of zip) {
+      assertMediaJobActive(signal)
       const entry = rawEntry as unzipper.Entry
       activeEntry = entry
       entriesSeen++
@@ -540,15 +596,13 @@ async function downloadAndExtract(objectKey: string, destination: string) {
       const mediaType = classify(cleanName)
       const counter = byteBudget.createEntryCounter()
       if (!mediaType || !cleanName || cleanName.startsWith('.')) {
-        await pipeline(
-          entry,
-          counter,
-          new Writable({
-            write(_chunk, _encoding, callback) {
-              callback()
-            },
-          }),
-        )
+        const discard = new Writable({
+          write(_chunk, _encoding, callback) {
+            callback()
+          },
+        })
+        if (signal) await pipeline(entry, counter, discard, { signal })
+        else await pipeline(entry, counter, discard)
         activeEntry = null
         continue
       }
@@ -556,18 +610,23 @@ async function downloadAndExtract(objectKey: string, destination: string) {
         destination,
         `${String(extracted.length + 1).padStart(5, '0')}-${cleanName}`,
       )
-      await pipeline(entry, counter, createWriteStream(target, { flags: 'wx' }))
+      const output = createWriteStream(target, { flags: 'wx' })
+      if (signal) await pipeline(entry, counter, output, { signal })
+      else await pipeline(entry, counter, output)
       extracted.push({ filename: originalName, path: target, bytes: counter.bytes })
       activeEntry = null
     }
-  } catch (error) {
+  } catch (caughtError) {
     activeEntry?.destroy()
     zip.destroy()
     source.destroy()
-    throw error
+    if (signal?.aborted) throw new MediaJobCancelledError()
+    throw caughtError
   } finally {
+    signal?.removeEventListener('abort', abortStreams)
     detachSourceErrorForwarder()
   }
+  assertMediaJobActive(signal)
   return extracted
 }
 
@@ -577,31 +636,43 @@ async function synthesize(
   venueName: string,
   context: string,
   analyses: unknown[],
+  signal?: AbortSignal,
 ) {
+  assertMediaJobActive(signal)
   let evidence: unknown[] = analyses
   if (jsonArrayExceedsCharacterLimit(evidence, MAX_RETAINED_TEXT_CHARACTERS)) {
     const summaries: unknown[] = []
     const summaryBudget = new MediaSynthesisSummaryBudget()
     for (let index = 0; index < evidence.length; index += 35) {
+      assertMediaJobActive(signal)
       const batch = evidence.slice(index, index + 35)
       if (jsonArrayExceedsCharacterLimit(batch, MAX_SYNTHESIS_JSON_CHARACTERS)) {
         throw new Error('Media evidence batch exceeds the synthesis memory limit.')
       }
-      const response = await executeMediaProviderOperation(reserveProviderOperation, () =>
-        openai.chat.completions.create({
-          model:
-            process.env.MEDIA_SYNTHESIS_MODEL ?? process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
-          response_format: { type: 'json_object' },
-          messages: [
+      const response = await executeMediaProviderOperation(
+        reserveProviderOperation,
+        () =>
+          openai.chat.completions.create(
             {
-              role: 'system',
-              content:
-                'Condense this evidence batch into JSON while preserving every named object, verbatim label fact, source ID, spatial clue, contradiction, and uncertainty. Merge nothing unless the evidence explicitly establishes a duplicate.',
+              model:
+                process.env.MEDIA_SYNTHESIS_MODEL ??
+                process.env.MEDIA_ANALYSIS_MODEL ??
+                'gpt-5.6-luna',
+              response_format: { type: 'json_object' },
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'Condense this evidence batch into JSON while preserving every named object, verbatim label fact, source ID, spatial clue, contradiction, and uncertainty. Merge nothing unless the evidence explicitly establishes a duplicate.',
+                },
+                { role: 'user', content: JSON.stringify(batch) },
+              ],
             },
-            { role: 'user', content: JSON.stringify(batch) },
-          ],
-        }),
+            signal ? { signal } : undefined,
+          ),
+        () => assertMediaJobActive(signal),
       )
+      assertMediaJobActive(signal)
       const text = response.choices[0]?.message.content
       if (!text) throw new Error('No batch evidence summary was returned.')
       const summary = parseProviderJson(
@@ -618,24 +689,32 @@ async function synthesize(
     throw new Error('Media evidence exceeds the synthesis memory limit.')
   }
   const compact = JSON.stringify(evidence)
-  const response = await executeMediaProviderOperation(reserveProviderOperation, () =>
-    openai.chat.completions.create({
-      model:
-        process.env.MEDIA_SYNTHESIS_MODEL ?? process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
-      response_format: { type: 'json_object' },
-      messages: [
+  assertMediaJobActive(signal)
+  const response = await executeMediaProviderOperation(
+    reserveProviderOperation,
+    () =>
+      openai.chat.completions.create(
         {
-          role: 'system',
-          content:
-            'Build draft PathFinder import JSON from evidence summaries. Return exactly schemaVersion 1, places, knowledgeEntries, questions, and coverage. Every place needs title (max 200 characters), type, itemType (physical_place, exhibit, room, sculpture, service_step, faq, amenity, policy, activity, or general_info), description (max 2000 characters), tags, and importanceScore (integer 0-100); include areaName, hours, photoUrl, or paired lat/lng only when supported. Every knowledge entry needs title (max 200), category (max 100), and content (max 5000). Return at most 500 places, 500 knowledge entries, and 500 questions. Every question must contain only a stable id and question string. Coverage must contain exactly evidenceSources (a nonnegative integer) and notes (a string array). Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Put ambiguity that could change the guide in questions.',
+          model:
+            process.env.MEDIA_SYNTHESIS_MODEL ?? process.env.MEDIA_ANALYSIS_MODEL ?? 'gpt-5.6-luna',
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Build draft PathFinder import JSON from evidence summaries. Return exactly schemaVersion 1, places, knowledgeEntries, questions, and coverage. Every place needs title (max 200 characters), type, itemType (physical_place, exhibit, room, sculpture, service_step, faq, amenity, policy, activity, or general_info), description (max 2000 characters), tags, and importanceScore (integer 0-100); include areaName, hours, photoUrl, or paired lat/lng only when supported. Every knowledge entry needs title (max 200), category (max 100), and content (max 5000). Return at most 500 places, 500 knowledge entries, and 500 questions. Every question must contain only a stable id and question string. Coverage must contain exactly evidenceSources (a nonnegative integer) and notes (a string array). Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Put ambiguity that could change the guide in questions.',
+            },
+            {
+              role: 'user',
+              content: `Venue: ${venueName}\nOperator context:\n${context.slice(0, 12_000)}\n\nEvidence summaries:\n${compact}`,
+            },
+          ],
         },
-        {
-          role: 'user',
-          content: `Venue: ${venueName}\nOperator context:\n${context.slice(0, 12_000)}\n\nEvidence summaries:\n${compact}`,
-        },
-      ],
-    }),
+        signal ? { signal } : undefined,
+      ),
+    () => assertMediaJobActive(signal),
   )
+  assertMediaJobActive(signal)
   const text = response.choices[0]?.message.content
   if (!text) throw new Error('No synthesis result was returned.')
   return parseMediaSynthesisResponse(text)
@@ -644,7 +723,9 @@ async function synthesize(
 export async function processMediaIngestionJob(
   payload: MediaIngestionJobPayload,
   executionInput?: JobExecutionInput,
+  signal?: AbortSignal,
 ) {
+  assertMediaJobActive(signal)
   // Jobs retained from before generation-scoped payloads have no attempt ID.
   // Treat them as the legacy null generation so they can never claim newer work.
   const uploadAttemptId = payload.uploadAttemptId ?? null
@@ -664,6 +745,7 @@ export async function processMediaIngestionJob(
   let workDir: string | null = null
 
   try {
+    assertMediaJobActive(signal)
     const project = await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.findFirst({
         where: { id: payload.projectId, tenantId: payload.tenantId, venueId: payload.venueId },
@@ -679,11 +761,13 @@ export async function processMediaIngestionJob(
         },
       }),
     )
+    assertMediaJobActive(signal)
     if (!project || project.uploadAttemptId !== uploadAttemptId) {
       await updateJobRecord(recordId, { status: 'COMPLETE' })
       return
     }
     if (!project.sourceObjectKey) throw new Error('Media ingestion project or archive not found.')
+    assertMediaJobActive(signal)
     const claimed = await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
         where: {
@@ -700,7 +784,9 @@ export async function processMediaIngestionJob(
       await updateJobRecord(recordId, { status: 'COMPLETE' })
       return
     }
+    assertMediaJobActive(signal)
     workDir = await mkdtemp(join(tmpdir(), `pathfinder-media-${payload.projectId}-`))
+    assertMediaJobActive(signal)
     if (!process.env.OPENAI_API_KEY)
       throw new Error('OPENAI_API_KEY is required for media analysis.')
     const settings = project.settings as {
@@ -708,7 +794,10 @@ export async function processMediaIngestionJob(
       detectDuplicates?: boolean
       videoSecondsPerSample?: number
     }
-    const files = assignMediaSourceIds(await downloadAndExtract(project.sourceObjectKey, workDir))
+    const files = assignMediaSourceIds(
+      await downloadAndExtract(project.sourceObjectKey, workDir, signal),
+    )
+    assertMediaJobActive(signal)
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0 })
     const analyses: Array<{
       sourceId: string
@@ -718,13 +807,16 @@ export async function processMediaIngestionJob(
     }> = []
     const analysesByHash = new Map<string, Analysis>()
     const textRetention = new MediaTextRetentionBudget(MAX_RETAINED_TEXT_CHARACTERS)
-    const reserveProviderOperation = () =>
-      reserveMediaProviderOperation({
+    const reserveProviderOperation = () => {
+      assertMediaJobActive(signal)
+      return reserveMediaProviderOperation({
         tenantId: payload.tenantId,
         projectId: project.id,
         uploadAttemptId,
       })
+    }
 
+    assertMediaJobActive(signal)
     await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
         where: {
@@ -740,12 +832,14 @@ export async function processMediaIngestionJob(
         },
       }),
     )
+    assertMediaJobActive(signal)
 
     for (let index = 0; index < files.length; index++) {
+      assertMediaJobActive(signal)
       const file = files[index]!
       const sourceId = file.sourceId
       const mediaType = classify(file.filename)!
-      const sha256 = await sha256File(file.path)
+      const sha256 = await sha256File(file.path, signal)
       let analysis: Analysis
       try {
         const duplicate =
@@ -760,9 +854,10 @@ export async function processMediaIngestionJob(
             sourceId,
             project.context,
             project.mode,
+            signal,
           )
         } else if (mediaType === 'AUDIO' && settings.transcribeAudio !== false) {
-          analysis = await transcribe(openai, reserveProviderOperation, file.path)
+          analysis = await transcribe(openai, reserveProviderOperation, file.path, signal)
         } else if (mediaType === 'VIDEO') {
           const frameDir = join(workDir, `frames-${index}`)
           analysis = await withMediaGeneratedOutputDirectory(frameDir, async () => {
@@ -770,6 +865,7 @@ export async function processMediaIngestionJob(
               file.path,
               frameDir,
               settings.videoSecondsPerSample ?? 8,
+              signal,
             )
             const frameAnalyses: Analysis[] = []
             for (const frame of frames) {
@@ -781,6 +877,7 @@ export async function processMediaIngestionJob(
                   `${sourceId}/${frame}`,
                   project.context,
                   project.mode,
+                  signal,
                 ),
               )
             }
@@ -788,9 +885,11 @@ export async function processMediaIngestionJob(
             if (settings.transcribeAudio !== false) {
               const audioPath = join(frameDir, 'audio.mp3')
               try {
-                await extractVideoAudio(file.path, audioPath)
-                transcript = (await transcribe(openai, reserveProviderOperation, audioPath)).summary
+                await extractVideoAudio(file.path, audioPath, signal)
+                transcript = (await transcribe(openai, reserveProviderOperation, audioPath, signal))
+                  .summary
               } catch (error) {
+                assertMediaJobActive(signal)
                 if (error instanceof UnrecoverableError) throw error
                 transcript = ''
               }
@@ -814,7 +913,9 @@ export async function processMediaIngestionJob(
               'The media job reached its retained-text safety limit.',
             )
           } else {
-            const text = await readUtf8TextPrefix(file.path, allowance)
+            const text = await readUtf8TextPrefix(file.path, allowance, {
+              ...(signal ? { signal } : {}),
+            })
             textRetention.retain(text)
             analysis = emptyAnalysis(text)
           }
@@ -824,6 +925,7 @@ export async function processMediaIngestionJob(
             'This file format needs manual review.',
           )
         }
+        assertMediaJobActive(signal)
         analysesByHash.set(sha256, analysis)
         analyses.push({ sourceId, filename: file.filename, mediaType, analysis })
         await persistMediaIngestionAsset({
@@ -833,9 +935,11 @@ export async function processMediaIngestionJob(
           file,
           mediaType,
           sha256,
+          ...(signal ? { signal } : {}),
           outcome: { status: 'COMPLETE', analysis },
         })
       } catch (error) {
+        assertMediaJobActive(signal)
         if (error instanceof UnrecoverableError) throw error
         const message = error instanceof Error ? error.message : 'Unknown asset analysis error'
         analysis = emptyAnalysis('Analysis failed.', message)
@@ -847,9 +951,11 @@ export async function processMediaIngestionJob(
           file,
           mediaType,
           sha256,
+          ...(signal ? { signal } : {}),
           outcome: { status: 'FAILED', error: message },
         })
       }
+      assertMediaJobActive(signal)
       const progress = 10 + Math.round(((index + 1) / Math.max(files.length, 1)) * 75)
       await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
@@ -861,8 +967,10 @@ export async function processMediaIngestionJob(
           data: { progress, coverage: { totalFiles: files.length, processedFiles: index + 1 } },
         }),
       )
+      assertMediaJobActive(signal)
     }
 
+    assertMediaJobActive(signal)
     await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
         where: {
@@ -873,15 +981,19 @@ export async function processMediaIngestionJob(
         data: { status: 'SYNTHESIZING', stage: 'synthesis', progress: 90 },
       }),
     )
+    assertMediaJobActive(signal)
     const draft = await synthesize(
       openai,
       reserveProviderOperation,
       project.venue.name,
       project.context,
       analyses,
+      signal,
     )
+    assertMediaJobActive(signal)
     const questions = Array.isArray(draft.questions) ? draft.questions : []
     const failures = analyses.filter((item) => item.analysis.summary === 'Analysis failed.').length
+    assertMediaJobActive(signal)
     await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
         where: {
@@ -912,8 +1024,10 @@ export async function processMediaIngestionJob(
         },
       }),
     )
+    assertMediaJobActive(signal)
     await updateJobRecord(recordId, { status: 'COMPLETE' })
-  } catch (error) {
+  } catch (caughtError) {
+    const error = signal?.aborted ? new MediaJobCancelledError() : caughtError
     const message = error instanceof Error ? error.message : 'Unknown media ingestion error'
     await recordJobFailure({ jobRecordId: recordId, error, errorMessage: message, execution })
 

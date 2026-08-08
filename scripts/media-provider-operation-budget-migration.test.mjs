@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const schema = await readFile(new URL('../packages/db/prisma/schema.prisma', import.meta.url), 'utf8')
+const schema = await readFile(
+  new URL('../packages/db/prisma/schema.prisma', import.meta.url),
+  'utf8',
+)
 const migration = await readFile(
   new URL(
     '../packages/db/prisma/migrations/20260809130000_add_media_provider_operation_budget/migration.sql',
@@ -46,14 +49,17 @@ test('new upload generations reset the durable count while resumable replay retu
 })
 
 test('every direct media provider dispatch is wrapped by a durable pre-dispatch reservation', () => {
-  assert.match(budget, /await reserve\(\)\s+return operation\(\)/u)
+  assert.match(budget, /await reserve\(\)\s+assertActive\?\.\(\)\s+return operation\(\)/u)
   assert.match(budget, /MAX_MEDIA_PROVIDER_OPERATIONS = 10_000/u)
   assert.match(processor, /const MAX_FILES = 10_000/u)
   assert.equal(processor.match(/executeMediaProviderOperation\(/gu)?.length, 4)
   assert.equal(processor.match(/openai\.chat\.completions\.create\(/gu)?.length, 3)
   assert.equal(processor.match(/openai\.audio\.transcriptions\.create\(/gu)?.length, 1)
   assert.match(processor, /if \(error instanceof UnrecoverableError\) throw error/gu)
-  assert.match(processor, /new OpenAI\(\{ apiKey: process\.env\.OPENAI_API_KEY, maxRetries: 0 \}\)/u)
+  assert.match(
+    processor,
+    /new OpenAI\(\{ apiKey: process\.env\.OPENAI_API_KEY, maxRetries: 0 \}\)/u,
+  )
 })
 
 test('video scratch output is axis-bounded and cleaned before asset persistence', () => {

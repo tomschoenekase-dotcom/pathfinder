@@ -60,6 +60,24 @@ describe('runBoundedLeafProcess', () => {
     })
   })
 
+  it('kills and rejects a child when its caller aborts', async () => {
+    const controller = new AbortController()
+    const startedAt = Date.now()
+    const result = runBoundedLeafProcess(node, ['-e', 'setTimeout(() => {}, 10_000)'], {
+      label: 'test process',
+      maxOutputBytesPerStream: 1024,
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    })
+    setTimeout(() => controller.abort(), 50)
+
+    await expect(result).rejects.toMatchObject({
+      message: 'test process was cancelled.',
+      reason: 'aborted',
+    })
+    expect(Date.now() - startedAt).toBeLessThan(5_000)
+  })
+
   it('classifies an unavailable executable as a spawn failure', async () => {
     const result = runBoundedLeafProcess('pathfinder-executable-that-does-not-exist', [], {
       label: 'test process',

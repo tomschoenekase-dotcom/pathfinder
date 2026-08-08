@@ -3,7 +3,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
-export type BoundedProcessFailureReason = 'exit' | 'output-limit' | 'spawn' | 'timeout'
+export type BoundedProcessFailureReason = 'aborted' | 'exit' | 'output-limit' | 'spawn' | 'timeout'
 
 export class BoundedProcessError extends Error {
   constructor(
@@ -31,6 +31,7 @@ export async function runBoundedLeafProcess(
   options: {
     label: string
     maxOutputBytesPerStream: number
+    signal?: AbortSignal
     timeoutMs: number
   },
 ): Promise<void> {
@@ -53,11 +54,15 @@ export async function runBoundedLeafProcess(
       encoding: 'utf8',
       killSignal: 'SIGKILL',
       maxBuffer: options.maxOutputBytesPerStream,
+      signal: options.signal,
       timeout: options.timeoutMs,
       windowsHide: true,
     })
   } catch (error) {
     const failure = error as ExecFileFailure
+    if (failure.name === 'AbortError' || failure.code === 'ABORT_ERR') {
+      throw new BoundedProcessError(`${options.label} was cancelled.`, 'aborted', { cause: error })
+    }
     if (failure.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
       throw new BoundedProcessError(
         `${options.label} exceeded its ${options.maxOutputBytesPerStream}-byte per-stream output limit.`,

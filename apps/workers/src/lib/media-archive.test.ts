@@ -154,4 +154,33 @@ describe('bounded UTF-8 text prefix', () => {
   it.each([0, -1, 1.5, Number.NaN])('rejects an invalid character limit: %s', async (limit) => {
     await expect(readUtf8TextPrefix('unused', limit)).rejects.toThrow(/positive safe integer/)
   })
+
+  it('destroys the text stream when cancellation is already requested', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const stream = Readable.from([Buffer.from('unused')]) as unknown as import('node:fs').ReadStream
+
+    await expect(
+      readUtf8TextPrefix('unused', 10, {
+        openStream: () => stream,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: 'MediaJobCancelledError' })
+    expect(stream.destroyed).toBe(true)
+  })
+
+  it('interrupts a text stream that stalls after reading starts', async () => {
+    const controller = new AbortController()
+    const stream = new Readable({ read() {} }) as unknown as import('node:fs').ReadStream
+    const result = readUtf8TextPrefix('unused', 10, {
+      openStream: () => stream,
+      signal: controller.signal,
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+    controller.abort()
+
+    await expect(result).rejects.toMatchObject({ name: 'MediaJobCancelledError' })
+    expect(stream.destroyed).toBe(true)
+  })
 })

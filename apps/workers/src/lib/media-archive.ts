@@ -1,6 +1,8 @@
 import { createReadStream } from 'node:fs'
 import type { ReadStream } from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
+
+import { assertMediaJobActive, MediaJobCancelledError } from './media-job-cancellation'
 import { Readable, Transform, type TransformCallback } from 'node:stream'
 
 export class MediaArchiveByteLimitError extends Error {
@@ -126,6 +128,7 @@ export function forwardReadableErrors(source: Readable, destination: Readable): 
 type TextPrefixReadOptions = {
   highWaterMark?: number
   openStream?: (filePath: string, highWaterMark: number) => ReadStream
+  signal?: AbortSignal
 }
 
 const DEFAULT_TEXT_HIGH_WATER_MARK = 16 * 1024
@@ -148,9 +151,13 @@ export async function readUtf8TextPrefix(
     : createReadStream(filePath, { highWaterMark })
   const decoder = new StringDecoder('utf8')
   const characters: string[] = []
+  const abortStream = () => stream.destroy(new MediaJobCancelledError())
+  options.signal?.addEventListener('abort', abortStream, { once: true })
 
   try {
+    assertMediaJobActive(options.signal)
     for await (const rawChunk of stream) {
+      assertMediaJobActive(options.signal)
       const decoded = decoder.write(Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk))
       for (const character of decoded) {
         characters.push(character)
@@ -158,12 +165,14 @@ export async function readUtf8TextPrefix(
       }
     }
 
+    assertMediaJobActive(options.signal)
     for (const character of decoder.end()) {
       characters.push(character)
       if (characters.length === maxCharacters) break
     }
     return characters.join('')
   } finally {
+    options.signal?.removeEventListener('abort', abortStream)
     stream.destroy()
   }
 }
