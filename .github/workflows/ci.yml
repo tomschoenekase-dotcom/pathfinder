@@ -62,6 +62,8 @@ jobs:
       - run: pnpm verify:tenant-bypasses
       - run: pnpm verify:raw-sql
       - run: pnpm verify:tenant-procedures
+      - run: pnpm verify:docker-context
+      - run: pnpm verify:docker-context:effective
       - run: pnpm --dir packages/db db:generate
       - name: Apply migrations through the disposable-target guard
         run: pnpm db:migrate:disposable -- --database pathfinder_disposable_ci --confirm-database pathfinder_disposable_ci

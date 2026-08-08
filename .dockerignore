@@ -18,7 +18,12 @@ coverage/
 .env.local
 *.env
 *.env.local
+**/.env
+**/.env.*
+**/*.env
+**/*.env.*
 
 # VCS and local tooling
 .git/
 .husky/
+**/.claude/

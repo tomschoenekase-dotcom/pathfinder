@@ -17,6 +17,8 @@
     "verify:tenant-bypasses": "node scripts/verify-tenant-bypass-boundary.mjs",
     "verify:tenant-procedures": "node scripts/verify-tenant-procedure-coverage.mjs",
     "verify:tenant-registry": "node scripts/verify-tenant-registry.mjs",
+    "verify:docker-context": "node scripts/verify-docker-context-boundary.mjs",
+    "verify:docker-context:effective": "node scripts/verify-docker-context-effective.mjs",
     "test:watch": "vitest",
     "verify:staging": "node scripts/verify-staging-config.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",

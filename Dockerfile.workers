@@ -4,6 +4,8 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 FROM base AS installer
 WORKDIR /app
 COPY . .
+RUN ! find . -type f \( -name '.env' -o -name '.env.*' -o -name '*.env' -o -name '*.env.*' \) -print -quit | grep -q . \
+  && ! find . -type d -name '.claude' -print -quit | grep -q .
 RUN pnpm install --frozen-lockfile
 
 FROM base AS runner
