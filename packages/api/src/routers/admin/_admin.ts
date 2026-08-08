@@ -10,9 +10,14 @@ import {
   setContentVersionContext,
   withTenantIsolationBypass,
   writeAuditLog,
+  writeAuditLogStrict,
 } from '@pathfinder/db'
 import { enqueueGenerationDispatchKick, enqueueWeeklyDigest } from '@pathfinder/jobs'
-import { createOrganization, currentUser } from '@pathfinder/auth'
+import {
+  createOrganization,
+  currentUser,
+  validateExistingOrganizationOwner,
+} from '@pathfinder/auth'
 import { adminProcedure } from '../../trpc'
 import { router } from '../../core'
 import { CreateVenueInput } from '../../schemas/venue'
@@ -564,47 +569,68 @@ export const adminRouter = router({
         })
       }
 
-      await withTenantIsolationBypass(async () => {
-        await db.tenant.create({
-          data: { id: input.orgId, name: input.name, slug: input.slug },
-        })
-
-        await db.user.upsert({
-          where: { id: input.userId },
-          create: { id: input.userId, email: input.userEmail },
-          update: { email: input.userEmail },
-        })
-
-        await db.tenantMembership.upsert({
-          where: {
-            tenantId: input.orgId,
-            tenantId_userId: { tenantId: input.orgId, userId: input.userId },
-          },
-          create: {
-            tenantId: input.orgId,
-            userId: input.userId,
-            role: 'OWNER',
-            status: 'ACTIVE',
-            joinedAt: new Date(),
-          },
-          update: { role: 'OWNER', status: 'ACTIVE' },
-        })
+      const owner = await validateExistingOrganizationOwner({
+        organizationId: input.orgId,
+        userId: input.userId,
+        emailAddress: input.userEmail,
       })
 
-      await writeAuditLog({
-        tenantId: input.orgId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.client.created',
-        targetType: 'Tenant',
-        targetId: input.orgId,
-        afterState: {
-          id: input.orgId,
-          name: input.name,
-          slug: input.slug,
-          ownerUserId: input.userId,
-        },
-      })
+      await withTenantIsolationBypass(() =>
+        db.$transaction(async (tx) => {
+          try {
+            await tx.tenant.create({
+              data: { id: owner.organizationId, name: input.name, slug: input.slug },
+            })
+          } catch (error) {
+            if (isUniqueConstraintError(error)) {
+              throw new TRPCError({
+                code: 'CONFLICT',
+                message: 'A client with this organization ID or slug already exists',
+              })
+            }
+            throw error
+          }
+
+          await tx.user.upsert({
+            where: { id: owner.userId },
+            create: { id: owner.userId, email: owner.emailAddress },
+            update: { email: owner.emailAddress },
+          })
+
+          await tx.tenantMembership.upsert({
+            where: {
+              tenantId: owner.organizationId,
+              tenantId_userId: { tenantId: owner.organizationId, userId: owner.userId },
+            },
+            create: {
+              tenantId: owner.organizationId,
+              userId: owner.userId,
+              role: 'OWNER',
+              status: 'ACTIVE',
+              joinedAt: new Date(),
+            },
+            update: { role: 'OWNER', status: 'ACTIVE' },
+          })
+
+          await writeAuditLogStrict(
+            {
+              tenantId: owner.organizationId,
+              actorId: ctx.session.userId,
+              actorRole: 'PLATFORM_ADMIN',
+              action: 'admin.client.created',
+              targetType: 'Tenant',
+              targetId: owner.organizationId,
+              afterState: {
+                id: owner.organizationId,
+                name: input.name,
+                slug: input.slug,
+                ownerUserId: owner.userId,
+              },
+            },
+            tx,
+          )
+        }),
+      )
 
       return { ok: true }
     }),

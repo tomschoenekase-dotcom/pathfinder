@@ -24,6 +24,12 @@ export type CreatedOrganization = {
   slug: string
 }
 
+export type ValidatedOrganizationOwner = {
+  organizationId: string
+  userId: string
+  emailAddress: string
+}
+
 // Clerk API errors carry the real reason in `.errors[].longMessage`; the
 // generic top-level `.message` is often just the HTTP status text (e.g.
 // "Forbidden"), which is useless on its own for diagnosing why a call failed.
@@ -38,6 +44,85 @@ function describeClerkError(error: unknown): string {
   }
 
   return error instanceof Error ? error.message : 'Unknown Clerk error'
+}
+
+function isClerkNotFoundError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+
+  const candidate = error as { status?: unknown; statusCode?: unknown }
+  return candidate.status === 404 || candidate.statusCode === 404
+}
+
+function clerkValidationError(error: unknown): TRPCError {
+  if (isClerkNotFoundError(error)) {
+    return new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'The Clerk organization or owner could not be validated',
+    })
+  }
+
+  return new TRPCError({
+    code: 'INTERNAL_SERVER_ERROR',
+    message: 'Clerk identity validation is temporarily unavailable',
+  })
+}
+
+/**
+ * Resolves an existing Clerk organization and the user that will become its
+ * local OWNER. The local role is only safe when Clerk already grants the user
+ * an owner-equivalent organization role.
+ */
+export async function validateExistingOrganizationOwner(input: {
+  organizationId: string
+  userId: string
+  emailAddress: string
+}): Promise<ValidatedOrganizationOwner> {
+  try {
+    const client = await clerkClient()
+    const [organization, user, memberships] = await Promise.all([
+      client.organizations.getOrganization({ organizationId: input.organizationId }),
+      client.users.getUser(input.userId),
+      client.organizations.getOrganizationMembershipList({
+        organizationId: input.organizationId,
+        userId: [input.userId],
+        limit: 2,
+      }),
+    ])
+
+    const membership = memberships.data.find(
+      (candidate) => candidate.publicUserData?.userId === input.userId,
+    )
+    const emailAddress =
+      user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)
+        ?.emailAddress ?? user.emailAddresses[0]?.emailAddress
+    const normalizedInputEmail = input.emailAddress.trim().toLowerCase()
+    const inputMatchesClerkEmail = user.emailAddresses.some(
+      (address) => address.emailAddress.toLowerCase() === normalizedInputEmail,
+    )
+
+    if (
+      organization.id !== input.organizationId ||
+      user.id !== input.userId ||
+      !membership ||
+      (membership.role !== 'org:admin' && membership.role !== 'org:owner') ||
+      !emailAddress ||
+      !inputMatchesClerkEmail
+    ) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'The Clerk organization or owner could not be validated',
+      })
+    }
+
+    return {
+      organizationId: organization.id,
+      userId: user.id,
+      emailAddress,
+    }
+  } catch (error) {
+    if (error instanceof TRPCError) throw error
+    throw clerkValidationError(error)
+  }
 }
 
 /**

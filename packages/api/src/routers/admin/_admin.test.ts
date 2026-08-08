@@ -36,10 +36,12 @@ const {
   auditLogCreate,
   dbTransaction,
   writeAuditLogMock,
+  writeAuditLogStrictMock,
   enqueueWeeklyDigest,
   enqueueGenerationDispatchKick,
   createOrganizationMock,
   currentUserMock,
+  validateExistingOrganizationOwnerMock,
   loggerWarn,
   lockVenueReportMutation,
 } = vi.hoisted(() => ({
@@ -77,10 +79,12 @@ const {
   auditLogCreate: vi.fn(),
   dbTransaction: vi.fn(),
   writeAuditLogMock: vi.fn(),
+  writeAuditLogStrictMock: vi.fn(),
   enqueueWeeklyDigest: vi.fn(),
   enqueueGenerationDispatchKick: vi.fn(),
   createOrganizationMock: vi.fn(),
   currentUserMock: vi.fn(),
+  validateExistingOrganizationOwnerMock: vi.fn(),
   loggerWarn: vi.fn(),
   lockVenueReportMutation: vi.fn(),
 }))
@@ -159,6 +163,7 @@ vi.mock('@pathfinder/db', () => {
         dbTransaction(callback, transactionDb),
     },
     writeAuditLog: writeAuditLogMock,
+    writeAuditLogStrict: writeAuditLogStrictMock,
     lockVenueReportMutation,
     setContentVersionContext: vi.fn().mockResolvedValue(undefined),
     withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
@@ -176,6 +181,7 @@ vi.mock('@pathfinder/auth', async (importOriginal) => {
     ...actual,
     createOrganization: createOrganizationMock,
     currentUser: currentUserMock,
+    validateExistingOrganizationOwner: validateExistingOrganizationOwnerMock,
   }
 })
 
@@ -230,6 +236,11 @@ describe('admin router', () => {
     generationRequestDispatchFindFirst.mockResolvedValue(null)
     venueReportConfigurationFindFirst.mockResolvedValue({ enabled: true })
     lockVenueReportMutation.mockResolvedValue(undefined)
+    validateExistingOrganizationOwnerMock.mockResolvedValue({
+      organizationId: 'org_existing',
+      userId: 'user_owner',
+      emailAddress: 'Owner@Example.com',
+    })
     generationRequestDispatchCreate.mockImplementation(async ({ data }) => ({
       id: data.id,
       recordId: data.recordId,
@@ -848,6 +859,158 @@ describe('admin router', () => {
         venueId: 'wrong_venue',
       },
     })
+  })
+
+  it('admin.createClient validates Clerk identity before atomically creating the tenant owner', async () => {
+    tenantFindUnique.mockResolvedValueOnce(null)
+    tenantCreate.mockResolvedValueOnce({ id: 'org_existing' })
+
+    const result = await testRouter.createCaller(adminCtx()).admin.createClient({
+      orgId: 'org_existing',
+      name: 'Existing Organization',
+      slug: 'existing-organization',
+      userId: 'user_owner',
+      userEmail: 'owner@example.com',
+    })
+
+    expect(validateExistingOrganizationOwnerMock).toHaveBeenCalledWith({
+      organizationId: 'org_existing',
+      userId: 'user_owner',
+      emailAddress: 'owner@example.com',
+    })
+    expect(dbTransaction).toHaveBeenCalledOnce()
+    expect(tenantCreate).toHaveBeenCalledWith({
+      data: {
+        id: 'org_existing',
+        name: 'Existing Organization',
+        slug: 'existing-organization',
+      },
+    })
+    expect(userUpsert).toHaveBeenCalledWith({
+      where: { id: 'user_owner' },
+      create: { id: 'user_owner', email: 'Owner@Example.com' },
+      update: { email: 'Owner@Example.com' },
+    })
+    expect(tenantMembershipUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          tenantId: 'org_existing',
+          userId: 'user_owner',
+          role: 'OWNER',
+          status: 'ACTIVE',
+        }),
+      }),
+    )
+    expect(writeAuditLogStrictMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin.client.created',
+        targetId: 'org_existing',
+        afterState: expect.objectContaining({ ownerUserId: 'user_owner' }),
+      }),
+      expect.objectContaining({ tenant: expect.any(Object), auditLog: expect.any(Object) }),
+    )
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('admin.createClient performs no database work when Clerk identity validation fails', async () => {
+    tenantFindUnique.mockResolvedValueOnce(null)
+    validateExistingOrganizationOwnerMock.mockRejectedValueOnce(
+      new TRPCError({ code: 'BAD_REQUEST', message: 'Clerk identity rejected' }),
+    )
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClient({
+        orgId: 'org_missing',
+        name: 'Missing Organization',
+        slug: 'missing-organization',
+        userId: 'user_missing',
+        userEmail: 'missing@example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    expect(tenantFindUnique).toHaveBeenCalledOnce()
+    expect(dbTransaction).not.toHaveBeenCalled()
+    expect(tenantCreate).not.toHaveBeenCalled()
+    expect(userUpsert).not.toHaveBeenCalled()
+    expect(tenantMembershipUpsert).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.createClient fails the transaction when its strict audit cannot be written', async () => {
+    tenantFindUnique.mockResolvedValueOnce(null)
+    writeAuditLogStrictMock.mockRejectedValueOnce(new Error('audit unavailable'))
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClient({
+        orgId: 'org_existing',
+        name: 'Existing Organization',
+        slug: 'existing-organization',
+        userId: 'user_owner',
+        userEmail: 'owner@example.com',
+      }),
+    ).rejects.toThrow('audit unavailable')
+
+    expect(dbTransaction).toHaveBeenCalledOnce()
+    expect(writeAuditLogStrictMock).toHaveBeenCalledOnce()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.createClient does not mutate when the validated Clerk org already exists locally', async () => {
+    tenantFindUnique.mockResolvedValueOnce({ id: 'org_existing' })
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClient({
+        orgId: 'org_existing',
+        name: 'Existing Organization',
+        slug: 'existing-organization',
+        userId: 'user_owner',
+        userEmail: 'owner@example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(dbTransaction).not.toHaveBeenCalled()
+    expect(tenantCreate).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(validateExistingOrganizationOwnerMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.createClient maps a concurrent unique create race to CONFLICT', async () => {
+    tenantFindUnique.mockResolvedValueOnce(null)
+    tenantCreate.mockRejectedValueOnce({ code: 'P2002' })
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClient({
+        orgId: 'org_existing',
+        name: 'Existing Organization',
+        slug: 'existing-organization',
+        userId: 'user_owner',
+        userEmail: 'owner@example.com',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'A client with this organization ID or slug already exists',
+    })
+
+    expect(validateExistingOrganizationOwnerMock).toHaveBeenCalledOnce()
+    expect(writeAuditLogStrictMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.createClient does not mislabel a local user identity conflict as a client race', async () => {
+    tenantFindUnique.mockResolvedValueOnce(null)
+    tenantCreate.mockResolvedValueOnce({ id: 'org_existing' })
+    userUpsert.mockRejectedValueOnce({ code: 'P2002', meta: { target: ['email'] } })
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClient({
+        orgId: 'org_existing',
+        name: 'Existing Organization',
+        slug: 'existing-organization',
+        userId: 'user_owner',
+        userEmail: 'owner@example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' })
+
+    expect(writeAuditLogStrictMock).not.toHaveBeenCalled()
   })
 
   it('admin.createClientAndVenue creates the org, tenant, admin membership, and venue', async () => {
