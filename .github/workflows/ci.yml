@@ -68,6 +68,32 @@ jobs:
         env:
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
+      - name: Start disposable S3-compatible storage
+        run: |
+          docker run --name pathfinder-disposable-media-ci --detach \
+            --publish 127.0.0.1:59000:9000 \
+            --env MINIO_ROOT_USER=synthetic-access \
+            --env MINIO_ROOT_PASSWORD=synthetic-secret \
+            minio/minio@sha256:3f97c5651cb6662b880c787a232b6b34fec8d8922e08d6617b25d241a21164bb \
+            server /data
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:59000/minio/health/ready && exit 0
+            sleep 1
+          done
+          docker logs pathfinder-disposable-media-ci
+          exit 1
+      - name: Verify disposable media storage contract
+        run: pnpm --dir packages/api exec vitest run src/lib/media-storage.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_MEDIA_STORAGE_INTEGRATION: '1'
+          STORAGE_ENDPOINT: http://127.0.0.1:59000
+          STORAGE_BUCKET: pathfinder-disposable-media-ci
+          STORAGE_REGION: us-east-1
+          STORAGE_ACCESS_KEY_ID: synthetic-access
+          STORAGE_SECRET_ACCESS_KEY: synthetic-secret
+      - name: Remove disposable S3-compatible storage
+        if: always()
+        run: docker rm --force pathfinder-disposable-media-ci
       - name: Verify embedding database concurrency and recovery
         run: pnpm --dir packages/db exec vitest run src/helpers/embedding-work-claims.integration.test.ts src/helpers/embedding-dispatches.integration.test.ts src/helpers/embedding-claim-repair.integration.test.ts --pool=forks --maxWorkers=1
         env:

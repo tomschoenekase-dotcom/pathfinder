@@ -1,12 +1,19 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { logger } from '@pathfinder/config'
 import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
 import { enqueueMediaIngestion } from '@pathfinder/jobs'
 
 import { router } from '../../core'
 import { currentDeploymentStorageKey } from '../../lib/deployment-storage-key'
-import { beginMediaUpload, finishMediaUpload, signMediaUploadPart } from '../../lib/media-storage'
+import {
+  beginMediaUpload,
+  finishMediaUpload,
+  mediaUploadPartCount,
+  normalizeMediaUploadParts,
+  signMediaUploadPart,
+} from '../../lib/media-storage'
 import { adminProcedure } from '../../trpc'
 
 const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024 * 1024
@@ -192,12 +199,24 @@ export const mediaIngestionRouter = router({
     .mutation(async ({ input }) => {
       const project = await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.findFirst({
-          where: { id: input.projectId, tenantId: input.tenantId, status: 'UPLOADING' },
-          select: { sourceObjectKey: true },
+          where: {
+            id: input.projectId,
+            tenantId: input.tenantId,
+            status: 'UPLOADING',
+            stage: 'upload',
+          },
+          select: { sourceObjectKey: true, sourceBytes: true },
         }),
       )
-      if (!project?.sourceObjectKey) {
+      if (!project?.sourceObjectKey || project.sourceBytes === null) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Active upload not found.' })
+      }
+      const expectedPartCount = mediaUploadPartCount(Number(project.sourceBytes))
+      if (input.partNumber > expectedPartCount) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `This upload has only ${expectedPartCount} parts.`,
+        })
       }
       return {
         url: await signMediaUploadPart(project.sourceObjectKey, input.uploadId, input.partNumber),
@@ -211,7 +230,12 @@ export const mediaIngestionRouter = router({
         projectId: z.string().min(1),
         uploadId: z.string().min(1),
         parts: z
-          .array(z.object({ partNumber: z.number().int().positive(), etag: z.string().min(1) }))
+          .array(
+            z.object({
+              partNumber: z.number().int().min(1).max(10_000),
+              etag: z.string().min(1),
+            }),
+          )
           .min(1)
           .max(10_000),
       }),
@@ -219,31 +243,115 @@ export const mediaIngestionRouter = router({
     .mutation(async ({ ctx, input }) => {
       const project = await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.findFirst({
-          where: { id: input.projectId, tenantId: input.tenantId, status: 'UPLOADING' },
-          select: { id: true, sourceObjectKey: true },
+          where: {
+            id: input.projectId,
+            tenantId: input.tenantId,
+            status: 'UPLOADING',
+            stage: 'upload',
+          },
+          select: { id: true, venueId: true, sourceObjectKey: true, sourceBytes: true },
         }),
       )
-      if (!project?.sourceObjectKey) {
+      if (!project?.sourceObjectKey || project.sourceBytes === null) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Active upload not found.' })
       }
-      await finishMediaUpload(project.sourceObjectKey, input.uploadId, input.parts)
-      await withTenantIsolationBypass(() =>
+      const expectedBytes = Number(project.sourceBytes)
+      let parts: Array<{ partNumber: number; etag: string }>
+      try {
+        parts = normalizeMediaUploadParts(input.parts, mediaUploadPartCount(expectedBytes))
+      } catch (error) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: error instanceof Error ? error.message : 'Invalid media upload parts.',
+          cause: error,
+        })
+      }
+      const claimed = await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
-          where: { id: project.id, tenantId: input.tenantId },
-          data: { status: 'QUEUED', stage: 'inventory', progress: 1 },
+          where: {
+            id: project.id,
+            tenantId: input.tenantId,
+            status: 'UPLOADING',
+            stage: 'upload',
+          },
+          data: { stage: 'finalizing', error: null },
         }),
       )
-      const queued = await withTenantIsolationBypass(() =>
-        db.mediaIngestionProject.findFirst({
-          where: { id: project.id, tenantId: input.tenantId },
-          select: { venueId: true },
+      if (claimed.count !== 1) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'This upload is already being finalized.',
+        })
+      }
+      let verifiedBytes: number
+      try {
+        const verified = await finishMediaUpload(
+          project.sourceObjectKey,
+          input.uploadId,
+          parts,
+          expectedBytes,
+          MAX_ARCHIVE_BYTES,
+        )
+        verifiedBytes = verified.bytes
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Media upload completion failed.'
+        try {
+          const compensated = await withTenantIsolationBypass(() =>
+            db.mediaIngestionProject.updateMany({
+              where: {
+                id: project.id,
+                tenantId: input.tenantId,
+                status: 'UPLOADING',
+                stage: 'finalizing',
+              },
+              data: { status: 'FAILED', stage: 'upload', error: message },
+            }),
+          )
+          if (compensated.count !== 1) {
+            logger.warn({
+              action: 'media-ingestion.upload-finalization-compensation.missed',
+              projectId: project.id,
+              error: 'The finalization claim no longer matched.',
+            })
+          }
+        } catch (compensationError) {
+          logger.warn({
+            action: 'media-ingestion.upload-finalization-compensation.failed',
+            projectId: project.id,
+            error:
+              compensationError instanceof Error
+                ? compensationError.message
+                : 'Unknown compensation error',
+          })
+        }
+        throw error
+      }
+      const transitioned = await withTenantIsolationBypass(() =>
+        db.mediaIngestionProject.updateMany({
+          where: {
+            id: project.id,
+            tenantId: input.tenantId,
+            status: 'UPLOADING',
+            stage: 'finalizing',
+          },
+          data: {
+            status: 'QUEUED',
+            stage: 'inventory',
+            progress: 1,
+            sourceBytes: BigInt(verifiedBytes),
+          },
         }),
       )
-      if (!queued) throw new TRPCError({ code: 'NOT_FOUND', message: 'Media project not found.' })
+      if (transitioned.count !== 1) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'The upload state changed before completion could be recorded.',
+        })
+      }
       try {
         await enqueueMediaIngestion({
           tenantId: input.tenantId,
-          venueId: queued.venueId,
+          venueId: project.venueId,
           projectId: project.id,
         })
       } catch (error) {

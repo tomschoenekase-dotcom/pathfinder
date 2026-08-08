@@ -9,7 +9,9 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
 2. Give the intake a name, paste any useful context or handoff notes, select a fidelity mode, and
    choose a ZIP up to 5 GB.
 3. The browser uploads directly to S3-compatible object storage in 16 MB multipart chunks. Three
-   chunks run concurrently; the archive never passes through a Next.js request body.
+   chunks run concurrently; the archive never passes through a Next.js request body. The API signs
+   only the declared number of parts, requires one contiguous completed part set, then reads the
+   completed object's actual size from storage before it can queue processing.
 4. A single-concurrency BullMQ worker safely extracts supported files with a 10,000-entry and 20 GB
    actual expanded-byte ceiling. Every non-directory entry counts, including ignored formats, and
    the crossing chunk is rejected before it reaches disk.
@@ -59,6 +61,11 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
 - Every extracted asset receives a stable source ID and its own database row, including failures.
 - Raw media remains private in object storage. Database and logs hold IDs and analysis state, not
   image bytes or prompt payloads.
+- Multipart completion is claimed atomically before storage is touched. A concurrent completion
+  loser cannot complete, delete, enqueue, or overwrite the winner's state.
+- Empty, oversized, or declared-size-mismatched completed objects are removed by exact database-
+  derived key and storage version when available. An unavailable size check fails closed without
+  deleting a possibly valid object; a failed completion attempts to abort its multipart upload.
 - ZIP paths are flattened to generated local names, so archive path traversal cannot select the
   extraction destination.
 - Text context is streamed into at most a 100,000-character per-file prefix rather than loaded into
@@ -74,7 +81,9 @@ text extraction is not yet part of the worker.
 
 ## Known follow-ups
 
-- Add multipart-abort and retry/resume controls in the UI for interrupted uploads.
+- Persist upload IDs/generations, then add explicit abort and retry/resume controls plus recovery for
+  a process crash while an upload is finalizing. Failed completion already performs a best-effort
+  transport abort, but abandoned browser sessions cannot yet be reconciled safely.
 - Add perceptual (not merely byte-exact) duplicate grouping and cross-batch exhibit reconciliation.
 - Persist token usage and calculate estimated/actual spend from a versioned pricing table.
 - Add server-driven polling or push updates on the intake detail screen.
