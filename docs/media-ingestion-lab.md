@@ -17,7 +17,9 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    the crossing chunk is rejected before it reaches disk.
 5. Every supported image is inventoried and analyzed by default. Exact SHA-256 duplicates reuse an
    existing analysis while retaining their own source row. Videos are sampled at the configured
-   interval with a 120-frame ceiling. Standalone narration and video audio are transcribed.
+   interval with a 120-frame ceiling. Each FFmpeg invocation has stdin disabled, a 15-minute
+   wall-clock limit, and a 64 KiB per-stream output limit. FFmpeg is invoked directly as a leaf
+   process, without a shell. Standalone narration and video audio are transcribed.
 6. Source-level analyses retain visible text, object confidence, spatial clues, and uncertainties.
    Larger visits are summarized hierarchically before synthesis so one request does not need to hold
    the entire visual corpus.

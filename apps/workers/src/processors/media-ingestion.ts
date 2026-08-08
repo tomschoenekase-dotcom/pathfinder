@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises'
@@ -33,12 +32,15 @@ import {
   MediaTextRetentionBudget,
   readUtf8TextPrefix,
 } from '../lib/media-archive'
+import { runBoundedLeafProcess } from '../lib/bounded-process'
 
 const MAX_FILES = 10_000
 const MAX_EXPANDED_BYTES = 20 * 1024 * 1024 * 1024
 const MAX_RETAINED_TEXT_CHARACTERS = 250_000
 const MAX_TEXT_CHARACTERS_PER_FILE = 100_000
 const MAX_SYNTHESIS_JSON_CHARACTERS = 1_000_000
+const FFMPEG_MAX_OUTPUT_BYTES = 64 * 1024
+const FFMPEG_TIMEOUT_MS = 15 * 60 * 1000
 const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.tif', '.tiff'])
 const videoExtensions = new Set(['.mp4', '.mov', '.m4v', '.avi', '.webm'])
 const audioExtensions = new Set(['.mp3', '.m4a', '.wav', '.aac', '.ogg'])
@@ -162,63 +164,57 @@ async function extractVideoFrames(filePath: string, outputDir: string, interval:
   if (!ffmpegPath) throw new Error('ffmpeg is unavailable in this worker build.')
   const executable = ffmpegPath
   await mkdir(outputDir, { recursive: true })
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      executable,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-i',
-        filePath,
-        '-vf',
-        `fps=1/${interval},scale='min(1600,iw)':-2`,
-        '-frames:v',
-        '120',
-        join(outputDir, 'frame-%04d.jpg'),
-      ],
-      { windowsHide: true },
-    )
-    let error = ''
-    child.stderr.on('data', (chunk: Buffer) => (error += String(chunk)))
-    child.once('error', reject)
-    child.once('exit', (code: number | null) =>
-      code === 0 ? resolve() : reject(new Error(error || `ffmpeg exited ${code}`)),
-    )
-  })
+  await runBoundedLeafProcess(
+    executable,
+    [
+      '-nostdin',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      filePath,
+      '-vf',
+      `fps=1/${interval},scale='min(1600,iw)':-2`,
+      '-frames:v',
+      '120',
+      join(outputDir, 'frame-%04d.jpg'),
+    ],
+    {
+      label: 'ffmpeg frame extraction',
+      maxOutputBytesPerStream: FFMPEG_MAX_OUTPUT_BYTES,
+      timeoutMs: FFMPEG_TIMEOUT_MS,
+    },
+  )
   return (await readdir(outputDir)).filter((name) => name.endsWith('.jpg')).sort()
 }
 
 async function extractVideoAudio(filePath: string, outputPath: string) {
   if (!ffmpegPath) throw new Error('ffmpeg is unavailable in this worker build.')
   const executable = ffmpegPath
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      executable,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-i',
-        filePath,
-        '-vn',
-        '-ac',
-        '1',
-        '-ar',
-        '16000',
-        '-b:a',
-        '48k',
-        outputPath,
-      ],
-      { windowsHide: true },
-    )
-    let error = ''
-    child.stderr.on('data', (chunk: Buffer) => (error += String(chunk)))
-    child.once('error', reject)
-    child.once('exit', (code: number | null) =>
-      code === 0 ? resolve() : reject(new Error(error || `ffmpeg exited ${code}`)),
-    )
-  })
+  await runBoundedLeafProcess(
+    executable,
+    [
+      '-nostdin',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      filePath,
+      '-vn',
+      '-ac',
+      '1',
+      '-ar',
+      '16000',
+      '-b:a',
+      '48k',
+      outputPath,
+    ],
+    {
+      label: 'ffmpeg audio extraction',
+      maxOutputBytesPerStream: FFMPEG_MAX_OUTPUT_BYTES,
+      timeoutMs: FFMPEG_TIMEOUT_MS,
+    },
+  )
 }
 
 async function sha256File(filePath: string) {
