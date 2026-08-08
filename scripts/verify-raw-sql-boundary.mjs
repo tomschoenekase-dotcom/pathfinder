@@ -19,6 +19,7 @@ const approvedPolicies = new Set([
   'tenant-and-venue',
   'tenant-venue-revision-source',
   'tenant-venue-entity-lease',
+  'tenant-venue-range-generation-lease',
   'platform-dispatch-lease',
   'tenant-venue-revision-lease',
   'tenant-optional-venue-cursor-audit',
@@ -166,6 +167,18 @@ const approvedOperations = [
     method: '$queryRaw',
     hash: '1f0ad38f8215a2f31f3be7ba79e0bc9a747393876618b5c753c9d1924b4e55fc',
     policy: 'tenant-venue-entity-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: '4ebabfd9dc9748e8d6f1d683685e40e720ac7aa892d0e08ac27dd36909882e6c',
+    policy: 'tenant-venue-range-generation-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: '2dbc9db9a8b11d9fa044f019fc583a48aa1d535ddbeffca264ca8e37c52b0ec5',
+    policy: 'tenant-venue-range-generation-lease',
   },
   {
     file: 'packages/db/src/helpers/semantic-search.ts',

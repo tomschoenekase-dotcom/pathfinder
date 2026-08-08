@@ -3,6 +3,16 @@ export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'
 export {
+  acquireAnswerAnalysisExecution,
+  acquireWeeklyReportExecution,
+  GENERATION_EXECUTION_LEASE_MS,
+} from './helpers/generation-execution-claims'
+export type {
+  AcquireAnswerAnalysisExecutionParams,
+  AcquireWeeklyReportExecutionParams,
+  GenerationExecutionAcquisition,
+} from './helpers/generation-execution-claims'
+export {
   acquireEmbeddingWork,
   EMBEDDING_WORK_LEASE_MS,
   releaseEmbeddingWork,

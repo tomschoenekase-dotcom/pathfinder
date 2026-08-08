@@ -1023,6 +1023,8 @@ export const adminRouter = router({
                 tenantId: input.tenantId,
                 venueId: input.venueId,
                 status: 'GENERATING',
+                executionLeaseToken: null,
+                executionLeaseExpiresAt: null,
               },
               data: {
                 status: 'FAILED',
@@ -1170,6 +1172,8 @@ export const adminRouter = router({
                 tenantId: input.tenantId,
                 venueId: input.venueId,
                 status: 'GENERATING',
+                executionLeaseToken: null,
+                executionLeaseExpiresAt: null,
               },
               data: {
                 status: 'FAILED',

@@ -7,7 +7,13 @@ import {
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
-import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
+import {
+  acquireWeeklyReportExecution,
+  db,
+  updateJobRecord,
+  withTenantIsolationBypass,
+  writeJobRecord,
+} from '@pathfinder/db'
 import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
@@ -19,6 +25,8 @@ import {
 
 const MAX_GENERAL_MESSAGES = 400
 const MESSAGE_CONTENT_LIMIT = 500
+const WEEKLY_REPORT_EXECUTION_LEASED_ERROR =
+  'Weekly report generation is already in progress. Retry this job later.'
 
 function trimMessageContent(content: string): string {
   return content.length > MESSAGE_CONTENT_LIMIT
@@ -128,15 +136,15 @@ function formatReportContent(params: {
 
 async function markReportStatus(
   payload: WeeklyReportJobPayload,
+  executionLeaseToken: string,
   data: {
-    status: 'GENERATING' | 'DRAFT' | 'FAILED'
+    status: 'DRAFT' | 'FAILED'
     content?: string | null
     answerCount?: number
     sessionCount?: number
     error?: string | null
     generatedAt?: Date | null
   },
-  expectedStatus: 'GENERATING',
 ): Promise<void> {
   await withTenantIsolationBypass(async () => {
     const result = await db.weeklyReport.updateMany({
@@ -144,9 +152,14 @@ async function markReportStatus(
         id: payload.reportId,
         tenantId: payload.tenantId,
         venueId: payload.venueId,
-        status: expectedStatus,
+        status: 'GENERATING',
+        executionLeaseToken,
       },
-      data,
+      data: {
+        ...data,
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
+      },
     })
 
     if (result.count !== 1) {
@@ -311,37 +324,27 @@ export async function processWeeklyReportJob(
     maxAttempts: execution.maxAttempts,
   })
 
-  try {
-    const report = await withTenantIsolationBypass(() =>
-      db.weeklyReport.findFirst({
-        where: {
-          id: payload.reportId,
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-        },
-        select: { id: true },
-      }),
-    )
-    if (!report) {
-      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
-      return
-    }
+  let executionLeaseToken: string | null = null
+  let leaseConflict = false
 
-    const lifecycleGate = await withTenantIsolationBypass(() =>
-      db.weeklyReport.updateMany({
-        where: {
-          id: payload.reportId,
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-          status: { in: ['GENERATING', 'FAILED'] },
-        },
-        data: { status: 'GENERATING', error: null },
-      }),
-    )
-    if (lifecycleGate.count !== 1) {
-      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
-      return
+  try {
+    const acquisition = await acquireWeeklyReportExecution({
+      reportId: payload.reportId,
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      weekStart: new Date(payload.weekStart),
+      weekEnd: new Date(payload.weekEnd),
+    })
+    if (acquisition.state !== 'acquired') {
+      if (acquisition.state === 'missing' || acquisition.state === 'terminal') {
+        await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+        return
+      }
+      leaseConflict = true
+      throw new Error(WEEKLY_REPORT_EXECUTION_LEASED_ERROR)
     }
+    const acquiredLeaseToken = acquisition.leaseToken
+    executionLeaseToken = acquiredLeaseToken
 
     const data = await loadReportData(payload)
     const prompt = buildReportPrompt({
@@ -380,18 +383,15 @@ export async function processWeeklyReportJob(
       parsed,
     })
 
-    await markReportStatus(
-      payload,
-      {
-        status: 'DRAFT',
-        content,
-        answerCount: data.responses.length,
-        sessionCount: data.sessionCount,
-        error: null,
-        generatedAt: new Date(),
-      },
-      'GENERATING',
-    )
+    await markReportStatus(payload, acquiredLeaseToken, {
+      status: 'DRAFT',
+      content,
+      answerCount: data.responses.length,
+      sessionCount: data.sessionCount,
+      error: null,
+      generatedAt: new Date(),
+    })
+    executionLeaseToken = null
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({
@@ -404,18 +404,26 @@ export async function processWeeklyReportJob(
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown weekly report error'
-    await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+    if (!leaseConflict) {
+      await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+    }
 
-    try {
-      await markReportStatus(payload, { status: 'FAILED', error: message }, 'GENERATING')
-    } catch (statusError) {
-      logger.warn({
-        action: 'workers.weekly-report.failure-status-persistence-failed',
-        tenantId: payload.tenantId,
-        venueId: payload.venueId,
-        reportId: payload.reportId,
-        error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
-      })
+    if (executionLeaseToken !== null) {
+      try {
+        await markReportStatus(payload, executionLeaseToken, {
+          status: 'FAILED',
+          error: message,
+        })
+        executionLeaseToken = null
+      } catch (statusError) {
+        logger.warn({
+          action: 'workers.weekly-report.failure-status-persistence-failed',
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          reportId: payload.reportId,
+          error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
+        })
+      }
     }
 
     logger.error({

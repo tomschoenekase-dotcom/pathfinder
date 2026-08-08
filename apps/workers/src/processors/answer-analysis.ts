@@ -7,7 +7,13 @@ import {
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
-import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
+import {
+  acquireAnswerAnalysisExecution,
+  db,
+  updateJobRecord,
+  withTenantIsolationBypass,
+  writeJobRecord,
+} from '@pathfinder/db'
 import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
 import { createWorkerAiUsageSink } from '../lib/ai-usage'
@@ -22,6 +28,7 @@ import {
 const MINIMUM_SIGNAL_COUNT = 3
 const MAX_GENERAL_MESSAGES = 300
 const MESSAGE_CONTENT_LIMIT = 500
+const EXECUTION_LEASED_ERROR = 'Answer analysis execution is already leased.'
 
 function trimMessageContent(content: string): string {
   return content.length > MESSAGE_CONTENT_LIMIT
@@ -128,14 +135,14 @@ function parseAnalysis(rawText: string): AnswerAnalysisSummary {
 
 async function markSnapshotStatus(
   payload: AnswerAnalysisJobPayload,
+  leaseToken: string,
   data: {
-    status: 'GENERATING' | 'COMPLETE' | 'FAILED'
+    status: 'COMPLETE' | 'FAILED'
     summary?: AnswerAnalysisSummary
     answerCount?: number
     error?: string | null
     generatedAt?: Date | null
   },
-  expectedStatus: 'GENERATING',
 ): Promise<void> {
   const updated = await withTenantIsolationBypass(async () => {
     return db.answerAnalysisSnapshot.updateMany({
@@ -143,9 +150,14 @@ async function markSnapshotStatus(
         id: payload.snapshotId,
         tenantId: payload.tenantId,
         venueId: payload.venueId,
-        status: expectedStatus,
+        status: 'GENERATING',
+        executionLeaseToken: leaseToken,
       },
-      data,
+      data: {
+        ...data,
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
+      },
     })
   })
   if (updated.count !== 1) {
@@ -256,57 +268,43 @@ export async function processAnswerAnalysisJob(
     attemptNumber: execution.attemptNumber,
     maxAttempts: execution.maxAttempts,
   })
+  let leaseToken: string | null = null
+  let leaseConflict = false
 
   try {
-    const snapshot = await withTenantIsolationBypass(() =>
-      db.answerAnalysisSnapshot.findFirst({
-        where: {
-          id: payload.snapshotId,
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-        },
-        select: { id: true },
-      }),
-    )
-    if (!snapshot) {
+    const acquisition = await acquireAnswerAnalysisExecution({
+      snapshotId: payload.snapshotId,
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      rangeStart: new Date(payload.rangeStart),
+      rangeEnd: new Date(payload.rangeEnd),
+    })
+    if (acquisition.state !== 'acquired') {
+      if (acquisition.state === 'leased') {
+        leaseConflict = true
+        throw new Error(EXECUTION_LEASED_ERROR)
+      }
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
       return
     }
-
-    const lifecycleGate = await withTenantIsolationBypass(() =>
-      db.answerAnalysisSnapshot.updateMany({
-        where: {
-          id: payload.snapshotId,
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
-          status: { in: ['GENERATING', 'FAILED'] },
-        },
-        data: { status: 'GENERATING', error: null },
-      }),
-    )
-    if (lifecycleGate.count !== 1) {
-      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
-      return
-    }
+    const ownedLeaseToken = acquisition.leaseToken
+    leaseToken = ownedLeaseToken
 
     const promptData = await loadAnswers(payload)
     const totalSignal = promptData.responses.length + promptData.generalMessages.length
 
     if (totalSignal < MINIMUM_SIGNAL_COUNT) {
-      await markSnapshotStatus(
-        payload,
-        {
-          status: 'COMPLETE',
-          summary: emptyAnalysisSummary(
-            promptData.responses.length,
-            promptData.generalMessages.length,
-          ),
-          answerCount: promptData.responses.length,
-          error: null,
-          generatedAt: new Date(),
-        },
-        'GENERATING',
-      )
+      await markSnapshotStatus(payload, ownedLeaseToken, {
+        status: 'COMPLETE',
+        summary: emptyAnalysisSummary(
+          promptData.responses.length,
+          promptData.generalMessages.length,
+        ),
+        answerCount: promptData.responses.length,
+        error: null,
+        generatedAt: new Date(),
+      })
+      leaseToken = null
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
       logger.info({
@@ -343,17 +341,14 @@ export async function processAnswerAnalysisJob(
 
     const summary = response.parsed
 
-    await markSnapshotStatus(
-      payload,
-      {
-        status: 'COMPLETE',
-        summary,
-        answerCount: promptData.responses.length,
-        error: null,
-        generatedAt: new Date(),
-      },
-      'GENERATING',
-    )
+    await markSnapshotStatus(payload, ownedLeaseToken, {
+      status: 'COMPLETE',
+      summary,
+      answerCount: promptData.responses.length,
+      error: null,
+      generatedAt: new Date(),
+    })
+    leaseToken = null
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({
@@ -366,18 +361,23 @@ export async function processAnswerAnalysisJob(
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown answer analysis error'
-    await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+    if (!leaseConflict) {
+      await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
+    }
 
-    try {
-      await markSnapshotStatus(payload, { status: 'FAILED', error: message }, 'GENERATING')
-    } catch (statusError) {
-      logger.warn({
-        action: 'workers.answer-analysis.failure-status-persistence-failed',
-        tenantId: payload.tenantId,
-        venueId: payload.venueId,
-        snapshotId: payload.snapshotId,
-        error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
-      })
+    if (leaseToken !== null) {
+      try {
+        await markSnapshotStatus(payload, leaseToken, { status: 'FAILED', error: message })
+        leaseToken = null
+      } catch (statusError) {
+        logger.warn({
+          action: 'workers.answer-analysis.failure-status-persistence-failed',
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          snapshotId: payload.snapshotId,
+          error: statusError instanceof Error ? statusError.message : 'Unknown status update error',
+        })
+      }
     }
 
     logger.error({

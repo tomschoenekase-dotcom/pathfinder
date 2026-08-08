@@ -100,6 +100,10 @@ jobs:
         run: pnpm --dir packages/db exec vitest run src/helpers/embedding-work-claims.integration.test.ts src/helpers/embedding-dispatches.integration.test.ts src/helpers/embedding-claim-repair.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_EMBEDDING_DB_INTEGRATION: '1'
+      - name: Verify analysis and report execution fencing under contention
+        run: pnpm --dir packages/db exec vitest run src/helpers/generation-execution-claims.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_GENERATION_EXECUTION_DB_INTEGRATION: '1'
       - name: Verify embedding freshness audit isolation
         run: pnpm --dir apps/workers exec vitest run src/lib/embedding-freshness.integration.test.ts --pool=forks --maxWorkers=1
         env:

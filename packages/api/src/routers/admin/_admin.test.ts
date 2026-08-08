@@ -673,6 +673,8 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         status: 'GENERATING',
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
       },
       data: {
         status: 'FAILED',
@@ -982,6 +984,8 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         status: 'GENERATING',
+        executionLeaseToken: null,
+        executionLeaseExpiresAt: null,
       },
       data: {
         status: 'FAILED',
