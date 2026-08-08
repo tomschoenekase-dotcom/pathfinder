@@ -93,7 +93,6 @@ describe('tenantIsolationMiddleware', () => {
       'AiUsageEvent',
       'AiUsageDailyRollup',
       'Message',
-      'DataAdapter',
       'OperationalUpdate',
       'AnalyticsEvent',
       'DailyRollup',

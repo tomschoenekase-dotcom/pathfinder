@@ -12,7 +12,6 @@ export const TENANTED_TABLES = [
   'AiUsageEvent',
   'AiUsageDailyRollup',
   'Message',
-  'DataAdapter',
   'OperationalUpdate',
   'AnalyticsEvent',
   'DailyRollup',

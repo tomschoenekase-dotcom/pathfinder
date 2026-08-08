@@ -256,7 +256,7 @@ Mounted under these namespaces in `root.ts`:
   - `JobRecord` — every worker run, for admin visibility.
   - `EmbeddingDispatch` — the transactional, coalescing outbox between content commits and Redis.
   - `EmbeddingWorkClaim` — per-entity provider-work lease, replay identity, and fencing state.
-  - `OperationalUpdate`, `DataAdapter` (placeholder for future integrations).
+  - `OperationalUpdate` — scheduled venue notices with draft/publish lifecycle.
 - Migrations are forward-only and numbered/timestamped. `005_place_embeddings` enables the
   `vector` extension and creates an HNSW cosine index. Note the **mixed numbering scheme**:
   hand-named `001`–`009` plus later Prisma-timestamped migrations — they interleave chronologically.
@@ -433,18 +433,18 @@ the weekly digest (deeper reasoning), OpenAI `text-embedding-3-small` for place 
 
 ## 12. Gap analysis — architecture intent vs. shipped code
 
-| Designed in `architecture.md` / `CLAUDE.md`                                   | Reality in code                                                                                                          |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Listings, Events, Bookings, GuestUser, AvailabilitySlot                       | **Not built.** Replaced by Venue / Place / VisitorSession / Message                                                      |
-| Integration framework (adapters, registry, sync logs, webhook events, crypto) | **Not built** — the empty `packages/integrations` package was removed; `DataAdapter` remains an unused placeholder table |
-| `packages/ui` shared components                                               | Shared presentational components now live here for web + dashboard                                                       |
-| Feature flags for plan gating                                                 | Table + helpers exist, but the **key registry is empty** — nothing is gated                                              |
-| S3/R2 file uploads, presigned URLs                                            | Not implemented; venues use external image URLs (`chatLogoUrl`, `photoUrl`)                                              |
-| Email/notification dispatch, token refresh, booking-expiry jobs               | Not implemented; only daily-rollup + weekly-digest jobs exist                                                            |
-| PostHog product analytics                                                     | Env var only; not wired                                                                                                  |
-| Admin impersonation sessions                                                  | `AdminImpersonationSession` not in the current schema; not built                                                         |
-| Separate admin deployment                                                     | Built but **not deployed**; admin lives in the dashboard for now                                                         |
-| The AI venue-guide chatbot itself                                             | **The actual product** — not mentioned in the original architecture doc at all                                           |
+| Designed in `architecture.md` / `CLAUDE.md`                                   | Reality in code                                                                                                                                       |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listings, Events, Bookings, GuestUser, AvailabilitySlot                       | **Not built.** Replaced by Venue / Place / VisitorSession / Message                                                                                   |
+| Integration framework (adapters, registry, sync logs, webhook events, crypto) | **Not built** — the empty package and unused `DataAdapter` placeholder were removed; a future integration design must start from current requirements |
+| `packages/ui` shared components                                               | Shared presentational components now live here for web + dashboard                                                                                    |
+| Feature flags for plan gating                                                 | Table + helpers exist, but the **key registry is empty** — nothing is gated                                                                           |
+| S3/R2 file uploads, presigned URLs                                            | Not implemented; venues use external image URLs (`chatLogoUrl`, `photoUrl`)                                                                           |
+| Email/notification dispatch, token refresh, booking-expiry jobs               | Not implemented; only daily-rollup + weekly-digest jobs exist                                                                                         |
+| PostHog product analytics                                                     | Env var only; not wired                                                                                                                               |
+| Admin impersonation sessions                                                  | `AdminImpersonationSession` not in the current schema; not built                                                                                      |
+| Separate admin deployment                                                     | Built but **not deployed**; admin lives in the dashboard for now                                                                                      |
+| The AI venue-guide chatbot itself                                             | **The actual product** — not mentioned in the original architecture doc at all                                                                        |
 
 **Net:** the codebase faithfully kept the platform _foundations_ the architecture mandated
 (tenant isolation middleware, audit logging, analytics event log + rollups, role hierarchy, Clerk

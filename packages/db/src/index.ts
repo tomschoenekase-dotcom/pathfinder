@@ -134,7 +134,6 @@ export type {
   JobStatus,
   AuditLog,
   ClerkWebhookReceipt,
-  DataAdapter,
   DailyRollup,
   MembershipStatus,
   Message,

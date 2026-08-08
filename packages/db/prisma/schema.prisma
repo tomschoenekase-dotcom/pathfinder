@@ -232,7 +232,6 @@ model Venue {
   tenant                        Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   places                        Place[]
   sessions                      VisitorSession[]
-  adapters                      DataAdapter[]
   operationalUpdates            OperationalUpdate[]
   analyticsEvents               AnalyticsEvent[]
   dailyRollups                  DailyRollup[]
@@ -618,22 +617,6 @@ model Message {
   @@index([sessionId])
   @@index([topic])
   @@map("messages")
-}
-
-model DataAdapter {
-  id          String    @id @default(cuid())
-  tenantId    String    @map("tenant_id")
-  venueId     String    @map("venue_id")
-  adapterType String    @map("adapter_type")
-  configBlob  Json      @default("{}") @map("config_blob")
-  lastSyncAt  DateTime? @map("last_sync_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  venue       Venue     @relation(fields: [venueId], references: [id], onDelete: Restrict)
-
-  @@index([tenantId])
-  @@index([venueId])
-  @@map("data_adapters")
 }
 
 model OperationalUpdate {
