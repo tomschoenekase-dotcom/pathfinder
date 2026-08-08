@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type JsonRecord = Record<string, unknown>
 
@@ -31,8 +31,7 @@ export function MediaIngestionReview({
   initialQuestions: unknown
   initialDraft: unknown
 }) {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (!clientRef.current) clientRef.current = createTRPCClient()
+  const client = useTRPCClient()
   const [questions, setQuestions] = useState(() => normalizeQuestions(initialQuestions))
   const [draftText, setDraftText] = useState(() => JSON.stringify(initialDraft ?? {}, null, 2))
   const [busy, setBusy] = useState(false)
@@ -53,7 +52,7 @@ export function MediaIngestionReview({
     setBusy(true)
     setMessage(null)
     try {
-      await clientRef.current!.mediaIngestion.saveReview.mutate({
+      await client.mediaIngestion.saveReview.mutate({
         tenantId,
         projectId,
         questions,

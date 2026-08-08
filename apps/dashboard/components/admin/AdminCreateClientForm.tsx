@@ -1,8 +1,8 @@
 'use client'
 
-import { type FormEvent, useRef, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -13,11 +13,7 @@ function getErrorMessage(error: unknown) {
 }
 
 export function AdminCreateClientForm() {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [clientName, setClientName] = useState('')
   const [venueName, setVenueName] = useState('')

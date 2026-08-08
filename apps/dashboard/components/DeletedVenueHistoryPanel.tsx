@@ -1,10 +1,10 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { currentDeletedVersions } from '../lib/content-history-diff'
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 
 type VenueVersion = {
   id: string
@@ -34,9 +34,7 @@ function errorMessage(error: unknown): string {
 
 export function DeletedVenueHistoryPanel() {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
   const [versions, setVersions] = useState<VenueVersion[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)

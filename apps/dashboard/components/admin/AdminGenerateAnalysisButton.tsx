@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 import {
   clearGenerationRequestAttempt,
   getOrCreateGenerationRequestAttempt,
@@ -24,10 +24,7 @@ export function AdminGenerateAnalysisButton({
   rangeEnd,
 }: AdminGenerateAnalysisButtonProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
+  const client = useTRPCClient()
 
   const [pending, setPending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -47,7 +44,7 @@ export function AdminGenerateAnalysisButton({
       }
       const attempt = await getOrCreateGenerationRequestAttempt(requestInput, attemptRef.current)
       attemptRef.current = attempt
-      const result = await clientRef.current!.admin.generateAnswerAnalysis.mutate({
+      const result = await client.admin.generateAnswerAnalysis.mutate({
         tenantId,
         venueId,
         rangeStart,

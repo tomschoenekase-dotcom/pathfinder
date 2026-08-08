@@ -1,18 +1,16 @@
 'use client'
 
 import type { ElementType, FormEvent } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { Building2, CalendarClock, Settings, Users } from 'lucide-react'
 
-import { createTRPCClient } from '../../../lib/trpc'
+import { type DashboardTRPCClient, useTRPCClient } from '../../../lib/trpc'
 
-type SettingsData = Awaited<
-  ReturnType<ReturnType<typeof createTRPCClient>['tenant']['getSettings']['query']>
->
+type SettingsData = Awaited<ReturnType<DashboardTRPCClient['tenant']['getSettings']['query']>>
 type SettingsMember = SettingsData['members'][number]
 type PendingInvitation = Awaited<
-  ReturnType<ReturnType<typeof createTRPCClient>['tenant']['listPendingInvitations']['query']>
+  ReturnType<DashboardTRPCClient['tenant']['listPendingInvitations']['query']>
 >[number]
 
 const ROLE_LABELS: Record<string, string> = {
@@ -100,7 +98,7 @@ function PaymentDateEditor({
   currentDate,
   onUpdated,
 }: {
-  client: ReturnType<typeof createTRPCClient>
+  client: DashboardTRPCClient
   tenantId: string
   currentDate: Date | null
   onUpdated: () => Promise<void>
@@ -205,7 +203,7 @@ function InviteForm({
   client,
   onInvited,
 }: {
-  client: ReturnType<typeof createTRPCClient>
+  client: DashboardTRPCClient
   onInvited: () => Promise<void>
 }) {
   const [email, setEmail] = useState('')
@@ -376,11 +374,7 @@ function PendingInvitationsTable({
 
 export default function SettingsPage() {
   const { user } = useUser()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [data, setData] = useState<SettingsData | null>(null)
   const [invitations, setInvitations] = useState<PendingInvitation[]>([])

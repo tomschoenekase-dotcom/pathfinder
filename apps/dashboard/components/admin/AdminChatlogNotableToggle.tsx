@@ -1,8 +1,8 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type AdminChatlogNotableToggleProps = {
   tenantId: string
@@ -17,10 +17,7 @@ export function AdminChatlogNotableToggle({
   sessionId,
   initialIsNotable,
 }: AdminChatlogNotableToggleProps) {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
+  const client = useTRPCClient()
 
   const [isNotable, setIsNotable] = useState(initialIsNotable)
   const [pending, setPending] = useState(false)
@@ -32,7 +29,7 @@ export function AdminChatlogNotableToggle({
     const nextValue = !isNotable
 
     try {
-      await clientRef.current!.admin.setSessionNotable.mutate({
+      await client.admin.setSessionNotable.mutate({
         tenantId,
         venueId,
         sessionId,

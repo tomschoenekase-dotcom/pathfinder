@@ -1,9 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 import { changedSnapshotFields } from '../lib/content-history-diff'
 
 type EntityType = 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY' | 'OPERATIONAL_UPDATE'
@@ -39,9 +39,7 @@ export function ContentHistoryPanel({
   title?: string
 }) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
   const [isOpen, setIsOpen] = useState(false)
   const [versions, setVersions] = useState<ContentVersion[]>([])
   const [isLoading, setIsLoading] = useState(false)

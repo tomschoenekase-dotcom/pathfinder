@@ -5,6 +5,7 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 
 import { AdminSectionShell } from '../../components/admin/AdminSectionShell'
+import { TRPCProvider } from '../../lib/trpc'
 
 type AdminLayoutProps = {
   children: ReactNode
@@ -29,5 +30,9 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
     redirect('/')
   }
 
-  return <AdminSectionShell>{children}</AdminSectionShell>
+  return (
+    <TRPCProvider scopeKey={`admin:${userId}`}>
+      <AdminSectionShell>{children}</AdminSectionShell>
+    </TRPCProvider>
+  )
 }

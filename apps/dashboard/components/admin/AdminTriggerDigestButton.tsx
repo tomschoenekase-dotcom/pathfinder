@@ -1,19 +1,15 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type AdminTriggerDigestButtonProps = {
   tenantId: string
 }
 
 export function AdminTriggerDigestButton({ tenantId }: AdminTriggerDigestButtonProps) {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<string | null>(null)

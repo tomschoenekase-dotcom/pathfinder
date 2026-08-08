@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 import { ContentHistoryPanel } from './ContentHistoryPanel'
 
 type OperationalUpdateItem = {
@@ -85,9 +85,7 @@ function serializeUpdate(
 
 export function OperationalUpdatesList({ initialUpdates }: Props) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (!clientRef.current) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
   const [updates, setUpdates] = useState(initialUpdates)
   const [now, setNow] = useState(Date.now())
   const [pendingId, setPendingId] = useState<string | null>(null)

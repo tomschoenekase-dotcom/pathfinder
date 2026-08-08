@@ -1,9 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type AdminClientStatusFormProps = {
   tenantId: string
@@ -20,11 +20,7 @@ function getErrorMessage(error: unknown) {
 
 export function AdminClientStatusForm({ tenantId, currentStatus }: AdminClientStatusFormProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [pendingStatus, setPendingStatus] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)

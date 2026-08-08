@@ -28,7 +28,7 @@ vi.mock('@clerk/nextjs', () => ({
 vi.mock('@pathfinder/ui', () => ({ PathFinderBrand: () => <div>PathFinder</div> }))
 
 vi.mock('../lib/trpc', () => ({
-  createTRPCClient: () => ({
+  useTRPCClient: () => ({
     admin: {
       updateVenueReportConfiguration: { mutate: mocks.updateConfiguration },
       generateWeeklyReportDraft: { mutate: mocks.generateReport },

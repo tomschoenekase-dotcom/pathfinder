@@ -1,14 +1,14 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, useForm } from 'react-hook-form'
 import { CheckCircle2 } from 'lucide-react'
 
 import { CreatePlaceInput, CreateVenueInput } from '@pathfinder/api/schemas'
 
-import { createTRPCClient } from '../../../../lib/trpc'
+import { useTRPCClient } from '../../../../lib/trpc'
 
 const VENUE_CATEGORIES = [
   'ZOO',
@@ -534,13 +534,7 @@ function FirstPlaceStep({
 
 export default function OnboardingSetupPage() {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-
-  const client = clientRef.current
+  const client = useTRPCClient()
   const [currentStep, setCurrentStep] = useState(0)
   const [setupState, setSetupState] = useState<SetupState>(INITIAL_STATE)
   const [formError, setFormError] = useState<string | null>(null)

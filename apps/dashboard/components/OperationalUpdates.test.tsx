@@ -21,7 +21,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('../lib/trpc', () => ({
-  createTRPCClient: () => ({
+  useTRPCClient: () => ({
     place: { list: { query: mocks.placeList } },
     operationalUpdate: {
       create: { mutate: mocks.create },

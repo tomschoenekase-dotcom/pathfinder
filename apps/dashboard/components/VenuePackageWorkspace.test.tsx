@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../lib/trpc', () => ({
-  createTRPCClient: () => ({
+  useTRPCClient: () => ({
     venuePackage: {
       preview: { mutate: mocks.preview },
       list: { query: mocks.list },

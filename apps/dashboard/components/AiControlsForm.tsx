@@ -1,9 +1,9 @@
 'use client'
 
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { Bot, Sparkles } from 'lucide-react'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 
 type PlaceOption = {
   id: string
@@ -60,11 +60,7 @@ export function AiControlsForm({
   initialConfig,
   initialPlaces,
 }: AiControlsFormProps) {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [aiTone, setAiTone] = useState<ToneValue>(
     (initialConfig.aiTone as ToneValue | null) ?? 'FRIENDLY',
@@ -218,7 +214,8 @@ export function AiControlsForm({
             Guide name
           </label>
           <p className="mt-1 text-xs leading-5 text-pf-deep/50">
-            What the AI calls itself when guests chat. Leave blank to use the default "Path Finder".
+            What the AI calls itself when guests chat. Leave blank to use the default &quot;Path
+            Finder&quot;.
           </p>
           <input
             id="ai-guide-name"

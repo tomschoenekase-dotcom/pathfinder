@@ -1,10 +1,10 @@
 'use client'
 
-import { useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type Mode = 'ECONOMY' | 'BALANCED' | 'FORENSIC'
 type Project = {
@@ -66,9 +66,7 @@ export function MediaIngestionWorkbench({
   initialProjects: Project[]
 }) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (!clientRef.current) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [name, setName] = useState(`${venueName} media intake`)
   const [context, setContext] = useState('')

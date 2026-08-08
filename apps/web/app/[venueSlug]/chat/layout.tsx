@@ -2,9 +2,13 @@ import type { ReactNode } from 'react'
 import type { Metadata, Viewport } from 'next'
 
 import { db } from '@pathfinder/db'
+import { TRPCProvider } from '../../../lib/trpc'
 
 type VenueChatLayoutProps = {
   children: ReactNode
+  params: Promise<{
+    venueSlug: string
+  }>
 }
 
 type VenueChatMetadataProps = {
@@ -41,6 +45,8 @@ export async function generateMetadata({ params }: VenueChatMetadataProps): Prom
   }
 }
 
-export default function VenueChatLayout({ children }: VenueChatLayoutProps) {
-  return children
+export default async function VenueChatLayout({ children, params }: VenueChatLayoutProps) {
+  const { venueSlug } = await params
+
+  return <TRPCProvider scopeKey={`venue:${venueSlug}`}>{children}</TRPCProvider>
 }

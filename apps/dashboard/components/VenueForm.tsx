@@ -1,13 +1,13 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, type Resolver, useForm } from 'react-hook-form'
 
 import { CreateVenueInput, UpdateVenueInput } from '@pathfinder/api/schemas'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 
 type VenueFormProps = {
   mode: 'create' | 'edit'
@@ -49,9 +49,7 @@ function getErrorMessage(error: unknown): string {
 
 export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
   const [formError, setFormError] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isLoadingVenue, setIsLoadingVenue] = useState(mode === 'edit' && !initialValues)

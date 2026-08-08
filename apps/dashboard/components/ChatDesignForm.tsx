@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import {
   CHAT_FONT_OPTIONS,
@@ -10,7 +10,7 @@ import {
   isHexColor,
 } from '@pathfinder/ui'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 
 type Venue = {
   id: string
@@ -42,11 +42,7 @@ function presetAccent(theme: LightThemeValue): string {
 }
 
 export function ChatDesignForm({ venues }: ChatDesignFormProps) {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const venue = venues[0]
   const wasDark = venue?.chatTheme === 'dark'

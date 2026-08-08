@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation'
 
 import { DashboardShell } from '../../components/DashboardShell'
 import { createDashboardCaller } from '../../lib/server-caller'
+import { TRPCProvider } from '../../lib/trpc'
 
 type AppLayoutProps = {
   children: ReactNode
@@ -38,11 +39,13 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
   }
 
   return (
-    <DashboardShell
-      weeklyReportsEnabled={reportAvailability.enabledVenueIds.length > 0}
-      {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
-    >
-      {children}
-    </DashboardShell>
+    <TRPCProvider scopeKey={`tenant:${effectiveOrgId}`}>
+      <DashboardShell
+        weeklyReportsEnabled={reportAvailability.enabledVenueIds.length > 0}
+        {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
+      >
+        {children}
+      </DashboardShell>
+    </TRPCProvider>
   )
 }

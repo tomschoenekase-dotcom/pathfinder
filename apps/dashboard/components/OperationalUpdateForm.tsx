@@ -2,10 +2,10 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 
 type VenueOption = { id: string; name: string }
 type PlaceOption = { id: string; name: string }
@@ -79,9 +79,7 @@ function severityFor(updateType: UpdateType): 'INFO' | 'WARNING' | 'CLOSURE' | '
 
 export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (!clientRef.current) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const defaultStart = new Date()
   const defaultExpiry = new Date(defaultStart.getTime() + 4 * 60 * 60 * 1000)

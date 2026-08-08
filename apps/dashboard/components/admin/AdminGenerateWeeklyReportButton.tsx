@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 import {
   clearGenerationRequestAttempt,
   getOrCreateGenerationRequestAttempt,
@@ -26,10 +26,7 @@ export function AdminGenerateWeeklyReportButton({
   enabled,
 }: AdminGenerateWeeklyReportButtonProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
+  const client = useTRPCClient()
 
   const [title, setTitle] = useState('')
   const [pending, setPending] = useState(false)
@@ -52,7 +49,7 @@ export function AdminGenerateWeeklyReportButton({
       }
       const attempt = await getOrCreateGenerationRequestAttempt(requestInput, attemptRef.current)
       attemptRef.current = attempt
-      const result = await clientRef.current!.admin.generateWeeklyReportDraft.mutate({
+      const result = await client.admin.generateWeeklyReportDraft.mutate({
         tenantId,
         venueId,
         weekStart,

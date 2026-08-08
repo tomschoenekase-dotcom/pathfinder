@@ -125,6 +125,12 @@ Rules:
 
 - Business logic lives in `packages/api/src/routers/`.
 - Apps mount/call `appRouter`; apps do not define tRPC procedures.
+- Browser tRPC clients are owned by route-scoped `TRPCProvider` boundaries, keyed to the active
+  tenant, platform-admin user, or public venue. Existing event-driven workflows call the stable
+  provider client through `useTRPCClient`; never construct a client inside a component. New
+  reactive server-state flows may use `trpc` query/mutation hooks, but must define invalidation
+  behavior explicitly. Server components continue to use server-side callers such as
+  `createDashboardCaller` and must not import the browser provider.
 - Plain Next.js route handlers are limited integration boundaries. Current reviewed exceptions include tRPC mounting, Clerk webhooks, health checks, and the audited admin-impersonation transition; new handlers require an explicit boundary review.
 - Validate every tRPC input with Zod.
 - Shared API schemas live in `packages/api/src/schemas/`.

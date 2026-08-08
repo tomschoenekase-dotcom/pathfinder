@@ -1,9 +1,9 @@
 'use client'
 
-import { type FormEvent, useRef, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { Flame, Plus, Sparkles, Trash2 } from 'lucide-react'
 
-import { createTRPCClient } from '../lib/trpc'
+import { type DashboardTRPCClient, useTRPCClient } from '../lib/trpc'
 
 type EngagementQuestionType = 'OPEN_ENDED' | 'MULTIPLE_CHOICE'
 type TenantEngagementMode = 'STOIC' | 'BALANCED' | 'CURIOUS'
@@ -65,7 +65,7 @@ function QuestionCard({
   onUpdated,
   onDeleted,
 }: {
-  client: ReturnType<typeof createTRPCClient>
+  client: DashboardTRPCClient
   question: EngagementQuestion
   onUpdated: (question: EngagementQuestion) => void
   onDeleted: (id: string) => void
@@ -254,7 +254,7 @@ function NewQuestionForm({
   client,
   onCreated,
 }: {
-  client: ReturnType<typeof createTRPCClient>
+  client: DashboardTRPCClient
   onCreated: (question: EngagementQuestion) => void
 }) {
   const [questionType, setQuestionType] = useState<EngagementQuestionType>('OPEN_ENDED')
@@ -412,11 +412,7 @@ export function EngagementQuestionsManager({
   initialMode,
   initialQuestions,
 }: EngagementQuestionsManagerProps) {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [mode, setMode] = useState<TenantEngagementMode>(initialMode)
   const [questions, setQuestions] = useState<EngagementQuestion[]>(initialQuestions)

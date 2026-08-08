@@ -1,9 +1,9 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type AdminVenueReportConfigurationProps = {
   tenantId: string
@@ -19,8 +19,7 @@ export function AdminVenueReportConfiguration({
   updatedAt,
 }: AdminVenueReportConfigurationProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) clientRef.current = createTRPCClient()
+  const client = useTRPCClient()
 
   const [enabled, setEnabled] = useState(initialEnabled)
   const [revision, setRevision] = useState(updatedAt)
@@ -36,7 +35,7 @@ export function AdminVenueReportConfiguration({
     setPending(true)
     setErrorMessage(null)
     try {
-      const result = await clientRef.current!.admin.updateVenueReportConfiguration.mutate({
+      const result = await client.admin.updateVenueReportConfiguration.mutate({
         tenantId,
         venueId,
         enabled: nextEnabled,

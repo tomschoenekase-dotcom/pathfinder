@@ -1,8 +1,8 @@
 'use client'
 
-import { FormEvent, useRef, useState } from 'react'
+import { FormEvent, useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type Note = {
   id: string
@@ -24,10 +24,7 @@ export function AdminChatlogNoteForm({
   sessionId,
   initialNotes,
 }: AdminChatlogNoteFormProps) {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
+  const client = useTRPCClient()
 
   const [notes, setNotes] = useState(initialNotes)
   const [note, setNote] = useState('')
@@ -43,7 +40,7 @@ export function AdminChatlogNoteForm({
     setErrorMessage(null)
 
     try {
-      const created = await clientRef.current!.admin.addChatlogNote.mutate({
+      const created = await client.admin.addChatlogNote.mutate({
         tenantId,
         venueId,
         sessionId,

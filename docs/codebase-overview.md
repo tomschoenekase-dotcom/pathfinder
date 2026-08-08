@@ -139,6 +139,14 @@ All business logic is here. Apps only mount `appRouter` at `app/api/trpc/[trpc]/
   | `adminProcedure` | `requireAuth` + `requirePlatformAdmin` | platform-owner only |
 - `root.ts` — assembles `appRouter` from the sub-routers and a public `health` query.
 
+Browser consumers do not create tRPC clients per component. The dashboard mounts provider
+boundaries keyed to the effective tenant or platform-admin user, and the public chat mounts one
+keyed to the venue slug. Each boundary owns one tRPC client and one React Query cache; changing
+the scope remounts both so cached data cannot cross a tenant, impersonation, admin-user, or venue
+transition. Existing event-driven components use the provider-backed `useTRPCClient` interface.
+New cache-aware hooks must specify their mutation invalidation behavior. Server components use
+server-side callers such as `createDashboardCaller` and never import the browser provider.
+
 ### 4.2 Middleware (`packages/api/src/middleware`)
 
 - `require-auth` — throws `UNAUTHORIZED` if `session.userId` is null.

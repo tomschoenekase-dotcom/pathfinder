@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { VenuePackagePayload, VenuePackageStoredPreview } from '@pathfinder/api'
 
-import { createTRPCClient } from '../lib/trpc'
+import { type DashboardTRPCClient, useTRPCClient } from '../lib/trpc'
 
-type Client = ReturnType<typeof createTRPCClient>
+type Client = DashboardTRPCClient
 type Preview = VenuePackageStoredPreview
 type PackageRecord = Awaited<ReturnType<Client['venuePackage']['list']['query']>>[number]
 
@@ -74,7 +74,7 @@ export function VenueJsonImporter({
   guideMode,
   canPublish = true,
 }: VenueJsonImporterProps) {
-  const client = useMemo(() => createTRPCClient(), [])
+  const client = useTRPCClient()
   const [text, setText] = useState(EXAMPLE_JSON)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [packages, setPackages] = useState<PackageRecord[]>([])

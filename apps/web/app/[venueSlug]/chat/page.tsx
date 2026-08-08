@@ -19,7 +19,7 @@ import { QuickPromptChips } from '../../../components/QuickPromptChips'
 import { useGeolocation } from '../../../hooks/useGeolocation'
 import { useSession } from '../../../hooks/useSession'
 import { useVisitorId } from '../../../hooks/useVisitorId'
-import { createTRPCClient } from '../../../lib/trpc'
+import { useTRPCClient } from '../../../lib/trpc'
 
 type VenueSummary = {
   id: string
@@ -58,20 +58,10 @@ function getChatFontFamily(chatFont: string | null | undefined): string {
   return `var(${option.cssVar})`
 }
 
-function useApiClient() {
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
-
-  return clientRef.current
-}
-
 export default function VenueChatPage() {
   const params = useParams<{ venueSlug: string }>()
   const venueSlug = params.venueSlug
-  const client = useApiClient()
+  const client = useTRPCClient()
   const [venue, setVenue] = useState<VenueSummary | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isBooting, setIsBooting] = useState(true)

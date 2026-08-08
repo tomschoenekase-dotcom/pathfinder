@@ -1,14 +1,14 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, type Resolver, useForm } from 'react-hook-form'
 
 import { CreatePlaceInput, UpdatePlaceInput } from '@pathfinder/api/schemas'
 import type { Place } from '@pathfinder/db'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 
 type VenueGuideMode = 'location_aware' | 'non_location'
 
@@ -193,9 +193,7 @@ export function PlaceForm({
   initialValues,
 }: PlaceFormProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
   const [formError, setFormError] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(

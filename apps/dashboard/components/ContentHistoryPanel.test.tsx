@@ -19,7 +19,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('../lib/trpc', () => ({
-  createTRPCClient: () => ({
+  useTRPCClient: () => ({
     contentHistory: {
       list: { query: mocks.list },
       listDeletedVenues: { query: mocks.listDeletedVenues },

@@ -1,11 +1,11 @@
 'use client'
 
-import { useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from '@pathfinder/api/schemas'
 
-import { createTRPCClient } from '../lib/trpc'
+import { useTRPCClient } from '../lib/trpc'
 import { ContentHistoryPanel } from './ContentHistoryPanel'
 
 type KnowledgeEntry = {
@@ -60,9 +60,7 @@ function getErrorMessage(error: unknown): string {
 
 export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) clientRef.current = createTRPCClient()
-  const client = clientRef.current
+  const client = useTRPCClient()
 
   const [editingEntry, setEditingEntry] = useState<KnowledgeEntry | null>(null)
   const [values, setValues] = useState<KnowledgeFormValues>(EMPTY_FORM)

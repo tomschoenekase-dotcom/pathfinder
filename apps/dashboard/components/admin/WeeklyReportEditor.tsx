@@ -1,9 +1,9 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
-import { createTRPCClient } from '../../lib/trpc'
+import { useTRPCClient } from '../../lib/trpc'
 
 type WeeklyReportEditorProps = {
   tenantId: string
@@ -25,10 +25,7 @@ export function WeeklyReportEditor({
   status,
 }: WeeklyReportEditorProps) {
   const router = useRouter()
-  const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
-  if (clientRef.current === null) {
-    clientRef.current = createTRPCClient()
-  }
+  const client = useTRPCClient()
 
   const [title, setTitle] = useState(initialTitle)
   const [content, setContent] = useState(initialContent)
@@ -45,7 +42,7 @@ export function WeeklyReportEditor({
     setErrorMessage(null)
 
     try {
-      const result = await clientRef.current!.admin.updateWeeklyReportDraft.mutate({
+      const result = await client.admin.updateWeeklyReportDraft.mutate({
         tenantId,
         venueId,
         reportId,
@@ -73,7 +70,7 @@ export function WeeklyReportEditor({
     setErrorMessage(null)
 
     try {
-      await clientRef.current!.admin.publishWeeklyReport.mutate({
+      await client.admin.publishWeeklyReport.mutate({
         tenantId,
         venueId,
         reportId,
