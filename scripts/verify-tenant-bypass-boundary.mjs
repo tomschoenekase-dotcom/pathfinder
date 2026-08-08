@@ -12,7 +12,7 @@ const reexportPath = 'packages/db/src/index.ts'
 
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
-  ['apps/workers/src/index.ts', 1],
+  ['apps/workers/src/scheduled-tenant-fanout.ts', 1],
   ['apps/workers/src/processors/analytics-enrichment.ts', 1],
   ['apps/workers/src/processors/answer-analysis.ts', 2],
   ['apps/workers/src/processors/daily-rollup.ts', 3],
