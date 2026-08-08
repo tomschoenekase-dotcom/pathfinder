@@ -145,8 +145,12 @@ const mediaIngestionJobOptions: JobsOptions = {
 }
 
 export async function enqueueMediaIngestion(payload: MediaIngestionJobPayload): Promise<void> {
+  const generationIdentity = createHash('sha256')
+    .update(`${payload.tenantId}\0${payload.projectId}\0${payload.uploadAttemptId}`)
+    .digest('hex')
   await getQueue(MEDIA_INGESTION_QUEUE).add(MEDIA_INGESTION_PROCESS_JOB, payload, {
     ...mediaIngestionJobOptions,
+    jobId: `media-ingestion-${generationIdentity}`,
   })
   logger.info({
     action: 'jobs.media-ingestion.enqueued',

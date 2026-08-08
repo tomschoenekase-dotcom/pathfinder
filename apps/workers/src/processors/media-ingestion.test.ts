@@ -36,7 +36,12 @@ vi.mock('@pathfinder/jobs', () => ({
 
 import { cleanupMediaWorkDir, processMediaIngestionJob } from './media-ingestion'
 
-const payload = { tenantId: 'tenant_1', venueId: 'venue_1', projectId: 'project_1' }
+const payload = {
+  tenantId: 'tenant_1',
+  venueId: 'venue_1',
+  projectId: 'project_1',
+  uploadAttemptId: '11111111-1111-4111-8111-111111111111',
+}
 const project = {
   id: 'project_1',
   context: 'Context',
@@ -44,6 +49,7 @@ const project = {
   settings: {},
   sourceObjectKey: 'test/project.zip',
   status: 'QUEUED',
+  uploadAttemptId: payload.uploadAttemptId,
   venue: { name: 'Test Venue' },
 }
 
@@ -53,6 +59,78 @@ describe('media ingestion lifecycle', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+  })
+
+  it('treats a stale generation as complete without claiming or starting provider work', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      ...project,
+      uploadAttemptId: '22222222-2222-4222-8222-222222222222',
+    })
+
+    await expect(processMediaIngestionJob(payload, 'bull_stale')).resolves.toBeUndefined()
+
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.mkdtemp).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('record_1', { status: 'COMPLETE' })
+  })
+
+  it('claims a retained legacy payload only against the null generation', async () => {
+    const legacyPayload = {
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      projectId: payload.projectId,
+    } as unknown as Parameters<typeof processMediaIngestionJob>[0]
+    mocks.projectFindFirst.mockResolvedValueOnce({ ...project, uploadAttemptId: null })
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(processMediaIngestionJob(legacyPayload, 'bull_legacy')).resolves.toBeUndefined()
+
+    expect(mocks.projectUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        uploadAttemptId: null,
+        status: { in: ['QUEUED', 'FAILED'] },
+      },
+      data: { status: 'INVENTORYING', stage: 'inventory', progress: 3, error: null },
+    })
+    expect(mocks.mkdtemp).not.toHaveBeenCalled()
+  })
+
+  it('does not let a retained legacy payload claim a newer non-null generation', async () => {
+    const legacyPayload = {
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      projectId: payload.projectId,
+    } as unknown as Parameters<typeof processMediaIngestionJob>[0]
+    mocks.projectFindFirst.mockResolvedValueOnce(project)
+
+    await expect(processMediaIngestionJob(legacyPayload, 'bull_legacy')).resolves.toBeUndefined()
+
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.mkdtemp).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('record_1', { status: 'COMPLETE' })
+  })
+
+  it('scopes a legacy failure write to null so a new generation wins the race', async () => {
+    const legacyPayload = {
+      tenantId: payload.tenantId,
+      venueId: payload.venueId,
+      projectId: payload.projectId,
+    } as unknown as Parameters<typeof processMediaIngestionJob>[0]
+    mocks.projectFindFirst.mockResolvedValueOnce({ ...project, uploadAttemptId: null })
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
+    mocks.mkdtemp.mockRejectedValueOnce(new Error('temp unavailable'))
+
+    await expect(processMediaIngestionJob(legacyPayload, 'bull_legacy')).rejects.toThrow(
+      'temp unavailable',
+    )
+
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: { id: 'project_1', tenantId: 'tenant_1', uploadAttemptId: null },
+      data: { status: 'FAILED', error: 'temp unavailable' },
+    })
   })
 
   it('completes a duplicate delivery without provider or temp work when claim is unavailable', async () => {
@@ -66,6 +144,7 @@ describe('media ingestion lifecycle', () => {
         id: 'project_1',
         tenantId: 'tenant_1',
         venueId: 'venue_1',
+        uploadAttemptId: payload.uploadAttemptId,
         status: { in: ['QUEUED', 'FAILED'] },
       },
       data: { status: 'INVENTORYING', stage: 'inventory', progress: 3, error: null },
@@ -82,7 +161,11 @@ describe('media ingestion lifecycle', () => {
     await expect(processMediaIngestionJob(payload, 'bull_1')).rejects.toThrow('temp unavailable')
 
     expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'project_1', tenantId: 'tenant_1' },
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        uploadAttemptId: payload.uploadAttemptId,
+      },
       data: { status: 'FAILED', error: 'temp unavailable' },
     })
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('record_1', {
@@ -93,6 +176,28 @@ describe('media ingestion lifecycle', () => {
       failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
     expect(mocks.rm).not.toHaveBeenCalled()
+  })
+
+  it('allows a Bull retry to reclaim FAILED only for the same generation', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({ ...project, status: 'FAILED' })
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
+    mocks.mkdtemp.mockRejectedValueOnce(new Error('temp unavailable'))
+
+    await expect(processMediaIngestionJob(payload, 'bull_retry')).rejects.toThrow(
+      'temp unavailable',
+    )
+
+    expect(mocks.projectUpdateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        uploadAttemptId: payload.uploadAttemptId,
+        status: { in: ['QUEUED', 'FAILED'] },
+      },
+      data: { status: 'INVENTORYING', stage: 'inventory', progress: 3, error: null },
+    })
+    expect(mocks.mkdtemp).toHaveBeenCalledOnce()
   })
 
   it('logs and absorbs cleanup failure so it cannot mask the primary outcome', async () => {

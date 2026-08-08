@@ -101,15 +101,29 @@ describe('job enqueues', () => {
     }
   })
 
-  it('does not suppress a media project re-upload with a retained project job id', async () => {
-    const payload = { tenantId: 'tenant_1', venueId: 'venue_1', projectId: 'project_1' }
-    await enqueueMediaIngestion(payload)
-    await enqueueMediaIngestion(payload)
-
-    expect(mocks.add).toHaveBeenCalledTimes(2)
-    for (const call of mocks.add.mock.calls) {
-      expect(call[2]).not.toHaveProperty('jobId')
+  it('deduplicates only the exact opaque media-ingestion generation', async () => {
+    const payload = {
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      projectId: 'project_1',
+      uploadAttemptId: '11111111-1111-4111-8111-111111111111',
     }
+    await enqueueMediaIngestion(payload)
+    await enqueueMediaIngestion(payload)
+    await enqueueMediaIngestion({
+      ...payload,
+      uploadAttemptId: '22222222-2222-4222-8222-222222222222',
+    })
+
+    expect(mocks.add).toHaveBeenCalledTimes(3)
+    const [first, replay, nextGeneration] = mocks.add.mock.calls
+    expect(replay![2].jobId).toBe(first![2].jobId)
+    expect(nextGeneration![2].jobId).not.toBe(first![2].jobId)
+    expect(first![2].jobId).toMatch(/^media-ingestion-[a-f0-9]{64}$/u)
+    expect(first![2].jobId).not.toContain(payload.tenantId)
+    expect(first![2].jobId).not.toContain(payload.projectId)
+    expect(first![2].jobId).not.toContain(payload.uploadAttemptId)
+    expect(first![1]).toEqual(payload)
   })
 
   it('scopes welcome-email deduplication to the tenant and recipient without leaking user ID', async () => {

@@ -16,6 +16,7 @@ type Project = {
   progress: number
   sourceFileName: string | null
   sourceBytes: number | null
+  uploadAttemptId: string | null
   actualCostCents: number
   estimatedCostCents: number | null
   createdAt: Date
@@ -81,8 +82,11 @@ export function MediaIngestionWorkbench({
   const [busy, setBusy] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [abortingProjectId, setAbortingProjectId] = useState<string | null>(null)
+  const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null)
 
   async function uploadArchive(projectId: string, archive: File) {
+    const uploadAttemptId = crypto.randomUUID()
     const contentType =
       archive.type === 'application/x-zip-compressed'
         ? 'application/x-zip-compressed'
@@ -90,6 +94,7 @@ export function MediaIngestionWorkbench({
     const started = await client.mediaIngestion.beginUpload.mutate({
       tenantId,
       projectId,
+      uploadAttemptId,
       filename: archive.name,
       bytes: archive.size,
       contentType,
@@ -107,7 +112,7 @@ export function MediaIngestionWorkbench({
         const { url } = await client.mediaIngestion.signPart.mutate({
           tenantId,
           projectId,
-          uploadId: started.uploadId,
+          uploadAttemptId,
           partNumber,
         })
         const response = await fetch(url, { method: 'PUT', body })
@@ -125,9 +130,45 @@ export function MediaIngestionWorkbench({
     await client.mediaIngestion.completeUpload.mutate({
       tenantId,
       projectId,
-      uploadId: started.uploadId,
+      uploadAttemptId,
       parts,
     })
+  }
+
+  async function abortUpload(project: Project) {
+    if (!project.uploadAttemptId) return
+    setAbortingProjectId(project.id)
+    setError(null)
+    try {
+      await client.mediaIngestion.abortUpload.mutate({
+        tenantId,
+        projectId: project.id,
+        uploadAttemptId: project.uploadAttemptId,
+      })
+      router.refresh()
+    } catch (abortError) {
+      setError(errorMessage(abortError))
+    } finally {
+      setAbortingProjectId(null)
+    }
+  }
+
+  async function retryEnqueue(project: Project) {
+    if (!project.uploadAttemptId) return
+    setRetryingProjectId(project.id)
+    setError(null)
+    try {
+      await client.mediaIngestion.retryEnqueue.mutate({
+        tenantId,
+        projectId: project.id,
+        uploadAttemptId: project.uploadAttemptId,
+      })
+      router.refresh()
+    } catch (enqueueError) {
+      setError(errorMessage(enqueueError))
+    } finally {
+      setRetryingProjectId(null)
+    }
   }
 
   async function submit(event: FormEvent) {
@@ -164,6 +205,7 @@ export function MediaIngestionWorkbench({
       setFile(null)
     } catch (caught) {
       setError(errorMessage(caught))
+      router.refresh()
     } finally {
       setBusy(false)
     }
@@ -344,6 +386,30 @@ export function MediaIngestionWorkbench({
                 >
                   Open intake →
                 </Link>
+                {project.status === 'UPLOADING' &&
+                (project.stage === 'upload' || project.stage === 'aborting') &&
+                project.uploadAttemptId ? (
+                  <button
+                    type="button"
+                    disabled={abortingProjectId === project.id}
+                    onClick={() => void abortUpload(project)}
+                    className="ml-4 mt-3 inline-flex text-sm font-semibold text-rose-700 hover:text-rose-900 disabled:opacity-50"
+                  >
+                    {abortingProjectId === project.id ? 'Aborting…' : 'Abort upload'}
+                  </button>
+                ) : null}
+                {project.status === 'QUEUED' &&
+                project.stage === 'inventory' &&
+                project.uploadAttemptId ? (
+                  <button
+                    type="button"
+                    disabled={retryingProjectId === project.id}
+                    onClick={() => void retryEnqueue(project)}
+                    className="ml-4 mt-3 inline-flex text-sm font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-50"
+                  >
+                    {retryingProjectId === project.id ? 'Retrying…' : 'Retry enqueue'}
+                  </button>
+                ) : null}
               </div>
             ))}
           </div>

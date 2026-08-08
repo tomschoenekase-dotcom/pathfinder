@@ -743,6 +743,10 @@ model MediaIngestionProject {
   sourceObjectKey    String?               @map("source_object_key")
   sourceFileName     String?               @map("source_file_name")
   sourceBytes        BigInt?               @map("source_bytes")
+  uploadAttemptId    String?               @map("upload_attempt_id") @db.Uuid
+  storageUploadId    String?               @map("storage_upload_id")
+  uploadStartedAt    DateTime?             @map("upload_started_at")
+  sourceContentType  String?               @map("source_content_type")
   settings           Json                  @default("{}")
   coverage           Json                  @default("{}")
   questions          Json                  @default("[]")
@@ -761,6 +765,7 @@ model MediaIngestionProject {
 
   @@index([tenantId, venueId, createdAt])
   @@index([status, createdAt])
+  @@index([status, stage, uploadStartedAt])
   @@map("media_ingestion_projects")
 }
 

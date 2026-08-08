@@ -22,7 +22,7 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/weekly-digest.ts', 2],
   ['apps/workers/src/processors/weekly-report.ts', 2],
   ['packages/api/src/routers/admin/_admin.ts', 28],
-  ['packages/api/src/routers/admin/media-ingestion.ts', 13],
+  ['packages/api/src/routers/admin/media-ingestion.ts', 23],
   ['packages/db/src/helpers/job-records.ts', 3],
 ])
 

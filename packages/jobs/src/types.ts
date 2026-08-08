@@ -56,4 +56,5 @@ export type MediaIngestionJobPayload = {
   tenantId: string
   venueId: string
   projectId: string
+  uploadAttemptId: string
 }

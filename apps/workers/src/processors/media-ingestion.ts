@@ -351,6 +351,9 @@ export async function processMediaIngestionJob(
   payload: MediaIngestionJobPayload,
   executionInput?: JobExecutionInput,
 ) {
+  // Jobs retained from before generation-scoped payloads have no attempt ID.
+  // Treat them as the legacy null generation so they can never claim newer work.
+  const uploadAttemptId = payload.uploadAttemptId ?? null
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
   const recordId = await writeJobRecord({
@@ -377,17 +380,23 @@ export async function processMediaIngestionJob(
           settings: true,
           sourceObjectKey: true,
           status: true,
+          uploadAttemptId: true,
           venue: { select: { name: true } },
         },
       }),
     )
-    if (!project?.sourceObjectKey) throw new Error('Media ingestion project or archive not found.')
+    if (!project || project.uploadAttemptId !== uploadAttemptId) {
+      await updateJobRecord(recordId, { status: 'COMPLETE' })
+      return
+    }
+    if (!project.sourceObjectKey) throw new Error('Media ingestion project or archive not found.')
     const claimed = await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
         where: {
           id: project.id,
           tenantId: payload.tenantId,
           venueId: payload.venueId,
+          uploadAttemptId,
           status: { in: ['QUEUED', 'FAILED'] },
         },
         data: { status: 'INVENTORYING', stage: 'inventory', progress: 3, error: null },
@@ -418,7 +427,11 @@ export async function processMediaIngestionJob(
 
     await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
-        where: { id: project.id, tenantId: payload.tenantId },
+        where: {
+          id: project.id,
+          tenantId: payload.tenantId,
+          uploadAttemptId,
+        },
         data: {
           status: 'ANALYZING',
           stage: 'analysis',
@@ -549,7 +562,11 @@ export async function processMediaIngestionJob(
       const progress = 10 + Math.round(((index + 1) / Math.max(files.length, 1)) * 75)
       await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
-          where: { id: project.id, tenantId: payload.tenantId },
+          where: {
+            id: project.id,
+            tenantId: payload.tenantId,
+            uploadAttemptId,
+          },
           data: { progress, coverage: { totalFiles: files.length, processedFiles: index + 1 } },
         }),
       )
@@ -557,7 +574,11 @@ export async function processMediaIngestionJob(
 
     await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
-        where: { id: project.id, tenantId: payload.tenantId },
+        where: {
+          id: project.id,
+          tenantId: payload.tenantId,
+          uploadAttemptId,
+        },
         data: { status: 'SYNTHESIZING', stage: 'synthesis', progress: 90 },
       }),
     )
@@ -566,7 +587,11 @@ export async function processMediaIngestionJob(
     const failures = analyses.filter((item) => item.analysis.summary === 'Analysis failed.').length
     await withTenantIsolationBypass(() =>
       db.mediaIngestionProject.updateMany({
-        where: { id: project.id, tenantId: payload.tenantId },
+        where: {
+          id: project.id,
+          tenantId: payload.tenantId,
+          uploadAttemptId,
+        },
         data: {
           status: questions.length > 0 ? 'NEEDS_INPUT' : 'READY_FOR_REVIEW',
           stage: questions.length > 0 ? 'questions' : 'review',
@@ -586,6 +611,7 @@ export async function processMediaIngestionJob(
             failedFiles: failures,
           },
           completedAt: new Date(),
+          uploadAttemptId: null,
         },
       }),
     )
@@ -597,7 +623,11 @@ export async function processMediaIngestionJob(
     try {
       await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
-          where: { id: payload.projectId, tenantId: payload.tenantId },
+          where: {
+            id: payload.projectId,
+            tenantId: payload.tenantId,
+            uploadAttemptId,
+          },
           data: { status: 'FAILED', error: message },
         }),
       )
