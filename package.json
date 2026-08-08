@@ -10,6 +10,7 @@
     "test": "turbo run test && pnpm test:scripts",
     "test:scripts": "node --test scripts/*.test.mjs",
     "db:migrate:disposable": "node scripts/migrate-disposable-db.mjs",
+    "test:redis:disposable": "node scripts/run-disposable-redis-integration.mjs",
     "embedding:freshness": "pnpm --filter @pathfinder/workers embedding:freshness",
     "embedding:claim-repair": "pnpm --filter @pathfinder/workers embedding:claim-repair",
     "verify:ai-boundary": "node scripts/verify-ai-provider-boundary.mjs",
