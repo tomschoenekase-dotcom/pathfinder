@@ -82,6 +82,7 @@ import {
   cancelAllMediaJobsAfterWorkerError,
   cancelMediaJobsAfterLockRenewalFailure,
 } from './lib/media-job-cancellation'
+import { createMediaAttemptSignal } from './lib/media-attempt-limits'
 import {
   createEscalatingShutdownHandler,
   createShutdownCoordinator,
@@ -371,7 +372,12 @@ async function handleMediaIngestionQueueJob(
   signal?: AbortSignal,
 ) {
   if (job.name === MEDIA_INGESTION_PROCESS_JOB) {
-    await processMediaIngestionJob(job.data, getJobExecutionMetadata(job), signal)
+    const attempt = createMediaAttemptSignal(signal)
+    try {
+      await processMediaIngestionJob(job.data, getJobExecutionMetadata(job), attempt.signal)
+    } finally {
+      attempt.dispose()
+    }
     return
   }
 

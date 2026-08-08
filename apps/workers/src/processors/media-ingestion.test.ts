@@ -47,7 +47,10 @@ vi.mock('@aws-sdk/client-s3', () => ({
 }))
 
 import { assignMediaSourceIds } from '../lib/media-source-id'
-import { MediaJobCancelledError } from '../lib/media-job-cancellation'
+import {
+  MediaAttemptDeadlineExceededError,
+  MediaJobCancelledError,
+} from '../lib/media-job-cancellation'
 import {
   cleanupMediaWorkDir,
   downloadAndExtract,
@@ -405,6 +408,37 @@ describe('media ingestion lifecycle', () => {
       },
     })
     expect(mocks.rm).not.toHaveBeenCalled()
+  })
+
+  it('preserves a retryable whole-attempt deadline through failure persistence and cleanup', async () => {
+    const controller = new AbortController()
+    const deadline = new MediaAttemptDeadlineExceededError(21_600_000)
+    mocks.projectFindFirst.mockResolvedValueOnce(project)
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
+    mocks.mkdtemp.mockImplementationOnce(async () => {
+      controller.abort(deadline)
+      return 'C:/temp/media-deadline'
+    })
+    mocks.rm.mockResolvedValueOnce(undefined)
+
+    await expect(
+      processMediaIngestionJob(payload, 'bull_deadline', controller.signal),
+    ).rejects.toBe(deadline)
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: payload.projectId,
+        tenantId: payload.tenantId,
+        uploadAttemptId: payload.uploadAttemptId,
+      },
+      data: {
+        status: 'FAILED',
+        error: 'Media ingestion attempt exceeded its 21600000-millisecond execution safety limit.',
+      },
+    })
+    expect(mocks.rm).toHaveBeenCalledWith('C:/temp/media-deadline', {
+      recursive: true,
+      force: true,
+    })
   })
 
   it('treats a stale generation as complete without claiming or starting provider work', async () => {

@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
+import { UnrecoverableError } from 'bullmq'
 
 import {
   assertMediaJobActive,
   cancelAllMediaJobsAfterWorkerError,
   cancelMediaJobsAfterLockRenewalFailure,
+  MediaAttemptDeadlineExceededError,
   MediaJobCancelledError,
+  normalizeMediaJobError,
 } from './media-job-cancellation'
 
 describe('media job cancellation', () => {
@@ -13,6 +16,32 @@ describe('media job cancellation', () => {
     expect(() => assertMediaJobActive(controller.signal)).not.toThrow()
     controller.abort()
     expect(() => assertMediaJobActive(controller.signal)).toThrow(MediaJobCancelledError)
+  })
+
+  it('preserves a typed deadline reason instead of mislabeling it as lock loss', () => {
+    const controller = new AbortController()
+    const deadline = new MediaAttemptDeadlineExceededError(1000)
+    controller.abort(deadline)
+
+    expect(() => assertMediaJobActive(controller.signal)).toThrow(deadline)
+    expect(
+      normalizeMediaJobError(new DOMException('aborted', 'AbortError'), controller.signal),
+    ).toBe(deadline)
+  })
+
+  it('normalizes provider-specific abort errors after lock loss', () => {
+    const controller = new AbortController()
+    controller.abort()
+    expect(
+      normalizeMediaJobError(new DOMException('provider abort', 'AbortError'), controller.signal),
+    ).toBeInstanceOf(MediaJobCancelledError)
+  })
+
+  it('does not turn a deterministic unrecoverable failure into a retryable lock-loss error', () => {
+    const controller = new AbortController()
+    controller.abort()
+    const deterministic = new UnrecoverableError('generated output crossed its limit')
+    expect(normalizeMediaJobError(deterministic, controller.signal)).toBe(deterministic)
   })
 
   it('cancels only unique job IDs named by the lock-renewal failure', () => {

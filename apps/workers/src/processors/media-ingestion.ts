@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -35,8 +35,17 @@ import {
   readUtf8TextPrefix,
 } from '../lib/media-archive'
 import { assignMediaSourceIds } from '../lib/media-source-id'
-import { runBoundedLeafProcess } from '../lib/bounded-process'
-import { assertMediaJobActive, MediaJobCancelledError } from '../lib/media-job-cancellation'
+import { runBoundedStreamingLeafProcess } from '../lib/bounded-streaming-process'
+import {
+  MediaGeneratedOutputBudget,
+  MAX_MEDIA_GENERATED_OUTPUT_BYTES,
+} from '../lib/media-attempt-limits'
+import { JpegFrameWriter, MAX_GENERATED_VIDEO_FRAMES } from '../lib/jpeg-frame-stream'
+import {
+  assertMediaJobActive,
+  MediaJobCancelledError,
+  normalizeMediaJobError,
+} from '../lib/media-job-cancellation'
 import {
   executeMediaProviderOperation,
   reserveMediaProviderOperation,
@@ -381,6 +390,7 @@ function emptyAnalysis(summary: string, uncertainty?: string): Analysis {
 async function analyzeImage(
   openai: OpenAI,
   reserveProviderOperation: ReserveProviderOperation,
+  generatedOutputBudget: MediaGeneratedOutputBudget,
   filePath: string,
   sourceId: string,
   context: string,
@@ -394,6 +404,7 @@ async function analyzeImage(
     .jpeg({ quality: mode === 'ECONOMY' ? 72 : 84 })
     .toBuffer()
   assertMediaJobActive(signal)
+  generatedOutputBudget.consume(jpeg.byteLength)
   const response = await executeMediaProviderOperation(
     reserveProviderOperation,
     () =>
@@ -462,13 +473,19 @@ async function extractVideoFrames(
   filePath: string,
   outputDir: string,
   interval: number,
+  generatedOutputBudget: MediaGeneratedOutputBudget,
   signal?: AbortSignal,
 ) {
   assertMediaJobActive(signal)
   if (!ffmpegPath) throw new Error('ffmpeg is unavailable in this worker build.')
   const executable = ffmpegPath
   await mkdir(outputDir, { recursive: true })
-  await runBoundedLeafProcess(
+  const writer = new JpegFrameWriter({
+    budget: generatedOutputBudget,
+    directory: outputDir,
+    maxFrames: MAX_GENERATED_VIDEO_FRAMES,
+  })
+  await runBoundedStreamingLeafProcess(
     executable,
     [
       '-nostdin',
@@ -480,25 +497,37 @@ async function extractVideoFrames(
       '-vf',
       `fps=1/${interval},scale=w='min(1600,iw)':h='min(2200,ih)':force_original_aspect_ratio=decrease`,
       '-frames:v',
-      '120',
-      join(outputDir, 'frame-%04d.jpg'),
+      String(MAX_GENERATED_VIDEO_FRAMES),
+      '-q:v',
+      '2',
+      '-f',
+      'image2pipe',
+      '-c:v',
+      'mjpeg',
+      'pipe:1',
     ],
     {
+      consumeStdout: (stdout, processSignal) => pipeline(stdout, writer, { signal: processSignal }),
       label: 'ffmpeg frame extraction',
-      maxOutputBytesPerStream: FFMPEG_MAX_OUTPUT_BYTES,
+      maxStderrBytes: FFMPEG_MAX_OUTPUT_BYTES,
       ...(signal ? { signal } : {}),
       timeoutMs: FFMPEG_TIMEOUT_MS,
     },
   )
   assertMediaJobActive(signal)
-  return (await readdir(outputDir)).filter((name) => name.endsWith('.jpg')).sort()
+  return [...writer.filenames]
 }
 
-async function extractVideoAudio(filePath: string, outputPath: string, signal?: AbortSignal) {
+async function extractVideoAudio(
+  filePath: string,
+  outputPath: string,
+  generatedOutputBudget: MediaGeneratedOutputBudget,
+  signal?: AbortSignal,
+) {
   assertMediaJobActive(signal)
   if (!ffmpegPath) throw new Error('ffmpeg is unavailable in this worker build.')
   const executable = ffmpegPath
-  await runBoundedLeafProcess(
+  await runBoundedStreamingLeafProcess(
     executable,
     [
       '-nostdin',
@@ -514,11 +543,20 @@ async function extractVideoAudio(filePath: string, outputPath: string, signal?: 
       '16000',
       '-b:a',
       '48k',
-      outputPath,
+      '-f',
+      'mp3',
+      'pipe:1',
     ],
     {
+      consumeStdout: (stdout, processSignal) =>
+        pipeline(
+          stdout,
+          generatedOutputBudget.createTransform(),
+          createWriteStream(outputPath, { flags: 'wx' }),
+          { signal: processSignal },
+        ),
       label: 'ffmpeg audio extraction',
-      maxOutputBytesPerStream: FFMPEG_MAX_OUTPUT_BYTES,
+      maxStderrBytes: FFMPEG_MAX_OUTPUT_BYTES,
       ...(signal ? { signal } : {}),
       timeoutMs: FFMPEG_TIMEOUT_MS,
     },
@@ -620,8 +658,7 @@ export async function downloadAndExtract(
     activeEntry?.destroy()
     zip.destroy()
     source.destroy()
-    if (signal?.aborted) throw new MediaJobCancelledError()
-    throw caughtError
+    throw normalizeMediaJobError(caughtError, signal)
   } finally {
     signal?.removeEventListener('abort', abortStreams)
     detachSourceErrorForwarder()
@@ -726,6 +763,7 @@ export async function processMediaIngestionJob(
   signal?: AbortSignal,
 ) {
   assertMediaJobActive(signal)
+  const generatedOutputBudget = new MediaGeneratedOutputBudget(MAX_MEDIA_GENERATED_OUTPUT_BYTES)
   // Jobs retained from before generation-scoped payloads have no attempt ID.
   // Treat them as the legacy null generation so they can never claim newer work.
   const uploadAttemptId = payload.uploadAttemptId ?? null
@@ -850,6 +888,7 @@ export async function processMediaIngestionJob(
           analysis = await analyzeImage(
             openai,
             reserveProviderOperation,
+            generatedOutputBudget,
             file.path,
             sourceId,
             project.context,
@@ -865,6 +904,7 @@ export async function processMediaIngestionJob(
               file.path,
               frameDir,
               settings.videoSecondsPerSample ?? 8,
+              generatedOutputBudget,
               signal,
             )
             const frameAnalyses: Analysis[] = []
@@ -873,6 +913,7 @@ export async function processMediaIngestionJob(
                 await analyzeImage(
                   openai,
                   reserveProviderOperation,
+                  generatedOutputBudget,
                   join(frameDir, frame),
                   `${sourceId}/${frame}`,
                   project.context,
@@ -885,7 +926,7 @@ export async function processMediaIngestionJob(
             if (settings.transcribeAudio !== false) {
               const audioPath = join(frameDir, 'audio.mp3')
               try {
-                await extractVideoAudio(file.path, audioPath, signal)
+                await extractVideoAudio(file.path, audioPath, generatedOutputBudget, signal)
                 transcript = (await transcribe(openai, reserveProviderOperation, audioPath, signal))
                   .summary
               } catch (error) {
@@ -1027,7 +1068,7 @@ export async function processMediaIngestionJob(
     assertMediaJobActive(signal)
     await updateJobRecord(recordId, { status: 'COMPLETE' })
   } catch (caughtError) {
-    const error = signal?.aborted ? new MediaJobCancelledError() : caughtError
+    const error = normalizeMediaJobError(caughtError, signal)
     const message = error instanceof Error ? error.message : 'Unknown media ingestion error'
     await recordJobFailure({ jobRecordId: recordId, error, errorMessage: message, execution })
 

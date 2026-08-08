@@ -21,9 +21,10 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    existing analysis while retaining their own source row. Videos are sampled at the configured
    interval with a 120-frame ceiling. Each FFmpeg invocation has stdin disabled, a 15-minute
    wall-clock limit, and a 64 KiB per-stream output limit. FFmpeg is invoked directly as a leaf
-   process, without a shell. Generated frame dimensions are bounded on both axes, and each video's
-   frame/audio directory is removed before the next asset. Standalone narration and video audio are
-   transcribed.
+   process, without a shell. Generated frame dimensions are bounded on both axes. Frame JPEGs and
+   audio MP3 are streamed through one attempt-wide byte budget before crossing bytes can reach a
+   scratch file; each video's frame/audio directory is removed before the next asset. Standalone
+   narration and video audio are transcribed.
 6. Source-level analyses retain visible text, object confidence, spatial clues, and uncertainties.
    Larger visits are summarized hierarchically before synthesis so one request does not need to hold
    the entire visual corpus.
@@ -92,6 +93,13 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   requests, provider reservation boundaries, FFmpeg children, generated-output cleanup, and durable
   write boundaries. A claimed generation is recorded as retryable `FAILED` before the error returns so
   stalled-job recovery can reclaim it; temporary files are removed in every path.
+- Every BullMQ attempt has a six-hour technical execution fuse and one cumulative 5 GiB
+  generated-output fuse. The attempt signal is created before durable job reads and is shared by every
+  downstream operation; the timer is never reset per file or provider request. Generated FFmpeg
+  frames/audio and Sharp provider-image buffers all consume the same byte budget, which is never
+  refunded after scratch cleanup. Source ZIP and extracted-source bytes remain exclusively under the
+  separate 20 GiB archive budget, so they are not double-counted. Generated-byte exhaustion is
+  deterministic and unrecoverable; a whole-attempt deadline remains retryable.
 
 ## Global-admission rollout and rollback
 
@@ -112,6 +120,12 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   request or database statement that completed in the narrow interval before that operation observed
   the signal. Generation predicates, durable provider reservations, and status claims limit the
   resulting stale-write window; a process crash still relies on BullMQ stalled-job recovery.
+- The six-hour deadline bounds active media work, not compensation after cancellation. Exact
+  generation-fenced failure persistence and temporary-file cleanup are intentionally allowed to finish
+  after the timer fires. With three configured BullMQ attempts, a repeatedly timing-out generation can
+  receive up to 18 hours of active execution and regenerate up to 15 GiB across attempts; the durable
+  provider-operation ceiling remains generation-wide. Changing these technical fuses into commercial
+  tiers or a generation-wide byte/time quota requires measured staging evidence and an approved policy.
 
 ## Current supported formats
 
