@@ -28,6 +28,9 @@ const {
   weeklyReportUpdateMany,
   venueFindFirst,
   venueCreate,
+  venueReportConfigurationFindFirst,
+  venueReportConfigurationCreate,
+  venueReportConfigurationUpdate,
   generationRequestDispatchFindFirst,
   generationRequestDispatchCreate,
   auditLogCreate,
@@ -38,6 +41,7 @@ const {
   createOrganizationMock,
   currentUserMock,
   loggerWarn,
+  lockVenueReportMutation,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -65,6 +69,9 @@ const {
   weeklyReportUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   venueCreate: vi.fn(),
+  venueReportConfigurationFindFirst: vi.fn(),
+  venueReportConfigurationCreate: vi.fn(),
+  venueReportConfigurationUpdate: vi.fn(),
   generationRequestDispatchFindFirst: vi.fn(),
   generationRequestDispatchCreate: vi.fn(),
   auditLogCreate: vi.fn(),
@@ -75,6 +82,7 @@ const {
   createOrganizationMock: vi.fn(),
   currentUserMock: vi.fn(),
   loggerWarn: vi.fn(),
+  lockVenueReportMutation: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config/logger', () => ({
@@ -133,6 +141,11 @@ vi.mock('@pathfinder/db', () => {
       findFirst: venueFindFirst,
       create: venueCreate,
     },
+    venueReportConfiguration: {
+      findFirst: venueReportConfigurationFindFirst,
+      create: venueReportConfigurationCreate,
+      update: venueReportConfigurationUpdate,
+    },
     generationRequestDispatch: {
       findFirst: generationRequestDispatchFindFirst,
       create: generationRequestDispatchCreate,
@@ -146,6 +159,7 @@ vi.mock('@pathfinder/db', () => {
         dbTransaction(callback, transactionDb),
     },
     writeAuditLog: writeAuditLogMock,
+    lockVenueReportMutation,
     setContentVersionContext: vi.fn().mockResolvedValue(undefined),
     withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
   }
@@ -214,6 +228,8 @@ describe('admin router', () => {
         callback(transaction),
     )
     generationRequestDispatchFindFirst.mockResolvedValue(null)
+    venueReportConfigurationFindFirst.mockResolvedValue({ enabled: true })
+    lockVenueReportMutation.mockResolvedValue(undefined)
     generationRequestDispatchCreate.mockImplementation(async ({ data }) => ({
       id: data.id,
       recordId: data.recordId,
@@ -953,6 +969,147 @@ describe('admin router', () => {
     expect(enqueueGenerationDispatchKick).toHaveBeenCalledWith(expect.any(String))
   })
 
+  it('admin.generateWeeklyReportDraft fails closed before writes when reports are disabled', async () => {
+    venueReportConfigurationFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-15T23:59:59.999Z',
+        requestId: '12121212-1212-4212-8212-121212121212',
+      }),
+    ).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'PRECONDITION_FAILED' }),
+    )
+    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(weeklyReportCreate).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
+  })
+
+  it('admin.getVenueReportConfiguration returns the fail-closed default for an existing venue', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.getVenueReportConfiguration({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+    ).resolves.toEqual({
+      id: null,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      enabled: false,
+      updatedBy: null,
+      createdAt: null,
+      updatedAt: null,
+    })
+  })
+
+  it('admin.updateVenueReportConfiguration creates and strictly audits an enabled setting', async () => {
+    const createdAt = new Date('2026-08-08T09:00:00.000Z')
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce(null)
+    venueReportConfigurationCreate.mockResolvedValueOnce({
+      id: 'config_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      enabled: true,
+      updatedBy: 'admin_1',
+      createdAt,
+      updatedAt: createdAt,
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    const result = await caller.admin.updateVenueReportConfiguration({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      enabled: true,
+      expectedUpdatedAt: null,
+    })
+
+    expect(result).toMatchObject({ id: 'config_1', enabled: true, replayed: false })
+    expect(lockVenueReportMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+    )
+    expect(auditLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'admin.venue-reports.enabled',
+          targetId: 'config_1',
+          beforeState: { enabled: false },
+          afterState: { enabled: true },
+        }),
+      }),
+    )
+  })
+
+  it('admin.updateVenueReportConfiguration rejects a stale revision without a write or audit', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce({
+      id: 'config_1',
+      enabled: true,
+      updatedAt: new Date('2026-08-08T10:00:00.000Z'),
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.updateVenueReportConfiguration({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        enabled: false,
+        expectedUpdatedAt: new Date('2026-08-08T09:00:00.000Z'),
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+    expect(venueReportConfigurationUpdate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+  })
+
+  it('admin.updateVenueReportConfiguration advances its CAS token within the same millisecond', async () => {
+    const revision = new Date('2026-08-08T10:00:00.000Z')
+    const nextRevision = new Date('2026-08-08T10:00:00.001Z')
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(revision.getTime())
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce({
+      id: 'config_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      enabled: true,
+      updatedBy: 'admin_1',
+      createdAt: revision,
+      updatedAt: revision,
+    })
+    venueReportConfigurationUpdate.mockResolvedValueOnce({
+      id: 'config_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      enabled: false,
+      updatedBy: 'admin_1',
+      createdAt: revision,
+      updatedAt: nextRevision,
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await caller.admin.updateVenueReportConfiguration({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      enabled: false,
+      expectedUpdatedAt: revision,
+    })
+
+    expect(venueReportConfigurationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ updatedAt: nextRevision }) }),
+    )
+    nowSpy.mockRestore()
+  })
+
   it('admin.generateWeeklyReportDraft rejects a venue outside the supplied tenant', async () => {
     venueFindFirst.mockResolvedValueOnce(null)
 
@@ -1248,6 +1405,7 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
@@ -1264,6 +1422,7 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
@@ -1279,24 +1438,30 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'wrong_venue',
         reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
     expect(weeklyReportFindFirst).toHaveBeenCalledWith({
       where: { id: 'report_1', tenantId: 'tenant_1', venueId: 'wrong_venue' },
-      select: { status: true, content: true },
+      select: { status: true, content: true, updatedAt: true },
     })
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
     expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
   it('admin.publishWeeklyReport publishes a valid draft and audit-logs it', async () => {
-    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', content: 'Some content' })
+    weeklyReportFindFirst.mockResolvedValueOnce({
+      status: 'DRAFT',
+      content: 'Some content',
+      updatedAt: reportRevision,
+    })
 
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.publishWeeklyReport({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       reportId: 'report_1',
+      expectedUpdatedAt: reportRevision.toISOString(),
     })
 
     expect(result).toEqual({ ok: true })
@@ -1306,16 +1471,23 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         status: 'DRAFT',
+        updatedAt: reportRevision,
       },
       data: expect.objectContaining({ status: 'PUBLISHED' }),
     })
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'admin.report.published', targetId: 'report_1' }),
+    expect(auditLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'admin.report.published', targetId: 'report_1' }),
+      }),
     )
   })
 
   it('admin.publishWeeklyReport returns CONFLICT without an audit when its DRAFT CAS misses', async () => {
-    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', content: 'Some content' })
+    weeklyReportFindFirst.mockResolvedValueOnce({
+      status: 'DRAFT',
+      content: 'Some content',
+      updatedAt: reportRevision,
+    })
     weeklyReportUpdateMany.mockResolvedValueOnce({ count: 0 })
 
     const caller = testRouter.createCaller(adminCtx())
@@ -1324,6 +1496,7 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
     expect(weeklyReportUpdateMany).toHaveBeenCalledWith(
@@ -1333,10 +1506,30 @@ describe('admin router', () => {
           tenantId: 'tenant_1',
           venueId: 'venue_1',
           status: 'DRAFT',
+          updatedAt: reportRevision,
         },
       }),
     )
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+  })
+
+  it('admin.publishWeeklyReport rejects a disabled venue before reading or publishing', async () => {
+    venueReportConfigurationFindFirst.mockResolvedValueOnce(null)
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.publishWeeklyReport({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
+      }),
+    ).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'PRECONDITION_FAILED' }),
+    )
+    expect(weeklyReportFindFirst).not.toHaveBeenCalled()
+    expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
   })
 
   it('all new admin.* chatlog/report/analysis procedures throw FORBIDDEN for non-admin users', async () => {
@@ -1358,6 +1551,7 @@ describe('admin router', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })

@@ -73,7 +73,12 @@ export function WeeklyReportEditor({
     setErrorMessage(null)
 
     try {
-      await clientRef.current!.admin.publishWeeklyReport.mutate({ tenantId, venueId, reportId })
+      await clientRef.current!.admin.publishWeeklyReport.mutate({
+        tenantId,
+        venueId,
+        reportId,
+        expectedUpdatedAt,
+      })
       setCurrentStatus('PUBLISHED')
       setMessage('Report published.')
       router.refresh()

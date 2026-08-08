@@ -32,11 +32,18 @@ const approvedPolicies = new Set([
   'transaction-content-history-context',
   'tenant-content-history-entity-lock',
   'tenant-venue-content-mutation-lock',
+  'tenant-venue-report-mutation-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/db/src/helpers/venue-content-lock.ts',
+    method: '$executeRaw',
+    hash: 'daa2dc53e993865ebc671cc1dee04d1085ea1fbf70f976b84a024176f5e4b785',
+    policy: 'tenant-venue-report-mutation-lock',
+  },
   {
     file: 'packages/db/src/helpers/venue-content-lock.ts',
     method: '$executeRaw',

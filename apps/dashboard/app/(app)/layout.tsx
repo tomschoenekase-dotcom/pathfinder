@@ -30,14 +30,18 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
   }
 
   let impersonatedTenantName: string | undefined
+  const caller = await createDashboardCaller('/')
+  const reportAvailability = await caller.analytics.getWeeklyReportAvailability()
   if (isPlatformAdmin && adminTenantOverride) {
-    const caller = await createDashboardCaller('/')
     const { tenant } = await caller.tenant.getSettings()
     impersonatedTenantName = tenant.name
   }
 
   return (
-    <DashboardShell {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}>
+    <DashboardShell
+      weeklyReportsEnabled={reportAvailability.enabledVenueIds.length > 0}
+      {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
+    >
       {children}
     </DashboardShell>
   )

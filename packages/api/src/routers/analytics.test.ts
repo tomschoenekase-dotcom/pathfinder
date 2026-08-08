@@ -18,6 +18,8 @@ const questionClusterFindMany = vi.fn()
 const placeFindMany = vi.fn()
 const venueFindFirst = vi.fn()
 const weeklyReportFindMany = vi.fn()
+const venueReportConfigurationFindMany = vi.fn()
+const venueReportConfigurationFindFirst = vi.fn()
 const dbQueryRaw = vi.fn()
 
 const mockDb = {
@@ -27,6 +29,10 @@ const mockDb = {
   },
   weeklyReport: {
     findMany: weeklyReportFindMany,
+  },
+  venueReportConfiguration: {
+    findMany: venueReportConfigurationFindMany,
+    findFirst: venueReportConfigurationFindFirst,
   },
   venue: {
     findFirst: venueFindFirst,
@@ -493,6 +499,7 @@ describe('analytics router', () => {
 
   it('analytics.listPublishedWeeklyReports only returns PUBLISHED reports for the caller tenant', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce({ enabled: true })
     weeklyReportFindMany.mockResolvedValueOnce([
       {
         id: 'report_1',
@@ -527,6 +534,42 @@ describe('analytics router', () => {
     await expect(
       caller.analytics.listPublishedWeeklyReports({ venueId: 'someone_elses_venue' }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'someone_elses_venue', tenantId: 'tenant_1', isActive: true },
+      select: { id: true },
+    })
     expect(weeklyReportFindMany).not.toHaveBeenCalled()
+  })
+
+  it('analytics.listPublishedWeeklyReports fails closed when the venue is not enabled', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(tenantCtx())
+
+    await expect(
+      caller.analytics.listPublishedWeeklyReports({ venueId: 'venue_1' }),
+    ).rejects.toThrowError(
+      expect.objectContaining<Partial<TRPCError>>({ code: 'PRECONDITION_FAILED' }),
+    )
+    expect(weeklyReportFindMany).not.toHaveBeenCalled()
+  })
+
+  it('analytics.getWeeklyReportAvailability returns only explicitly enabled active venues', async () => {
+    venueReportConfigurationFindMany.mockResolvedValueOnce([
+      { venueId: 'venue_1' },
+      { venueId: 'venue_3' },
+    ])
+
+    const caller = testRouter.createCaller(tenantCtx())
+
+    await expect(caller.analytics.getWeeklyReportAvailability()).resolves.toEqual({
+      enabledVenueIds: ['venue_1', 'venue_3'],
+    })
+    expect(venueReportConfigurationFindMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant_1', enabled: true, venue: { isActive: true } },
+      orderBy: { venueId: 'asc' },
+      select: { venueId: true },
+    })
   })
 })

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 
 import { AdminGenerateWeeklyReportButton } from '../../../../../../../../components/admin/AdminGenerateWeeklyReportButton'
+import { AdminVenueReportConfiguration } from '../../../../../../../../components/admin/AdminVenueReportConfiguration'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 
 type AdminReportsPageProps = {
@@ -25,7 +26,10 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
   const { tenantId, venueId } = await params
   const query = await searchParams
   const caller = await createAdminCaller()
-  const reports = await caller.admin.listWeeklyReports({ tenantId, venueId })
+  const [reports, reportConfiguration] = await Promise.all([
+    caller.admin.listWeeklyReports({ tenantId, venueId }),
+    caller.admin.getVenueReportConfiguration({ tenantId, venueId }),
+  ])
   const fallbackStart = defaultRangeStart()
   const weekStartDate = query.weekStart
     ? new Date(`${query.weekStart}T00:00:00.000Z`)
@@ -47,6 +51,13 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
           Generate, edit, and publish client-facing reports for any date range.
         </p>
       </header>
+
+      <AdminVenueReportConfiguration
+        tenantId={tenantId}
+        venueId={venueId}
+        enabled={reportConfiguration.enabled}
+        updatedAt={reportConfiguration.updatedAt?.toISOString() ?? null}
+      />
 
       <section className="space-y-4 rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
         <form className="flex flex-wrap items-end gap-3">
@@ -80,6 +91,7 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
           venueId={venueId}
           weekStart={weekStartDate.toISOString()}
           weekEnd={weekEndDate.toISOString()}
+          enabled={reportConfiguration.enabled}
         />
       </section>
 

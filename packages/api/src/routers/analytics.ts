@@ -5,6 +5,7 @@ import { PUBLIC_ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfind
 import { TOPIC_LABELS, type TopicKey } from '@pathfinder/analytics/topics'
 
 import { router } from '../core'
+import { requireVenueReportsEnabled } from '../lib/venue-report-configuration'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
 // Place-interest weighting (decision A1). Derived from existing signals, NOT GPS
@@ -273,17 +274,32 @@ export const analyticsRouter = router({
       return digest
     }),
 
+  getWeeklyReportAvailability: tenantProcedure.query(async ({ ctx }) => {
+    const configurations = await ctx.db.venueReportConfiguration.findMany({
+      where: {
+        tenantId: ctx.session.activeTenantId,
+        enabled: true,
+        venue: { isActive: true },
+      },
+      orderBy: { venueId: 'asc' },
+      select: { venueId: true },
+    })
+    return { enabledVenueIds: configurations.map((configuration) => configuration.venueId) }
+  }),
+
   listPublishedWeeklyReports: tenantProcedure
     .input(z.object({ venueId: z.string() }).strict())
     .query(async ({ ctx, input }) => {
       const venue = await ctx.db.venue.findFirst({
-        where: { id: input.venueId, tenantId: ctx.session.activeTenantId },
+        where: { id: input.venueId, tenantId: ctx.session.activeTenantId, isActive: true },
         select: { id: true },
       })
 
       if (!venue) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
+
+      await requireVenueReportsEnabled(ctx.db, ctx.session.activeTenantId, input.venueId)
 
       return ctx.db.weeklyReport.findMany({
         where: {

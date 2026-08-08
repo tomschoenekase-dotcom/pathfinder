@@ -6,7 +6,7 @@ export {
   lockOperationalUpdateCapacity,
   setContentVersionContext,
 } from './helpers/content-version-context'
-export { lockVenueContentMutation } from './helpers/venue-content-lock'
+export { lockVenueContentMutation, lockVenueReportMutation } from './helpers/venue-content-lock'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'
 export {
   acquireAnswerAnalysisExecution,

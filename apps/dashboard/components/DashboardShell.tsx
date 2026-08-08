@@ -22,6 +22,7 @@ import { PathFinderBrand } from '@pathfinder/ui'
 type DashboardShellProps = {
   children: ReactNode
   impersonatedTenantName?: string
+  weeklyReportsEnabled: boolean
 }
 
 const navigationItems = [
@@ -44,7 +45,11 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function DashboardShell({ children, impersonatedTenantName }: DashboardShellProps) {
+export function DashboardShell({
+  children,
+  impersonatedTenantName,
+  weeklyReportsEnabled,
+}: DashboardShellProps) {
   const pathname = usePathname()
   const { organization } = useOrganization()
   const { user } = useUser()
@@ -83,26 +88,28 @@ export function DashboardShell({ children, impersonatedTenantName }: DashboardSh
             </div>
 
             <nav className="mt-6 flex-1 space-y-2" aria-label="Dashboard navigation">
-              {navigationItems.map((item) => {
-                const Icon = item.icon
-                const active = isActivePath(pathname, item.href)
+              {navigationItems
+                .filter((item) => item.href !== '/weekly-reports' || weeklyReportsEnabled)
+                .map((item) => {
+                  const Icon = item.icon
+                  const active = isActivePath(pathname, item.href)
 
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={[
-                      'flex min-h-11 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition',
-                      active
-                        ? 'border-l-2 border-pf-accent bg-pf-primary/20 text-white'
-                        : 'text-pf-light/70 hover:bg-pf-primary/10 hover:text-white',
-                    ].join(' ')}
-                  >
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                    <span>{item.label}</span>
-                  </Link>
-                )
-              })}
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={[
+                        'flex min-h-11 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition',
+                        active
+                          ? 'border-l-2 border-pf-accent bg-pf-primary/20 text-white'
+                          : 'text-pf-light/70 hover:bg-pf-primary/10 hover:text-white',
+                      ].join(' ')}
+                    >
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </Link>
+                  )
+                })}
 
               {isPlatformAdmin ? (
                 <div className="mt-2 border-t border-pf-primary/20 pt-2">

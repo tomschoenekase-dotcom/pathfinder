@@ -6,6 +6,7 @@ import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config/logger'
 import {
   db,
+  lockVenueReportMutation,
   setContentVersionContext,
   withTenantIsolationBypass,
   writeAuditLog,
@@ -19,6 +20,10 @@ import {
   effectiveWeeklyReportTitle,
   generationRequestHash,
 } from '../../lib/generation-request-identity'
+import {
+  findVenueReportConfiguration,
+  venueReportConfigurationSelect,
+} from '../../lib/venue-report-configuration'
 import { slugify } from '../venue'
 
 function startOfCurrentUtcWeek(date: Date): Date {
@@ -1142,6 +1147,132 @@ export const adminRouter = router({
       return snapshot
     }),
 
+  getVenueReportConfiguration: adminProcedure
+    .input(z.object({ tenantId: z.string(), venueId: z.string() }).strict())
+    .query(async ({ input }) =>
+      withTenantIsolationBypass(async () => {
+        const venue = await db.venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        })
+        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+
+        const configuration = await findVenueReportConfiguration(db, input.tenantId, input.venueId)
+        return (
+          configuration ?? {
+            id: null,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            enabled: false,
+            updatedBy: null,
+            createdAt: null,
+            updatedAt: null,
+          }
+        )
+      }),
+    ),
+
+  updateVenueReportConfiguration: adminProcedure
+    .input(
+      z
+        .object({
+          tenantId: z.string(),
+          venueId: z.string(),
+          enabled: z.boolean(),
+          expectedUpdatedAt: z.coerce.date().nullable(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        db.$transaction(async (transaction) => {
+          await lockVenueReportMutation(transaction, input)
+          const venue = await transaction.venue.findFirst({
+            where: { id: input.venueId, tenantId: input.tenantId },
+            select: { id: true },
+          })
+          if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+
+          const before = await findVenueReportConfiguration(
+            transaction,
+            input.tenantId,
+            input.venueId,
+          )
+          if (!before && input.expectedUpdatedAt !== null) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'Report configuration changed; refresh and try again.',
+            })
+          }
+          if (
+            before &&
+            (input.expectedUpdatedAt === null ||
+              before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime())
+          ) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'Report configuration changed; refresh and try again.',
+            })
+          }
+          if (before?.enabled === input.enabled || (!before && !input.enabled)) {
+            return {
+              ...(before ?? {
+                id: null,
+                tenantId: input.tenantId,
+                venueId: input.venueId,
+                enabled: false,
+                updatedBy: null,
+                createdAt: null,
+                updatedAt: null,
+              }),
+              replayed: true,
+            }
+          }
+
+          const nextUpdatedAt = new Date(
+            before ? Math.max(Date.now(), before.updatedAt.getTime() + 1) : Date.now(),
+          )
+          const configuration = before
+            ? await transaction.venueReportConfiguration.update({
+                where: { id: before.id },
+                data: {
+                  enabled: input.enabled,
+                  updatedBy: ctx.session.userId,
+                  updatedAt: nextUpdatedAt,
+                },
+                select: venueReportConfigurationSelect,
+              })
+            : await transaction.venueReportConfiguration.create({
+                data: {
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  enabled: input.enabled,
+                  updatedBy: ctx.session.userId,
+                  updatedAt: nextUpdatedAt,
+                },
+                select: venueReportConfigurationSelect,
+              })
+
+          await transaction.auditLog.create({
+            data: {
+              tenantId: input.tenantId,
+              actorId: ctx.session.userId,
+              actorRole: 'PLATFORM_ADMIN',
+              action: configuration.enabled
+                ? 'admin.venue-reports.enabled'
+                : 'admin.venue-reports.disabled',
+              targetType: 'VenueReportConfiguration',
+              targetId: configuration.id,
+              beforeState: { enabled: before?.enabled === true },
+              afterState: { enabled: configuration.enabled },
+            },
+          })
+
+          return { ...configuration, replayed: false }
+        }),
+      ),
+    ),
+
   generateWeeklyReportDraft: adminProcedure
     .input(
       z.object({
@@ -1168,6 +1299,7 @@ export const adminRouter = router({
       const createOrReplay = () =>
         withTenantIsolationBypass(() =>
           db.$transaction(async (transaction) => {
+            await lockVenueReportMutation(transaction, input)
             const existing = await transaction.generationRequestDispatch.findFirst({
               where: {
                 tenantId: input.tenantId,
@@ -1183,7 +1315,28 @@ export const adminRouter = router({
                   message: 'Request ID was already used for different report input.',
                 })
               }
-              return { ...existing, replayed: true }
+              const configuration = await findVenueReportConfiguration(
+                transaction,
+                input.tenantId,
+                input.venueId,
+              )
+              return {
+                ...existing,
+                replayed: true,
+                enqueueAllowed: configuration?.enabled === true,
+              }
+            }
+
+            const configuration = await findVenueReportConfiguration(
+              transaction,
+              input.tenantId,
+              input.venueId,
+            )
+            if (configuration?.enabled !== true) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: 'Weekly reports are disabled for this venue.',
+              })
             }
 
             const venue = await transaction.venue.findFirst({
@@ -1239,7 +1392,7 @@ export const adminRouter = router({
                 },
               },
             })
-            return { ...dispatch, replayed: false }
+            return { ...dispatch, replayed: false, enqueueAllowed: true }
           }),
         )
 
@@ -1251,7 +1404,7 @@ export const adminRouter = router({
         durableRequest = await createOrReplay()
       }
 
-      if (durableRequest.status === 'PENDING') {
+      if (durableRequest.status === 'PENDING' && durableRequest.enqueueAllowed) {
         try {
           await enqueueGenerationDispatchKick(durableRequest.id)
         } catch {
@@ -1387,57 +1540,95 @@ export const adminRouter = router({
     }),
 
   publishWeeklyReport: adminProcedure
-    .input(z.object({ tenantId: z.string(), venueId: z.string(), reportId: z.string() }))
+    .input(
+      z
+        .object({
+          tenantId: z.string(),
+          venueId: z.string(),
+          reportId: z.string(),
+          expectedUpdatedAt: z.string().datetime(),
+        })
+        .strict(),
+    )
     .mutation(async ({ ctx, input }) => {
-      const existing = await withTenantIsolationBypass(async () =>
-        db.weeklyReport.findFirst({
-          where: {
-            id: input.reportId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-          },
-          select: { status: true, content: true },
+      return withTenantIsolationBypass(() =>
+        db.$transaction(async (transaction) => {
+          await lockVenueReportMutation(transaction, input)
+          const configuration = await findVenueReportConfiguration(
+            transaction,
+            input.tenantId,
+            input.venueId,
+          )
+          if (configuration?.enabled !== true) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'Weekly reports are disabled for this venue.',
+            })
+          }
+
+          const existing = await transaction.weeklyReport.findFirst({
+            where: {
+              id: input.reportId,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+            },
+            select: { status: true, content: true, updatedAt: true },
+          })
+          if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
+          if (existing.status !== 'DRAFT') {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Only a draft report can be published.',
+            })
+          }
+          if (!existing.content) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Report has no content to publish.',
+            })
+          }
+
+          const expectedUpdatedAt = new Date(input.expectedUpdatedAt)
+          if (existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'This report changed after review. Reload it before publishing.',
+            })
+          }
+          const publishedAt = new Date()
+          const updated = await transaction.weeklyReport.updateMany({
+            where: {
+              id: input.reportId,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              status: 'DRAFT',
+              updatedAt: expectedUpdatedAt,
+            },
+            data: { status: 'PUBLISHED', publishedAt },
+          })
+          if (updated.count !== 1) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'Report state changed before it could be published.',
+            })
+          }
+
+          await transaction.auditLog.create({
+            data: {
+              tenantId: input.tenantId,
+              actorId: ctx.session.userId,
+              actorRole: 'PLATFORM_ADMIN',
+              action: 'admin.report.published',
+              targetType: 'WeeklyReport',
+              targetId: input.reportId,
+              beforeState: { status: existing.status, updatedAt: existing.updatedAt.toISOString() },
+              afterState: { status: 'PUBLISHED', publishedAt: publishedAt.toISOString() },
+            },
+          })
+
+          return { ok: true }
         }),
       )
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
-      if (existing.status !== 'DRAFT') {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Only a draft report can be published.',
-        })
-      }
-      if (!existing.content) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Report has no content to publish.' })
-      }
-
-      const updated = await withTenantIsolationBypass(async () => {
-        return db.weeklyReport.updateMany({
-          where: {
-            id: input.reportId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            status: 'DRAFT',
-          },
-          data: { status: 'PUBLISHED', publishedAt: new Date() },
-        })
-      })
-      if (updated.count !== 1) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Report state changed before it could be published.',
-        })
-      }
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.report.published',
-        targetType: 'WeeklyReport',
-        targetId: input.reportId,
-      })
-
-      return { ok: true }
     }),
 
   triggerDigest: adminProcedure

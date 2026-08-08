@@ -375,6 +375,40 @@ Do not delete package rows: the database guard intentionally makes revisions imm
 own `revertPackage` action is allowed only while all authoritative venue content still matches its
 post-apply digest; otherwise use manual reviewed recovery rather than a partial rollback.
 
+## Venue report-configuration migration canary
+
+`20260809060000_add_venue_report_configurations` makes client-facing weekly reports an explicit,
+venue-scoped capability. Absence of a configuration row means disabled. The migration does not
+backfill rows or alter existing reports, so every existing venue remains hidden and unable to
+request or publish reports until a platform administrator deliberately enables it.
+
+1. Record the venue and weekly-report counts and the release SHA. Confirm there is no existing
+   `venue_report_configurations` table or `venues_id_tenant_id_key`. Do not run this or any other
+   external Prisma migration while the unresolved `DIRECT_DATABASE_URL` incident is unapproved.
+2. Apply the migration only after the normal staging target/isolation confirmation. It runs in an
+   explicit transaction. After commit, require the prior venue/report counts to be unchanged,
+   configuration count to be zero, the composite venue ownership foreign key to exist, and a
+   second deploy to report no pending migrations.
+3. Before enabling a venue, confirm its client navigation omits Weekly Reports, direct client API
+   reads fail closed, and a platform-admin generation request writes no report, dispatch, audit, or
+   queue kick. Enable it from the internal report workspace and verify one strict configuration
+   audit plus client navigation availability.
+4. Generate and review a synthetic draft. Publishing must carry the exact displayed revision and
+   write the status transition plus strict audit atomically. A stale revision, disabled venue, or
+   injected audit failure must preserve DRAFT and expose no client content.
+5. Disable the venue while retaining a published synthetic report. Confirm the row remains stored,
+   all client reads are denied, and new generation and publication are rejected. Re-enable and
+   confirm only PUBLISHED reports return; GENERATING, DRAFT, and FAILED rows remain internal.
+6. Exercise concurrent disable versus new generation. The venue-scoped advisory lock must produce
+   either one enabled request followed by disable, or disable followed by a no-write precondition
+   failure. A request that starts after disable must never create a report.
+
+This is the bounded default-off/access/concurrency slice of report backlog #40. Cadence scheduling,
+selectable content sections, immutable generation-time configuration snapshots, and a separate
+formal review status remain open and must not be claimed by this canary. Application rollback may
+revert the code while retaining the additive table and disabled rows. Dropping configuration or
+historical report data requires a separate reviewed migration.
+
 ## Staging smoke tests
 
 - Request the public web `/api/health` endpoint and record the status code and

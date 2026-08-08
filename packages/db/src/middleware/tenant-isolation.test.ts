@@ -102,6 +102,7 @@ describe('tenantIsolationMiddleware', () => {
       'EngagementQuestionResponse',
       'AdminChatlogNote',
       'WeeklyReport',
+      'VenueReportConfiguration',
       'AnswerAnalysisSnapshot',
       'GenerationRequestDispatch',
       'VenueWeeklyTheme',

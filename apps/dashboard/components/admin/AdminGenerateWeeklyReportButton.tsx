@@ -15,6 +15,7 @@ type AdminGenerateWeeklyReportButtonProps = {
   venueId: string
   weekStart: string
   weekEnd: string
+  enabled: boolean
 }
 
 export function AdminGenerateWeeklyReportButton({
@@ -22,6 +23,7 @@ export function AdminGenerateWeeklyReportButton({
   venueId,
   weekStart,
   weekEnd,
+  enabled,
 }: AdminGenerateWeeklyReportButtonProps) {
   const router = useRouter()
   const clientRef = useRef<ReturnType<typeof createTRPCClient> | null>(null)
@@ -83,13 +85,13 @@ export function AdminGenerateWeeklyReportButton({
       </label>
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || !enabled}
         onClick={() => {
           void handleClick()
         }}
         className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {pending ? 'Queuing...' : 'Generate Report Draft'}
+        {pending ? 'Queuing...' : enabled ? 'Generate Report Draft' : 'Enable Reports to Generate'}
       </button>
       {errorMessage ? <p className="text-sm text-rose-600">{errorMessage}</p> : null}
     </div>

@@ -56,6 +56,7 @@ model Tenant {
   engagementQuestionResponses EngagementQuestionResponse[]
   adminChatlogNotes           AdminChatlogNote[]
   weeklyReports               WeeklyReport[]
+  venueReportConfigurations   VenueReportConfiguration[]
   answerAnalysisSnapshots     AnswerAnalysisSnapshot[]
   venueWeeklyThemes           VenueWeeklyTheme[]
   mediaIngestionProjects      MediaIngestionProject[]
@@ -239,6 +240,7 @@ model Venue {
   engagementResponses         EngagementQuestionResponse[]
   adminChatlogNotes           AdminChatlogNote[]
   weeklyReports               WeeklyReport[]
+  reportConfiguration         VenueReportConfiguration?
   answerAnalysisSnapshots     AnswerAnalysisSnapshot[]
   weeklyThemes                VenueWeeklyTheme[]
   mediaIngestionProjects      MediaIngestionProject[]
@@ -250,6 +252,7 @@ model Venue {
   generationRequestDispatches GenerationRequestDispatch[]
 
   @@unique([tenantId, slug])
+  @@unique([id, tenantId])
   @@index([tenantId])
   @@map("venues")
 }
@@ -811,6 +814,24 @@ model WeeklyReport {
   @@index([status])
   @@index([status, executionLeaseExpiresAt])
   @@map("weekly_reports")
+}
+
+/// Explicit per-venue opt-in for the client-facing weekly-report capability.
+/// Absence of a row is the fail-closed disabled default.
+model VenueReportConfiguration {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  venueId   String   @unique @map("venue_id")
+  enabled   Boolean  @default(false)
+  updatedBy String   @map("updated_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue     Venue    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([venueId, tenantId])
+  @@index([tenantId, enabled, venueId])
+  @@map("venue_report_configurations")
 }
 
 model AnswerAnalysisSnapshot {

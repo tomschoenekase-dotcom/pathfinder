@@ -52,6 +52,13 @@
     "input": { "id": "" }
   },
   {
+    "path": "analytics.getWeeklyReportAvailability",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venueReportConfiguration.findMany",
+    "input": null
+  },
+  {
     "path": "analytics.listPublishedWeeklyReports",
     "kind": "query",
     "minimumRole": "STAFF",

@@ -14,3 +14,12 @@ export async function lockVenueContentMutation(
     )
   `
 }
+
+/** Serializes report configuration changes with new report requests. */
+export async function lockVenueReportMutation(
+  tx: TransactionClient,
+  input: { tenantId: string; venueId: string },
+): Promise<void> {
+  const lockKey = `venue-report:${input.tenantId}:${input.venueId}`
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`
+}

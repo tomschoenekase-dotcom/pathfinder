@@ -21,6 +21,7 @@ export const TENANTED_TABLES = [
   'EngagementQuestionResponse',
   'AdminChatlogNote',
   'WeeklyReport',
+  'VenueReportConfiguration',
   'AnswerAnalysisSnapshot',
   'GenerationRequestDispatch',
   'VenueWeeklyTheme',
