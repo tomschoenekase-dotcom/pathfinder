@@ -1,6 +1,6 @@
 import {
-  AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
   ListPartsCommand,
@@ -8,10 +8,14 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  beginMediaUpload,
   canonicalMediaUploadEtag,
   finishMediaUpload,
+  inspectCompletedMediaUpload,
   listReusableMediaUploadParts,
+  MEDIA_UPLOAD_GENERATION_METADATA_KEY,
   MEDIA_UPLOAD_PART_SIZE,
+  MediaUploadCompletionUnconfirmedError,
   mediaUploadPartCount,
   normalizeMediaUploadParts,
   type MediaStorageTransport,
@@ -31,6 +35,21 @@ describe('media storage contract', () => {
     expect(mediaUploadPartCount(MEDIA_UPLOAD_PART_SIZE)).toBe(1)
     expect(mediaUploadPartCount(MEDIA_UPLOAD_PART_SIZE + 1)).toBe(2)
     expect(() => mediaUploadPartCount(0)).toThrow(/positive safe integer/)
+  })
+
+  it('binds a new multipart upload to its immutable generation metadata', async () => {
+    const send = vi.fn().mockResolvedValue({ UploadId: 'upload-1' })
+    await expect(
+      beginMediaUpload('staging/project/attempt/archive.zip', 'application/zip', 'attempt-1', {
+        send,
+      }),
+    ).resolves.toEqual({ uploadId: 'upload-1', partSize: MEDIA_UPLOAD_PART_SIZE })
+
+    const command = send.mock.calls[0]?.[0]
+    expect(command).toBeInstanceOf(CreateMultipartUploadCommand)
+    expect((command as CreateMultipartUploadCommand).input.Metadata).toEqual({
+      [MEDIA_UPLOAD_GENERATION_METADATA_KEY]: 'attempt-1',
+    })
   })
 
   it('normalizes a complete contiguous part set and rejects gaps or duplicates', () => {
@@ -130,6 +149,7 @@ describe('media storage contract', () => {
         [{ partNumber: 1, etag: 'one' }],
         10,
         20,
+        undefined,
         storage,
       ),
     ).resolves.toEqual({ bytes: 10 })
@@ -150,6 +170,7 @@ describe('media storage contract', () => {
         [{ partNumber: 1, etag: 'one' }],
         bytes,
         5 * 1024 * 1024 * 1024,
+        undefined,
         { send } as MediaStorageTransport,
       ),
     ).resolves.toEqual({ bytes })
@@ -175,6 +196,7 @@ describe('media storage contract', () => {
         [{ partNumber: 1, etag: 'one' }],
         testCase.expected,
         testCase.maximum,
+        undefined,
         storage,
       ),
     ).rejects.toThrow(testCase.message)
@@ -201,17 +223,21 @@ describe('media storage contract', () => {
         [{ partNumber: 1, etag: 'one' }],
         10,
         20,
+        undefined,
         { send } as MediaStorageTransport,
       ),
-    ).rejects.toThrow(/could not be verified/)
+    ).rejects.toBeInstanceOf(MediaUploadCompletionUnconfirmedError)
     expect(send).toHaveBeenCalledTimes(2)
   })
 
-  it('aborts a failed completion and preserves abort failure context', async () => {
+  it('reconciles a dropped completion response through exact generation metadata', async () => {
     const send = vi
       .fn()
       .mockRejectedValueOnce(new Error('complete failed'))
-      .mockRejectedValueOnce(new Error('abort failed'))
+      .mockResolvedValueOnce({
+        ContentLength: 10,
+        Metadata: { [MEDIA_UPLOAD_GENERATION_METADATA_KEY]: 'attempt-1' },
+      })
 
     await expect(
       finishMediaUpload(
@@ -220,15 +246,19 @@ describe('media storage contract', () => {
         [{ partNumber: 1, etag: 'one' }],
         10,
         20,
+        'attempt-1',
         { send } as MediaStorageTransport,
       ),
-    ).rejects.toThrow(/complete failed; multipart abort also failed/)
-    expect(send.mock.calls[1]?.[0]).toBeInstanceOf(AbortMultipartUploadCommand)
+    ).resolves.toEqual({ bytes: 10 })
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send.mock.calls[1]?.[0]).toBeInstanceOf(HeadObjectCommand)
   })
 
-  it('rethrows the original completion error after a successful abort', async () => {
-    const completionError = new Error('complete failed')
-    const send = vi.fn().mockRejectedValueOnce(completionError).mockResolvedValueOnce({})
+  it('leaves an unproven completion unresolved without aborting it', async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('complete failed'))
+      .mockRejectedValueOnce(Object.assign(new Error('missing'), { name: 'NotFound' }))
 
     await expect(
       finishMediaUpload(
@@ -237,10 +267,39 @@ describe('media storage contract', () => {
         [{ partNumber: 1, etag: 'one' }],
         10,
         20,
+        'attempt-1',
         { send } as MediaStorageTransport,
       ),
-    ).rejects.toBe(completionError)
-    expect(send.mock.calls[1]?.[0]).toBeInstanceOf(AbortMultipartUploadCommand)
+    ).rejects.toBeInstanceOf(MediaUploadCompletionUnconfirmedError)
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not trust an object with the wrong generation during reconciliation', async () => {
+    const send = vi.fn().mockResolvedValue({
+      ContentLength: 10,
+      Metadata: { [MEDIA_UPLOAD_GENERATION_METADATA_KEY]: 'another-attempt' },
+    })
+    await expect(
+      inspectCompletedMediaUpload('staging/project.zip', 10, 20, 'attempt-1', undefined, {
+        send,
+      } as MediaStorageTransport),
+    ).resolves.toEqual({ state: 'identity-mismatch' })
+  })
+
+  it('keeps a legacy completion ambiguous without inspecting a reusable key', async () => {
+    const send = vi.fn().mockRejectedValueOnce(new Error('complete failed'))
+    await expect(
+      finishMediaUpload(
+        'staging/project.zip',
+        'upload-1',
+        [{ partNumber: 1, etag: 'one' }],
+        10,
+        20,
+        undefined,
+        { send } as MediaStorageTransport,
+      ),
+    ).rejects.toBeInstanceOf(MediaUploadCompletionUnconfirmedError)
+    expect(send).toHaveBeenCalledOnce()
   })
 
   it('preserves the validation reason when invalid-object removal fails', async () => {
@@ -257,6 +316,7 @@ describe('media storage contract', () => {
         [{ partNumber: 1, etag: 'one' }],
         10,
         20,
+        undefined,
         { send } as MediaStorageTransport,
       ),
     ).rejects.toThrow(/empty; object removal also failed/)

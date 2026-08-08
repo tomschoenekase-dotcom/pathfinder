@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   beginMediaUpload: vi.fn(),
   enqueueMediaIngestion: vi.fn(),
   finishMediaUpload: vi.fn(),
+  inspectCompletedMediaUpload: vi.fn(),
   listReusableMediaUploadParts: vi.fn(),
   loggerWarn: vi.fn(),
   projectFindFirst: vi.fn(),
@@ -38,17 +39,21 @@ vi.mock('../../lib/media-storage', async (importOriginal) => ({
   abortMediaUpload: mocks.abortMediaUpload,
   beginMediaUpload: mocks.beginMediaUpload,
   finishMediaUpload: mocks.finishMediaUpload,
+  inspectCompletedMediaUpload: mocks.inspectCompletedMediaUpload,
   listReusableMediaUploadParts: mocks.listReusableMediaUploadParts,
   signMediaUploadPart: mocks.signMediaUploadPart,
 }))
 
 import { router } from '../../core'
 import type { TRPCContext } from '../../context'
+import { MediaUploadCompletionUnconfirmedError } from '../../lib/media-storage'
 import { mediaIngestionRouter } from './media-ingestion'
 
 const testRouter = router({ mediaIngestion: mediaIngestionRouter })
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111'
 const OTHER_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222'
+const UPPER_ATTEMPT_ID = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'
+const CANONICAL_UPPER_ATTEMPT_ID = UPPER_ATTEMPT_ID.toLowerCase()
 
 function serializeCalls(value: unknown) {
   return JSON.stringify(value, (_key, item) => (typeof item === 'bigint' ? item.toString() : item))
@@ -76,6 +81,7 @@ describe('media ingestion router', () => {
       partSize: 16 * 1024 * 1024,
     })
     mocks.finishMediaUpload.mockResolvedValue({ bytes: 10 })
+    mocks.inspectCompletedMediaUpload.mockResolvedValue({ state: 'missing' })
     mocks.listReusableMediaUploadParts.mockResolvedValue([
       { partNumber: 1, etag: 'etag_1', size: 10 },
     ])
@@ -162,6 +168,7 @@ describe('media ingestion router', () => {
         uploadAttemptId: null,
         uploadStartedAt: null,
         storageUploadId: null,
+        sourceObjectGeneration: null,
         sourceContentType: null,
       },
     })
@@ -236,7 +243,7 @@ describe('media ingestion router', () => {
       caller.mediaIngestion.beginUpload({
         tenantId: 'tenant_1',
         projectId: 'project_1',
-        uploadAttemptId: ATTEMPT_ID,
+        uploadAttemptId: UPPER_ATTEMPT_ID,
         filename: 'visit.zip',
         bytes: 10,
         lastModified: 123456,
@@ -244,7 +251,11 @@ describe('media ingestion router', () => {
       }),
     ).resolves.toEqual({ partSize: 16 * 1024 * 1024, parts: [] })
 
-    expect(mocks.beginMediaUpload).toHaveBeenCalledOnce()
+    expect(mocks.beginMediaUpload).toHaveBeenCalledWith(
+      `staging/media-ingestion/tenant_1/venue_1/project_1/${CANONICAL_UPPER_ATTEMPT_ID}/visit.zip`,
+      'application/zip',
+      CANONICAL_UPPER_ATTEMPT_ID,
+    )
     expect(mocks.projectUpdateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: 'project_1',
@@ -254,8 +265,10 @@ describe('media ingestion router', () => {
       data: expect.objectContaining({
         status: 'UPLOADING',
         stage: 'creating-upload',
-        uploadAttemptId: ATTEMPT_ID,
+        uploadAttemptId: CANONICAL_UPPER_ATTEMPT_ID,
         storageUploadId: null,
+        sourceObjectGeneration: CANONICAL_UPPER_ATTEMPT_ID,
+        sourceObjectKey: `staging/media-ingestion/tenant_1/venue_1/project_1/${CANONICAL_UPPER_ATTEMPT_ID}/visit.zip`,
         sourceLastModified: 123456n,
         sourceContentType: 'application/zip',
         uploadStartedAt: expect.any(Date),
@@ -267,7 +280,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         status: 'UPLOADING',
         stage: 'creating-upload',
-        uploadAttemptId: ATTEMPT_ID,
+        uploadAttemptId: CANONICAL_UPPER_ATTEMPT_ID,
       },
       data: { stage: 'upload', storageUploadId: 'storage_upload_1' },
     })
@@ -282,6 +295,7 @@ describe('media ingestion router', () => {
       sourceFileName: 'visit.zip',
       sourceBytes: 10n,
       sourceLastModified: 0n,
+      sourceObjectGeneration: null,
       sourceObjectKey: 'staging/tenant/venue/project.zip',
       sourceContentType: 'application/zip',
       uploadAttemptId: ATTEMPT_ID,
@@ -349,6 +363,7 @@ describe('media ingestion router', () => {
       sourceFileName: 'visit.zip',
       sourceBytes: 10n,
       sourceLastModified: 0n,
+      sourceObjectGeneration: null,
       sourceObjectKey: 'staging/tenant/venue/project.zip',
       sourceContentType: 'application/zip',
       uploadAttemptId: ATTEMPT_ID,
@@ -564,7 +579,9 @@ describe('media ingestion router', () => {
     ).rejects.toThrow(/claim was lost/)
 
     expect(mocks.abortMediaUpload).toHaveBeenCalledWith(
-      expect.stringContaining('/media-ingestion/tenant_1/venue_1/project_1/visit.zip'),
+      expect.stringContaining(
+        `/media-ingestion/tenant_1/venue_1/project_1/${ATTEMPT_ID}/visit.zip`,
+      ),
       'storage_upload_1',
     )
     expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
@@ -811,6 +828,7 @@ describe('media ingestion router', () => {
       [{ partNumber: 1, etag: 'etag_1' }],
       10,
       5 * 1024 * 1024 * 1024,
+      undefined,
     )
     expect(mocks.projectUpdateMany).toHaveBeenNthCalledWith(1, {
       where: {
@@ -941,6 +959,282 @@ describe('media ingestion router', () => {
     expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
   })
 
+  it('retains finalizing state when completion cannot be confirmed', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      sourceObjectGeneration: ATTEMPT_ID,
+      storageUploadId: 'storage_upload_1',
+    })
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
+    mocks.finishMediaUpload.mockRejectedValueOnce(
+      new MediaUploadCompletionUnconfirmedError(new Error('response lost')),
+    )
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.completeUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        parts: [{ partNumber: 1, etag: 'etag_1' }],
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'finalizing',
+        uploadAttemptId: ATTEMPT_ID,
+      },
+      data: { error: 'Media upload finalization needs confirmation.' },
+    })
+    expect(serializeCalls(mocks.projectUpdateMany.mock.calls)).not.toContain('response lost')
+    expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
+    expect(mocks.writeAuditLog).not.toHaveBeenCalled()
+  })
+
+  it('reconciles an exact completed object and queues the same generation', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      sourceObjectGeneration: ATTEMPT_ID,
+      storageUploadId: 'storage_upload_1',
+    })
+    mocks.inspectCompletedMediaUpload.mockResolvedValueOnce({
+      state: 'verified',
+      bytes: 10,
+      versionId: undefined,
+    })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.reconcileUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    expect(mocks.inspectCompletedMediaUpload).toHaveBeenCalledWith(
+      'staging/tenant/venue/project.zip',
+      10,
+      5 * 1024 * 1024 * 1024,
+      ATTEMPT_ID,
+    )
+    expect(mocks.listReusableMediaUploadParts).not.toHaveBeenCalled()
+    expect(mocks.finishMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.enqueueMediaIngestion).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      projectId: 'project_1',
+      uploadAttemptId: ATTEMPT_ID,
+    })
+  })
+
+  it('fails closed when reconciliation finds a different object generation', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      sourceObjectGeneration: ATTEMPT_ID,
+      storageUploadId: 'storage_upload_1',
+    })
+    mocks.inspectCompletedMediaUpload.mockResolvedValueOnce({ state: 'identity-mismatch' })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.reconcileUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+
+    expect(mocks.projectUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'finalizing',
+        uploadAttemptId: ATTEMPT_ID,
+      },
+      data: {
+        status: 'FAILED',
+        stage: 'completion-unverified',
+        error: 'Media upload completion evidence was invalid.',
+      },
+    })
+    expect(mocks.listReusableMediaUploadParts).not.toHaveBeenCalled()
+    expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
+  })
+
+  it('restores upload state when reconciliation finds incomplete reusable parts', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      sourceObjectGeneration: ATTEMPT_ID,
+      storageUploadId: 'storage_upload_1',
+    })
+    mocks.inspectCompletedMediaUpload.mockResolvedValueOnce({ state: 'missing' })
+    mocks.listReusableMediaUploadParts.mockResolvedValueOnce([])
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.reconcileUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+      }),
+    ).resolves.toEqual({ ok: true, state: 'upload' })
+
+    expect(mocks.projectUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'finalizing',
+        uploadAttemptId: ATTEMPT_ID,
+      },
+      data: {
+        stage: 'upload',
+        error: 'Some upload parts must be sent again before finalization.',
+      },
+    })
+    expect(mocks.finishMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
+  })
+
+  it('retries completion with server ETags when all multipart parts still exist', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      sourceObjectGeneration: ATTEMPT_ID,
+      storageUploadId: 'storage_upload_1',
+    })
+    mocks.inspectCompletedMediaUpload.mockResolvedValueOnce({ state: 'missing' })
+    mocks.listReusableMediaUploadParts.mockResolvedValueOnce([
+      { partNumber: 1, etag: 'server_etag', size: 10 },
+    ])
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.reconcileUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    expect(mocks.finishMediaUpload).toHaveBeenCalledWith(
+      'staging/tenant/venue/project.zip',
+      'storage_upload_1',
+      [{ partNumber: 1, etag: 'server_etag' }],
+      10,
+      5 * 1024 * 1024 * 1024,
+      ATTEMPT_ID,
+    )
+    expect(mocks.enqueueMediaIngestion).toHaveBeenCalledOnce()
+  })
+
+  it('does not infer completion from NoSuchUpload during reconciliation', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      sourceObjectGeneration: ATTEMPT_ID,
+      storageUploadId: 'storage_upload_1',
+    })
+    mocks.inspectCompletedMediaUpload.mockResolvedValueOnce({ state: 'missing' })
+    mocks.listReusableMediaUploadParts.mockRejectedValueOnce(
+      Object.assign(new Error('gone'), { name: 'NoSuchUpload' }),
+    )
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.reconcileUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+
+    expect(mocks.projectUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        status: 'UPLOADING',
+        stage: 'finalizing',
+        uploadAttemptId: ATTEMPT_ID,
+      },
+      data: { error: 'Media upload finalization needs confirmation.' },
+    })
+    expect(mocks.finishMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
+  })
+
+  it('never adopts an unbound legacy object but can retry its active multipart upload', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      sourceObjectKey: 'staging/tenant/venue/project.zip',
+      sourceBytes: 10n,
+      sourceObjectGeneration: null,
+      storageUploadId: 'storage_upload_1',
+    })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.reconcileUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    expect(mocks.inspectCompletedMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.finishMediaUpload).toHaveBeenCalledWith(
+      'staging/tenant/venue/project.zip',
+      'storage_upload_1',
+      [{ partNumber: 1, etag: 'etag_1' }],
+      10,
+      5 * 1024 * 1024 * 1024,
+      undefined,
+    )
+    expect(mocks.enqueueMediaIngestion).toHaveBeenCalledOnce()
+  })
+
+  it('does not inspect storage for a different tenant or upload attempt', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.reconcileUpload({
+        tenantId: 'tenant_2',
+        projectId: 'project_1',
+        uploadAttemptId: OTHER_ATTEMPT_ID,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+
+    expect(mocks.inspectCompletedMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.listReusableMediaUploadParts).not.toHaveBeenCalled()
+    expect(mocks.finishMediaUpload).not.toHaveBeenCalled()
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
+  })
+
   it('does not enqueue when the verified finalization transition loses its claim', async () => {
     mocks.projectFindFirst
       .mockResolvedValueOnce({
@@ -1053,7 +1347,7 @@ describe('media ingestion router', () => {
       caller.mediaIngestion.retryEnqueue({
         tenantId: 'tenant_1',
         projectId: 'project_1',
-        uploadAttemptId: ATTEMPT_ID,
+        uploadAttemptId: UPPER_ATTEMPT_ID,
       }),
     ).resolves.toEqual({ ok: true })
 
@@ -1063,7 +1357,7 @@ describe('media ingestion router', () => {
         tenantId: 'tenant_1',
         status: 'QUEUED',
         stage: 'inventory',
-        uploadAttemptId: ATTEMPT_ID,
+        uploadAttemptId: CANONICAL_UPPER_ATTEMPT_ID,
       },
       select: { id: true, venueId: true },
     })
@@ -1071,7 +1365,7 @@ describe('media ingestion router', () => {
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       projectId: 'project_1',
-      uploadAttemptId: ATTEMPT_ID,
+      uploadAttemptId: CANONICAL_UPPER_ATTEMPT_ID,
     })
   })
 
@@ -1213,6 +1507,7 @@ describe('media ingestion router', () => {
         uploadAttemptId: null,
         uploadStartedAt: null,
         storageUploadId: null,
+        sourceObjectGeneration: null,
         sourceContentType: null,
         error: null,
       },
@@ -1280,6 +1575,7 @@ describe('media ingestion router', () => {
         uploadAttemptId: null,
         uploadStartedAt: null,
         storageUploadId: null,
+        sourceObjectGeneration: null,
         sourceContentType: null,
         error: null,
       },

@@ -83,10 +83,11 @@ integrationDescribe('media storage (disposable S3-compatible integration)', () =
 
   it('lists a partial multipart upload, resumes it, and verifies exact completed bytes', async () => {
     const key = 'verified/archive.zip'
+    const generation = '11111111-1111-4111-8111-111111111111'
     const firstBody = new Uint8Array(MEDIA_UPLOAD_PART_SIZE).fill(97)
     const secondBody = new TextEncoder().encode('disposable media storage proof')
     const expectedBytes = firstBody.byteLength + secondBody.byteLength
-    const started = await beginMediaUpload(key, 'application/zip')
+    const started = await beginMediaUpload(key, 'application/zip', generation)
     const firstUrl = await signMediaUploadPart(key, started.uploadId, 1)
     const firstResponse = await fetch(firstUrl, { method: 'PUT', body: firstBody })
     expect(firstResponse.ok).toBe(true)
@@ -126,6 +127,7 @@ integrationDescribe('media storage (disposable S3-compatible integration)', () =
         completedParts.map(({ partNumber, etag }) => ({ partNumber, etag })),
         expectedBytes,
         5 * 1024 * 1024 * 1024,
+        generation,
         storage as unknown as MediaStorageTransport,
       ),
     ).resolves.toEqual({ bytes: expectedBytes })

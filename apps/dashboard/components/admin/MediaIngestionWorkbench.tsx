@@ -83,6 +83,7 @@ export function MediaIngestionWorkbench({
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [resumingProjectId, setResumingProjectId] = useState<string | null>(null)
+  const [reconcilingProjectId, setReconcilingProjectId] = useState<string | null>(null)
   const [abortingProjectId, setAbortingProjectId] = useState<string | null>(null)
   const [retryingProjectId, setRetryingProjectId] = useState<string | null>(null)
 
@@ -196,6 +197,25 @@ export function MediaIngestionWorkbench({
       setError(errorMessage(abortError))
     } finally {
       setAbortingProjectId(null)
+    }
+  }
+
+  async function reconcileUpload(project: Project) {
+    if (!project.uploadAttemptId) return
+    setReconcilingProjectId(project.id)
+    setError(null)
+    try {
+      await client.mediaIngestion.reconcileUpload.mutate({
+        tenantId,
+        projectId: project.id,
+        uploadAttemptId: project.uploadAttemptId,
+      })
+      router.refresh()
+    } catch (reconcileError) {
+      setError(errorMessage(reconcileError))
+      router.refresh()
+    } finally {
+      setReconcilingProjectId(null)
     }
   }
 
@@ -384,7 +404,9 @@ export function MediaIngestionWorkbench({
           ) : null}
           <button
             type="submit"
-            disabled={busy || resumingProjectId !== null || !name.trim()}
+            disabled={
+              busy || resumingProjectId !== null || reconcilingProjectId !== null || !name.trim()
+            }
             className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? 'Creating intake…' : 'Upload and analyze'}
@@ -455,6 +477,20 @@ export function MediaIngestionWorkbench({
                       />
                     </label>
                   )
+                ) : null}
+                {project.status === 'UPLOADING' &&
+                project.stage === 'finalizing' &&
+                project.uploadAttemptId ? (
+                  <button
+                    type="button"
+                    disabled={reconcilingProjectId === project.id}
+                    onClick={() => void reconcileUpload(project)}
+                    className="ml-4 mt-3 inline-flex text-sm font-semibold text-pf-primary hover:text-pf-accent disabled:opacity-50"
+                  >
+                    {reconcilingProjectId === project.id
+                      ? 'Checking finalization…'
+                      : 'Retry finalization'}
+                  </button>
                 ) : null}
                 {project.status === 'UPLOADING' &&
                 (project.stage === 'upload' || project.stage === 'aborting') &&

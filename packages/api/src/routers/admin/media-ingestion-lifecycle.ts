@@ -16,7 +16,10 @@ export const mediaIngestionLifecycleRouter = router({
       z.object({
         tenantId: z.string().min(1),
         projectId: z.string().min(1),
-        uploadAttemptId: z.string().uuid(),
+        uploadAttemptId: z
+          .string()
+          .uuid()
+          .transform((value) => value.toLowerCase()),
       }),
     )
     .mutation(async ({ input }) => {
@@ -49,7 +52,10 @@ export const mediaIngestionLifecycleRouter = router({
       z.object({
         tenantId: z.string().min(1),
         projectId: z.string().min(1),
-        uploadAttemptId: z.string().uuid(),
+        uploadAttemptId: z
+          .string()
+          .uuid()
+          .transform((value) => value.toLowerCase()),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -158,6 +164,7 @@ export const mediaIngestionLifecycleRouter = router({
             uploadAttemptId: null,
             uploadStartedAt: null,
             storageUploadId: null,
+            sourceObjectGeneration: null,
             sourceContentType: null,
             error: null,
           },

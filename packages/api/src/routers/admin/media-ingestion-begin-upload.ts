@@ -25,7 +25,10 @@ export const mediaIngestionBeginUploadRouter = router({
       z.object({
         tenantId: z.string().min(1),
         projectId: z.string().min(1),
-        uploadAttemptId: z.string().uuid(),
+        uploadAttemptId: z
+          .string()
+          .uuid()
+          .transform((value) => value.toLowerCase()),
         filename: z.string().trim().min(1).max(255),
         bytes: z.number().int().positive().max(MAX_ARCHIVE_BYTES),
         lastModified: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
@@ -45,6 +48,7 @@ export const mediaIngestionBeginUploadRouter = router({
             sourceFileName: true,
             sourceBytes: true,
             sourceLastModified: true,
+            sourceObjectGeneration: true,
             sourceContentType: true,
             uploadAttemptId: true,
             storageUploadId: true,
@@ -59,6 +63,8 @@ export const mediaIngestionBeginUploadRouter = router({
         project.sourceFileName === input.filename &&
         project.sourceBytes === BigInt(input.bytes) &&
         project.sourceLastModified === BigInt(input.lastModified) &&
+        (project.sourceObjectGeneration === null ||
+          project.sourceObjectGeneration === input.uploadAttemptId) &&
         project.sourceContentType === input.contentType &&
         project.sourceObjectKey &&
         project.storageUploadId
@@ -93,7 +99,7 @@ export const mediaIngestionBeginUploadRouter = router({
         throw new TRPCError({ code: 'CONFLICT', message: 'This project already has an upload.' })
       }
       const objectKey = currentDeploymentStorageKey(
-        `media-ingestion/${input.tenantId}/${project.venueId}/${project.id}/${safeFileName(input.filename)}`,
+        `media-ingestion/${input.tenantId}/${project.venueId}/${project.id}/${input.uploadAttemptId}/${safeFileName(input.filename)}`,
       )
       const reserved = await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
@@ -109,6 +115,7 @@ export const mediaIngestionBeginUploadRouter = router({
             sourceFileName: input.filename,
             sourceBytes: BigInt(input.bytes),
             sourceLastModified: BigInt(input.lastModified),
+            sourceObjectGeneration: input.uploadAttemptId,
             sourceContentType: input.contentType,
             uploadAttemptId: input.uploadAttemptId,
             uploadStartedAt: new Date(),
@@ -122,7 +129,7 @@ export const mediaIngestionBeginUploadRouter = router({
       }
       let started: Awaited<ReturnType<typeof beginMediaUpload>>
       try {
-        started = await beginMediaUpload(objectKey, input.contentType)
+        started = await beginMediaUpload(objectKey, input.contentType, input.uploadAttemptId)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Media upload creation failed.'
         try {
@@ -142,6 +149,7 @@ export const mediaIngestionBeginUploadRouter = router({
                 uploadAttemptId: null,
                 uploadStartedAt: null,
                 storageUploadId: null,
+                sourceObjectGeneration: null,
                 sourceContentType: null,
               },
             }),

@@ -44,6 +44,7 @@ const expectedMediaProcedures = [
   'create',
   'get',
   'list',
+  'reconcileUpload',
   'retryEnqueue',
   'saveReview',
   'signPart',

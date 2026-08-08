@@ -2,19 +2,20 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
-import { enqueueMediaIngestion } from '@pathfinder/jobs'
+import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import {
   canonicalMediaUploadEtag,
   finishMediaUpload,
   listReusableMediaUploadParts,
+  MediaUploadCompletionUnconfirmedError,
   mediaUploadPartCount,
   normalizeMediaUploadParts,
   signMediaUploadPart,
 } from '../../lib/media-storage'
 import { adminProcedure } from '../../trpc'
+import { queueVerifiedMediaUpload } from './media-ingestion-finalization'
 import { MAX_MEDIA_ARCHIVE_BYTES as MAX_ARCHIVE_BYTES } from './media-ingestion-helpers'
 
 export const mediaIngestionCompleteUploadRouter = router({
@@ -23,7 +24,10 @@ export const mediaIngestionCompleteUploadRouter = router({
       z.object({
         tenantId: z.string().min(1),
         projectId: z.string().min(1),
-        uploadAttemptId: z.string().uuid(),
+        uploadAttemptId: z
+          .string()
+          .uuid()
+          .transform((value) => value.toLowerCase()),
         partNumber: z.number().int().min(1).max(10_000),
       }),
     )
@@ -64,7 +68,10 @@ export const mediaIngestionCompleteUploadRouter = router({
       z.object({
         tenantId: z.string().min(1),
         projectId: z.string().min(1),
-        uploadAttemptId: z.string().uuid(),
+        uploadAttemptId: z
+          .string()
+          .uuid()
+          .transform((value) => value.toLowerCase()),
         parts: z
           .array(
             z.object({
@@ -91,6 +98,7 @@ export const mediaIngestionCompleteUploadRouter = router({
             venueId: true,
             sourceObjectKey: true,
             sourceBytes: true,
+            sourceObjectGeneration: true,
             storageUploadId: true,
           },
         }),
@@ -155,9 +163,29 @@ export const mediaIngestionCompleteUploadRouter = router({
           parts,
           expectedBytes,
           MAX_ARCHIVE_BYTES,
+          project.sourceObjectGeneration ?? undefined,
         )
         verifiedBytes = verified.bytes
       } catch (error) {
+        if (error instanceof MediaUploadCompletionUnconfirmedError) {
+          await withTenantIsolationBypass(() =>
+            db.mediaIngestionProject.updateMany({
+              where: {
+                id: project.id,
+                tenantId: input.tenantId,
+                status: 'UPLOADING',
+                stage: 'finalizing',
+                uploadAttemptId: input.uploadAttemptId,
+              },
+              data: { error: 'Media upload finalization needs confirmation.' },
+            }),
+          )
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Media upload finalization needs confirmation.',
+            cause: error,
+          })
+        }
         const message = error instanceof Error ? error.message : 'Media upload completion failed.'
         try {
           const compensated = await withTenantIsolationBypass(() =>
@@ -191,125 +219,13 @@ export const mediaIngestionCompleteUploadRouter = router({
         }
         throw error
       }
-      let transitionedCount: number | null = null
-      let transitionError: unknown
-      try {
-        const transitioned = await withTenantIsolationBypass(() =>
-          db.mediaIngestionProject.updateMany({
-            where: {
-              id: project.id,
-              tenantId: input.tenantId,
-              status: 'UPLOADING',
-              stage: 'finalizing',
-              uploadAttemptId: input.uploadAttemptId,
-            },
-            data: {
-              status: 'QUEUED',
-              stage: 'inventory',
-              progress: 1,
-              sourceBytes: BigInt(verifiedBytes),
-              uploadStartedAt: null,
-              storageUploadId: null,
-              sourceContentType: null,
-            },
-          }),
-        )
-        transitionedCount = transitioned.count
-      } catch (error) {
-        transitionError = error
-      }
-      if (transitionedCount !== 1) {
-        let readback: { status: string; stage: string; sourceBytes: bigint | null } | null
-        try {
-          readback = await withTenantIsolationBypass(() =>
-            db.mediaIngestionProject.findFirst({
-              where: {
-                id: project.id,
-                tenantId: input.tenantId,
-                uploadAttemptId: input.uploadAttemptId,
-              },
-              select: { status: true, stage: true, sourceBytes: true },
-            }),
-          )
-        } catch (readbackError) {
-          logger.warn({
-            action: 'media-ingestion.upload-queue-transition.uncertain',
-            projectId: project.id,
-            uploadAttemptId: input.uploadAttemptId,
-            error: 'Upload queue transition could not be confirmed.',
-            errorType: readbackError instanceof Error ? readbackError.name : 'UnknownError',
-          })
-          if (transitionError !== undefined) throw transitionError
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'The upload state changed before completion could be recorded.',
-          })
-        }
-        const exactQueued =
-          readback?.status === 'QUEUED' &&
-          readback.stage === 'inventory' &&
-          readback.sourceBytes === BigInt(verifiedBytes)
-        const alreadyProcessing =
-          readback !== null &&
-          ['INVENTORYING', 'ANALYZING', 'SYNTHESIZING'].includes(readback.status)
-        if (alreadyProcessing) return { ok: true }
-        if (!exactQueued) {
-          if (transitionError !== undefined) {
-            logger.warn({
-              action: 'media-ingestion.upload-queue-transition.uncertain',
-              projectId: project.id,
-              uploadAttemptId: input.uploadAttemptId,
-              error: 'Upload queue transition could not be confirmed.',
-              errorType: transitionError instanceof Error ? transitionError.name : 'UnknownError',
-            })
-            throw transitionError
-          }
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'The upload state changed before completion could be recorded.',
-          })
-        }
-      }
-      try {
-        await enqueueMediaIngestion({
-          tenantId: input.tenantId,
-          venueId: project.venueId,
-          projectId: project.id,
-          uploadAttemptId: input.uploadAttemptId,
-        })
-      } catch (error) {
-        try {
-          await withTenantIsolationBypass(() =>
-            db.mediaIngestionProject.updateMany({
-              where: {
-                id: project.id,
-                tenantId: input.tenantId,
-                status: 'QUEUED',
-                stage: 'inventory',
-                uploadAttemptId: input.uploadAttemptId,
-              },
-              data: { error: 'Media ingestion enqueue could not be confirmed.' },
-            }),
-          )
-        } catch (statusError) {
-          logger.warn({
-            action: 'media-ingestion.upload-enqueue-state.failed',
-            projectId: project.id,
-            uploadAttemptId: input.uploadAttemptId,
-            error: 'Upload enqueue state could not be recorded.',
-            errorType: statusError instanceof Error ? statusError.name : 'UnknownError',
-          })
-        }
-        throw error
-      }
-      await writeAuditLog({
+      return queueVerifiedMediaUpload({
         tenantId: input.tenantId,
+        projectId: project.id,
+        venueId: project.venueId,
+        uploadAttemptId: input.uploadAttemptId,
+        verifiedBytes,
         actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.media_ingestion.upload_completed',
-        targetType: 'MediaIngestionProject',
-        targetId: project.id,
       })
-      return { ok: true }
     }),
 })

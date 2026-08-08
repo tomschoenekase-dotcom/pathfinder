@@ -11,6 +11,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 export const MEDIA_UPLOAD_PART_SIZE = 16 * 1024 * 1024
+export const MEDIA_UPLOAD_GENERATION_METADATA_KEY = 'pf-media-upload-generation'
 
 type MediaStorageCommand =
   | AbortMultipartUploadCommand
@@ -85,14 +86,125 @@ function client(): S3Client {
   })
 }
 
-export async function beginMediaUpload(key: string, contentType: string) {
+export async function beginMediaUpload(
+  key: string,
+  contentType: string,
+  generation?: string,
+  storage: MediaStorageTransport = client() as unknown as MediaStorageTransport,
+) {
   const { bucket } = storageConfig()
-  const result = await client().send(
-    new CreateMultipartUploadCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
-  )
+  const result = (await storage.send(
+    new CreateMultipartUploadCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+      ...(generation ? { Metadata: { [MEDIA_UPLOAD_GENERATION_METADATA_KEY]: generation } } : {}),
+    }),
+  )) as { UploadId?: string }
 
   if (!result.UploadId) throw new Error('Storage did not return an upload ID.')
   return { uploadId: result.UploadId, partSize: MEDIA_UPLOAD_PART_SIZE }
+}
+
+export class MediaUploadCompletionUnconfirmedError extends Error {
+  constructor(cause?: unknown) {
+    super('Media upload completion could not be confirmed.', { cause })
+    this.name = 'MediaUploadCompletionUnconfirmedError'
+  }
+}
+
+export type CompletedMediaUploadInspection =
+  | { state: 'verified'; bytes: number; versionId: string | undefined }
+  | { state: 'missing' }
+  | { state: 'identity-mismatch' }
+  | { state: 'invalid'; reason: string; versionId: string | undefined }
+
+function isMissingMediaObject(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const candidate = error as {
+    name?: unknown
+    Code?: unknown
+    code?: unknown
+    $metadata?: { httpStatusCode?: unknown }
+  }
+  return (
+    candidate.name === 'NotFound' ||
+    candidate.name === 'NoSuchKey' ||
+    candidate.Code === 'NoSuchKey' ||
+    candidate.code === 'NoSuchKey' ||
+    candidate.$metadata?.httpStatusCode === 404
+  )
+}
+
+export async function inspectCompletedMediaUpload(
+  key: string,
+  expectedBytes: number,
+  maxBytes: number,
+  expectedGeneration?: string,
+  versionId?: string,
+  storage: MediaStorageTransport = client() as unknown as MediaStorageTransport,
+): Promise<CompletedMediaUploadInspection> {
+  const { bucket } = storageConfig()
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0) {
+    throw new Error('Expected media upload size must be a positive safe integer.')
+  }
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error('Media upload byte limit must be a positive safe integer.')
+  }
+  if (expectedBytes > maxBytes) {
+    throw new Error('Expected media upload size exceeds the configured byte limit.')
+  }
+  let result: {
+    ContentLength?: number
+    VersionId?: string
+    Metadata?: Record<string, string>
+  }
+  try {
+    result = (await storage.send(
+      new HeadObjectCommand({ Bucket: bucket, Key: key, VersionId: versionId }),
+    )) as typeof result
+  } catch (error) {
+    if (isMissingMediaObject(error)) return { state: 'missing' }
+    throw error
+  }
+
+  const inspectedVersionId = versionId ?? result.VersionId
+  if (
+    expectedGeneration &&
+    result.Metadata?.[MEDIA_UPLOAD_GENERATION_METADATA_KEY] !== expectedGeneration
+  ) {
+    return { state: 'identity-mismatch' }
+  }
+  const bytes = result.ContentLength
+  if (typeof bytes !== 'number' || !Number.isSafeInteger(bytes)) {
+    return {
+      state: 'invalid',
+      reason: 'Completed media upload returned an invalid size',
+      versionId: inspectedVersionId,
+    }
+  }
+  if (bytes <= 0) {
+    return {
+      state: 'invalid',
+      reason: 'Completed media upload is empty',
+      versionId: inspectedVersionId,
+    }
+  }
+  if (bytes > maxBytes) {
+    return {
+      state: 'invalid',
+      reason: `Completed media upload exceeds the ${maxBytes}-byte limit`,
+      versionId: inspectedVersionId,
+    }
+  }
+  if (bytes !== expectedBytes) {
+    return {
+      state: 'invalid',
+      reason: `Completed media upload size ${bytes} does not match the declared ${expectedBytes} bytes`,
+      versionId: inspectedVersionId,
+    }
+  }
+  return { state: 'verified', bytes, versionId: inspectedVersionId }
 }
 
 export async function signMediaUploadPart(key: string, uploadId: string, partNumber: number) {
@@ -198,6 +310,7 @@ export async function finishMediaUpload(
   parts: Array<{ partNumber: number; etag: string }>,
   expectedBytes: number,
   maxBytes: number,
+  expectedGeneration?: string,
   storage: MediaStorageTransport = client() as unknown as MediaStorageTransport,
 ) {
   const { bucket } = storageConfig()
@@ -212,6 +325,7 @@ export async function finishMediaUpload(
   }
 
   let completedVersionId: string | undefined
+  let completionError: unknown
   try {
     const result = (await storage.send(
       new CompleteMultipartUploadCommand({
@@ -225,73 +339,37 @@ export async function finishMediaUpload(
     )) as { VersionId?: string }
     completedVersionId = result.VersionId
   } catch (error) {
-    try {
-      await abortMediaUpload(key, uploadId, storage)
-    } catch (abortError) {
-      const message = error instanceof Error ? error.message : 'Media upload completion failed.'
-      throw new AggregateError([error, abortError], `${message}; multipart abort also failed.`)
-    }
-    throw error
+    completionError = error
   }
 
-  let bytes: number | undefined
-  let inspectedVersionId: string | undefined
+  if (completionError !== undefined && !expectedGeneration) {
+    throw new MediaUploadCompletionUnconfirmedError(completionError)
+  }
+
+  let inspection: CompletedMediaUploadInspection
   try {
-    const result = (await storage.send(
-      new HeadObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        VersionId: completedVersionId,
-      }),
-    )) as {
-      ContentLength?: number
-      VersionId?: string
-    }
-    bytes = result.ContentLength
-    inspectedVersionId = result.VersionId
+    inspection = await inspectCompletedMediaUpload(
+      key,
+      expectedBytes,
+      maxBytes,
+      expectedGeneration,
+      completedVersionId,
+      storage,
+    )
   } catch (error) {
-    throw new Error('Completed media upload size could not be verified.', { cause: error })
-  }
-
-  const versionId = completedVersionId ?? inspectedVersionId
-
-  if (typeof bytes !== 'number') {
-    return rejectInvalidMediaObject(
-      storage,
-      key,
-      'Completed media upload returned an invalid size',
-      versionId,
-    )
-  }
-  if (!Number.isSafeInteger(bytes)) {
-    return rejectInvalidMediaObject(
-      storage,
-      key,
-      'Completed media upload returned an invalid size',
-      versionId,
-    )
-  }
-  if (bytes <= 0) {
-    return rejectInvalidMediaObject(storage, key, 'Completed media upload is empty', versionId)
-  }
-  if (bytes > maxBytes) {
-    return rejectInvalidMediaObject(
-      storage,
-      key,
-      `Completed media upload exceeds the ${maxBytes}-byte limit`,
-      versionId,
-    )
-  }
-  if (bytes !== expectedBytes) {
-    return rejectInvalidMediaObject(
-      storage,
-      key,
-      `Completed media upload size ${bytes} does not match the declared ${expectedBytes} bytes`,
-      versionId,
+    throw new MediaUploadCompletionUnconfirmedError(
+      completionError === undefined ? error : new AggregateError([completionError, error]),
     )
   }
 
-  return { bytes }
+  if (inspection.state === 'verified') return { bytes: inspection.bytes }
+  if (inspection.state === 'missing') {
+    throw new MediaUploadCompletionUnconfirmedError(completionError)
+  }
+  if (inspection.state === 'identity-mismatch') {
+    throw new Error('Completed media upload generation does not match the active attempt.')
+  }
+  return rejectInvalidMediaObject(storage, key, inspection.reason, inspection.versionId)
 }
 
 async function rejectInvalidMediaObject(
