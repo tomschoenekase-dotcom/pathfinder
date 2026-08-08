@@ -41,11 +41,13 @@ vi.mock('@pathfinder/jobs', () => ({
 import { assignMediaSourceIds } from '../lib/media-source-id'
 import {
   cleanupMediaWorkDir,
+  MediaGeneratedOutputCleanupError,
   MediaSynthesisSummaryBudget,
   parseMediaAnalysisResponse,
   parseMediaSynthesisResponse,
   persistMediaIngestionAsset,
   processMediaIngestionJob,
+  withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
 
 const payload = {
@@ -432,6 +434,29 @@ describe('media ingestion lifecycle', () => {
       projectId: 'project_1',
       error: 'file busy',
     })
+  })
+
+  it('removes one video output directory before returning its analysis', async () => {
+    mocks.rm.mockResolvedValueOnce(undefined)
+    await expect(
+      withMediaGeneratedOutputDirectory('C:/temp/project/frames-1', async () => 'analysis'),
+    ).resolves.toBe('analysis')
+    expect(mocks.rm).toHaveBeenCalledWith('C:/temp/project/frames-1', {
+      recursive: true,
+      force: true,
+    })
+  })
+
+  it('stops unrecoverably and preserves both failures when video cleanup also fails', async () => {
+    const analysisError = new Error('analysis failed')
+    const cleanupError = new Error('directory busy')
+    mocks.rm.mockRejectedValueOnce(cleanupError)
+
+    const result = withMediaGeneratedOutputDirectory('C:/temp/project/frames-1', async () => {
+      throw analysisError
+    })
+    await expect(result).rejects.toBeInstanceOf(MediaGeneratedOutputCleanupError)
+    await expect(result).rejects.toMatchObject({ errors: [analysisError, cleanupError] })
   })
 
   it('persists colliding archive labels as distinct, correctly paired assets across retries', async () => {

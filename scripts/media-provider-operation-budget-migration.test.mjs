@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+
+const schema = await readFile(new URL('../packages/db/prisma/schema.prisma', import.meta.url), 'utf8')
+const migration = await readFile(
+  new URL(
+    '../packages/db/prisma/migrations/20260809130000_add_media_provider_operation_budget/migration.sql',
+    import.meta.url,
+  ),
+  'utf8',
+)
+const beginUpload = await readFile(
+  new URL('../packages/api/src/routers/admin/media-ingestion-begin-upload.ts', import.meta.url),
+  'utf8',
+)
+const processor = await readFile(
+  new URL('../apps/workers/src/processors/media-ingestion.ts', import.meta.url),
+  'utf8',
+)
+const budget = await readFile(
+  new URL('../apps/workers/src/lib/media-provider-budget.ts', import.meta.url),
+  'utf8',
+)
+
+test('media provider-operation migration is atomic and database bounded', () => {
+  assert.match(migration, /^BEGIN;/u)
+  assert.match(migration, /ADD COLUMN "provider_operation_count" INTEGER NOT NULL DEFAULT 0/u)
+  assert.match(
+    migration,
+    /CHECK \("provider_operation_count" >= 0 AND "provider_operation_count" <= 10000\)/u,
+  )
+  assert.match(migration, /COMMIT;\s*$/u)
+  assert.match(
+    schema,
+    /providerOperationCount\s+Int\s+@default\(0\) @map\("provider_operation_count"\)/u,
+  )
+})
+
+test('new upload generations reset the durable count while resumable replay returns first', () => {
+  const replayReturn = beginUpload.indexOf('return {\n          partSize: MEDIA_UPLOAD_PART_SIZE')
+  const reset = beginUpload.indexOf('providerOperationCount: 0')
+  assert.ok(replayReturn >= 0 && reset > replayReturn)
+  assert.equal(beginUpload.match(/providerOperationCount: 0/gu)?.length, 1)
+  assert.match(beginUpload, /project\.uploadAttemptId === input\.uploadAttemptId/u)
+})
+
+test('every direct media provider dispatch is wrapped by a durable pre-dispatch reservation', () => {
+  assert.match(budget, /await reserve\(\)\s+return operation\(\)/u)
+  assert.match(budget, /MAX_MEDIA_PROVIDER_OPERATIONS = 10_000/u)
+  assert.match(processor, /const MAX_FILES = 10_000/u)
+  assert.equal(processor.match(/executeMediaProviderOperation\(/gu)?.length, 4)
+  assert.equal(processor.match(/openai\.chat\.completions\.create\(/gu)?.length, 3)
+  assert.equal(processor.match(/openai\.audio\.transcriptions\.create\(/gu)?.length, 1)
+  assert.match(processor, /if \(error instanceof UnrecoverableError\) throw error/gu)
+  assert.match(processor, /new OpenAI\(\{ apiKey: process\.env\.OPENAI_API_KEY, maxRetries: 0 \}\)/u)
+})
+
+test('video scratch output is axis-bounded and cleaned before asset persistence', () => {
+  assert.match(
+    processor,
+    /scale=w='min\(1600,iw\)':h='min\(2200,ih\)':force_original_aspect_ratio=decrease/u,
+  )
+  const scopedCleanup = processor.indexOf('withMediaGeneratedOutputDirectory(frameDir')
+  const persistence = processor.indexOf('await persistMediaIngestionAsset({', scopedCleanup)
+  assert.ok(scopedCleanup >= 0 && persistence > scopedCleanup)
+})

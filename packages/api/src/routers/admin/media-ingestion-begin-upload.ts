@@ -112,6 +112,12 @@ export const mediaIngestionBeginUploadRouter = router({
       if (!['DRAFT', 'FAILED'].includes(project.status)) {
         throw new TRPCError({ code: 'CONFLICT', message: 'This project already has an upload.' })
       }
+      if (project.uploadAttemptId === input.uploadAttemptId) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Start the replacement upload with a fresh attempt ID.',
+        })
+      }
       if (input.sourceIdentity === undefined) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
@@ -143,6 +149,7 @@ export const mediaIngestionBeginUploadRouter = router({
             uploadAttemptId: input.uploadAttemptId,
             uploadStartedAt: new Date(),
             storageUploadId: null,
+            providerOperationCount: 0,
             error: null,
           },
         }),

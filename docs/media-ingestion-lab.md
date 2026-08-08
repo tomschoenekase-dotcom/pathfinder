@@ -19,7 +19,9 @@ audio, manifests, prior analysis, and notes into reviewed PathFinder import JSON
    existing analysis while retaining their own source row. Videos are sampled at the configured
    interval with a 120-frame ceiling. Each FFmpeg invocation has stdin disabled, a 15-minute
    wall-clock limit, and a 64 KiB per-stream output limit. FFmpeg is invoked directly as a leaf
-   process, without a shell. Standalone narration and video audio are transcribed.
+   process, without a shell. Generated frame dimensions are bounded on both axes, and each video's
+   frame/audio directory is removed before the next asset. Standalone narration and video audio are
+   transcribed.
 6. Source-level analyses retain visible text, object confidence, spatial clues, and uncertainties.
    Larger visits are summarized hierarchically before synthesis so one request does not need to hold
    the entire visual corpus.
@@ -74,6 +76,10 @@ header. Apply the new Prisma migration and redeploy both dashboard/API and worke
   memory in full. One job retains at most 250,000 text characters, and synthesis refuses an evidence
   batch or final evidence payload above its one-million-character memory ceiling.
 - Temporary extracted data is removed after success or failure.
+- Every provider request reserves one durable operation before dispatch. One upload generation can
+  reserve at most 10,000 operations across all BullMQ attempts; provider failures still consume the
+  reservation, exact duplicate reuse does not, and only a new upload generation resets the counter.
+  The media SDK performs no hidden retries; a BullMQ retry must reserve each provider operation again.
 
 ## Current supported formats
 
@@ -83,9 +89,8 @@ text extraction is not yet part of the worker.
 
 ## Known follow-ups
 
-- Persist upload IDs/generations, then add explicit abort and retry/resume controls plus recovery for
-  a process crash while an upload is finalizing. Failed completion already performs a best-effort
-  transport abort, but abandoned browser sessions cannot yet be reconciled safely.
+- Select and validate a stricter commercial/provider budget below the technical 10,000-operation
+  safety ceiling once pricing and media tier policy are approved.
 - Add perceptual (not merely byte-exact) duplicate grouping and cross-batch exhibit reconciliation.
 - Persist token usage and calculate estimated/actual spend from a versioned pricing table.
 - Add server-driven polling or push updates on the intake detail screen.

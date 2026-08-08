@@ -997,6 +997,7 @@ model MediaIngestionProject {
   draftJson                  Json?                 @map("draft_json")
   estimatedCostCents         Int?                  @map("estimated_cost_cents")
   actualCostCents            Int                   @default(0) @map("actual_cost_cents")
+  providerOperationCount     Int                   @default(0) @map("provider_operation_count")
   error                      String?
   createdBy                  String                @map("created_by")
   createdAt                  DateTime              @default(now()) @map("created_at")

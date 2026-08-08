@@ -288,6 +288,7 @@ describe('media ingestion router', () => {
         sourceFingerprintAlgorithm: SOURCE_IDENTITY.algorithm,
         sourceFingerprint: SOURCE_IDENTITY.digest,
         sourceContentType: 'application/zip',
+        providerOperationCount: 0,
         uploadStartedAt: expect.any(Date),
       }),
     })
@@ -301,6 +302,32 @@ describe('media ingestion router', () => {
       },
       data: { stage: 'upload', storageUploadId: 'storage_upload_1' },
     })
+  })
+
+  it('cannot reset a failed generation budget by reusing its upload attempt ID', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      venueId: 'venue_1',
+      status: 'FAILED',
+      uploadAttemptId: ATTEMPT_ID,
+      providerOperationCount: 10_000,
+    })
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.beginUpload({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+        sourceIdentity: SOURCE_IDENTITY,
+        filename: 'visit.zip',
+        bytes: 10,
+        contentType: 'application/zip',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(mocks.projectUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.beginMediaUpload).not.toHaveBeenCalled()
   })
 
   it('replays the exact persisted begin attempt without creating another storage upload', async () => {
