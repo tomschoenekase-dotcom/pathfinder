@@ -3,6 +3,10 @@ export interface SchedulerControl {
   remove: () => Promise<unknown>
 }
 
+export function utcCronSchedule(pattern: string): { pattern: string; tz: 'UTC' } {
+  return { pattern, tz: 'UTC' }
+}
+
 export async function applySchedulerState(
   enabled: boolean,
   schedulers: SchedulerControl[],

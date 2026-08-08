@@ -1,7 +1,6 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
 import { assertServerEnv, env, logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
@@ -30,9 +29,6 @@ import {
   GENERATION_DISPATCH_SCHEDULER_JOB,
   GENERATION_RECOVERY_QUEUE,
   GENERATION_RECOVERY_SCHEDULER_JOB,
-  enqueueAnalyticsEnrichment,
-  enqueueDailyRollup,
-  enqueueWeeklyDigest,
   getBullMQConnection,
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
@@ -74,7 +70,12 @@ import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
-import { applySchedulerState } from './scheduler-control'
+import { applySchedulerState, utcCronSchedule } from './scheduler-control'
+import {
+  enqueueScheduledAnalyticsEnrichment,
+  enqueueScheduledDailyRollups,
+  enqueueScheduledWeeklyDigests,
+} from './scheduled-tenant-fanout'
 import { getJobExecutionMetadata } from './lib/job-execution'
 import {
   createEscalatingShutdownHandler,
@@ -89,26 +90,6 @@ const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
 const EMBEDDING_DISPATCH_CRON = '* * * * *'
 const GENERATION_DISPATCH_CRON = '* * * * *'
 const GENERATION_RECOVERY_CRON = '* * * * *'
-
-function startOfUtcWeek(date: Date): Date {
-  const start = new Date(date)
-  const day = start.getUTCDay()
-  const daysFromMonday = (day + 6) % 7
-
-  start.setUTCDate(start.getUTCDate() - daysFromMonday)
-  start.setUTCHours(0, 0, 0, 0)
-
-  return start
-}
-
-function endOfUtcWeek(date: Date): Date {
-  const end = new Date(startOfUtcWeek(date))
-
-  end.setUTCDate(end.getUTCDate() + 6)
-  end.setUTCHours(23, 59, 59, 999)
-
-  return end
-}
 
 function getWeeklyDigestBackoffDelay(attemptsMade: number): number {
   switch (attemptsMade) {
@@ -125,14 +106,6 @@ function getWeeklyDigestBackoffDelay(attemptsMade: number): number {
     default:
       return -1
   }
-}
-
-function startOfUtcDay(date: Date): Date {
-  const result = new Date(date)
-
-  result.setUTCHours(0, 0, 0, 0)
-
-  return result
 }
 
 function getDailyRollupBackoffDelay(attemptsMade: number): number {
@@ -246,132 +219,6 @@ function getSendWelcomeEmailBackoffDelay(attemptsMade: number): number {
     default:
       return -1
   }
-}
-
-async function enqueueScheduledWeeklyDigests(): Promise<void> {
-  const now = new Date()
-  const weekStart = startOfUtcWeek(now)
-  const weekEnd = endOfUtcWeek(now)
-  const activeTenants = await db.tenant.findMany({
-    where: { status: 'ACTIVE' },
-    select: { id: true },
-  })
-
-  for (const tenant of activeTenants) {
-    const digest = await withTenantIsolationBypass(async () => {
-      const existingDigest = await db.weeklyDigest.findUnique({
-        where: {
-          tenantId_weekStart: {
-            tenantId: tenant.id,
-            weekStart,
-          },
-        },
-        select: {
-          id: true,
-          status: true,
-        },
-      })
-
-      if (existingDigest?.status === 'COMPLETE' || existingDigest?.status === 'PROCESSING') {
-        return existingDigest
-      }
-
-      if (existingDigest) {
-        return db.weeklyDigest.update({
-          where: { id: existingDigest.id },
-          data: {
-            status: 'PENDING',
-            weekEnd,
-            sessionCount: 0,
-            messageCount: 0,
-            insights: [],
-            generatedAt: null,
-          },
-          select: {
-            id: true,
-            status: true,
-          },
-        })
-      }
-
-      return db.weeklyDigest.create({
-        data: {
-          tenantId: tenant.id,
-          weekStart,
-          weekEnd,
-          status: 'PENDING',
-        },
-        select: {
-          id: true,
-          status: true,
-        },
-      })
-    })
-
-    if (digest.status === 'COMPLETE' || digest.status === 'PROCESSING') {
-      continue
-    }
-
-    await enqueueWeeklyDigest({
-      tenantId: tenant.id,
-      weekStart: weekStart.toISOString(),
-      weekEnd: weekEnd.toISOString(),
-      digestId: digest.id,
-    })
-  }
-
-  logger.info({
-    action: 'workers.weekly-digest.scheduler.completed',
-    weekStart: weekStart.toISOString(),
-    weekEnd: weekEnd.toISOString(),
-    tenantCount: activeTenants.length,
-  })
-}
-
-async function enqueueScheduledDailyRollups(): Promise<void> {
-  const yesterday = startOfUtcDay(new Date())
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
-
-  const activeTenants = await db.tenant.findMany({
-    where: { status: 'ACTIVE' },
-    select: { id: true },
-  })
-
-  for (const tenant of activeTenants) {
-    await enqueueDailyRollup({
-      tenantId: tenant.id,
-      date: yesterday.toISOString(),
-    })
-  }
-
-  logger.info({
-    action: 'workers.daily-rollup.scheduler.completed',
-    date: yesterday.toISOString(),
-    tenantCount: activeTenants.length,
-  })
-}
-
-async function enqueueScheduledAnalyticsEnrichment(): Promise<void> {
-  const yesterday = startOfUtcDay(new Date())
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
-
-  const activeTenants = await db.tenant.findMany({
-    where: { status: 'ACTIVE' },
-    select: { id: true },
-  })
-
-  for (const tenant of activeTenants) {
-    await enqueueAnalyticsEnrichment({
-      tenantId: tenant.id,
-      date: yesterday.toISOString(),
-    })
-  }
-
-  logger.info({
-    action: 'workers.analytics-enrichment.scheduler.completed',
-    date: yesterday.toISOString(),
-    tenantCount: activeTenants.length,
-  })
 }
 
 async function handleWeeklyDigestQueueJob(
@@ -565,11 +412,16 @@ export async function startWorkers() {
         upsert: () =>
           weeklyDigestQueue.upsertJobScheduler(
             WEEKLY_DIGEST_SCHEDULER_JOB,
-            { pattern: WEEKLY_DIGEST_CRON },
+            utcCronSchedule(WEEKLY_DIGEST_CRON),
             {
               name: WEEKLY_DIGEST_SCHEDULER_JOB,
               data: {},
-              opts: { removeOnComplete: 10, removeOnFail: 50 },
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 10,
+                removeOnFail: 50,
+              },
             },
           ),
         remove: () => weeklyDigestQueue.removeJobScheduler(WEEKLY_DIGEST_SCHEDULER_JOB),
@@ -578,11 +430,16 @@ export async function startWorkers() {
         upsert: () =>
           dailyRollupQueue.upsertJobScheduler(
             DAILY_ROLLUP_SCHEDULER_JOB,
-            { pattern: DAILY_ROLLUP_CRON },
+            utcCronSchedule(DAILY_ROLLUP_CRON),
             {
               name: DAILY_ROLLUP_SCHEDULER_JOB,
               data: {},
-              opts: { removeOnComplete: 10, removeOnFail: 50 },
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 10,
+                removeOnFail: 50,
+              },
             },
           ),
         remove: () => dailyRollupQueue.removeJobScheduler(DAILY_ROLLUP_SCHEDULER_JOB),
@@ -591,11 +448,16 @@ export async function startWorkers() {
         upsert: () =>
           analyticsEnrichmentQueue.upsertJobScheduler(
             ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
-            { pattern: ANALYTICS_ENRICHMENT_CRON },
+            utcCronSchedule(ANALYTICS_ENRICHMENT_CRON),
             {
               name: ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
               data: {},
-              opts: { removeOnComplete: 10, removeOnFail: 50 },
+              opts: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5_000 },
+                removeOnComplete: 10,
+                removeOnFail: 50,
+              },
             },
           ),
         remove: () =>
