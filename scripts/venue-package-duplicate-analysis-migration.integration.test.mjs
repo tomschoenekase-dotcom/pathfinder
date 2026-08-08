@@ -17,7 +17,7 @@ import {
 const runIntegration = process.env.RUN_VENUE_PACKAGE_DUPLICATE_MIGRATION_INTEGRATION === '1'
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const migrationsRoot = path.join(repositoryRoot, 'packages', 'db', 'prisma', 'migrations')
-const currentMigration = '20260809070000_add_venue_package_duplicate_analyses'
+const targetMigration = '20260809070000_add_venue_package_duplicate_analyses'
 
 function capturedWriter() {
   return {
@@ -62,9 +62,13 @@ async function createLegacyMigrationTree() {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort((left, right) => left.localeCompare(right, 'en-US'))
-  const legacyMigrations = migrationNames.filter((name) => name < currentMigration)
+  const legacyMigrations = migrationNames.filter((name) => name < targetMigration)
   assert.equal(legacyMigrations.length, 43, 'Expected exactly 43 legacy migrations')
-  assert.equal(migrationNames.at(-1), currentMigration)
+  assert.equal(
+    migrationNames.includes(targetMigration),
+    true,
+    `Expected migration ${targetMigration} to remain in the current migration tree`,
+  )
 
   for (const migrationName of legacyMigrations) {
     await cp(
@@ -73,7 +77,11 @@ async function createLegacyMigrationTree() {
       { recursive: true },
     )
   }
-  return { temporaryRoot, schemaPath: path.join(prismaRoot, 'schema.prisma') }
+  return {
+    temporaryRoot,
+    schemaPath: path.join(prismaRoot, 'schema.prisma'),
+    currentMigrationCount: migrationNames.length,
+  }
 }
 
 function runPrismaDeploy(schemaPath, target) {
@@ -129,7 +137,7 @@ test(
   { skip: !runIntegration, timeout: 120_000 },
   async () => {
     const target = requireTarget()
-    const { temporaryRoot, schemaPath } = await createLegacyMigrationTree()
+    const { temporaryRoot, schemaPath, currentMigrationCount } = await createLegacyMigrationTree()
     let client
     try {
       client = await prismaClient(target)
@@ -140,7 +148,7 @@ test(
 
       const legacyDeployOutput = runPrismaDeploy(schemaPath, target)
       assert.match(legacyDeployOutput, /43 migrations found/u)
-      assert.doesNotMatch(legacyDeployOutput, new RegExp(currentMigration, 'u'))
+      assert.doesNotMatch(legacyDeployOutput, new RegExp(targetMigration, 'u'))
 
       client = await prismaClient(target)
       const suffix = randomUUID()
@@ -229,7 +237,7 @@ test(
         0,
         firstStderr.value,
       )
-      assert.match(firstStdout.value, new RegExp(`Applying migration .*${currentMigration}`, 'u'))
+      assert.match(firstStdout.value, new RegExp(`Applying migration .*${targetMigration}`, 'u'))
 
       client = await prismaClient(target)
       const rows = await client.$queryRawUnsafe(
@@ -300,7 +308,7 @@ test(
          FROM _prisma_migrations
          WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
       )
-      assert.deepEqual(migrationCount, [{ count: 44 }])
+      assert.deepEqual(migrationCount, [{ count: currentMigrationCount }])
     } finally {
       if (client) await client.$disconnect()
       await rm(temporaryRoot, { recursive: true, force: true })

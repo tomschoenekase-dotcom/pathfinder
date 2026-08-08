@@ -144,6 +144,21 @@ jobs:
         run: pnpm --dir packages/api exec vitest run src/routers/content-history.integration.test.ts --pool=forks --maxWorkers=1
         env:
           RUN_CONTENT_HISTORY_DB_INTEGRATION: '1'
+      - name: Verify venue-package atomic mutation, provenance, and rollback
+        run: pnpm --dir packages/api exec vitest run src/routers/venue-package.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_VENUE_PACKAGE_DB_INTEGRATION: '1'
+      - name: Verify venue-package semantic duplicate isolation
+        run: pnpm --dir packages/db exec vitest run src/helpers/venue-package-semantic-duplicates.integration.test.ts --pool=forks --maxWorkers=1
+        env:
+          RUN_VENUE_PACKAGE_SEMANTIC_DB_INTEGRATION: '1'
+      - name: Verify venue-package semantic migration from legacy state
+        run: node --test scripts/venue-package-duplicate-analysis-migration.integration.test.mjs
+        env:
+          RUN_VENUE_PACKAGE_DUPLICATE_MIGRATION_INTEGRATION: '1'
+          PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
+          PATHFINDER_DISPOSABLE_DATABASE: pathfinder_disposable_ci
       - name: Verify Clerk webhook receipt concurrency and rollback
         run: pnpm --dir packages/db exec vitest run src/helpers/membership-sync.integration.test.ts --pool=forks --maxWorkers=1
         env:
