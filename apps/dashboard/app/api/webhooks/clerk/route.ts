@@ -58,12 +58,15 @@ export async function POST(req: Request): Promise<Response> {
             .filter(Boolean)
             .join(' ') || null
 
-        await enqueueWelcomeEmail({
-          tenantId: event.data.organization.id,
-          to: email,
-          recipientName,
-          orgName: event.data.organization.name ?? '',
-        })
+        await enqueueWelcomeEmail(
+          {
+            tenantId: event.data.organization.id,
+            to: email,
+            recipientName,
+            orgName: event.data.organization.name ?? '',
+          },
+          event.data.public_user_data.user_id,
+        )
       }
     }
   } catch (err) {

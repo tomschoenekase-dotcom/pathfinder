@@ -24,9 +24,10 @@ import {
   enqueueEmbedKnowledgeEntry,
   enqueueEmbedPlace,
   enqueueMediaIngestion,
+  enqueueWelcomeEmail,
 } from './enqueue'
 
-describe('mutable embedding enqueues', () => {
+describe('job enqueues', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.add.mockResolvedValue({ id: 'generated' })
@@ -109,5 +110,44 @@ describe('mutable embedding enqueues', () => {
     for (const call of mocks.add.mock.calls) {
       expect(call[2]).not.toHaveProperty('jobId')
     }
+  })
+
+  it('scopes welcome-email deduplication to the tenant and recipient without leaking user ID', async () => {
+    const payload = {
+      tenantId: 'tenant_1',
+      to: 'recipient@example.com',
+      recipientName: 'Recipient',
+      orgName: 'Test Org',
+    }
+
+    await enqueueWelcomeEmail(payload, 'user_1')
+    await enqueueWelcomeEmail(payload, 'user_2')
+    await enqueueWelcomeEmail(payload, 'user_1')
+    await enqueueWelcomeEmail({ ...payload, tenantId: 'tenant_2' }, 'user_1')
+
+    expect(mocks.add).toHaveBeenCalledTimes(4)
+    const [first, second, retry, otherTenant] = mocks.add.mock.calls
+    expect(first![2].jobId).not.toBe(second![2].jobId)
+    expect(retry![2].jobId).toBe(first![2].jobId)
+    expect(otherTenant![2].jobId).not.toBe(first![2].jobId)
+    expect(first![2].jobId).toMatch(/^send-welcome-email-[a-f0-9]{64}$/u)
+    expect(JSON.stringify(mocks.add.mock.calls)).not.toContain('user_1')
+    expect(JSON.stringify(mocks.add.mock.calls)).not.toContain('user_2')
+    expect(first![1]).toEqual(payload)
+  })
+
+  it('rejects a missing welcome recipient identity before touching the queue', async () => {
+    await expect(
+      enqueueWelcomeEmail(
+        {
+          tenantId: 'tenant_1',
+          to: 'recipient@example.com',
+          recipientName: null,
+          orgName: 'Test Org',
+        },
+        '',
+      ),
+    ).rejects.toThrow('recipient user ID is required')
+    expect(mocks.add).not.toHaveBeenCalled()
   })
 })

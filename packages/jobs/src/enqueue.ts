@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { Queue, type JobsOptions } from 'bullmq'
 
 import { logger } from '@pathfinder/config'
@@ -253,10 +255,19 @@ export async function enqueueAnalyticsEnrichment(
   })
 }
 
-export async function enqueueWelcomeEmail(payload: SendWelcomeEmailJobPayload): Promise<void> {
+export async function enqueueWelcomeEmail(
+  payload: SendWelcomeEmailJobPayload,
+  recipientUserId: string,
+): Promise<void> {
+  if (!recipientUserId) throw new Error('Welcome email recipient user ID is required')
+
+  const recipientIdentity = createHash('sha256')
+    .update(JSON.stringify([payload.tenantId, recipientUserId]))
+    .digest('hex')
+
   await getQueue(SEND_EMAIL_QUEUE).add(SEND_WELCOME_EMAIL_JOB, payload, {
     ...sendWelcomeEmailJobOptions,
-    jobId: `send-welcome-email-${payload.tenantId}`,
+    jobId: `send-welcome-email-${recipientIdentity}`,
   })
 
   logger.info({
