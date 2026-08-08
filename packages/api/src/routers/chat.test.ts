@@ -352,6 +352,48 @@ describe('chat router', () => {
       )
     })
 
+    it('loads only published, started, active, unexpired updates for the next message', async () => {
+      setupHappyPath('The Reptile House is closed.')
+      operationalUpdateFindMany.mockResolvedValueOnce([
+        {
+          updateType: 'TEMPORARY_CLOSURE',
+          severity: 'CLOSURE',
+          priority: 'URGENT',
+          title: 'Reptile House closed',
+          body: 'Use the west trail.',
+          redirectTo: '/west-trail',
+          place: { name: 'Reptile House' },
+        },
+      ])
+
+      await caller.chat.send(sendInput)
+
+      const query = operationalUpdateFindMany.mock.calls[0]?.[0] as {
+        where: {
+          tenantId: string
+          venueId: string
+          status: string
+          isActive: boolean
+          startsAt: { lte: Date }
+          expiresAt: { gt: Date }
+        }
+        orderBy: unknown
+        take: number
+      }
+      expect(query.where).toMatchObject({
+        tenantId: TENANT_ID,
+        venueId: VENUE_ID,
+        status: 'PUBLISHED',
+        isActive: true,
+      })
+      expect(query.where.startsAt.lte).toBe(query.where.expiresAt.gt)
+      expect(query.orderBy).toEqual([{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }])
+      expect(query.take).toBe(20)
+      expect(getConcatenatedSystemPrompt()).toContain(
+        '[URGENT TEMPORARY_CLOSURE CLOSURE] Reptile House closed (affected location: Reptile House)',
+      )
+    })
+
     it('returns the provider response when durable usage reporting fails', async () => {
       setupHappyPath('The elephants are nearby.')
       aiUsageEventCreate.mockRejectedValueOnce(new Error('usage database unavailable'))

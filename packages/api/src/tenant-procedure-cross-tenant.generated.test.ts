@@ -41,8 +41,11 @@ const harness = vi.hoisted(() => {
 
 vi.mock('@pathfinder/db', () => ({
   db: harness.db,
+  lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
+  lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),
   setContentVersionContext: vi.fn().mockResolvedValue(undefined),
   writeAuditLog: vi.fn(),
+  writeAuditLogStrict: vi.fn(),
 }))
 
 vi.mock('@pathfinder/jobs', () => ({

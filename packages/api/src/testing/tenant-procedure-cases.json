@@ -186,15 +186,53 @@
     "input": null
   },
   {
+    "path": "operationalUpdate.getById",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "operationalUpdate.findFirst",
+    "input": { "id": "cvenueabc123456789012" }
+  },
+  {
     "path": "operationalUpdate.create",
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
     "input": {
       "venueId": "cvenueabc123456789012",
+      "updateType": "GENERAL_NOTICE",
       "severity": "INFO",
+      "priority": "NORMAL",
       "title": "Notice",
-      "expiresAt": { "$futureMinutes": 16 }
+      "startsAt": { "$futureMinutes": 5 },
+      "expiresAt": { "$futureMinutes": 30 },
+      "publish": false
+    }
+  },
+  {
+    "path": "operationalUpdate.update",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "operationalUpdate.findFirst",
+    "input": {
+      "id": "cvenueabc123456789012",
+      "expectedUpdatedAt": { "$futureMinutes": 0 },
+      "venueId": "cvenueabc123456789012",
+      "updateType": "GENERAL_NOTICE",
+      "severity": "INFO",
+      "priority": "NORMAL",
+      "title": "Notice",
+      "startsAt": { "$futureMinutes": 5 },
+      "expiresAt": { "$futureMinutes": 30 }
+    }
+  },
+  {
+    "path": "operationalUpdate.publish",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "operationalUpdate.findFirst",
+    "input": {
+      "id": "cvenueabc123456789012",
+      "expectedUpdatedAt": { "$futureMinutes": 0 }
     }
   },
   {
@@ -202,7 +240,10 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "operationalUpdate.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "expectedUpdatedAt": { "$futureMinutes": 0 }
+    }
   },
 
   {

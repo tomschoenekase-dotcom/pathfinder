@@ -73,6 +73,12 @@ const approvedOperations = [
     policy: 'tenant-content-history-entity-lock',
   },
   {
+    file: 'packages/db/src/helpers/content-version-context.ts',
+    method: '$queryRaw',
+    hash: 'e9b9f6cfa56e3e8b0b2f2af1a7e6757e4b20d6aaa8aead46abb844fb73fc138f',
+    policy: 'tenant-content-history-entity-lock',
+  },
+  {
     file: 'packages/db/src/helpers/embedding-claim-repair.ts',
     method: '$queryRaw',
     hash: 'ced88be1d97236cb5813ebb32caacb3b4939f20a4ab0368835f9846ac019c635',

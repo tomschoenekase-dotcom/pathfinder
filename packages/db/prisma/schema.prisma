@@ -292,9 +292,9 @@ model VenueKnowledgeEntry {
   @@map("venue_knowledge_entries")
 }
 
-/// Append-only, database-triggered history for venue, place, and knowledge
-/// content. Snapshots intentionally exclude embeddings and timestamps so
-/// derived-vector refreshes do not create false content revisions.
+/// Append-only, database-triggered history for venue, place, knowledge, and
+/// operational-update content. Snapshots exclude derived embeddings and mutable
+/// update timestamps so background refreshes do not create false revisions.
 model ContentVersion {
   id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   sequence              BigInt   @unique @default(autoincrement())
@@ -508,26 +508,33 @@ model DataAdapter {
 }
 
 model OperationalUpdate {
-  id         String                    @id @default(cuid())
-  tenantId   String                    @map("tenant_id")
-  venueId    String                    @map("venue_id")
-  placeId    String?                   @map("place_id")
-  severity   OperationalUpdateSeverity
-  title      String
-  body       String?
-  redirectTo String?                   @map("redirect_to")
-  expiresAt  DateTime                  @map("expires_at")
-  isActive   Boolean                   @default(true) @map("is_active")
-  createdBy  String                    @map("created_by")
-  createdAt  DateTime                  @default(now()) @map("created_at")
-  tenant     Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue      Venue                     @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  place      Place?                    @relation(fields: [placeId], references: [id], onDelete: Restrict)
+  id          String                    @id @default(cuid())
+  tenantId    String                    @map("tenant_id")
+  venueId     String                    @map("venue_id")
+  placeId     String?                   @map("place_id")
+  updateType  OperationalUpdateType     @default(GENERAL_NOTICE) @map("update_type")
+  severity    OperationalUpdateSeverity
+  priority    OperationalUpdatePriority @default(NORMAL)
+  title       String
+  body        String?
+  redirectTo  String?                   @map("redirect_to")
+  startsAt    DateTime                  @default(now()) @map("starts_at")
+  expiresAt   DateTime                  @map("expires_at")
+  status      OperationalUpdateStatus   @default(DRAFT)
+  isActive    Boolean                   @default(false) @map("is_active")
+  createdBy   String                    @map("created_by")
+  publishedBy String?                   @map("published_by")
+  publishedAt DateTime?                 @map("published_at")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue       Venue                     @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  place       Place?                    @relation(fields: [placeId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
-  @@index([venueId, isActive, expiresAt])
+  @@index([tenantId, updatedAt])
+  @@index([tenantId, venueId, status, isActive, startsAt, expiresAt, priority], map: "operational_updates_guest_visibility_idx")
   @@index([placeId])
-  @@index([severity, createdAt])
   @@map("operational_updates")
 }
 
@@ -941,6 +948,29 @@ enum OperationalUpdateSeverity {
   WARNING
   CLOSURE
   REDIRECT
+}
+
+enum OperationalUpdatePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum OperationalUpdateStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum OperationalUpdateType {
+  GENERAL_NOTICE
+  TEMPORARY_CLOSURE
+  UNAVAILABLE_EXHIBIT
+  CHANGED_HOURS
+  MAINTENANCE
+  SPECIAL_EVENT
+  SOLD_OUT_ACTIVITY
+  TEMPORARY_VENDOR_LOCATION
 }
 
 enum WeeklyDigestStatus {

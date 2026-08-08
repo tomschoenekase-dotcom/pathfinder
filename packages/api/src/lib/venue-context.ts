@@ -33,10 +33,13 @@ type KnowledgeEntry = {
 }
 
 type ActiveUpdate = {
+  updateType: string
   severity: string
+  priority: string
   title: string
   body: string | null
   redirectTo: string | null
+  place: { name: string } | null
 }
 
 type FeaturedPlace = {
@@ -159,7 +162,8 @@ export function buildVenueSystemPromptParts(params: {
           .map((u) => {
             const redirect = u.redirectTo ? ` → ${u.redirectTo}` : ''
             const body = u.body ? `\n   ${u.body}` : ''
-            return `[${u.severity}] ${u.title}${redirect}${body}`
+            const location = u.place ? ` (affected location: ${u.place.name})` : ''
+            return `[${u.priority} ${u.updateType} ${u.severity}] ${u.title}${location}${redirect}${body}`
           })
           .join('\n')}`
 

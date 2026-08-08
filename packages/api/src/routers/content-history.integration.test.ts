@@ -3,19 +3,27 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { PrismaClient } from '@prisma/client'
 
+import type { AnthropicMessagesClient } from '@pathfinder/ai'
+
 vi.mock('@pathfinder/config', () => ({
   env: { OPENAI_API_KEY: 'test-key' },
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../lib/rate-limit', () => ({ checkRateLimit: vi.fn().mockResolvedValue(true) }))
+vi.mock('../lib/guest-query-embedding', () => ({
+  generateGuestQueryEmbedding: vi.fn().mockResolvedValue(null),
+}))
 
 import { db, setContentVersionContext } from '@pathfinder/db'
 
 import type { TRPCContext } from '../context'
 import { router } from '../core'
 import { contentHistoryRouter } from './content-history'
+import { _setAnthropicClientForTesting, chatRouter } from './chat'
 import { knowledgeRouter } from './knowledge'
+import { operationalUpdateRouter } from './operational-update'
 import { placeRouter } from './place'
 import { venueRouter } from './venue'
 
@@ -67,7 +75,9 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
     venue: venueRouter,
     place: placeRouter,
     knowledge: knowledgeRouter,
+    operationalUpdate: operationalUpdateRouter,
     contentHistory: contentHistoryRouter,
+    chat: chatRouter,
   })
   let venueId = ''
   let placeId = ''
@@ -126,6 +136,216 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
     expect(rows[0]!.sequence < rows[1]!.sequence && rows[1]!.sequence < rows[2]!.sequence).toBe(
       true,
     )
+  })
+
+  it('publishes operational updates with CAS, exact visibility boundaries, and restorable history', async () => {
+    const caller = testRouter.createCaller(ctx('MANAGER'))
+    const now = new Date()
+    const startsAt = new Date(now.getTime() - 60_000)
+    const expiresAt = new Date(now.getTime() + 60 * 60_000)
+    const draft = await caller.operationalUpdate.create({
+      venueId,
+      placeId,
+      updateType: 'TEMPORARY_CLOSURE',
+      severity: 'CLOSURE',
+      priority: 'URGENT',
+      title: 'History fixture closure',
+      body: 'Use another entrance.',
+      startsAt,
+      expiresAt,
+      publish: false,
+    })
+    expect(draft).toMatchObject({ status: 'DRAFT', isActive: false, publishedAt: null })
+
+    const draftVersions = await caller.contentHistory.list({
+      entityType: 'OPERATIONAL_UPDATE',
+      entityId: draft.id,
+    })
+    expect(draftVersions).toHaveLength(1)
+    expect(draftVersions[0]).toMatchObject({ operation: 'CREATE', actorId })
+
+    await expect(
+      caller.operationalUpdate.update({
+        id: draft.id,
+        expectedUpdatedAt: new Date(draft.updatedAt.getTime() + 1),
+        venueId,
+        placeId,
+        updateType: 'TEMPORARY_CLOSURE',
+        severity: 'CLOSURE',
+        priority: 'URGENT',
+        title: 'Stale title',
+        body: 'Use another entrance.',
+        startsAt,
+        expiresAt,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    const published = await caller.operationalUpdate.publish({
+      id: draft.id,
+      expectedUpdatedAt: draft.updatedAt,
+    })
+    expect(published).toMatchObject({ status: 'PUBLISHED', isActive: true, publishedBy: actorId })
+
+    const visibleAtNow = await db.operationalUpdate.findMany({
+      where: {
+        id: draft.id,
+        tenantId,
+        venueId,
+        status: 'PUBLISHED',
+        isActive: true,
+        startsAt: { lte: now },
+        expiresAt: { gt: now },
+      },
+    })
+    expect(visibleAtNow).toHaveLength(1)
+    const visibleAtExpiry = await db.operationalUpdate.findMany({
+      where: {
+        id: draft.id,
+        tenantId,
+        venueId,
+        status: 'PUBLISHED',
+        isActive: true,
+        startsAt: { lte: expiresAt },
+        expiresAt: { gt: expiresAt },
+      },
+    })
+    expect(visibleAtExpiry).toHaveLength(0)
+
+    const publishedVersions = await caller.contentHistory.list({
+      entityType: 'OPERATIONAL_UPDATE',
+      entityId: draft.id,
+    })
+    expect(publishedVersions).toHaveLength(2)
+    const restored = await caller.contentHistory.revert({
+      versionId: draftVersions[0]!.id,
+      expectedCurrentVersionId: publishedVersions[0]!.id,
+      snapshotSide: 'AFTER',
+    })
+    expect(restored).toMatchObject({
+      entityType: 'OPERATIONAL_UPDATE',
+      operation: 'UPDATE',
+      actorId,
+      revertedFromId: draftVersions[0]!.id,
+    })
+    await expect(
+      db.operationalUpdate.findFirst({
+        where: { id: draft.id, tenantId },
+        select: { status: true, isActive: true },
+      }),
+    ).resolves.toEqual({ status: 'DRAFT', isActive: false })
+  })
+
+  it('puts a published closure in the next chat and excludes scheduled or boundary-expired updates', async () => {
+    const manager = testRouter.createCaller(ctx('MANAGER'))
+    const baseTime = new Date()
+    const boundary = new Date(baseTime.getTime() + 5 * 60_000)
+    const current = await manager.operationalUpdate.create({
+      venueId,
+      updateType: 'TEMPORARY_CLOSURE',
+      severity: 'CLOSURE',
+      priority: 'URGENT',
+      title: 'Immediate chat closure',
+      startsAt: new Date(baseTime.getTime() - 60_000),
+      expiresAt: boundary,
+      publish: true,
+    })
+    await manager.operationalUpdate.create({
+      venueId,
+      updateType: 'SPECIAL_EVENT',
+      severity: 'INFO',
+      priority: 'HIGH',
+      title: 'Future chat event',
+      startsAt: new Date(boundary.getTime() + 60 * 60_000),
+      expiresAt: new Date(boundary.getTime() + 2 * 60 * 60_000),
+      publish: true,
+    })
+
+    const anthropicCreate = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Safe guest response.' }],
+      usage: {
+        input_tokens: 10,
+        output_tokens: 4,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    })
+    _setAnthropicClientForTesting({
+      messages: { create: anthropicCreate },
+    } as AnthropicMessagesClient)
+    const anonymous = testRouter.createCaller({
+      db,
+      headers: new Headers(),
+      session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+    })
+    const anonymousToken = randomUUID()
+
+    try {
+      await anonymous.chat.send({
+        venueId,
+        anonymousToken,
+        message: 'What is closed?',
+      })
+      const firstPrompt = (anthropicCreate.mock.calls[0]![0].system as Array<{ text: string }>)
+        .map((block) => block.text)
+        .join('')
+      expect(firstPrompt).toContain(current.title)
+      expect(firstPrompt).not.toContain('Future chat event')
+
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      vi.setSystemTime(boundary)
+      await anonymous.chat.send({
+        venueId,
+        anonymousToken,
+        message: 'What is closed now?',
+      })
+      const secondPrompt = (anthropicCreate.mock.calls[1]![0].system as Array<{ text: string }>)
+        .map((block) => block.text)
+        .join('')
+      expect(secondPrompt).not.toContain(current.title)
+      expect(secondPrompt).not.toContain('Future chat event')
+    } finally {
+      vi.useRealTimers()
+      _setAnthropicClientForTesting(null)
+    }
+  })
+
+  it('serializes concurrent publishes at the 20-update guest prompt ceiling', async () => {
+    const owner = testRouter.createCaller(ctx('OWNER'))
+    const manager = testRouter.createCaller(ctx('MANAGER'))
+    const capacityVenue = await owner.venue.create({
+      name: 'Operational capacity fixture',
+      guideMode: 'non_location',
+    })
+    const startsAt = new Date(Date.now() - 60_000)
+    const expiresAt = new Date(Date.now() + 60 * 60_000)
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 21 }, (_, index) =>
+        manager.operationalUpdate.create({
+          venueId: capacityVenue.id,
+          updateType: 'GENERAL_NOTICE',
+          severity: 'INFO',
+          priority: index === 0 ? 'URGENT' : 'NORMAL',
+          title: `Capacity notice ${index}`,
+          startsAt,
+          expiresAt,
+          publish: true,
+        }),
+      ),
+    )
+    expect(attempts.filter((attempt) => attempt.status === 'fulfilled')).toHaveLength(20)
+    const rejected = attempts.filter((attempt) => attempt.status === 'rejected')
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'CONFLICT' })
+    await expect(
+      db.operationalUpdate.count({
+        where: {
+          tenantId,
+          venueId: capacityVenue.id,
+          status: 'PUBLISHED',
+          isActive: true,
+        },
+      }),
+    ).resolves.toBe(20)
   })
 
   it('ignores embedding-only writes but captures content updates', async () => {

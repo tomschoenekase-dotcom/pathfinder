@@ -19,6 +19,7 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
 import { publicProcedure } from '../trpc'
 
 // ---------------------------------------------------------------------------
@@ -320,6 +321,7 @@ export const chatRouter = router({
         embeddingMs = elapsedMilliseconds(embeddingStartedAt)
       })
 
+    const operationalNow = new Date()
     const [queryEmbedding, historyDesc, activeUpdates, tenantEngagement, engagementQuestions] =
       await Promise.all([
         queryEmbeddingPromise,
@@ -333,11 +335,22 @@ export const chatRouter = router({
           where: {
             venueId: input.venueId,
             tenantId: venue.tenantId,
+            status: 'PUBLISHED',
             isActive: true,
-            expiresAt: { gt: new Date() },
+            startsAt: { lte: operationalNow },
+            expiresAt: { gt: operationalNow },
           },
-          select: { severity: true, title: true, body: true, redirectTo: true },
-          orderBy: { severity: 'asc' },
+          select: {
+            updateType: true,
+            severity: true,
+            priority: true,
+            title: true,
+            body: true,
+            redirectTo: true,
+            place: { select: { name: true } },
+          },
+          orderBy: [{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }],
+          take: MAX_GUEST_OPERATIONAL_UPDATES,
         }),
         ctx.db.tenant.findUnique({
           where: { id: venue.tenantId },

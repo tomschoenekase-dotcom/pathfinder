@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createTRPCClient } from '../lib/trpc'
 import { changedSnapshotFields } from '../lib/content-history-diff'
 
-type EntityType = 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY'
+type EntityType = 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY' | 'OPERATIONAL_UPDATE'
 type ContentVersion = {
   id: string
   sequence: bigint

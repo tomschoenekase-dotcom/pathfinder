@@ -1,19 +1,28 @@
 import { z } from 'zod'
 
-export const OperationalUpdateSeverityInput = z.enum(['INFO', 'WARNING', 'CLOSURE', 'REDIRECT'])
+export const MAX_GUEST_OPERATIONAL_UPDATES = 20
 
-const MIN_EXPIRY_MS = 15 * 60 * 1000
-const MAX_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000
+export const OperationalUpdateSeverityInput = z.enum(['INFO', 'WARNING', 'CLOSURE', 'REDIRECT'])
+export const OperationalUpdatePriorityInput = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT'])
+export const OperationalUpdateStatusInput = z.enum(['DRAFT', 'PUBLISHED'])
+export const OperationalUpdateTypeInput = z.enum([
+  'GENERAL_NOTICE',
+  'TEMPORARY_CLOSURE',
+  'UNAVAILABLE_EXHIBIT',
+  'CHANGED_HOURS',
+  'MAINTENANCE',
+  'SPECIAL_EVENT',
+  'SOLD_OUT_ACTIVITY',
+  'TEMPORARY_VENDOR_LOCATION',
+])
+
 const redirectToInput = z
   .string()
   .trim()
   .max(200)
   .refine(
     (value) => {
-      if (value.startsWith('/')) {
-        return true
-      }
-
+      if (value.startsWith('/')) return true
       try {
         new URL(value)
         return true
@@ -24,43 +33,47 @@ const redirectToInput = z
     { message: 'Redirect must be a valid URL or a relative path starting with /' },
   )
 
-export const CreateOperationalUpdateInputBase = z
+export const OperationalUpdateFieldsInput = z
   .object({
     venueId: z.string().cuid(),
-    placeId: z.string().cuid().optional(),
+    placeId: z.string().cuid().nullable().optional(),
+    updateType: OperationalUpdateTypeInput,
     severity: OperationalUpdateSeverityInput,
+    priority: OperationalUpdatePriorityInput,
     title: z.string().trim().min(1).max(60),
-    body: z.string().trim().max(300).optional(),
-    redirectTo: redirectToInput.optional(),
+    body: z.string().trim().max(300).nullable().optional(),
+    redirectTo: redirectToInput.nullable().optional(),
+    startsAt: z.coerce.date(),
     expiresAt: z.coerce.date(),
   })
   .strict()
 
-export const CreateOperationalUpdateInput = CreateOperationalUpdateInputBase.superRefine(
-  (input, ctx) => {
-    const now = Date.now()
-    const expiresAt = input.expiresAt.getTime()
+function validateWindow(input: { startsAt: Date; expiresAt: Date }, ctx: z.RefinementCtx): void {
+  if (input.startsAt.getTime() >= input.expiresAt.getTime()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Expiry must be after the start time',
+      path: ['expiresAt'],
+    })
+  }
+}
 
-    if (expiresAt < now + MIN_EXPIRY_MS) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Expiry must be at least 15 minutes from now',
-        path: ['expiresAt'],
-      })
-    }
+export const CreateOperationalUpdateInputBase = OperationalUpdateFieldsInput
+export const CreateOperationalUpdateInput = OperationalUpdateFieldsInput.extend({
+  publish: z.boolean().default(false),
+}).superRefine(validateWindow)
 
-    if (expiresAt > now + MAX_EXPIRY_MS) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Expiry must be within 7 days',
-        path: ['expiresAt'],
-      })
-    }
-  },
-)
+export const UpdateOperationalUpdateInput = OperationalUpdateFieldsInput.extend({
+  id: z.string().cuid(),
+  expectedUpdatedAt: z.coerce.date(),
+  publish: z.boolean().default(false),
+}).superRefine(validateWindow)
 
-export const DeactivateOperationalUpdateInput = z
+export const OperationalUpdateLifecycleInput = z
   .object({
     id: z.string().cuid(),
+    expectedUpdatedAt: z.coerce.date(),
   })
   .strict()
+
+export const DeactivateOperationalUpdateInput = OperationalUpdateLifecycleInput

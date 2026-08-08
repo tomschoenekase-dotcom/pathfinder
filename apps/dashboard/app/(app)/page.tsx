@@ -30,8 +30,13 @@ export default async function DashboardIndexPage() {
 
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
   type DailyStatItem = (typeof dailyStats)[number]
+  const now = new Date()
   const activeAlerts = operationalUpdates.filter(
-    (update: OperationalUpdateItem) => update.isActive,
+    (update: OperationalUpdateItem) =>
+      update.status === 'PUBLISHED' &&
+      update.isActive &&
+      update.startsAt <= now &&
+      update.expiresAt > now,
   ).length
   const sessionsThisWeek = dailyStats.reduce((sum: number, row: DailyStatItem) => {
     if (row.metric !== 'sessions') {

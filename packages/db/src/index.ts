@@ -3,6 +3,7 @@ export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
   lockContentVersionEntity,
+  lockOperationalUpdateCapacity,
   setContentVersionContext,
 } from './helpers/content-version-context'
 export { writeJobRecord, updateJobRecord } from './helpers/job-records'

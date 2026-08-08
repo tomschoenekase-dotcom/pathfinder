@@ -293,6 +293,48 @@ guards, and capture triggers; older application code does not depend on them, an
 recovery evidence is destructive. Pause writers before rolling back application code. A destructive
 down migration or history deletion requires a separately approved retention and incident decision.
 
+## Operational-update lifecycle migration canary
+
+`20260809040000_complete_operational_updates` adds explicit draft/published state, scheduling,
+priority, update type, publication attribution, and immutable history to operational updates. It
+write-locks `operational_updates` through backfill and trigger installation and takes an access-
+exclusive lock on `content_versions` while expanding its entity constraint. Treat both as a
+planned staging write drain.
+
+1. Record the operational-update row count, active/unexpired count, content-version count, current
+   long-running transactions, and release SHA. On a populated disposable clone, confirm every
+   existing update backfills to `GENERAL_NOTICE`, `NORMAL`, `PUBLISHED`, `starts_at = created_at`,
+   and matching publication attribution without changing prior guest visibility. The exact
+   preflight `SELECT count(*) FROM operational_updates WHERE expires_at <= created_at;` must return
+   zero; any nonzero result blocks migration for data review because the new time-window constraint
+   will reject that legacy row. Also run
+   `SELECT tenant_id, venue_id, count(*) FROM operational_updates WHERE is_active = true AND expires_at > CURRENT_TIMESTAMP GROUP BY tenant_id, venue_id HAVING count(*) > 20;`.
+   It must return no rows. The migration enforces the same guard before its first schema mutation;
+   review or deactivate obsolete notices before retrying rather than accepting silent guest-context
+   truncation.
+2. Drain operational-update writers and content-history reverts. Apply the migration from the
+   release artifact. Abort promotion if either table lock waits beyond the measured staging budget
+   or any writer remains active.
+3. Confirm one `OPERATIONAL_UPDATE` baseline per pre-existing update, the dedicated capture trigger,
+   publication/time-window constraints, and `operational_updates_guest_visibility_idx`. A second
+   `prisma migrate deploy` must report no pending work.
+4. Create a synthetic draft and confirm it is absent from the next guest-chat context. Publish it
+   with a current start and future expiry and confirm it affects the very next chat request. Confirm
+   a scheduled update is absent before its start, a deactivated update is absent immediately, and
+   `expires_at` equal to the query timestamp is excluded. The API permits at most 20 overlapping
+   published updates per venue and guest retrieval uses the same urgent-first deterministic cap;
+   verify the 21st overlapping publish is rejected without hiding an accepted update.
+5. Exercise a stale edit/publish token and cross-tenant identifiers; both must fail without a write
+   or false audit. Restore the draft version through content history and confirm it becomes inactive
+   and guest-invisible again.
+
+If the migration fails, its explicit transaction must leave the new enums, columns, constraint
+change, baseline rows, function, and trigger absent. Do not resolve or mark a failed migration
+without inspecting that rollback evidence. After success, roll back application code only after
+draining writers; retain the new columns and immutable versions. Reverting to code that treats all
+rows as implicitly published would be unsafe, so a same-SHA forward fix is preferred. Dropping the
+history trigger or rows requires separate retention and incident approval.
+
 ## Staging smoke tests
 
 - Request the public web `/api/health` endpoint and record the status code and

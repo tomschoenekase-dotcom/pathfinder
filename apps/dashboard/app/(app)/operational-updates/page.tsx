@@ -7,8 +7,11 @@ export default async function OperationalUpdatesPage() {
   type UpdateItem = (typeof updates)[number]
   const serializedUpdates = updates.map((update: UpdateItem) => ({
     ...update,
+    startsAt: update.startsAt.toISOString(),
     expiresAt: update.expiresAt.toISOString(),
+    publishedAt: update.publishedAt?.toISOString() ?? null,
     createdAt: update.createdAt.toISOString(),
+    updatedAt: update.updatedAt.toISOString(),
   }))
 
   return (

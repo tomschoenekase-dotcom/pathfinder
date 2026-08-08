@@ -2,13 +2,18 @@ import * as prismaClient from '@prisma/client'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { lockContentVersionEntity, setContentVersionContext } from '@pathfinder/db'
+import {
+  lockContentVersionEntity,
+  lockOperationalUpdateCapacity,
+  setContentVersionContext,
+} from '@pathfinder/db'
 
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
+import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
 import { tenantProcedure } from '../trpc'
 
-const EntityType = z.enum(['VENUE', 'PLACE', 'KNOWLEDGE_ENTRY'])
+const EntityType = z.enum(['VENUE', 'PLACE', 'KNOWLEDGE_ENTRY', 'OPERATIONAL_UPDATE'])
 
 const versionSelect = {
   id: true,
@@ -98,6 +103,38 @@ const knowledgeSnapshotSchema = z
   })
   .strict()
 
+const operationalUpdateSnapshotSchema = z
+  .object({
+    id: z.string(),
+    tenantId: z.string(),
+    venueId: z.string(),
+    placeId: nullableString,
+    updateType: z.enum([
+      'GENERAL_NOTICE',
+      'TEMPORARY_CLOSURE',
+      'UNAVAILABLE_EXHIBIT',
+      'CHANGED_HOURS',
+      'MAINTENANCE',
+      'SPECIAL_EVENT',
+      'SOLD_OUT_ACTIVITY',
+      'TEMPORARY_VENDOR_LOCATION',
+    ]),
+    severity: z.enum(['INFO', 'WARNING', 'CLOSURE', 'REDIRECT']),
+    priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']),
+    title: z.string(),
+    body: nullableString,
+    redirectTo: nullableString,
+    startsAt: z.coerce.date(),
+    expiresAt: z.coerce.date(),
+    status: z.enum(['DRAFT', 'PUBLISHED']),
+    isActive: z.boolean(),
+    createdBy: z.string(),
+    publishedBy: nullableString,
+    publishedAt: z.coerce.date().nullable(),
+    createdAt: z.coerce.date(),
+  })
+  .strict()
+
 function invalidSnapshot(): never {
   throw new TRPCError({
     code: 'CONFLICT',
@@ -182,6 +219,35 @@ function knowledgeData(snapshot: z.infer<typeof knowledgeSnapshotSchema>) {
     tenantId: snapshot.tenantId,
     venueId: snapshot.venueId,
     ...knowledgeMutableData(snapshot),
+  }
+}
+
+function operationalUpdateMutableData(snapshot: z.infer<typeof operationalUpdateSnapshotSchema>) {
+  return {
+    venueId: snapshot.venueId,
+    placeId: snapshot.placeId,
+    updateType: snapshot.updateType,
+    severity: snapshot.severity,
+    priority: snapshot.priority,
+    title: snapshot.title,
+    body: snapshot.body,
+    redirectTo: snapshot.redirectTo,
+    startsAt: snapshot.startsAt,
+    expiresAt: snapshot.expiresAt,
+    status: snapshot.status,
+    isActive: snapshot.isActive,
+    createdBy: snapshot.createdBy,
+    publishedBy: snapshot.publishedBy,
+    publishedAt: snapshot.publishedAt,
+    createdAt: snapshot.createdAt,
+  }
+}
+
+function operationalUpdateData(snapshot: z.infer<typeof operationalUpdateSnapshotSchema>) {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    ...operationalUpdateMutableData(snapshot),
   }
 }
 
@@ -411,7 +477,7 @@ export const contentHistoryRouter = router({
                 await tx.place.create({ data })
               }
             }
-          } else {
+          } else if (target.entityType === 'KNOWLEDGE_ENTRY') {
             const current = await tx.venueKnowledgeEntry.findFirst({
               where: { id: target.entityId, tenantId },
               select: { id: true, venueId: true },
@@ -457,6 +523,83 @@ export const contentHistoryRouter = router({
                   })
               } else {
                 await tx.venueKnowledgeEntry.create({ data })
+              }
+            }
+          } else {
+            const current = await tx.operationalUpdate.findFirst({
+              where: { id: target.entityId, tenantId },
+              select: { id: true },
+            })
+            if (targetState === null) {
+              if (!current)
+                throw new TRPCError({
+                  code: 'BAD_REQUEST',
+                  message: 'Operational update is already deleted',
+                })
+              const removed = await tx.operationalUpdate.deleteMany({
+                where: { id: target.entityId, tenantId },
+              })
+              if (removed.count !== 1)
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: 'Operational update changed during revert',
+                })
+            } else {
+              const snapshot = parseSnapshot(operationalUpdateSnapshotSchema, targetState)
+              if (snapshot.tenantId !== tenantId || snapshot.id !== target.entityId) {
+                invalidSnapshot()
+              }
+              const parentVenue = await tx.venue.findFirst({
+                where: { id: snapshot.venueId, tenantId },
+                select: { id: true },
+              })
+              if (!parentVenue) invalidSnapshot()
+              if (snapshot.placeId !== null) {
+                const parentPlace = await tx.place.findFirst({
+                  where: {
+                    id: snapshot.placeId,
+                    tenantId,
+                    venueId: snapshot.venueId,
+                  },
+                  select: { id: true },
+                })
+                if (!parentPlace) invalidSnapshot()
+              }
+              if (snapshot.status === 'PUBLISHED' && snapshot.isActive) {
+                await lockOperationalUpdateCapacity(tx, {
+                  tenantId,
+                  venueId: snapshot.venueId,
+                })
+                const overlapping = await tx.operationalUpdate.count({
+                  where: {
+                    tenantId,
+                    venueId: snapshot.venueId,
+                    status: 'PUBLISHED',
+                    isActive: true,
+                    startsAt: { lt: snapshot.expiresAt },
+                    expiresAt: { gt: snapshot.startsAt },
+                    id: { not: target.entityId },
+                  },
+                })
+                if (overlapping >= MAX_GUEST_OPERATIONAL_UPDATES) {
+                  throw new TRPCError({
+                    code: 'CONFLICT',
+                    message: `A venue can have at most ${MAX_GUEST_OPERATIONAL_UPDATES} overlapping published updates`,
+                  })
+                }
+              }
+              if (current) {
+                const updated = await tx.operationalUpdate.updateMany({
+                  where: { id: target.entityId, tenantId },
+                  data: operationalUpdateMutableData(snapshot),
+                })
+                if (updated.count !== 1)
+                  throw new TRPCError({
+                    code: 'CONFLICT',
+                    message: 'Operational update changed during revert',
+                  })
+              } else {
+                await tx.operationalUpdate.create({ data: operationalUpdateData(snapshot) })
               }
             }
           }

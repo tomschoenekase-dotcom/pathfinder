@@ -13,7 +13,13 @@ export {
   CreateOperationalUpdateInputBase,
   CreateOperationalUpdateInput,
   DeactivateOperationalUpdateInput,
+  OperationalUpdateFieldsInput,
+  OperationalUpdateLifecycleInput,
+  OperationalUpdatePriorityInput,
   OperationalUpdateSeverityInput,
+  OperationalUpdateStatusInput,
+  OperationalUpdateTypeInput,
+  UpdateOperationalUpdateInput,
 } from './schemas/operational-update'
 export {
   BulkCreateKnowledgeEntriesInput,
