@@ -14,14 +14,14 @@ const reexportPath = 'packages/db/src/index.ts'
 const approvedCallCounts = new Map([
   ['apps/workers/src/index.ts', 1],
   ['apps/workers/src/processors/analytics-enrichment.ts', 1],
-  ['apps/workers/src/processors/answer-analysis.ts', 2],
+  ['apps/workers/src/processors/answer-analysis.ts', 4],
   ['apps/workers/src/processors/daily-rollup.ts', 3],
   ['apps/workers/src/processors/embed-knowledge-entry.ts', 1],
   ['apps/workers/src/processors/embed-place.ts', 1],
   ['apps/workers/src/processors/media-ingestion.ts', 9],
   ['apps/workers/src/processors/weekly-digest.ts', 2],
   ['apps/workers/src/processors/weekly-report.ts', 2],
-  ['packages/api/src/routers/admin/_admin.ts', 28],
+  ['packages/api/src/routers/admin/_admin.ts', 29],
   ['packages/api/src/routers/admin/media-ingestion.ts', 23],
   ['packages/db/src/helpers/job-records.ts', 3],
 ])

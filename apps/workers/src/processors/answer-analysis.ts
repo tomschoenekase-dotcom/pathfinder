@@ -135,13 +135,22 @@ async function markSnapshotStatus(
     error?: string | null
     generatedAt?: Date | null
   },
+  expectedStatus: 'GENERATING',
 ): Promise<void> {
-  await withTenantIsolationBypass(async () => {
-    await db.answerAnalysisSnapshot.updateMany({
-      where: { id: payload.snapshotId, tenantId: payload.tenantId },
+  const updated = await withTenantIsolationBypass(async () => {
+    return db.answerAnalysisSnapshot.updateMany({
+      where: {
+        id: payload.snapshotId,
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        status: expectedStatus,
+      },
       data,
     })
   })
+  if (updated.count !== 1) {
+    throw new Error('The answer-analysis snapshot ownership state no longer matched.')
+  }
 }
 
 async function loadAnswers(payload: AnswerAnalysisJobPayload) {
@@ -235,7 +244,6 @@ export async function processAnswerAnalysisJob(
 ): Promise<void> {
   const execution = normalizeJobExecutionMetadata(executionInput)
   const startedAt = new Date()
-  await markSnapshotStatus(payload, { status: 'GENERATING', error: null })
 
   const jobRecordId = await writeJobRecord({
     queue: 'answer-analysis',
@@ -250,20 +258,55 @@ export async function processAnswerAnalysisJob(
   })
 
   try {
+    const snapshot = await withTenantIsolationBypass(() =>
+      db.answerAnalysisSnapshot.findFirst({
+        where: {
+          id: payload.snapshotId,
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+        },
+        select: { id: true },
+      }),
+    )
+    if (!snapshot) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      return
+    }
+
+    const lifecycleGate = await withTenantIsolationBypass(() =>
+      db.answerAnalysisSnapshot.updateMany({
+        where: {
+          id: payload.snapshotId,
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          status: { in: ['GENERATING', 'FAILED'] },
+        },
+        data: { status: 'GENERATING', error: null },
+      }),
+    )
+    if (lifecycleGate.count !== 1) {
+      await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+      return
+    }
+
     const promptData = await loadAnswers(payload)
     const totalSignal = promptData.responses.length + promptData.generalMessages.length
 
     if (totalSignal < MINIMUM_SIGNAL_COUNT) {
-      await markSnapshotStatus(payload, {
-        status: 'COMPLETE',
-        summary: emptyAnalysisSummary(
-          promptData.responses.length,
-          promptData.generalMessages.length,
-        ),
-        answerCount: promptData.responses.length,
-        error: null,
-        generatedAt: new Date(),
-      })
+      await markSnapshotStatus(
+        payload,
+        {
+          status: 'COMPLETE',
+          summary: emptyAnalysisSummary(
+            promptData.responses.length,
+            promptData.generalMessages.length,
+          ),
+          answerCount: promptData.responses.length,
+          error: null,
+          generatedAt: new Date(),
+        },
+        'GENERATING',
+      )
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
       logger.info({
@@ -300,13 +343,17 @@ export async function processAnswerAnalysisJob(
 
     const summary = response.parsed
 
-    await markSnapshotStatus(payload, {
-      status: 'COMPLETE',
-      summary,
-      answerCount: promptData.responses.length,
-      error: null,
-      generatedAt: new Date(),
-    })
+    await markSnapshotStatus(
+      payload,
+      {
+        status: 'COMPLETE',
+        summary,
+        answerCount: promptData.responses.length,
+        error: null,
+        generatedAt: new Date(),
+      },
+      'GENERATING',
+    )
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
 
     logger.info({
@@ -322,7 +369,7 @@ export async function processAnswerAnalysisJob(
     await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
 
     try {
-      await markSnapshotStatus(payload, { status: 'FAILED', error: message })
+      await markSnapshotStatus(payload, { status: 'FAILED', error: message }, 'GENERATING')
     } catch (statusError) {
       logger.warn({
         action: 'workers.answer-analysis.failure-status-persistence-failed',

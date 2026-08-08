@@ -873,12 +873,15 @@ export const adminRouter = router({
   setSessionNotable: adminProcedure
     .input(z.object({ tenantId: z.string(), sessionId: z.string(), isNotable: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      await withTenantIsolationBypass(async () => {
-        await db.visitorSession.updateMany({
+      const updated = await withTenantIsolationBypass(async () => {
+        return db.visitorSession.updateMany({
           where: { id: input.sessionId, tenantId: input.tenantId },
           data: { isNotable: input.isNotable },
         })
       })
+      if (updated.count !== 1) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' })
+      }
 
       await writeAuditLog({
         tenantId: input.tenantId,
@@ -903,6 +906,17 @@ export const adminRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const created = await withTenantIsolationBypass(async () => {
+        const session = await db.visitorSession.findFirst({
+          where: {
+            id: input.sessionId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+          },
+          select: { id: true },
+        })
+        if (!session) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' })
+        }
         return db.adminChatlogNote.create({
           data: {
             tenantId: input.tenantId,
@@ -938,6 +952,16 @@ export const adminRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const venue = await withTenantIsolationBypass(async () =>
+        db.venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        }),
+      )
+      if (!venue) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      }
+
       const snapshot = await withTenantIsolationBypass(async () => {
         return db.answerAnalysisSnapshot.create({
           data: {

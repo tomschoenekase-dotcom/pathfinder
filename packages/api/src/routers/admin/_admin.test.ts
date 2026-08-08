@@ -9,6 +9,7 @@ const {
   weeklyDigestFindUnique,
   weeklyDigestCreate,
   visitorSessionCount,
+  visitorSessionFindFirst,
   visitorSessionFindMany,
   visitorSessionUpdateMany,
   messageCount,
@@ -17,6 +18,7 @@ const {
   userUpsert,
   tenantMembershipUpsert,
   adminChatlogNoteCreate,
+  answerAnalysisSnapshotCreate,
   weeklyReportFindUnique,
   weeklyReportCreate,
   weeklyReportUpdate,
@@ -38,6 +40,7 @@ const {
   weeklyDigestFindUnique: vi.fn(),
   weeklyDigestCreate: vi.fn(),
   visitorSessionCount: vi.fn(),
+  visitorSessionFindFirst: vi.fn(),
   visitorSessionFindMany: vi.fn(),
   visitorSessionUpdateMany: vi.fn(),
   messageCount: vi.fn(),
@@ -46,6 +49,7 @@ const {
   userUpsert: vi.fn(),
   tenantMembershipUpsert: vi.fn(),
   adminChatlogNoteCreate: vi.fn(),
+  answerAnalysisSnapshotCreate: vi.fn(),
   weeklyReportFindUnique: vi.fn(),
   weeklyReportCreate: vi.fn(),
   weeklyReportUpdate: vi.fn(),
@@ -75,6 +79,7 @@ vi.mock('@pathfinder/db', () => ({
     },
     visitorSession: {
       count: visitorSessionCount,
+      findFirst: visitorSessionFindFirst,
       findMany: visitorSessionFindMany,
       updateMany: visitorSessionUpdateMany,
     },
@@ -95,6 +100,9 @@ vi.mock('@pathfinder/db', () => ({
     },
     adminChatlogNote: {
       create: adminChatlogNoteCreate,
+    },
+    answerAnalysisSnapshot: {
+      create: answerAnalysisSnapshotCreate,
     },
     weeklyReport: {
       findUnique: weeklyReportFindUnique,
@@ -165,6 +173,7 @@ const testRouter = router({ admin: adminRouter })
 describe('admin router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    visitorSessionUpdateMany.mockResolvedValue({ count: 1 })
   })
 
   it('admin.triggerDigest creates a digest for the current week and enqueues it', async () => {
@@ -445,7 +454,26 @@ describe('admin router', () => {
     )
   })
 
+  it('admin.setSessionNotable rejects a tenant/session mismatch without auditing', async () => {
+    visitorSessionUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.setSessionNotable({
+        tenantId: 'tenant_1',
+        sessionId: 'other_tenant_session',
+        isNotable: true,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+    expect(visitorSessionUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'other_tenant_session', tenantId: 'tenant_1' },
+      data: { isNotable: true },
+    })
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
   it('admin.addChatlogNote sources authorId from the admin session, not client input', async () => {
+    visitorSessionFindFirst.mockResolvedValueOnce({ id: 'session_1' })
     adminChatlogNoteCreate.mockResolvedValueOnce({
       id: 'note_1',
       note: 'Guest was confused about wait times.',
@@ -466,6 +494,93 @@ describe('admin router', () => {
         data: expect.objectContaining({ authorId: 'admin_1' }),
       }),
     )
+    expect(visitorSessionFindFirst).toHaveBeenCalledWith({
+      where: { id: 'session_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      select: { id: true },
+    })
+  })
+
+  it('admin.addChatlogNote rejects a composite session mismatch before create or audit', async () => {
+    visitorSessionFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.addChatlogNote({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        sessionId: 'other_tenant_session',
+        note: 'Must not cross the ownership boundary.',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+
+    expect(visitorSessionFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'other_tenant_session',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      },
+      select: { id: true },
+    })
+    expect(adminChatlogNoteCreate).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.generateAnswerAnalysis proves venue ownership before create and enqueue', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    answerAnalysisSnapshotCreate.mockResolvedValueOnce({ id: 'snapshot_1' })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rangeStart: '2026-07-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+      }),
+    ).resolves.toEqual({ snapshotId: 'snapshot_1' })
+
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue_1', tenantId: 'tenant_1' },
+      select: { id: true },
+    })
+    expect(answerAnalysisSnapshotCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          createdBy: 'admin_1',
+        }),
+      }),
+    )
+    expect(enqueueAnswerAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        snapshotId: 'snapshot_1',
+      }),
+    )
+  })
+
+  it('admin.generateAnswerAnalysis rejects a venue mismatch before create or enqueue', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'other_tenant_venue',
+        rangeStart: '2026-07-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'other_tenant_venue', tenantId: 'tenant_1' },
+      select: { id: true },
+    })
+    expect(answerAnalysisSnapshotCreate).not.toHaveBeenCalled()
+    expect(enqueueAnswerAnalysis).not.toHaveBeenCalled()
+    expect(writeAuditLogMock).not.toHaveBeenCalled()
   })
 
   it('admin.createClientAndVenue creates the org, tenant, admin membership, and venue', async () => {

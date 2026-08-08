@@ -4,6 +4,7 @@ import type { AnthropicMessagesClient } from '@pathfinder/ai'
 import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
+  snapshotFindFirst: vi.fn(),
   snapshotUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   responseFindMany: vi.fn(),
@@ -20,7 +21,10 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   db: {
-    answerAnalysisSnapshot: { updateMany: mocks.snapshotUpdateMany },
+    answerAnalysisSnapshot: {
+      findFirst: mocks.snapshotFindFirst,
+      updateMany: mocks.snapshotUpdateMany,
+    },
     venue: { findFirst: mocks.venueFindFirst },
     engagementQuestionResponse: { findMany: mocks.responseFindMany },
     message: { findMany: mocks.messageFindMany },
@@ -64,6 +68,7 @@ describe('processAnswerAnalysisJob', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+    mocks.snapshotFindFirst.mockResolvedValue({ id: 'snapshot_1' })
     mocks.snapshotUpdateMany.mockResolvedValue({ count: 1 })
     mocks.venueFindFirst.mockResolvedValue({ name: 'City Zoo' })
     mocks.responseFindMany.mockResolvedValue([
@@ -88,6 +93,19 @@ describe('processAnswerAnalysisJob', () => {
   it('loads the venue within the tenant boundary and records successful usage', async () => {
     await processAnswerAnalysisJob(payload, 'bull_job_1')
 
+    expect(mocks.snapshotFindFirst).toHaveBeenCalledWith({
+      where: { id: 'snapshot_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      select: { id: true },
+    })
+    expect(mocks.snapshotUpdateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: { in: ['GENERATING', 'FAILED'] },
+      },
+      data: { status: 'GENERATING', error: null },
+    })
     expect(mocks.venueFindFirst).toHaveBeenCalledWith({
       where: { id: 'venue_1', tenantId: 'tenant_1' },
       select: { name: true },
@@ -109,7 +127,12 @@ describe('processAnswerAnalysisJob', () => {
       }),
     })
     expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'snapshot_1', tenantId: 'tenant_1' },
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({
         status: 'COMPLETE',
         summary: validSummary,
@@ -118,6 +141,47 @@ describe('processAnswerAnalysisJob', () => {
       }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('completes a mismatched snapshot delivery without lifecycle writes, reads, or provider work', async () => {
+    mocks.snapshotFindFirst.mockResolvedValueOnce(null)
+
+    await expect(processAnswerAnalysisJob(payload, 'bull_wrong_venue')).resolves.toBeUndefined()
+
+    expect(mocks.snapshotFindFirst).toHaveBeenCalledWith({
+      where: { id: 'snapshot_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      select: { id: true },
+    })
+    expect(mocks.snapshotUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.venueFindFirst).not.toHaveBeenCalled()
+    expect(mocks.responseFindMany).not.toHaveBeenCalled()
+    expect(mocks.messageFindMany).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
+  })
+
+  it('completes a missed snapshot lifecycle gate without reads or provider work', async () => {
+    mocks.snapshotUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(processAnswerAnalysisJob(payload, 'bull_lost_gate')).resolves.toBeUndefined()
+
+    expect(mocks.snapshotUpdateMany).toHaveBeenCalledOnce()
+    expect(mocks.snapshotUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: { in: ['GENERATING', 'FAILED'] },
+      },
+      data: { status: 'GENERATING', error: null },
+    })
+    expect(mocks.venueFindFirst).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', {
+      status: 'COMPLETE',
+    })
   })
 
   it('fails before the provider call when the venue is not owned by the tenant', async () => {
@@ -130,7 +194,12 @@ describe('processAnswerAnalysisJob', () => {
     expect(anthropicCreate).not.toHaveBeenCalled()
     expect(mocks.aiUsageEventCreate).not.toHaveBeenCalled()
     expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'snapshot_1', tenantId: 'tenant_1' },
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'FAILED' }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith(
@@ -148,7 +217,12 @@ describe('processAnswerAnalysisJob', () => {
     expect(anthropicCreate).not.toHaveBeenCalled()
     expect(mocks.aiUsageEventCreate).not.toHaveBeenCalled()
     expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'snapshot_1', tenantId: 'tenant_1' },
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({
         status: 'COMPLETE',
         answerCount: 0,
@@ -182,7 +256,12 @@ describe('processAnswerAnalysisJob', () => {
     }
     expect(failureUsage.estimatedCostUsd).toBeGreaterThan(0)
     expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'snapshot_1', tenantId: 'tenant_1' },
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'FAILED' }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith(
@@ -214,7 +293,12 @@ describe('processAnswerAnalysisJob', () => {
       expect.objectContaining({ status: 'FAILED' }),
     )
     expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'snapshot_1', tenantId: 'tenant_1' },
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'FAILED' }),
     })
   })
@@ -248,13 +332,40 @@ describe('processAnswerAnalysisJob', () => {
     expect(jobRecordOrder).toBeLessThan(failedSnapshotOrder as number)
   })
 
+  it('preserves the primary failure when the exact failure ownership state no longer matches', async () => {
+    const providerError = Object.assign(new Error('provider unavailable'), { status: 503 })
+    anthropicCreate.mockRejectedValueOnce(providerError)
+    mocks.snapshotUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 })
+
+    await expect(processAnswerAnalysisJob(payload)).rejects.toMatchObject({
+      name: 'AiGatewayError',
+      message: 'provider unavailable',
+      code: 'provider-http-503',
+    })
+
+    expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
+      data: { status: 'FAILED', error: 'provider unavailable' },
+    })
+  })
+
   it('does not fail a successful analysis when usage persistence is unavailable', async () => {
     mocks.aiUsageEventCreate.mockRejectedValueOnce(new Error('usage database unavailable'))
 
     await expect(processAnswerAnalysisJob(payload)).resolves.toBeUndefined()
 
     expect(mocks.snapshotUpdateMany).toHaveBeenLastCalledWith({
-      where: { id: 'snapshot_1', tenantId: 'tenant_1' },
+      where: {
+        id: 'snapshot_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        status: 'GENERATING',
+      },
       data: expect.objectContaining({ status: 'COMPLETE', summary: validSummary }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
