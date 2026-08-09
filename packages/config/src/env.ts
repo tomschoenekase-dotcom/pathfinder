@@ -29,6 +29,10 @@ const rawEnvSchema = z
     // business cron. Staging/preview require an explicit canary opt-in.
     GENERATION_RECOVERY_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Controlled prerequisite for the hosted widget. It remains default-off
+    // until the origin/key boundary and third-party staging proof exist.
+    EMBED_PREVIEW_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Error monitoring is default-off. DSNs are only used when the matching
     // explicit runtime flag is true; source-map credentials are build-only.
     SENTRY_ENABLED: z.enum(['true', 'false']).optional(),
@@ -98,6 +102,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
       ? values.RAILWAY_ENVIRONMENT === 'production'
       : values.GENERATION_DISPATCH_ENABLED === 'true',
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
+  EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',
 }))
 
 // During Next.js build (NEXT_PHASE=phase-production-build) env vars may not

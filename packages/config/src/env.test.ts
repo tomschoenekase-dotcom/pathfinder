@@ -243,3 +243,30 @@ describe('GENERATION_DISPATCH_ENABLED', () => {
     ).toThrow()
   })
 })
+
+describe('EMBED_PREVIEW_ENABLED', () => {
+  it('defaults to disabled in every deployment environment', () => {
+    for (const RAILWAY_ENVIRONMENT of ['production', 'staging', 'preview'] as const) {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).EMBED_PREVIEW_ENABLED,
+      ).toBe(false)
+    }
+  })
+
+  it('requires an exact explicit enable value', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        EMBED_PREVIEW_ENABLED: 'true',
+      }).EMBED_PREVIEW_ENABLED,
+    ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        EMBED_PREVIEW_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
