@@ -15,11 +15,14 @@ import {
 } from '../schemas/venue-content'
 
 import { router } from '../core'
+import { checkRateLimit } from '../lib/rate-limit'
 import { requireRole } from '../middleware/require-role'
 import { withContentVersionActor } from '../middleware/content-version-actor'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
 type Db = typeof db
+
+const PUBLIC_VENUE_LOOKUP_GLOBAL_LIMIT_PER_MINUTE = 10_000
 
 type VenueContentImportReceiptResult = {
   payloadHash: string
@@ -166,6 +169,18 @@ export const venueRouter = router({
   getBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1).max(200) }).strict())
     .query(async ({ ctx, input }) => {
+      const globallyAllowed = await checkRateLimit(
+        'ratelimit:venue-lookup:ingress:global',
+        PUBLIC_VENUE_LOOKUP_GLOBAL_LIMIT_PER_MINUTE,
+        60,
+      )
+      if (!globallyAllowed) {
+        throw new TRPCError({
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many venue lookups. Please try again later.',
+        })
+      }
+
       // $queryRaw used here because this is a public cross-tenant lookup — the caller
       // only knows the slug, not the tenantId. No tenant_id bind needed in the
       // WHERE because we are resolving the venue for display, not filtering by tenant.

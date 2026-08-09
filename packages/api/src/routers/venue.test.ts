@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const { checkRateLimitMock } = vi.hoisted(() => ({ checkRateLimitMock: vi.fn() }))
+
+vi.mock('../lib/rate-limit', () => ({ checkRateLimit: checkRateLimitMock }))
+
 vi.mock('@pathfinder/config', () => ({
   env: { OPENAI_API_KEY: 'test-key' },
   logger: {
@@ -137,6 +141,7 @@ const venueRow = {
 describe('venue router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    checkRateLimitMock.mockResolvedValue(true)
     importReceiptFindFirst.mockResolvedValue(null)
     importReceiptCreateMany.mockResolvedValue({ count: 1 })
     placeCreateMany.mockResolvedValue({ count: 1 })
@@ -281,6 +286,11 @@ describe('venue router', () => {
       chatBannerUrl: null,
     })
     expect(dbQueryRaw).toHaveBeenCalled()
+    expect(checkRateLimitMock).toHaveBeenCalledWith(
+      'ratelimit:venue-lookup:ingress:global',
+      10_000,
+      60,
+    )
   })
 
   it('venue.getBySlug throws NOT_FOUND when slug is missing', async () => {
@@ -294,6 +304,48 @@ describe('venue router', () => {
     await expect(caller.venue.getBySlug({ slug: 'missing-slug' })).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }),
     )
+    expect(checkRateLimitMock).toHaveBeenCalledWith(
+      'ratelimit:venue-lookup:ingress:global',
+      10_000,
+      60,
+    )
+  })
+
+  it('venue.getBySlug returns temporary unavailability for an inactive venue after fixed admission', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ isActive: false }])
+
+    const caller = testRouter.createCaller({
+      ...baseCtx,
+      session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+    })
+
+    await expect(caller.venue.getBySlug({ slug: 'paused-venue' })).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+    })
+    expect(checkRateLimitMock).toHaveBeenCalledWith(
+      'ratelimit:venue-lookup:ingress:global',
+      10_000,
+      60,
+    )
+  })
+
+  it('venue.getBySlug uses one fixed key when valid slugs rotate and denies before database work', async () => {
+    checkRateLimitMock.mockResolvedValue(false)
+    const caller = testRouter.createCaller({
+      ...baseCtx,
+      session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+    })
+
+    for (const slug of ['museum', 'city-zoo', 'aquarium']) {
+      await expect(caller.venue.getBySlug({ slug })).rejects.toMatchObject({
+        code: 'TOO_MANY_REQUESTS',
+      })
+    }
+
+    expect(checkRateLimitMock.mock.calls).toEqual(
+      Array.from({ length: 3 }, () => ['ratelimit:venue-lookup:ingress:global', 10_000, 60]),
+    )
+    expect(dbQueryRaw).not.toHaveBeenCalled()
   })
 
   it.each([{ slug: 'x'.repeat(201) }, { slug: 'city-zoo', unexpected: 'field' }])(
@@ -308,6 +360,7 @@ describe('venue router', () => {
         code: 'BAD_REQUEST',
       })
       expect(dbQueryRaw).not.toHaveBeenCalled()
+      expect(checkRateLimitMock).not.toHaveBeenCalled()
     },
   )
 

@@ -19,10 +19,6 @@ vi.mock('@pathfinder/api', () => ({
   createTRPCContext: vi.fn(async () => ({})),
 }))
 
-vi.mock('@pathfinder/db', () => ({
-  db: { $queryRaw: vi.fn() },
-}))
-
 vi.mock('next/navigation', () => ({
   notFound: mocks.notFound,
   useRouter: () => ({ refresh: mocks.refresh }),
@@ -32,7 +28,7 @@ vi.mock('../../../lib/trpc', () => ({
   TRPCProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
-import VenueChatLayout from './layout'
+import VenueChatLayout, { generateMetadata } from './layout'
 
 describe('VenueChatLayout availability boundary', () => {
   beforeEach(() => {
@@ -69,6 +65,19 @@ describe('VenueChatLayout availability boundary', () => {
     expect(mocks.refresh).toHaveBeenCalledOnce()
   })
 
+  it('renders the same temporary state when public lookup admission is exhausted', async () => {
+    mocks.getBySlug.mockRejectedValueOnce({ code: 'TOO_MANY_REQUESTS' })
+
+    const result = await VenueChatLayout({
+      children: <div>Chat tree mounted</div>,
+      params: Promise.resolve({ venueSlug: 'museum' }),
+    })
+    render(result)
+
+    expect(screen.getByRole('heading', { name: 'Guide temporarily unavailable' })).toBeTruthy()
+    expect(screen.queryByText('Chat tree mounted')).toBeNull()
+  })
+
   it('delegates an unknown venue to the Next.js 404 boundary', async () => {
     mocks.getBySlug.mockRejectedValueOnce({ code: 'NOT_FOUND' })
 
@@ -79,5 +88,28 @@ describe('VenueChatLayout availability boundary', () => {
       }),
     ).rejects.toThrow('NEXT_NOT_FOUND')
     expect(mocks.notFound).toHaveBeenCalledOnce()
+  })
+
+  it('uses the admitted public lookup for metadata', async () => {
+    mocks.getBySlug.mockResolvedValueOnce({
+      name: 'City Museum',
+      description: 'Explore the collection.',
+    })
+
+    await expect(
+      generateMetadata({ params: Promise.resolve({ venueSlug: 'museum' }) }),
+    ).resolves.toEqual({
+      title: 'City Museum — PathFinder',
+      description: 'Explore the collection.',
+    })
+    expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: 'museum' })
+  })
+
+  it('fails metadata closed to generic text when lookup is denied', async () => {
+    mocks.getBySlug.mockRejectedValueOnce({ code: 'TOO_MANY_REQUESTS' })
+
+    await expect(
+      generateMetadata({ params: Promise.resolve({ venueSlug: 'museum' }) }),
+    ).resolves.toEqual({ title: 'PathFinder' })
   })
 })

@@ -13,6 +13,12 @@ describe('classifyPublicVenueLookupError', () => {
     )
   })
 
+  it('treats public lookup admission denial as temporary unavailability', () => {
+    expect(classifyPublicVenueLookupError({ code: 'TOO_MANY_REQUESTS' })).toBe(
+      'temporarily-unavailable',
+    )
+  })
+
   it('does not disguise unexpected failures as venue availability states', () => {
     expect(classifyPublicVenueLookupError(new Error('database offline'))).toBe('other')
   })

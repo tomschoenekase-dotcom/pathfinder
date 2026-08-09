@@ -16,7 +16,7 @@ export function classifyPublicVenueLookupError(error: unknown): PublicVenueLooku
     return 'not-found'
   }
 
-  if (code === 'SERVICE_UNAVAILABLE') {
+  if (code === 'SERVICE_UNAVAILABLE' || code === 'TOO_MANY_REQUESTS') {
     return 'temporarily-unavailable'
   }
 
