@@ -7,6 +7,8 @@ import {
   EvalObservationSchema,
   EvalResultSchema,
   EvalThresholdsSchema,
+  expectedEvalCheckIds,
+  scoreEvaluationChecks,
   type EvalAggregate,
   type EvalCase,
   type EvalObservationInput,
@@ -16,32 +18,6 @@ import {
 } from './contracts'
 import { hashEvalCase, hashEvalObservation } from './hash'
 
-function normalized(value: string): string {
-  return value.normalize('NFC').toLocaleLowerCase('en-US').replace(/\s+/gu, ' ').trim()
-}
-
-function includesPhrase(answer: string, phrase: string): boolean {
-  return normalized(answer).includes(normalized(phrase))
-}
-
-function wordCount(value: string): number {
-  const trimmed = value.normalize('NFC').trim()
-  return trimmed ? trimmed.split(/\s+/u).length : 0
-}
-
-function expectedCheckIds(evalCase: EvalCase): string[] {
-  return [
-    ...evalCase.rules.requiredPhrases.map((rule) => `required:${rule.ruleId}`),
-    ...evalCase.rules.requiredFacts.map((rule) => `fact:${rule.ruleId}`),
-    ...evalCase.rules.forbiddenPhrases.map((rule) => `forbidden:${rule.ruleId}`),
-    'max-words',
-    ...(evalCase.rules.unknownAnswer.required
-      ? [`unknown:${evalCase.rules.unknownAnswer.ruleId}`]
-      : []),
-    'place-allowlist',
-  ]
-}
-
 function scoreEvalCase(rawCase: EvalCase, rawObservation: EvalObservation): EvalResult {
   const evalCase = EvalCaseSchema.parse(rawCase)
   const observation = EvalObservationSchema.parse(rawObservation)
@@ -49,70 +25,7 @@ function scoreEvalCase(rawCase: EvalCase, rawObservation: EvalObservation): Eval
     throw new Error(`Observation case ${observation.caseId} does not match ${evalCase.caseId}`)
   }
 
-  const checks: EvalResult['checks'] = []
-  for (const rule of evalCase.rules.requiredPhrases) {
-    const passed = includesPhrase(observation.answer, rule.phrase)
-    checks.push({
-      checkId: `required:${rule.ruleId}`,
-      passed,
-      detail: passed ? 'Required phrase present' : 'Required phrase missing',
-    })
-  }
-  for (const rule of evalCase.rules.requiredFacts) {
-    const passed = rule.acceptablePhrases.some((phrase) =>
-      includesPhrase(observation.answer, phrase),
-    )
-    checks.push({
-      checkId: `fact:${rule.ruleId}`,
-      passed,
-      detail: passed
-        ? 'Required lexical fact marker present'
-        : 'Required lexical fact marker missing',
-    })
-  }
-  for (const rule of evalCase.rules.forbiddenPhrases) {
-    const passed = !includesPhrase(observation.answer, rule.phrase)
-    checks.push({
-      checkId: `forbidden:${rule.ruleId}`,
-      passed,
-      detail: passed ? 'Forbidden phrase absent' : 'Forbidden phrase present',
-    })
-  }
-
-  const actualWords = wordCount(observation.answer)
-  checks.push({
-    checkId: 'max-words',
-    passed: actualWords <= evalCase.rules.maxWords,
-    detail: `${actualWords} words; maximum ${evalCase.rules.maxWords}`,
-  })
-
-  if (evalCase.rules.unknownAnswer.required) {
-    const passed = evalCase.rules.unknownAnswer.acceptablePhrases.some((phrase) =>
-      includesPhrase(observation.answer, phrase),
-    )
-    checks.push({
-      checkId: `unknown:${evalCase.rules.unknownAnswer.ruleId}`,
-      passed,
-      detail: passed ? 'Unknown-answer boundary acknowledged' : 'Unknown-answer boundary missing',
-    })
-  }
-
-  const normalizedAnswer = normalized(observation.answer)
-  const mentionedPlaces = evalCase.venue.placeNameUniverse.filter((placeName) =>
-    normalizedAnswer.includes(normalized(placeName)),
-  )
-  const allowedPlaces = new Set(evalCase.venue.allowedPlaceNames.map(normalized))
-  const disallowedMentions = mentionedPlaces.filter(
-    (placeName) => !allowedPlaces.has(normalized(placeName)),
-  )
-  checks.push({
-    checkId: 'place-allowlist',
-    passed: disallowedMentions.length === 0,
-    detail:
-      disallowedMentions.length === 0
-        ? 'No disallowed declared place name detected'
-        : `Disallowed declared place names detected: ${disallowedMentions.join(', ')}`,
-  })
+  const checks = scoreEvaluationChecks(evalCase, observation)
 
   const passedCheckCount = checks.filter((check) => check.passed).length
   return EvalResultSchema.parse({
@@ -159,7 +72,7 @@ function aggregateEvalResults(
     if (result.caseHash !== hashEvalCase(evalCase)) {
       throw new Error('Evaluation result case hashes must match the evaluation corpus')
     }
-    const expectedIds = expectedCheckIds(evalCase).sort()
+    const expectedIds = expectedEvalCheckIds(evalCase).sort()
     const actualIds = result.checks.map((check) => check.checkId).sort()
     if (JSON.stringify(actualIds) !== JSON.stringify(expectedIds)) {
       throw new Error(`Evaluation result checks do not match case ${result.caseId}`)

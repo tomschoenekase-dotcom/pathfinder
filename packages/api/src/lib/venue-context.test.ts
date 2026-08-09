@@ -6,6 +6,8 @@ import {
   formatDistance,
   GUEST_CHAT_PROMPT_VERSION,
 } from './venue-context'
+import { GUEST_CHAT_PROMPT_CONTRACT_HASH } from '@pathfinder/contracts/prompt-contract'
+import { hashGuestChatPromptManifest } from './guest-chat-prompt-contract'
 
 const venue = {
   name: 'City Zoo',
@@ -40,6 +42,117 @@ const relevantPlaces = [
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
     expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v1')
+  })
+
+  it('matches the broad production prompt contract manifest', () => {
+    const prompts = [
+      {
+        id: 'location-aware-core',
+        prompt: buildVenueSystemPrompt({ venue, relevantPlaces, userLat: 40.7, userLng: -74 }),
+      },
+      {
+        id: 'non-location-empty',
+        prompt: buildVenueSystemPrompt({
+          venue: { ...venue, guideMode: 'non_location', aiGuideName: 'Zoo Guide' },
+          relevantPlaces: [],
+          userLat: 0,
+          userLng: 0,
+          guideMode: 'non_location',
+        }),
+      },
+      {
+        id: 'operator-content-and-update',
+        prompt: buildVenueSystemPrompt({
+          venue: {
+            ...venue,
+            guideNotes: 'Mention accessibility routes.',
+            aiGuideNotes: 'Never speculate about animal availability.',
+            aiTone: 'warm',
+          },
+          relevantPlaces,
+          knowledgeEntries: [
+            { title: 'Accessibility', category: 'visitor-services', content: 'Step-free entry.' },
+          ],
+          activeUpdates: [
+            {
+              updateType: 'CLOSURE',
+              severity: 'HIGH',
+              priority: 'URGENT',
+              title: 'North path closed',
+              body: 'Use the south path.',
+              redirectTo: 'South Gate',
+              place: { name: 'Elephant Enclosure' },
+            },
+          ],
+          userLat: 0,
+          userLng: 0,
+        }),
+      },
+      {
+        id: 'engagement-feature-language',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces,
+          featuredPlace: { name: 'Elephant Enclosure', blurb: 'Keeper talk at noon.' },
+          engagementQuestion: {
+            questionType: 'MULTIPLE_CHOICE',
+            prompt: 'Ask which habitat they enjoyed.',
+            choiceOptions: ['elephants', 'birds'],
+            allowAiInvented: true,
+          },
+          language: 'Spanish',
+          userLat: 0,
+          userLng: 0,
+        }),
+      },
+      {
+        id: 'authored-engagement-no-invention',
+        prompt: buildVenueSystemPrompt({
+          venue: { ...venue, aiTone: 'PROFESSIONAL' },
+          relevantPlaces: [
+            {
+              name: 'Elephant Enclosure',
+              type: 'attraction',
+              itemType: 'historic_site',
+              shortDescription: null,
+              longDescription: 'A detailed interpretation of the habitat.',
+              areaName: null,
+              tags: [],
+              hours: null,
+            },
+          ],
+          engagementQuestion: {
+            questionType: 'OPEN_ENDED',
+            prompt: 'Learn what surprised the guest.',
+            allowAiInvented: false,
+          },
+          userLat: 0,
+          userLng: 0,
+        }),
+      },
+      {
+        id: 'invention-only-playful-minimal-update',
+        prompt: buildVenueSystemPrompt({
+          venue: { ...venue, description: null, aiTone: 'PLAYFUL' },
+          relevantPlaces,
+          activeUpdates: [
+            {
+              updateType: 'NOTICE',
+              severity: 'INFO',
+              priority: 'NORMAL',
+              title: 'Keeper talk moved',
+              body: null,
+              redirectTo: null,
+              place: null,
+            },
+          ],
+          engagementQuestion: { allowAiInvented: true },
+          userLat: 0,
+          userLng: 0,
+        }),
+      },
+    ]
+    expect(hashGuestChatPromptManifest(prompts)).toBe(GUEST_CHAT_PROMPT_CONTRACT_HASH)
   })
 })
 

@@ -3,7 +3,9 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./venue-package": "./src/venue-package.ts"
+    "./venue-package": "./src/venue-package.ts",
+    "./evaluation": "./src/evaluation.ts",
+    "./prompt-contract": "./src/prompt-contract.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

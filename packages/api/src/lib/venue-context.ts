@@ -2,7 +2,10 @@
  * Durable version of the production guest-chat system prompt contract.
  * Increment when prompt behavior changes in a way that invalidates evaluation baselines.
  */
-export const GUEST_CHAT_PROMPT_VERSION = 'guest-chat-prompt-v1' as const
+export {
+  GUEST_CHAT_PROMPT_CONTRACT_HASH,
+  GUEST_CHAT_PROMPT_VERSION,
+} from '@pathfinder/contracts/prompt-contract'
 
 type RelevantPlace = {
   id?: string
