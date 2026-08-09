@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -28,6 +28,20 @@ vi.mock('../lib/trpc', () => ({
 }))
 
 import { VenueJsonImporter } from './VenueJsonImporter'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
+function codedError(code: string, message: string) {
+  return Object.assign(new Error(message), { data: { code } })
+}
 
 const payload = {
   schemaVersion: 1,
@@ -231,7 +245,10 @@ describe('venue package workspace', () => {
     mocks.preview.mockResolvedValue(preview)
   })
 
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('uses the server preview and renders every supported addition exactly', async () => {
     render(
@@ -571,5 +588,256 @@ describe('venue package workspace', () => {
       }),
     )
     expect(window.confirm).toHaveBeenCalled()
+  })
+
+  it('shares one synchronous Preview/Save fence and locks the captured package payload', async () => {
+    const pendingPreview = deferred<typeof preview>()
+    const submittedPayload = {
+      ...payload,
+      places: [{ ...payload.places[0], name: 'Captured gallery' }],
+    }
+    mocks.list.mockResolvedValueOnce([draft]).mockResolvedValueOnce([draft])
+    mocks.createDraft.mockResolvedValueOnce({ ...draft, preview, replayed: false })
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    const editor = screen.getByLabelText('Canonical package JSON') as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: JSON.stringify(submittedPayload) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview on server' }))
+    expect(await screen.findByText('Semantic duplicate scan: COMPLETE')).toBeTruthy()
+
+    mocks.preview.mockReturnValueOnce(pendingPreview.promise)
+    const previewButton = screen.getByRole('button', {
+      name: 'Preview on server',
+    }) as HTMLButtonElement
+    const saveButton = screen.getByRole('button', {
+      name: 'Save immutable draft',
+    }) as HTMLButtonElement
+    const packageButton = (await screen.findByText(draft.id)).closest('button') as HTMLButtonElement
+
+    act(() => {
+      saveButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      saveButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      previewButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(mocks.preview).toHaveBeenCalledTimes(2)
+    expect(mocks.createDraft).not.toHaveBeenCalled()
+    const workspace = screen
+      .getByRole('heading', { name: 'Venue package workspace' })
+      .closest('section')?.parentElement
+    expect(workspace?.getAttribute('aria-busy')).toBe('true')
+    expect(editor.disabled).toBe(true)
+    expect(
+      (screen.getByLabelText('Load venue package JSON file') as HTMLInputElement).disabled,
+    ).toBe(true)
+    expect(previewButton.disabled).toBe(true)
+    expect(saveButton.disabled).toBe(true)
+    expect(packageButton.disabled).toBe(true)
+
+    pendingPreview.resolve(preview)
+    await waitFor(() => expect(mocks.createDraft).toHaveBeenCalledOnce())
+    expect(mocks.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ venueId: 'venue-1', payload: submittedPayload }),
+    )
+  })
+
+  it('shows truthful loading and ignores an older venue history response', async () => {
+    const venueOne = deferred<(typeof draft)[]>()
+    const venueTwo = deferred<(typeof draft)[]>()
+    const venueTwoDraft = {
+      ...draft,
+      id: 'cpackagevenue2abc12345',
+      venueId: 'venue-2',
+    }
+    mocks.list.mockImplementation(({ venueId }: { venueId: string }) =>
+      venueId === 'venue-1' ? venueOne.promise : venueTwo.promise,
+    )
+
+    const view = render(
+      <VenueJsonImporter venueId="venue-1" venueName="First Museum" guideMode="non_location" />,
+    )
+    expect(screen.getByText(/Loading package history/)).toBeTruthy()
+    expect(screen.queryByText('No saved package revisions yet.')).toBeNull()
+
+    view.rerender(
+      <VenueJsonImporter venueId="venue-2" venueName="Second Museum" guideMode="non_location" />,
+    )
+    venueTwo.resolve([venueTwoDraft])
+    expect(await screen.findByText(venueTwoDraft.id)).toBeTruthy()
+
+    venueOne.resolve([draft])
+    await act(async () => venueOne.promise)
+    expect(screen.queryByText(draft.id)).toBeNull()
+    expect(screen.getByText(venueTwoDraft.id)).toBeTruthy()
+  })
+
+  it.each([
+    { action: 'Approve', status: 'DRAFT' as const },
+    { action: 'Apply approved package', status: 'APPROVED' as const },
+    { action: 'Revert package', status: 'APPLIED' as const },
+  ])(
+    'uses structured conflict recovery and stale-locks $action until explicit reselection',
+    async ({ action, status }) => {
+      const current = { ...draft, status }
+      const refreshed = { ...current, updatedAt: new Date(updatedAt.getTime() + 10) }
+      mocks.list.mockResolvedValueOnce([current]).mockResolvedValueOnce([refreshed])
+      const rejection = codedError('CONFLICT', 'Revision mismatch.')
+      if (status === 'DRAFT') mocks.approve.mockRejectedValueOnce(rejection)
+      if (status === 'APPROVED') mocks.applyPackage.mockRejectedValueOnce(rejection)
+      if (status === 'APPLIED') {
+        vi.spyOn(window, 'confirm').mockReturnValue(true)
+        mocks.revertPackage.mockRejectedValueOnce(rejection)
+      }
+
+      render(
+        <VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />,
+      )
+      fireEvent.click(await screen.findByText(current.id))
+      fireEvent.click(screen.getByRole('button', { name: action }))
+
+      await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2))
+      expect((await screen.findByRole('alert')).textContent).toContain(
+        'This package changed after it was loaded.',
+      )
+      const staleAction = screen.getByRole('button', { name: action }) as HTMLButtonElement
+      expect(staleAction.disabled).toBe(true)
+
+      fireEvent.click(screen.getByText(refreshed.id))
+      expect((screen.getByRole('button', { name: action }) as HTMLButtonElement).disabled).toBe(
+        false,
+      )
+    },
+  )
+
+  it('does not infer a conflict refresh from message text alone', async () => {
+    const approved = { ...draft, status: 'APPROVED' as const }
+    mocks.list.mockResolvedValueOnce([approved])
+    mocks.applyPackage.mockRejectedValueOnce(new Error('The response changed before delivery.'))
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(approved.id))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply approved package' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('changed before delivery')
+    expect(mocks.list).toHaveBeenCalledOnce()
+  })
+
+  it('reuses the command key when mutation success is followed by an unconfirmed list failure', async () => {
+    const approved = { ...draft, status: 'APPROVED' as const }
+    const applied = {
+      ...draft,
+      status: 'APPLIED' as const,
+      updatedAt: new Date(updatedAt.getTime() + 1),
+    }
+    mocks.list
+      .mockResolvedValueOnce([approved])
+      .mockRejectedValueOnce(new Error('Package history is unavailable.'))
+      .mockResolvedValueOnce([applied])
+    mocks.applyPackage.mockResolvedValue(applied)
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(approved.id))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply approved package' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('could not be confirmed')
+    expect(screen.queryByText('Package applied atomically.')).toBeNull()
+    const firstKey = mocks.applyPackage.mock.calls[0]?.[0].commandKey
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply approved package' }))
+    expect(await screen.findByText('Package applied atomically.')).toBeTruthy()
+    expect(mocks.applyPackage).toHaveBeenCalledTimes(2)
+    expect(mocks.applyPackage.mock.calls[1]?.[0].commandKey).toBe(firstKey)
+  })
+
+  it('does not claim lifecycle success when the preferred revision is absent from refresh', async () => {
+    const approved = { ...draft, status: 'APPROVED' as const }
+    const applied = {
+      ...draft,
+      status: 'APPLIED' as const,
+      updatedAt: new Date(updatedAt.getTime() + 1),
+    }
+    mocks.list.mockResolvedValueOnce([approved]).mockResolvedValueOnce([])
+    mocks.applyPackage.mockResolvedValueOnce(applied)
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(await screen.findByText(approved.id))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply approved package' }))
+
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText('Package applied atomically.')).toBeNull()
+    expect(await screen.findByRole('alert')).toBeTruthy()
+  })
+
+  it('clears a stale initial-history error after a draft is authoritatively confirmed', async () => {
+    const initialHistory = deferred<(typeof draft)[]>()
+    const pendingCreate = deferred<typeof draft & { preview: typeof preview; replayed: boolean }>()
+    mocks.list.mockReturnValueOnce(initialHistory.promise).mockResolvedValueOnce([draft])
+    mocks.createDraft.mockReturnValueOnce(pendingCreate.promise)
+
+    render(<VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview on server' }))
+    await screen.findByText('Semantic duplicate scan: COMPLETE')
+    fireEvent.click(screen.getByRole('button', { name: 'Save immutable draft' }))
+    await waitFor(() => expect(mocks.createDraft).toHaveBeenCalledOnce())
+
+    initialHistory.reject(new Error('Initial history failed.'))
+    expect((await screen.findByRole('alert')).textContent).toContain('Initial history failed.')
+
+    pendingCreate.resolve({ ...draft, preview, replayed: false })
+    expect(await screen.findByText('Draft saved for review.')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('does not continue into a package-list refresh after lifecycle completion on unmount', async () => {
+    const approved = { ...draft, status: 'APPROVED' as const }
+    const applied = {
+      ...draft,
+      status: 'APPLIED' as const,
+      updatedAt: new Date(updatedAt.getTime() + 1),
+    }
+    const pendingApply = deferred<typeof applied>()
+    mocks.list.mockResolvedValueOnce([approved])
+    mocks.applyPackage.mockReturnValueOnce(pendingApply.promise)
+
+    const view = render(
+      <VenueJsonImporter venueId="venue-1" venueName="City Museum" guideMode="non_location" />,
+    )
+    fireEvent.click(await screen.findByText(approved.id))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply approved package' }))
+    await waitFor(() => expect(mocks.applyPackage).toHaveBeenCalledOnce())
+    view.unmount()
+
+    pendingApply.resolve(applied)
+    await act(async () => pendingApply.promise)
+    expect(mocks.list).toHaveBeenCalledOnce()
+  })
+
+  it('reports file-read failure and ignores a late file from the previous venue', async () => {
+    const lateRead = deferred<string>()
+    const view = render(
+      <VenueJsonImporter venueId="venue-1" venueName="First Museum" guideMode="non_location" />,
+    )
+    const fileInput = screen.getByLabelText('Load venue package JSON file')
+    const originalText = (screen.getByLabelText('Canonical package JSON') as HTMLTextAreaElement)
+      .value
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [{ text: () => Promise.reject(new Error('The JSON file could not be read.')) }],
+      },
+    })
+    expect((await screen.findByRole('alert')).textContent).toContain('could not be read')
+    expect((screen.getByLabelText('Canonical package JSON') as HTMLTextAreaElement).value).toBe(
+      originalText,
+    )
+
+    fireEvent.change(fileInput, { target: { files: [{ text: () => lateRead.promise }] } })
+    view.rerender(
+      <VenueJsonImporter venueId="venue-2" venueName="Second Museum" guideMode="non_location" />,
+    )
+    lateRead.resolve('{"schemaVersion":999}')
+    await act(async () => lateRead.promise)
+    expect((screen.getByLabelText('Canonical package JSON') as HTMLTextAreaElement).value).not.toBe(
+      '{"schemaVersion":999}',
+    )
   })
 })

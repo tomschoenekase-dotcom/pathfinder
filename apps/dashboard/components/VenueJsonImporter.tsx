@@ -81,26 +81,112 @@ export function VenueJsonImporter({
   const [selected, setSelected] = useState<PackageRecord | null>(null)
   const [warningsAcknowledged, setWarningsAcknowledged] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [fileReading, setFileReading] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [draftKey, setDraftKey] = useState(() => crypto.randomUUID())
   const [selectedIsStale, setSelectedIsStale] = useState(false)
   const commandKeys = useRef(new Map<string, string>())
+  const mounted = useRef(false)
+  const scopeGeneration = useRef(0)
+  const actionSequence = useRef(0)
+  const activeAction = useRef<number | null>(null)
+  const listRequest = useRef(0)
+  const fileRequest = useRef(0)
+  const fileReadActive = useRef(false)
 
-  async function loadPackages(preferredId?: string) {
-    const rows = await client.venuePackage.list.query({ venueId })
-    setPackages(rows)
-    if (preferredId) {
-      const preferred = rows.find((row) => row.id === preferredId) ?? null
-      setSelected(preferred)
-      setPreview(preferred?.previewPlan ?? null)
-      setWarningsAcknowledged(false)
+  const interactionBusy = busy || fileReading
+
+  function isCurrentScope(scope: number) {
+    return mounted.current && scopeGeneration.current === scope
+  }
+
+  function isCurrentAction(token: number, scope: number) {
+    return isCurrentScope(scope) && activeAction.current === token
+  }
+
+  function startAction(): { token: number; scope: number } | null {
+    if (activeAction.current !== null || fileReadActive.current) return null
+    const token = ++actionSequence.current
+    activeAction.current = token
+    setBusy(true)
+    return { token, scope: scopeGeneration.current }
+  }
+
+  function finishAction(token: number, scope: number) {
+    if (!isCurrentAction(token, scope)) return
+    activeAction.current = null
+    setBusy(false)
+  }
+
+  function applyPackageSelection(pkg: PackageRecord, stale = false) {
+    setSelected(pkg)
+    setText(JSON.stringify(pkg.payload, null, 2))
+    setPreview(pkg.previewPlan)
+    setWarningsAcknowledged(false)
+    setSelectedIsStale(stale)
+  }
+
+  async function loadPackages(scope: number, preferredId?: string) {
+    const request = ++listRequest.current
+    if (isCurrentScope(scope)) setLoadingHistory(true)
+    let rows: PackageRecord[]
+    try {
+      rows = await client.venuePackage.list.query({ venueId })
+    } catch (cause) {
+      if (!isCurrentScope(scope) || listRequest.current !== request) {
+        return { committed: false, preferred: null as PackageRecord | null }
+      }
+      setLoadingHistory(false)
+      throw cause
     }
-    return rows
+    if (!isCurrentScope(scope) || listRequest.current !== request) {
+      return { committed: false, preferred: null as PackageRecord | null }
+    }
+    setPackages(rows)
+    setLoadingHistory(false)
+    return {
+      committed: true,
+      preferred: preferredId ? (rows.find((row) => row.id === preferredId) ?? null) : null,
+    }
   }
 
   useEffect(() => {
-    void loadPackages().catch((cause) => setError(errorMessage(cause)))
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      activeAction.current = null
+      fileReadActive.current = false
+      listRequest.current += 1
+      fileRequest.current += 1
+    }
+  }, [])
+
+  useEffect(() => {
+    const scope = ++scopeGeneration.current
+    activeAction.current = null
+    fileReadActive.current = false
+    listRequest.current += 1
+    fileRequest.current += 1
+    commandKeys.current.clear()
+    setPackages([])
+    setSelected(null)
+    setText(EXAMPLE_JSON)
+    setPreview(null)
+    setWarningsAcknowledged(false)
+    setSelectedIsStale(false)
+    setBusy(false)
+    setFileReading(false)
+    setLoadingHistory(true)
+    setError(null)
+    setNotice(null)
+    setDraftKey(crypto.randomUUID())
+    void loadPackages(scope).catch((cause) => {
+      if (!isCurrentScope(scope)) return
+      setLoadingHistory(false)
+      setError(errorMessage(cause))
+    })
     // The typed client is stable for this component lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [venueId])
@@ -113,41 +199,72 @@ export function VenueJsonImporter({
     }
   }
 
-  async function runPreview(payload = parseText()) {
-    const next = await client.venuePackage.preview.mutate({ venueId, payload })
-    setPreview(next)
-    setWarningsAcknowledged(false)
-    return next
+  async function runPreview(payload: VenuePackagePayload) {
+    return client.venuePackage.preview.mutate({ venueId, payload })
   }
 
   async function handlePreview() {
-    setBusy(true)
-    setError(null)
-    setNotice(null)
-    try {
-      await runPreview()
-    } catch (cause) {
-      setPreview(null)
-      setError(errorMessage(cause))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleSaveDraft() {
-    setBusy(true)
+    const action = startAction()
+    if (!action) return
     setError(null)
     setNotice(null)
     try {
       const payload = parseText()
+      const next = await runPreview(payload)
+      if (!isCurrentAction(action.token, action.scope)) return
+      setPreview(next)
+      setWarningsAcknowledged(false)
+    } catch (cause) {
+      if (!isCurrentAction(action.token, action.scope)) return
+      setPreview(null)
+      setError(errorMessage(cause))
+    } finally {
+      finishAction(action.token, action.scope)
+    }
+  }
+
+  async function handleSaveDraft() {
+    const action = startAction()
+    if (!action) return
+    setError(null)
+    setNotice(null)
+    const attemptedDraftKey = draftKey
+    try {
+      const payload = parseText()
       const checked = await runPreview(payload)
+      if (!isCurrentAction(action.token, action.scope)) return
+      setPreview(checked)
+      setWarningsAcknowledged(false)
       if (checked.report.errors.length > 0) throw new Error('Resolve every preview error first.')
-      const draft = await client.venuePackage.createDraft.mutate({ venueId, payload, draftKey })
-      await loadPackages(draft.id)
-      setPreview(draft.preview)
+      const draft = await client.venuePackage.createDraft.mutate({
+        venueId,
+        payload,
+        draftKey: attemptedDraftKey,
+      })
+      if (!isCurrentAction(action.token, action.scope)) return
+      let loaded
+      try {
+        loaded = await loadPackages(action.scope, draft.id)
+      } catch {
+        if (!isCurrentAction(action.token, action.scope)) return
+        setError(
+          'The draft was saved, but its current revision could not be confirmed. Retry is safe and will reuse the same draft identity.',
+        )
+        return
+      }
+      if (!isCurrentAction(action.token, action.scope) || !loaded.committed) return
+      if (!loaded.preferred) {
+        setError(
+          'The draft was saved, but its current revision is missing from history. Retry is safe and will reuse the same draft identity.',
+        )
+        return
+      }
+      applyPackageSelection(loaded.preferred)
+      setError(null)
       setDraftKey(crypto.randomUUID())
       setNotice(draft.replayed ? 'This exact draft already exists.' : 'Draft saved for review.')
     } catch (cause) {
+      if (!isCurrentAction(action.token, action.scope)) return
       // A terminal analysis receipt deliberately cannot be redriven because the
       // provider has no idempotency boundary. Give an unchanged payload a fresh
       // identity only when the server explicitly requires one; retain the key
@@ -155,53 +272,74 @@ export function VenueJsonImporter({
       if (errorCode(cause) === 'PRECONDITION_FAILED') setDraftKey(crypto.randomUUID())
       setError(errorMessage(cause))
     } finally {
-      setBusy(false)
+      finishAction(action.token, action.scope)
     }
   }
 
-  async function refreshConflict(packageId: string) {
-    const rows = await loadPackages(packageId)
-    const current = rows.find((row) => row.id === packageId)
-    if (current) {
-      setText(JSON.stringify(current.payload, null, 2))
-      setPreview(current.previewPlan)
-      setWarningsAcknowledged(false)
-    }
+  async function refreshConflict(packageId: string, token: number, scope: number) {
+    const loaded = await loadPackages(scope, packageId)
+    if (!isCurrentAction(token, scope) || !loaded.committed || !loaded.preferred) return false
+    applyPackageSelection(loaded.preferred, true)
     setNotice('Package or venue content changed. The current revision was refreshed for review.')
+    return true
   }
 
   async function runLifecycle(action: 'approve' | 'apply' | 'revert') {
-    if (!selected) return
+    if (!selected || selectedIsStale) return
+    const operation = startAction()
+    if (!operation) return
+    const target = selected
+    const targetPreview = preview
     if (action === 'approve' && preview?.report.warnings.length && !warningsAcknowledged) {
       setError('Acknowledge every warning before approval.')
+      finishAction(operation.token, operation.scope)
       return
     }
     if (
       action === 'revert' &&
       !window.confirm('Revert every unchanged item created by this package?')
     ) {
+      finishAction(operation.token, operation.scope)
       return
     }
 
-    setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      const commandIdentity = `${selected.id}:${action}:${selected.updatedAt.toISOString()}`
+      const commandIdentity = `${target.id}:${action}:${target.updatedAt.toISOString()}`
       const commandKey = commandKeys.current.get(commandIdentity) ?? crypto.randomUUID()
       commandKeys.current.set(commandIdentity, commandKey)
-      const input = { id: selected.id, expectedUpdatedAt: selected.updatedAt, commandKey }
+      const input = { id: target.id, expectedUpdatedAt: target.updatedAt, commandKey }
       const result =
         action === 'approve'
           ? await client.venuePackage.approve.mutate({
               ...input,
-              acknowledgedWarningDigest: preview?.warningDigest ?? '',
-              acknowledgedPayloadHash: preview?.payloadHash ?? '',
+              acknowledgedWarningDigest: targetPreview?.warningDigest ?? '',
+              acknowledgedPayloadHash: targetPreview?.payloadHash ?? '',
             })
           : action === 'apply'
             ? await client.venuePackage.applyPackage.mutate(input)
             : await client.venuePackage.revertPackage.mutate(input)
-      await loadPackages(result.id)
+      if (!isCurrentAction(operation.token, operation.scope)) return
+      let loaded
+      try {
+        loaded = await loadPackages(operation.scope, result.id)
+      } catch {
+        if (!isCurrentAction(operation.token, operation.scope)) return
+        setError(
+          'The action completed, but its current revision could not be confirmed. Retry is safe and will reuse the same command identity.',
+        )
+        return
+      }
+      if (!isCurrentAction(operation.token, operation.scope) || !loaded.committed) return
+      if (!loaded.preferred) {
+        setError(
+          'The action completed, but its current revision is missing from history. Retry is safe and will reuse the same command identity.',
+        )
+        return
+      }
+      applyPackageSelection(loaded.preferred)
+      setError(null)
       setNotice(
         action === 'approve'
           ? 'Package approved. Application remains a separate action.'
@@ -210,38 +348,81 @@ export function VenueJsonImporter({
             : 'Package reverted to its exact approved base.',
       )
     } catch (cause) {
+      if (!isCurrentAction(operation.token, operation.scope)) return
       const message = errorMessage(cause)
-      if (/conflict|changed|refresh|already applied/i.test(message)) {
+      const conflict = errorCode(cause) === 'CONFLICT'
+      if (conflict) {
         setSelectedIsStale(true)
         try {
-          await refreshConflict(selected.id)
+          const refreshed = await refreshConflict(target.id, operation.token, operation.scope)
+          if (!refreshed && isCurrentAction(operation.token, operation.scope)) {
+            setNotice(
+              'The action conflicted, but the current revision could not be confirmed. Reload before retrying.',
+            )
+          }
         } catch {
-          setNotice(
-            'The action conflicted, and automatic refresh also failed. Reload before retrying.',
-          )
+          if (isCurrentAction(operation.token, operation.scope)) {
+            setNotice(
+              'The action conflicted, and automatic refresh also failed. Reload before retrying.',
+            )
+          }
         }
       }
-      setError(message)
+      if (isCurrentAction(operation.token, operation.scope)) {
+        setError(
+          conflict
+            ? 'This package changed after it was loaded. Review the refreshed revision before retrying.'
+            : message,
+        )
+      }
     } finally {
-      setBusy(false)
+      finishAction(operation.token, operation.scope)
     }
   }
 
   function selectPackage(pkg: PackageRecord) {
-    setSelected(pkg)
-    setText(JSON.stringify(pkg.payload, null, 2))
-    setPreview(pkg.previewPlan)
-    setWarningsAcknowledged(false)
-    setSelectedIsStale(false)
+    if (activeAction.current !== null || fileReadActive.current) return
+    applyPackageSelection(pkg)
     setError(null)
     setNotice(null)
+  }
+
+  function handleFileChange(file: File | undefined, input: HTMLInputElement) {
+    input.value = ''
+    if (!file || activeAction.current !== null) return
+    const request = ++fileRequest.current
+    const scope = scopeGeneration.current
+    fileReadActive.current = true
+    setFileReading(true)
+    void file
+      .text()
+      .then((contents) => {
+        if (!isCurrentScope(scope) || fileRequest.current !== request) return
+        setText(contents)
+        setDraftKey(crypto.randomUUID())
+        setPreview(null)
+        setSelected(null)
+        setWarningsAcknowledged(false)
+        setSelectedIsStale(false)
+        setError(null)
+        setNotice(null)
+      })
+      .catch((cause) => {
+        if (!isCurrentScope(scope) || fileRequest.current !== request) return
+        setError(`The JSON file could not be read. ${errorMessage(cause)}`)
+      })
+      .finally(() => {
+        if (!isCurrentScope(scope) || fileRequest.current !== request) return
+        fileReadActive.current = false
+        setFileReading(false)
+      })
   }
 
   const warningCount = preview?.report.warnings.length ?? 0
   const semanticScanComplete = preview?.report.semanticDuplicateScan.status === 'COMPLETE'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={interactionBusy}>
       <section className="rounded-lg border border-gray-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-gray-900">Venue package workspace</h2>
         <p className="mt-1 text-sm text-gray-600">
@@ -263,12 +444,15 @@ export function VenueJsonImporter({
           id="venue-package-json"
           value={text}
           onChange={(event) => {
+            if (activeAction.current !== null || fileReadActive.current) return
             setText(event.target.value)
             setDraftKey(crypto.randomUUID())
             setPreview(null)
             setSelected(null)
             setWarningsAcknowledged(false)
+            setSelectedIsStale(false)
           }}
+          disabled={interactionBusy}
           rows={22}
           className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           spellCheck={false}
@@ -280,22 +464,16 @@ export function VenueJsonImporter({
           aria-label="Load venue package JSON file"
           onChange={(event) => {
             const file = event.target.files?.[0]
-            if (!file) return
-            void file.text().then((contents) => {
-              setText(contents)
-              setDraftKey(crypto.randomUUID())
-              setPreview(null)
-              setSelected(null)
-              setWarningsAcknowledged(false)
-            })
+            handleFileChange(file, event.currentTarget)
           }}
+          disabled={interactionBusy}
         />
 
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="button"
             onClick={() => void handlePreview()}
-            disabled={busy}
+            disabled={interactionBusy}
             className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-50"
           >
             Preview on server
@@ -303,7 +481,7 @@ export function VenueJsonImporter({
           <button
             type="button"
             onClick={() => void handleSaveDraft()}
-            disabled={busy || !preview || preview.report.errors.length > 0}
+            disabled={interactionBusy || !preview || preview.report.errors.length > 0}
             className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             Save immutable draft
@@ -402,7 +580,11 @@ export function VenueJsonImporter({
                 <input
                   type="checkbox"
                   checked={warningsAcknowledged}
-                  onChange={(event) => setWarningsAcknowledged(event.target.checked)}
+                  disabled={interactionBusy}
+                  onChange={(event) => {
+                    if (activeAction.current !== null || fileReadActive.current) return
+                    setWarningsAcknowledged(event.target.checked)
+                  }}
                 />
                 I reviewed all {warningCount} warning{warningCount === 1 ? '' : 's'}.
               </label>
@@ -540,14 +722,24 @@ export function VenueJsonImporter({
 
       <section className="rounded-lg border border-gray-200 bg-white p-6">
         <h3 className="font-semibold text-gray-900">Durable package history</h3>
-        {packages.length === 0 ? (
+        {loadingHistory ? (
+          <p className="mt-3 text-sm text-gray-500" role="status">
+            Loading package historyâ€¦
+          </p>
+        ) : packages.length === 0 ? (
           <p className="mt-3 text-sm text-gray-500">No saved package revisions yet.</p>
         ) : (
           <div className="mt-4 space-y-3">
             {packages.map((pkg) => (
               <div key={pkg.id} className="rounded-md border border-gray-200 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <button type="button" className="text-left" onClick={() => selectPackage(pkg)}>
+                  <button
+                    type="button"
+                    className="text-left disabled:opacity-50"
+                    onClick={() => selectPackage(pkg)}
+                    disabled={interactionBusy}
+                    aria-pressed={selected?.id === pkg.id}
+                  >
                     <span className="font-mono text-xs text-gray-500">{pkg.id}</span>
                     <span
                       className={`ml-3 rounded-full px-2 py-1 text-xs font-medium ${statusClass(pkg.status)}`}
@@ -565,7 +757,8 @@ export function VenueJsonImporter({
                           type="button"
                           onClick={() => void runLifecycle('approve')}
                           disabled={
-                            busy ||
+                            interactionBusy ||
+                            selectedIsStale ||
                             !preview ||
                             !semanticScanComplete ||
                             preview.report.errors.length > 0 ||
@@ -581,7 +774,7 @@ export function VenueJsonImporter({
                           type="button"
                           onClick={() => void runLifecycle('apply')}
                           disabled={
-                            busy ||
+                            interactionBusy ||
                             selectedIsStale ||
                             !preview ||
                             !semanticScanComplete ||
@@ -596,7 +789,7 @@ export function VenueJsonImporter({
                         <button
                           type="button"
                           onClick={() => void runLifecycle('revert')}
-                          disabled={busy}
+                          disabled={interactionBusy || selectedIsStale}
                           className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
                         >
                           Revert package
