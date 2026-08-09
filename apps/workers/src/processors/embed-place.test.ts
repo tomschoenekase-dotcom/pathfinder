@@ -32,6 +32,11 @@ vi.mock('@pathfinder/db', () => ({
       super('Global AI admission is unavailable')
     }
   },
+  isAiAdmissionControlError: (error: unknown) =>
+    error instanceof Error &&
+    (error.name === 'GlobalAiAdmissionError' ||
+      error.name === 'AiCostBudgetExceededError' ||
+      error.name === 'AiCostBudgetUnavailableError'),
   acquireEmbeddingWork: mocks.acquireEmbeddingWork,
   buildPlaceText: mocks.buildPlaceText,
   embeddingSourceHash: vi.fn(() => 'a'.repeat(64)),

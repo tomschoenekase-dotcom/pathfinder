@@ -95,6 +95,25 @@ export {
   readGlobalAiControl,
 } from './helpers/incident-control'
 export type { GlobalAiControlState } from './helpers/incident-control'
+export {
+  AI_COST_BUDGET_COVERAGE_VERSION,
+  AI_COST_RESERVATION_TTL_MS,
+  AiCostBudgetExceededError,
+  AiCostBudgetInvariantError,
+  AiCostBudgetUnavailableError,
+  markAiCostAttemptDispatched,
+  releaseUndispatchedAiCostAttempt,
+  reconcileExpiredAiCostAttempts,
+  reserveAiCostAttempt,
+  settleAiCostAttemptAmbiguous,
+  settleAiCostAttemptExact,
+} from './helpers/ai-cost-budgets'
+export { isAiAdmissionControlError } from './helpers/ai-admission-control'
+export type {
+  AiCostAttemptIdentity,
+  AiCostReservationRef,
+  ReconcileExpiredAiCostAttemptsResult,
+} from './helpers/ai-cost-budgets'
 export { checkDatabaseConnection } from './helpers/health'
 export {
   CLERK_WEBHOOK_EVENT_TYPE_MAX_LENGTH,

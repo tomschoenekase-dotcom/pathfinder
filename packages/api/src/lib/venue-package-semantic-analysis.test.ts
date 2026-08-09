@@ -1,4 +1,4 @@
-import { AI_EMBEDDING_MODEL_KEYS, generateEmbeddings } from '@pathfinder/ai'
+import { AI_EMBEDDING_MODEL_KEYS, generateEmbeddings, type AiBudgetGate } from '@pathfinder/ai'
 import {
   findVenuePackageKnowledgeSemanticDuplicates,
   findVenuePackagePlaceSemanticDuplicates,
@@ -35,6 +35,8 @@ import {
   VENUE_PACKAGE_EMBEDDING_BATCH_SIZE,
   venuePackageSemanticInputs,
 } from './venue-package-semantic-analysis'
+
+const budgetGate = {} as AiBudgetGate
 
 const emptyCoverage = (): VenuePackageSemanticCoverage => ({
   places: {
@@ -262,6 +264,7 @@ describe('venue package semantic analysis', () => {
       payload: input,
       usageSink: vi.fn().mockResolvedValue(undefined),
       admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate,
     })
     expect(candidates.places).toEqual([
       { draftIndex: 0, embedding: [1] },
@@ -444,6 +447,7 @@ describe('venue package semantic analysis', () => {
       payload: input,
       usageSink,
       admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate,
     })
 
     const placeCalls = vi
@@ -496,6 +500,7 @@ describe('venue package semantic analysis', () => {
         payload: input,
         usageSink: vi.fn().mockResolvedValue(undefined),
         admissionGuard: vi.fn().mockResolvedValue(undefined),
+        budgetGate,
         shouldAbort: () => usagePersistenceFailed,
       }),
     ).rejects.toThrow('Embedding usage evidence is unavailable')
@@ -570,6 +575,7 @@ describe('venue package semantic analysis', () => {
       ),
       usageSink: usageSink as never,
       admissionGuard: vi.fn().mockResolvedValue(undefined),
+      budgetGate,
       shouldAbort: () => usagePersistenceFailed,
     })
     const observedResult = operation.then(

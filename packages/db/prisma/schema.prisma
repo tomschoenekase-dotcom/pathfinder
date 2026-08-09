@@ -62,6 +62,8 @@ model Tenant {
   mediaIngestionProjects        MediaIngestionProject[]
   aiUsageEvents                 AiUsageEvent[]
   aiUsageDailyRollups           AiUsageDailyRollup[]
+  aiCostBudgets                 AiCostBudget[]
+  aiCostReservations            AiCostReservation[]
   embeddingWorkClaims           EmbeddingWorkClaim[]
   embeddingDispatches           EmbeddingDispatch[]
   venueContentImportReceipts    VenueContentImportReceipt[]
@@ -246,6 +248,7 @@ model Venue {
   mediaIngestionProjects        MediaIngestionProject[]
   aiUsageEvents                 AiUsageEvent[]
   aiUsageDailyRollups           AiUsageDailyRollup[]
+  aiCostReservations            AiCostReservation[]
   embeddingWorkClaims           EmbeddingWorkClaim[]
   embeddingDispatches           EmbeddingDispatch[]
   contentImportReceipts         VenueContentImportReceipt[]
@@ -554,6 +557,83 @@ model AiUsageDailyRollup {
   @@index([tenantId, venueId, date])
   @@index([feature, date])
   @@map("ai_usage_daily_rollups")
+}
+
+enum AiCostReservationStatus {
+  RESERVED
+  SETTLED
+  RELEASED
+}
+
+enum AiCostSettlementKind {
+  EXACT
+  AMBIGUOUS_MAX
+  EXPIRED_MAX
+  OVER_CEILING
+}
+
+/// One explicitly configured spend envelope for gateway-accounted AI calls.
+/// No row (or a disabled row) means enforcement is disabled; there is no
+/// invented default commercial threshold.
+model AiCostBudget {
+  id              String              @id @default(cuid())
+  tenantId        String              @map("tenant_id")
+  coverageVersion String              @default("gateway-v1") @map("coverage_version") @db.VarChar(32)
+  enabled         Boolean             @default(false)
+  startsAt        DateTime            @map("starts_at")
+  endsAt          DateTime            @map("ends_at")
+  limitUnits      BigInt              @map("limit_units")
+  remainingUnits  BigInt              @map("remaining_units")
+  reservedUnits   BigInt              @default(0) @map("reserved_units")
+  committedUnits  BigInt              @default(0) @map("committed_units")
+  epoch           Int                 @default(1)
+  revision        Int                 @default(1)
+  breachedAt      DateTime?           @map("breached_at")
+  updatedBy       String              @map("updated_by") @db.VarChar(191)
+  reason          String              @db.VarChar(500)
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  reservations    AiCostReservation[]
+
+  @@unique([tenantId, coverageVersion])
+  @@unique([id, tenantId])
+  @@index([tenantId, enabled])
+  @@map("ai_cost_budgets")
+}
+
+/// Durable accounting identity for exactly one outbound provider attempt.
+/// A process crash or ambiguous provider failure retains the full reservation
+/// rather than silently reopening budget capacity.
+model AiCostReservation {
+  id                String                  @id @db.Uuid
+  budgetId          String                  @map("budget_id")
+  tenantId          String                  @map("tenant_id")
+  venueId           String                  @map("venue_id")
+  budgetEpoch       Int                     @map("budget_epoch")
+  invocationId      String                  @map("invocation_id") @db.Uuid
+  attemptNumber     Int                     @map("attempt_number")
+  feature           String                  @db.VarChar(100)
+  provider          String                  @db.VarChar(32)
+  model             String                  @db.VarChar(191)
+  pricingVersion    String                  @map("pricing_version") @db.VarChar(100)
+  reservedUnits     BigInt                  @map("reserved_units")
+  settledUnits      BigInt?                 @map("settled_units")
+  status            AiCostReservationStatus @default(RESERVED)
+  settlementKind    AiCostSettlementKind?   @map("settlement_kind")
+  expiresAt         DateTime                @map("expires_at")
+  dispatchStartedAt DateTime?               @map("dispatch_started_at")
+  resolvedAt        DateTime?               @map("resolved_at")
+  createdAt         DateTime                @default(now()) @map("created_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+  budget            AiCostBudget            @relation(fields: [budgetId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([budgetId, budgetEpoch, invocationId, attemptNumber])
+  @@index([tenantId, venueId, createdAt])
+  @@index([status, expiresAt])
+  @@map("ai_cost_reservations")
 }
 
 model EngagementQuestionResponse {

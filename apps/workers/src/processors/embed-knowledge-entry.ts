@@ -8,7 +8,7 @@ import {
   acquireEmbeddingWork,
   assertGlobalAiAvailable,
   db,
-  GlobalAiAdmissionError,
+  isAiAdmissionControlError,
   storeKnowledgeEntryEmbeddingForScope,
   releaseEmbeddingWork,
   updateJobRecord,
@@ -22,7 +22,7 @@ import {
 } from '@pathfinder/jobs'
 import { UnrecoverableError } from 'bullmq'
 
-import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
 import { embeddingRevisionMatches, parseEmbeddingRevision } from '../lib/embedding-revision'
 import {
   normalizeJobExecutionMetadata,
@@ -131,6 +131,11 @@ export async function processEmbedKnowledgeEntryJob(
         venueId: entry.venueId,
         feature: 'knowledge-entry-embedding',
       }),
+      budgetGate: createWorkerAiBudgetGate({
+        tenantId: payload.tenantId,
+        venueId: entry.venueId,
+        feature: 'knowledge-entry-embedding',
+      }),
     })
     const storage = await storeKnowledgeEntryEmbeddingForScope({
       entryId: entry.id,
@@ -182,7 +187,7 @@ export async function processEmbedKnowledgeEntryJob(
         })
       }
     }
-    if (error instanceof GlobalAiAdmissionError) throw error
+    if (isAiAdmissionControlError(error)) throw error
     await recordJobFailure({
       jobRecordId,
       error,

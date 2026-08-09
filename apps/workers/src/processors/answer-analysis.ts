@@ -13,7 +13,7 @@ import {
   assertGlobalAiAvailable,
   db,
   deferAnswerAnalysisExecution,
-  GlobalAiAdmissionError,
+  isAiAdmissionControlError,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -25,7 +25,7 @@ import {
   type AnswerAnalysisJobPayload,
 } from '@pathfinder/jobs'
 
-import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -358,6 +358,11 @@ export async function processAnswerAnalysisJob(
         venueId: payload.venueId,
         feature: 'answer-analysis',
       }),
+      budgetGate: createWorkerAiBudgetGate({
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        feature: 'answer-analysis',
+      }),
     })
 
     const summary = response.parsed
@@ -381,7 +386,7 @@ export async function processAnswerAnalysisJob(
       generalMessageCount: promptData.generalMessages.length,
     })
   } catch (error) {
-    if (error instanceof GlobalAiAdmissionError) {
+    if (isAiAdmissionControlError(error)) {
       if (leaseToken !== null) {
         const released = await deferAnswerAnalysisExecution({
           snapshotId: payload.snapshotId,

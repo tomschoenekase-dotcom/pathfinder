@@ -1,7 +1,11 @@
 import { DelayedError, type Job } from 'bullmq'
 
 import { logger } from '@pathfinder/config'
-import { assertGlobalAiAvailable, GlobalAiAdmissionError } from '@pathfinder/db'
+import {
+  assertGlobalAiAvailable,
+  GlobalAiAdmissionError,
+  isAiAdmissionControlError,
+} from '@pathfinder/db'
 
 export const GLOBAL_AI_RECHECK_DELAY_MS = 60_000
 
@@ -37,7 +41,7 @@ export async function runAiJobWithIncidentControl(
   try {
     await operation()
   } catch (error) {
-    if (error instanceof GlobalAiAdmissionError) {
+    if (isAiAdmissionControlError(error)) {
       await delayJobForGlobalAiPause(job, token)
     }
     throw error

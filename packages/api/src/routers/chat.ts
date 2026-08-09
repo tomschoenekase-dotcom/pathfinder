@@ -19,6 +19,7 @@ import { logger } from '@pathfinder/config'
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
 import { router } from '../core'
+import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
@@ -296,45 +297,19 @@ export const chatRouter = router({
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
     const embeddingStartedAt = performance.now()
+    const embeddingAccounting = createApiAiUsageRecorder({
+      db: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      sessionId: session.id,
+      feature: 'guest-chat-query-embedding',
+      surface: 'guest-web',
+    })
     const queryEmbeddingPromise = generateGuestQueryEmbedding(
       trimmedInput,
-      async (usage) => {
-        try {
-          await ctx.db.aiUsageEvent.create({
-            data: {
-              tenantId: venue.tenantId,
-              venueId: input.venueId,
-              sessionId: session.id,
-              feature: 'guest-chat-query-embedding',
-              surface: 'guest-web',
-              provider: usage.provider,
-              model: usage.model,
-              pricingVersion: usage.pricingVersion,
-              inputTokens: usage.usage.inputTokens,
-              outputTokens: usage.usage.outputTokens,
-              cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
-              cacheReadInputTokens: usage.usage.cacheReadInputTokens,
-              totalTokens:
-                usage.usage.inputTokens +
-                usage.usage.outputTokens +
-                usage.usage.cacheCreationInputTokens +
-                usage.usage.cacheReadInputTokens,
-              estimatedCostUsd: usage.estimatedCostUsd,
-              latencyMs: usage.latencyMs,
-              attempts: usage.attempts,
-              success: usage.success,
-              ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
-            },
-          })
-        } catch (usageError) {
-          logger.error({
-            action: 'chat.send.embedding_usage_failed',
-            venueId: input.venueId,
-            error: usageError instanceof Error ? usageError.message : 'Unknown error',
-          })
-        }
-      },
+      embeddingAccounting.sink,
       () => assertGlobalAiAvailable(ctx.db),
+      embeddingAccounting.budgetGate,
     )
       .catch((error: unknown) => {
         if (isGlobalAiAdmissionError(error)) throw globalAiUnavailable()
@@ -530,10 +505,19 @@ export const chatRouter = router({
     let engagementAskedThisTurn = false
     let fallbackFailureCode: string | null = null
     const modelStartedAt = performance.now()
+    const chatAccounting = createApiAiUsageRecorder({
+      db: ctx.db,
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      sessionId: session.id,
+      feature: 'guest-chat',
+      surface: 'guest-web',
+    })
     try {
       const result = await generateText({
         modelKey: AI_MODEL_KEYS.GUEST_CHAT,
         admissionGuard: () => assertGlobalAiAvailable(ctx.db),
+        budgetGate: chatAccounting.budgetGate,
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicPart },
@@ -545,42 +529,7 @@ export const chatRouter = router({
           })),
           { role: 'user', content: trimmedInput },
         ],
-        usageSink: async (usage) => {
-          try {
-            await ctx.db.aiUsageEvent.create({
-              data: {
-                tenantId: venue.tenantId,
-                venueId: input.venueId,
-                sessionId: session.id,
-                feature: 'guest-chat',
-                surface: 'guest-web',
-                provider: usage.provider,
-                model: usage.model,
-                pricingVersion: usage.pricingVersion,
-                inputTokens: usage.usage.inputTokens,
-                outputTokens: usage.usage.outputTokens,
-                cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
-                cacheReadInputTokens: usage.usage.cacheReadInputTokens,
-                totalTokens:
-                  usage.usage.inputTokens +
-                  usage.usage.outputTokens +
-                  usage.usage.cacheCreationInputTokens +
-                  usage.usage.cacheReadInputTokens,
-                estimatedCostUsd: usage.estimatedCostUsd,
-                latencyMs: usage.latencyMs,
-                attempts: usage.attempts,
-                success: usage.success,
-                ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
-              },
-            })
-          } catch (usageError) {
-            logger.error({
-              action: 'chat.send.ai_usage_failed',
-              venueId: input.venueId,
-              error: usageError instanceof Error ? usageError.message : 'Unknown error',
-            })
-          }
-        },
+        usageSink: chatAccounting.sink,
       })
 
       const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)

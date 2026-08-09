@@ -14,6 +14,8 @@ export type AiEmbeddingModelSpec = {
   dimensions: number
   timeoutMs: number
   maxAttempts: number
+  maxInputUtf8Bytes: number
+  maxBillableInputTokens: number
   pricingVersion: string
   inputUsdPerMillionTokens: number
 }
@@ -27,6 +29,8 @@ const TEXT_EMBEDDING_3_SMALL = {
   // OpenAI public model pricing verified 2026-08-07. This is an
   // estimate for operating evidence, not an invoice amount.
   inputUsdPerMillionTokens: 0.02,
+  maxInputUtf8Bytes: 280_000,
+  maxBillableInputTokens: 300_000,
 } as const
 
 export const AI_EMBEDDING_MODEL_REGISTRY: Readonly<

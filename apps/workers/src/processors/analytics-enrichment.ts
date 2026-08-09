@@ -13,7 +13,7 @@ import { logger } from '@pathfinder/config'
 import {
   assertGlobalAiAvailable,
   db,
-  GlobalAiAdmissionError,
+  isAiAdmissionControlError,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -24,7 +24,7 @@ import {
   type AnalyticsEnrichmentJobPayload,
 } from '@pathfinder/jobs'
 
-import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -162,6 +162,11 @@ async function classifyTopicBatch(params: {
       venueId,
       feature: 'analytics-topic-classifier',
     }),
+    budgetGate: createWorkerAiBudgetGate({
+      tenantId,
+      venueId,
+      feature: 'analytics-topic-classifier',
+    }),
   })
 
   return response.parsed
@@ -229,6 +234,11 @@ async function synthesizeWeeklyThemes(params: {
     messages: [{ role: 'user', content: prompt }],
     parseResponse: parseWeeklyThemes,
     usageSink: createWorkerAiUsageSink({
+      tenantId,
+      venueId,
+      feature: 'analytics-weekly-themes',
+    }),
+    budgetGate: createWorkerAiBudgetGate({
       tenantId,
       venueId,
       feature: 'analytics-weekly-themes',
@@ -345,6 +355,11 @@ async function buildClusters(params: {
         venueId,
         feature: 'analytics-question-clustering',
       }),
+      budgetGate: createWorkerAiBudgetGate({
+        tenantId,
+        venueId,
+        feature: 'analytics-question-clustering',
+      }),
     })
     embeddings.push(...result.embeddings)
   }
@@ -402,7 +417,7 @@ async function enrichVenue(params: {
         venueId,
       })
     } catch (error) {
-      if (error instanceof GlobalAiAdmissionError) throw error
+      if (isAiAdmissionControlError(error)) throw error
       logger.warn({
         action: 'workers.analytics-enrichment.classify-failed',
         tenantId,
@@ -572,7 +587,7 @@ async function enrichVenue(params: {
         themesWritten = themes.length
       }
     } catch (error) {
-      if (error instanceof GlobalAiAdmissionError) throw error
+      if (isAiAdmissionControlError(error)) throw error
       logger.warn({
         action: 'workers.analytics-enrichment.themes-failed',
         tenantId,
@@ -702,7 +717,7 @@ export async function processAnalyticsEnrichmentJob(
       themeCount: totalThemes,
     })
   } catch (error) {
-    if (error instanceof GlobalAiAdmissionError) throw error
+    if (isAiAdmissionControlError(error)) throw error
     await recordJobFailure({
       jobRecordId,
       error,

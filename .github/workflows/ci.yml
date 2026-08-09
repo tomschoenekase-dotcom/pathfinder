@@ -57,6 +57,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify:staging
       - run: pnpm verify:ai-boundary
+      - run: pnpm verify:ai-budget
       - run: pnpm verify:tenant-registry
       - run: pnpm verify:tenant-bypasses
       - run: pnpm verify:raw-sql

@@ -92,6 +92,8 @@ describe('tenantIsolationMiddleware', () => {
       'VisitorSession',
       'AiUsageEvent',
       'AiUsageDailyRollup',
+      'AiCostBudget',
+      'AiCostReservation',
       'Message',
       'OperationalUpdate',
       'AnalyticsEvent',

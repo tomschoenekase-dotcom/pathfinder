@@ -2002,6 +2002,7 @@ export const venuePackageRouter = router({
           payload: input.payload,
           usageSink: usage.sink,
           admissionGuard: () => assertGlobalAiAvailable(ctx.db),
+          budgetGate: usage.budgetGate,
           shouldAbort: usage.persistenceFailed,
         })
         if (usage.persistenceFailed()) {

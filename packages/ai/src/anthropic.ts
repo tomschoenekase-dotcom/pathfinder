@@ -7,6 +7,13 @@ import { z } from 'zod'
 
 import type { AiAdmissionGuard } from './admission'
 
+import {
+  createAiInvocationId,
+  observedAiCostUnits,
+  textAttemptCostCeilingUnits,
+  type AiBudgetGate,
+  type AiBudgetReservationRef,
+} from './budget'
 import { getAiModelSpec, type AiModelKey } from './model-registry'
 
 export type AiSystemBlock = {
@@ -182,17 +189,28 @@ export async function generateText<TParsed = string>(params: {
   retryDelayMs?: number
   usageSink: AiUsageSink
   admissionGuard: AiAdmissionGuard
+  budgetGate: AiBudgetGate
   parseResponse?: (text: string) => TParsed
 }): Promise<AiTextResult<TParsed>> {
   const spec = getAiModelSpec(params.modelKey)
   const maxAttempts = params.maxAttempts ?? spec.maxAttempts
   const timeoutMs = params.timeoutMs ?? spec.timeoutMs
   const startedAt = performance.now()
+  const invocationId = createAiInvocationId()
+  const budgetGate = params.budgetGate
   let lastError: unknown
 
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
     throw new Error('maxAttempts must be a positive integer')
   }
+  const maxOutputTokens = params.maxOutputTokens ?? spec.maxOutputTokens
+  const reservedUnits = textAttemptCostCeilingUnits({
+    spec,
+    system: params.system,
+    messages: params.messages,
+    maxOutputTokens,
+  })
+  const client = getAnthropicClient()
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -218,11 +236,27 @@ export async function generateText<TParsed = string>(params: {
       }
       throw admissionError
     }
+    const reservation = await budgetGate.reserve({
+      invocationId,
+      attemptNumber: attempt,
+      provider: spec.provider,
+      model: spec.model,
+      pricingVersion: spec.pricingVersion,
+      reservedUnits,
+    })
     try {
-      const raw = await getAnthropicClient().messages.create(
+      await params.admissionGuard()
+    } catch (admissionError) {
+      if (reservation) await budgetGate.releaseUndispatched(reservation)
+      throw admissionError
+    }
+    if (reservation) await budgetGate.markDispatched(reservation)
+    let observedReservation: AiBudgetReservationRef | null = null
+    try {
+      const raw = await client.messages.create(
         {
           model: spec.model,
-          max_tokens: params.maxOutputTokens ?? spec.maxOutputTokens,
+          max_tokens: maxOutputTokens,
           system: params.system,
           messages: params.messages,
         },
@@ -234,6 +268,18 @@ export async function generateText<TParsed = string>(params: {
         outputTokens: response.usage.output_tokens,
         cacheCreationInputTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadInputTokens: response.usage.cache_read_input_tokens ?? 0,
+      }
+      observedReservation = reservation
+      if (reservation) {
+        try {
+          await budgetGate.settleExact(
+            reservation,
+            observedAiCostUnits(estimateCostUsd(params.modelKey, usage)),
+          )
+        } catch {
+          // The durable reservation remains fully held. A settlement outage
+          // must not turn one provider response into another provider attempt.
+        }
       }
       const text = response.content
         .filter(
@@ -312,6 +358,14 @@ export async function generateText<TParsed = string>(params: {
       })
       return result
     } catch (error) {
+      if (reservation && !observedReservation) {
+        try {
+          await budgetGate.settleAmbiguous(reservation)
+        } catch {
+          // The unresolved reservation already conservatively consumes its
+          // full ceiling and remains recoverable without another dispatch.
+        }
+      }
       lastError = error
       if (attempt >= maxAttempts || !isRetryable(error)) {
         const gatewayError = new AiGatewayError(

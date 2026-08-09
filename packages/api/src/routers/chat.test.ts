@@ -1,7 +1,12 @@
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { AnthropicCreateParams, AnthropicMessagesClient } from '@pathfinder/ai'
+import {
+  setOpenAiEmbeddingsClientForTesting,
+  type AnthropicCreateParams,
+  type AnthropicMessagesClient,
+  type OpenAiEmbeddingsClient,
+} from '@pathfinder/ai'
 
 // Mock @pathfinder/config so env validation doesn't fail in the test environment
 vi.mock('@pathfinder/config', () => ({
@@ -27,6 +32,13 @@ const { checkRateLimit } = vi.hoisted(() => ({
 }))
 
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit }))
+
+const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
+vi.mock('@pathfinder/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/db')>()),
+  searchPlacesByEmbedding: semanticSearch.places,
+  searchKnowledgeByEmbedding: semanticSearch.knowledge,
+}))
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -66,6 +78,8 @@ const engagementQuestionFindFirst = vi.fn()
 const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
 const platformConfigFindUnique = vi.fn()
+const aiCostBudgetFindFirst = vi.fn()
+const dbTransaction = vi.fn()
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
@@ -80,10 +94,13 @@ const mockDb = {
   },
   engagementQuestionResponse: { create: engagementQuestionResponseCreate },
   aiUsageEvent: { create: aiUsageEventCreate },
+  aiCostBudget: { findFirst: aiCostBudgetFindFirst },
+  aiCostReservation: {},
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
   $queryRaw: dbQueryRaw,
+  $transaction: dbTransaction,
 } as unknown as TRPCContext['db']
 
 // ---------------------------------------------------------------------------
@@ -94,6 +111,8 @@ const anthropicCreate = vi.fn()
 const mockAnthropicClient = {
   messages: { create: anthropicCreate },
 } as AnthropicMessagesClient
+const embeddingCreate = vi.fn()
+const mockOpenAiClient = { embeddings: { create: embeddingCreate } } as OpenAiEmbeddingsClient
 
 // ---------------------------------------------------------------------------
 // Context
@@ -147,6 +166,13 @@ describe('chat router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     _setAnthropicClientForTesting(mockAnthropicClient)
+    setOpenAiEmbeddingsClientForTesting(mockOpenAiClient)
+    embeddingCreate.mockResolvedValue({
+      data: [{ embedding: Array.from({ length: 1_536 }, () => 0.1), index: 0 }],
+      usage: { prompt_tokens: 5, total_tokens: 5 },
+    })
+    semanticSearch.places.mockResolvedValue(placeRows)
+    semanticSearch.knowledge.mockResolvedValue([])
     operationalUpdateFindMany.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
@@ -154,11 +180,16 @@ describe('chat router', () => {
     engagementQuestionResponseCreate.mockResolvedValue({})
     aiUsageEventCreate.mockResolvedValue({})
     platformConfigFindUnique.mockResolvedValue(null)
+    aiCostBudgetFindFirst.mockResolvedValue(null)
+    dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
+      callback(mockDb),
+    )
     checkRateLimit.mockResolvedValue(true)
   })
 
   afterEach(() => {
     _setAnthropicClientForTesting(null)
+    setOpenAiEmbeddingsClientForTesting(null)
   })
 
   // --- chat.session ---
@@ -316,21 +347,23 @@ describe('chat router', () => {
 
       expect(result.response).toBe('The elephants are 50m north.')
       expect(result.sessionId).toBe(SESSION_ID)
-      expect(aiUsageEventCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          tenantId: TENANT_ID,
-          venueId: VENUE_ID,
-          sessionId: SESSION_ID,
-          feature: 'guest-chat',
-          surface: 'guest-web',
-          inputTokens: 20,
-          outputTokens: 10,
-          cacheCreationInputTokens: 4,
-          cacheReadInputTokens: 3,
-          totalTokens: 37,
-          success: true,
+      expect(aiUsageEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            sessionId: SESSION_ID,
+            feature: 'guest-chat',
+            surface: 'guest-web',
+            inputTokens: 20,
+            outputTokens: 10,
+            cacheCreationInputTokens: 4,
+            cacheReadInputTokens: 3,
+            totalTokens: 37,
+            success: true,
+          }),
         }),
-      })
+      )
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'message.sent', sessionId: TOKEN }),
       )
@@ -340,7 +373,7 @@ describe('chat router', () => {
           sessionId: TOKEN,
           metadata: expect.objectContaining({
             fallback: false,
-            retrievalMode: 'geo-or-importance',
+            retrievalMode: 'semantic',
             embeddingMs: expect.any(Number),
             retrievalMs: expect.any(Number),
             promptAssemblyMs: expect.any(Number),
@@ -485,16 +518,18 @@ describe('chat router', () => {
 
       expect(result.response).toContain("I'm having trouble right now")
       expect(result.sessionId).toBe(SESSION_ID)
-      expect(aiUsageEventCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          tenantId: TENANT_ID,
-          venueId: VENUE_ID,
-          sessionId: SESSION_ID,
-          feature: 'guest-chat',
-          success: false,
-          errorCode: 'provider-error',
+      expect(aiUsageEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tenantId: TENANT_ID,
+            venueId: VENUE_ID,
+            sessionId: SESSION_ID,
+            feature: 'guest-chat',
+            success: false,
+            errorCode: 'provider-error',
+          }),
         }),
-      })
+      )
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.fallback',

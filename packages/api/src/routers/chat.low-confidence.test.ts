@@ -18,6 +18,11 @@ const { searchKnowledgeByEmbedding, searchPlacesByEmbedding } = vi.hoisted(() =>
 }))
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+  reserveAiCostAttempt: vi.fn().mockResolvedValue(null),
+  markAiCostAttemptDispatched: vi.fn(),
+  settleAiCostAttemptExact: vi.fn(),
+  settleAiCostAttemptAmbiguous: vi.fn(),
+  releaseUndispatchedAiCostAttempt: vi.fn(),
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
 }))
@@ -182,20 +187,22 @@ describe('chat.send low-confidence flag', () => {
 
     await caller.chat.send(sendInput)
 
-    expect(aiUsageEventCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        tenantId: 'tenant_1',
-        venueId: VENUE_ID,
-        sessionId: 'sess_1',
-        feature: 'guest-chat-query-embedding',
-        surface: 'guest-web',
-        provider: 'openai',
-        model: 'text-embedding-3-small',
-        inputTokens: 25,
-        totalTokens: 25,
-        success: true,
+    expect(aiUsageEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: VENUE_ID,
+          sessionId: 'sess_1',
+          feature: 'guest-chat-query-embedding',
+          surface: 'guest-web',
+          provider: 'openai',
+          model: 'text-embedding-3-small',
+          inputTokens: 25,
+          totalTokens: 25,
+          success: true,
+        }),
       }),
-    })
+    )
   })
 
   it('records embedding failure and preserves the guest geo fallback', async () => {
@@ -246,15 +253,17 @@ describe('chat.send low-confidence flag', () => {
       response: 'I do not have that information.',
     })
 
-    expect(aiUsageEventCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        feature: 'guest-chat-query-embedding',
-        provider: 'openai',
-        success: false,
-        errorCode: 'provider-http-503',
-        attempts: 2,
+    expect(aiUsageEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          feature: 'guest-chat-query-embedding',
+          provider: 'openai',
+          success: false,
+          errorCode: 'provider-http-503',
+          attempts: 2,
+        }),
       }),
-    })
+    )
   })
 
   it('flags when retrieval returned no places at all (score null)', async () => {

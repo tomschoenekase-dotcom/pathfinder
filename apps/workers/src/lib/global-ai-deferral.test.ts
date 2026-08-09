@@ -7,7 +7,13 @@ const { assertAvailable, loggerWarn } = vi.hoisted(() => ({
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: assertAvailable,
+  isAiAdmissionControlError: (error: unknown) =>
+    error instanceof Error &&
+    (error.name === 'GlobalAiAdmissionError' ||
+      error.name === 'AiCostBudgetExceededError' ||
+      error.name === 'AiCostBudgetUnavailableError'),
   GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
+    name = 'GlobalAiAdmissionError'
     code = 'global-ai-paused'
   },
 }))
@@ -66,6 +72,20 @@ describe('worker global AI deferral', () => {
     await expect(
       runAiJobWithIncidentControl({ moveToDelayed } as never, 'lock-token', async () => {
         throw admissionError
+      }),
+    ).rejects.toMatchObject({ name: 'DelayedError' })
+    expect(moveToDelayed).toHaveBeenCalledTimes(1)
+  })
+
+  it('delays a retained job when the atomic cost budget denies provider work', async () => {
+    assertAvailable.mockResolvedValue(undefined)
+    const moveToDelayed = vi.fn().mockResolvedValue(undefined)
+    const budgetError = new Error('AI cost budget is exhausted')
+    budgetError.name = 'AiCostBudgetExceededError'
+
+    await expect(
+      runAiJobWithIncidentControl({ moveToDelayed } as never, 'lock-token', async () => {
+        throw budgetError
       }),
     ).rejects.toMatchObject({ name: 'DelayedError' })
     expect(moveToDelayed).toHaveBeenCalledTimes(1)

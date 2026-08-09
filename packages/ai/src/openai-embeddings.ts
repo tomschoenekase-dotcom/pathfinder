@@ -4,6 +4,13 @@ import { z } from 'zod'
 import type { AiAdmissionGuard } from './admission'
 
 import { AiGatewayError, type AiTokenUsage, type AiUsageSink } from './anthropic'
+import {
+  createAiInvocationId,
+  embeddingAttemptCostCeilingUnits,
+  observedAiCostUnits,
+  type AiBudgetGate,
+  type AiBudgetReservationRef,
+} from './budget'
 import { getAiEmbeddingModelSpec, type AiEmbeddingModelKey } from './embedding-model-registry'
 
 type EmbeddingCreateParams = {
@@ -127,6 +134,7 @@ export async function generateEmbeddings(params: {
   texts: string[]
   usageSink: AiUsageSink
   admissionGuard: AiAdmissionGuard
+  budgetGate: AiBudgetGate
   timeoutMs?: number
   maxAttempts?: number
   retryDelayMs?: number
@@ -149,7 +157,11 @@ export async function generateEmbeddings(params: {
     throw new Error('retryDelayMs must be a nonnegative finite number')
   }
   const startedAt = performance.now()
+  const invocationId = createAiInvocationId()
+  const budgetGate = params.budgetGate
   let lastError: unknown
+  const reservedUnits = embeddingAttemptCostCeilingUnits({ spec, texts: params.texts })
+  const client = getOpenAiClient()
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -170,8 +182,24 @@ export async function generateEmbeddings(params: {
       }
       throw admissionError
     }
+    const reservation = await budgetGate.reserve({
+      invocationId,
+      attemptNumber: attempt,
+      provider: 'openai',
+      model: spec.model,
+      pricingVersion: spec.pricingVersion,
+      reservedUnits,
+    })
     try {
-      const raw = await getOpenAiClient().embeddings.create(
+      await params.admissionGuard()
+    } catch (admissionError) {
+      if (reservation) await budgetGate.releaseUndispatched(reservation)
+      throw admissionError
+    }
+    if (reservation) await budgetGate.markDispatched(reservation)
+    let observedReservation: AiBudgetReservationRef | null = null
+    try {
+      const raw = await client.embeddings.create(
         { model: spec.model, input: params.texts, dimensions: spec.dimensions },
         { timeout: timeoutMs },
       )
@@ -183,6 +211,15 @@ export async function generateEmbeddings(params: {
         cacheReadInputTokens: 0,
       }
       const estimatedCostUsd = (usage.inputTokens * spec.inputUsdPerMillionTokens) / 1_000_000
+      observedReservation = reservation
+      if (reservation) {
+        try {
+          await budgetGate.settleExact(reservation, observedAiCostUnits(estimatedCostUsd))
+        } catch {
+          // Keep the conservative reservation held without retrying a provider
+          // response that was already observed.
+        }
+      }
 
       try {
         const data = responseDataSchema.parse(raw).data
@@ -219,6 +256,13 @@ export async function generateEmbeddings(params: {
         })
       }
     } catch (error) {
+      if (reservation && !observedReservation) {
+        try {
+          await budgetGate.settleAmbiguous(reservation)
+        } catch {
+          // An unresolved reservation already consumes its full ceiling.
+        }
+      }
       if (error instanceof AiGatewayError && error.usageRecorded) throw error
       lastError = error
       if (attempt < maxAttempts && isRetryable(error)) {
@@ -256,6 +300,7 @@ export async function generateEmbedding(params: {
   text: string
   usageSink: AiUsageSink
   admissionGuard: AiAdmissionGuard
+  budgetGate: AiBudgetGate
   timeoutMs?: number
   maxAttempts?: number
   retryDelayMs?: number
@@ -265,6 +310,7 @@ export async function generateEmbedding(params: {
     texts: [params.text],
     usageSink: params.usageSink,
     admissionGuard: params.admissionGuard,
+    budgetGate: params.budgetGate,
     ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
     ...(params.maxAttempts !== undefined ? { maxAttempts: params.maxAttempts } : {}),
     ...(params.retryDelayMs !== undefined ? { retryDelayMs: params.retryDelayMs } : {}),

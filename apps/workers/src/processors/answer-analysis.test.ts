@@ -25,6 +25,11 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  reserveAiCostAttempt: vi.fn(async () => null),
+  markAiCostAttemptDispatched: vi.fn(),
+  settleAiCostAttemptExact: vi.fn(),
+  settleAiCostAttemptAmbiguous: vi.fn(),
+  releaseUndispatchedAiCostAttempt: vi.fn(),
   GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
     name = 'GlobalAiAdmissionError'
     code: string
@@ -33,6 +38,11 @@ vi.mock('@pathfinder/db', () => ({
       this.code = code
     }
   },
+  isAiAdmissionControlError: (error: unknown) =>
+    error instanceof Error &&
+    (error.name === 'GlobalAiAdmissionError' ||
+      error.name === 'AiCostBudgetExceededError' ||
+      error.name === 'AiCostBudgetUnavailableError'),
   acquireAnswerAnalysisExecution: mocks.acquireAnswerAnalysisExecution,
   acquireAnswerAnalysisRecoveryExecution: mocks.acquireAnswerAnalysisRecoveryExecution,
   deferAnswerAnalysisExecution: mocks.deferAnswerAnalysisExecution,

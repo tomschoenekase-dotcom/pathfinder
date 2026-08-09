@@ -37,12 +37,22 @@ vi.mock('@pathfinder/ai', async (importOriginal) => {
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  reserveAiCostAttempt: vi.fn(async () => null),
+  markAiCostAttemptDispatched: vi.fn(),
+  settleAiCostAttemptExact: vi.fn(),
+  settleAiCostAttemptAmbiguous: vi.fn(),
+  releaseUndispatchedAiCostAttempt: vi.fn(),
   GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
     name = 'GlobalAiAdmissionError'
     constructor(readonly code: string) {
       super('Global AI admission is unavailable')
     }
   },
+  isAiAdmissionControlError: (error: unknown) =>
+    error instanceof Error &&
+    (error.name === 'GlobalAiAdmissionError' ||
+      error.name === 'AiCostBudgetExceededError' ||
+      error.name === 'AiCostBudgetUnavailableError'),
   db: {
     venue: { findMany: mocks.venueFindMany },
     aiUsageEvent: { create: mocks.aiUsageEventCreate },

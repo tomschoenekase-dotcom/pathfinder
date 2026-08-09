@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { APIConnectionError, APIConnectionTimeoutError } from 'openai'
 
 import { AI_EMBEDDING_MODEL_KEYS } from './embedding-model-registry'
+import { NOOP_AI_BUDGET_GATE, type AiBudgetGate } from './budget'
 import {
   generateEmbedding,
   generateEmbeddings,
@@ -13,6 +14,17 @@ const create = vi.fn()
 const client = { embeddings: { create } } as OpenAiEmbeddingsClient
 const usageSink = vi.fn()
 const admissionGuard = vi.fn().mockResolvedValue(undefined)
+
+function budgetGate(overrides: Partial<AiBudgetGate> = {}): AiBudgetGate {
+  return {
+    reserve: vi.fn().mockResolvedValue({ id: 'reservation', reservedUnits: 600_000n }),
+    markDispatched: vi.fn().mockResolvedValue(undefined),
+    settleExact: vi.fn().mockResolvedValue(undefined),
+    settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+    releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  }
+}
 
 function vector(value: number): number[] {
   return Array.from({ length: 1_536 }, () => value)
@@ -39,6 +51,7 @@ describe('OpenAI embeddings gateway', () => {
       texts: ['first', 'second'],
       usageSink,
       admissionGuard,
+      budgetGate: NOOP_AI_BUDGET_GATE,
     })
 
     expect(create).toHaveBeenCalledWith(
@@ -74,6 +87,7 @@ describe('OpenAI embeddings gateway', () => {
       text: 'hello',
       usageSink,
       admissionGuard,
+      budgetGate: NOOP_AI_BUDGET_GATE,
     })
 
     expect(result.embedding).toHaveLength(1_536)
@@ -93,6 +107,7 @@ describe('OpenAI embeddings gateway', () => {
       text: 'hello',
       usageSink,
       admissionGuard,
+      budgetGate: NOOP_AI_BUDGET_GATE,
       retryDelayMs: 0,
     })
 
@@ -114,6 +129,7 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
         retryDelayMs: 0,
       }),
     ).resolves.toMatchObject({ attempts: 2 })
@@ -129,6 +145,7 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
         retryDelayMs: 0,
       }),
     ).rejects.toMatchObject({ code: 'provider-connection-error', attempts: 2 })
@@ -153,6 +170,7 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
       }),
     ).rejects.toMatchObject({ code: 'invalid-provider-response', attempts: 1 })
 
@@ -176,6 +194,7 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
       }),
     ).rejects.toMatchObject({ code: 'invalid-provider-response', attempts: 1 })
 
@@ -198,6 +217,7 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
       }),
     ).rejects.toMatchObject({ code: 'provider-http-401', attempts: 1 })
 
@@ -224,6 +244,7 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
       }),
     ).resolves.toMatchObject({ embedding: expect.any(Array), attempts: 1 })
   })
@@ -235,6 +256,7 @@ describe('OpenAI embeddings gateway', () => {
         text: '   ',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
       }),
     ).rejects.toThrow('Embedding input must contain nonblank text')
     expect(create).not.toHaveBeenCalled()
@@ -252,6 +274,7 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
         ...overrides,
       }),
     ).rejects.toThrow(message)
@@ -259,7 +282,10 @@ describe('OpenAI embeddings gateway', () => {
   })
 
   it('records a dispatched failure but not the retry denied by admission', async () => {
-    admissionGuard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('paused'))
+    admissionGuard
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('paused'))
     create.mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 503 }))
 
     await expect(
@@ -268,15 +294,54 @@ describe('OpenAI embeddings gateway', () => {
         text: 'hello',
         usageSink,
         admissionGuard,
+        budgetGate: NOOP_AI_BUDGET_GATE,
         retryDelayMs: 0,
       }),
     ).rejects.toThrow('paused')
 
-    expect(admissionGuard).toHaveBeenCalledTimes(2)
+    expect(admissionGuard).toHaveBeenCalledTimes(3)
     expect(create).toHaveBeenCalledTimes(1)
     expect(usageSink).toHaveBeenCalledOnce()
     expect(usageSink).toHaveBeenCalledWith(
       expect.objectContaining({ attempts: 1, errorCode: 'provider-http-503', success: false }),
     )
+  })
+
+  it('reserves between admissions, fences dispatch, and settles observed embedding cost', async () => {
+    const order: string[] = []
+    const settleExact = vi.fn().mockResolvedValue(undefined)
+    const gate = budgetGate({
+      reserve: vi.fn(async () => {
+        order.push('reserve')
+        return { id: 'reservation', reservedUnits: 600_000n }
+      }),
+      markDispatched: vi.fn(async () => {
+        order.push('dispatch')
+      }),
+      settleExact,
+    })
+    admissionGuard.mockImplementation(async () => {
+      order.push('admit')
+    })
+    create.mockImplementation(async () => {
+      order.push('provider')
+      return {
+        data: [{ embedding: vector(0.2), index: 0, object: 'embedding' }],
+        model: 'text-embedding-3-small',
+        object: 'list',
+        usage: { prompt_tokens: 5, total_tokens: 5 },
+      }
+    })
+
+    await generateEmbedding({
+      modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
+      text: 'hello',
+      usageSink,
+      admissionGuard,
+      budgetGate: gate,
+    })
+
+    expect(order).toEqual(['admit', 'reserve', 'admit', 'dispatch', 'provider'])
+    expect(settleExact).toHaveBeenCalledWith({ id: 'reservation', reservedUnits: 600_000n }, 10n)
   })
 })

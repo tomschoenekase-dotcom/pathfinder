@@ -14,6 +14,8 @@ export type AiModelSpec = {
   maxOutputTokens: number
   timeoutMs: number
   maxAttempts: number
+  maxInputUtf8Bytes: number
+  maxBillableInputTokens: number
   pricingVersion: string
   pricingUsdPerMillionTokens: {
     input: number
@@ -37,6 +39,8 @@ function haikuSpec(maxOutputTokens: number, timeoutMs = 10_000): AiModelSpec {
     maxOutputTokens,
     timeoutMs,
     maxAttempts: 2,
+    maxInputUtf8Bytes: 180_000,
+    maxBillableInputTokens: 200_000,
     pricingVersion: 'anthropic-public-2026-08-07',
     // Anthropic Claude API list prices verified 2026-08-07. Keep pricing
     // versioned with code; cost is an estimate, never an invoice amount.
@@ -53,6 +57,8 @@ function sonnetSpec(maxOutputTokens: number): AiModelSpec {
     // BullMQ owns retries for fail-closed background jobs. Avoid multiplying
     // provider calls inside each queue attempt.
     maxAttempts: 1,
+    maxInputUtf8Bytes: 180_000,
+    maxBillableInputTokens: 200_000,
     pricingVersion: 'anthropic-public-2026-08-07',
     pricingUsdPerMillionTokens: {
       input: 3,

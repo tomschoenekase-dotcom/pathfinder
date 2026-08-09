@@ -11,6 +11,8 @@ export const TENANTED_TABLES = [
   'VisitorSession',
   'AiUsageEvent',
   'AiUsageDailyRollup',
+  'AiCostBudget',
+  'AiCostReservation',
   'Message',
   'OperationalUpdate',
   'AnalyticsEvent',

@@ -311,13 +311,25 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/generation-execution-claims.ts',
     method: '$executeRaw',
-    hash: '0b2f760a819682255c607d3aa91ce2cb6d055f9df34428938ac7455bcaefea6a',
+    hash: '02fd8db6260eb21d7c0909d43c58c92cf7baf51a7369f0bd8201ee8e49bcae32',
     policy: 'tenant-venue-range-generation-lease',
   },
   {
     file: 'packages/db/src/helpers/generation-execution-claims.ts',
     method: '$executeRaw',
-    hash: '91634428c12337305db6f1e811f7436acb0b8d25f7f90bd2b82c11ede96049eb',
+    hash: '0a65595d7250a65e3d5a51d002f0d91f0a816834ea89c85a29b79ffd3a4402e1',
+    policy: 'tenant-venue-range-generation-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: '7109c8ace2427545375fc14b8923de1f520e5d9df6c657c1d53257d4d353128d',
+    policy: 'tenant-venue-range-generation-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: 'e6d37a7a7452145e1b77c7b787342abcae11c1911d3739c347f6a4607a0043f3',
     policy: 'tenant-venue-range-generation-lease',
   },
   {

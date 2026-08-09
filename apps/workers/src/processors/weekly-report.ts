@@ -13,7 +13,7 @@ import {
   assertGlobalAiAvailable,
   db,
   deferWeeklyReportExecution,
-  GlobalAiAdmissionError,
+  isAiAdmissionControlError,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -25,7 +25,7 @@ import {
   type WeeklyReportJobPayload,
 } from '@pathfinder/jobs'
 
-import { createWorkerAiUsageSink } from '../lib/ai-usage'
+import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -391,6 +391,11 @@ export async function processWeeklyReportJob(
         venueId: payload.venueId,
         feature: 'weekly-report',
       }),
+      budgetGate: createWorkerAiBudgetGate({
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        feature: 'weekly-report',
+      }),
     })
 
     const parsed = response.parsed
@@ -424,7 +429,7 @@ export async function processWeeklyReportJob(
       sessionCount: data.sessionCount,
     })
   } catch (error) {
-    if (error instanceof GlobalAiAdmissionError) {
+    if (isAiAdmissionControlError(error)) {
       if (executionLeaseToken !== null) {
         const released = await deferWeeklyReportExecution({
           reportId: payload.reportId,

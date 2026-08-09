@@ -13,6 +13,16 @@ export {
 } from './anthropic'
 export type { AiAdmissionGuard } from './admission'
 export {
+  createAiInvocationId,
+  embeddingAttemptCostCeilingUnits,
+  observedAiCostUnits,
+  textAttemptCostCeilingUnits,
+  NOOP_AI_BUDGET_GATE,
+  type AiBudgetAttempt,
+  type AiBudgetGate,
+  type AiBudgetReservationRef,
+} from './budget'
+export {
   AI_MODEL_KEYS,
   AI_MODEL_REGISTRY,
   getAiModelSpec,

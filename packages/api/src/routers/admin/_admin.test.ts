@@ -157,7 +157,13 @@ vi.mock('@pathfinder/db', () => {
     auditLog: { create: auditLogCreate },
   }
   return {
+    AI_COST_BUDGET_COVERAGE_VERSION: 'gateway-v1',
     assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+    reconcileExpiredAiCostAttempts: vi.fn().mockResolvedValue({
+      scanned: 0,
+      settled: 0,
+      raced: 0,
+    }),
     db: {
       ...transactionDb,
       $transaction: (callback: (transaction: typeof transactionDb) => Promise<unknown>) =>

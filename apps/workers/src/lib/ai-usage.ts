@@ -1,6 +1,16 @@
-import type { AiUsageSink } from '@pathfinder/ai'
+import { randomUUID } from 'node:crypto'
+
+import type { AiBudgetGate, AiBudgetReservationRef, AiUsageSink } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
-import { db } from '@pathfinder/db'
+import {
+  db,
+  markAiCostAttemptDispatched,
+  releaseUndispatchedAiCostAttempt,
+  reserveAiCostAttempt,
+  settleAiCostAttemptAmbiguous,
+  settleAiCostAttemptExact,
+  type AiCostReservationRef,
+} from '@pathfinder/db'
 
 export function createWorkerAiUsageSink(params: {
   tenantId: string
@@ -43,5 +53,61 @@ export function createWorkerAiUsageSink(params: {
         error: error instanceof Error ? error.message : 'Unknown error',
       })
     }
+  }
+}
+
+export function createWorkerAiBudgetGate(params: {
+  tenantId: string
+  venueId: string
+  feature: string
+}): AiBudgetGate {
+  const reservations = new Map<string, AiCostReservationRef>()
+  const requireReservation = (ref: AiBudgetReservationRef): AiCostReservationRef => {
+    const reservation = reservations.get(ref.id)
+    if (!reservation || reservation.reservedUnits !== ref.reservedUnits) {
+      throw new Error('AI cost reservation reference is unavailable')
+    }
+    return reservation
+  }
+  return {
+    reserve: async (attempt) => {
+      const reservation = await reserveAiCostAttempt({
+        db,
+        identity: {
+          tenantId: params.tenantId,
+          venueId: params.venueId,
+          invocationId: attempt.invocationId,
+          attemptNumber: attempt.attemptNumber,
+          feature: params.feature,
+          provider: attempt.provider,
+          model: attempt.model,
+          pricingVersion: attempt.pricingVersion,
+        },
+        reservedUnits: attempt.reservedUnits,
+        reservationId: randomUUID(),
+      })
+      if (!reservation) return null
+      reservations.set(reservation.id, reservation)
+      return { id: reservation.id, reservedUnits: reservation.reservedUnits }
+    },
+    markDispatched: async (ref) => {
+      await markAiCostAttemptDispatched({ db, reservation: requireReservation(ref) })
+    },
+    settleExact: async (ref, actualUnits) => {
+      await settleAiCostAttemptExact({
+        db,
+        reservation: requireReservation(ref),
+        settledUnits: actualUnits,
+      })
+    },
+    settleAmbiguous: async (ref) => {
+      await settleAiCostAttemptAmbiguous({ db, reservation: requireReservation(ref) })
+    },
+    releaseUndispatched: async (ref) => {
+      await releaseUndispatchedAiCostAttempt({
+        db,
+        reservation: requireReservation(ref),
+      })
+    },
   }
 }

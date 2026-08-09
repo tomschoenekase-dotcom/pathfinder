@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { AdminClientPlanForm } from '../../../../../components/admin/AdminClientPlanForm'
 import { AdminClientStatusForm } from '../../../../../components/admin/AdminClientStatusForm'
+import { AdminAiCostBudgetForm } from '../../../../../components/admin/AdminAiCostBudgetForm'
 import { AdminTriggerDigestButton } from '../../../../../components/admin/AdminTriggerDigestButton'
 import { ViewAsClientButton } from '../../../../../components/admin/ViewAsClientButton'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
@@ -48,6 +49,7 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
   }
 
   const { tenant, venues, engagement7d } = data
+  const aiCostBudget = await caller.admin.getAiCostBudget({ tenantId })
   const placesTotal = venues.reduce((total, venue) => total + venue._count.places, 0)
 
   return (
@@ -174,6 +176,45 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+        <AdminAiCostBudgetForm
+          tenantId={tenant.id}
+          initialState={
+            aiCostBudget.configured
+              ? {
+                  configured: true,
+                  enabled: aiCostBudget.enabled,
+                  startsAt: aiCostBudget.startsAt.toISOString(),
+                  endsAt: aiCostBudget.endsAt.toISOString(),
+                  hardLimitUsd: aiCostBudget.hardLimitUsd,
+                  remainingUsd: aiCostBudget.remainingUsd,
+                  reservedUsd: aiCostBudget.reservedUsd,
+                  committedUsd: aiCostBudget.committedUsd,
+                  revision: aiCostBudget.revision,
+                  breachedAt: aiCostBudget.breachedAt?.toISOString() ?? null,
+                  reason: aiCostBudget.reason,
+                  updatedAt: aiCostBudget.updatedAt.toISOString(),
+                  updatedBy: aiCostBudget.updatedBy,
+                }
+              : {
+                  configured: false,
+                  enabled: false,
+                  startsAt: null,
+                  endsAt: null,
+                  hardLimitUsd: '',
+                  remainingUsd: '0.00000000',
+                  reservedUsd: '0.00000000',
+                  committedUsd: '0.00000000',
+                  revision: null,
+                  breachedAt: null,
+                  reason: '',
+                  updatedAt: null,
+                  updatedBy: null,
+                }
+          }
+        />
       </section>
     </div>
   )
