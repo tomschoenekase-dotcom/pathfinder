@@ -1113,3 +1113,13 @@ These are NOT part of the MVP and should be separate implementation packets.
 ---
 
 _End of implementation packet. Execute Pass 1 completely (Tasks 1–10) and verify all Pass 1 acceptance criteria before starting Pass 2 (Tasks 11–16). Any ambiguity is documented as a warning within the relevant task._
+
+---
+
+## Current public card behavior (2026-08-09)
+
+The current implementation treats guide-item cards as a content capability, not as a location-mode capability. When the assistant explicitly names an already retrieved active guide item, the current response may include a descriptive card in every guide mode, including when the visitor has denied location access. Public cards are capped at three and include bounded name, type, description, area, and hours fields.
+
+Visitor location remains a separate capability boundary. Without a usable live visitor position, cards omit coordinates, distance, directions, and venue-configured external images. With a usable live position, only valid paired coordinates and a nonnegative finite distance may be returned; image URLs must use HTTPS. Standalone, embed, and native web-view presentations share this behavior through `VenueChatExperience` and `ChatWindow`.
+
+Cards are associated with the live assistant response in memory. Restored chat history currently persists message text but not card associations, so cards do not reappear after a reload. This is a known limitation, not evidence that card persistence or a durable card-message schema exists.

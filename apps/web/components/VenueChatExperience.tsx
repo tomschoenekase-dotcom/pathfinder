@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import type { GuestPlaceCard } from '@pathfinder/api'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 import { ChatWindow } from './ChatWindow'
@@ -39,20 +40,10 @@ type VenueSummary = {
   chatBannerUrl: string | null
 }
 
-type PlaceSummary = {
-  id: string
-  name: string
-  type: string
-  photoUrl: string | null
-  distanceMeters: number | undefined
-  lat: number | null
-  lng: number | null
-}
-
 type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
-  places?: PlaceSummary[]
+  places?: GuestPlaceCard[]
 }
 
 function getChatFontFamily(chatFont: string | null | undefined): string {

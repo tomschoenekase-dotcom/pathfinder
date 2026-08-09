@@ -1,11 +1,14 @@
-import { useEffect } from 'react'
-import { MapPin, Navigation } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
+import { Info, MapPin, Navigation } from 'lucide-react'
 
 type PlaceCardProps = {
   id: string
   name: string
   type: string
   photoUrl: string | null
+  shortDescription: string | null
+  areaName: string | null
+  hours: string | null
   distanceMeters: number | undefined
   lat: number | null
   lng: number | null
@@ -26,6 +29,9 @@ export function PlaceCard({
   name,
   type,
   photoUrl,
+  shortDescription,
+  areaName,
+  hours,
   distanceMeters,
   lat,
   lng,
@@ -33,36 +39,58 @@ export function PlaceCard({
   onDirectionsClick,
   onView,
 }: PlaceCardProps) {
-  const directionsUrl =
-    lat != null && lng != null
-      ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
-      : null
+  const [isExpanded, setIsExpanded] = useState(false)
+  const titleId = useId()
+  const detailsId = useId()
+  const hasCoordinates =
+    typeof lat === 'number' &&
+    Number.isFinite(lat) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    typeof lng === 'number' &&
+    Number.isFinite(lng) &&
+    lng >= -180 &&
+    lng <= 180
+  const hasDetails = Boolean(shortDescription || areaName || hours)
+  const directionsUrl = hasCoordinates
+    ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
+    : null
 
   useEffect(() => {
     onView?.(id)
   }, [id, onView])
 
   return (
-    <div
+    <article
+      aria-labelledby={titleId}
       className="overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm transition hover:border-[var(--chat-accent)]/40 hover:shadow-md"
-      onClick={() => {
-        onCardClick?.(id)
-      }}
     >
       {photoUrl ? (
         <div className="h-36 w-full overflow-hidden bg-[var(--chat-bg)]">
-          <img src={photoUrl} alt={name} loading="lazy" className="h-full w-full object-cover" />
+          <img
+            src={photoUrl}
+            alt={name}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            className="h-full w-full object-cover"
+          />
         </div>
       ) : (
         <div className="flex h-28 w-full items-center justify-center bg-[var(--chat-bg)]">
-          <MapPin className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
+          {hasCoordinates ? (
+            <MapPin className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
+          ) : (
+            <Info className="h-8 w-8 text-[var(--chat-border)]" aria-hidden="true" />
+          )}
         </div>
       )}
 
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate font-semibold text-[var(--chat-text)]">{name}</p>
+            <h3 id={titleId} className="truncate font-semibold text-[var(--chat-text)]">
+              {name}
+            </h3>
             <p className="mt-0.5 text-xs capitalize text-[var(--chat-text-muted)]">
               {type.toLowerCase().replace(/_/g, ' ')}
             </p>
@@ -74,9 +102,47 @@ export function PlaceCard({
           ) : null}
         </div>
 
+        {hasDetails ? (
+          <button
+            type="button"
+            className="mt-3 inline-flex min-h-9 w-full items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent)] transition hover:border-[var(--chat-accent)]"
+            aria-controls={detailsId}
+            aria-expanded={isExpanded}
+            onClick={() => {
+              setIsExpanded((current) => {
+                const next = !current
+                if (next) onCardClick?.(id)
+                return next
+              })
+            }}
+          >
+            {isExpanded ? `Hide details for ${name}` : `Show details for ${name}`}
+          </button>
+        ) : null}
+
+        {isExpanded && hasDetails ? (
+          <div
+            id={detailsId}
+            className="mt-3 space-y-2 border-t border-[var(--chat-border)] pt-3 text-sm leading-5 text-[var(--chat-text-muted)]"
+          >
+            {shortDescription ? <p>{shortDescription}</p> : null}
+            {areaName ? (
+              <p>
+                <span className="font-semibold text-[var(--chat-text)]">Area:</span> {areaName}
+              </p>
+            ) : null}
+            {hours ? (
+              <p>
+                <span className="font-semibold text-[var(--chat-text)]">Hours:</span> {hours}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {directionsUrl ? (
           <a
             href={directionsUrl}
+            aria-label={`Get directions to ${name}`}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent)] transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
@@ -90,6 +156,6 @@ export function PlaceCard({
           </a>
         ) : null}
       </div>
-    </div>
+    </article>
   )
 }

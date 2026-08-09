@@ -23,6 +23,7 @@ import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
+import { buildGuestPlaceCards } from '../lib/guest-place-card'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { requireGlobalAi } from '../middleware/require-global-ai'
@@ -746,18 +747,15 @@ export const chatRouter = router({
       totalMs,
     }
 
-    // Filter cards to live-position places the model actually mentioned.
-    // Cap at three to keep the guest-visible response and analytics aligned.
-    const mentionedPlaces = !hasLiveLocation
-      ? []
-      : relevantPlaces
-          .filter(
-            (p) =>
-              p.lat != null &&
-              p.lng != null &&
-              assistantResponse.toLowerCase().includes(p.name.toLowerCase()),
-          )
-          .slice(0, 3)
+    // Project only active, already tenant/venue-scoped retrieval results that the
+    // current answer names. Location presentation data is admitted only when the
+    // guest supplied a usable live position; descriptive cards remain useful in
+    // non-location and location-denied experiences.
+    const mentionedPlaces = buildGuestPlaceCards({
+      assistantResponse,
+      hasLiveLocation,
+      places: relevantPlaces,
+    })
 
     if (fallbackFailureCode) {
       try {
@@ -866,15 +864,7 @@ export const chatRouter = router({
     return {
       response: assistantResponse,
       sessionId: session.id,
-      places: mentionedPlaces.map((p) => ({
-        id: p.id,
-        name: p.name,
-        type: p.type,
-        photoUrl: p.photoUrl ?? null,
-        distanceMeters: p.distanceMeters,
-        lat: p.lat,
-        lng: p.lng,
-      })),
+      places: mentionedPlaces,
     }
   }),
 

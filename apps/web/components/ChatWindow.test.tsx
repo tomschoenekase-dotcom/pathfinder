@@ -150,4 +150,44 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(onSend).toHaveBeenCalledWith('Is there a cafe?')
     expect((composer as HTMLTextAreaElement).value).toBe('')
   })
+
+  it('renders descriptive cards without coordinates and records a real details action', () => {
+    const onPlaceCardClick = vi.fn()
+    render(
+      <ChatWindow
+        messages={[
+          {
+            role: 'assistant',
+            content: 'Visit the East Gallery for the textile collection.',
+            places: [
+              {
+                id: 'place-1',
+                name: 'East Gallery',
+                type: 'EXHIBIT',
+                photoUrl: null,
+                shortDescription: 'Rotating textiles from the permanent collection.',
+                areaName: 'Second floor',
+                hours: '10:00 AM–4:00 PM',
+                distanceMeters: undefined,
+                lat: null,
+                lng: null,
+              },
+            ],
+          },
+        ]}
+        onSend={vi.fn()}
+        isLoading={false}
+        onPlaceCardClick={onPlaceCardClick}
+      />,
+    )
+
+    expect(screen.getByRole('article', { name: 'East Gallery' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Get directions to East Gallery' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Show details for East Gallery' }))
+    expect(screen.getByText('Rotating textiles from the permanent collection.')).toBeTruthy()
+    expect(screen.getByText(/Second floor/)).toBeTruthy()
+    expect(screen.getByText(/10:00 AM–4:00 PM/)).toBeTruthy()
+    expect(onPlaceCardClick).toHaveBeenCalledOnce()
+    expect(onPlaceCardClick).toHaveBeenCalledWith('place-1')
+  })
 })

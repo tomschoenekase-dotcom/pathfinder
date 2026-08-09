@@ -691,15 +691,23 @@ describe('chat router', () => {
       )
     })
 
-    it('answers knowledge questions without a complete location and withholds distance UI', async () => {
+    it('returns a descriptive card for a non-location guide without location or image data', async () => {
       setupHappyPath('The elephants are in the Safari Zone.', {
         ...venueRow,
-        guideMode: 'location_aware',
-        defaultCenterLat: 40.7,
+        guideMode: 'non_location',
+        defaultCenterLat: null,
         defaultCenterLng: null,
       })
       semanticSearch.places.mockResolvedValueOnce([
-        { ...placeRows[0], distance: 0.1, distanceMeters: 125 },
+        {
+          ...placeRows[0],
+          shortDescription: 'Meet the herd.',
+          areaName: 'Safari Zone',
+          hours: '9 AM-4 PM',
+          photoUrl: 'https://images.example.com/elephants.jpg',
+          distance: 0.1,
+          distanceMeters: 125,
+        },
       ])
 
       const result = await caller.chat.send({
@@ -708,20 +716,32 @@ describe('chat router', () => {
         message: 'Tell me about the elephants.',
       })
 
-      expect(result.places).toEqual([])
+      expect(result.places).toEqual([
+        expect.objectContaining({
+          id: 'p1',
+          shortDescription: 'Meet the herd.',
+          areaName: 'Safari Zone',
+          hours: '9 AM-4 PM',
+          photoUrl: null,
+          distanceMeters: undefined,
+          lat: null,
+          lng: null,
+        }),
+      ])
       expect(sessionUpsert).toHaveBeenCalledWith(
         expect.objectContaining({
           create: expect.objectContaining({ latestLat: null, latestLng: null }),
           update: expect.objectContaining({ latestLat: null, latestLng: null }),
         }),
       )
-      expect(getConcatenatedSystemPrompt()).toContain('has not shared a usable live position')
+      expect(getConcatenatedSystemPrompt()).toContain('this is a content guide, not a map')
+      expect(getConcatenatedSystemPrompt()).not.toContain('has not shared a usable live position')
       expect(getConcatenatedSystemPrompt()).not.toContain('about 400 feet away')
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.received',
           metadata: expect.objectContaining({
-            placesReturned: 0,
+            placesReturned: 1,
             retrievalMode: 'semantic-without-live-location',
           }),
         }),
@@ -747,7 +767,15 @@ describe('chat router', () => {
 
       expect(getConcatenatedSystemPrompt()).not.toContain('right nearby')
       expect(getConcatenatedSystemPrompt()).toContain('has not shared a usable live position')
-      expect(result.places).toEqual([])
+      expect(result.places).toEqual([
+        expect.objectContaining({
+          id: 'p1',
+          photoUrl: null,
+          distanceMeters: undefined,
+          lat: null,
+          lng: null,
+        }),
+      ])
       expect(semanticSearch.places).toHaveBeenCalledWith(
         expect.objectContaining({ userLat: 40.7, userLng: -74 }),
       )
@@ -789,7 +817,14 @@ describe('chat router', () => {
         message: 'Tell me about the elephants.',
       })
 
-      expect(result.places).toEqual([])
+      expect(result.places).toEqual([
+        expect.objectContaining({
+          id: 'p1',
+          distanceMeters: undefined,
+          lat: null,
+          lng: null,
+        }),
+      ])
       expect(semanticSearch.places).not.toHaveBeenCalled()
       expect(getConcatenatedSystemPrompt()).toContain('has not shared a usable live position')
       expect(getConcatenatedSystemPrompt()).not.toContain('right nearby')
@@ -797,7 +832,7 @@ describe('chat router', () => {
         expect.objectContaining({
           eventType: 'message.received',
           metadata: expect.objectContaining({
-            placesReturned: 0,
+            placesReturned: 1,
             retrievalMode: 'importance-without-location',
           }),
         }),

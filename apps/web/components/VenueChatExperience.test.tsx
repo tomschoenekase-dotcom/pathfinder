@@ -68,16 +68,29 @@ vi.mock('./ChatWindow', () => ({
     errorMessage,
     messages,
     onSend,
+    onPlaceCardClick,
+    onPlaceCardView,
   }: {
     emptyState: React.ReactNode
     errorMessage?: string | null
-    messages: unknown[]
+    messages: Array<{ places?: Array<{ id: string }> }>
     onSend: (message: string) => void
+    onPlaceCardClick?: (placeId: string) => void
+    onPlaceCardView?: (placeId: string) => void
   }) => (
     <div>
       {emptyState}
       {errorMessage ? <span>{errorMessage}</span> : null}
       <span>Messages: {messages.length}</span>
+      <span>Cards: {messages.flatMap((message) => message.places ?? []).length}</span>
+      {messages
+        .flatMap((message) => message.places ?? [])
+        .map((place) => (
+          <div key={place.id}>
+            <button onClick={() => onPlaceCardView?.(place.id)}>View {place.id}</button>
+            <button onClick={() => onPlaceCardClick?.(place.id)}>Open {place.id}</button>
+          </div>
+        ))}
       <button onClick={() => onSend('Where is the café?')}>Send test message</button>
     </div>
   ),
@@ -225,6 +238,58 @@ describe('VenueChatExperience presentation boundary', () => {
       message: 'Where is the café?',
     })
   })
+
+  it.each(['standalone', 'embed', 'webview'] as const)(
+    'keeps returned no-location cards in the %s presentation and tracks real actions',
+    async (presentation) => {
+      const token = '123e4567-e89b-12d3-a456-426614174000'
+      mocks.anonymousToken = token
+      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+      mocks.client.chat.send.mutate.mockResolvedValueOnce({
+        response: 'Visit the East Gallery.',
+        sessionId: 'session-1',
+        places: [
+          {
+            id: 'place-1',
+            name: 'East Gallery',
+            type: 'EXHIBIT',
+            photoUrl: null,
+            shortDescription: 'Textile collection.',
+            areaName: 'Second floor',
+            hours: '10:00 AM–4:00 PM',
+            distanceMeters: undefined,
+            lat: null,
+            lng: null,
+          },
+        ],
+      })
+
+      render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
+
+      await screen.findByRole('heading', { name: 'Museum Guide' })
+      fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+      await screen.findByText('Cards: 1')
+      fireEvent.click(screen.getByRole('button', { name: 'View place-1' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Open place-1' }))
+
+      expect(mocks.client.analytics.trackEvent.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          venueId: activeVenue.id,
+          sessionId: token,
+          eventType: 'place_card.viewed',
+          placeId: 'place-1',
+        }),
+      )
+      expect(mocks.client.analytics.trackEvent.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          venueId: activeVenue.id,
+          sessionId: token,
+          eventType: 'place_card.clicked',
+          placeId: 'place-1',
+        }),
+      )
+    },
+  )
 
   it('allows location-aware knowledge chat without coordinates or a default center', async () => {
     mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174020'

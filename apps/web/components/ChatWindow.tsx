@@ -2,25 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { GuestPlaceCard } from '@pathfinder/api'
 
 import { MessageBubble } from './MessageBubble'
 import { PlaceCard } from './PlaceCard'
 import { TypingIndicator } from './TypingIndicator'
 
-type PlaceSummary = {
-  id: string
-  name: string
-  type: string
-  photoUrl: string | null
-  distanceMeters: number | undefined
-  lat: number | null
-  lng: number | null
-}
-
 type Message = {
   role: 'user' | 'assistant'
   content: string
-  places?: PlaceSummary[]
+  places?: GuestPlaceCard[]
 }
 
 type ChatWindowProps = {
@@ -160,6 +151,9 @@ export function ChatWindow({
                     name={place.name}
                     type={place.type}
                     photoUrl={place.photoUrl}
+                    shortDescription={place.shortDescription}
+                    areaName={place.areaName}
+                    hours={place.hours}
                     distanceMeters={place.distanceMeters}
                     lat={place.lat}
                     lng={place.lng}
