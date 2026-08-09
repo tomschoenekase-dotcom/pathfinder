@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { CreateKnowledgeEntryInput, UpdateKnowledgeEntryInput } from '@pathfinder/api/schemas'
@@ -66,8 +66,11 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
   const [values, setValues] = useState<KnowledgeFormValues>(EMPTY_FORM)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [historyEntry, setHistoryEntry] = useState<KnowledgeEntry | null>(null)
+  const mutationInFlight = useRef(false)
+  const isMutating = isSaving || togglingId !== null || deletingId !== null
 
   function startCreate() {
     setEditingEntry(null)
@@ -88,6 +91,9 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (mutationInFlight.current) return
+
+    mutationInFlight.current = true
     setFormError(null)
     setIsSaving(true)
 
@@ -113,28 +119,41 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
     } catch (error) {
       setFormError(getErrorMessage(error))
     } finally {
+      mutationInFlight.current = false
       setIsSaving(false)
     }
   }
 
   async function toggleEnabled(entry: KnowledgeEntry) {
+    if (mutationInFlight.current) return
+
+    mutationInFlight.current = true
     setFormError(null)
+    setTogglingId(entry.id)
 
     try {
       await client.knowledge.update.mutate({ id: entry.id, isEnabled: !entry.isEnabled })
       router.refresh()
     } catch (error) {
       setFormError(getErrorMessage(error))
+    } finally {
+      mutationInFlight.current = false
+      setTogglingId(null)
     }
   }
 
   async function handleDelete(entry: KnowledgeEntry) {
-    const confirmed = window.confirm(`Delete "${entry.title}"? This cannot be undone.`)
+    if (mutationInFlight.current) return
+
+    const confirmed = window.confirm(
+      `Delete "${entry.title}"? You can restore it later from Deleted content on the venue page.`,
+    )
 
     if (!confirmed) {
       return
     }
 
+    mutationInFlight.current = true
     setDeletingId(entry.id)
     setFormError(null)
 
@@ -143,10 +162,14 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
       if (editingEntry?.id === entry.id) {
         startCreate()
       }
+      if (historyEntry?.id === entry.id) {
+        setHistoryEntry(null)
+      }
       router.refresh()
     } catch (error) {
       setFormError(getErrorMessage(error))
     } finally {
+      mutationInFlight.current = false
       setDeletingId(null)
     }
   }
@@ -163,8 +186,9 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
           </div>
           <button
             type="button"
+            disabled={isMutating}
             onClick={startCreate}
-            className="inline-flex min-h-10 items-center justify-center rounded-full bg-pf-primary px-4 text-sm font-medium text-white transition hover:bg-pf-accent"
+            className="inline-flex min-h-10 items-center justify-center rounded-full bg-pf-primary px-4 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             New entry
           </button>
@@ -208,22 +232,35 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
                     <td className="px-6 py-4 align-top">
                       <button
                         type="button"
+                        aria-label={
+                          togglingId === entry.id
+                            ? `Updating ${entry.title}`
+                            : `${entry.isEnabled ? 'Disable' : 'Enable'} ${entry.title}`
+                        }
+                        aria-pressed={entry.isEnabled}
+                        aria-live="polite"
+                        disabled={isMutating}
                         onClick={() => {
                           void toggleEnabled(entry)
                         }}
-                        className={`inline-flex min-h-8 items-center rounded-full px-3 text-xs font-semibold ${
+                        className={`inline-flex min-h-8 items-center rounded-full px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                           entry.isEnabled
                             ? 'bg-emerald-100 text-emerald-700'
                             : 'bg-pf-surface text-pf-deep/40'
                         }`}
                       >
-                        {entry.isEnabled ? 'Enabled' : 'Disabled'}
+                        {togglingId === entry.id
+                          ? 'Updating...'
+                          : entry.isEnabled
+                            ? 'Enabled'
+                            : 'Disabled'}
                       </button>
                     </td>
                     <td className="px-6 py-4 text-right align-top">
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
+                          aria-label={`Show history for ${entry.title}`}
                           onClick={() => setHistoryEntry(entry)}
                           className="inline-flex min-h-9 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
                         >
@@ -231,14 +268,18 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
                         </button>
                         <button
                           type="button"
+                          aria-label={`Edit ${entry.title}`}
+                          disabled={isMutating}
                           onClick={() => startEdit(entry)}
-                          className="inline-flex min-h-9 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+                          className="inline-flex min-h-9 items-center rounded-full border border-pf-light px-4 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
-                          disabled={deletingId === entry.id}
+                          aria-label={`Delete ${entry.title}`}
+                          aria-live="polite"
+                          disabled={isMutating}
                           onClick={() => {
                             void handleDelete(entry)
                           }}
@@ -277,6 +318,7 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             </label>
             <input
               id="kb-title"
+              disabled={isMutating}
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               maxLength={200}
               value={values.title}
@@ -291,21 +333,25 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="kb-category">
               Category
             </label>
-            <select
+            <input
               id="kb-category"
+              disabled={isMutating}
+              list="kb-category-suggestions"
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+              maxLength={100}
               value={values.category}
               onChange={(event) =>
                 setValues((current) => ({ ...current, category: event.target.value }))
               }
               required
-            >
+            />
+            <datalist id="kb-category-suggestions">
               {CATEGORY_SUGGESTIONS.map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>
               ))}
-            </select>
+            </datalist>
           </div>
 
           <div>
@@ -317,6 +363,7 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             </div>
             <textarea
               id="kb-content"
+              disabled={isMutating}
               className="min-h-48 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               maxLength={5000}
               value={values.content}
@@ -331,6 +378,7 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             <input
               className="h-4 w-4"
               type="checkbox"
+              disabled={isMutating}
               checked={values.isEnabled}
               onChange={(event) =>
                 setValues((current) => ({ ...current, isEnabled: event.target.checked }))
@@ -345,7 +393,10 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
           </p>
 
           {formError ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <p
+              role="alert"
+              className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+            >
               {formError}
             </p>
           ) : null}
@@ -354,8 +405,9 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             {editingEntry ? (
               <button
                 type="button"
+                disabled={isMutating}
                 onClick={startCreate}
-                className="inline-flex min-h-11 items-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+                className="inline-flex min-h-11 items-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -364,7 +416,8 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
             )}
             <button
               type="submit"
-              disabled={isSaving}
+              aria-live="polite"
+              disabled={isMutating}
               className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
             >
               {isSaving ? 'Saving...' : editingEntry ? 'Save changes' : 'Create entry'}
