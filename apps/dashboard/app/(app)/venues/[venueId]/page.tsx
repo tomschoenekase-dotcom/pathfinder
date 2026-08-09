@@ -8,6 +8,8 @@ import { ContentHistoryPanel } from '../../../../components/ContentHistoryPanel'
 import { DeletedContentHistoryPanel } from '../../../../components/DeletedContentHistoryPanel'
 import { DeletedVenueHistoryPanel } from '../../../../components/DeletedVenueHistoryPanel'
 import { VenueAvailabilityControl } from '../../../../components/VenueAvailabilityControl'
+import { VenueGuestAccessPanel } from '../../../../components/VenueGuestAccessPanel'
+import { buildGuestChatUrl } from '../../../../lib/guest-chat-url'
 
 type VenueDetailPageProps = {
   params: Promise<{
@@ -80,10 +82,15 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
       caller.venue.getAiConfig({ venueId }),
       caller.place.list({ venueId }),
     ])
-    const webUrl = process.env.NEXT_PUBLIC_WEB_URL
-    const guestChatUrl = webUrl
-      ? `${webUrl}/${venue.slug}/chat`
-      : `your-domain.com/${venue.slug}/chat`
+    const guestChatUrl = buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug, {
+      allowLoopbackHttp: process.env.NODE_ENV === 'development',
+    })
+    const isLocationAware = venue.guideMode !== 'non_location'
+    const hasCompleteCenter =
+      venue.defaultCenterLat !== null &&
+      Number.isFinite(venue.defaultCenterLat) &&
+      venue.defaultCenterLng !== null &&
+      Number.isFinite(venue.defaultCenterLng)
 
     const activePlacesCount = places.filter((place) => place.isActive).length
     const featuredPlace =
@@ -135,16 +142,6 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                   Venue packages
                 </Link>
               ) : null}
-              {webUrl ? (
-                <a
-                  href={guestChatUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
-                >
-                  Test AI chat
-                </a>
-              ) : null}
               <Link
                 href={`/venues/${venue.id}/places/new`}
                 className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
@@ -158,8 +155,8 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             <section className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-6 py-5">
               <p className="text-sm font-semibold text-emerald-800">Your venue is set up.</p>
               <p className="mt-1 text-sm leading-6 text-emerald-700">
-                Add more guide items to improve the AI guide, then share the chat URL with your
-                guests.
+                Add more guide items to improve the AI guide. Review and test the guest experience
+                before sharing it with guests.
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
@@ -177,6 +174,15 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
               </div>
             </section>
           ) : null}
+
+          <VenueGuestAccessPanel
+            venueName={venue.name}
+            guestChatUrl={guestChatUrl}
+            isVenueActive={venue.isActive}
+            activePlacesCount={activePlacesCount}
+            guideMode={isLocationAware ? 'location_aware' : 'non_location'}
+            hasCompleteCenter={hasCompleteCenter}
+          />
 
           {canManageVenuePackages ? (
             <VenueAvailabilityControl
@@ -203,23 +209,37 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             </article>
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
+                Guide experience
+              </p>
+              <p className="mt-2 text-lg font-semibold text-pf-deep">
+                {isLocationAware ? 'Location-aware guide' : 'Guide without visitor location'}
+              </p>
+            </article>
+            {isLocationAware ? (
+              <>
+                <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+                  <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
+                    Center latitude
+                  </p>
+                  <p className="mt-2 font-mono text-sm text-pf-deep">
+                    {formatCoordinate(venue.defaultCenterLat)}
+                  </p>
+                </article>
+                <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+                  <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
+                    Center longitude
+                  </p>
+                  <p className="mt-2 font-mono text-sm text-pf-deep">
+                    {formatCoordinate(venue.defaultCenterLng)}
+                  </p>
+                </article>
+              </>
+            ) : null}
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
                 Active guide items
               </p>
               <p className="mt-2 text-2xl font-semibold text-pf-deep">{activePlacesCount}</p>
-            </article>
-            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">Center latitude</p>
-              <p className="mt-2 font-mono text-sm text-pf-deep">
-                {formatCoordinate(venue.defaultCenterLat)}
-              </p>
-            </article>
-            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
-                Center longitude
-              </p>
-              <p className="mt-2 font-mono text-sm text-pf-deep">
-                {formatCoordinate(venue.defaultCenterLng)}
-              </p>
             </article>
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
@@ -265,7 +285,9 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                       <th className="px-6 py-3 font-medium">Name</th>
                       <th className="px-6 py-3 font-medium">Category</th>
                       <th className="px-6 py-3 font-medium">Status</th>
-                      <th className="px-6 py-3 font-medium">Coordinates</th>
+                      {isLocationAware ? (
+                        <th className="px-6 py-3 font-medium">Coordinates</th>
+                      ) : null}
                       <th className="px-6 py-3 text-right font-medium">Action</th>
                     </tr>
                   </thead>
@@ -295,13 +317,15 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                             {place.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 align-top">
-                          <p className="font-mono text-xs text-pf-deep/60">
-                            {place.lat != null && place.lng != null
-                              ? `${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}`
-                              : 'Not set'}
-                          </p>
-                        </td>
+                        {isLocationAware ? (
+                          <td className="px-6 py-4 align-top">
+                            <p className="font-mono text-xs text-pf-deep/60">
+                              {place.lat != null && place.lng != null
+                                ? `${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}`
+                                : 'Not set'}
+                            </p>
+                          </td>
+                        ) : null}
                         <td className="px-6 py-4 text-right align-top">
                           <Link
                             href={`/venues/${place.venueId}/places/${place.id}/edit`}

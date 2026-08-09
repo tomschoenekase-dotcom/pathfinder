@@ -82,6 +82,11 @@ describe('mode-aware onboarding setup', () => {
       },
     })
     expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Review the guide content and availability settings before sharing it with guests.',
+      ),
+    ).toBeTruthy()
     expect(screen.queryByText(/Your venue is live/i)).toBeNull()
   })
 

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { DashboardOverview } from '../../components/DashboardOverview'
+import { buildGuestChatUrl } from '../../lib/guest-chat-url'
 import { createDashboardCaller } from '../../lib/server-caller'
 
 export default async function DashboardIndexPage() {
@@ -53,8 +54,11 @@ export default async function DashboardIndexPage() {
     venues: venues.length,
   }
   const firstVenue = venues[0] ?? null
-  const webUrl = process.env.NEXT_PUBLIC_WEB_URL ?? null
-  const chatUrl = firstVenue && webUrl ? `${webUrl}/${firstVenue.slug}/chat` : null
+  const chatUrl = firstVenue
+    ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, firstVenue.slug, {
+        allowLoopbackHttp: process.env.NODE_ENV === 'development',
+      })
+    : null
 
   return (
     <DashboardOverview
