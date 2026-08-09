@@ -4,12 +4,7 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
 import { logger } from '@pathfinder/config/logger'
-import {
-  db,
-  lockVenueReportMutation,
-  withTenantIsolationBypass,
-  writeAuditLog,
-} from '@pathfinder/db'
+import { db, lockVenueReportMutation, withTenantIsolationBypass } from '@pathfinder/db'
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { router } from '../../core'
@@ -229,69 +224,73 @@ export const adminWeeklyReportsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const existing = await withTenantIsolationBypass(async () =>
-        db.weeklyReport.findFirst({
-          where: {
-            id: input.reportId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-          },
-          select: { status: true, updatedAt: true },
+      return withTenantIsolationBypass(() =>
+        db.$transaction(async (transaction) => {
+          await lockVenueReportMutation(transaction, input)
+          const existing = await transaction.weeklyReport.findFirst({
+            where: {
+              id: input.reportId,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+            },
+            select: { status: true, updatedAt: true },
+          })
+          if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
+          if (existing.status !== 'DRAFT') {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'Only a draft report can be edited.',
+            })
+          }
+
+          const expectedUpdatedAt = new Date(input.expectedUpdatedAt)
+          if (existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'This report was edited elsewhere. Reload it before saving again.',
+            })
+          }
+
+          // Make each successful draft-save token strictly newer than the token it consumed,
+          // even when two operations fall in the same clock millisecond.
+          const nextUpdatedAt = new Date(Math.max(Date.now(), expectedUpdatedAt.getTime() + 1))
+          const updated = await transaction.weeklyReport.updateMany({
+            where: {
+              id: input.reportId,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              status: 'DRAFT',
+              updatedAt: expectedUpdatedAt,
+            },
+            data: {
+              content: input.content,
+              updatedAt: nextUpdatedAt,
+              ...(input.title !== undefined ? { title: input.title } : {}),
+            },
+          })
+          if (updated.count !== 1) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'Report state changed before the draft could be saved.',
+            })
+          }
+
+          await transaction.auditLog.create({
+            data: {
+              tenantId: input.tenantId,
+              actorId: ctx.session.userId,
+              actorRole: 'PLATFORM_ADMIN',
+              action: 'admin.report.edited',
+              targetType: 'WeeklyReport',
+              targetId: input.reportId,
+              beforeState: { status: existing.status, updatedAt: existing.updatedAt.toISOString() },
+              afterState: { status: 'DRAFT', updatedAt: nextUpdatedAt.toISOString() },
+            },
+          })
+
+          return { ok: true, updatedAt: nextUpdatedAt.toISOString() }
         }),
       )
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
-      if (existing.status !== 'DRAFT') {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Only a draft report can be edited.',
-        })
-      }
-
-      const expectedUpdatedAt = new Date(input.expectedUpdatedAt)
-      if (existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This report was edited elsewhere. Reload it before saving again.',
-        })
-      }
-
-      // Make each successful draft-save token strictly newer than the token it consumed,
-      // even when two operations fall in the same clock millisecond.
-      const nextUpdatedAt = new Date(Math.max(Date.now(), expectedUpdatedAt.getTime() + 1))
-
-      const updated = await withTenantIsolationBypass(async () => {
-        return db.weeklyReport.updateMany({
-          where: {
-            id: input.reportId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            status: 'DRAFT',
-            updatedAt: expectedUpdatedAt,
-          },
-          data: {
-            content: input.content,
-            updatedAt: nextUpdatedAt,
-            ...(input.title !== undefined ? { title: input.title } : {}),
-          },
-        })
-      })
-      if (updated.count !== 1) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Report state changed before the draft could be saved.',
-        })
-      }
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.report.edited',
-        targetType: 'WeeklyReport',
-        targetId: input.reportId,
-      })
-
-      return { ok: true, updatedAt: nextUpdatedAt.toISOString() }
     }),
 
   publishWeeklyReport: adminProcedure

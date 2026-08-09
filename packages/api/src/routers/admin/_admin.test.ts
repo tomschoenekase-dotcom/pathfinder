@@ -1555,7 +1555,7 @@ describe('admin router', () => {
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
   })
 
   it('admin.updateWeeklyReportDraft uses an exact DRAFT CAS and audit-logs a successful edit', async () => {
@@ -1588,12 +1588,27 @@ describe('admin router', () => {
       },
       data: { title: 'Edited title', content: 'Edited content', updatedAt: nextUpdatedAt },
     })
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'admin.report.edited', targetId: 'report_1' }),
+    expect(auditLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'admin.report.edited',
+          targetId: 'report_1',
+          beforeState: {
+            status: 'DRAFT',
+            updatedAt: reportRevision.toISOString(),
+          },
+          afterState: {
+            status: 'DRAFT',
+            updatedAt: nextUpdatedAt.toISOString(),
+          },
+        }),
+      }),
     )
     expect(weeklyReportUpdateMany.mock.invocationCallOrder[0]).toBeLessThan(
-      writeAuditLogMock.mock.invocationCallOrder[0]!,
+      auditLogCreate.mock.invocationCallOrder[0]!,
     )
+    expect(dbTransaction).toHaveBeenCalledOnce()
+    expect(lockVenueReportMutation).toHaveBeenCalledOnce()
     dateNow.mockRestore()
   })
 
@@ -1622,7 +1637,7 @@ describe('admin router', () => {
         },
       }),
     )
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
   })
 
   it('admin.updateWeeklyReportDraft rejects a stale revision before attempting its CAS', async () => {
@@ -1643,7 +1658,27 @@ describe('admin router', () => {
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
 
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+  })
+
+  it('admin.updateWeeklyReportDraft fails the transaction when strict audit persistence fails', async () => {
+    weeklyReportFindFirst.mockResolvedValueOnce({ status: 'DRAFT', updatedAt: reportRevision })
+    auditLogCreate.mockRejectedValueOnce(new Error('audit unavailable'))
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.updateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        reportId: 'report_1',
+        expectedUpdatedAt: reportRevision.toISOString(),
+        content: 'Edited content',
+      }),
+    ).rejects.toThrow('audit unavailable')
+
+    expect(weeklyReportUpdateMany).toHaveBeenCalledOnce()
+    expect(auditLogCreate).toHaveBeenCalledOnce()
+    expect(dbTransaction).toHaveBeenCalledOnce()
   })
 
   it('admin.publishWeeklyReport throws BAD_REQUEST when status is not DRAFT', async () => {
