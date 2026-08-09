@@ -5,14 +5,10 @@ const mocks = vi.hoisted(() => ({
   redrive: vi.fn(),
 }))
 
-vi.mock('@pathfinder/jobs', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@pathfinder/jobs')>()
-  return {
-    ...original,
-    inspectTerminalJobRedrive: mocks.inspect,
-    redriveTerminalJob: mocks.redrive,
-  }
-})
+vi.mock('@pathfinder/jobs', () => ({
+  inspectTerminalJobRedrive: mocks.inspect,
+  redriveTerminalJob: mocks.redrive,
+}))
 
 import {
   parseTerminalRedriveArgs,

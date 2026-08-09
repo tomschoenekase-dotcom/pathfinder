@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@pathfinder/config', () => ({
+  env: { RAILWAY_ENVIRONMENT: 'staging' },
+}))
+
 import { WEEKLY_REPORT_PROCESS_JOB, WEEKLY_REPORT_QUEUE } from './queues'
 import {
   inspectTerminalJobRedrive,

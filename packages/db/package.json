@@ -24,7 +24,7 @@
     "@prisma/client": "^6.7.0"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "^3.2.4",
+    "@vitest/coverage-istanbul": "3.2.6",
     "prisma": "^6.7.0",
     "tsx": "^4.19.2"
   },
