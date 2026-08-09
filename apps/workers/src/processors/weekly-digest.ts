@@ -1,7 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
-import { env, logger } from '@pathfinder/config'
+import {
+  AI_MODEL_KEYS,
+  generateText,
+  NOOP_AI_BUDGET_GATE,
+  setAnthropicClientForTesting,
+  type AiUsageSink,
+  type AnthropicMessagesClient,
+} from '@pathfinder/ai'
+import { logger } from '@pathfinder/config'
 import {
   assertGlobalAiAvailable,
   db,
@@ -22,10 +29,8 @@ import {
   type JobExecutionInput,
 } from '../lib/job-execution'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
 const MESSAGE_CONTENT_LIMIT = 500
 const MINIMUM_SESSION_COUNT = 5
-const MAX_OUTPUT_TOKENS = 1_200
 
 const insightSchema = z.object({
   type: z.enum(['trend', 'confusion', 'interest', 'recommendation']),
@@ -51,35 +56,14 @@ type PromptSession = {
   }>
 }
 
-let anthropicClient: Anthropic | null = null
-
-function getAnthropicClient(): Anthropic {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is not configured')
-  }
-
-  if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 0 })
-  }
-
-  return anthropicClient
+export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void {
+  setAnthropicClientForTesting(client)
 }
 
 function trimMessageContent(content: string): string {
   return content.length > MESSAGE_CONTENT_LIMIT
     ? `${content.slice(0, MESSAGE_CONTENT_LIMIT).trimEnd()}...`
     : content
-}
-
-function extractResponseText(content: Anthropic.Messages.Message['content']): string {
-  return content
-    .filter(
-      (block): block is Extract<(typeof content)[number], { type: 'text' }> =>
-        block.type === 'text',
-    )
-    .map((block) => block.text)
-    .join('\n')
-    .trim()
 }
 
 function parseDigestInsights(rawText: string): WeeklyDigestInsight[] {
@@ -99,6 +83,31 @@ function parseDigestInsights(rawText: string): WeeklyDigestInsight[] {
 
     return weeklyDigestResponseSchema.parse(JSON.parse(candidate.slice(firstBrace, lastBrace + 1)))
       .insights
+  }
+}
+
+function createTenantWideDigestUsageSink(params: {
+  tenantId: string
+  digestId: string
+}): AiUsageSink {
+  return async (usage) => {
+    logger.info({
+      action: 'workers.weekly-digest.ai-usage-unattributed',
+      tenantId: params.tenantId,
+      digestId: params.digestId,
+      provider: usage.provider,
+      model: usage.model,
+      pricingVersion: usage.pricingVersion,
+      inputTokens: usage.usage.inputTokens,
+      outputTokens: usage.usage.outputTokens,
+      cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
+      cacheReadInputTokens: usage.usage.cacheReadInputTokens,
+      estimatedCostUsd: usage.estimatedCostUsd,
+      latencyMs: usage.latencyMs,
+      attempts: usage.attempts,
+      success: usage.success,
+      ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
+    })
   }
 }
 
@@ -343,19 +352,22 @@ export async function processWeeklyDigestJob(
       sessions: promptData.sessions,
     })
 
-    await assertGlobalAiAvailable(db)
-    const response = await getAnthropicClient().messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: MAX_OUTPUT_TOKENS,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
+    const response = await generateText({
+      admissionGuard: () => assertGlobalAiAvailable(db),
+      modelKey: AI_MODEL_KEYS.WEEKLY_DIGEST,
+      system: [],
+      messages: [{ role: 'user', content: prompt }],
+      parseResponse: parseDigestInsights,
+      usageSink: createTenantWideDigestUsageSink({
+        tenantId: payload.tenantId,
+        digestId: payload.digestId,
+      }),
+      // Weekly digests intentionally remain outside the venue-attributed durable
+      // budget ledger until it supports honest tenant-wide accounting.
+      budgetGate: NOOP_AI_BUDGET_GATE,
     })
 
-    const insights = parseDigestInsights(extractResponseText(response.content))
+    const insights = response.parsed
 
     await markDigestStatus(payload, {
       status: 'COMPLETE',

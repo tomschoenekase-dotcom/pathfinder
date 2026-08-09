@@ -120,6 +120,7 @@ test('every shared AI gateway and production caller rechecks admission', async (
     'apps/workers/src/processors/answer-analysis.ts',
     'apps/workers/src/processors/embed-knowledge-entry.ts',
     'apps/workers/src/processors/embed-place.ts',
+    'apps/workers/src/processors/weekly-digest.ts',
     'apps/workers/src/processors/weekly-report.ts',
   ]
   for (const file of callers) {
@@ -129,10 +130,9 @@ test('every shared AI gateway and production caller rechecks admission', async (
 })
 
 test('direct provider calls admit before budget reservation or dispatch', async () => {
-  const [budget, media, digest] = await Promise.all([
+  const [budget, media] = await Promise.all([
     source('apps/workers/src/lib/media-provider-budget.ts'),
     source('apps/workers/src/processors/media-ingestion.ts'),
-    source('apps/workers/src/processors/weekly-digest.ts'),
   ])
 
   assert.match(
@@ -143,11 +143,6 @@ test('direct provider calls admit before budget reservation or dispatch', async 
   assert.match(
     media,
     /const venueAdmission = \(\) =>\s*assertVenueAiAvailable\(db, \{\s*tenantId: payload\.tenantId,\s*venueId: payload\.venueId/u,
-  )
-  assert.match(digest, /new Anthropic\(\{ apiKey: env\.ANTHROPIC_API_KEY, maxRetries: 0 \}\)/u)
-  assert.match(
-    digest,
-    /await assertGlobalAiAvailable\(db\)\s*const response = await getAnthropicClient\(\)\.messages\.create/u,
   )
 })
 

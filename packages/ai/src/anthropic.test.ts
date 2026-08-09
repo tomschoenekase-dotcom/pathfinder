@@ -306,6 +306,32 @@ describe('generateText', () => {
     expect(usageSink).not.toHaveBeenCalled()
   })
 
+  it('checks admission before requiring provider configuration', async () => {
+    const pause = new Error('paused')
+    const previousApiKey = process.env.ANTHROPIC_API_KEY
+    setAnthropicClientForTesting(null)
+    delete process.env.ANTHROPIC_API_KEY
+    admissionGuard.mockRejectedValueOnce(pause)
+
+    try {
+      await expect(
+        generateText({
+          modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+          system: [],
+          messages: [{ role: 'user', content: 'Hello' }],
+          usageSink,
+          admissionGuard,
+          budgetGate: NOOP_AI_BUDGET_GATE,
+        }),
+      ).rejects.toBe(pause)
+    } finally {
+      if (previousApiKey === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previousApiKey
+    }
+
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('records a dispatched failure but not the retry denied by admission', async () => {
     admissionGuard
       .mockResolvedValueOnce(undefined)

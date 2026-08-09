@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { AnthropicMessagesClient } from '@pathfinder/ai'
 import type { WeeklyDigestJobPayload } from '@pathfinder/jobs'
 
 const mocks = vi.hoisted(() => ({
-  anthropicCreate: vi.fn(),
   digestUpdateMany: vi.fn(),
   tenantFindUnique: vi.fn(),
   sessionFindMany: vi.fn(),
@@ -13,21 +13,11 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
-  anthropicConstructor: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
 }))
 
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: class MockAnthropic {
-    constructor(options: unknown) {
-      mocks.anthropicConstructor(options)
-    }
-    messages = { create: mocks.anthropicCreate }
-  },
-}))
-
 vi.mock('@pathfinder/config', () => ({
-  env: { ANTHROPIC_API_KEY: 'test-only-key' },
+  env: { RAILWAY_ENVIRONMENT: 'test' },
   logger: {
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,
@@ -54,8 +44,11 @@ vi.mock('@pathfinder/db', () => ({
   updateJobRecord: mocks.updateJobRecord,
 }))
 
-import { processWeeklyDigestJob } from './weekly-digest'
+import { _setAnthropicClientForTesting, processWeeklyDigestJob } from './weekly-digest'
 import { GlobalAiAdmissionError } from '@pathfinder/db'
+
+const anthropicCreate = vi.fn()
+const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
 
 const payload: WeeklyDigestJobPayload = {
   tenantId: 'tenant_1',
@@ -101,6 +94,7 @@ function makeSessions(count: number) {
 describe('processWeeklyDigestJob', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    _setAnthropicClientForTesting(mockAnthropic)
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
@@ -108,8 +102,9 @@ describe('processWeeklyDigestJob', () => {
     mocks.digestUpdateMany.mockResolvedValue({ count: 1 })
     mocks.tenantFindUnique.mockResolvedValue({ name: 'Example Tenant' })
     mocks.sessionFindMany.mockResolvedValue(makeSessions(5))
-    mocks.anthropicCreate.mockResolvedValue({
+    anthropicCreate.mockResolvedValue({
       content: [{ type: 'text', text: JSON.stringify({ insights: validInsights }) }],
+      usage: { input_tokens: 120, output_tokens: 50 },
     })
   })
 
@@ -122,7 +117,7 @@ describe('processWeeklyDigestJob', () => {
       maxAttempts: 3,
     })
 
-    expect(mocks.anthropicCreate).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
     expect(mocks.digestUpdateMany).toHaveBeenLastCalledWith({
       where: { id: 'digest_1', tenantId: 'tenant_1' },
       data: {
@@ -149,35 +144,47 @@ describe('processWeeklyDigestJob', () => {
       data: { status: 'PENDING' },
     })
     expect(mocks.updateJobRecord).not.toHaveBeenCalled()
-    expect(mocks.anthropicCreate).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
   })
 
   it('accepts a valid structured response and completes the digest', async () => {
-    mocks.anthropicCreate.mockResolvedValueOnce({
+    anthropicCreate.mockResolvedValueOnce({
       content: [
         {
           type: 'text',
           text: `\`\`\`json\n${JSON.stringify({ insights: validInsights })}\n\`\`\``,
         },
       ],
+      usage: { input_tokens: 120, output_tokens: 50 },
     })
 
     await processWeeklyDigestJob(payload)
 
-    expect(mocks.anthropicConstructor).toHaveBeenCalledWith({
-      apiKey: 'test-only-key',
-      maxRetries: 0,
-    })
-    expect(mocks.anthropicCreate).toHaveBeenCalledWith({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1_200,
-      messages: [
-        {
-          role: 'user',
-          content: expect.stringContaining('"sessionId": "session_1"'),
-        },
-      ],
-    })
+    expect(anthropicCreate).toHaveBeenCalledWith(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1_200,
+        system: [],
+        messages: [
+          {
+            role: 'user',
+            content: expect.stringContaining('"sessionId": "session_1"'),
+          },
+        ],
+      },
+      { timeout: 30_000 },
+    )
+    expect(mocks.assertGlobalAiAvailable).toHaveBeenCalledTimes(2)
+    expect(mocks.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'workers.weekly-digest.ai-usage-unattributed',
+        tenantId: 'tenant_1',
+        digestId: 'digest_1',
+        inputTokens: 120,
+        outputTokens: 50,
+        success: true,
+      }),
+    )
     expect(mocks.digestUpdateMany).toHaveBeenLastCalledWith({
       where: { id: 'digest_1', tenantId: 'tenant_1' },
       data: {
@@ -197,8 +204,9 @@ describe('processWeeklyDigestJob', () => {
     ['plain malformed output', 'not-json'],
     ['fenced schema-invalid output', '```json\n{"insights":[]}\n```'],
   ])('marks the digest and job record failed for %s', async (_label, responseText) => {
-    mocks.anthropicCreate.mockResolvedValueOnce({
+    anthropicCreate.mockResolvedValueOnce({
       content: [{ type: 'text', text: responseText }],
+      usage: { input_tokens: 120, output_tokens: 50 },
     })
 
     await expect(
@@ -222,10 +230,17 @@ describe('processWeeklyDigestJob', () => {
       where: { id: 'digest_1', tenantId: 'tenant_1' },
       data: { status: 'FAILED' },
     })
+    expect(mocks.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'workers.weekly-digest.ai-usage-unattributed',
+        success: false,
+        errorCode: 'invalid-structured-output',
+      }),
+    )
   })
 
   it('marks the digest failed when the provider rejects', async () => {
-    mocks.anthropicCreate.mockRejectedValueOnce(new Error('provider unavailable'))
+    anthropicCreate.mockRejectedValueOnce(new Error('provider unavailable'))
 
     await expect(
       processWeeklyDigestJob(payload, {
@@ -246,6 +261,13 @@ describe('processWeeklyDigestJob', () => {
       where: { id: 'digest_1', tenantId: 'tenant_1' },
       data: { status: 'FAILED' },
     })
+    expect(mocks.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'workers.weekly-digest.ai-usage-unattributed',
+        success: false,
+        errorCode: 'provider-error',
+      }),
+    )
   })
 
   it('scopes every source read to the tenant and does not log session content', async () => {

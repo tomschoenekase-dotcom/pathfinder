@@ -210,8 +210,6 @@ export async function generateText<TParsed = string>(params: {
     messages: params.messages,
     maxOutputTokens,
   })
-  const client = getAnthropicClient()
-
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await params.admissionGuard()
@@ -236,6 +234,7 @@ export async function generateText<TParsed = string>(params: {
       }
       throw admissionError
     }
+    const client = getAnthropicClient()
     const reservation = await budgetGate.reserve({
       invocationId,
       attemptNumber: attempt,
