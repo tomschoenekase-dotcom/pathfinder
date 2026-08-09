@@ -7,5 +7,5 @@ const syntheticTestEnvironment = {
 } as const
 
 for (const [name, value] of Object.entries(syntheticTestEnvironment)) {
-  process.env[name] ??= value
+  process.env[name] = value
 }
