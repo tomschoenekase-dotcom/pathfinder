@@ -6,19 +6,9 @@ import { useRouter } from 'next/navigation'
 import { Controller, useForm } from 'react-hook-form'
 import { CheckCircle2 } from 'lucide-react'
 
-import { CreatePlaceInput, CreateVenueInput } from '@pathfinder/api/schemas'
+import { CreateVenueInput, PlaceInput } from '@pathfinder/api/schemas'
 
 import { useTRPCClient } from '../../../../lib/trpc'
-
-const VENUE_CATEGORIES = [
-  'ZOO',
-  'AQUARIUM',
-  'MUSEUM',
-  'MALL',
-  'SPORTS_VENUE',
-  'PARK',
-  'OTHER',
-] as const
 
 const PLACE_CATEGORIES = [
   'EXHIBIT',
@@ -34,10 +24,12 @@ const VenueBasicsSchema = CreateVenueInput.pick({
   name: true,
   slug: true,
   category: true,
+  guideMode: true,
 }).required({
   name: true,
   slug: true,
   category: true,
+  guideMode: true,
 })
 
 const VenueLocationSchema = CreateVenueInput.pick({
@@ -48,8 +40,7 @@ const VenueLocationSchema = CreateVenueInput.pick({
   defaultCenterLng: true,
 })
 
-const FirstPlaceSchema = CreatePlaceInput.omit({
-  venueId: true,
+const FirstPlaceSchema = PlaceInput.omit({
   lat: true,
   lng: true,
   tags: true,
@@ -68,6 +59,7 @@ type VenueBasicsValues = {
   name: string
   slug: string
   category: string
+  guideMode: 'location_aware' | 'non_location'
 }
 
 type VenueLocationValues = {
@@ -82,25 +74,23 @@ type FirstPlaceValues = {
 }
 
 type SetupState = {
-  venue: VenueBasicsValues & VenueLocationValues
+  venue: VenueBasicsValues & {
+    defaultCenterLat: number | undefined
+    defaultCenterLng: number | undefined
+  }
   place: FirstPlaceValues
 }
 
-const STEP_LABELS = ['Venue info', 'First place', 'Done'] as const
-
-const STEP_TITLES = [
-  'Tell us about your venue',
-  'Add your first place',
-  'You are ready to welcome guests',
-] as const
+type SetupStep = 'basics' | 'location' | 'place'
 
 const INITIAL_STATE: SetupState = {
   venue: {
     name: '',
     slug: '',
-    category: 'AQUARIUM',
-    defaultCenterLat: 0,
-    defaultCenterLng: 0,
+    category: '',
+    guideMode: 'location_aware',
+    defaultCenterLat: undefined,
+    defaultCenterLng: undefined,
   },
   place: {
     name: '',
@@ -137,21 +127,47 @@ function getErrorMessage(error: unknown): string {
   return 'Something went wrong. Please try again.'
 }
 
-function StepIndicator({ currentStep }: { currentStep: number }) {
-  const currentTitle = STEP_TITLES[currentStep] ?? STEP_TITLES[0]
+function getSetupSteps(guideMode: VenueBasicsValues['guideMode']) {
+  return guideMode === 'location_aware'
+    ? [
+        { id: 'basics', label: 'Venue info', title: 'Tell us about your venue' },
+        { id: 'location', label: 'Location', title: 'Set the venue center' },
+        { id: 'place', label: 'First guide item', title: 'Add a central starting point' },
+        { id: 'done', label: 'Done', title: 'Review your setup' },
+      ]
+    : [
+        { id: 'basics', label: 'Venue info', title: 'Tell us about your venue' },
+        { id: 'place', label: 'First guide item', title: 'Add the first guide item' },
+        { id: 'done', label: 'Done', title: 'Review your setup' },
+      ]
+}
+
+function StepIndicator({
+  currentStep,
+  guideMode,
+}: {
+  currentStep: SetupStep
+  guideMode: VenueBasicsValues['guideMode']
+}) {
+  const steps = getSetupSteps(guideMode)
+  const currentIndex = Math.max(
+    0,
+    steps.findIndex((step) => step.id === currentStep),
+  )
+  const currentTitle = steps[currentIndex]?.title ?? steps[0]!.title
 
   return (
     <div className="mt-8">
       <p className="text-sm font-medium text-pf-light">
-        Step {currentStep + 1} of 3 - {currentTitle}
+        Step {currentIndex + 1} of {steps.length} - {currentTitle}
       </p>
       <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
-        {STEP_LABELS.map((label, index) => {
-          const isActive = index === currentStep
-          const isComplete = index < currentStep
+        {steps.map((step, index) => {
+          const isActive = index === currentIndex
+          const isComplete = index < currentIndex
 
           return (
-            <div key={label} className="flex items-center gap-3 text-sm">
+            <div key={step.id} className="flex items-center gap-3 text-sm">
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
                   isActive || isComplete
@@ -170,9 +186,9 @@ function StepIndicator({ currentStep }: { currentStep: number }) {
                       : 'text-pf-light/50'
                 }
               >
-                {label}
+                {step.label}
               </span>
-              {index < STEP_LABELS.length - 1 ? (
+              {index < steps.length - 1 ? (
                 <span className="hidden h-px w-12 bg-pf-primary/30 md:block" aria-hidden="true" />
               ) : null}
             </div>
@@ -223,7 +239,7 @@ function VenueBasicsStep({
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Name your venue</h2>
           <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Start with the venue name, public slug, and category.
+            Start with its identity, then choose whether this guide uses visitor location.
           </p>
         </div>
 
@@ -268,26 +284,48 @@ function VenueBasicsStep({
               className="mb-2 block text-sm font-medium text-pf-deep/70"
               htmlFor="venue-category"
             >
-              Category
+              Venue category (optional)
             </label>
-            <select
+            <input
               id="venue-category"
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
+              placeholder="Museum, hotel, campus..."
               {...register('category')}
-            >
-              {VENUE_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
+            />
             <p className="mt-1 text-xs text-pf-deep/40">
-              Helps PathFinder tailor responses for your venue type.
+              Descriptive only. It does not lock the venue into a product mode.
             </p>
             {errors.category ? (
               <p className="mt-2 text-sm text-rose-600">{errors.category.message}</p>
             ) : null}
           </div>
+
+          <fieldset className="space-y-3 sm:col-span-2">
+            <legend className="text-sm font-medium text-pf-deep/70">Guide style</legend>
+            <label className="flex cursor-pointer gap-3 rounded-2xl border border-pf-light p-4">
+              <input type="radio" value="location_aware" {...register('guideMode')} />
+              <span>
+                <span className="block text-sm font-semibold text-pf-deep">On-site guide</span>
+                <span className="mt-1 block text-xs leading-5 text-pf-deep/50">
+                  Uses visitor location for nearby places and directions when permission is shared.
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer gap-3 rounded-2xl border border-pf-light p-4">
+              <input type="radio" value="non_location" {...register('guideMode')} />
+              <span>
+                <span className="block text-sm font-semibold text-pf-deep">
+                  Guide without visitor location
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-pf-deep/50">
+                  Answers venue questions without collecting or using visitor location.
+                </span>
+              </span>
+            </label>
+            {errors.guideMode ? (
+              <p className="text-sm text-rose-600">{errors.guideMode.message}</p>
+            ) : null}
+          </fieldset>
         </div>
       </div>
 
@@ -316,17 +354,28 @@ function VenueLocationStep({
   onBack,
   onNext,
 }: {
-  defaultValues: VenueLocationValues
-  onBack: () => void
+  defaultValues: {
+    defaultCenterLat: number | undefined
+    defaultCenterLng: number | undefined
+  }
+  onBack: (values: VenueLocationValues) => void
   onNext: (values: VenueLocationValues) => void
 }) {
   const {
     control,
     formState: { errors },
+    getValues,
     handleSubmit,
   } = useForm<VenueLocationValues>({
     resolver: zodResolver(VenueLocationSchema),
-    defaultValues,
+    defaultValues: {
+      ...(defaultValues.defaultCenterLat !== undefined
+        ? { defaultCenterLat: defaultValues.defaultCenterLat }
+        : {}),
+      ...(defaultValues.defaultCenterLng !== undefined
+        ? { defaultCenterLng: defaultValues.defaultCenterLng }
+        : {}),
+    },
   })
 
   return (
@@ -335,7 +384,7 @@ function VenueLocationStep({
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Set your location</h2>
           <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Use Google Maps to find your venue&apos;s center coordinates.
+            Coordinates start blank. Enter the venue&apos;s real center or main entrance.
           </p>
         </div>
 
@@ -360,9 +409,8 @@ function VenueLocationStep({
               )}
             />
             <p className="mt-1 text-xs text-pf-deep/40">
-              The center point of your venue - guests&apos; distances are measured from here. Use
-              Google Maps to find coordinates: right-click any point on the map and copy the
-              coordinates shown.
+              Used to order venue content when a guest has not shared a live position. It is never
+              treated as the guest&apos;s location.
             </p>
             {errors.defaultCenterLat ? (
               <p className="mt-2 text-sm text-rose-600">{errors.defaultCenterLat.message}</p>
@@ -389,9 +437,7 @@ function VenueLocationStep({
               )}
             />
             <p className="mt-1 text-xs text-pf-deep/40">
-              The center point of your venue - guests&apos; distances are measured from here. Use
-              Google Maps to find coordinates: right-click any point on the map and copy the
-              coordinates shown.
+              Right-click the venue center or main entrance in your map tool and copy its longitude.
             </p>
             {errors.defaultCenterLng ? (
               <p className="mt-2 text-sm text-rose-600">{errors.defaultCenterLng.message}</p>
@@ -404,7 +450,7 @@ function VenueLocationStep({
         <button
           className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-deep/70 transition hover:bg-pf-surface"
           type="button"
-          onClick={onBack}
+          onClick={() => onBack(getValues())}
         >
           Back
         </button>
@@ -421,17 +467,20 @@ function VenueLocationStep({
 
 function FirstPlaceStep({
   defaultValues,
+  guideMode,
   isSubmitting,
   onBack,
   onSubmit,
 }: {
   defaultValues: FirstPlaceValues
+  guideMode: VenueBasicsValues['guideMode']
   isSubmitting: boolean
-  onBack: () => void
+  onBack: (values: FirstPlaceValues) => void
   onSubmit: (values: FirstPlaceValues) => void
 }) {
   const {
     formState: { errors },
+    getValues,
     handleSubmit,
     register,
   } = useForm<FirstPlaceValues>({
@@ -444,10 +493,14 @@ function FirstPlaceStep({
       <div className="space-y-5">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
-            Add your first guide item
+            {guideMode === 'location_aware'
+              ? 'Add your central starting point'
+              : 'Add your first guide item'}
           </h2>
           <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Add at least one guide item so your AI guide has something to talk about.
+            {guideMode === 'location_aware'
+              ? 'Choose the main entrance or a central landmark at the center coordinates you entered.'
+              : 'Add one useful fact, policy, service, or experience so the guide can answer its first question.'}
           </p>
         </div>
 
@@ -462,7 +515,9 @@ function FirstPlaceStep({
               {...register('name')}
             />
             <p className="mt-1 text-xs text-pf-deep/40">
-              Add your most popular or iconic item first - you can add more after setup.
+              {guideMode === 'location_aware'
+                ? 'This item starts at the venue center. You can add other precisely located items after setup.'
+                : 'You can add and organize more guide content after setup.'}
             </p>
             {errors.name ? (
               <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p>
@@ -507,8 +562,9 @@ function FirstPlaceStep({
           </div>
         </div>
         <p className="rounded-2xl bg-pf-surface px-4 py-3 text-xs leading-5 text-pf-deep/40">
-          Guide item coordinates start at your venue center for setup. Right-click in Google Maps to
-          copy coordinates for this specific location, then fine-tune this item after setup.
+          {guideMode === 'location_aware'
+            ? 'The server creates this central item at the validated venue center in the same atomic setup operation.'
+            : 'This setup stores no venue center or item coordinates.'}
         </p>
       </div>
 
@@ -516,7 +572,7 @@ function FirstPlaceStep({
         <button
           className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-deep/70 transition hover:bg-pf-surface"
           type="button"
-          onClick={onBack}
+          onClick={() => onBack(getValues())}
         >
           Back
         </button>
@@ -535,12 +591,13 @@ function FirstPlaceStep({
 export default function OnboardingSetupPage() {
   const router = useRouter()
   const client = useTRPCClient()
-  const [currentStep, setCurrentStep] = useState(0)
+  const [currentStep, setCurrentStep] = useState<SetupStep>('basics')
   const [setupState, setSetupState] = useState<SetupState>(INITIAL_STATE)
   const [formError, setFormError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
   const [completedVenueId, setCompletedVenueId] = useState<string | null>(null)
+  const totalSteps = getSetupSteps(setupState.venue.guideMode).length
 
   useEffect(() => {
     if (!completedVenueId) {
@@ -565,20 +622,23 @@ export default function OnboardingSetupPage() {
       const venue = await client.venue.create.mutate({
         name: setupState.venue.name,
         slug: setupState.venue.slug,
-        category: setupState.venue.category,
-        defaultCenterLat: setupState.venue.defaultCenterLat,
-        defaultCenterLng: setupState.venue.defaultCenterLng,
-      })
-
-      await client.place.create.mutate({
-        venueId: venue.id,
-        name: placeValues.name,
-        type: placeValues.type,
-        shortDescription: placeValues.shortDescription,
-        lat: setupState.venue.defaultCenterLat,
-        lng: setupState.venue.defaultCenterLng,
-        tags: [],
-        importanceScore: 0,
+        ...(setupState.venue.category?.trim()
+          ? { category: setupState.venue.category.trim() }
+          : {}),
+        guideMode: setupState.venue.guideMode,
+        ...(setupState.venue.guideMode === 'location_aware'
+          ? {
+              defaultCenterLat: setupState.venue.defaultCenterLat!,
+              defaultCenterLng: setupState.venue.defaultCenterLng!,
+            }
+          : {}),
+        initialGuideItem: {
+          name: placeValues.name,
+          type: placeValues.type,
+          shortDescription: placeValues.shortDescription,
+          tags: [],
+          importanceScore: 0,
+        },
       })
 
       setIsComplete(true)
@@ -596,12 +656,14 @@ export default function OnboardingSetupPage() {
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
             <CheckCircle2 className="h-8 w-8" aria-hidden="true" />
           </div>
-          <p className="mt-6 text-sm font-medium text-emerald-700">Step 3 of 3 - Done</p>
+          <p className="mt-6 text-sm font-medium text-emerald-700">
+            Step {totalSteps} of {totalSteps} - Done
+          </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-pf-deep">
-            Your venue is live.
+            Your venue setup is ready for review.
           </h1>
           <p className="mt-3 text-sm leading-6 text-pf-deep/60">
-            PathFinder is ready to guide your guests.
+            Review the guide content and availability settings before sharing it with guests.
           </p>
           <p className="mt-6 text-sm font-medium text-emerald-700">
             Taking you to your dashboard...
@@ -620,9 +682,9 @@ export default function OnboardingSetupPage() {
           </p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">Set up your first venue</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
-            Create the basics PathFinder needs to launch your dashboard and AI guide.
+            Create the basics PathFinder needs to prepare your dashboard and AI guide for review.
           </p>
-          <StepIndicator currentStep={currentStep === 2 ? 1 : 0} />
+          <StepIndicator currentStep={currentStep} guideMode={setupState.venue.guideMode} />
         </section>
 
         {formError ? (
@@ -632,12 +694,13 @@ export default function OnboardingSetupPage() {
         ) : null}
 
         <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
-          {currentStep === 0 ? (
+          {currentStep === 'basics' ? (
             <VenueBasicsStep
               defaultValues={{
                 name: setupState.venue.name,
                 slug: setupState.venue.slug,
                 category: setupState.venue.category,
+                guideMode: setupState.venue.guideMode,
               }}
               onBack={() => {}}
               onNext={(values) => {
@@ -646,21 +709,44 @@ export default function OnboardingSetupPage() {
                   venue: {
                     ...current.venue,
                     ...values,
+                    ...(values.guideMode === 'non_location'
+                      ? { defaultCenterLat: undefined, defaultCenterLng: undefined }
+                      : {}),
                   },
+                  place:
+                    current.venue.guideMode !== values.guideMode
+                      ? {
+                          name: '',
+                          type: values.guideMode === 'location_aware' ? 'ENTRANCE' : 'OTHER',
+                          shortDescription: '',
+                        }
+                      : {
+                          ...current.place,
+                          type:
+                            current.place.name.length > 0
+                              ? current.place.type
+                              : values.guideMode === 'location_aware'
+                                ? 'ENTRANCE'
+                                : 'OTHER',
+                        },
                 }))
-                setCurrentStep(1)
+                setCurrentStep(values.guideMode === 'location_aware' ? 'location' : 'place')
               }}
             />
           ) : null}
 
-          {currentStep === 1 ? (
+          {currentStep === 'location' ? (
             <VenueLocationStep
               defaultValues={{
                 defaultCenterLat: setupState.venue.defaultCenterLat,
                 defaultCenterLng: setupState.venue.defaultCenterLng,
               }}
-              onBack={() => {
-                setCurrentStep(0)
+              onBack={(values) => {
+                setSetupState((current) => ({
+                  ...current,
+                  venue: { ...current.venue, ...values },
+                }))
+                setCurrentStep('basics')
               }}
               onNext={(values) => {
                 setSetupState((current) => ({
@@ -670,17 +756,21 @@ export default function OnboardingSetupPage() {
                     ...values,
                   },
                 }))
-                setCurrentStep(2)
+                setCurrentStep('place')
               }}
             />
           ) : null}
 
-          {currentStep === 2 ? (
+          {currentStep === 'place' ? (
             <FirstPlaceStep
               defaultValues={setupState.place}
+              guideMode={setupState.venue.guideMode}
               isSubmitting={isSubmitting}
-              onBack={() => {
-                setCurrentStep(1)
+              onBack={(values) => {
+                setSetupState((current) => ({ ...current, place: values }))
+                setCurrentStep(
+                  setupState.venue.guideMode === 'location_aware' ? 'location' : 'basics',
+                )
               }}
               onSubmit={(values) => {
                 setSetupState((current) => ({

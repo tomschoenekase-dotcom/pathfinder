@@ -387,12 +387,13 @@ describe('venue router', () => {
 
   it('venue.create with OWNER role creates venue and auto-generates slug', async () => {
     venueFindFirst.mockResolvedValueOnce(null) // slug uniqueness check — no collision
-    venueCreate.mockResolvedValueOnce(venueRow)
+    venueCreate.mockResolvedValueOnce({ ...venueRow, places: [] })
 
     const caller = testRouter.createCaller(ownerCtx())
     const result = await caller.venue.create({ name: 'City Zoo' })
 
     expect(result).toMatchObject({ name: 'City Zoo' })
+    expect(result).not.toHaveProperty('places')
     expect(venueCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ slug: 'city-zoo', tenantId: 'tenant_1' }),
@@ -421,7 +422,7 @@ describe('venue router', () => {
     venueFindFirst
       .mockResolvedValueOnce({ id: 'other' }) // slug 'city-zoo' taken
       .mockResolvedValueOnce(null) // slug 'city-zoo-2' free
-    venueCreate.mockResolvedValueOnce({ ...venueRow, slug: 'city-zoo-2' })
+    venueCreate.mockResolvedValueOnce({ ...venueRow, slug: 'city-zoo-2', places: [] })
 
     const caller = testRouter.createCaller(ownerCtx())
     await caller.venue.create({ name: 'City Zoo' })
@@ -431,6 +432,243 @@ describe('venue router', () => {
         data: expect.objectContaining({ slug: 'city-zoo-2' }),
       }),
     )
+  })
+
+  it('venue.create atomically nests a location-aware initial guide item at the center', async () => {
+    let transactionCommitted = false
+    dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) => {
+      const result = await callback(mockDb)
+      transactionCommitted = true
+      return result
+    })
+    enqueueEmbedPlaceMock.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(true)
+    })
+    const placeUpdatedAt = new Date('2026-08-09T18:00:00.123Z')
+    venueFindFirst.mockResolvedValueOnce(null)
+    venueCreate.mockResolvedValueOnce({
+      ...venueRow,
+      places: [{ id: 'place_1', tenantId: 'tenant_1', updatedAt: placeUpdatedAt }],
+    })
+
+    await testRouter.createCaller(ownerCtx()).venue.create({
+      name: 'City Zoo',
+      guideMode: 'location_aware',
+      defaultCenterLat: 40.7,
+      defaultCenterLng: -74,
+      initialGuideItem: {
+        name: 'Main entrance',
+        type: 'ENTRANCE',
+        shortDescription: 'The central visitor entrance.',
+      },
+    })
+
+    expect(dbTransaction).toHaveBeenCalledOnce()
+    expect(venueCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          guideMode: 'location_aware',
+          defaultCenterLat: 40.7,
+          defaultCenterLng: -74,
+          places: {
+            create: expect.objectContaining({
+              tenantId: 'tenant_1',
+              name: 'Main entrance',
+              lat: 40.7,
+              lng: -74,
+            }),
+          },
+        }),
+      }),
+    )
+    expect(venueCreate.mock.calls[0]?.[0]?.data.places.create).not.toHaveProperty('itemType')
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      placeId: 'place_1',
+      contentUpdatedAt: placeUpdatedAt.toISOString(),
+    })
+  })
+
+  it('venue.create nests a no-location initial item without coordinates', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+    venueCreate.mockResolvedValueOnce({
+      ...venueRow,
+      places: [
+        { id: 'place_1', tenantId: 'tenant_1', updatedAt: new Date('2026-08-09T18:00:00.123Z') },
+      ],
+    })
+
+    await testRouter.createCaller(ownerCtx()).venue.create({
+      name: 'City Zoo',
+      guideMode: 'non_location',
+      initialGuideItem: {
+        name: 'Visitor policy',
+        type: 'OTHER',
+        shortDescription: 'General visitor information.',
+      },
+    })
+
+    const createData = venueCreate.mock.calls[0]?.[0]?.data
+    expect(createData).not.toHaveProperty('defaultCenterLat')
+    expect(createData).not.toHaveProperty('defaultCenterLng')
+    expect(createData.places.create).toMatchObject({
+      tenantId: 'tenant_1',
+    })
+    expect(createData.places.create).not.toHaveProperty('itemType')
+    expect(createData.places.create).not.toHaveProperty('lat')
+    expect(createData.places.create).not.toHaveProperty('lng')
+  })
+
+  it('venue.create rejects a location-aware initial item without a center before venue writes', async () => {
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        guideMode: 'location_aware',
+        initialGuideItem: {
+          name: 'Main entrance',
+          type: 'ENTRANCE',
+          shortDescription: 'The central visitor entrance.',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    expect(venueCreate).not.toHaveBeenCalled()
+  })
+
+  it('venue.create keeps a committed venue when the direct embedding enqueue fails', async () => {
+    const placeUpdatedAt = new Date('2026-08-09T18:00:00.123Z')
+    venueCreate.mockResolvedValueOnce({
+      ...venueRow,
+      places: [{ id: 'place_1', tenantId: 'tenant_1', updatedAt: placeUpdatedAt }],
+    })
+    enqueueEmbedPlaceMock.mockRejectedValueOnce(new Error('redis unavailable'))
+
+    const replayed = await testRouter.createCaller(ownerCtx()).venue.create({
+      name: 'City Zoo',
+      slug: 'city-zoo',
+      guideMode: 'non_location',
+      initialGuideItem: {
+        name: 'Visitor policy',
+        type: 'OTHER',
+        shortDescription: 'General visitor information.',
+      },
+    })
+
+    expect(replayed).toMatchObject({ id: venueRow.id, slug: 'city-zoo' })
+    expect(replayed).not.toHaveProperty('places')
+
+    expect(enqueueEmbedPlaceMock).toHaveBeenCalledOnce()
+  })
+
+  it('venue.create replays an exact caller-supplied slug without writes or enqueue', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      description: null,
+      guideNotes: null,
+      category: null,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      places: [
+        {
+          id: 'place_1',
+          tenantId: 'tenant_1',
+          name: 'Visitor policy',
+          type: 'OTHER',
+          itemType: null,
+          shortDescription: 'General visitor information.',
+          longDescription: null,
+          lat: null,
+          lng: null,
+          tags: [],
+          importanceScore: 0,
+          areaName: null,
+          hours: null,
+          photoUrl: null,
+          updatedAt: new Date('2026-08-09T18:00:00.123Z'),
+        },
+      ],
+    })
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        slug: 'city-zoo',
+        guideMode: 'non_location',
+        initialGuideItem: {
+          name: 'Visitor policy',
+          type: 'OTHER',
+          shortDescription: 'General visitor information.',
+        },
+      }),
+    ).resolves.toMatchObject({ id: venueRow.id, slug: 'city-zoo' })
+
+    expect(JSON.stringify(dbExecuteRaw.mock.calls)).toContain('pg_advisory_xact_lock')
+    expect(JSON.stringify(dbExecuteRaw.mock.calls)).toContain(
+      'pathfinder:venue-create:tenant_1:city-zoo',
+    )
+    expect(venueCreate).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create rejects changed setup content for a caller-supplied slug', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      name: 'Different Zoo',
+      description: null,
+      guideNotes: null,
+      category: null,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      places: [],
+    })
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        slug: 'city-zoo',
+        guideMode: 'non_location',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(venueCreate).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create does not enqueue when the atomic write fails', async () => {
+    venueCreate.mockRejectedValueOnce(new Error('atomic write failed'))
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({ name: 'City Zoo' }),
+    ).rejects.toThrow('atomic write failed')
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create fails closed if a caller-supplied slug races past the serialized lookup', async () => {
+    venueCreate.mockRejectedValueOnce(new Error('venues_tenant_id_slug_key'))
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({ name: 'City Zoo', slug: 'city-zoo' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    expect(venueFindFirst).toHaveBeenCalledOnce()
+    expect(venueCreate).toHaveBeenCalledOnce()
+    expect(venueCreate.mock.calls[0]?.[0]?.data.slug).toBe('city-zoo')
+  })
+
+  it('venue.create rejects a center for a no-location venue before venue writes', async () => {
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        guideMode: 'non_location',
+        defaultCenterLat: 40.7,
+        defaultCenterLng: -74,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    expect(venueCreate).not.toHaveBeenCalled()
   })
 
   // --- venue.update ---

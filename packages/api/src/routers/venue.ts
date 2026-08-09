@@ -90,7 +90,7 @@ export function slugify(name: string): string {
 }
 
 export async function uniqueSlug(
-  db: Db,
+  db: Pick<Db, 'venue'>,
   tenantId: string,
   base: string,
   excludeId?: string,
@@ -148,6 +148,92 @@ const venueListSelect = {
   _count: { select: { places: true } },
   // geoBoundary intentionally excluded from list views
 } as const
+
+const venueCreateSelect = {
+  ...venueListSelect,
+  places: {
+    select: {
+      id: true,
+      tenantId: true,
+      name: true,
+      type: true,
+      itemType: true,
+      shortDescription: true,
+      longDescription: true,
+      lat: true,
+      lng: true,
+      tags: true,
+      importanceScore: true,
+      areaName: true,
+      hours: true,
+      photoUrl: true,
+      updatedAt: true,
+    },
+    orderBy: { createdAt: 'asc' as const },
+    take: 1,
+  },
+} as const
+
+type VenueCreateRequest = z.infer<typeof CreateVenueRequestInput>
+
+function venueCreateMatches(
+  existing: {
+    name: string
+    description: string | null
+    guideNotes: string | null
+    category: string | null
+    guideMode: string
+    defaultCenterLat: number | null
+    defaultCenterLng: number | null
+    places: Array<{
+      name: string
+      type: string
+      itemType: string | null
+      shortDescription: string | null
+      longDescription: string | null
+      lat: number | null
+      lng: number | null
+      tags: string[]
+      importanceScore: number
+      areaName: string | null
+      hours: string | null
+      photoUrl: string | null
+    }>
+  },
+  input: VenueCreateRequest,
+  guideMode: 'location_aware' | 'non_location',
+): boolean {
+  if (
+    existing.name !== input.name ||
+    existing.description !== (input.description ?? null) ||
+    existing.guideNotes !== (input.guideNotes ?? null) ||
+    existing.category !== (input.category ?? null) ||
+    existing.guideMode !== guideMode ||
+    existing.defaultCenterLat !== (input.defaultCenterLat ?? null) ||
+    existing.defaultCenterLng !== (input.defaultCenterLng ?? null)
+  ) {
+    return false
+  }
+
+  const initial = input.initialGuideItem
+  const stored = existing.places[0]
+  if (!initial || !stored) return initial === undefined && stored === undefined
+
+  return (
+    stored.name === initial.name &&
+    stored.type === initial.type &&
+    stored.itemType === null &&
+    stored.shortDescription === initial.shortDescription &&
+    stored.longDescription === (initial.longDescription ?? null) &&
+    stored.lat === (guideMode === 'location_aware' ? input.defaultCenterLat! : null) &&
+    stored.lng === (guideMode === 'location_aware' ? input.defaultCenterLng! : null) &&
+    JSON.stringify(stored.tags) === JSON.stringify(initial.tags) &&
+    stored.importanceScore === initial.importanceScore &&
+    stored.areaName === (initial.areaName ?? null) &&
+    stored.hours === (initial.hours ?? null) &&
+    stored.photoUrl === (initial.photoUrl ?? null)
+  )
+}
 
 const venueDetailSelect = {
   ...venueListSelect,
@@ -271,32 +357,99 @@ export const venueRouter = router({
 
   create: tenantProcedure
     .use(requireRole('OWNER'))
-    .use(withContentVersionActor)
     .input(CreateVenueRequestInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
       const baseSlug = input.slug ? slugify(input.slug) : slugify(input.name)
-      const slug = await uniqueSlug(ctx.db, tenantId, baseSlug)
+      const initialGuideItem = input.initialGuideItem
+      const guideMode = input.guideMode ?? 'location_aware'
 
       try {
-        return await ctx.db.venue.create({
-          data: {
-            tenantId,
-            name: input.name,
-            slug,
-            ...(input.description !== undefined ? { description: input.description } : {}),
-            ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
-            ...(input.category !== undefined ? { category: input.category } : {}),
-            guideMode: input.guideMode ?? 'location_aware',
-            ...(input.defaultCenterLat !== undefined
-              ? { defaultCenterLat: input.defaultCenterLat }
-              : {}),
-            ...(input.defaultCenterLng !== undefined
-              ? { defaultCenterLng: input.defaultCenterLng }
-              : {}),
-          },
-          select: venueListSelect,
+        const created = await ctx.db.$transaction(async (tx) => {
+          await setContentVersionContext(tx, { actorId: ctx.session.userId })
+          if (input.slug) {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(
+              hashtextextended(${`pathfinder:venue-create:${tenantId}:${baseSlug}`}, 0)
+            )`
+            const existing = await tx.venue.findFirst({
+              where: { tenantId, slug: baseSlug },
+              select: venueCreateSelect,
+            })
+            if (existing) {
+              if (!venueCreateMatches(existing, input, guideMode)) {
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: 'This venue slug is already used for different setup content.',
+                })
+              }
+              return { record: existing, shouldEnqueue: false }
+            }
+          }
+
+          const slug = input.slug ? baseSlug : await uniqueSlug(tx, tenantId, baseSlug)
+
+          const record = await tx.venue.create({
+            data: {
+              tenantId,
+              name: input.name,
+              slug,
+              ...(input.description !== undefined ? { description: input.description } : {}),
+              ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
+              ...(input.category !== undefined ? { category: input.category } : {}),
+              guideMode,
+              ...(input.defaultCenterLat !== undefined
+                ? { defaultCenterLat: input.defaultCenterLat }
+                : {}),
+              ...(input.defaultCenterLng !== undefined
+                ? { defaultCenterLng: input.defaultCenterLng }
+                : {}),
+              ...(initialGuideItem
+                ? {
+                    places: {
+                      create: {
+                        tenantId,
+                        name: initialGuideItem.name,
+                        type: initialGuideItem.type,
+                        shortDescription: initialGuideItem.shortDescription,
+                        ...(initialGuideItem.longDescription !== undefined
+                          ? { longDescription: initialGuideItem.longDescription }
+                          : {}),
+                        ...(initialGuideItem.areaName !== undefined
+                          ? { areaName: initialGuideItem.areaName }
+                          : {}),
+                        ...(initialGuideItem.hours !== undefined
+                          ? { hours: initialGuideItem.hours }
+                          : {}),
+                        ...(initialGuideItem.photoUrl !== undefined
+                          ? { photoUrl: initialGuideItem.photoUrl }
+                          : {}),
+                        tags: initialGuideItem.tags,
+                        importanceScore: initialGuideItem.importanceScore,
+                        ...(guideMode === 'location_aware'
+                          ? {
+                              lat: input.defaultCenterLat!,
+                              lng: input.defaultCenterLng!,
+                            }
+                          : {}),
+                      },
+                    },
+                  }
+                : {}),
+            },
+            select: venueCreateSelect,
+          })
+
+          if (initialGuideItem && record.places.length !== 1) {
+            throw new Error('Initial guide item was not returned from the atomic venue create')
+          }
+
+          return { record, shouldEnqueue: true }
         })
+
+        const { places, ...venue } = created.record
+        const initialPlace = places[0]
+        if (created.shouldEnqueue && initialPlace) await embedPlace(initialPlace)
+        return venue
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : ''
         if (msg.includes('venues_tenant_id_slug_key')) {
