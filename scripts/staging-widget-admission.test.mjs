@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import {
   parseStagingWidgetArgs,
   readReviewedWidgetSource,
+  readReviewedWidgetStyles,
   validateStagingWidgetInputs,
   verifyStagingWidget,
 } from './lib/staging-widget-admission.mjs'
@@ -18,6 +20,7 @@ const VENUE_SLUG = 'museum-slug'
 const UNLISTED_SLUG = 'widget-admission-unlisted'
 const FRAME_ORIGINS = ['https://museum.example', 'https://www.museum.example']
 const WIDGET_SOURCE = '(function () { "use strict" })()\n'
+const WIDGET_STYLES = ':host { position: fixed; }\n'
 
 function response(body, { status = 200, contentType = 'application/json', headers = {} } = {}) {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -59,9 +62,38 @@ function widgetResponse(body = WIDGET_SOURCE, overrides = {}) {
     contentType: 'application/javascript; charset=utf-8',
     headers: {
       'cache-control': 'public, max-age=0, must-revalidate',
+      'cross-origin-resource-policy': 'cross-origin',
       'x-content-type-options': 'nosniff',
     },
     ...overrides,
+  })
+}
+
+function widgetStyleResponse(body = WIDGET_STYLES, overrides = {}) {
+  return response(body, {
+    contentType: 'text/css; charset=utf-8',
+    headers: {
+      'cache-control': 'public, max-age=0, must-revalidate',
+      'cross-origin-resource-policy': 'cross-origin',
+      'x-content-type-options': 'nosniff',
+    },
+    ...overrides,
+  })
+}
+
+function widgetReadyResponse({ status = 204, ready = true, headers = {} } = {}) {
+  return new Response(null, {
+    status,
+    headers: {
+      'access-control-allow-origin': '*',
+      'access-control-expose-headers': 'X-PathFinder-Revision, X-PathFinder-Widget-Ready',
+      'cache-control': 'no-store',
+      'cross-origin-resource-policy': 'cross-origin',
+      'x-content-type-options': 'nosniff',
+      'x-pathfinder-revision': SHA,
+      ...(ready ? { 'x-pathfinder-widget-ready': '1' } : {}),
+      ...headers,
+    },
   })
 }
 
@@ -69,6 +101,9 @@ function successfulResponses() {
   return [
     healthResponse(),
     widgetResponse(),
+    widgetStyleResponse(),
+    widgetReadyResponse(),
+    widgetReadyResponse({ status: 404, ready: false }),
     embedResponse(),
     embedResponse({ csp: "frame-ancestors 'self'" }),
     embedResponse({ csp: "frame-ancestors 'self'", status: 404 }),
@@ -87,6 +122,7 @@ function verification(overrides = {}) {
     expectedFrameOriginsJson: JSON.stringify(FRAME_ORIGINS.slice().reverse()),
     unlistedVenueSlug: UNLISTED_SLUG,
     reviewedWidgetSource: WIDGET_SOURCE,
+    reviewedWidgetStyles: WIDGET_STYLES,
     fetchImpl: async () => responses.shift(),
     ...overrides,
   }
@@ -111,7 +147,9 @@ test('admits an exact-revision widget artifact and exact framing policy through 
     venueSlug: VENUE_SLUG,
     frameOrigins: FRAME_ORIGINS,
     unlistedVenueSlug: UNLISTED_SLUG,
+    unlistedReady: false,
     widgetSha256: '2724d40e1b4d9c8cc98d7ffad9d9ee9120ee227a87bc9435a0220cd0be6d3339',
+    widgetStyleSha256: createHash('sha256').update(WIDGET_STYLES).digest('hex'),
     querySelfOnly: true,
     unlistedSelfOnly: true,
   })
@@ -120,6 +158,9 @@ test('admits an exact-revision widget artifact and exact framing policy through 
     [
       HEALTH_URL,
       `https://${HOST}/widget.js`,
+      `https://${HOST}/widget.css`,
+      `https://${HOST}/api/widget-ready/${VENUE_SLUG}`,
+      `https://${HOST}/api/widget-ready/${UNLISTED_SLUG}`,
       `https://${HOST}/embed/${VENUE_SLUG}`,
       `https://${HOST}/embed/${VENUE_SLUG}?chrome=hidden`,
       `https://${HOST}/embed/${UNLISTED_SLUG}`,
@@ -154,7 +195,7 @@ test('stops before widget requests when the first health admission fails', async
 
 test('fails when the deployment changes during the health sandwich', async () => {
   const responses = successfulResponses()
-  responses[5] = healthResponse({
+  responses[8] = healthResponse({
     deployment: { environment: 'staging', revision: 'b'.repeat(40) },
   })
   await assert.rejects(
@@ -172,6 +213,13 @@ test('requires the remote loader bytes and delivery headers to match the reviewe
     }),
     widgetResponse(WIDGET_SOURCE, {
       headers: { 'cache-control': 'public, max-age=0, must-revalidate' },
+    }),
+    widgetResponse(WIDGET_SOURCE, {
+      headers: {
+        'cache-control': 'public, max-age=0, must-revalidate',
+        'cross-origin-resource-policy': 'same-origin',
+        'x-content-type-options': 'nosniff',
+      },
     }),
   ]) {
     const responses = successfulResponses()
@@ -199,6 +247,7 @@ test('cancels an oversized loader response before reading it all', async () => {
       headers: {
         'content-type': 'application/javascript',
         'cache-control': 'public, max-age=0, must-revalidate',
+        'cross-origin-resource-policy': 'cross-origin',
         'x-content-type-options': 'nosniff',
       },
     },
@@ -213,6 +262,89 @@ test('cancels an oversized loader response before reading it all', async () => {
   assert.ok(emitted < 10)
 })
 
+test('requires the exact remote stylesheet bytes and cross-origin delivery policy', async () => {
+  for (const candidate of [
+    widgetStyleResponse('different'),
+    widgetStyleResponse(WIDGET_STYLES, { contentType: 'text/plain' }),
+    widgetStyleResponse(WIDGET_STYLES, {
+      headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+    }),
+    widgetStyleResponse(WIDGET_STYLES, {
+      headers: {
+        'cache-control': 'public, max-age=0, must-revalidate',
+        'cross-origin-resource-policy': 'same-origin',
+      },
+    }),
+  ]) {
+    const responses = successfulResponses()
+    responses[2] = candidate
+    await assert.rejects(
+      verifyStagingWidget(verification({ fetchImpl: async () => responses.shift() })),
+    )
+  }
+})
+
+test('cancels an invalid asset response instead of leaving its body open', async () => {
+  let cancelled = false
+  const invalidStyle = new Response(
+    new ReadableStream({
+      cancel() {
+        cancelled = true
+      },
+    }),
+    {
+      headers: {
+        'content-type': 'text/plain',
+        'cache-control': 'public, max-age=0, must-revalidate',
+        'cross-origin-resource-policy': 'cross-origin',
+        'x-content-type-options': 'nosniff',
+      },
+    },
+  )
+  const responses = successfulResponses()
+  responses[2] = invalidStyle
+
+  await assert.rejects(
+    verifyStagingWidget(verification({ fetchImpl: async () => responses.shift() })),
+    /widget-style-content-type/u,
+  )
+  assert.equal(cancelled, true)
+})
+
+test('requires an exact-revision bodyless cross-origin readiness signal', async () => {
+  for (const candidate of [
+    widgetReadyResponse({ status: 503 }),
+    widgetReadyResponse({ headers: { 'access-control-allow-origin': 'https://venue.example' } }),
+    widgetReadyResponse({ headers: { 'cache-control': 'public, max-age=60' } }),
+    widgetReadyResponse({ headers: { 'x-pathfinder-widget-ready': '0' } }),
+    widgetReadyResponse({ headers: { 'x-pathfinder-revision': 'b'.repeat(40) } }),
+  ]) {
+    const responses = successfulResponses()
+    responses[3] = candidate
+    await assert.rejects(
+      verifyStagingWidget(verification({ fetchImpl: async () => responses.shift() })),
+    )
+  }
+})
+
+test('requires the confirmed unlisted venue readiness probe to fail closed', async () => {
+  for (const candidate of [
+    widgetReadyResponse(),
+    widgetReadyResponse({ status: 404, ready: true }),
+    widgetReadyResponse({
+      status: 404,
+      ready: false,
+      headers: { 'x-pathfinder-revision': 'b'.repeat(40) },
+    }),
+  ]) {
+    const responses = successfulResponses()
+    responses[4] = candidate
+    await assert.rejects(
+      verifyStagingWidget(verification({ fetchImpl: async () => responses.shift() })),
+    )
+  }
+})
+
 test('requires an exact framing-origin list rather than a permissive subset', async () => {
   for (const csp of [
     "frame-ancestors 'self' https://museum.example",
@@ -221,7 +353,7 @@ test('requires an exact framing-origin list rather than a permissive subset', as
     "frame-ancestors 'self' *",
   ]) {
     const responses = successfulResponses()
-    responses[2] = embedResponse({ csp })
+    responses[5] = embedResponse({ csp })
     await assert.rejects(
       verifyStagingWidget(verification({ fetchImpl: async () => responses.shift() })),
     )
@@ -239,7 +371,7 @@ test('rejects unsafe or weakened admitted embed responses', async () => {
   ]
   for (const candidate of candidates) {
     const responses = successfulResponses()
-    responses[2] = candidate
+    responses[5] = candidate
     await assert.rejects(
       verifyStagingWidget(verification({ fetchImpl: async () => responses.shift() })),
     )
@@ -270,9 +402,9 @@ test('does not let a stalled response-body cancellation defeat the request deadl
   }
 
   const responses = successfulResponses()
-  responses[2] = nonCancellingEmbed({ csp: `frame-ancestors 'self' ${FRAME_ORIGINS.join(' ')}` })
-  responses[3] = nonCancellingEmbed({ csp: "frame-ancestors 'self'" })
-  responses[4] = nonCancellingEmbed({ csp: "frame-ancestors 'self'", status: 404 })
+  responses[5] = nonCancellingEmbed({ csp: `frame-ancestors 'self' ${FRAME_ORIGINS.join(' ')}` })
+  responses[6] = nonCancellingEmbed({ csp: "frame-ancestors 'self'" })
+  responses[7] = nonCancellingEmbed({ csp: "frame-ancestors 'self'", status: 404 })
 
   await Promise.race([
     verifyStagingWidget(verification({ timeoutMs: 100, fetchImpl: async () => responses.shift() })),
@@ -282,14 +414,14 @@ test('does not let a stalled response-body cancellation defeat the request deadl
 
 test('requires query and explicitly confirmed unlisted controls to remain self-only', async () => {
   const queryResponses = successfulResponses()
-  queryResponses[3] = embedResponse()
+  queryResponses[6] = embedResponse()
   await assert.rejects(
     verifyStagingWidget(verification({ fetchImpl: async () => queryResponses.shift() })),
     /query-control-not-self-only/u,
   )
 
   const unlistedResponses = successfulResponses()
-  unlistedResponses[4] = embedResponse({
+  unlistedResponses[7] = embedResponse({
     csp: `frame-ancestors 'self' ${FRAME_ORIGINS[0]}`,
     status: 404,
   })
@@ -372,6 +504,32 @@ test('reads the reviewed loader from the exact Git revision with argument-safe c
   await assert.rejects(
     readReviewedWidgetSource(SHA, { spawn: () => ({ status: 1, stdout: '' }) }),
     /reviewed-widget-source-missing/u,
+  )
+})
+
+test('reads the reviewed stylesheet from the exact Git revision with argument-safe calls', async () => {
+  const calls = []
+  const source = await readReviewedWidgetStyles(SHA, {
+    root: 'C:\\reviewed-pathfinder',
+    spawn(command, args, options) {
+      calls.push({ command, args, options })
+      return args[0] === 'cat-file'
+        ? { status: 0, stdout: '' }
+        : { status: 0, stdout: new TextEncoder().encode(WIDGET_STYLES) }
+    },
+  })
+  assert.equal(new TextDecoder().decode(source), WIDGET_STYLES)
+  assert.deepEqual(
+    calls.map(({ command, args }) => [command, args]),
+    [
+      ['git', ['cat-file', '-e', `${SHA}:apps/web/public/widget.css`]],
+      ['git', ['show', `${SHA}:apps/web/public/widget.css`]],
+    ],
+  )
+
+  await assert.rejects(
+    readReviewedWidgetStyles(SHA, { spawn: () => ({ status: 1, stdout: '' }) }),
+    /reviewed-widget-styles-missing/u,
   )
 })
 

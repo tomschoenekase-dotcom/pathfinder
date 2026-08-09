@@ -12,11 +12,13 @@ import {
 
 const VENUE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const MAX_WIDGET_BYTES = 16_384
+const MAX_WIDGET_STYLE_BYTES = 32_768
 const MAX_ORIGINS = 20
 const MIN_TIMEOUT_MS = 100
 const MAX_TIMEOUT_MS = 30_000
 const BODY_READ_ABORTED = Symbol('body-read-aborted')
 const WIDGET_SOURCE_PATH = 'apps/web/public/widget.js'
+const WIDGET_STYLE_PATH = 'apps/web/public/widget.css'
 
 export class StagingWidgetAdmissionError extends Error {
   constructor(code) {
@@ -28,6 +30,11 @@ export class StagingWidgetAdmissionError extends Error {
 
 function fail(code) {
   throw new StagingWidgetAdmissionError(code)
+}
+
+function failResponse(response, code) {
+  void response.body?.cancel().catch(() => undefined)
+  fail(code)
 }
 
 function hasDirective(value, expected) {
@@ -127,6 +134,18 @@ function validateWidgetSource(value) {
   return bytes
 }
 
+function validateWidgetStyles(value) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value
+  if (
+    !(bytes instanceof Uint8Array) ||
+    bytes.byteLength === 0 ||
+    bytes.byteLength > MAX_WIDGET_STYLE_BYTES
+  ) {
+    fail('invalid-reviewed-widget-styles')
+  }
+  return bytes
+}
+
 async function readBoundedBody(response, signal, maximumBytes) {
   const reader = response.body?.getReader()
   if (!reader) fail('widget-body-read-failed')
@@ -192,26 +211,59 @@ async function fetchSameOrigin(url, { accept, fetchImpl, timeoutMs }) {
 
 function requireEmbedPrivacyHeaders(response, expectedRevision) {
   if (!hasDirective(response.headers.get('cache-control') ?? '', 'private')) {
-    fail('embed-cache-policy')
+    failResponse(response, 'embed-cache-policy')
   }
   if (!hasDirective(response.headers.get('cache-control') ?? '', 'no-store')) {
-    fail('embed-cache-policy')
+    failResponse(response, 'embed-cache-policy')
   }
   if ((response.headers.get('referrer-policy') ?? '').toLowerCase() !== 'no-referrer') {
-    fail('embed-referrer-policy')
+    failResponse(response, 'embed-referrer-policy')
   }
   if ((response.headers.get('x-content-type-options') ?? '').toLowerCase() !== 'nosniff') {
-    fail('embed-content-type-policy')
+    failResponse(response, 'embed-content-type-policy')
   }
   const robots = (response.headers.get('x-robots-tag') ?? '')
     .split(',')
     .map((value) => value.trim().toLowerCase())
   if (!robots.includes('noindex') || !robots.includes('nofollow')) {
-    fail('embed-robots-policy')
+    failResponse(response, 'embed-robots-policy')
   }
-  if (response.headers.has('access-control-allow-origin')) fail('embed-cors-policy')
+  if (response.headers.has('access-control-allow-origin')) {
+    failResponse(response, 'embed-cors-policy')
+  }
   if (response.headers.get('x-pathfinder-revision') !== expectedRevision) {
-    fail('embed-revision-mismatch')
+    failResponse(response, 'embed-revision-mismatch')
+  }
+}
+
+function requireWidgetReadyHeaders(response, expectedRevision, expectReady) {
+  if (response.headers.get('access-control-allow-origin') !== '*') {
+    failResponse(response, 'widget-ready-cors-policy')
+  }
+  const exposedHeaders = (response.headers.get('access-control-expose-headers') ?? '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+  if (
+    !exposedHeaders.includes('x-pathfinder-revision') ||
+    !exposedHeaders.includes('x-pathfinder-widget-ready')
+  ) {
+    failResponse(response, 'widget-ready-cors-policy')
+  }
+  if (!hasDirective(response.headers.get('cache-control') ?? '', 'no-store')) {
+    failResponse(response, 'widget-ready-cache-policy')
+  }
+  if ((response.headers.get('cross-origin-resource-policy') ?? '') !== 'cross-origin') {
+    failResponse(response, 'widget-ready-cross-origin-policy')
+  }
+  if ((response.headers.get('x-content-type-options') ?? '').toLowerCase() !== 'nosniff') {
+    failResponse(response, 'widget-ready-content-type-policy')
+  }
+  const readySignal = response.headers.get('x-pathfinder-widget-ready')
+  if ((expectReady && readySignal !== '1') || (!expectReady && readySignal !== null)) {
+    failResponse(response, 'widget-ready-signal')
+  }
+  if (response.headers.get('x-pathfinder-revision') !== expectedRevision) {
+    failResponse(response, 'widget-ready-revision-mismatch')
   }
 }
 
@@ -339,13 +391,40 @@ export async function readReviewedWidgetSource(
   return validateWidgetSource(source.stdout)
 }
 
+export async function readReviewedWidgetStyles(
+  expectedRevision,
+  { root = resolve(import.meta.dirname, '../..'), spawn = spawnSync } = {},
+) {
+  validateReleaseSha(expectedRevision)
+  const object = `${expectedRevision}:${WIDGET_STYLE_PATH}`
+  const exists = spawn('git', ['cat-file', '-e', object], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 5_000,
+  })
+  if (exists.status !== 0) fail('reviewed-widget-styles-missing')
+
+  const source = spawn('git', ['show', object], {
+    cwd: root,
+    encoding: null,
+    maxBuffer: MAX_WIDGET_STYLE_BYTES + 1,
+    timeout: 5_000,
+  })
+  if (source.status !== 0 || !(source.stdout instanceof Uint8Array)) {
+    fail('reviewed-widget-styles-read-failed')
+  }
+  return validateWidgetStyles(source.stdout)
+}
+
 export async function verifyStagingWidget({
   reviewedWidgetSource,
+  reviewedWidgetStyles,
   fetchImpl = globalThis.fetch,
   ...rawInput
 }) {
   const input = validateStagingWidgetInputs(rawInput)
   const expectedWidgetBytes = validateWidgetSource(reviewedWidgetSource)
+  const expectedWidgetStyleBytes = validateWidgetStyles(reviewedWidgetStyles)
   if (typeof fetchImpl !== 'function') fail('fetch-unavailable')
 
   const healthInput = {
@@ -370,13 +449,13 @@ export async function verifyStagingWidget({
     fetchImpl,
     timeoutMs: input.timeoutMs,
   })
-  if (widgetResponse.status !== 200) fail('widget-http-status')
+  if (widgetResponse.status !== 200) failResponse(widgetResponse, 'widget-http-status')
   const widgetContentType = (widgetResponse.headers.get('content-type') ?? '')
     .split(';', 1)[0]
     .trim()
     .toLowerCase()
   if (!['application/javascript', 'text/javascript'].includes(widgetContentType)) {
-    fail('widget-content-type')
+    failResponse(widgetResponse, 'widget-content-type')
   }
   const widgetCache = widgetResponse.headers.get('cache-control') ?? ''
   if (
@@ -385,10 +464,13 @@ export async function verifyStagingWidget({
     !hasDirective(widgetCache, 'must-revalidate') ||
     hasDirective(widgetCache, 'immutable')
   ) {
-    fail('widget-cache-policy')
+    failResponse(widgetResponse, 'widget-cache-policy')
   }
   if ((widgetResponse.headers.get('x-content-type-options') ?? '').toLowerCase() !== 'nosniff') {
-    fail('widget-content-type-policy')
+    failResponse(widgetResponse, 'widget-content-type-policy')
+  }
+  if ((widgetResponse.headers.get('cross-origin-resource-policy') ?? '') !== 'cross-origin') {
+    failResponse(widgetResponse, 'widget-cross-origin-policy')
   }
   const remoteWidgetBytes = await readBoundedBody(widgetResponse, widgetSignal, MAX_WIDGET_BYTES)
   if (
@@ -398,20 +480,83 @@ export async function verifyStagingWidget({
     fail('widget-source-mismatch')
   }
 
+  const styleUrl = `${origin}/widget.css`
+  const { response: styleResponse, signal: styleSignal } = await fetchSameOrigin(styleUrl, {
+    accept: 'text/css',
+    fetchImpl,
+    timeoutMs: input.timeoutMs,
+  })
+  if (styleResponse.status !== 200) failResponse(styleResponse, 'widget-style-http-status')
+  if (
+    (styleResponse.headers.get('content-type') ?? '').split(';', 1)[0].trim().toLowerCase() !==
+    'text/css'
+  ) {
+    failResponse(styleResponse, 'widget-style-content-type')
+  }
+  const styleCache = styleResponse.headers.get('cache-control') ?? ''
+  if (
+    !hasDirective(styleCache, 'public') ||
+    !hasDirective(styleCache, 'max-age=0') ||
+    !hasDirective(styleCache, 'must-revalidate') ||
+    hasDirective(styleCache, 'immutable')
+  ) {
+    failResponse(styleResponse, 'widget-style-cache-policy')
+  }
+  if ((styleResponse.headers.get('cross-origin-resource-policy') ?? '') !== 'cross-origin') {
+    failResponse(styleResponse, 'widget-style-cross-origin-policy')
+  }
+  if ((styleResponse.headers.get('x-content-type-options') ?? '').toLowerCase() !== 'nosniff') {
+    failResponse(styleResponse, 'widget-style-content-type-policy')
+  }
+  const remoteWidgetStyleBytes = await readBoundedBody(
+    styleResponse,
+    styleSignal,
+    MAX_WIDGET_STYLE_BYTES,
+  )
+  if (
+    remoteWidgetStyleBytes.byteLength !== expectedWidgetStyleBytes.byteLength ||
+    remoteWidgetStyleBytes.some((value, index) => value !== expectedWidgetStyleBytes[index])
+  ) {
+    fail('widget-style-source-mismatch')
+  }
+
+  const readyUrl = `${origin}/api/widget-ready/${input.venueSlug}`
+  const { response: readyResponse } = await fetchSameOrigin(readyUrl, {
+    accept: '*/*',
+    fetchImpl,
+    timeoutMs: input.timeoutMs,
+  })
+  if (readyResponse.status !== 204) failResponse(readyResponse, 'widget-ready-http-status')
+  requireWidgetReadyHeaders(readyResponse, input.expectedRevision, true)
+  void readyResponse.body?.cancel().catch(() => undefined)
+
+  const unlistedReadyUrl = `${origin}/api/widget-ready/${input.unlistedVenueSlug}`
+  const { response: unlistedReadyResponse } = await fetchSameOrigin(unlistedReadyUrl, {
+    accept: '*/*',
+    fetchImpl,
+    timeoutMs: input.timeoutMs,
+  })
+  if (unlistedReadyResponse.status !== 404) {
+    failResponse(unlistedReadyResponse, 'unlisted-widget-ready-http-status')
+  }
+  requireWidgetReadyHeaders(unlistedReadyResponse, input.expectedRevision, false)
+  void unlistedReadyResponse.body?.cancel().catch(() => undefined)
+
   const embedUrl = `${origin}/embed/${input.venueSlug}`
   const { response: embedResponse } = await fetchSameOrigin(embedUrl, {
     accept: 'text/html',
     fetchImpl,
     timeoutMs: input.timeoutMs,
   })
-  if (embedResponse.status !== 200) fail('embed-http-status')
+  if (embedResponse.status !== 200) failResponse(embedResponse, 'embed-http-status')
   if (
     (embedResponse.headers.get('content-type') ?? '').split(';', 1)[0].trim().toLowerCase() !==
     'text/html'
   ) {
-    fail('embed-content-type')
+    failResponse(embedResponse, 'embed-content-type')
   }
   requireEmbedPrivacyHeaders(embedResponse, input.expectedRevision)
+  void embedResponse.body?.cancel().catch(() => undefined)
   const framingOrigins = parseFrameAncestors(
     embedResponse.headers.get('content-security-policy') ?? '',
   )
@@ -421,7 +566,6 @@ export async function verifyStagingWidget({
   ) {
     fail('frame-origins-mismatch')
   }
-  void embedResponse.body?.cancel().catch(() => undefined)
 
   const queryUrl = `${embedUrl}?chrome=hidden`
   const { response: queryResponse } = await fetchSameOrigin(queryUrl, {
@@ -429,12 +573,12 @@ export async function verifyStagingWidget({
     fetchImpl,
     timeoutMs: input.timeoutMs,
   })
-  if (queryResponse.status !== 200) fail('query-control-http-status')
+  if (queryResponse.status !== 200) failResponse(queryResponse, 'query-control-http-status')
   requireEmbedPrivacyHeaders(queryResponse, input.expectedRevision)
+  void queryResponse.body?.cancel().catch(() => undefined)
   if ((queryResponse.headers.get('content-security-policy') ?? '') !== "frame-ancestors 'self'") {
     fail('query-control-not-self-only')
   }
-  void queryResponse.body?.cancel().catch(() => undefined)
 
   const unlistedUrl = `${origin}/embed/${input.unlistedVenueSlug}`
   const { response: unlistedResponse } = await fetchSameOrigin(unlistedUrl, {
@@ -442,14 +586,16 @@ export async function verifyStagingWidget({
     fetchImpl,
     timeoutMs: input.timeoutMs,
   })
-  if (unlistedResponse.status !== 404) fail('unlisted-control-http-status')
+  if (unlistedResponse.status !== 404) {
+    failResponse(unlistedResponse, 'unlisted-control-http-status')
+  }
   requireEmbedPrivacyHeaders(unlistedResponse, input.expectedRevision)
+  void unlistedResponse.body?.cancel().catch(() => undefined)
   if (
     (unlistedResponse.headers.get('content-security-policy') ?? '') !== "frame-ancestors 'self'"
   ) {
     fail('unlisted-control-not-self-only')
   }
-  void unlistedResponse.body?.cancel().catch(() => undefined)
 
   try {
     await verifyStagingHealth(healthInput)
@@ -465,7 +611,9 @@ export async function verifyStagingWidget({
     venueSlug: input.venueSlug,
     frameOrigins: framingOrigins,
     unlistedVenueSlug: input.unlistedVenueSlug,
+    unlistedReady: false,
     widgetSha256: createHash('sha256').update(remoteWidgetBytes).digest('hex'),
+    widgetStyleSha256: createHash('sha256').update(remoteWidgetStyleBytes).digest('hex'),
     querySelfOnly: true,
     unlistedSelfOnly: true,
   }

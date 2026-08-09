@@ -86,6 +86,13 @@
       "exposure": "procedure-controlled-public-transport",
       "controlProfile": "procedure-controlled-transport",
       "behavioralEvidence": ["packages/api/src/trpc.test.ts"]
+    },
+    {
+      "source": "apps/web/app/api/widget-ready/[venueSlug]/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-widget-readiness",
+      "behavioralEvidence": ["apps/web/app/api/widget-ready/[venueSlug]/route.test.ts"]
     }
   ],
   "dashboardPublicApiPaths": ["/api/webhooks/clerk"]

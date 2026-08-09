@@ -12,6 +12,7 @@ const CONTROL_PROFILES = new Set([
   'procedure-controlled-transport',
   'middleware-and-procedure-controlled',
   'bounded-public-health',
+  'bounded-widget-readiness',
   'bounded-signed-webhook',
   'handler-platform-admin',
 ])
@@ -35,6 +36,7 @@ const HTTP_PROFILE_POLICY = new Map([
   ['procedure-controlled-transport', 'procedure-controlled-public-transport'],
   ['middleware-and-procedure-controlled', 'middleware-and-procedure-controlled'],
   ['bounded-public-health', 'intentional-public'],
+  ['bounded-widget-readiness', 'intentional-public'],
   ['bounded-signed-webhook', 'signature-authenticated-public-ingress'],
   ['handler-platform-admin', 'handler-platform-admin'],
 ])

@@ -29,6 +29,15 @@ const nextConfig: NextConfig = {
         source: '/widget.js',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      },
+      {
+        source: '/widget.css',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
         ],
       },

@@ -5,6 +5,7 @@ import { appRouter, createTRPCContext } from '@pathfinder/api'
 import { isEmbedPreviewEnabled } from '@pathfinder/config/feature-flags'
 import { VenueChatExperience } from '../../../components/VenueChatExperience'
 import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
+import { WidgetReadySignal } from '../../../components/WidgetReadySignal'
 import { resolveEmbedPresentation, type EmbedSearchParams } from '../../../lib/embed-presentation'
 import { classifyPublicVenueLookupError } from '../../../lib/public-venue-error'
 import { TRPCProvider } from '../../../lib/trpc'
@@ -24,7 +25,11 @@ export default async function EmbedVenuePage({ params, searchParams }: EmbedVenu
   }
 
   const { venueSlug } = await params
-  const presentation = resolveEmbedPresentation(await searchParams)
+  const resolvedSearchParams = await searchParams
+  const presentation = resolveEmbedPresentation(resolvedSearchParams)
+  const isQuerylessWidget = !Object.values(resolvedSearchParams).some(
+    (value) => value !== undefined,
+  )
   const ctx = await createTRPCContext({
     req: new Request(`https://pathfinder.local/embed/${venueSlug}`),
   })
@@ -47,6 +52,9 @@ export default async function EmbedVenuePage({ params, searchParams }: EmbedVenu
 
   return (
     <TRPCProvider scopeKey={`embed:${venueSlug}`}>
+      {presentation === 'embed' && isQuerylessWidget ? (
+        <WidgetReadySignal venueSlug={venueSlug} />
+      ) : null}
       <VenueChatExperience venueSlug={venueSlug} presentation={presentation} />
     </TRPCProvider>
   )

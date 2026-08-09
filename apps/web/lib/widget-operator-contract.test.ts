@@ -21,11 +21,18 @@ describe('widget operator contract', () => {
     expect(guide).toContain('There is no publishable widget key')
     expect(guide).toContain('`guest-web` attribution')
     expect(guide).toContain('It is not trustworthy `guest-widget` attribution')
+    expect(guide).toContain('The only cross-window message is the fixed outbound readiness signal')
+    expect(guide).toContain('There is no inbound host command')
   })
 
   it('documents query isolation and a data-free rollback', () => {
     expect(guide).toContain('every query-bearing embed URL')
     expect(guide).toContain('set `EMBED_PREVIEW_ENABLED=false`')
     expect(guide).toContain('No migration or persistent data rollback is involved')
+    expect(guide).toContain('session-free, credential-free, no-referrer')
+    expect(guide).toContain('unavailable PathFinder does not leave a broken launcher')
+    expect(guide).toContain('`script-src`, `style-src`, `connect-src`, and `frame-src`')
+    expect(guide).toContain('closed launcher creates no iframe, visitor session, or location work')
+    expect(guide).toContain('ten-second readiness timeout removes the complete widget')
   })
 })

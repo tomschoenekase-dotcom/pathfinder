@@ -1,6 +1,7 @@
 import {
   parseStagingWidgetArgs,
   readReviewedWidgetSource,
+  readReviewedWidgetStyles,
   StagingWidgetAdmissionError,
   validateStagingWidgetInputs,
   verifyStagingWidget,
@@ -10,7 +11,12 @@ try {
   const rawInput = parseStagingWidgetArgs(process.argv.slice(2))
   const validatedInput = validateStagingWidgetInputs(rawInput)
   const reviewedWidgetSource = await readReviewedWidgetSource(validatedInput.expectedRevision)
-  const result = await verifyStagingWidget({ ...rawInput, reviewedWidgetSource })
+  const reviewedWidgetStyles = await readReviewedWidgetStyles(validatedInput.expectedRevision)
+  const result = await verifyStagingWidget({
+    ...rawInput,
+    reviewedWidgetSource,
+    reviewedWidgetStyles,
+  })
   process.stdout.write(`${JSON.stringify(result)}\n`)
 } catch (error) {
   const code = error instanceof StagingWidgetAdmissionError ? error.code : 'unexpected-failure'

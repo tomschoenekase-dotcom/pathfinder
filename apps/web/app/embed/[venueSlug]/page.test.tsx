@@ -36,6 +36,12 @@ vi.mock('../../../components/VenueTemporarilyUnavailable', () => ({
   ),
 }))
 
+vi.mock('../../../components/WidgetReadySignal', () => ({
+  WidgetReadySignal: ({ venueSlug }: { venueSlug: string }) => (
+    <div>{`widget-ready:${venueSlug}`}</div>
+  ),
+}))
+
 vi.mock('../../../lib/trpc', () => ({
   TRPCProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -74,6 +80,7 @@ describe('controlled embed preview', () => {
     )
 
     expect(screen.getByText('embed:museum')).toBeTruthy()
+    expect(screen.getByText('widget-ready:museum')).toBeTruthy()
     expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: 'museum' })
   })
 
@@ -88,6 +95,7 @@ describe('controlled embed preview', () => {
     )
 
     expect(screen.getByText('webview:museum')).toBeTruthy()
+    expect(screen.queryByText('widget-ready:museum')).toBeNull()
   })
 
   it.each([
@@ -105,6 +113,7 @@ describe('controlled embed preview', () => {
     )
 
     expect(screen.getByText('embed:museum')).toBeTruthy()
+    expect(screen.queryByText('widget-ready:museum')).toBeNull()
   })
 
   it('uses the generic paused state without mounting chat', async () => {
@@ -119,6 +128,7 @@ describe('controlled embed preview', () => {
 
     expect(screen.getByText('Temporarily unavailable:false')).toBeTruthy()
     expect(screen.queryByText('embed:museum')).toBeNull()
+    expect(screen.queryByText('widget-ready:museum')).toBeNull()
   })
 
   it('delegates missing venues to the 404 boundary', async () => {

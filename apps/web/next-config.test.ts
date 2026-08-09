@@ -17,6 +17,18 @@ describe('embed response headers', () => {
 
     expect(rules.find((rule) => rule.source === '/widget.js')?.headers).toEqual([
       { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+      { key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+    ])
+  })
+
+  it('serves the cross-origin widget stylesheet as revalidating CSS', async () => {
+    expect(nextConfig.headers).toBeTypeOf('function')
+    const rules = await nextConfig.headers!()
+
+    expect(rules.find((rule) => rule.source === '/widget.css')?.headers).toEqual([
+      { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+      { key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
       { key: 'X-Content-Type-Options', value: 'nosniff' },
     ])
   })

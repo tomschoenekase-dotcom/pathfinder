@@ -1,0 +1,105 @@
+:host {
+  color-scheme: light;
+  contain: style;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+  line-height: 1.4;
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 2147483000;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.pf-launcher {
+  appearance: none;
+  background: #111827;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+  color: #fff;
+  cursor: pointer;
+  font: 600 16px/1.2 inherit;
+  min-height: 48px;
+  min-width: 48px;
+  padding: 12px 20px;
+}
+
+.pf-launcher:focus-visible,
+.pf-close:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 3px;
+}
+
+.pf-panel {
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 18px;
+  bottom: max(80px, calc(64px + env(safe-area-inset-bottom)));
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.32);
+  height: min(720px, calc(100vh - 112px));
+  height: min(720px, calc(100dvh - 112px));
+  overflow: hidden;
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  width: min(420px, calc(100vw - 32px));
+}
+
+.pf-panel[hidden] {
+  display: none !important;
+}
+
+.pf-close {
+  appearance: none;
+  background: #111827;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font: 600 14px/1 inherit;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 10px;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
+}
+
+.pf-focus-guard {
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
+}
+
+iframe {
+  background: #fff;
+  border: 0;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .pf-panel {
+    border: 0;
+    border-radius: 0;
+    bottom: 0;
+    height: 100vh;
+    height: 100dvh;
+    right: 0;
+    width: 100vw;
+  }
+}
