@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  envDir: false,
   test: {
     coverage: {
       exclude: ['src/**/*.test.ts'],
@@ -16,5 +17,6 @@ export default defineConfig({
     },
     environment: 'node',
     passWithNoTests: true,
+    setupFiles: ['./vitest.setup.ts'],
   },
 })
