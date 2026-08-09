@@ -6,7 +6,9 @@ import {
   buildPlaceText,
   embeddingSourceHash,
   acquireEmbeddingWork,
+  assertGlobalAiAvailable,
   db,
+  GlobalAiAdmissionError,
   storePlaceEmbeddingForScope,
   releaseEmbeddingWork,
   updateJobRecord,
@@ -126,6 +128,7 @@ export async function processEmbedPlaceJob(
     claim = { claimId: acquisition.claimId, leaseToken, venueId: place.venueId }
 
     const result = await generateEmbedding({
+      admissionGuard: () => assertGlobalAiAvailable(db),
       modelKey: AI_EMBEDDING_MODEL_KEYS.PLACE_CONTENT,
       text,
       usageSink: createWorkerAiUsageSink({
@@ -189,6 +192,7 @@ export async function processEmbedPlaceJob(
         })
       }
     }
+    if (error instanceof GlobalAiAdmissionError) throw error
     await recordJobFailure({
       jobRecordId,
       error,

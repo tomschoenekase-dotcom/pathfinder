@@ -9,11 +9,11 @@ import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { router } from '../../core'
 import { generationRequestHash } from '../../lib/generation-request-identity'
-import { adminProcedure } from '../../trpc'
+import { adminAiProcedure, adminProcedure } from '../../trpc'
 import { isUniqueConstraintError } from './helpers'
 
 export const adminAnswerAnalysisRouter = router({
-  generateAnswerAnalysis: adminProcedure
+  generateAnswerAnalysis: adminAiProcedure
     .input(
       z.object({
         tenantId: z.string(),

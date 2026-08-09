@@ -12,6 +12,7 @@ import {
 const create = vi.fn()
 const client = { embeddings: { create } } as OpenAiEmbeddingsClient
 const usageSink = vi.fn()
+const admissionGuard = vi.fn().mockResolvedValue(undefined)
 
 function vector(value: number): number[] {
   return Array.from({ length: 1_536 }, () => value)
@@ -37,6 +38,7 @@ describe('OpenAI embeddings gateway', () => {
       modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
       texts: ['first', 'second'],
       usageSink,
+      admissionGuard,
     })
 
     expect(create).toHaveBeenCalledWith(
@@ -71,6 +73,7 @@ describe('OpenAI embeddings gateway', () => {
       modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
       text: 'hello',
       usageSink,
+      admissionGuard,
     })
 
     expect(result.embedding).toHaveLength(1_536)
@@ -89,6 +92,7 @@ describe('OpenAI embeddings gateway', () => {
       modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
       text: 'hello',
       usageSink,
+      admissionGuard,
       retryDelayMs: 0,
     })
 
@@ -109,6 +113,7 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: 'hello',
         usageSink,
+        admissionGuard,
         retryDelayMs: 0,
       }),
     ).resolves.toMatchObject({ attempts: 2 })
@@ -123,6 +128,7 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: 'hello',
         usageSink,
+        admissionGuard,
         retryDelayMs: 0,
       }),
     ).rejects.toMatchObject({ code: 'provider-connection-error', attempts: 2 })
@@ -146,6 +152,7 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: 'hello',
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toMatchObject({ code: 'invalid-provider-response', attempts: 1 })
 
@@ -168,6 +175,7 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: 'hello',
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toMatchObject({ code: 'invalid-provider-response', attempts: 1 })
 
@@ -189,6 +197,7 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: 'hello',
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toMatchObject({ code: 'provider-http-401', attempts: 1 })
 
@@ -214,6 +223,7 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: 'hello',
         usageSink,
+        admissionGuard,
       }),
     ).resolves.toMatchObject({ embedding: expect.any(Array), attempts: 1 })
   })
@@ -224,6 +234,7 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: '   ',
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toThrow('Embedding input must contain nonblank text')
     expect(create).not.toHaveBeenCalled()
@@ -240,9 +251,32 @@ describe('OpenAI embeddings gateway', () => {
         modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
         text: 'hello',
         usageSink,
+        admissionGuard,
         ...overrides,
       }),
     ).rejects.toThrow(message)
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('records a dispatched failure but not the retry denied by admission', async () => {
+    admissionGuard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('paused'))
+    create.mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 503 }))
+
+    await expect(
+      generateEmbedding({
+        modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
+        text: 'hello',
+        usageSink,
+        admissionGuard,
+        retryDelayMs: 0,
+      }),
+    ).rejects.toThrow('paused')
+
+    expect(admissionGuard).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(usageSink).toHaveBeenCalledOnce()
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({ attempts: 1, errorCode: 'provider-http-503', success: false }),
+    )
   })
 })

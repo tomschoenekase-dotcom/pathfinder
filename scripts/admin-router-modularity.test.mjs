@@ -18,6 +18,7 @@ const expectedAdminProcedures = [
   'getClientAiCosts',
   'getClientAnalytics',
   'getClientVenue',
+  'getGlobalAiControl',
   'getSessionChatlog',
   'getVenueReportConfiguration',
   'getWeeklyReport',
@@ -28,6 +29,7 @@ const expectedAdminProcedures = [
   'overview',
   'ping',
   'publishWeeklyReport',
+  'setGlobalAiControl',
   'setSessionNotable',
   'setTenantPaymentDue',
   'triggerDigest',
@@ -55,7 +57,7 @@ const expectedMediaProcedures = [
 ]
 
 function procedureNames(source) {
-  return [...source.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]+): adminProcedure/gmu)].map(
+  return [...source.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]+): admin(?:Ai)?Procedure/gmu)].map(
     (match) => match[1],
   )
 }

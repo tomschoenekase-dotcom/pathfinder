@@ -18,11 +18,11 @@ import {
   generationRequestHash,
 } from '../../lib/generation-request-identity'
 import { findVenueReportConfiguration } from '../../lib/venue-report-configuration'
-import { adminProcedure } from '../../trpc'
+import { adminAiProcedure, adminProcedure } from '../../trpc'
 import { isUniqueConstraintError } from './helpers'
 
 export const adminWeeklyReportsRouter = router({
-  generateWeeklyReportDraft: adminProcedure
+  generateWeeklyReportDraft: adminAiProcedure
     .input(
       z.object({
         tenantId: z.string(),

@@ -5,6 +5,7 @@
     ".": "./src/index.ts",
     "./feature-flags": "./src/feature-flags.ts",
     "./geo": "./src/geo.ts",
+    "./incident-control": "./src/incident-control.ts",
     "./logger": "./src/logger.ts",
     "./monitoring": "./src/monitoring.ts",
     "./typescript/base.json": "./typescript/base.json",

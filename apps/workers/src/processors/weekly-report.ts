@@ -10,7 +10,10 @@ import { logger } from '@pathfinder/config'
 import {
   acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution,
+  assertGlobalAiAvailable,
   db,
+  deferWeeklyReportExecution,
+  GlobalAiAdmissionError,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -378,6 +381,7 @@ export async function processWeeklyReportJob(
     })
 
     const response = await generateText({
+      admissionGuard: () => assertGlobalAiAvailable(db),
       modelKey: AI_MODEL_KEYS.WEEKLY_REPORT,
       system: [],
       messages: [{ role: 'user', content: prompt }],
@@ -420,6 +424,27 @@ export async function processWeeklyReportJob(
       sessionCount: data.sessionCount,
     })
   } catch (error) {
+    if (error instanceof GlobalAiAdmissionError) {
+      if (executionLeaseToken !== null) {
+        const released = await deferWeeklyReportExecution({
+          reportId: payload.reportId,
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          weekStart: new Date(payload.weekStart),
+          weekEnd: new Date(payload.weekEnd),
+          leaseToken: executionLeaseToken,
+        })
+        if (!released) {
+          logger.warn({
+            action: 'workers.weekly-report.pause-lease-release-lost',
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            reportId: payload.reportId,
+          })
+        }
+      }
+      throw error
+    }
     const message = error instanceof Error ? error.message : 'Unknown weekly report error'
     if (!leaseConflict) {
       await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })

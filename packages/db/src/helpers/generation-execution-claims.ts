@@ -40,6 +40,14 @@ export type AcquireWeeklyReportRecoveryExecutionParams = AcquireWeeklyReportExec
   observedLeaseToken: string
 }
 
+export type DeferAnswerAnalysisExecutionParams = AcquireAnswerAnalysisExecutionParams & {
+  leaseToken: string
+}
+
+export type DeferWeeklyReportExecutionParams = AcquireWeeklyReportExecutionParams & {
+  leaseToken: string
+}
+
 export type GenerationRecoveryExecutionAcquisition =
   | { state: 'acquired'; leaseToken: string }
   | { state: 'ineligible' | 'terminal' | 'missing' }
@@ -204,6 +212,46 @@ export async function acquireWeeklyReportExecution(
   )
 }
 
+export async function deferAnswerAnalysisExecution(
+  params: DeferAnswerAnalysisExecutionParams,
+): Promise<boolean> {
+  return withTenantIsolationBypass(async () => {
+    const updated = await db.$executeRaw`
+      UPDATE answer_analysis_snapshots
+      SET execution_lease_token = NULL,
+          execution_lease_expires_at = NULL
+      WHERE id = ${params.snapshotId}
+        AND tenant_id = ${params.tenantId}
+        AND venue_id = ${params.venueId}
+        AND range_start = ${params.rangeStart}
+        AND range_end = ${params.rangeEnd}
+        AND status = 'GENERATING'
+        AND execution_lease_token = ${params.leaseToken}::uuid
+    `
+    return updated === 1
+  })
+}
+
+export async function deferWeeklyReportExecution(
+  params: DeferWeeklyReportExecutionParams,
+): Promise<boolean> {
+  return withTenantIsolationBypass(async () => {
+    const updated = await db.$executeRaw`
+      UPDATE weekly_reports
+      SET execution_lease_token = NULL,
+          execution_lease_expires_at = NULL
+      WHERE id = ${params.reportId}
+        AND tenant_id = ${params.tenantId}
+        AND venue_id = ${params.venueId}
+        AND week_start = ${params.weekStart}
+        AND week_end = ${params.weekEnd}
+        AND status = 'GENERATING'
+        AND execution_lease_token = ${params.leaseToken}::uuid
+    `
+    return updated === 1
+  })
+}
+
 export async function acquireAnswerAnalysisRecoveryExecution(
   params: AcquireAnswerAnalysisRecoveryExecutionParams,
 ): Promise<GenerationRecoveryExecutionAcquisition> {
@@ -228,6 +276,10 @@ export async function acquireAnswerAnalysisRecoveryExecution(
           AND execution_lease_token = ${params.observedLeaseToken}::uuid
           AND execution_lease_expires_at IS NOT NULL
           AND execution_lease_expires_at <= clock_timestamp())
+          OR (status = 'GENERATING'
+            AND execution_lease_token IS NULL
+            AND execution_lease_expires_at IS NULL
+            AND recovery_lineage_token = ${params.observedLeaseToken}::uuid)
           OR (status = 'FAILED'
             AND execution_lease_token IS NULL
             AND execution_lease_expires_at IS NULL
@@ -280,6 +332,10 @@ export async function acquireWeeklyReportRecoveryExecution(
           AND execution_lease_token = ${params.observedLeaseToken}::uuid
           AND execution_lease_expires_at IS NOT NULL
           AND execution_lease_expires_at <= clock_timestamp())
+          OR (status = 'GENERATING'
+            AND execution_lease_token IS NULL
+            AND execution_lease_expires_at IS NULL
+            AND recovery_lineage_token = ${params.observedLeaseToken}::uuid)
           OR (status = 'FAILED'
             AND execution_lease_token IS NULL
             AND execution_lease_expires_at IS NULL

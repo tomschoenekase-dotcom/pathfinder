@@ -16,7 +16,11 @@ const { searchKnowledgeByEmbedding, searchPlacesByEmbedding } = vi.hoisted(() =>
   searchKnowledgeByEmbedding: vi.fn(),
   searchPlacesByEmbedding: vi.fn(),
 }))
-vi.mock('@pathfinder/db', () => ({ searchKnowledgeByEmbedding, searchPlacesByEmbedding }))
+vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+  searchKnowledgeByEmbedding,
+  searchPlacesByEmbedding,
+}))
 
 // Force an embedding to exist so chat.send takes the semantic branch.
 const { generateEmbedding } = vi.hoisted(() => ({ generateEmbedding: vi.fn() }))

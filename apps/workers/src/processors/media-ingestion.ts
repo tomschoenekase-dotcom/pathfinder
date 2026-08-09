@@ -22,7 +22,14 @@ import {
 } from '@pathfinder/contracts'
 
 import { logger } from '@pathfinder/config'
-import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
+import {
+  assertGlobalAiAvailable,
+  db,
+  GlobalAiAdmissionError,
+  updateJobRecord,
+  withTenantIsolationBypass,
+  writeJobRecord,
+} from '@pathfinder/db'
 import {
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
@@ -408,6 +415,7 @@ async function analyzeImage(
   assertMediaJobActive(signal)
   generatedOutputBudget.consume(jpeg.byteLength)
   const response = await executeMediaProviderOperation(
+    () => assertGlobalAiAvailable(db),
     reserveProviderOperation,
     () =>
       openai.chat.completions.create(
@@ -456,6 +464,7 @@ async function transcribe(
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
   const result = await executeMediaProviderOperation(
+    () => assertGlobalAiAvailable(db),
     reserveProviderOperation,
     () =>
       openai.audio.transcriptions.create(
@@ -690,6 +699,7 @@ async function synthesize(
         throw new Error('Media evidence batch exceeds the synthesis memory limit.')
       }
       const response = await executeMediaProviderOperation(
+        () => assertGlobalAiAvailable(db),
         reserveProviderOperation,
         () =>
           openai.chat.completions.create(
@@ -731,6 +741,7 @@ async function synthesize(
   const compact = JSON.stringify(evidence)
   assertMediaJobActive(signal)
   const response = await executeMediaProviderOperation(
+    () => assertGlobalAiAvailable(db),
     reserveProviderOperation,
     () =>
       openai.chat.completions.create(
@@ -934,6 +945,7 @@ export async function processMediaIngestionJob(
                   .summary
               } catch (error) {
                 assertMediaJobActive(signal)
+                if (error instanceof GlobalAiAdmissionError) throw error
                 if (error instanceof UnrecoverableError) throw error
                 transcript = ''
               }
@@ -984,6 +996,7 @@ export async function processMediaIngestionJob(
         })
       } catch (error) {
         assertMediaJobActive(signal)
+        if (error instanceof GlobalAiAdmissionError) throw error
         if (error instanceof UnrecoverableError) throw error
         const message = error instanceof Error ? error.message : 'Unknown asset analysis error'
         analysis = emptyAnalysis('Analysis failed.', message)
@@ -1073,6 +1086,20 @@ export async function processMediaIngestionJob(
     assertMediaJobActive(signal)
     await updateJobRecord(recordId, { status: 'COMPLETE' })
   } catch (caughtError) {
+    if (caughtError instanceof GlobalAiAdmissionError) {
+      await withTenantIsolationBypass(() =>
+        db.mediaIngestionProject.updateMany({
+          where: {
+            id: payload.projectId,
+            tenantId: payload.tenantId,
+            uploadAttemptId,
+            status: { in: ['INVENTORYING', 'ANALYZING', 'SYNTHESIZING'] },
+          },
+          data: { status: 'QUEUED', stage: 'inventory', progress: 0, error: null },
+        }),
+      )
+      throw caughtError
+    }
     const error = normalizeMediaJobError(caughtError, signal)
     const message = error instanceof Error ? error.message : 'Unknown media ingestion error'
     await recordJobFailure({ jobRecordId: recordId, error, errorMessage: message, execution })

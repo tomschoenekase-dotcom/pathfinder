@@ -9,9 +9,14 @@ import {
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
-import { searchKnowledgeByEmbedding, searchPlacesByEmbedding } from '@pathfinder/db'
+import {
+  assertGlobalAiAvailable,
+  searchKnowledgeByEmbedding,
+  searchPlacesByEmbedding,
+} from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
+import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
 import { router } from '../core'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
@@ -20,7 +25,18 @@ import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
-import { publicProcedure } from '../trpc'
+import { publicAiProcedure, publicProcedure } from '../trpc'
+
+function isGlobalAiAdmissionError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'GlobalAiAdmissionError'
+}
+
+function globalAiUnavailable(): TRPCError {
+  return new TRPCError({
+    code: 'SERVICE_UNAVAILABLE',
+    message: GLOBAL_AI_UNAVAILABLE_MESSAGE,
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Provider test seam (the production singleton is owned by @pathfinder/ai)
@@ -163,7 +179,7 @@ export const chatRouter = router({
   /**
    * Send a message and receive an AI response grounded in venue + location data.
    */
-  send: publicProcedure.input(sendMessageSchema).mutation(async ({ ctx, input }) => {
+  send: publicAiProcedure.input(sendMessageSchema).mutation(async ({ ctx, input }) => {
     const requestStartedAt = performance.now()
     let embeddingMs = 0
     let retrievalMs = 0
@@ -280,43 +296,50 @@ export const chatRouter = router({
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
     const embeddingStartedAt = performance.now()
-    const queryEmbeddingPromise = generateGuestQueryEmbedding(trimmedInput, async (usage) => {
-      try {
-        await ctx.db.aiUsageEvent.create({
-          data: {
-            tenantId: venue.tenantId,
+    const queryEmbeddingPromise = generateGuestQueryEmbedding(
+      trimmedInput,
+      async (usage) => {
+        try {
+          await ctx.db.aiUsageEvent.create({
+            data: {
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+              sessionId: session.id,
+              feature: 'guest-chat-query-embedding',
+              surface: 'guest-web',
+              provider: usage.provider,
+              model: usage.model,
+              pricingVersion: usage.pricingVersion,
+              inputTokens: usage.usage.inputTokens,
+              outputTokens: usage.usage.outputTokens,
+              cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
+              cacheReadInputTokens: usage.usage.cacheReadInputTokens,
+              totalTokens:
+                usage.usage.inputTokens +
+                usage.usage.outputTokens +
+                usage.usage.cacheCreationInputTokens +
+                usage.usage.cacheReadInputTokens,
+              estimatedCostUsd: usage.estimatedCostUsd,
+              latencyMs: usage.latencyMs,
+              attempts: usage.attempts,
+              success: usage.success,
+              ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
+            },
+          })
+        } catch (usageError) {
+          logger.error({
+            action: 'chat.send.embedding_usage_failed',
             venueId: input.venueId,
-            sessionId: session.id,
-            feature: 'guest-chat-query-embedding',
-            surface: 'guest-web',
-            provider: usage.provider,
-            model: usage.model,
-            pricingVersion: usage.pricingVersion,
-            inputTokens: usage.usage.inputTokens,
-            outputTokens: usage.usage.outputTokens,
-            cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
-            cacheReadInputTokens: usage.usage.cacheReadInputTokens,
-            totalTokens:
-              usage.usage.inputTokens +
-              usage.usage.outputTokens +
-              usage.usage.cacheCreationInputTokens +
-              usage.usage.cacheReadInputTokens,
-            estimatedCostUsd: usage.estimatedCostUsd,
-            latencyMs: usage.latencyMs,
-            attempts: usage.attempts,
-            success: usage.success,
-            ...(usage.errorCode ? { errorCode: usage.errorCode } : {}),
-          },
-        })
-      } catch (usageError) {
-        logger.error({
-          action: 'chat.send.embedding_usage_failed',
-          venueId: input.venueId,
-          error: usageError instanceof Error ? usageError.message : 'Unknown error',
-        })
-      }
-    })
-      .catch(() => null)
+            error: usageError instanceof Error ? usageError.message : 'Unknown error',
+          })
+        }
+      },
+      () => assertGlobalAiAvailable(ctx.db),
+    )
+      .catch((error: unknown) => {
+        if (isGlobalAiAdmissionError(error)) throw globalAiUnavailable()
+        return null
+      })
       .finally(() => {
         embeddingMs = elapsedMilliseconds(embeddingStartedAt)
       })
@@ -510,6 +533,7 @@ export const chatRouter = router({
     try {
       const result = await generateText({
         modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        admissionGuard: () => assertGlobalAiAvailable(ctx.db),
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicPart },
@@ -564,6 +588,7 @@ export const chatRouter = router({
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
     } catch (err) {
+      if (isGlobalAiAdmissionError(err)) throw globalAiUnavailable()
       fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
       logger.error({
         action: 'chat.send.ai_failed',

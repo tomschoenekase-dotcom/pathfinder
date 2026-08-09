@@ -22,6 +22,13 @@ vi.mock('@pathfinder/config', () => ({
   logger: { info: vi.fn(), warn: mocks.loggerWarn, error: vi.fn(), debug: vi.fn() },
 }))
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+  GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
+    name = 'GlobalAiAdmissionError'
+    constructor(readonly code: string) {
+      super('Global AI admission is unavailable')
+    }
+  },
   db: {
     mediaIngestionProject: {
       findFirst: mocks.projectFindFirst,
@@ -65,6 +72,7 @@ import {
   withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
+import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const payload = {
   tenantId: 'tenant_1',
@@ -595,6 +603,26 @@ describe('media ingestion lifecycle', () => {
       failureDisposition: 'ATTEMPTS_EXHAUSTED',
     })
     expect(mocks.rm).not.toHaveBeenCalled()
+  })
+
+  it('fenced-restores QUEUED without recording failure when admission pauses after claim', async () => {
+    const pause = new GlobalAiAdmissionError('global-ai-paused')
+    mocks.projectFindFirst.mockResolvedValueOnce(project)
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
+    mocks.mkdtemp.mockRejectedValueOnce(pause)
+
+    await expect(processMediaIngestionJob(payload, 'bull_paused')).rejects.toBe(pause)
+
+    expect(mocks.projectUpdateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'project_1',
+        tenantId: 'tenant_1',
+        uploadAttemptId: payload.uploadAttemptId,
+        status: { in: ['INVENTORYING', 'ANALYZING', 'SYNTHESIZING'] },
+      },
+      data: { status: 'QUEUED', stage: 'inventory', progress: 0, error: null },
+    })
+    expect(mocks.updateJobRecord).not.toHaveBeenCalled()
   })
 
   it('allows a Bull retry to reclaim FAILED only for the same generation', async () => {

@@ -49,7 +49,10 @@ test('new upload generations reset the durable count while resumable replay retu
 })
 
 test('every direct media provider dispatch is wrapped by a durable pre-dispatch reservation', () => {
-  assert.match(budget, /await reserve\(\)\s+assertActive\?\.\(\)\s+return operation\(\)/u)
+  assert.match(
+    budget,
+    /await admit\(\)\s+await reserve\(\)\s+assertActive\?\.\(\)[\s\S]*?await admit\(\)\s+assertActive\?\.\(\)\s+return operation\(\)/u,
+  )
   assert.match(budget, /MAX_MEDIA_PROVIDER_OPERATIONS = 10_000/u)
   assert.match(processor, /const MAX_FILES = 10_000/u)
   assert.equal(processor.match(/executeMediaProviderOperation\(/gu)?.length, 4)

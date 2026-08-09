@@ -22,6 +22,8 @@ export {
   acquireAnswerAnalysisRecoveryExecution,
   acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution,
+  deferAnswerAnalysisExecution,
+  deferWeeklyReportExecution,
   GENERATION_EXECUTION_LEASE_MS,
 } from './helpers/generation-execution-claims'
 export type {
@@ -29,6 +31,8 @@ export type {
   AcquireAnswerAnalysisRecoveryExecutionParams,
   AcquireWeeklyReportExecutionParams,
   AcquireWeeklyReportRecoveryExecutionParams,
+  DeferAnswerAnalysisExecutionParams,
+  DeferWeeklyReportExecutionParams,
   GenerationExecutionAcquisition,
   GenerationRecoveryExecutionAcquisition,
 } from './helpers/generation-execution-claims'
@@ -85,6 +89,12 @@ export type {
   WriteJobRecordParams,
 } from './helpers/job-records'
 export { featureEnabled } from './helpers/feature-flags'
+export {
+  assertGlobalAiAvailable,
+  GlobalAiAdmissionError,
+  readGlobalAiControl,
+} from './helpers/incident-control'
+export type { GlobalAiControlState } from './helpers/incident-control'
 export { checkDatabaseConnection } from './helpers/health'
 export {
   CLERK_WEBHOOK_EVENT_TYPE_MAX_LENGTH,

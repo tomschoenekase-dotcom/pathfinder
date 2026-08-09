@@ -65,10 +65,12 @@ const engagementQuestionFindMany = vi.fn()
 const engagementQuestionFindFirst = vi.fn()
 const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
+const platformConfigFindUnique = vi.fn()
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
+  platformConfig: { findUnique: platformConfigFindUnique },
   venue: {},
   visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
   tenant: { findUnique: tenantFindUnique },
@@ -151,6 +153,7 @@ describe('chat router', () => {
     sessionUpdateMany.mockResolvedValue({ count: 1 })
     engagementQuestionResponseCreate.mockResolvedValue({})
     aiUsageEventCreate.mockResolvedValue({})
+    platformConfigFindUnique.mockResolvedValue(null)
     checkRateLimit.mockResolvedValue(true)
   })
 
@@ -350,6 +353,25 @@ describe('chat router', () => {
       expect(emitEvent).not.toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'message.fallback' }),
       )
+    })
+
+    it('returns a generic 503 without provider or message writes when paused mid-request', async () => {
+      setupHappyPath()
+      platformConfigFindUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          value: { schemaVersion: 1, paused: true, reason: 'private incident detail' },
+          updatedAt: new Date('2026-08-08T20:00:00.000Z'),
+          updatedBy: 'admin_1',
+        })
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The AI service is temporarily unavailable. Please try again later.',
+      })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(messageCreate).not.toHaveBeenCalled()
     })
 
     it('loads only published, started, active, unexpired updates for the next message', async () => {

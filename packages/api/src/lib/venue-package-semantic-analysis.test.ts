@@ -261,6 +261,7 @@ describe('venue package semantic analysis', () => {
     const candidates = await generateVenuePackageCandidateEmbeddings({
       payload: input,
       usageSink: vi.fn().mockResolvedValue(undefined),
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
     })
     expect(candidates.places).toEqual([
       { draftIndex: 0, embedding: [1] },
@@ -442,6 +443,7 @@ describe('venue package semantic analysis', () => {
     const result = await generateVenuePackageCandidateEmbeddings({
       payload: input,
       usageSink,
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
     })
 
     const placeCalls = vi
@@ -493,6 +495,7 @@ describe('venue package semantic analysis', () => {
       generateVenuePackageCandidateEmbeddings({
         payload: input,
         usageSink: vi.fn().mockResolvedValue(undefined),
+        admissionGuard: vi.fn().mockResolvedValue(undefined),
         shouldAbort: () => usagePersistenceFailed,
       }),
     ).rejects.toThrow('Embedding usage evidence is unavailable')
@@ -566,6 +569,7 @@ describe('venue package semantic analysis', () => {
         ),
       ),
       usageSink: usageSink as never,
+      admissionGuard: vi.fn().mockResolvedValue(undefined),
       shouldAbort: () => usagePersistenceFailed,
     })
     const observedResult = operation.then(

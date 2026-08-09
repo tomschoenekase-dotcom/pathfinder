@@ -40,6 +40,7 @@ const harness = vi.hoisted(() => {
 })
 
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
   db: harness.db,
   lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
   lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),

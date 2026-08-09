@@ -78,6 +78,7 @@ import {
   enqueueScheduledWeeklyDigests,
 } from './scheduled-tenant-fanout'
 import { getJobExecutionMetadata } from './lib/job-execution'
+import { globalAiAdmissionAvailable, runAiJobWithIncidentControl } from './lib/global-ai-deferral'
 import {
   cancelAllMediaJobsAfterWorkerError,
   cancelMediaJobsAfterLockRenewalFailure,
@@ -229,14 +230,18 @@ function getSendWelcomeEmailBackoffDelay(attemptsMade: number): number {
 
 async function handleWeeklyDigestQueueJob(
   job: Job<WeeklyDigestJobPayload | Record<string, never>>,
+  token?: string,
 ) {
   if (job.name === WEEKLY_DIGEST_SCHEDULER_JOB) {
+    if (!(await globalAiAdmissionAvailable())) return
     await enqueueScheduledWeeklyDigests()
     return
   }
 
   if (job.name === WEEKLY_DIGEST_PROCESS_JOB) {
-    await processWeeklyDigestJob(job.data as WeeklyDigestJobPayload, getJobExecutionMetadata(job))
+    await runAiJobWithIncidentControl(job, token, () =>
+      processWeeklyDigestJob(job.data as WeeklyDigestJobPayload, getJobExecutionMetadata(job)),
+    )
     return
   }
 
@@ -257,18 +262,25 @@ async function handleDailyRollupQueueJob(job: Job<DailyRollupJobPayload | Record
   throw new Error(`Unsupported daily rollup job: ${job.name}`)
 }
 
-async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>) {
+async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>, token?: string) {
   if (job.name === EMBED_PLACE_PROCESS_JOB) {
-    await processEmbedPlaceJob(job.data, getJobExecutionMetadata(job))
+    await runAiJobWithIncidentControl(job, token, () =>
+      processEmbedPlaceJob(job.data, getJobExecutionMetadata(job)),
+    )
     return
   }
 
   throw new Error(`Unsupported embed place job: ${job.name}`)
 }
 
-async function handleEmbedKnowledgeEntryQueueJob(job: Job<EmbedKnowledgeEntryJobPayload>) {
+async function handleEmbedKnowledgeEntryQueueJob(
+  job: Job<EmbedKnowledgeEntryJobPayload>,
+  token?: string,
+) {
   if (job.name === EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB) {
-    await processEmbedKnowledgeEntryJob(job.data, getJobExecutionMetadata(job))
+    await runAiJobWithIncidentControl(job, token, () =>
+      processEmbedKnowledgeEntryJob(job.data, getJobExecutionMetadata(job)),
+    )
     return
   }
 
@@ -277,6 +289,7 @@ async function handleEmbedKnowledgeEntryQueueJob(job: Job<EmbedKnowledgeEntryJob
 
 async function handleEmbeddingDispatchQueueJob(job: Job<Record<string, never>>) {
   if (job.name === EMBEDDING_DISPATCH_SCHEDULER_JOB) {
+    if (!(await globalAiAdmissionAvailable())) return
     await processEmbeddingDispatches()
     return
   }
@@ -286,9 +299,18 @@ async function handleEmbeddingDispatchQueueJob(job: Job<Record<string, never>>) 
 
 async function handleGenerationDispatchQueueJob(
   job: Job<GenerationDispatchKickJobPayload | Record<string, never>>,
+  token?: string,
 ) {
-  if (job.name === GENERATION_DISPATCH_SCHEDULER_JOB || job.name === GENERATION_DISPATCH_KICK_JOB) {
+  if (job.name === GENERATION_DISPATCH_SCHEDULER_JOB) {
+    if (!(await globalAiAdmissionAvailable())) return
     await processGenerationDispatches()
+    return
+  }
+
+  if (job.name === GENERATION_DISPATCH_KICK_JOB) {
+    await runAiJobWithIncidentControl(job, token, async () => {
+      await processGenerationDispatches()
+    })
     return
   }
 
@@ -297,6 +319,7 @@ async function handleGenerationDispatchQueueJob(
 
 async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>) {
   if (job.name === GENERATION_RECOVERY_SCHEDULER_JOB) {
+    if (!(await globalAiAdmissionAvailable())) return
     await processGenerationRecovery(getJobExecutionMetadata(job))
     return
   }
@@ -306,16 +329,20 @@ async function handleGenerationRecoveryQueueJob(job: Job<Record<string, never>>)
 
 async function handleAnalyticsEnrichmentQueueJob(
   job: Job<AnalyticsEnrichmentJobPayload | Record<string, never>>,
+  token?: string,
 ) {
   if (job.name === ANALYTICS_ENRICHMENT_SCHEDULER_JOB) {
+    if (!(await globalAiAdmissionAvailable())) return
     await enqueueScheduledAnalyticsEnrichment()
     return
   }
 
   if (job.name === ANALYTICS_ENRICHMENT_PROCESS_JOB) {
-    await processAnalyticsEnrichmentJob(
-      job.data as AnalyticsEnrichmentJobPayload,
-      getJobExecutionMetadata(job),
+    await runAiJobWithIncidentControl(job, token, () =>
+      processAnalyticsEnrichmentJob(
+        job.data as AnalyticsEnrichmentJobPayload,
+        getJobExecutionMetadata(job),
+      ),
     )
     return
   }
@@ -325,15 +352,20 @@ async function handleAnalyticsEnrichmentQueueJob(
 
 async function handleAnswerAnalysisQueueJob(
   job: Job<AnswerAnalysisJobPayload | AnswerAnalysisRecoveryJobPayload>,
+  token?: string,
 ) {
   if (job.name === ANSWER_ANALYSIS_PROCESS_JOB) {
-    await processAnswerAnalysisJob(job.data, getJobExecutionMetadata(job))
+    await runAiJobWithIncidentControl(job, token, () =>
+      processAnswerAnalysisJob(job.data, getJobExecutionMetadata(job)),
+    )
     return
   }
 
   if (job.name === ANSWER_ANALYSIS_RECOVERY_JOB) {
     const { observedLeaseToken, ...payload } = job.data as AnswerAnalysisRecoveryJobPayload
-    await processAnswerAnalysisJob(payload, getJobExecutionMetadata(job), { observedLeaseToken })
+    await runAiJobWithIncidentControl(job, token, () =>
+      processAnswerAnalysisJob(payload, getJobExecutionMetadata(job), { observedLeaseToken }),
+    )
     return
   }
 
@@ -342,15 +374,20 @@ async function handleAnswerAnalysisQueueJob(
 
 async function handleWeeklyReportQueueJob(
   job: Job<WeeklyReportJobPayload | WeeklyReportRecoveryJobPayload>,
+  token?: string,
 ) {
   if (job.name === WEEKLY_REPORT_PROCESS_JOB) {
-    await processWeeklyReportJob(job.data, getJobExecutionMetadata(job))
+    await runAiJobWithIncidentControl(job, token, () =>
+      processWeeklyReportJob(job.data, getJobExecutionMetadata(job)),
+    )
     return
   }
 
   if (job.name === WEEKLY_REPORT_RECOVERY_JOB) {
     const { observedLeaseToken, ...payload } = job.data as WeeklyReportRecoveryJobPayload
-    await processWeeklyReportJob(payload, getJobExecutionMetadata(job), { observedLeaseToken })
+    await runAiJobWithIncidentControl(job, token, () =>
+      processWeeklyReportJob(payload, getJobExecutionMetadata(job), { observedLeaseToken }),
+    )
     return
   }
 
@@ -368,13 +405,15 @@ async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
 
 async function handleMediaIngestionQueueJob(
   job: Job<MediaIngestionJobPayload>,
-  _token?: string,
+  token?: string,
   signal?: AbortSignal,
 ) {
   if (job.name === MEDIA_INGESTION_PROCESS_JOB) {
     const attempt = createMediaAttemptSignal(signal)
     try {
-      await processMediaIngestionJob(job.data, getJobExecutionMetadata(job), attempt.signal)
+      await runAiJobWithIncidentControl(job, token, () =>
+        processMediaIngestionJob(job.data, getJobExecutionMetadata(job), attempt.signal),
+      )
     } finally {
       attempt.dispose()
     }

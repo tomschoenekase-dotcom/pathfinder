@@ -25,6 +25,8 @@ import {
   acquireAnswerAnalysisRecoveryExecution,
   acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution,
+  deferAnswerAnalysisExecution,
+  deferWeeklyReportExecution,
   GENERATION_EXECUTION_LEASE_MS,
 } from './generation-execution-claims'
 
@@ -56,7 +58,9 @@ function expectExactRecoveryPredicate(call: unknown[]): void {
   expect(sql).toContain("status = 'FAILED'")
   expect(sql).toContain('AND execution_lease_token IS NULL')
   expect(sql).toContain('execution_lease_expires_at IS NULL')
-  expect(sql.match(/recovery_lineage_token = \?::uuid/g)).toHaveLength(2)
+  expect(sql.match(/recovery_lineage_token = \?::uuid/g)).toHaveLength(3)
+  expect(sql).toContain('execution_lease_token IS NULL')
+  expect(sql).toContain('execution_lease_expires_at IS NULL')
   expect(sql).toMatch(/SET[\s\S]*recovery_lineage_token = \?::uuid[\s\S]*WHERE/)
 }
 
@@ -120,6 +124,51 @@ describe('generation execution claims', () => {
       'recovery_lineage_token = NULL',
     )
     expect(mocks.reportFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('releases only the exact answer-analysis lease while retaining retryable state', async () => {
+    mocks.executeRaw.mockResolvedValueOnce(1)
+
+    await expect(
+      deferAnswerAnalysisExecution({
+        ...analysisIdentity,
+        leaseToken: observedLeaseToken,
+      }),
+    ).resolves.toBe(true)
+
+    const call = mocks.executeRaw.mock.calls[0]!
+    expect((call[0] as readonly string[]).join('?')).toContain("status = 'GENERATING'")
+    expect((call[0] as readonly string[]).join('?')).toContain('execution_lease_token = ?::uuid')
+    expect(call.slice(1)).toEqual([
+      'snapshot_1',
+      'tenant_1',
+      'venue_1',
+      rangeStart,
+      rangeEnd,
+      observedLeaseToken,
+    ])
+  })
+
+  it('reports a lost weekly-report deferral fence without broadening the update', async () => {
+    mocks.executeRaw.mockResolvedValueOnce(0)
+
+    await expect(
+      deferWeeklyReportExecution({
+        ...reportIdentity,
+        leaseToken: observedLeaseToken,
+      }),
+    ).resolves.toBe(false)
+
+    const call = mocks.executeRaw.mock.calls[0]!
+    expect((call[0] as readonly string[]).join('?')).toContain("status = 'GENERATING'")
+    expect(call.slice(1)).toEqual([
+      'report_1',
+      'tenant_1',
+      'venue_1',
+      rangeStart,
+      rangeEnd,
+      observedLeaseToken,
+    ])
   })
 
   it.each(['GENERATING', 'FAILED'] as const)(
@@ -223,6 +272,7 @@ describe('generation execution claims', () => {
       rangeEnd,
       observedLeaseToken,
       observedLeaseToken,
+      observedLeaseToken,
     ])
     expectExactRecoveryPredicate(mocks.executeRaw.mock.calls[0]!)
     expect(mocks.answerFindFirst).not.toHaveBeenCalled()
@@ -248,6 +298,7 @@ describe('generation execution claims', () => {
       'venue_1',
       rangeStart,
       rangeEnd,
+      observedLeaseToken,
       observedLeaseToken,
       observedLeaseToken,
     ])

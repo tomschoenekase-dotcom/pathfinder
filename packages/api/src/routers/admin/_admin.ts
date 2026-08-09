@@ -7,11 +7,13 @@ import { adminClientManagementRouter } from './client-management'
 import { adminClientReadsRouter } from './client-reads'
 import { adminDigestRouter } from './digest'
 import { adminOverviewRouter } from './overview'
+import { adminIncidentControlRouter } from './incident-control'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminWeeklyReportsRouter } from './weekly-reports'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
+  adminIncidentControlRouter,
   adminClientReadsRouter,
   adminClientAnalyticsRouter,
   adminClientManagementRouter,

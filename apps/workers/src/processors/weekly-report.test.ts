@@ -6,6 +6,8 @@ import type { WeeklyReportJobPayload } from '@pathfinder/jobs'
 const mocks = vi.hoisted(() => ({
   acquireWeeklyReportExecution: vi.fn(),
   acquireWeeklyReportRecoveryExecution: vi.fn(),
+  assertGlobalAiAvailable: vi.fn(),
+  deferWeeklyReportExecution: vi.fn(),
   reportUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   sessionCount: vi.fn(),
@@ -26,6 +28,15 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
+    name = 'GlobalAiAdmissionError'
+    code: string
+    constructor(code: string) {
+      super('AI generation is temporarily unavailable.')
+      this.code = code
+    }
+  },
   db: {
     weeklyReport: { updateMany: mocks.reportUpdateMany },
     venue: { findFirst: mocks.venueFindFirst },
@@ -38,12 +49,14 @@ vi.mock('@pathfinder/db', () => ({
   },
   acquireWeeklyReportExecution: mocks.acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution: mocks.acquireWeeklyReportRecoveryExecution,
+  deferWeeklyReportExecution: mocks.deferWeeklyReportExecution,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
   updateJobRecord: mocks.updateJobRecord,
 }))
 
 import { _setAnthropicClientForTesting, processWeeklyReportJob } from './weekly-report'
+import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const anthropicCreate = vi.fn()
 const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
@@ -73,6 +86,8 @@ describe('processWeeklyReportJob', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+    mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
+    mocks.deferWeeklyReportExecution.mockResolvedValue(true)
     mocks.acquireWeeklyReportExecution.mockResolvedValue({
       state: 'acquired',
       leaseToken: 'report_lease_1',
@@ -156,6 +171,25 @@ describe('processWeeklyReportJob', () => {
       }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('fenced-releases its execution lease without recording failure when admission pauses', async () => {
+    const pause = new GlobalAiAdmissionError('global-ai-paused')
+    mocks.assertGlobalAiAvailable.mockRejectedValueOnce(pause)
+
+    await expect(processWeeklyReportJob(payload)).rejects.toBe(pause)
+
+    expect(mocks.deferWeeklyReportExecution).toHaveBeenCalledWith({
+      reportId: 'report_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      weekStart: new Date('2026-06-01T00:00:00.000Z'),
+      weekEnd: new Date('2026-06-08T00:00:00.000Z'),
+      leaseToken: 'report_lease_1',
+    })
+    expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
   })
 
   it('uses an exact observed-token recovery claim without persisting the token', async () => {

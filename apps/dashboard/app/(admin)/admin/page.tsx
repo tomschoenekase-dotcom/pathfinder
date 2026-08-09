@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 
+import { GlobalAiIncidentControl } from '../../../components/admin/GlobalAiIncidentControl'
 import { createAdminCaller } from '../../../lib/admin-caller'
 import { getJobStatusClasses, getStatusClasses } from '../../../lib/admin-status'
 
@@ -25,9 +26,10 @@ function StatCard({
 
 export default async function AdminOverviewPage() {
   const caller = await createAdminCaller()
-  const [overview, clients] = await Promise.all([
+  const [overview, clients, globalAiControl] = await Promise.all([
     caller.admin.overview(),
     caller.admin.listClients(),
+    caller.admin.getGlobalAiControl(),
   ])
 
   return (
@@ -41,6 +43,17 @@ export default async function AdminOverviewPage() {
           Health of every venue operator on the platform.
         </p>
       </header>
+
+      <GlobalAiIncidentControl
+        initialState={{
+          paused: globalAiControl.paused,
+          reason: globalAiControl.reason,
+          configured: globalAiControl.configured,
+          malformed: globalAiControl.malformed,
+          updatedAt: globalAiControl.updatedAt?.toISOString() ?? null,
+          updatedBy: globalAiControl.updatedBy,
+        }}
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

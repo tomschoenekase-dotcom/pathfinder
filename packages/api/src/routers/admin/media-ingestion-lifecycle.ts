@@ -6,7 +6,7 @@ import { enqueueMediaIngestion } from '@pathfinder/jobs'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
 
 import { router } from '../../core'
-import { adminProcedure } from '../../trpc'
+import { adminAiProcedure, adminProcedure } from '../../trpc'
 import { settleClaimedMediaUploadAbort } from './media-ingestion-abort'
 import {
   mediaFindingCorrectionSchema,
@@ -16,7 +16,7 @@ import {
 } from './media-ingestion-review-schemas'
 
 export const mediaIngestionLifecycleRouter = router({
-  retryEnqueue: adminProcedure
+  retryEnqueue: adminAiProcedure
     .input(
       z.object({
         tenantId: z.string().min(1),

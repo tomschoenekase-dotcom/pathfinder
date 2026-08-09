@@ -5,6 +5,8 @@ import Anthropic, {
 } from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
+import type { AiAdmissionGuard } from './admission'
+
 import { getAiModelSpec, type AiModelKey } from './model-registry'
 
 export type AiSystemBlock = {
@@ -179,6 +181,7 @@ export async function generateText<TParsed = string>(params: {
   maxAttempts?: number
   retryDelayMs?: number
   usageSink: AiUsageSink
+  admissionGuard: AiAdmissionGuard
   parseResponse?: (text: string) => TParsed
 }): Promise<AiTextResult<TParsed>> {
   const spec = getAiModelSpec(params.modelKey)
@@ -192,6 +195,29 @@ export async function generateText<TParsed = string>(params: {
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await params.admissionGuard()
+    } catch (admissionError) {
+      if (lastError !== undefined) {
+        await recordUsageBestEffort(params.usageSink, {
+          provider: spec.provider,
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+          },
+          estimatedCostUsd: 0,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt - 1,
+          success: false,
+          errorCode: errorCode(lastError),
+        })
+      }
+      throw admissionError
+    }
     try {
       const raw = await getAnthropicClient().messages.create(
         {

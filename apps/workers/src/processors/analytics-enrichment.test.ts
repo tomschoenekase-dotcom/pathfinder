@@ -5,6 +5,7 @@ import type { AnthropicMessagesClient } from '@pathfinder/ai'
 const mocks = vi.hoisted(() => ({
   venueFindMany: vi.fn(),
   messageFindMany: vi.fn(),
+  messageGroupBy: vi.fn(),
   messageUpdateMany: vi.fn(),
   analyticsGroupBy: vi.fn(),
   analyticsFindMany: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   writeJobRecord: vi.fn(),
   updateJobRecord: vi.fn(),
   aiUsageEventCreate: vi.fn(),
+  assertGlobalAiAvailable: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -34,10 +36,21 @@ vi.mock('@pathfinder/ai', async (importOriginal) => {
 })
 
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
+    name = 'GlobalAiAdmissionError'
+    constructor(readonly code: string) {
+      super('Global AI admission is unavailable')
+    }
+  },
   db: {
     venue: { findMany: mocks.venueFindMany },
     aiUsageEvent: { create: mocks.aiUsageEventCreate },
-    message: { findMany: mocks.messageFindMany, updateMany: mocks.messageUpdateMany },
+    message: {
+      findMany: mocks.messageFindMany,
+      groupBy: mocks.messageGroupBy,
+      updateMany: mocks.messageUpdateMany,
+    },
     analyticsEvent: {
       groupBy: mocks.analyticsGroupBy,
       findMany: mocks.analyticsFindMany,
@@ -58,6 +71,7 @@ import {
   clusterQuestions,
   processAnalyticsEnrichmentJob,
 } from './analytics-enrichment'
+import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const anthropicCreate = vi.fn()
 const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
@@ -126,6 +140,7 @@ describe('processAnalyticsEnrichmentJob', () => {
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.aiUsageEventCreate.mockResolvedValue({})
+    mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
     mocks.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         dailyRollup: { deleteMany: mocks.rollupDeleteMany, createMany: mocks.rollupCreateMany },
@@ -138,6 +153,10 @@ describe('processAnalyticsEnrichmentJob', () => {
       { id: 'm2', content: 'what time do you open' },
     ])
     mocks.messageUpdateMany.mockResolvedValue({})
+    mocks.messageGroupBy.mockResolvedValue([
+      { topic: 'amenities_restrooms', _count: { _all: 1 } },
+      { topic: 'hours_logistics', _count: { _all: 1 } },
+    ])
     mocks.analyticsGroupBy.mockResolvedValue([
       { placeId: 'p1', eventType: 'place_card.viewed', _count: { _all: 3 } },
       { placeId: 'p1', eventType: 'directions.opened', _count: { _all: 1 } },
@@ -344,6 +363,67 @@ describe('processAnalyticsEnrichmentJob', () => {
     }
     expect(failedClassifierUsage.estimatedCostUsd).toBeGreaterThan(0)
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('propagates admission closure during topic classification', async () => {
+    const error = new GlobalAiAdmissionError('global-ai-paused')
+    mocks.assertGlobalAiAvailable.mockRejectedValueOnce(error)
+
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).rejects.toBe(error)
+    expect(mocks.messageUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).not.toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('propagates admission closure during weekly theme synthesis', async () => {
+    const error = new GlobalAiAdmissionError('global-ai-paused')
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(
+        Array.from({ length: 5 }, (_, index) => ({ metadata: { message: `question ${index}` } })),
+      )
+    mocks.assertGlobalAiAvailable.mockResolvedValueOnce(undefined).mockRejectedValueOnce(error)
+
+    await expect(
+      processAnalyticsEnrichmentJob({
+        tenantId: 'tenant_1',
+        date: '2026-06-18T00:00:00.000Z',
+      }),
+    ).rejects.toBe(error)
+    expect(mocks.themeUpsert).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).not.toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('rebuilds topic rollups from persisted tags after an interrupted attempt resumes', async () => {
+    mocks.messageFindMany.mockResolvedValueOnce([])
+    mocks.messageGroupBy.mockResolvedValueOnce([
+      { topic: 'amenities_restrooms', _count: { _all: 4 } },
+    ])
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany.mockResolvedValue([])
+
+    await processAnalyticsEnrichmentJob({
+      tenantId: 'tenant_1',
+      date: '2026-06-18T00:00:00.000Z',
+    })
+
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.messageUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.rollupCreateMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          metric: 'topic',
+          category: 'amenities_restrooms',
+          value: 4,
+        }),
+      ]),
+    })
   })
 
   it('attributes classifier usage to each resolved venue', async () => {

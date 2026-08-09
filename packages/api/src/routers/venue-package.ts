@@ -4,6 +4,7 @@ import { AiGatewayError } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
 import {
   getVenuePackageSemanticCoverage,
+  assertGlobalAiAvailable,
   lockVenueContentMutation,
   setContentVersionContext,
   type ContentVersionSourceProvenance,
@@ -54,6 +55,7 @@ import {
   VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
 } from '../lib/venue-package-semantic-analysis'
 import { withContentVersionActor } from '../middleware/content-version-actor'
+import { requireGlobalAi } from '../middleware/require-global-ai'
 import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
 
@@ -1810,6 +1812,7 @@ export const venuePackageRouter = router({
 
   createDraft: tenantProcedure
     .use(requireRole('MANAGER'))
+    .use(requireGlobalAi)
     .input(VenuePackageDraftInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
@@ -1998,6 +2001,7 @@ export const venuePackageRouter = router({
         candidates = await generateVenuePackageCandidateEmbeddings({
           payload: input.payload,
           usageSink: usage.sink,
+          admissionGuard: () => assertGlobalAiAvailable(ctx.db),
           shouldAbort: usage.persistenceFailed,
         })
         if (usage.persistenceFailed()) {

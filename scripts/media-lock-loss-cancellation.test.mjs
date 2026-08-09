@@ -27,7 +27,7 @@ test('the media processor has runtime arity three and exact lock-loss cancellati
 
   assert.match(
     worker,
-    /async function handleMediaIngestionQueueJob\(\s*job:[\s\S]*?_token\?: string,\s*signal\?: AbortSignal,/u,
+    /async function handleMediaIngestionQueueJob\(\s*job:[\s\S]*?token\?: string,\s*signal\?: AbortSignal,/u,
   )
   assert.match(
     worker,
@@ -54,7 +54,10 @@ test('ownership checks surround provider dispatch and durable media writes', asy
     readFile(providerBudgetUrl, 'utf8'),
   ])
 
-  assert.match(providerBudget, /await reserve\(\)\s*assertActive\?\.\(\)\s*return operation\(\)/u)
+  assert.match(
+    providerBudget,
+    /await admit\(\)\s*await reserve\(\)\s*assertActive\?\.\(\)[\s\S]*?await admit\(\)\s*assertActive\?\.\(\)\s*return operation\(\)/u,
+  )
   assert.match(processor, /signal \? \{ signal \} : undefined/u)
   assert.match(processor, /signal \? \{ abortSignal: signal \} : undefined/u)
   assert.match(processor, /pipeline\(entry, counter, output, \{ signal \}\)/u)

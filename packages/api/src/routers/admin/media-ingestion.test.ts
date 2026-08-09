@@ -23,6 +23,7 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
   db: {
     mediaIngestionProject: {
       findFirst: mocks.projectFindFirst,

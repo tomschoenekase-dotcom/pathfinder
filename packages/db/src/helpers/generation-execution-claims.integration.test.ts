@@ -8,6 +8,8 @@ import {
   acquireAnswerAnalysisRecoveryExecution,
   acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution,
+  deferAnswerAnalysisExecution,
+  deferWeeklyReportExecution,
 } from './generation-execution-claims'
 
 function isExplicitDisposableDatabase(): boolean {
@@ -150,6 +152,46 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
     ).resolves.toEqual({ count: 1 })
   })
 
+  it('immediately reacquires an answer-analysis lease after fenced incident deferral', async () => {
+    const identity = await createAnalysis()
+    const first = await acquireAnswerAnalysisExecution(identity)
+    if (first.state !== 'acquired') throw new Error('Expected initial answer-analysis lease')
+
+    await expect(
+      deferAnswerAnalysisExecution({ ...identity, leaseToken: first.leaseToken }),
+    ).resolves.toBe(true)
+    const second = await acquireAnswerAnalysisExecution(identity)
+
+    expect(second).toMatchObject({ state: 'acquired' })
+    if (second.state !== 'acquired') throw new Error('Expected reacquisition after deferral')
+    expect(second.leaseToken).not.toBe(first.leaseToken)
+  })
+
+  it('reacquires a deferred answer-analysis recovery with the same observed lineage', async () => {
+    const identity = await createAnalysis()
+    const original = await acquireAnswerAnalysisExecution(identity)
+    if (original.state !== 'acquired') throw new Error('Expected initial answer-analysis lease')
+    await db.answerAnalysisSnapshot.updateMany({
+      where: { id: identity.snapshotId, tenantId, venueId },
+      data: { executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
+    })
+    const recovery = await acquireAnswerAnalysisRecoveryExecution({
+      ...identity,
+      observedLeaseToken: original.leaseToken,
+    })
+    if (recovery.state !== 'acquired') throw new Error('Expected recovery lease')
+
+    await expect(
+      deferAnswerAnalysisExecution({ ...identity, leaseToken: recovery.leaseToken }),
+    ).resolves.toBe(true)
+    const resumed = await acquireAnswerAnalysisRecoveryExecution({
+      ...identity,
+      observedLeaseToken: original.leaseToken,
+    })
+
+    expect(resumed).toMatchObject({ state: 'acquired' })
+  })
+
   it('reacquires FAILED answer analysis and clears the prior error', async () => {
     const identity = await createAnalysis('FAILED')
     await db.answerAnalysisSnapshot.updateMany({
@@ -249,6 +291,46 @@ integrationDescribe('generation execution claims (disposable PostgreSQL integrat
         data: { status: 'DRAFT', executionLeaseToken: null, executionLeaseExpiresAt: null },
       }),
     ).resolves.toEqual({ count: 1 })
+  })
+
+  it('immediately reacquires a weekly-report lease after fenced incident deferral', async () => {
+    const identity = await createReport()
+    const first = await acquireWeeklyReportExecution(identity)
+    if (first.state !== 'acquired') throw new Error('Expected initial weekly-report lease')
+
+    await expect(
+      deferWeeklyReportExecution({ ...identity, leaseToken: first.leaseToken }),
+    ).resolves.toBe(true)
+    const second = await acquireWeeklyReportExecution(identity)
+
+    expect(second).toMatchObject({ state: 'acquired' })
+    if (second.state !== 'acquired') throw new Error('Expected reacquisition after deferral')
+    expect(second.leaseToken).not.toBe(first.leaseToken)
+  })
+
+  it('reacquires a deferred weekly-report recovery with the same observed lineage', async () => {
+    const identity = await createReport()
+    const original = await acquireWeeklyReportExecution(identity)
+    if (original.state !== 'acquired') throw new Error('Expected initial weekly-report lease')
+    await db.weeklyReport.updateMany({
+      where: { id: identity.reportId, tenantId, venueId },
+      data: { executionLeaseExpiresAt: new Date('2000-01-01T00:00:00.000Z') },
+    })
+    const recovery = await acquireWeeklyReportRecoveryExecution({
+      ...identity,
+      observedLeaseToken: original.leaseToken,
+    })
+    if (recovery.state !== 'acquired') throw new Error('Expected recovery lease')
+
+    await expect(
+      deferWeeklyReportExecution({ ...identity, leaseToken: recovery.leaseToken }),
+    ).resolves.toBe(true)
+    const resumed = await acquireWeeklyReportRecoveryExecution({
+      ...identity,
+      observedLeaseToken: original.leaseToken,
+    })
+
+    expect(resumed).toMatchObject({ state: 'acquired' })
   })
 
   it('reacquires a FAILED weekly report and clears the prior error', async () => {

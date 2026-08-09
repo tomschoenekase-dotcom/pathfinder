@@ -2,6 +2,7 @@ import {
   AI_EMBEDDING_MODEL_KEYS,
   generateEmbeddings,
   getAiEmbeddingProfile,
+  type AiAdmissionGuard,
   type AiUsageSink,
 } from '@pathfinder/ai'
 import {
@@ -140,6 +141,7 @@ async function embedBatches(params: {
     | typeof AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT
   texts: string[]
   usageSink: AiUsageSink
+  admissionGuard: AiAdmissionGuard
   shouldAbort?: () => boolean
 }): Promise<number[][]> {
   const embeddings: number[][] = []
@@ -149,6 +151,7 @@ async function embedBatches(params: {
       modelKey: params.modelKey,
       texts: params.texts.slice(index, index + VENUE_PACKAGE_EMBEDDING_BATCH_SIZE),
       usageSink: params.usageSink,
+      admissionGuard: params.admissionGuard,
       maxAttempts: 1,
     })
     if (params.shouldAbort?.()) throw new Error('Embedding usage evidence is unavailable')
@@ -160,6 +163,7 @@ async function embedBatches(params: {
 export async function generateVenuePackageCandidateEmbeddings(params: {
   payload: VenuePackagePayload
   usageSink: AiUsageSink
+  admissionGuard: AiAdmissionGuard
   shouldAbort?: () => boolean
 }): Promise<VenuePackageCandidateEmbeddings> {
   const inputs = venuePackageSemanticInputs(params.payload)
@@ -184,6 +188,7 @@ export async function generateVenuePackageCandidateEmbeddings(params: {
           modelKey: AI_EMBEDDING_MODEL_KEYS.PLACE_CONTENT,
           texts: placeTexts,
           usageSink: params.usageSink,
+          admissionGuard: params.admissionGuard,
           ...(params.shouldAbort ? { shouldAbort: params.shouldAbort } : {}),
         })
       : [],
@@ -192,6 +197,7 @@ export async function generateVenuePackageCandidateEmbeddings(params: {
           modelKey: AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT,
           texts: knowledgeTexts,
           usageSink: params.usageSink,
+          admissionGuard: params.admissionGuard,
           ...(params.shouldAbort ? { shouldAbort: params.shouldAbort } : {}),
         })
       : [],

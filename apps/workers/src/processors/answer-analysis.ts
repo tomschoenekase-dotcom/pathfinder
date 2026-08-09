@@ -10,7 +10,10 @@ import { logger } from '@pathfinder/config'
 import {
   acquireAnswerAnalysisExecution,
   acquireAnswerAnalysisRecoveryExecution,
+  assertGlobalAiAvailable,
   db,
+  deferAnswerAnalysisExecution,
+  GlobalAiAdmissionError,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -345,6 +348,7 @@ export async function processAnswerAnalysisJob(
     })
 
     const response = await generateText({
+      admissionGuard: () => assertGlobalAiAvailable(db),
       modelKey: AI_MODEL_KEYS.ANSWER_ANALYSIS,
       system: [],
       messages: [{ role: 'user', content: prompt }],
@@ -377,6 +381,27 @@ export async function processAnswerAnalysisJob(
       generalMessageCount: promptData.generalMessages.length,
     })
   } catch (error) {
+    if (error instanceof GlobalAiAdmissionError) {
+      if (leaseToken !== null) {
+        const released = await deferAnswerAnalysisExecution({
+          snapshotId: payload.snapshotId,
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+          rangeStart: new Date(payload.rangeStart),
+          rangeEnd: new Date(payload.rangeEnd),
+          leaseToken,
+        })
+        if (!released) {
+          logger.warn({
+            action: 'workers.answer-analysis.pause-lease-release-lost',
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            snapshotId: payload.snapshotId,
+          })
+        }
+      }
+      throw error
+    }
     const message = error instanceof Error ? error.message : 'Unknown answer analysis error'
     if (!leaseConflict) {
       await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })

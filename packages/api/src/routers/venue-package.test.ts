@@ -37,6 +37,7 @@ vi.mock('@pathfinder/ai', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
   buildKnowledgeEntryText: vi.fn((entry) => `${entry.title}\n${entry.content}`),
   buildPlaceText: vi.fn((place) => place.name),
   findVenuePackageKnowledgeSemanticDuplicates: vi.fn().mockResolvedValue([]),
@@ -61,6 +62,7 @@ vi.mock('@pathfinder/db', () => ({
 }))
 
 import {
+  assertGlobalAiAvailable,
   getVenuePackageSemanticCoverage,
   setContentVersionContext,
   writeAuditLogStrict,
@@ -349,6 +351,16 @@ describe('venue package router', () => {
       testRouter.createCaller(context('STAFF')).venuePackage.preview({ venueId, payload }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
     expect(venueFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('denies STAFF draft creation before AI admission or database access', async () => {
+    await expect(
+      testRouter
+        .createCaller(context('STAFF'))
+        .venuePackage.createDraft({ venueId, payload, draftKey }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+    expect(assertGlobalAiAvailable).not.toHaveBeenCalled()
+    expect(mockDb.$transaction).not.toHaveBeenCalled()
   })
 
   it('returns a server-authoritative additive preview with deterministic duplicate warnings', async () => {

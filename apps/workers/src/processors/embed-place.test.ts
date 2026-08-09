@@ -26,6 +26,12 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
+    name = 'GlobalAiAdmissionError'
+    constructor(readonly code: string) {
+      super('Global AI admission is unavailable')
+    }
+  },
   acquireEmbeddingWork: mocks.acquireEmbeddingWork,
   buildPlaceText: mocks.buildPlaceText,
   embeddingSourceHash: vi.fn(() => 'a'.repeat(64)),
@@ -41,6 +47,7 @@ vi.mock('@pathfinder/db', () => ({
 }))
 
 import { processEmbedPlaceJob } from './embed-place'
+import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const contentUpdatedAt = new Date('2026-08-07T18:00:00.123Z')
 const payload = {
@@ -160,6 +167,24 @@ describe('processEmbedPlaceJob', () => {
       }),
     )
     expect(mocks.updateJobRecord).toHaveBeenLastCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('releases its claim without recording failure when admission pauses', async () => {
+    mocks.placeFindFirst.mockResolvedValueOnce(place)
+    const pause = new GlobalAiAdmissionError('global-ai-paused')
+    mocks.generateEmbedding.mockRejectedValueOnce(pause)
+
+    await expect(processEmbedPlaceJob(payload)).rejects.toBe(pause)
+
+    expect(mocks.releaseEmbeddingWork).toHaveBeenCalledWith(
+      expect.objectContaining({
+        claimId: 'claim_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      }),
+    )
+    expect(mocks.updateJobRecord).not.toHaveBeenCalled()
+    expect(mocks.storePlaceEmbeddingForScope).not.toHaveBeenCalled()
   })
 
   it('fails closed without provider, usage, or storage when the scoped entity is absent', async () => {

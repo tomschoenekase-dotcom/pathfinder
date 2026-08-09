@@ -157,6 +157,7 @@ vi.mock('@pathfinder/db', () => {
     auditLog: { create: auditLogCreate },
   }
   return {
+    assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
     db: {
       ...transactionDb,
       $transaction: (callback: (transaction: typeof transactionDb) => Promise<unknown>) =>

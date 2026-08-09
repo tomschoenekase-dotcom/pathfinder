@@ -10,6 +10,7 @@ import { AI_MODEL_KEYS } from './model-registry'
 
 const create = vi.fn()
 const usageSink = vi.fn()
+const admissionGuard = vi.fn().mockResolvedValue(undefined)
 const client = { messages: { create } } as AnthropicMessagesClient
 
 describe('generateText', () => {
@@ -35,6 +36,7 @@ describe('generateText', () => {
       system: [{ type: 'text', text: 'Guide.' }],
       messages: [{ role: 'user', content: 'Hello' }],
       usageSink,
+      admissionGuard,
     })
 
     expect(result).toMatchObject({
@@ -71,6 +73,7 @@ describe('generateText', () => {
       messages: [{ role: 'user', content: 'Hello' }],
       retryDelayMs: 0,
       usageSink,
+      admissionGuard,
     })
 
     expect(result.attempts).toBe(2)
@@ -86,6 +89,7 @@ describe('generateText', () => {
         system: [],
         messages: [{ role: 'user', content: 'Hello' }],
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toMatchObject({
       code: 'invalid-provider-response',
@@ -113,6 +117,7 @@ describe('generateText', () => {
         system: [],
         messages: [{ role: 'user', content: 'Hello' }],
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toMatchObject({ code: 'missing-text-block', attempts: 1 })
     expect(usageSink).toHaveBeenCalledWith(
@@ -139,6 +144,7 @@ describe('generateText', () => {
           throw new Error('wrong shape')
         },
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toMatchObject({ code: 'invalid-structured-output', attempts: 1 })
     expect(usageSink).toHaveBeenCalledWith(
@@ -163,6 +169,7 @@ describe('generateText', () => {
         messages: [{ role: 'user', content: 'Hello' }],
         retryDelayMs: 0,
         usageSink,
+        admissionGuard,
       }),
     ).resolves.toMatchObject({ attempts: 2, text: 'Recovered' })
     expect(create).toHaveBeenCalledTimes(2)
@@ -178,6 +185,7 @@ describe('generateText', () => {
         messages: [{ role: 'user', content: 'Hello' }],
         retryDelayMs: 0,
         usageSink,
+        admissionGuard,
       }),
     ).rejects.toMatchObject({ code: 'provider-connection-error', attempts: 2 })
     expect(usageSink).toHaveBeenCalledWith(
@@ -202,7 +210,72 @@ describe('generateText', () => {
         system: [],
         messages: [{ role: 'user', content: 'Hello' }],
         usageSink,
+        admissionGuard,
       }),
     ).resolves.toMatchObject({ text: 'Still succeeds' })
+  })
+
+  it('checks admission before every provider attempt', async () => {
+    create
+      .mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 503 }))
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Recovered' }],
+        usage: { input_tokens: 5, output_tokens: 2 },
+      })
+
+    await generateText({
+      modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+      system: [],
+      messages: [{ role: 'user', content: 'Hello' }],
+      retryDelayMs: 0,
+      usageSink,
+      admissionGuard,
+    })
+
+    expect(admissionGuard).toHaveBeenCalledTimes(2)
+    expect(admissionGuard.mock.invocationCallOrder[0]).toBeLessThan(
+      create.mock.invocationCallOrder[0]!,
+    )
+    expect(admissionGuard.mock.invocationCallOrder[1]).toBeLessThan(
+      create.mock.invocationCallOrder[1]!,
+    )
+  })
+
+  it('does not call or account for a provider when admission is closed', async () => {
+    admissionGuard.mockRejectedValueOnce(new Error('paused'))
+
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [],
+        messages: [{ role: 'user', content: 'Hello' }],
+        usageSink,
+        admissionGuard,
+      }),
+    ).rejects.toThrow('paused')
+    expect(create).not.toHaveBeenCalled()
+    expect(usageSink).not.toHaveBeenCalled()
+  })
+
+  it('records a dispatched failure but not the retry denied by admission', async () => {
+    admissionGuard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('paused'))
+    create.mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 503 }))
+
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [],
+        messages: [{ role: 'user', content: 'Hello' }],
+        retryDelayMs: 0,
+        usageSink,
+        admissionGuard,
+      }),
+    ).rejects.toThrow('paused')
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(usageSink).toHaveBeenCalledOnce()
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({ attempts: 1, errorCode: 'provider-http-503', success: false }),
+    )
   })
 })

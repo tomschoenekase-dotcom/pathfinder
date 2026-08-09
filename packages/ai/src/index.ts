@@ -11,6 +11,7 @@ export {
   type AnthropicCreateParams,
   type AnthropicMessagesClient,
 } from './anthropic'
+export type { AiAdmissionGuard } from './admission'
 export {
   AI_MODEL_KEYS,
   AI_MODEL_REGISTRY,

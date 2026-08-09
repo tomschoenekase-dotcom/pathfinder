@@ -33,11 +33,17 @@ export async function reserveMediaProviderOperation(
 }
 
 export async function executeMediaProviderOperation<T>(
+  admit: () => Promise<void>,
   reserve: () => Promise<void>,
   operation: () => Promise<T>,
   assertActive?: () => void,
 ): Promise<T> {
+  await admit()
   await reserve()
+  assertActive?.()
+  // Reservation is a database round trip. Recheck immediately before dispatch so a
+  // pause that lands during reservation still prevents the external provider call.
+  await admit()
   assertActive?.()
   return operation()
 }

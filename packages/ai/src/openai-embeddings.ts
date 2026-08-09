@@ -1,6 +1,8 @@
 import OpenAI, { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from 'openai'
 import { z } from 'zod'
 
+import type { AiAdmissionGuard } from './admission'
+
 import { AiGatewayError, type AiTokenUsage, type AiUsageSink } from './anthropic'
 import { getAiEmbeddingModelSpec, type AiEmbeddingModelKey } from './embedding-model-registry'
 
@@ -124,6 +126,7 @@ export async function generateEmbeddings(params: {
   modelKey: AiEmbeddingModelKey
   texts: string[]
   usageSink: AiUsageSink
+  admissionGuard: AiAdmissionGuard
   timeoutMs?: number
   maxAttempts?: number
   retryDelayMs?: number
@@ -149,6 +152,24 @@ export async function generateEmbeddings(params: {
   let lastError: unknown
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await params.admissionGuard()
+    } catch (admissionError) {
+      if (lastError !== undefined) {
+        await recordUsageBestEffort(params.usageSink, {
+          provider: 'openai',
+          model: spec.model,
+          pricingVersion: spec.pricingVersion,
+          usage: zeroUsage(),
+          estimatedCostUsd: 0,
+          latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          attempts: attempt - 1,
+          success: false,
+          errorCode: providerErrorCode(lastError),
+        })
+      }
+      throw admissionError
+    }
     try {
       const raw = await getOpenAiClient().embeddings.create(
         { model: spec.model, input: params.texts, dimensions: spec.dimensions },
@@ -234,6 +255,7 @@ export async function generateEmbedding(params: {
   modelKey: AiEmbeddingModelKey
   text: string
   usageSink: AiUsageSink
+  admissionGuard: AiAdmissionGuard
   timeoutMs?: number
   maxAttempts?: number
   retryDelayMs?: number
@@ -242,6 +264,7 @@ export async function generateEmbedding(params: {
     modelKey: params.modelKey,
     texts: [params.text],
     usageSink: params.usageSink,
+    admissionGuard: params.admissionGuard,
     ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
     ...(params.maxAttempts !== undefined ? { maxAttempts: params.maxAttempts } : {}),
     ...(params.retryDelayMs !== undefined ? { retryDelayMs: params.retryDelayMs } : {}),

@@ -6,6 +6,8 @@ import type { AnswerAnalysisJobPayload } from '@pathfinder/jobs'
 const mocks = vi.hoisted(() => ({
   acquireAnswerAnalysisExecution: vi.fn(),
   acquireAnswerAnalysisRecoveryExecution: vi.fn(),
+  assertGlobalAiAvailable: vi.fn(),
+  deferAnswerAnalysisExecution: vi.fn(),
   snapshotUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   responseFindMany: vi.fn(),
@@ -22,8 +24,18 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
+    name = 'GlobalAiAdmissionError'
+    code: string
+    constructor(code: string) {
+      super('AI generation is temporarily unavailable.')
+      this.code = code
+    }
+  },
   acquireAnswerAnalysisExecution: mocks.acquireAnswerAnalysisExecution,
   acquireAnswerAnalysisRecoveryExecution: mocks.acquireAnswerAnalysisRecoveryExecution,
+  deferAnswerAnalysisExecution: mocks.deferAnswerAnalysisExecution,
   db: {
     answerAnalysisSnapshot: {
       updateMany: mocks.snapshotUpdateMany,
@@ -39,6 +51,7 @@ vi.mock('@pathfinder/db', () => ({
 }))
 
 import { _setAnthropicClientForTesting, processAnswerAnalysisJob } from './answer-analysis'
+import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const anthropicCreate = vi.fn()
 const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
@@ -72,6 +85,8 @@ describe('processAnswerAnalysisJob', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+    mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
+    mocks.deferAnswerAnalysisExecution.mockResolvedValue(true)
     mocks.acquireAnswerAnalysisExecution.mockResolvedValue({
       state: 'acquired',
       leaseToken: LEASE_TOKEN,
@@ -149,6 +164,25 @@ describe('processAnswerAnalysisJob', () => {
       }),
     })
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+  })
+
+  it('fenced-releases its execution lease without recording failure when admission pauses', async () => {
+    const pause = new GlobalAiAdmissionError('global-ai-paused')
+    mocks.assertGlobalAiAvailable.mockRejectedValueOnce(pause)
+
+    await expect(processAnswerAnalysisJob(payload)).rejects.toBe(pause)
+
+    expect(mocks.deferAnswerAnalysisExecution).toHaveBeenCalledWith({
+      snapshotId: 'snapshot_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      rangeStart: new Date('2026-06-01T00:00:00.000Z'),
+      rangeEnd: new Date('2026-06-08T00:00:00.000Z'),
+      leaseToken: LEASE_TOKEN,
+    })
+    expect(mocks.snapshotUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.updateJobRecord).not.toHaveBeenCalled()
+    expect(anthropicCreate).not.toHaveBeenCalled()
   })
 
   it('uses an exact observed-token recovery claim without persisting the token', async () => {

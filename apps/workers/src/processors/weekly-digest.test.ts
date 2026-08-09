@@ -13,10 +13,15 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   loggerError: vi.fn(),
+  anthropicConstructor: vi.fn(),
+  assertGlobalAiAvailable: vi.fn(),
 }))
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class MockAnthropic {
+    constructor(options: unknown) {
+      mocks.anthropicConstructor(options)
+    }
     messages = { create: mocks.anthropicCreate }
   },
 }))
@@ -32,6 +37,13 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
+    name = 'GlobalAiAdmissionError'
+    constructor(readonly code: string) {
+      super('Global AI admission is unavailable')
+    }
+  },
   db: {
     weeklyDigest: { updateMany: mocks.digestUpdateMany },
     tenant: { findUnique: mocks.tenantFindUnique },
@@ -43,6 +55,7 @@ vi.mock('@pathfinder/db', () => ({
 }))
 
 import { processWeeklyDigestJob } from './weekly-digest'
+import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const payload: WeeklyDigestJobPayload = {
   tenantId: 'tenant_1',
@@ -91,6 +104,7 @@ describe('processWeeklyDigestJob', () => {
     mocks.withTenantIsolationBypass.mockImplementation((fn: () => unknown) => fn())
     mocks.writeJobRecord.mockResolvedValue('job_record_1')
     mocks.updateJobRecord.mockResolvedValue(undefined)
+    mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
     mocks.digestUpdateMany.mockResolvedValue({ count: 1 })
     mocks.tenantFindUnique.mockResolvedValue({ name: 'Example Tenant' })
     mocks.sessionFindMany.mockResolvedValue(makeSessions(5))
@@ -124,6 +138,20 @@ describe('processWeeklyDigestJob', () => {
     })
   })
 
+  it('fenced-restores PENDING without recording failure when admission pauses', async () => {
+    const pause = new GlobalAiAdmissionError('global-ai-paused')
+    mocks.assertGlobalAiAvailable.mockRejectedValueOnce(pause)
+
+    await expect(processWeeklyDigestJob(payload)).rejects.toBe(pause)
+
+    expect(mocks.digestUpdateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: 'digest_1', tenantId: 'tenant_1', status: 'PROCESSING' },
+      data: { status: 'PENDING' },
+    })
+    expect(mocks.updateJobRecord).not.toHaveBeenCalled()
+    expect(mocks.anthropicCreate).not.toHaveBeenCalled()
+  })
+
   it('accepts a valid structured response and completes the digest', async () => {
     mocks.anthropicCreate.mockResolvedValueOnce({
       content: [
@@ -136,6 +164,10 @@ describe('processWeeklyDigestJob', () => {
 
     await processWeeklyDigestJob(payload)
 
+    expect(mocks.anthropicConstructor).toHaveBeenCalledWith({
+      apiKey: 'test-only-key',
+      maxRetries: 0,
+    })
     expect(mocks.anthropicCreate).toHaveBeenCalledWith({
       model: 'claude-sonnet-4-6',
       max_tokens: 1_200,

@@ -6,7 +6,9 @@ import {
   buildKnowledgeEntryText,
   embeddingSourceHash,
   acquireEmbeddingWork,
+  assertGlobalAiAvailable,
   db,
+  GlobalAiAdmissionError,
   storeKnowledgeEntryEmbeddingForScope,
   releaseEmbeddingWork,
   updateJobRecord,
@@ -121,6 +123,7 @@ export async function processEmbedKnowledgeEntryJob(
     claim = { claimId: acquisition.claimId, leaseToken, venueId: entry.venueId }
 
     const result = await generateEmbedding({
+      admissionGuard: () => assertGlobalAiAvailable(db),
       modelKey: AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT,
       text,
       usageSink: createWorkerAiUsageSink({
@@ -179,6 +182,7 @@ export async function processEmbedKnowledgeEntryJob(
         })
       }
     }
+    if (error instanceof GlobalAiAdmissionError) throw error
     await recordJobFailure({
       jobRecordId,
       error,

@@ -51,6 +51,9 @@ describe('durable media provider-operation budget', () => {
 
   it('charges before dispatch, including a provider failure, and never calls after refusal', async () => {
     const order: string[] = []
+    const admit = vi.fn(async () => {
+      order.push('admit')
+    })
     const reserve = vi.fn(async () => {
       order.push('reserve')
     })
@@ -59,33 +62,62 @@ describe('durable media provider-operation budget', () => {
       throw new Error('provider unavailable')
     })
 
-    await expect(executeMediaProviderOperation(reserve, failedOperation)).rejects.toThrow(
+    await expect(executeMediaProviderOperation(admit, reserve, failedOperation)).rejects.toThrow(
       'provider unavailable',
     )
-    expect(order).toEqual(['reserve', 'provider'])
+    expect(order).toEqual(['admit', 'reserve', 'admit', 'provider'])
 
     const refused = vi.fn(async () => {
       throw new UnrecoverableError('budget exhausted')
     })
     const notDispatched = vi.fn(async () => 'unexpected')
-    await expect(executeMediaProviderOperation(refused, notDispatched)).rejects.toBeInstanceOf(
-      UnrecoverableError,
-    )
+    await expect(
+      executeMediaProviderOperation(admit, refused, notDispatched),
+    ).rejects.toBeInstanceOf(UnrecoverableError)
     expect(notDispatched).not.toHaveBeenCalled()
   })
 
   it('charges but does not dispatch if ownership is lost during reservation', async () => {
+    const admit = vi.fn(async () => undefined)
     const reserve = vi.fn(async () => undefined)
     const operation = vi.fn(async () => 'unexpected')
     const assertActive = vi.fn(() => {
       throw new Error('ownership lost')
     })
 
-    await expect(executeMediaProviderOperation(reserve, operation, assertActive)).rejects.toThrow(
-      'ownership lost',
-    )
+    await expect(
+      executeMediaProviderOperation(admit, reserve, operation, assertActive),
+    ).rejects.toThrow('ownership lost')
+    expect(admit).toHaveBeenCalledOnce()
     expect(reserve).toHaveBeenCalledOnce()
     expect(assertActive).toHaveBeenCalledOnce()
+    expect(operation).not.toHaveBeenCalled()
+  })
+
+  it('does not reserve budget or dispatch while AI admission is closed', async () => {
+    const admit = vi.fn(async () => {
+      throw new Error('paused')
+    })
+    const reserve = vi.fn(async () => undefined)
+    const operation = vi.fn(async () => 'unexpected')
+
+    await expect(executeMediaProviderOperation(admit, reserve, operation)).rejects.toThrow('paused')
+    expect(reserve).not.toHaveBeenCalled()
+    expect(operation).not.toHaveBeenCalled()
+  })
+
+  it('does not dispatch if admission closes during the durable reservation', async () => {
+    const admit = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('paused during reservation'))
+    const reserve = vi.fn(async () => undefined)
+    const operation = vi.fn(async () => 'unexpected')
+
+    await expect(executeMediaProviderOperation(admit, reserve, operation)).rejects.toThrow(
+      'paused during reservation',
+    )
+    expect(reserve).toHaveBeenCalledOnce()
     expect(operation).not.toHaveBeenCalled()
   })
 })

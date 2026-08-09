@@ -5,11 +5,11 @@ import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
 import { enqueueWeeklyDigest } from '@pathfinder/jobs'
 
 import { router } from '../../core'
-import { adminProcedure } from '../../trpc'
+import { adminAiProcedure } from '../../trpc'
 import { endOfUtcWeek, startOfCurrentUtcWeek } from './helpers'
 
 export const adminDigestRouter = router({
-  triggerDigest: adminProcedure
+  triggerDigest: adminAiProcedure
     .input(
       z.object({
         tenantId: z.string(),

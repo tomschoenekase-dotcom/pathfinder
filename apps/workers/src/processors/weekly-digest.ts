@@ -2,7 +2,14 @@ import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 
 import { env, logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass, writeJobRecord, updateJobRecord } from '@pathfinder/db'
+import {
+  assertGlobalAiAvailable,
+  db,
+  GlobalAiAdmissionError,
+  withTenantIsolationBypass,
+  writeJobRecord,
+  updateJobRecord,
+} from '@pathfinder/db'
 import {
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
@@ -52,7 +59,7 @@ function getAnthropicClient(): Anthropic {
   }
 
   if (!anthropicClient) {
-    anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+    anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 0 })
   }
 
   return anthropicClient
@@ -138,7 +145,7 @@ function buildWeeklyDigestPrompt(params: {
 async function markDigestStatus(
   payload: WeeklyDigestJobPayload,
   data: {
-    status: 'PROCESSING' | 'COMPLETE' | 'FAILED'
+    status: 'PENDING' | 'PROCESSING' | 'COMPLETE' | 'FAILED'
     sessionCount?: number
     messageCount?: number
     insights?: WeeklyDigestInsight[]
@@ -153,6 +160,20 @@ async function markDigestStatus(
       },
       data,
     })
+  })
+}
+
+async function deferDigestAfterPause(payload: WeeklyDigestJobPayload): Promise<boolean> {
+  return withTenantIsolationBypass(async () => {
+    const updated = await db.weeklyDigest.updateMany({
+      where: {
+        id: payload.digestId,
+        tenantId: payload.tenantId,
+        status: 'PROCESSING',
+      },
+      data: { status: 'PENDING' },
+    })
+    return updated.count === 1
   })
 }
 
@@ -322,6 +343,7 @@ export async function processWeeklyDigestJob(
       sessions: promptData.sessions,
     })
 
+    await assertGlobalAiAvailable(db)
     const response = await getAnthropicClient().messages.create({
       model: CLAUDE_MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
@@ -354,6 +376,17 @@ export async function processWeeklyDigestJob(
       insightCount: insights.length,
     })
   } catch (error) {
+    if (error instanceof GlobalAiAdmissionError) {
+      const deferred = await deferDigestAfterPause(payload)
+      if (!deferred) {
+        logger.warn({
+          action: 'workers.weekly-digest.pause-state-release-lost',
+          tenantId: payload.tenantId,
+          digestId: payload.digestId,
+        })
+      }
+      throw error
+    }
     const message = error instanceof Error ? error.message : 'Unknown weekly digest error'
     await recordJobFailure({ jobRecordId, error, errorMessage: message, execution })
 

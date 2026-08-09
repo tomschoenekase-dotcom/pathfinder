@@ -10,7 +10,14 @@ import {
 } from '@pathfinder/ai'
 import { TOPIC_KEY_SET, TOPIC_KEYS, type TopicKey } from '@pathfinder/analytics/topics'
 import { logger } from '@pathfinder/config'
-import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
+import {
+  assertGlobalAiAvailable,
+  db,
+  GlobalAiAdmissionError,
+  updateJobRecord,
+  withTenantIsolationBypass,
+  writeJobRecord,
+} from '@pathfinder/db'
 import {
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
@@ -145,6 +152,7 @@ async function classifyTopicBatch(params: {
   ].join('\n')
 
   const response = await generateText({
+    admissionGuard: () => assertGlobalAiAvailable(db),
     modelKey: AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER,
     system: [],
     messages: [{ role: 'user', content: prompt }],
@@ -215,6 +223,7 @@ async function synthesizeWeeklyThemes(params: {
   ].join('\n')
 
   const response = await generateText({
+    admissionGuard: () => assertGlobalAiAvailable(db),
     modelKey: AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES,
     system: [],
     messages: [{ role: 'user', content: prompt }],
@@ -328,6 +337,7 @@ async function buildClusters(params: {
   for (let i = 0; i < trimmed.length; i += EMBED_BATCH_SIZE) {
     const batch = trimmed.slice(i, i + EMBED_BATCH_SIZE)
     const result = await generateEmbeddings({
+      admissionGuard: () => assertGlobalAiAvailable(db),
       modelKey: AI_EMBEDDING_MODEL_KEYS.ANALYTICS_CLUSTERING,
       texts: batch,
       usageSink: createWorkerAiUsageSink({
@@ -382,7 +392,6 @@ async function enrichVenue(params: {
     select: { id: true, content: true },
   })
 
-  const topicCounts = new Map<string, number>()
   for (let i = 0; i < untaggedMessages.length; i += TOPIC_BATCH_SIZE) {
     const batch = untaggedMessages.slice(i, i + TOPIC_BATCH_SIZE)
     let topics: TopicKey[]
@@ -393,6 +402,7 @@ async function enrichVenue(params: {
         venueId,
       })
     } catch (error) {
+      if (error instanceof GlobalAiAdmissionError) throw error
       logger.warn({
         action: 'workers.analytics-enrichment.classify-failed',
         tenantId,
@@ -409,12 +419,30 @@ async function enrichVenue(params: {
       const ids = idsByTopic.get(topic) ?? []
       ids.push(message.id)
       idsByTopic.set(topic, ids)
-      topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1)
     })
 
     for (const [topic, ids] of idsByTopic.entries()) {
       await db.message.updateMany({ where: { id: { in: ids }, tenantId }, data: { topic } })
     }
+  }
+
+  // Recompute from persisted state so an admission pause after one batch cannot make
+  // the resumed attempt omit topics that the interrupted attempt already tagged.
+  const persistedTopicCounts = await db.message.groupBy({
+    by: ['topic'],
+    where: {
+      tenantId,
+      role: 'user',
+      topic: { not: null },
+      createdAt: { gte: dayStart, lt: dayEnd },
+      session: { venueId },
+    },
+    _count: { _all: true },
+  })
+
+  const topicCounts = new Map<string, number>()
+  for (const row of persistedTopicCounts) {
+    if (row.topic) topicCounts.set(row.topic, row._count._all)
   }
 
   for (const [topic, value] of topicCounts.entries()) {
@@ -544,6 +572,7 @@ async function enrichVenue(params: {
         themesWritten = themes.length
       }
     } catch (error) {
+      if (error instanceof GlobalAiAdmissionError) throw error
       logger.warn({
         action: 'workers.analytics-enrichment.themes-failed',
         tenantId,
@@ -673,6 +702,7 @@ export async function processAnalyticsEnrichmentJob(
       themeCount: totalThemes,
     })
   } catch (error) {
+    if (error instanceof GlobalAiAdmissionError) throw error
     await recordJobFailure({
       jobRecordId,
       error,
