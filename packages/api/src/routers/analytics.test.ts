@@ -5,6 +5,10 @@ import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { analyticsRouter } from './analytics'
 
+const { checkRateLimitMock } = vi.hoisted(() => ({ checkRateLimitMock: vi.fn() }))
+
+vi.mock('../lib/rate-limit', () => ({ checkRateLimit: checkRateLimitMock }))
+
 const weeklyDigestFindFirst = vi.fn()
 const weeklyDigestFindMany = vi.fn()
 const dailyRollupFindMany = vi.fn()
@@ -16,6 +20,8 @@ const visitorSessionCount = vi.fn()
 const messageCount = vi.fn()
 const questionClusterFindMany = vi.fn()
 const placeFindMany = vi.fn()
+const placeFindFirst = vi.fn()
+const operationalUpdateFindFirst = vi.fn()
 const venueFindFirst = vi.fn()
 const weeklyReportFindMany = vi.fn()
 const venueReportConfigurationFindMany = vi.fn()
@@ -57,6 +63,10 @@ const mockDb = {
   },
   place: {
     findMany: placeFindMany,
+    findFirst: placeFindFirst,
+  },
+  operationalUpdate: {
+    findFirst: operationalUpdateFindFirst,
   },
   $queryRaw: dbQueryRaw,
 } as unknown as TRPCContext['db']
@@ -95,6 +105,7 @@ const testRouter = router({ analytics: analyticsRouter })
 describe('analytics router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    checkRateLimitMock.mockResolvedValue(true)
   })
 
   it('analytics.getLatestDigest returns the latest complete digest for the active tenant', async () => {
@@ -261,7 +272,7 @@ describe('analytics router', () => {
     const result = await caller.analytics.trackEvent({
       sessionId: '00000000-0000-4000-8000-000000000001',
       venueId: 'cvenueabc123456789012',
-      eventType: 'message.sent',
+      eventType: 'session.started',
     })
 
     expect(result).toEqual({ ok: true })
@@ -271,7 +282,7 @@ describe('analytics router', () => {
           tenantId: 'tenant_1',
           venueId: 'cvenueabc123456789012',
           sessionId: '00000000-0000-4000-8000-000000000001',
-          eventType: 'message.sent',
+          eventType: 'session.started',
         }),
       }),
     )
@@ -288,17 +299,20 @@ describe('analytics router', () => {
           tenantId: 'tenant_1',
           venueId: 'cvenueabc123456789012',
           anonymousToken: '00000000-0000-4000-8000-000000000001',
-          messageCount: 1,
         }),
         update: expect.objectContaining({
           lastActiveAt: expect.any(Date),
-          messageCount: { increment: 1 },
         }),
       }),
     )
   })
 
-  it.each(['message.received', 'message.fallback', 'message.low_confidence'] as const)(
+  it.each([
+    'message.sent',
+    'message.received',
+    'message.fallback',
+    'message.low_confidence',
+  ] as const)(
     'analytics.trackEvent rejects server-only event %s before database access',
     async (eventType) => {
       const caller = testRouter.createCaller(anonymousCtx())
@@ -309,13 +323,222 @@ describe('analytics router', () => {
           venueId: 'cvenueabc123456789012',
           // The runtime rejection is the contract under test; this cast keeps the
           // test capable of exercising values excluded by the public TypeScript type.
-          eventType: eventType as 'message.sent',
+          eventType: eventType as 'session.started',
         }),
       ).rejects.toThrow()
       expect(dbQueryRaw).not.toHaveBeenCalled()
       expect(analyticsEventCreate).not.toHaveBeenCalled()
     },
   )
+
+  it('analytics.trackEvent rate-limits before venue lookup or writes', async () => {
+    checkRateLimitMock.mockReset()
+    checkRateLimitMock.mockResolvedValueOnce(false)
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'session.started',
+      }),
+    ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+
+    expect(checkRateLimitMock).toHaveBeenNthCalledWith(
+      1,
+      'ratelimit:analytics:session:cvenueabc123456789012:00000000-0000-4000-8000-000000000001',
+      120,
+      60,
+    )
+    expect(checkRateLimitMock).toHaveBeenCalledTimes(1)
+    expect(dbQueryRaw).not.toHaveBeenCalled()
+    expect(analyticsEventCreate).not.toHaveBeenCalled()
+  })
+
+  it('analytics.trackEvent checks the venue bucket only after the session bucket allows', async () => {
+    checkRateLimitMock.mockReset()
+    checkRateLimitMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'session.started',
+      }),
+    ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+
+    expect(checkRateLimitMock).toHaveBeenNthCalledWith(
+      1,
+      'ratelimit:analytics:session:cvenueabc123456789012:00000000-0000-4000-8000-000000000001',
+      120,
+      60,
+    )
+    expect(checkRateLimitMock).toHaveBeenNthCalledWith(
+      2,
+      'ratelimit:analytics:venue:cvenueabc123456789012',
+      3000,
+      60,
+    )
+    expect(dbQueryRaw).not.toHaveBeenCalled()
+    expect(analyticsEventCreate).not.toHaveBeenCalled()
+  })
+
+  it('analytics.trackEvent accepts but discards the bounded legacy session timestamp', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({})
+
+    await testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.started',
+      metadata: { timestamp: '2026-08-09T07:00:00.000Z' },
+    })
+
+    const data = analyticsEventCreate.mock.calls[0]?.[0]?.data
+    expect(data).toEqual(expect.objectContaining({ occurredAt: expect.any(Date) }))
+    expect(data).not.toHaveProperty('metadata')
+  })
+
+  it.each([
+    {
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.started',
+      occurredAt: '2020-01-01T00:00:00.000Z',
+    },
+    {
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.started',
+      metadata: { email: 'private@example.com' },
+    },
+    {
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'session.ended',
+      metadata: { durationSeconds: 1, extra: 'field' },
+    },
+    {
+      sessionId: '00000000-0000-4000-8000-000000000001',
+      venueId: 'cvenueabc123456789012',
+      eventType: 'place_card.viewed',
+    },
+  ])(
+    'analytics.trackEvent rejects unbounded or incoherent input before procedure work',
+    async (input) => {
+      const caller = testRouter.createCaller(anonymousCtx())
+
+      await expect(
+        caller.analytics.trackEvent(input as Parameters<typeof caller.analytics.trackEvent>[0]),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(checkRateLimitMock).not.toHaveBeenCalled()
+      expect(dbQueryRaw).not.toHaveBeenCalled()
+      expect(analyticsEventCreate).not.toHaveBeenCalled()
+    },
+  )
+
+  it('analytics.trackEvent validates an active place against the resolved venue and tenant', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    placeFindFirst.mockResolvedValueOnce({ id: 'cplaceabc123456789012' })
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'place_card.viewed',
+        placeId: 'cplaceabc123456789012',
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    expect(placeFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'cplaceabc123456789012',
+        tenantId: 'tenant_1',
+        venueId: 'cvenueabc123456789012',
+        isActive: true,
+      },
+      select: { id: true },
+    })
+    expect(analyticsEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'cvenueabc123456789012',
+        placeId: 'cplaceabc123456789012',
+        occurredAt: expect.any(Date),
+      }),
+    })
+  })
+
+  it('analytics.trackEvent rejects a missing or foreign place without event or session writes', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    placeFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'place_card.clicked',
+        placeId: 'cplaceabc123456789012',
+      }),
+    ).resolves.toEqual({ ok: false })
+    expect(analyticsEventCreate).not.toHaveBeenCalled()
+    expect(visitorSessionUpdateMany).not.toHaveBeenCalled()
+    expect(visitorSessionUpsert).not.toHaveBeenCalled()
+  })
+
+  it('analytics.trackEvent validates a visible operational update and stores only its ID', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    operationalUpdateFindFirst.mockResolvedValueOnce({ id: 'cupdateabc12345678901' })
+    analyticsEventCreate.mockResolvedValueOnce({})
+    visitorSessionUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'operational_update.viewed',
+        metadata: { operationalUpdateId: 'cupdateabc12345678901' },
+      }),
+    ).resolves.toEqual({ ok: true })
+
+    const occurredAt = analyticsEventCreate.mock.calls[0]?.[0]?.data?.occurredAt
+    expect(operationalUpdateFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'cupdateabc12345678901',
+        tenantId: 'tenant_1',
+        venueId: 'cvenueabc123456789012',
+        status: 'PUBLISHED',
+        isActive: true,
+        startsAt: { lte: occurredAt },
+        expiresAt: { gt: occurredAt },
+      },
+      select: { id: true },
+    })
+    expect(analyticsEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadata: { operationalUpdateId: 'cupdateabc12345678901' },
+      }),
+    })
+  })
+
+  it('analytics.trackEvent rejects a non-visible operational update without writes', async () => {
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+    operationalUpdateFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'operational_update.viewed',
+        metadata: { operationalUpdateId: 'cupdateabc12345678901' },
+      }),
+    ).resolves.toEqual({ ok: false })
+    expect(analyticsEventCreate).not.toHaveBeenCalled()
+    expect(visitorSessionUpdateMany).not.toHaveBeenCalled()
+    expect(visitorSessionUpsert).not.toHaveBeenCalled()
+  })
 
   it('analytics.trackEvent persists visitorId on the session when provided', async () => {
     dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
@@ -352,6 +575,7 @@ describe('analytics router', () => {
       sessionId: '00000000-0000-4000-8000-000000000001',
       venueId: 'cvenueabc123456789012',
       eventType: 'session.ended',
+      metadata: { durationSeconds: 120 },
     })
 
     expect(visitorSessionUpdateMany).toHaveBeenCalledWith(

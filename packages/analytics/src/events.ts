@@ -23,12 +23,11 @@ export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number]
 export const ANALYTICS_EVENT_TYPE_SET = new Set<string>(ANALYTICS_EVENT_TYPES)
 
 // Only browser-origin interaction signals belong in the public analytics mutation.
-// Response, fallback, low-confidence, engagement, and venue-update events are emitted
-// by trusted server paths so operational metrics cannot be forged by a guest.
+// Message, response, fallback, low-confidence, engagement, and venue-update events
+// are emitted by trusted server paths so operational metrics cannot be forged by a guest.
 export const PUBLIC_ANALYTICS_EVENT_TYPES = [
   'session.started',
   'session.ended',
-  'message.sent',
   'place_card.viewed',
   'place_card.clicked',
   'directions.opened',

@@ -1,10 +1,11 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { PUBLIC_ANALYTICS_EVENT_TYPES, type AnalyticsEventType } from '@pathfinder/analytics/events'
+import type { PublicAnalyticsEventType } from '@pathfinder/analytics/events'
 import { TOPIC_LABELS, type TopicKey } from '@pathfinder/analytics/topics'
 
-import { router } from '../core'
+import { publicTRPCError, router } from '../core'
+import { checkRateLimit } from '../lib/rate-limit'
 import { requireVenueReportsEnabled } from '../lib/venue-report-configuration'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
@@ -19,17 +20,72 @@ const PLACE_INTEREST_WEIGHTS = {
 
 type PlaceInterestMetric = keyof typeof PLACE_INTEREST_WEIGHTS
 
-const analyticsTrackEventInput = z
-  .object({
-    sessionId: z.string().uuid(),
-    venueId: z.string().cuid(),
-    visitorId: z.string().uuid().optional(),
-    eventType: z.enum(PUBLIC_ANALYTICS_EVENT_TYPES),
-    placeId: z.string().cuid().optional(),
-    metadata: z.record(z.unknown()).optional(),
-    occurredAt: z.coerce.date().optional(),
-  })
-  .strict()
+const publicEventIdentity = {
+  sessionId: z.string().uuid(),
+  venueId: z.string().cuid(),
+  visitorId: z.string().uuid().optional(),
+} as const
+
+const analyticsTrackEventInput = z.discriminatedUnion('eventType', [
+  z
+    .object({
+      ...publicEventIdentity,
+      eventType: z.literal('session.started'),
+      // Transitional compatibility for already-cached browser bundles. The server
+      // deliberately discards this timestamp and owns occurredAt below.
+      metadata: z
+        .object({ timestamp: z.string().max(64).datetime() })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      ...publicEventIdentity,
+      eventType: z.literal('session.ended'),
+      metadata: z
+        .object({
+          durationSeconds: z
+            .number()
+            .int()
+            .min(0)
+            .max(7 * 24 * 60 * 60),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...publicEventIdentity,
+      eventType: z.literal('place_card.viewed'),
+      placeId: z.string().cuid(),
+    })
+    .strict(),
+  z
+    .object({
+      ...publicEventIdentity,
+      eventType: z.literal('place_card.clicked'),
+      placeId: z.string().cuid(),
+    })
+    .strict(),
+  z
+    .object({
+      ...publicEventIdentity,
+      eventType: z.literal('directions.opened'),
+      placeId: z.string().cuid(),
+    })
+    .strict(),
+  z
+    .object({
+      ...publicEventIdentity,
+      eventType: z.literal('operational_update.viewed'),
+      metadata: z.object({ operationalUpdateId: z.string().cuid() }).strict(),
+    })
+    .strict(),
+])
+
+const PUBLIC_ANALYTICS_SESSION_LIMIT_PER_MINUTE = 120
+const PUBLIC_ANALYTICS_VENUE_LIMIT_PER_MINUTE = 3_000
 
 const getDailyStatsInput = z
   .object({
@@ -80,7 +136,7 @@ async function resolveVenueTenant(
 async function syncVisitorSession(
   db: Parameters<Parameters<typeof publicProcedure.mutation>[0]>[0]['ctx']['db'],
   params: {
-    eventType: AnalyticsEventType
+    eventType: PublicAnalyticsEventType
     sessionId: string
     tenantId: string
     venueId: string
@@ -128,34 +184,6 @@ async function syncVisitorSession(
     return
   }
 
-  if (params.eventType === 'message.sent') {
-    await db.visitorSession.upsert({
-      where: {
-        venueId_anonymousToken: {
-          venueId: params.venueId,
-          anonymousToken: params.sessionId,
-        },
-        tenantId: params.tenantId,
-      },
-      create: {
-        tenantId: params.tenantId,
-        venueId: params.venueId,
-        anonymousToken: params.sessionId,
-        messageCount: 1,
-        ...visitorIdData,
-      },
-      update: {
-        lastActiveAt: new Date(),
-        messageCount: {
-          increment: 1,
-        },
-        ...visitorIdData,
-      },
-    })
-
-    return
-  }
-
   await db.visitorSession.updateMany({
     where: {
       anonymousToken: params.sessionId,
@@ -168,11 +196,70 @@ async function syncVisitorSession(
 
 export const analyticsRouter = router({
   trackEvent: publicProcedure.input(analyticsTrackEventInput).mutation(async ({ ctx, input }) => {
+    const sessionAllowed = await checkRateLimit(
+      `ratelimit:analytics:session:${input.venueId}:${input.sessionId}`,
+      PUBLIC_ANALYTICS_SESSION_LIMIT_PER_MINUTE,
+      60,
+    )
+    if (!sessionAllowed) {
+      throw publicTRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many analytics events. Please try again later.',
+      })
+    }
+
+    const venueAllowed = await checkRateLimit(
+      `ratelimit:analytics:venue:${input.venueId}`,
+      PUBLIC_ANALYTICS_VENUE_LIMIT_PER_MINUTE,
+      60,
+    )
+    if (!venueAllowed) {
+      throw publicTRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many analytics events. Please try again later.',
+      })
+    }
+
     const venue = await resolveVenueTenant(ctx.db, input.venueId)
 
     if (!venue) {
       return { ok: false as const }
     }
+
+    const occurredAt = new Date()
+    if ('placeId' in input) {
+      const place = await ctx.db.place.findFirst({
+        where: {
+          id: input.placeId,
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          isActive: true,
+        },
+        select: { id: true },
+      })
+      if (!place) return { ok: false as const }
+    }
+
+    if (input.eventType === 'operational_update.viewed') {
+      const update = await ctx.db.operationalUpdate.findFirst({
+        where: {
+          id: input.metadata.operationalUpdateId,
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          status: 'PUBLISHED',
+          isActive: true,
+          startsAt: { lte: occurredAt },
+          expiresAt: { gt: occurredAt },
+        },
+        select: { id: true },
+      })
+      if (!update) return { ok: false as const }
+    }
+
+    const metadata =
+      input.eventType === 'session.ended' || input.eventType === 'operational_update.viewed'
+        ? input.metadata
+        : undefined
 
     await ctx.db.analyticsEvent.create({
       data: {
@@ -180,9 +267,9 @@ export const analyticsRouter = router({
         venueId: input.venueId,
         sessionId: input.sessionId,
         eventType: input.eventType,
-        occurredAt: input.occurredAt ?? new Date(),
-        ...(input.placeId !== undefined ? { placeId: input.placeId } : {}),
-        ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
+        occurredAt,
+        ...('placeId' in input ? { placeId: input.placeId } : {}),
+        ...(metadata !== undefined ? { metadata } : {}),
       },
     })
 

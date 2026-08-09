@@ -343,13 +343,19 @@ describe('admin router', () => {
           id: 'session_1',
           startedAt,
           lastActiveAt: startedAt,
-          messageCount: 2,
           visitorId: 'visitor_1',
           messages: [
             {
               id: 'message_1',
               role: 'user',
               content: 'Where are the bathrooms?',
+              createdAt: messageCreatedAt,
+              topic: 'amenities',
+            },
+            {
+              id: 'message_2',
+              role: 'assistant',
+              content: 'They are near the lobby.',
               createdAt: messageCreatedAt,
               topic: 'amenities',
             },
@@ -378,6 +384,7 @@ describe('admin router', () => {
     })
     expect(result.tenant.name).toBe('Tenant One')
     expect(result.recentSessions).toHaveLength(1)
+    expect(result.recentSessions[0]?.messageCount).toBe(1)
     expect(result.questionClusters).toHaveLength(1)
     expect(visitorSessionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1774,6 +1781,48 @@ describe('admin router', () => {
     expect(weeklyReportFindFirst).not.toHaveBeenCalled()
     expect(weeklyReportUpdateMany).not.toHaveBeenCalled()
     expect(auditLogCreate).not.toHaveBeenCalled()
+  })
+
+  it('admin.listVenueSessions derives message counts from trusted user message rows', async () => {
+    const startedAt = new Date('2026-08-09T07:00:00.000Z')
+    visitorSessionFindMany.mockResolvedValueOnce([
+      {
+        id: 'session_1',
+        startedAt,
+        lastActiveAt: startedAt,
+        isNotable: false,
+        _count: { messages: 2, engagementResponses: 0, adminNotes: 0 },
+      },
+    ])
+
+    const result = await testRouter.createCaller(adminCtx()).admin.listVenueSessions({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+    })
+
+    expect(result.sessions).toEqual([
+      {
+        id: 'session_1',
+        startedAt,
+        lastActiveAt: startedAt,
+        isNotable: false,
+        messageCount: 2,
+        _count: { engagementResponses: 0, adminNotes: 0 },
+      },
+    ])
+    expect(visitorSessionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          _count: {
+            select: {
+              messages: { where: { role: 'user' } },
+              engagementResponses: true,
+              adminNotes: true,
+            },
+          },
+        }),
+      }),
+    )
   })
 
   it('all new admin.* chatlog/report/analysis procedures throw FORBIDDEN for non-admin users', async () => {

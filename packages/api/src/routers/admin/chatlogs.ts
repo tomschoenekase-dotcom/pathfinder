@@ -42,15 +42,26 @@ export const adminChatlogsRouter = router({
             id: true,
             startedAt: true,
             lastActiveAt: true,
-            messageCount: true,
             isNotable: true,
-            _count: { select: { engagementResponses: true, adminNotes: true } },
+            _count: {
+              select: {
+                messages: { where: { role: 'user' } },
+                engagementResponses: true,
+                adminNotes: true,
+              },
+            },
           },
         })
 
         const hasMore = sessions.length > input.limit
         return {
-          sessions: sessions.slice(0, input.limit),
+          sessions: sessions
+            .slice(0, input.limit)
+            .map(({ _count: { messages, ...counts }, ...session }) => ({
+              ...session,
+              messageCount: messages,
+              _count: counts,
+            })),
           nextCursor: hasMore ? (sessions[input.limit]?.id ?? null) : null,
         }
       })

@@ -226,9 +226,6 @@ export function VenueChatExperience({
         sessionId: anonymousToken,
         ...(visitorId ? { visitorId } : {}),
         eventType: 'session.started',
-        metadata: {
-          timestamp: new Date().toISOString(),
-        },
       })
       .catch(() => {})
   }, [anonymousToken, client, venue, visitorId])

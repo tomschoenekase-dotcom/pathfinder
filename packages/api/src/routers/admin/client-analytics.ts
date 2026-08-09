@@ -56,7 +56,6 @@ export const adminClientAnalyticsRouter = router({
               id: true,
               startedAt: true,
               lastActiveAt: true,
-              messageCount: true,
               visitorId: true,
               messages: {
                 orderBy: { createdAt: 'asc' },
@@ -91,7 +90,10 @@ export const adminClientAnalyticsRouter = router({
             totalMessages,
             uniqueVisitors: uniqueVisitors.length,
           },
-          recentSessions,
+          recentSessions: recentSessions.map((session) => ({
+            ...session,
+            messageCount: session.messages.filter((message) => message.role === 'user').length,
+          })),
           questionClusters,
         }
       })
