@@ -36,6 +36,20 @@ function request(): Request {
   })
 }
 
+function signedRequest(body: BodyInit, extraHeaders: Record<string, string> = {}): Request {
+  return new Request('https://dashboard.example/api/webhooks/clerk', {
+    method: 'POST',
+    body,
+    headers: {
+      'svix-id': 'msg_test',
+      'svix-timestamp': '1234567890',
+      'svix-signature': 'v1,test',
+      ...extraHeaders,
+    },
+    ...(!(typeof body === 'string') ? ({ duplex: 'half' } as { duplex: 'half' }) : {}),
+  })
+}
+
 function membershipEvent(options?: { role?: string; email?: string }) {
   const emailAddresses = options?.email ? [{ id: 'email_1', email_address: options.email }] : []
   return {
@@ -158,7 +172,7 @@ describe('Clerk membership welcome webhook', () => {
     expect(JSON.stringify(mocks.loggerError.mock.calls)).not.toContain('user_1')
   })
 
-  it('keeps invalid signatures non-retryable', async () => {
+  it('rejects invalid signatures without processing the event', async () => {
     mocks.verify.mockImplementationOnce(() => {
       throw new Error('invalid signature')
     })
@@ -168,5 +182,113 @@ describe('Clerk membership welcome webhook', () => {
     expect(response.status).toBe(401)
     expect(mocks.handleClerkEvent).not.toHaveBeenCalled()
     expect(mocks.enqueueWelcomeEmail).not.toHaveBeenCalled()
+  })
+
+  it('rejects missing signature headers before consuming the request body', async () => {
+    let bodyAccessed = false
+    const unsigned = {
+      headers: new Headers(),
+      get body() {
+        bodyAccessed = true
+        throw new Error('unsigned body must not be accessed')
+      },
+    } as unknown as Request
+
+    const response = await POST(unsigned)
+
+    expect(response.status).toBe(401)
+    expect(bodyAccessed).toBe(false)
+    expect(mocks.verify).not.toHaveBeenCalled()
+  })
+
+  it('rejects an oversized declared body before signature verification', async () => {
+    const response = await POST(signedRequest('{}', { 'content-length': String(256 * 1024 + 1) }))
+
+    expect(response.status).toBe(413)
+    expect(mocks.verify).not.toHaveBeenCalled()
+    expect(mocks.handleClerkEvent).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed declared length before signature verification', async () => {
+    const response = await POST(signedRequest('{}', { 'content-length': '12x' }))
+
+    expect(response.status).toBe(400)
+    expect(mocks.verify).not.toHaveBeenCalled()
+  })
+
+  it('cancels a streamed body as soon as it exceeds the pre-auth byte ceiling', async () => {
+    let cancelled = false
+    let emitted = 0
+    const body = new ReadableStream({
+      pull(controller) {
+        emitted += 1
+        controller.enqueue(new Uint8Array(128 * 1024))
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+
+    const response = await POST(signedRequest(body))
+
+    expect(response.status).toBe(413)
+    expect(cancelled).toBe(true)
+    expect(emitted).toBeLessThan(6)
+    expect(mocks.verify).not.toHaveBeenCalled()
+    expect(mocks.handleClerkEvent).not.toHaveBeenCalled()
+  })
+
+  it('cancels an aborted body read before signature verification', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    const stalled = {
+      headers: new Headers({
+        'svix-id': 'msg_test',
+        'svix-timestamp': '1234567890',
+        'svix-signature': 'v1,test',
+      }),
+      signal: controller.signal,
+      body: {
+        getReader: () => ({
+          read: () => new Promise(() => undefined),
+          cancel,
+        }),
+      },
+    } as unknown as Request
+
+    const response = await POST(stalled)
+
+    expect(response.status).toBe(408)
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(mocks.verify).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid UTF-8 before signature verification', async () => {
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array([0xff]))
+        controller.close()
+      },
+    })
+
+    const response = await POST(signedRequest(body))
+
+    expect(response.status).toBe(400)
+    expect(mocks.verify).not.toHaveBeenCalled()
+  })
+
+  it('preserves the exact raw body at the byte ceiling for signature verification', async () => {
+    const body = 'x'.repeat(256 * 1024)
+    mocks.verify.mockReturnValue(membershipEvent())
+
+    const response = await POST(signedRequest(body))
+
+    expect(response.status).toBe(200)
+    expect(mocks.verify).toHaveBeenCalledWith(body, {
+      'svix-id': 'msg_test',
+      'svix-timestamp': '1234567890',
+      'svix-signature': 'v1,test',
+    })
   })
 })

@@ -10,11 +10,87 @@ import { enqueueWelcomeEmail } from '@pathfinder/jobs'
 
 import type { ClerkWebhookEvent } from '@pathfinder/db'
 
-export async function POST(req: Request): Promise<Response> {
-  // 1. Read raw body as text — Svix needs the raw bytes for signature verification
-  const body = await req.text()
+const MAX_WEBHOOK_BODY_BYTES = 256 * 1024
+const MAX_WEBHOOK_BODY_READ_MS = 5_000
 
-  // 2. Extract Svix headers
+class WebhookBodyError extends Error {
+  constructor(readonly status: 400 | 408 | 413) {
+    super(
+      status === 413 ? 'payload-too-large' : status === 408 ? 'body-read-timeout' : 'invalid-body',
+    )
+    this.name = 'WebhookBodyError'
+  }
+}
+
+async function readBoundedWebhookBody(req: Request): Promise<string> {
+  const declaredLength = req.headers.get('content-length')
+  if (declaredLength !== null) {
+    if (!/^\d+$/u.test(declaredLength)) throw new WebhookBodyError(400)
+    if (Number(declaredLength) > MAX_WEBHOOK_BODY_BYTES) throw new WebhookBodyError(413)
+  }
+
+  const reader = req.body?.getReader()
+  if (!reader) return ''
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  const deadline = AbortSignal.timeout(MAX_WEBHOOK_BODY_READ_MS)
+  const signals = [req.signal, deadline]
+  let onAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new WebhookBodyError(408))
+    for (const signal of signals) {
+      if (signal.aborted) {
+        onAbort()
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+  })
+  try {
+    let reading = true
+    while (reading) {
+      const { done, value } = await Promise.race([reader.read(), aborted])
+      if (done) {
+        reading = false
+        continue
+      }
+      totalBytes += value.byteLength
+      if (totalBytes > MAX_WEBHOOK_BODY_BYTES) {
+        void reader.cancel().catch(() => undefined)
+        throw new WebhookBodyError(413)
+      }
+      chunks.push(value)
+    }
+  } catch (error) {
+    if (error instanceof WebhookBodyError && error.status === 408) {
+      void reader.cancel().catch(() => undefined)
+    }
+    if (error instanceof WebhookBodyError) throw error
+    throw new WebhookBodyError(400)
+  } finally {
+    if (onAbort) {
+      for (const signal of signals) signal.removeEventListener('abort', onAbort)
+    }
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new WebhookBodyError(400)
+  }
+}
+
+export async function POST(req: Request): Promise<Response> {
+  // Reject unsigned requests before reading their body. A caller that cannot
+  // present the provider's signature headers gets no pre-auth body budget.
   const svixId = req.headers.get('svix-id')
   const svixTimestamp = req.headers.get('svix-timestamp')
   const svixSignature = req.headers.get('svix-signature')
@@ -23,7 +99,6 @@ export async function POST(req: Request): Promise<Response> {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  // 3. Verify signature
   const secret = env.CLERK_WEBHOOK_SECRET
   if (!secret) {
     logger.error({
@@ -32,6 +107,19 @@ export async function POST(req: Request): Promise<Response> {
       error: 'CLERK_WEBHOOK_SECRET is not configured',
     })
     return new Response('Internal Server Error', { status: 500 })
+  }
+
+  // Svix needs the exact raw UTF-8 body. Bound both declared and streamed bytes
+  // before signature verification so untrusted ingress cannot force an
+  // unbounded allocation.
+  let body: string
+  try {
+    body = await readBoundedWebhookBody(req)
+  } catch (error) {
+    const status = error instanceof WebhookBodyError ? error.status : 400
+    const message =
+      status === 413 ? 'Payload Too Large' : status === 408 ? 'Request Timeout' : 'Bad Request'
+    return new Response(message, { status })
   }
 
   const wh = new Webhook(secret)
@@ -47,7 +135,7 @@ export async function POST(req: Request): Promise<Response> {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  // 4. Process verified events. Dependency failures return 503 so Clerk can redeliver.
+  // Process verified events. Dependency failures return 503 so Clerk can redeliver.
   try {
     const processing = await handleClerkEvent(event, {
       providerEventId: svixId,
