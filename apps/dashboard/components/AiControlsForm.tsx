@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Bot, Sparkles } from 'lucide-react'
 
 import { useTRPCClient } from '../lib/trpc'
@@ -47,6 +47,10 @@ const TONE_OPTIONS: Array<{
   },
 ]
 
+function isToneValue(value: string | null): value is ToneValue {
+  return TONE_OPTIONS.some((tone) => tone.value === value)
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
     return error.message
@@ -63,15 +67,20 @@ export function AiControlsForm({
   const client = useTRPCClient()
 
   const [aiTone, setAiTone] = useState<ToneValue>(
-    (initialConfig.aiTone as ToneValue | null) ?? 'FRIENDLY',
+    isToneValue(initialConfig.aiTone) ? initialConfig.aiTone : 'FRIENDLY',
   )
   const [aiGuideNotes, setAiGuideNotes] = useState(initialConfig.aiGuideNotes ?? '')
   const [aiGuideName, setAiGuideName] = useState(initialConfig.aiGuideName ?? '')
-  const [aiFeaturedPlaceId, setAiFeaturedPlaceId] = useState(initialConfig.aiFeaturedPlaceId ?? '')
+  const [aiFeaturedPlaceId, setAiFeaturedPlaceId] = useState(
+    initialPlaces.some((place) => place.id === initialConfig.aiFeaturedPlaceId)
+      ? initialConfig.aiFeaturedPlaceId!
+      : '',
+  )
   const [places] = useState<PlaceOption[]>(initialPlaces)
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const mutationInFlight = useRef(false)
 
   useEffect(() => {
     if (!successMessage) {
@@ -87,8 +96,18 @@ export function AiControlsForm({
     }
   }, [successMessage])
 
+  function markDirty() {
+    setFormError(null)
+    setSuccessMessage(null)
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (mutationInFlight.current) return
+
+    const normalizedGuideName = aiGuideName.trim() || null
+    const normalizedGuideNotes = aiGuideNotes.trim() || null
+    mutationInFlight.current = true
     setFormError(null)
     setSuccessMessage(null)
     setIsSaving(true)
@@ -97,15 +116,18 @@ export function AiControlsForm({
       await client.venue.updateAiConfig.mutate({
         venueId: initialVenueId,
         aiTone,
-        aiGuideName: aiGuideName.trim() || null,
-        aiGuideNotes: aiGuideNotes.trim() ? aiGuideNotes.trim() : null,
+        aiGuideName: normalizedGuideName,
+        aiGuideNotes: normalizedGuideNotes,
         aiFeaturedPlaceId: aiFeaturedPlaceId || null,
       })
 
+      setAiGuideName(normalizedGuideName ?? '')
+      setAiGuideNotes(normalizedGuideNotes ?? '')
       setSuccessMessage('AI configuration saved.')
     } catch (error) {
       setFormError(getErrorMessage(error))
     } finally {
+      mutationInFlight.current = false
       setIsSaving(false)
     }
   }
@@ -119,7 +141,10 @@ export function AiControlsForm({
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">Tone</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
+            <h2
+              id="ai-tone-heading"
+              className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep"
+            >
               Response tone
             </h2>
             <p className="mt-2 text-sm leading-6 text-pf-deep/60">
@@ -128,7 +153,11 @@ export function AiControlsForm({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <div
+          role="group"
+          aria-labelledby="ai-tone-heading"
+          className="mt-6 grid gap-4 lg:grid-cols-3"
+        >
           {TONE_OPTIONS.map((tone) => {
             const isSelected = aiTone === tone.value
 
@@ -136,14 +165,17 @@ export function AiControlsForm({
               <button
                 key={tone.value}
                 type="button"
+                aria-pressed={isSelected}
+                disabled={isSaving}
                 onClick={() => {
+                  markDirty()
                   setAiTone(tone.value)
                 }}
                 className={`rounded-[1.5rem] border p-5 text-left transition ${
                   isSelected
                     ? 'border-pf-accent bg-pf-accent/5'
                     : 'border-pf-light bg-pf-surface hover:border-pf-accent/40 hover:bg-pf-white'
-                }`}
+                } disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 <p className="text-lg font-semibold text-pf-deep">{tone.label}</p>
                 <p className="mt-2 text-sm leading-6 text-pf-deep/60">{tone.description}</p>
@@ -177,8 +209,9 @@ export function AiControlsForm({
         <select
           id="featured-place"
           value={aiFeaturedPlaceId}
-          disabled={places.length === 0}
+          disabled={isSaving || places.length === 0}
           onChange={(event) => {
+            markDirty()
             setAiFeaturedPlaceId(event.target.value)
           }}
           className="mt-3 min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
@@ -225,17 +258,23 @@ export function AiControlsForm({
             value={aiGuideName}
             disabled={isSaving}
             onChange={(event) => {
+              markDirty()
               setAiGuideName(event.target.value)
             }}
             className="mt-3 w-full rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
           />
         </div>
 
+        <label className="sr-only" htmlFor="ai-guide-notes">
+          Guide notes
+        </label>
         <textarea
+          id="ai-guide-notes"
           value={aiGuideNotes}
           maxLength={2000}
           disabled={isSaving}
           onChange={(event) => {
+            markDirty()
             setAiGuideNotes(event.target.value)
           }}
           placeholder="e.g. The new butterfly exhibit opens this weekend. Always mention it when guests ask about new things to see. The food court closes at 4pm on weekdays."
@@ -251,19 +290,26 @@ export function AiControlsForm({
       </section>
 
       {formError ? (
-        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <p
+          role="alert"
+          className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+        >
           {formError}
         </p>
       ) : null}
 
       {successMessage ? (
-        <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <p
+          role="status"
+          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+        >
           {successMessage}
         </p>
       ) : null}
 
       <button
         type="submit"
+        aria-live="polite"
         disabled={isSaving}
         className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
       >
