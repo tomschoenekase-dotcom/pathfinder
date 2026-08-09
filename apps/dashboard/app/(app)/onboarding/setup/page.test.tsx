@@ -26,7 +26,10 @@ vi.mock('../../../../lib/trpc', () => ({
 
 import OnboardingSetupPage from './page'
 
-function fillVenueBasics(guideMode: 'location_aware' | 'non_location') {
+type GuideMode = 'location_aware' | 'non_location'
+type ContentKind = 'place' | 'knowledge'
+
+function fillVenueBasics(guideMode: GuideMode) {
   fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Harbor Museum' } })
   fireEvent.change(screen.getByLabelText('Slug'), { target: { value: 'harbor-museum' } })
   fireEvent.change(screen.getByLabelText('Venue category (optional)'), {
@@ -40,7 +43,33 @@ function fillVenueBasics(guideMode: 'location_aware' | 'non_location') {
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
-function fillFirstItem(name: string, description: string) {
+function fillLocation() {
+  fireEvent.change(screen.getByLabelText('Center latitude'), { target: { value: '40.7' } })
+  fireEvent.change(screen.getByLabelText('Center longitude'), { target: { value: '-74' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+}
+
+async function advanceToContentChoice(guideMode: GuideMode) {
+  fillVenueBasics(guideMode)
+  if (guideMode === 'location_aware') {
+    expect(await screen.findByRole('heading', { name: 'Set your location' })).toBeTruthy()
+    fillLocation()
+  }
+  expect(
+    await screen.findByRole('group', { name: 'Choose your first public content' }),
+  ).toBeTruthy()
+}
+
+function chooseContent(kind: ContentKind) {
+  fireEvent.click(
+    screen.getByRole('radio', {
+      name: kind === 'place' ? /Place or guide item/ : /Venue knowledge/,
+    }),
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+}
+
+function fillPlace(name = 'Main entrance', description = 'The central visitor entrance.') {
   fireEvent.change(screen.getByLabelText('Guide item name'), { target: { value: name } })
   fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'OTHER' } })
   fireEvent.change(screen.getByLabelText('Brief description'), {
@@ -48,7 +77,17 @@ function fillFirstItem(name: string, description: string) {
   })
 }
 
-describe('mode-aware onboarding setup', () => {
+function fillKnowledge(
+  title = 'Visitor policy',
+  category = 'POLICY',
+  content = 'Bags are checked at the entrance.',
+) {
+  fireEvent.change(screen.getByLabelText('Knowledge title'), { target: { value: title } })
+  fireEvent.change(screen.getByLabelText('Knowledge category'), { target: { value: category } })
+  fireEvent.change(screen.getByLabelText('Knowledge content'), { target: { value: content } })
+}
+
+describe('mode- and content-aware onboarding setup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.createVenue.mockResolvedValue({ id: 'venue-created' })
@@ -56,15 +95,55 @@ describe('mode-aware onboarding setup', () => {
 
   afterEach(cleanup)
 
-  it('skips location and atomically submits one no-location venue mutation', async () => {
+  it('requires an explicit content choice and makes no write when it is omitted', async () => {
     render(<OnboardingSetupPage />)
+    await advanceToContentChoice('non_location')
 
-    fillVenueBasics('non_location')
-    expect(await screen.findByText('Add your first guide item')).toBeTruthy()
-    expect(screen.queryByText('Set your location')).toBeNull()
-    expect(screen.getByText(/Step 2 of 3/)).toBeTruthy()
+    expect(
+      screen.getByText(/Audience-restricted or employee-only content is not supported/),
+    ).toBeTruthy()
+    expect(
+      (screen.getByRole('radio', { name: /Place or guide item/ }) as HTMLInputElement).checked,
+    ).toBe(false)
+    expect(
+      (screen.getByRole('radio', { name: /Venue knowledge/ }) as HTMLInputElement).checked,
+    ).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    fillFirstItem('Visitor policy', 'General visitor information.')
+    const alert = await screen.findByRole('alert')
+    const group = screen.getByRole('group', { name: 'Choose your first public content' })
+    expect(alert.textContent).toBe('Choose a content type to continue.')
+    expect(group.getAttribute('aria-invalid')).toBe('true')
+    expect(group.getAttribute('aria-required')).toBe('true')
+    expect(group.getAttribute('aria-describedby')).toBe(alert.id)
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: /Place or guide item/ }))
+    expect(mocks.createVenue).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['non_location', 'place'],
+    ['non_location', 'knowledge'],
+    ['location_aware', 'place'],
+    ['location_aware', 'knowledge'],
+  ] as const)('submits one atomic %s + %s payload', async (guideMode, contentKind) => {
+    render(<OnboardingSetupPage />)
+    await advanceToContentChoice(guideMode)
+    chooseContent(contentKind)
+
+    if (contentKind === 'place') {
+      expect(
+        await screen.findByRole('heading', {
+          name: /Add your (first place|central starting point)/,
+        }),
+      ).toBeTruthy()
+      expect(screen.queryByLabelText('Knowledge content')).toBeNull()
+      fillPlace()
+    } else {
+      expect(await screen.findByRole('heading', { name: 'Add venue knowledge' })).toBeTruthy()
+      expect(screen.queryByLabelText('Guide item name')).toBeNull()
+      fillKnowledge()
+    }
+
     fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
 
     await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledOnce())
@@ -72,116 +151,163 @@ describe('mode-aware onboarding setup', () => {
       name: 'Harbor Museum',
       slug: 'harbor-museum',
       category: 'museum',
-      guideMode: 'non_location',
-      initialGuideItem: {
-        name: 'Visitor policy',
-        type: 'OTHER',
-        shortDescription: 'General visitor information.',
-        tags: [],
-        importanceScore: 0,
-      },
+      guideMode,
+      ...(guideMode === 'location_aware' ? { defaultCenterLat: 40.7, defaultCenterLng: -74 } : {}),
+      initialContent:
+        contentKind === 'place'
+          ? {
+              kind: 'place',
+              value: {
+                name: 'Main entrance',
+                type: 'OTHER',
+                shortDescription: 'The central visitor entrance.',
+                tags: [],
+                importanceScore: 0,
+              },
+            }
+          : {
+              kind: 'knowledge',
+              value: {
+                title: 'Visitor policy',
+                category: 'POLICY',
+                content: 'Bags are checked at the entrance.',
+              },
+            },
     })
     expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
-    expect(
-      screen.getByText(
-        'Review the guide content and availability settings before sharing it with guests.',
-      ),
-    ).toBeTruthy()
     expect(screen.queryByText(/Your venue is live/i)).toBeNull()
   })
 
-  it('requires deliberate coordinates for an on-site guide and submits them once', async () => {
+  it('keeps independent drafts while switching content kind', async () => {
     render(<OnboardingSetupPage />)
+    await advanceToContentChoice('non_location')
 
-    fillVenueBasics('location_aware')
-    expect(await screen.findByText('Set your location')).toBeTruthy()
-    expect((screen.getByLabelText('Center latitude') as HTMLInputElement).value).toBe('')
-    expect((screen.getByLabelText('Center longitude') as HTMLInputElement).value).toBe('')
+    chooseContent('place')
+    fillPlace('Lobby desk', 'Ask here for accessibility support.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
 
+    chooseContent('knowledge')
+    fillKnowledge('Hours policy', 'HOURS', 'The final entry is one hour before closing.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    chooseContent('place')
+    expect((screen.getByLabelText('Guide item name') as HTMLInputElement).value).toBe('Lobby desk')
+    expect((screen.getByLabelText('Brief description') as HTMLTextAreaElement).value).toBe(
+      'Ask here for accessibility support.',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    chooseContent('knowledge')
+    expect((screen.getByLabelText('Knowledge title') as HTMLInputElement).value).toBe(
+      'Hours policy',
+    )
+    expect((screen.getByLabelText('Knowledge category') as HTMLInputElement).value).toBe('HOURS')
+    expect((screen.getByLabelText('Knowledge content') as HTMLTextAreaElement).value).toBe(
+      'The final entry is one hour before closing.',
+    )
+  })
+
+  it('clears the Place draft but preserves Knowledge when guide mode changes', async () => {
+    render(<OnboardingSetupPage />)
+    await advanceToContentChoice('non_location')
+
+    chooseContent('place')
+    fillPlace('Lobby desk', 'Ask here for accessibility support.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    chooseContent('knowledge')
+    fillKnowledge('Hours policy', 'HOURS', 'The final entry is one hour before closing.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    fireEvent.click(await screen.findByRole('radio', { name: /On-site guide/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(await screen.findAllByText(/Required|expected number/i)).toHaveLength(2)
-    expect(mocks.createVenue).not.toHaveBeenCalled()
+    await screen.findByRole('heading', { name: 'Set your location' })
+    fillLocation()
+    await screen.findByRole('group', { name: 'Choose your first public content' })
 
-    fireEvent.change(screen.getByLabelText('Center latitude'), { target: { value: '40.7' } })
-    fireEvent.change(screen.getByLabelText('Center longitude'), { target: { value: '-74' } })
+    expect(
+      (screen.getByRole('radio', { name: /Venue knowledge/ }) as HTMLInputElement).checked,
+    ).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(await screen.findByText('Add your central starting point')).toBeTruthy()
+    expect((screen.getByLabelText('Knowledge title') as HTMLInputElement).value).toBe(
+      'Hours policy',
+    )
+    expect((screen.getByLabelText('Knowledge content') as HTMLTextAreaElement).value).toBe(
+      'The final entry is one hour before closing.',
+    )
 
-    fillFirstItem('Main entrance', 'The central visitor entrance.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    chooseContent('place')
+    expect((screen.getByLabelText('Guide item name') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe('ENTRANCE')
+    expect((screen.getByLabelText('Brief description') as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('clears the center and resets Place defaults when switching to no-location mode', async () => {
+    render(<OnboardingSetupPage />)
+    await advanceToContentChoice('location_aware')
+    chooseContent('place')
+    fillPlace('Main entrance', 'The central visitor entrance.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    fireEvent.click(await screen.findByRole('radio', { name: /Guide without visitor location/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('group', { name: 'Choose your first public content' })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect((screen.getByLabelText('Guide item name') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe('OTHER')
+    fillPlace('Visitor desk', 'Ask here for visitor assistance.')
     fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
 
     await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledOnce())
-    expect(mocks.createVenue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        guideMode: 'location_aware',
-        defaultCenterLat: 40.7,
-        defaultCenterLng: -74,
-        initialGuideItem: expect.objectContaining({ name: 'Main entrance' }),
-      }),
-    )
+    const payload = mocks.createVenue.mock.calls[0]?.[0]
+    expect(payload).not.toHaveProperty('defaultCenterLat')
+    expect(payload).not.toHaveProperty('defaultCenterLng')
   })
 
-  it('preserves unsaved navigation state and resets the item when location mode changes', async () => {
-    const view = render(<OnboardingSetupPage />)
-
-    fillVenueBasics('non_location')
-    expect(await screen.findByText('Add your first guide item')).toBeTruthy()
-    fillFirstItem('Visitor policy', 'General visitor information.')
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(
-      (
-        (await screen.findByRole('radio', {
-          name: /Guide without visitor location/,
-        })) as HTMLInputElement
-      ).checked,
-    ).toBe(true)
-    expect((screen.getByLabelText('Venue name') as HTMLInputElement).value).toBe('Harbor Museum')
-
-    fireEvent.click(screen.getByRole('radio', { name: /On-site guide/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(await screen.findByText('Set your location')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Center latitude'), { target: { value: '40.7' } })
-    fireEvent.change(screen.getByLabelText('Center longitude'), { target: { value: '-74' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-    expect(((await screen.findByLabelText('Center latitude')) as HTMLInputElement).value).toBe(
-      '40.7',
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(await screen.findByText('Add your central starting point')).toBeTruthy()
-    expect((screen.getByLabelText('Guide item name') as HTMLInputElement).value).toBe('')
-    fillFirstItem('Main entrance', 'The central visitor entrance.')
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(((await screen.findByLabelText('Center latitude')) as HTMLInputElement).value).toBe(
-      '40.7',
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(((await screen.findByLabelText('Guide item name')) as HTMLInputElement).value).toBe(
-      'Main entrance',
-    )
-
-    view.unmount()
-  })
-
-  it('retains the first item and shows the error when the atomic mutation fails', async () => {
+  it('retains the selected knowledge draft and submits the exact same payload on retry', async () => {
     mocks.createVenue.mockRejectedValueOnce(new Error('Setup could not be saved'))
     render(<OnboardingSetupPage />)
+    await advanceToContentChoice('non_location')
+    chooseContent('knowledge')
+    fillKnowledge()
 
-    fillVenueBasics('non_location')
-    await screen.findByText('Add your first guide item')
-    fillFirstItem('Visitor policy', 'General visitor information.')
     fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
 
-    expect(await screen.findByText('Setup could not be saved')).toBeTruthy()
-    expect((screen.getByLabelText('Guide item name') as HTMLInputElement).value).toBe(
+    expect((await screen.findByRole('alert')).textContent).toBe('Setup could not be saved')
+    expect((screen.getByLabelText('Knowledge title') as HTMLInputElement).value).toBe(
       'Visitor policy',
     )
-    expect(screen.queryByText('Your venue setup is ready for review.')).toBeNull()
     expect(mocks.push).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
     await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledTimes(2))
     expect(mocks.createVenue.mock.calls[1]).toEqual(mocks.createVenue.mock.calls[0])
+    expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
+  })
+
+  it('blocks duplicate writes while the first atomic mutation is unresolved', async () => {
+    let resolveCreate: ((value: { id: string }) => void) | undefined
+    mocks.createVenue.mockImplementationOnce(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve
+        }),
+    )
+    render(<OnboardingSetupPage />)
+    await advanceToContentChoice('non_location')
+    chooseContent('place')
+    fillPlace()
+
+    const createButton = screen.getByRole('button', { name: 'Create venue' })
+    fireEvent.click(createButton)
+    fireEvent.click(createButton)
+
+    await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledOnce())
+    resolveCreate?.({ id: 'venue-created' })
     expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
   })
 })

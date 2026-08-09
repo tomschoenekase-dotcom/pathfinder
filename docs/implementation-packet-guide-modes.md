@@ -1123,3 +1123,15 @@ The current implementation treats guide-item cards as a content capability, not 
 Visitor location remains a separate capability boundary. Without a usable live visitor position, cards omit coordinates, distance, directions, and venue-configured external images. With a usable live position, only valid paired coordinates and a nonnegative finite distance may be returned; image URLs must use HTTPS. Standalone, embed, and native web-view presentations share this behavior through `VenueChatExperience` and `ChatWindow`.
 
 Cards are associated with the live assistant response in memory. Restored chat history currently persists message text but not card associations, so cards do not reappear after a reload. This is a known limitation, not evidence that card persistence or a durable card-message schema exists.
+
+---
+
+## Current initial-content onboarding behavior (2026-08-09)
+
+Initial onboarding now asks the operator to choose one first public content type explicitly: a Place/guide item or a venue Knowledge entry. That content choice is independent of the venue's location profile. All four combinations of `location_aware` or `non_location` with Place or Knowledge are supported; location-aware venues still collect a venue center, while Knowledge itself never receives coordinates.
+
+Venue creation and the selected first content record use one atomic database operation. The canonical request uses the strict discriminated `initialContent` field. The legacy `initialGuideItem` Place field remains accepted for compatibility, but requests containing both representations are rejected. Exact retries compare the requested content kind, value, and stored relation cardinality; changed, cross-kind, or extra stored content conflicts instead of being silently replayed. The kind-specific embedding job is dispatched only after commit, is not repeated on replay, and remains best-effort if the queue is unavailable.
+
+The setup UI preserves separate Place and Knowledge drafts when the operator switches content type. Changing the location profile clears location-dependent Place draft state and venue-center state as appropriate while retaining the Knowledge draft. Duplicate pending submissions are blocked, failed submissions retain the chosen draft for an exact retry, and completion copy requires review before sharing.
+
+All content created through this flow is public under the current product model. Audience-restricted and employee-only content is explicitly unsupported here. This implementation does not create or approve audience, archetype, assistant-experience, or general capability schemas; those remain decision-gated future architecture.

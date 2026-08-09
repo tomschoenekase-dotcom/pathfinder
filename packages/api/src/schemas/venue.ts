@@ -1,10 +1,29 @@
 import { z } from 'zod'
 
-import { PlaceInput } from '@pathfinder/contracts'
+import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts'
 
 const InitialGuideItemInput = PlaceInput.omit({ itemType: true, lat: true, lng: true }).extend({
   shortDescription: z.string().min(1).max(500),
 })
+
+const InitialKnowledgeEntryInput = KnowledgeEntryInput.omit({ isEnabled: true })
+
+export const InitialVenueContentInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('place'), value: InitialGuideItemInput }).strict(),
+  z.object({ kind: z.literal('knowledge'), value: InitialKnowledgeEntryInput }).strict(),
+])
+
+export type InitialVenueContent = z.infer<typeof InitialVenueContentInput>
+
+export function normalizeInitialVenueContent(value: {
+  initialContent?: InitialVenueContent | undefined
+  initialGuideItem?: z.infer<typeof InitialGuideItemInput> | undefined
+}): InitialVenueContent | undefined {
+  return (
+    value.initialContent ??
+    (value.initialGuideItem ? { kind: 'place', value: value.initialGuideItem } : undefined)
+  )
+}
 
 const venueLocationShape = {
   guideMode: z.enum(['location_aware', 'non_location']).optional(),
@@ -18,11 +37,24 @@ function validateVenueLocation(
     defaultCenterLat?: number | undefined
     defaultCenterLng?: number | undefined
     initialGuideItem?: unknown
+    initialContent?: InitialVenueContent | undefined
   },
   ctx: z.RefinementCtx,
 ): void {
   const hasLat = value.defaultCenterLat !== undefined
   const hasLng = value.defaultCenterLng !== undefined
+
+  if (value.initialContent !== undefined && value.initialGuideItem !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide only one initial content representation.',
+      path: ['initialContent'],
+    })
+  }
+
+  const initialContent = normalizeInitialVenueContent(
+    value as Parameters<typeof normalizeInitialVenueContent>[0],
+  )
 
   if (hasLat !== hasLng) {
     ctx.addIssue({
@@ -40,7 +72,7 @@ function validateVenueLocation(
     })
   }
 
-  if (value.initialGuideItem !== undefined && value.guideMode !== 'non_location' && !hasLat) {
+  if (initialContent?.kind === 'place' && value.guideMode !== 'non_location' && !hasLat) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'A location-aware initial guide item requires a venue center.',
@@ -57,6 +89,7 @@ export const CreateVenueInput = z
     guideNotes: z.string().max(2000).optional(),
     category: z.string().max(100).optional(),
     initialGuideItem: InitialGuideItemInput.optional(),
+    initialContent: InitialVenueContentInput.optional(),
     ...venueLocationShape,
   })
   .strict()

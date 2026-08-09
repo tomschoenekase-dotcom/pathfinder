@@ -21,9 +21,12 @@ vi.mock('@pathfinder/analytics', () => ({
   emitEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@pathfinder/jobs', () => ({
+  enqueueEmbedKnowledgeEntry: vi.fn().mockResolvedValue(undefined),
+  enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined),
+}))
 
-import { enqueueEmbedPlace } from '@pathfinder/jobs'
+import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from '@pathfinder/jobs'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -117,6 +120,7 @@ function staffCtx(): TRPCContext {
 }
 
 const testRouter = router({ venue: venueRouter })
+const enqueueEmbedKnowledgeEntryMock = vi.mocked(enqueueEmbedKnowledgeEntry)
 const enqueueEmbedPlaceMock = vi.mocked(enqueueEmbedPlace)
 const IMPORT_KEY = '11111111-1111-4111-8111-111111111111'
 
@@ -434,7 +438,7 @@ describe('venue router', () => {
     )
   })
 
-  it('venue.create atomically nests a location-aware initial guide item at the center', async () => {
+  it('venue.create atomically nests a discriminated location-aware Place at the center', async () => {
     let transactionCommitted = false
     dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) => {
       const result = await callback(mockDb)
@@ -456,10 +460,13 @@ describe('venue router', () => {
       guideMode: 'location_aware',
       defaultCenterLat: 40.7,
       defaultCenterLng: -74,
-      initialGuideItem: {
-        name: 'Main entrance',
-        type: 'ENTRANCE',
-        shortDescription: 'The central visitor entrance.',
+      initialContent: {
+        kind: 'place',
+        value: {
+          name: 'Main entrance',
+          type: 'ENTRANCE',
+          shortDescription: 'The central visitor entrance.',
+        },
       },
     })
 
@@ -520,15 +527,248 @@ describe('venue router', () => {
     expect(createData.places.create).not.toHaveProperty('lng')
   })
 
-  it('venue.create rejects a location-aware initial item without a center before venue writes', async () => {
+  it.each([
+    {
+      guideMode: 'location_aware' as const,
+      center: {},
+    },
+    { guideMode: 'non_location' as const, center: {} },
+  ])('venue.create atomically nests $guideMode initial knowledge after commit', async (input) => {
+    let transactionCommitted = false
+    dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) => {
+      const result = await callback(mockDb)
+      transactionCommitted = true
+      return result
+    })
+    enqueueEmbedKnowledgeEntryMock.mockImplementationOnce(async () => {
+      expect(transactionCommitted).toBe(true)
+    })
+    const entryUpdatedAt = new Date('2026-08-09T19:00:00.123Z')
+    venueFindFirst.mockResolvedValueOnce(null)
+    venueCreate.mockResolvedValueOnce({
+      ...venueRow,
+      places: [],
+      knowledgeEntries: [{ id: 'entry_1', tenantId: 'tenant_1', updatedAt: entryUpdatedAt }],
+    })
+
+    const result = await testRouter.createCaller(ownerCtx()).venue.create({
+      name: 'City Zoo',
+      guideMode: input.guideMode,
+      ...input.center,
+      initialContent: {
+        kind: 'knowledge',
+        value: {
+          title: 'Visitor policy',
+          category: 'POLICY',
+          content: 'Bags are checked at the entrance.',
+        },
+      },
+    })
+
+    expect(venueCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          knowledgeEntries: {
+            create: {
+              tenantId: 'tenant_1',
+              title: 'Visitor policy',
+              category: 'POLICY',
+              content: 'Bags are checked at the entrance.',
+              isEnabled: true,
+            },
+          },
+        }),
+      }),
+    )
+    expect(venueCreate.mock.calls[0]?.[0]?.data).not.toHaveProperty('places')
+    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      entryId: 'entry_1',
+      contentUpdatedAt: entryUpdatedAt.toISOString(),
+    })
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+    expect(result).not.toHaveProperty('places')
+    expect(result).not.toHaveProperty('knowledgeEntries')
+  })
+
+  it('venue.create rejects ambiguous legacy and discriminated initial content before writes', async () => {
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        guideMode: 'non_location',
+        initialGuideItem: {
+          name: 'Visitor policy',
+          type: 'OTHER',
+          shortDescription: 'General visitor information.',
+        },
+        initialContent: {
+          kind: 'knowledge',
+          value: {
+            title: 'Visitor policy',
+            category: 'POLICY',
+            content: 'General visitor information.',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    expect(dbTransaction).not.toHaveBeenCalled()
+    expect(venueCreate).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create replays exact initial knowledge without writes or enqueue', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      description: null,
+      guideNotes: null,
+      category: null,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      places: [],
+      knowledgeEntries: [
+        {
+          id: 'entry_1',
+          tenantId: 'tenant_1',
+          title: 'Visitor policy',
+          category: 'POLICY',
+          content: 'Bags are checked at the entrance.',
+          isEnabled: true,
+          updatedAt: new Date('2026-08-09T19:00:00.123Z'),
+        },
+      ],
+    })
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        slug: 'city-zoo',
+        guideMode: 'non_location',
+        initialContent: {
+          kind: 'knowledge',
+          value: {
+            title: 'Visitor policy',
+            category: 'POLICY',
+            content: 'Bags are checked at the entrance.',
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ id: venueRow.id, slug: 'city-zoo' })
+
+    expect(venueCreate).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create rejects replay when otherwise matching knowledge has extra content', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      description: null,
+      guideNotes: null,
+      category: null,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      places: [],
+      knowledgeEntries: [
+        {
+          title: 'Visitor policy',
+          category: 'POLICY',
+          content: 'Bags are checked at the entrance.',
+          isEnabled: true,
+        },
+        {
+          title: 'Hours',
+          category: 'HOURS',
+          content: 'Open daily.',
+          isEnabled: true,
+        },
+      ],
+    })
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        slug: 'city-zoo',
+        guideMode: 'non_location',
+        initialContent: {
+          kind: 'knowledge',
+          value: {
+            title: 'Visitor policy',
+            category: 'POLICY',
+            content: 'Bags are checked at the entrance.',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(venueCreate).not.toHaveBeenCalled()
+    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create rejects a cross-kind replay for an existing slug', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      description: null,
+      guideNotes: null,
+      category: null,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      places: [
+        {
+          name: 'Visitor policy',
+          type: 'OTHER',
+          itemType: null,
+          shortDescription: 'General visitor information.',
+          longDescription: null,
+          lat: null,
+          lng: null,
+          tags: [],
+          importanceScore: 0,
+          areaName: null,
+          hours: null,
+          photoUrl: null,
+        },
+      ],
+      knowledgeEntries: [],
+    })
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        slug: 'city-zoo',
+        guideMode: 'non_location',
+        initialContent: {
+          kind: 'knowledge',
+          value: {
+            title: 'Visitor policy',
+            category: 'POLICY',
+            content: 'General visitor information.',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+    expect(venueCreate).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create rejects a discriminated location-aware Place without a center before writes', async () => {
     await expect(
       testRouter.createCaller(ownerCtx()).venue.create({
         name: 'City Zoo',
         guideMode: 'location_aware',
-        initialGuideItem: {
-          name: 'Main entrance',
-          type: 'ENTRANCE',
-          shortDescription: 'The central visitor entrance.',
+        initialContent: {
+          kind: 'place',
+          value: {
+            name: 'Main entrance',
+            type: 'ENTRANCE',
+            shortDescription: 'The central visitor entrance.',
+          },
         },
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
@@ -559,6 +799,34 @@ describe('venue router', () => {
     expect(replayed).not.toHaveProperty('places')
 
     expect(enqueueEmbedPlaceMock).toHaveBeenCalledOnce()
+  })
+
+  it('venue.create keeps a committed venue when the knowledge embedding enqueue fails', async () => {
+    const entryUpdatedAt = new Date('2026-08-09T19:00:00.123Z')
+    venueCreate.mockResolvedValueOnce({
+      ...venueRow,
+      places: [],
+      knowledgeEntries: [{ id: 'entry_1', tenantId: 'tenant_1', updatedAt: entryUpdatedAt }],
+    })
+    enqueueEmbedKnowledgeEntryMock.mockRejectedValueOnce(new Error('redis unavailable'))
+
+    const created = await testRouter.createCaller(ownerCtx()).venue.create({
+      name: 'City Zoo',
+      slug: 'city-zoo',
+      guideMode: 'non_location',
+      initialContent: {
+        kind: 'knowledge',
+        value: {
+          title: 'Visitor policy',
+          category: 'POLICY',
+          content: 'Bags are checked at the entrance.',
+        },
+      },
+    })
+
+    expect(created).toMatchObject({ id: venueRow.id, slug: 'city-zoo' })
+    expect(created).not.toHaveProperty('knowledgeEntries')
+    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledOnce()
   })
 
   it('venue.create replays an exact caller-supplied slug without writes or enqueue', async () => {
@@ -596,10 +864,13 @@ describe('venue router', () => {
         name: 'City Zoo',
         slug: 'city-zoo',
         guideMode: 'non_location',
-        initialGuideItem: {
-          name: 'Visitor policy',
-          type: 'OTHER',
-          shortDescription: 'General visitor information.',
+        initialContent: {
+          kind: 'place',
+          value: {
+            name: 'Visitor policy',
+            type: 'OTHER',
+            shortDescription: 'General visitor information.',
+          },
         },
       }),
     ).resolves.toMatchObject({ id: venueRow.id, slug: 'city-zoo' })
@@ -608,6 +879,54 @@ describe('venue router', () => {
     expect(JSON.stringify(dbExecuteRaw.mock.calls)).toContain(
       'pathfinder:venue-create:tenant_1:city-zoo',
     )
+    expect(venueCreate).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+  })
+
+  it('venue.create rejects changed discriminated Place content for an existing slug', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      description: null,
+      guideNotes: null,
+      category: null,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      places: [
+        {
+          name: 'Visitor policy',
+          type: 'OTHER',
+          itemType: null,
+          shortDescription: 'General visitor information.',
+          longDescription: null,
+          lat: null,
+          lng: null,
+          tags: [],
+          importanceScore: 0,
+          areaName: null,
+          hours: null,
+          photoUrl: null,
+        },
+      ],
+      knowledgeEntries: [],
+    })
+
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({
+        name: 'City Zoo',
+        slug: 'city-zoo',
+        guideMode: 'non_location',
+        initialContent: {
+          kind: 'place',
+          value: {
+            name: 'Visitor policy',
+            type: 'OTHER',
+            shortDescription: 'Changed visitor information.',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+
     expect(venueCreate).not.toHaveBeenCalled()
     expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
@@ -644,6 +963,7 @@ describe('venue router', () => {
       testRouter.createCaller(ownerCtx()).venue.create({ name: 'City Zoo' }),
     ).rejects.toThrow('atomic write failed')
     expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
+    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
   })
 
   it('venue.create fails closed if a caller-supplied slug races past the serialized lookup', async () => {

@@ -1,12 +1,12 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, useForm } from 'react-hook-form'
 import { CheckCircle2 } from 'lucide-react'
 
-import { CreateVenueInput, PlaceInput } from '@pathfinder/api/schemas'
+import { CreateVenueInput, KnowledgeEntryInput, PlaceInput } from '@pathfinder/api/schemas'
 
 import { useTRPCClient } from '../../../../lib/trpc'
 
@@ -55,6 +55,12 @@ const FirstPlaceSchema = PlaceInput.omit({
   shortDescription: true,
 })
 
+const FirstKnowledgeSchema = KnowledgeEntryInput.omit({ isEnabled: true }).required({
+  title: true,
+  category: true,
+  content: true,
+})
+
 type VenueBasicsValues = {
   name: string
   slug: string
@@ -73,15 +79,32 @@ type FirstPlaceValues = {
   shortDescription: string
 }
 
+type FirstKnowledgeValues = {
+  title: string
+  category: string
+  content: string
+}
+
+type FirstContentKind = 'place' | 'knowledge'
+
+type InitialContentSubmission =
+  | {
+      kind: 'place'
+      value: FirstPlaceValues & { tags: string[]; importanceScore: number }
+    }
+  | { kind: 'knowledge'; value: FirstKnowledgeValues }
+
 type SetupState = {
   venue: VenueBasicsValues & {
     defaultCenterLat: number | undefined
     defaultCenterLng: number | undefined
   }
+  contentKind: FirstContentKind | null
   place: FirstPlaceValues
+  knowledge: FirstKnowledgeValues
 }
 
-type SetupStep = 'basics' | 'location' | 'place'
+type SetupStep = 'basics' | 'location' | 'content-kind' | 'place' | 'knowledge'
 
 const INITIAL_STATE: SetupState = {
   venue: {
@@ -92,10 +115,16 @@ const INITIAL_STATE: SetupState = {
     defaultCenterLat: undefined,
     defaultCenterLng: undefined,
   },
+  contentKind: null,
   place: {
     name: '',
     type: 'EXHIBIT',
     shortDescription: '',
+  },
+  knowledge: {
+    title: '',
+    category: 'GENERAL',
+    content: '',
   },
 }
 
@@ -127,32 +156,45 @@ function getErrorMessage(error: unknown): string {
   return 'Something went wrong. Please try again.'
 }
 
-function getSetupSteps(guideMode: VenueBasicsValues['guideMode']) {
-  return guideMode === 'location_aware'
-    ? [
-        { id: 'basics', label: 'Venue info', title: 'Tell us about your venue' },
-        { id: 'location', label: 'Location', title: 'Set the venue center' },
-        { id: 'place', label: 'First guide item', title: 'Add a central starting point' },
-        { id: 'done', label: 'Done', title: 'Review your setup' },
-      ]
-    : [
-        { id: 'basics', label: 'Venue info', title: 'Tell us about your venue' },
-        { id: 'place', label: 'First guide item', title: 'Add the first guide item' },
-        { id: 'done', label: 'Done', title: 'Review your setup' },
-      ]
+function getSetupSteps(
+  guideMode: VenueBasicsValues['guideMode'],
+  contentKind: FirstContentKind | null,
+) {
+  return [
+    { id: 'basics', label: 'Venue info', title: 'Tell us about your venue' },
+    ...(guideMode === 'location_aware'
+      ? [{ id: 'location', label: 'Location', title: 'Set the venue center' }]
+      : []),
+    { id: 'content-kind', label: 'Content type', title: 'Choose your first public content' },
+    {
+      id: 'content',
+      label: 'First content',
+      title:
+        contentKind === 'knowledge'
+          ? 'Add venue knowledge'
+          : contentKind === 'place'
+            ? 'Add a place or guide item'
+            : 'Add your first public content',
+    },
+    { id: 'done', label: 'Done', title: 'Review your setup' },
+  ]
 }
 
 function StepIndicator({
   currentStep,
+  contentKind,
   guideMode,
 }: {
   currentStep: SetupStep
+  contentKind: FirstContentKind | null
   guideMode: VenueBasicsValues['guideMode']
 }) {
-  const steps = getSetupSteps(guideMode)
+  const steps = getSetupSteps(guideMode, contentKind)
+  const indicatorStep =
+    currentStep === 'place' || currentStep === 'knowledge' ? 'content' : currentStep
   const currentIndex = Math.max(
     0,
-    steps.findIndex((step) => step.id === currentStep),
+    steps.findIndex((step) => step.id === indicatorStep),
   )
   const currentTitle = steps[currentIndex]?.title ?? steps[0]!.title
 
@@ -465,6 +507,108 @@ function VenueLocationStep({
   )
 }
 
+function ContentKindStep({
+  defaultValue,
+  onBack,
+  onNext,
+}: {
+  defaultValue: FirstContentKind | null
+  onBack: () => void
+  onNext: (value: FirstContentKind) => void
+}) {
+  const [value, setValue] = useState<FirstContentKind | null>(defaultValue)
+  const [showError, setShowError] = useState(false)
+  const firstChoiceRef = useRef<HTMLInputElement>(null)
+
+  return (
+    <form
+      className="space-y-8"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!value) {
+          setShowError(true)
+          firstChoiceRef.current?.focus()
+          return
+        }
+        onNext(value)
+      }}
+    >
+      <fieldset
+        className="space-y-5"
+        aria-describedby={showError ? 'first-content-kind-error' : undefined}
+        aria-invalid={showError}
+        aria-required="true"
+      >
+        <legend className="text-2xl font-semibold tracking-tight text-pf-deep">
+          Choose your first public content
+        </legend>
+        <p className="text-sm leading-6 text-pf-deep/60">
+          This content is available to guests using the public guide. Audience-restricted or
+          employee-only content is not supported by this setup.
+        </p>
+        <label className="flex cursor-pointer gap-4 rounded-2xl border border-pf-light p-4">
+          <input
+            ref={firstChoiceRef}
+            type="radio"
+            name="first-content-kind"
+            value="place"
+            checked={value === 'place'}
+            onChange={() => {
+              setValue('place')
+              setShowError(false)
+            }}
+          />
+          <span>
+            <span className="block font-semibold text-pf-deep">Place or guide item</span>
+            <span className="mt-1 block text-sm text-pf-deep/60">
+              An exhibit, room, landmark, amenity, service point, or other named item.
+            </span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer gap-4 rounded-2xl border border-pf-light p-4">
+          <input
+            type="radio"
+            name="first-content-kind"
+            value="knowledge"
+            checked={value === 'knowledge'}
+            onChange={() => {
+              setValue('knowledge')
+              setShowError(false)
+            }}
+          />
+          <span>
+            <span className="block font-semibold text-pf-deep">Venue knowledge</span>
+            <span className="mt-1 block text-sm text-pf-deep/60">
+              A fact, policy, procedure, frequently asked question, or general answer.
+            </span>
+          </span>
+        </label>
+        {showError ? (
+          <p id="first-content-kind-error" role="alert" className="text-sm text-rose-600">
+            Choose a content type to continue.
+          </p>
+        ) : null}
+      </fieldset>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+        <button
+          className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-deep/70 transition hover:bg-pf-surface"
+          type="button"
+          onClick={onBack}
+        >
+          Back
+        </button>
+        <button
+          className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800"
+          type="submit"
+        >
+          Continue
+        </button>
+      </div>
+    </form>
+  )
+}
+
 function FirstPlaceStep({
   defaultValues,
   guideMode,
@@ -495,12 +639,12 @@ function FirstPlaceStep({
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
             {guideMode === 'location_aware'
               ? 'Add your central starting point'
-              : 'Add your first guide item'}
+              : 'Add your first place or guide item'}
           </h2>
           <p className="mt-2 text-sm leading-6 text-pf-deep/60">
             {guideMode === 'location_aware'
               ? 'Choose the main entrance or a central landmark at the center coordinates you entered.'
-              : 'Add one useful fact, policy, service, or experience so the guide can answer its first question.'}
+              : 'Add one named exhibit, room, service point, experience, or other guide item.'}
           </p>
         </div>
 
@@ -564,7 +708,119 @@ function FirstPlaceStep({
         <p className="rounded-2xl bg-pf-surface px-4 py-3 text-xs leading-5 text-pf-deep/40">
           {guideMode === 'location_aware'
             ? 'The server creates this central item at the validated venue center in the same atomic setup operation.'
-            : 'This setup stores no venue center or item coordinates.'}
+            : 'This public guide item stores no venue center or item coordinates.'}
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+        <button
+          className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-deep/70 transition hover:bg-pf-surface"
+          type="button"
+          onClick={() => onBack(getValues())}
+        >
+          Back
+        </button>
+        <button
+          className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          disabled={isSubmitting}
+          type="submit"
+        >
+          {isSubmitting ? 'Creating venue...' : 'Create venue'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function FirstKnowledgeStep({
+  defaultValues,
+  isSubmitting,
+  onBack,
+  onSubmit,
+}: {
+  defaultValues: FirstKnowledgeValues
+  isSubmitting: boolean
+  onBack: (values: FirstKnowledgeValues) => void
+  onSubmit: (values: FirstKnowledgeValues) => void
+}) {
+  const {
+    formState: { errors },
+    getValues,
+    handleSubmit,
+    register,
+  } = useForm<FirstKnowledgeValues>({
+    resolver: zodResolver(FirstKnowledgeSchema),
+    defaultValues,
+  })
+
+  return (
+    <form className="space-y-8" onSubmit={handleSubmit(onSubmit)}>
+      <div className="space-y-5">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
+            Add venue knowledge
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+            Add one fact, policy, procedure, or answer for the public guest guide. It is independent
+            of visitor location and is not employee-only content.
+          </p>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label
+              className="mb-2 block text-sm font-medium text-pf-deep/70"
+              htmlFor="knowledge-title"
+            >
+              Knowledge title
+            </label>
+            <input
+              id="knowledge-title"
+              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
+              {...register('title')}
+            />
+            {errors.title ? (
+              <p className="mt-2 text-sm text-rose-600">{errors.title.message}</p>
+            ) : null}
+          </div>
+
+          <div>
+            <label
+              className="mb-2 block text-sm font-medium text-pf-deep/70"
+              htmlFor="knowledge-category"
+            >
+              Knowledge category
+            </label>
+            <input
+              id="knowledge-category"
+              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
+              {...register('category')}
+            />
+            {errors.category ? (
+              <p className="mt-2 text-sm text-rose-600">{errors.category.message}</p>
+            ) : null}
+          </div>
+
+          <div className="sm:col-span-2">
+            <label
+              className="mb-2 block text-sm font-medium text-pf-deep/70"
+              htmlFor="knowledge-content"
+            >
+              Knowledge content
+            </label>
+            <textarea
+              id="knowledge-content"
+              className="min-h-32 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
+              {...register('content')}
+            />
+            {errors.content ? (
+              <p className="mt-2 text-sm text-rose-600">{errors.content.message}</p>
+            ) : null}
+          </div>
+        </div>
+        <p className="rounded-2xl bg-pf-surface px-4 py-3 text-xs leading-5 text-pf-deep/40">
+          The server creates this enabled knowledge entry in the same atomic setup operation as the
+          venue. No coordinates are attached to knowledge.
         </p>
       </div>
 
@@ -597,7 +853,8 @@ export default function OnboardingSetupPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
   const [completedVenueId, setCompletedVenueId] = useState<string | null>(null)
-  const totalSteps = getSetupSteps(setupState.venue.guideMode).length
+  const submissionInFlightRef = useRef(false)
+  const totalSteps = getSetupSteps(setupState.venue.guideMode, setupState.contentKind).length
 
   useEffect(() => {
     if (!completedVenueId) {
@@ -614,7 +871,9 @@ export default function OnboardingSetupPage() {
     }
   }, [completedVenueId, router])
 
-  async function handleCreateVenue(placeValues: FirstPlaceValues) {
+  async function handleCreateVenue(initialContent: InitialContentSubmission) {
+    if (submissionInFlightRef.current) return
+    submissionInFlightRef.current = true
     setFormError(null)
     setIsSubmitting(true)
 
@@ -632,18 +891,13 @@ export default function OnboardingSetupPage() {
               defaultCenterLng: setupState.venue.defaultCenterLng!,
             }
           : {}),
-        initialGuideItem: {
-          name: placeValues.name,
-          type: placeValues.type,
-          shortDescription: placeValues.shortDescription,
-          tags: [],
-          importanceScore: 0,
-        },
+        initialContent,
       })
 
       setIsComplete(true)
       setCompletedVenueId(venue.id)
     } catch (error) {
+      submissionInFlightRef.current = false
       setFormError(getErrorMessage(error))
       setIsSubmitting(false)
     }
@@ -684,11 +938,18 @@ export default function OnboardingSetupPage() {
           <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
             Create the basics PathFinder needs to prepare your dashboard and AI guide for review.
           </p>
-          <StepIndicator currentStep={currentStep} guideMode={setupState.venue.guideMode} />
+          <StepIndicator
+            currentStep={currentStep}
+            contentKind={setupState.contentKind}
+            guideMode={setupState.venue.guideMode}
+          />
         </section>
 
         {formError ? (
-          <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <p
+            role="alert"
+            className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          >
             {formError}
           </p>
         ) : null}
@@ -730,7 +991,7 @@ export default function OnboardingSetupPage() {
                                 : 'OTHER',
                         },
                 }))
-                setCurrentStep(values.guideMode === 'location_aware' ? 'location' : 'place')
+                setCurrentStep(values.guideMode === 'location_aware' ? 'location' : 'content-kind')
               }}
             />
           ) : null}
@@ -756,7 +1017,22 @@ export default function OnboardingSetupPage() {
                     ...values,
                   },
                 }))
-                setCurrentStep('place')
+                setCurrentStep('content-kind')
+              }}
+            />
+          ) : null}
+
+          {currentStep === 'content-kind' ? (
+            <ContentKindStep
+              defaultValue={setupState.contentKind}
+              onBack={() => {
+                setCurrentStep(
+                  setupState.venue.guideMode === 'location_aware' ? 'location' : 'basics',
+                )
+              }}
+              onNext={(contentKind) => {
+                setSetupState((current) => ({ ...current, contentKind }))
+                setCurrentStep(contentKind)
               }}
             />
           ) : null}
@@ -768,16 +1044,32 @@ export default function OnboardingSetupPage() {
               isSubmitting={isSubmitting}
               onBack={(values) => {
                 setSetupState((current) => ({ ...current, place: values }))
-                setCurrentStep(
-                  setupState.venue.guideMode === 'location_aware' ? 'location' : 'basics',
-                )
+                setCurrentStep('content-kind')
               }}
               onSubmit={(values) => {
                 setSetupState((current) => ({
                   ...current,
                   place: values,
                 }))
-                void handleCreateVenue(values)
+                void handleCreateVenue({
+                  kind: 'place',
+                  value: { ...values, tags: [], importanceScore: 0 },
+                })
+              }}
+            />
+          ) : null}
+
+          {currentStep === 'knowledge' ? (
+            <FirstKnowledgeStep
+              defaultValues={setupState.knowledge}
+              isSubmitting={isSubmitting}
+              onBack={(values) => {
+                setSetupState((current) => ({ ...current, knowledge: values }))
+                setCurrentStep('content-kind')
+              }}
+              onSubmit={(values) => {
+                setSetupState((current) => ({ ...current, knowledge: values }))
+                void handleCreateVenue({ kind: 'knowledge', value: values })
               }}
             />
           ) : null}

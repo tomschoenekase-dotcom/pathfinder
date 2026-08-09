@@ -4,11 +4,15 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { db, lockVenueContentMutation, setContentVersionContext } from '@pathfinder/db'
-import { enqueueEmbedPlace } from '@pathfinder/jobs'
+import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from '@pathfinder/jobs'
 import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
 
-import { CreateVenueRequestInput, UpdateVenueRequestInput } from '../schemas/venue'
+import {
+  CreateVenueRequestInput,
+  normalizeInitialVenueContent,
+  UpdateVenueRequestInput,
+} from '../schemas/venue'
 import {
   canonicalVenueContentImportPayload,
   ImportVenueContentInput,
@@ -71,6 +75,27 @@ async function embedPlace(place: { id: string; tenantId: string; updatedAt: Date
       action: 'place.embed.enqueue.failed',
       tenantId: place.tenantId,
       placeId: place.id,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+async function embedKnowledgeEntry(entry: {
+  id: string
+  tenantId: string
+  updatedAt: Date
+}): Promise<void> {
+  try {
+    await enqueueEmbedKnowledgeEntry({
+      entryId: entry.id,
+      tenantId: entry.tenantId,
+      contentUpdatedAt: entry.updatedAt.toISOString(),
+    })
+  } catch (err) {
+    logger.warn({
+      action: 'knowledge.embed.enqueue.failed',
+      tenantId: entry.tenantId,
+      entryId: entry.id,
       error: err instanceof Error ? err.message : String(err),
     })
   }
@@ -170,7 +195,20 @@ const venueCreateSelect = {
       updatedAt: true,
     },
     orderBy: { createdAt: 'asc' as const },
-    take: 1,
+    take: 2,
+  },
+  knowledgeEntries: {
+    select: {
+      id: true,
+      tenantId: true,
+      title: true,
+      category: true,
+      content: true,
+      isEnabled: true,
+      updatedAt: true,
+    },
+    orderBy: { createdAt: 'asc' as const },
+    take: 2,
   },
 } as const
 
@@ -199,6 +237,12 @@ function venueCreateMatches(
       hours: string | null
       photoUrl: string | null
     }>
+    knowledgeEntries?: Array<{
+      title: string
+      category: string
+      content: string
+      isEnabled: boolean
+    }>
   },
   input: VenueCreateRequest,
   guideMode: 'location_aware' | 'non_location',
@@ -215,9 +259,26 @@ function venueCreateMatches(
     return false
   }
 
-  const initial = input.initialGuideItem
-  const stored = existing.places[0]
-  if (!initial || !stored) return initial === undefined && stored === undefined
+  const initialContent = normalizeInitialVenueContent(input)
+  const storedPlaces = existing.places
+  const storedKnowledgeEntries = existing.knowledgeEntries ?? []
+  const stored = storedPlaces[0]
+  const storedKnowledge = storedKnowledgeEntries[0]
+  if (!initialContent) return storedPlaces.length === 0 && storedKnowledgeEntries.length === 0
+
+  if (initialContent.kind === 'knowledge') {
+    return (
+      storedPlaces.length === 0 &&
+      storedKnowledgeEntries.length === 1 &&
+      storedKnowledge?.title === initialContent.value.title &&
+      storedKnowledge.category === initialContent.value.category &&
+      storedKnowledge.content === initialContent.value.content &&
+      storedKnowledge.isEnabled === true
+    )
+  }
+
+  const initial = initialContent.value
+  if (storedPlaces.length !== 1 || storedKnowledgeEntries.length !== 0 || !stored) return false
 
   return (
     stored.name === initial.name &&
@@ -361,7 +422,7 @@ export const venueRouter = router({
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
       const baseSlug = input.slug ? slugify(input.slug) : slugify(input.name)
-      const initialGuideItem = input.initialGuideItem
+      const initialContent = normalizeInitialVenueContent(input)
       const guideMode = input.guideMode ?? 'location_aware'
 
       try {
@@ -403,28 +464,28 @@ export const venueRouter = router({
               ...(input.defaultCenterLng !== undefined
                 ? { defaultCenterLng: input.defaultCenterLng }
                 : {}),
-              ...(initialGuideItem
+              ...(initialContent?.kind === 'place'
                 ? {
                     places: {
                       create: {
                         tenantId,
-                        name: initialGuideItem.name,
-                        type: initialGuideItem.type,
-                        shortDescription: initialGuideItem.shortDescription,
-                        ...(initialGuideItem.longDescription !== undefined
-                          ? { longDescription: initialGuideItem.longDescription }
+                        name: initialContent.value.name,
+                        type: initialContent.value.type,
+                        shortDescription: initialContent.value.shortDescription,
+                        ...(initialContent.value.longDescription !== undefined
+                          ? { longDescription: initialContent.value.longDescription }
                           : {}),
-                        ...(initialGuideItem.areaName !== undefined
-                          ? { areaName: initialGuideItem.areaName }
+                        ...(initialContent.value.areaName !== undefined
+                          ? { areaName: initialContent.value.areaName }
                           : {}),
-                        ...(initialGuideItem.hours !== undefined
-                          ? { hours: initialGuideItem.hours }
+                        ...(initialContent.value.hours !== undefined
+                          ? { hours: initialContent.value.hours }
                           : {}),
-                        ...(initialGuideItem.photoUrl !== undefined
-                          ? { photoUrl: initialGuideItem.photoUrl }
+                        ...(initialContent.value.photoUrl !== undefined
+                          ? { photoUrl: initialContent.value.photoUrl }
                           : {}),
-                        tags: initialGuideItem.tags,
-                        importanceScore: initialGuideItem.importanceScore,
+                        tags: initialContent.value.tags,
+                        importanceScore: initialContent.value.importanceScore,
                         ...(guideMode === 'location_aware'
                           ? {
                               lat: input.defaultCenterLat!,
@@ -435,20 +496,43 @@ export const venueRouter = router({
                     },
                   }
                 : {}),
+              ...(initialContent?.kind === 'knowledge'
+                ? {
+                    knowledgeEntries: {
+                      create: {
+                        tenantId,
+                        title: initialContent.value.title,
+                        category: initialContent.value.category,
+                        content: initialContent.value.content,
+                        isEnabled: true,
+                      },
+                    },
+                  }
+                : {}),
             },
             select: venueCreateSelect,
           })
 
-          if (initialGuideItem && record.places.length !== 1) {
-            throw new Error('Initial guide item was not returned from the atomic venue create')
+          const placeCount = record.places?.length ?? 0
+          const knowledgeCount = record.knowledgeEntries?.length ?? 0
+          if (
+            (initialContent?.kind === 'place' && (placeCount !== 1 || knowledgeCount !== 0)) ||
+            (initialContent?.kind === 'knowledge' && (knowledgeCount !== 1 || placeCount !== 0)) ||
+            (!initialContent && (placeCount !== 0 || knowledgeCount !== 0))
+          ) {
+            throw new Error('Initial content was not returned from the atomic venue create')
           }
 
           return { record, shouldEnqueue: true }
         })
 
-        const { places, ...venue } = created.record
+        const { places = [], knowledgeEntries = [], ...venue } = created.record
         const initialPlace = places[0]
+        const initialKnowledgeEntry = knowledgeEntries[0]
         if (created.shouldEnqueue && initialPlace) await embedPlace(initialPlace)
+        if (created.shouldEnqueue && initialKnowledgeEntry) {
+          await embedKnowledgeEntry(initialKnowledgeEntry)
+        }
         return venue
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : ''
