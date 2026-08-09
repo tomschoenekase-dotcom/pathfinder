@@ -564,14 +564,20 @@ export const venueRouter = router({
 
       const existing = await ctx.db.venue.findFirst({
         where: { id: input.id, tenantId },
-        select: { id: true, guideMode: true },
+        select: { id: true, guideMode: true, updatedAt: true },
       })
 
       if (!existing) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
+      if (existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Venue changed in another session. Refresh and try again.',
+        })
+      }
 
-      const { id, ...raw } = input
+      const { id, expectedUpdatedAt, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
       const effectiveGuideMode = input.guideMode ?? existing.guideMode ?? 'location_aware'
       if (
@@ -591,9 +597,19 @@ export const venueRouter = router({
         data.defaultCenterLat = null
         data.defaultCenterLng = null
       }
+      data.updatedAt = new Date(Math.max(Date.now(), existing.updatedAt.getTime() + 1))
 
       // updateMany accepts tenantId in where; update does not (Prisma unique-key constraint)
-      await ctx.db.venue.updateMany({ where: { id, tenantId }, data })
+      const changed = await ctx.db.venue.updateMany({
+        where: { id, tenantId, updatedAt: expectedUpdatedAt },
+        data,
+      })
+      if (changed.count !== 1) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Venue changed in another session. Refresh and try again.',
+        })
+      }
 
       const updated = await ctx.db.venue.findFirst({
         where: { id, tenantId },

@@ -443,7 +443,10 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "expectedUpdatedAt": "2026-08-09T18:00:00.000Z"
+    }
   },
   {
     "path": "venue.setAvailability",

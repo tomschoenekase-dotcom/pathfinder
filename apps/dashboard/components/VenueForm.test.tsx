@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -37,9 +37,35 @@ vi.mock('../lib/trpc', () => ({
 
 import { VenueForm } from './VenueForm'
 
+const venueRevision = '2026-08-09T18:00:00.000Z'
+const editVenueValues = {
+  name: 'Harbor Museum',
+  slug: 'harbor-museum',
+  description: '',
+  guideNotes: '',
+  category: 'museum',
+  guideMode: 'location_aware' as const,
+  defaultCenterLat: 41.5,
+  defaultCenterLng: -81.7,
+  updatedAt: venueRevision,
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
 describe('VenueForm', () => {
   beforeEach(() => vi.clearAllMocks())
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('creates a non-location venue with trimmed optional fields and no coordinates', async () => {
     mocks.create.mockResolvedValueOnce({ id: 'venue-created' })
@@ -85,6 +111,7 @@ describe('VenueForm', () => {
       guideMode: 'location_aware',
       defaultCenterLat: 41.5,
       defaultCenterLng: -81.7,
+      updatedAt: new Date(venueRevision),
     })
     mocks.update.mockResolvedValueOnce({ id: 'venue-1' })
     render(<VenueForm mode="edit" venueId="venue-1" />)
@@ -104,6 +131,7 @@ describe('VenueForm', () => {
     await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
     expect(mocks.update).toHaveBeenCalledWith({
       id: 'venue-1',
+      expectedUpdatedAt: new Date(venueRevision),
       name: 'Harbor Museum',
       description: undefined,
       guideNotes: undefined,
@@ -131,6 +159,115 @@ describe('VenueForm', () => {
     expect(mocks.refresh).not.toHaveBeenCalled()
   })
 
+  it('fences duplicate saves, locks all controls, and permits retry after transport failure', async () => {
+    const pendingUpdate = deferred<{ id: string }>()
+    mocks.update.mockReturnValueOnce(pendingUpdate.promise)
+    render(<VenueForm mode="edit" venueId="venue-1" initialValues={{ ...editVenueValues }} />)
+
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement
+    const saveButton = screen.getByRole('button', { name: 'Save changes' })
+    const form = saveButton.closest('form') as HTMLFormElement
+    fireEvent.change(nameInput, { target: { value: 'Revised Harbor Museum' } })
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    expect(mocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedUpdatedAt: new Date(venueRevision) }),
+    )
+    expect(form.getAttribute('aria-busy')).toBe('true')
+    expect(nameInput.disabled).toBe(true)
+    expect((screen.getByLabelText('Category') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByRole('radio', { name: /^Yes/ }) as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByRole('radio', { name: /^No/ }) as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Description') as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Guide notes') as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Default center latitude') as HTMLInputElement).disabled).toBe(
+      true,
+    )
+    expect((screen.getByLabelText('Default center longitude') as HTMLInputElement).disabled).toBe(
+      true,
+    )
+    expect((screen.getByRole('button', { name: 'Saving...' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Delete venue' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    await act(async () => pendingUpdate.reject(new Error('Network unavailable')))
+    expect((await screen.findByRole('alert')).textContent).toContain('Network unavailable')
+    expect(nameInput.value).toBe('Revised Harbor Museum')
+    expect(form.getAttribute('aria-busy')).toBe('false')
+
+    mocks.update.mockResolvedValueOnce({ id: 'venue-1' })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(2))
+    expect(mocks.push).toHaveBeenCalledWith('/venues/venue-1')
+  })
+
+  it('retains a stale edit and surfaces the server conflict without navigating', async () => {
+    mocks.update.mockRejectedValueOnce(
+      new Error('Venue changed in another session. Refresh and try again.'),
+    )
+    render(<VenueForm mode="edit" venueId="venue-1" initialValues={{ ...editVenueValues }} />)
+
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'My unsaved revision' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Venue changed in another session. Refresh and try again.',
+    )
+    expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe(
+      'My unsaved revision',
+    )
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it('does not navigate when a venue save completes after unmount', async () => {
+    const pendingUpdate = deferred<{ id: string }>()
+    mocks.update.mockReturnValueOnce(pendingUpdate.promise)
+    const view = render(
+      <VenueForm mode="edit" venueId="venue-1" initialValues={{ ...editVenueValues }} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    view.unmount()
+    await act(async () => pendingUpdate.resolve({ id: 'venue-1' }))
+
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it('fences duplicate delete/save overlap and ignores deletion completion after unmount', async () => {
+    const pendingDelete = deferred<{ id: string }>()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mocks.deleteVenue.mockReturnValueOnce(pendingDelete.promise)
+    const view = render(
+      <VenueForm mode="edit" venueId="venue-1" initialValues={{ ...editVenueValues }} />,
+    )
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete venue' })
+    fireEvent.click(deleteButton)
+    fireEvent.click(deleteButton)
+    fireEvent.submit(deleteButton.closest('form') as HTMLFormElement)
+
+    await waitFor(() => expect(mocks.deleteVenue).toHaveBeenCalledOnce())
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(
+      (screen.getByRole('button', { name: 'Deleting...' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    view.unmount()
+    await act(async () => pendingDelete.resolve({ id: 'venue-1' }))
+
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
   it('clears hidden center coordinates when an edited venue becomes non-location', async () => {
     mocks.update.mockResolvedValueOnce({ id: 'venue-1' })
     render(
@@ -146,6 +283,7 @@ describe('VenueForm', () => {
           guideMode: 'location_aware',
           defaultCenterLat: 41.5,
           defaultCenterLng: -81.7,
+          updatedAt: venueRevision,
         }}
       />,
     )
@@ -182,6 +320,7 @@ describe('VenueForm', () => {
           guideMode: 'non_location',
           defaultCenterLat: undefined,
           defaultCenterLng: undefined,
+          updatedAt: venueRevision,
         }}
       />,
     )

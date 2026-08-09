@@ -1,7 +1,7 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, type Resolver, useForm } from 'react-hook-form'
 
@@ -21,6 +21,7 @@ type VenueFormProps = {
     guideMode: 'location_aware' | 'non_location'
     defaultCenterLat: number | undefined
     defaultCenterLng: number | undefined
+    updatedAt: string
   }
 }
 
@@ -51,7 +52,12 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
   const router = useRouter()
   const client = useTRPCClient()
   const [formError, setFormError] = useState<string | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const isMountedRef = useRef(true)
+  const mutationInFlightRef = useRef(false)
+  const expectedUpdatedAtRef = useRef<Date | null>(
+    initialValues ? new Date(initialValues.updatedAt) : null,
+  )
+  const [activeMutation, setActiveMutation] = useState<'save' | 'delete' | null>(null)
   const [isLoadingVenue, setIsLoadingVenue] = useState(mode === 'edit' && !initialValues)
 
   const resolver =
@@ -59,7 +65,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
       ? (zodResolver(CreateVenueInput.passthrough()) as unknown as Resolver<VenueFormValues>)
       : // id comes from the venueId prop, not the form — omit it from validation
         (zodResolver(
-          UpdateVenueInput.omit({ id: true }).passthrough(),
+          UpdateVenueInput.omit({ id: true, expectedUpdatedAt: true }).passthrough(),
         ) as unknown as Resolver<VenueFormValues>)
 
   const {
@@ -85,11 +91,21 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
   const guideMode = watch('guideMode')
 
   useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+      mutationInFlightRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
     let disposed = false
 
     async function loadVenue() {
       if (initialValues) {
         reset(initialValues)
+        expectedUpdatedAtRef.current = new Date(initialValues.updatedAt)
         setIsLoadingVenue(false)
         return
       }
@@ -100,6 +116,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
       try {
         const venue = await client.venue.getById.query({ id: venueId })
         if (!disposed) {
+          expectedUpdatedAtRef.current = venue.updatedAt
           reset({
             name: venue.name,
             slug: venue.slug,
@@ -124,6 +141,18 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
     }
   }, [client, initialValues, mode, venueId, reset])
 
+  function startMutation(kind: 'save' | 'delete'): boolean {
+    if (mutationInFlightRef.current) return false
+    mutationInFlightRef.current = true
+    setActiveMutation(kind)
+    return true
+  }
+
+  function finishMutation() {
+    mutationInFlightRef.current = false
+    if (isMountedRef.current) setActiveMutation(null)
+  }
+
   async function onSubmit(values: VenueFormValues) {
     setFormError(null)
     const defaultCenterLat =
@@ -142,10 +171,16 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           defaultCenterLat,
           defaultCenterLng,
         })
-        router.push(`/venues/${venue.id}`)
+        if (isMountedRef.current) router.push(`/venues/${venue.id}`)
       } else {
+        const expectedUpdatedAt = expectedUpdatedAtRef.current
+        if (!expectedUpdatedAt) {
+          setFormError('Venue revision is unavailable. Refresh and try again.')
+          return
+        }
         await client.venue.update.mutate({
           id: venueId!,
+          expectedUpdatedAt,
           name: values.name,
           description: values.description?.trim() || undefined,
           guideNotes: values.guideNotes?.trim() || undefined,
@@ -154,34 +189,56 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           defaultCenterLat,
           defaultCenterLng,
         })
-        router.push(`/venues/${venueId}`)
+        if (isMountedRef.current) router.push(`/venues/${venueId}`)
       }
-      router.refresh()
+      if (isMountedRef.current) router.refresh()
     } catch (error) {
-      setFormError(getErrorMessage(error))
+      if (isMountedRef.current) setFormError(getErrorMessage(error))
+    }
+  }
+
+  async function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
+    if (!startMutation('save')) {
+      event.preventDefault()
+      return
+    }
+
+    try {
+      await handleSubmit(onSubmit, (fieldErrors) => {
+        const messages = Object.entries(fieldErrors)
+          .map(([field, err]) => `${field}: ${err?.message ?? 'invalid'}`)
+          .join(', ')
+        setFormError(`Validation failed — ${messages}`)
+      })(event)
+    } finally {
+      finishMutation()
     }
   }
 
   async function handleDelete() {
-    if (mode !== 'edit' || !venueId) return
+    if (mode !== 'edit' || !venueId || mutationInFlightRef.current) return
 
     const confirmed = window.confirm('Delete this venue? This cannot be undone.')
 
     if (!confirmed) return
 
-    setIsDeleting(true)
+    if (!startMutation('delete')) return
     setFormError(null)
 
     try {
       await client.venue.delete.mutate({ id: venueId })
-      router.push('/venues')
-      router.refresh()
+      if (isMountedRef.current) {
+        router.push('/venues')
+        router.refresh()
+      }
     } catch (error) {
-      setFormError(getErrorMessage(error))
+      if (isMountedRef.current) setFormError(getErrorMessage(error))
     } finally {
-      setIsDeleting(false)
+      finishMutation()
     }
   }
+
+  const isMutating = activeMutation !== null || isSubmitting
 
   return (
     <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
@@ -199,16 +256,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
       {isLoadingVenue ? (
         <p className="text-sm text-pf-deep/50">Loading venue...</p>
       ) : (
-        <form
-          className="space-y-5"
-          onSubmit={handleSubmit(onSubmit, (fieldErrors) => {
-            // Surface validation errors that have no dedicated field display
-            const messages = Object.entries(fieldErrors)
-              .map(([field, err]) => `${field}: ${err?.message ?? 'invalid'}`)
-              .join(', ')
-            setFormError(`Validation failed — ${messages}`)
-          })}
-        >
+        <form aria-busy={isMutating} className="space-y-5" onSubmit={handleFormSubmit}>
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label
@@ -219,6 +267,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
               </label>
               <input
                 id="venue-name"
+                disabled={isMutating}
                 className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('name')}
               />
@@ -237,6 +286,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
                 </label>
                 <input
                   id="venue-slug"
+                  disabled={isMutating}
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('slug')}
                 />
@@ -255,12 +305,16 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
               </label>
               <input
                 id="venue-category"
+                disabled={isMutating}
                 className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('category')}
               />
             </div>
 
-            <fieldset className="sm:col-span-2 rounded-2xl border border-pf-light p-4">
+            <fieldset
+              className="sm:col-span-2 rounded-2xl border border-pf-light p-4"
+              disabled={isMutating}
+            >
               <legend className="px-1 text-sm font-medium text-pf-deep/70">
                 Use location features?
               </legend>
@@ -270,6 +324,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
                     type="radio"
                     value="location_aware"
                     className="mt-1"
+                    disabled={isMutating}
                     {...register('guideMode')}
                   />
                   <span>
@@ -284,6 +339,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
                     type="radio"
                     value="non_location"
                     className="mt-1"
+                    disabled={isMutating}
                     {...register('guideMode')}
                   />
                   <span>
@@ -305,6 +361,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
               </label>
               <textarea
                 id="venue-description"
+                disabled={isMutating}
                 className="min-h-28 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('description')}
               />
@@ -323,6 +380,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
               </p>
               <textarea
                 id="venue-guide-notes"
+                disabled={isMutating}
                 className="min-h-28 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('guideNotes')}
               />
@@ -343,6 +401,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
                     render={({ field }) => (
                       <input
                         id="venue-lat"
+                        disabled={isMutating}
                         className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                         inputMode="decimal"
                         value={field.value ?? ''}
@@ -367,6 +426,7 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
                     render={({ field }) => (
                       <input
                         id="venue-lng"
+                        disabled={isMutating}
                         className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                         inputMode="decimal"
                         value={field.value ?? ''}
@@ -382,7 +442,10 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           </div>
 
           {formError ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <p
+              className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+              role="alert"
+            >
               {formError}
             </p>
           ) : null}
@@ -397,13 +460,13 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
             {mode === 'edit' ? (
               <button
                 type="button"
-                disabled={isDeleting || isSubmitting}
+                disabled={isMutating}
                 onClick={() => {
                   void handleDelete()
                 }}
                 className="inline-flex min-h-11 items-center rounded-full border border-rose-200 px-5 text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isDeleting ? 'Deleting...' : 'Delete venue'}
+                {activeMutation === 'delete' ? 'Deleting...' : 'Delete venue'}
               </button>
             ) : (
               <div />
@@ -411,10 +474,14 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
 
             <button
               className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
-              disabled={isSubmitting || isDeleting}
+              disabled={isMutating}
               type="submit"
             >
-              {isSubmitting ? 'Saving...' : mode === 'create' ? 'Create venue' : 'Save changes'}
+              {activeMutation === 'save'
+                ? 'Saving...'
+                : mode === 'create'
+                  ? 'Create venue'
+                  : 'Save changes'}
             </button>
           </div>
         </form>

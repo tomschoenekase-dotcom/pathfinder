@@ -1018,18 +1018,71 @@ describe('venue router', () => {
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(managerCtx())
-    const result = await caller.venue.update({ id: 'cuid1234567890abcdef', name: 'Updated Zoo' })
+    const result = await caller.venue.update({
+      id: 'cuid1234567890abcdef',
+      expectedUpdatedAt: venueRow.updatedAt,
+      name: 'Updated Zoo',
+    })
 
     expect(result).toMatchObject({ name: 'Updated Zoo' })
     expect(dbExecuteRaw).toHaveBeenCalled()
     expect(venueUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant_1' }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          updatedAt: venueRow.updatedAt,
+        }),
+        data: expect.objectContaining({ updatedAt: expect.any(Date) }),
+      }),
     )
+  })
+
+  it('venue.update rejects a stale reviewed revision before writing', async () => {
+    const reviewedRevision = new Date('2026-08-09T18:00:00.000Z')
+    const currentRevision = new Date('2026-08-09T18:01:00.000Z')
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      updatedAt: currentRevision,
+    })
+
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.update({
+        id: venueRow.id,
+        expectedUpdatedAt: reviewedRevision,
+        name: 'Stale edit',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Venue changed in another session. Refresh and try again.',
+    })
+    expect(venueUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('venue.update fails closed when the revision changes at compare-and-set', async () => {
+    venueFindFirst.mockResolvedValueOnce(venueRow)
+    venueUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.update({
+        id: venueRow.id,
+        expectedUpdatedAt: venueRow.updatedAt,
+        name: 'Racing edit',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(venueUpdateMany).toHaveBeenCalledWith({
+      where: { id: venueRow.id, tenantId: 'tenant_1', updatedAt: venueRow.updatedAt },
+      data: expect.objectContaining({ name: 'Racing edit', updatedAt: expect.any(Date) }),
+    })
+    expect(venueFindFirst).toHaveBeenCalledOnce()
   })
 
   it('venue.update clears stored centers when switching to non-location mode', async () => {
     venueFindFirst
-      .mockResolvedValueOnce({ id: venueRow.id, guideMode: 'location_aware' })
+      .mockResolvedValueOnce({
+        id: venueRow.id,
+        guideMode: 'location_aware',
+        updatedAt: venueRow.updatedAt,
+      })
       .mockResolvedValueOnce({
         ...venueRow,
         guideMode: 'non_location',
@@ -1040,25 +1093,32 @@ describe('venue router', () => {
 
     await testRouter.createCaller(managerCtx()).venue.update({
       id: venueRow.id,
+      expectedUpdatedAt: venueRow.updatedAt,
       guideMode: 'non_location',
     })
 
     expect(venueUpdateMany).toHaveBeenCalledWith({
-      where: { id: venueRow.id, tenantId: 'tenant_1' },
-      data: {
+      where: { id: venueRow.id, tenantId: 'tenant_1', updatedAt: venueRow.updatedAt },
+      data: expect.objectContaining({
         guideMode: 'non_location',
         defaultCenterLat: null,
         defaultCenterLng: null,
-      },
+        updatedAt: expect.any(Date),
+      }),
     })
   })
 
   it('venue.update rejects adding centers to an existing non-location venue', async () => {
-    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
+    venueFindFirst.mockResolvedValueOnce({
+      id: venueRow.id,
+      guideMode: 'non_location',
+      updatedAt: venueRow.updatedAt,
+    })
 
     await expect(
       testRouter.createCaller(managerCtx()).venue.update({
         id: venueRow.id,
+        expectedUpdatedAt: venueRow.updatedAt,
         defaultCenterLat: 41.5,
         defaultCenterLng: -81.7,
       }),
@@ -1074,7 +1134,9 @@ describe('venue router', () => {
     { guideMode: 'non_location' as const, defaultCenterLat: 41.5, defaultCenterLng: -81.7 },
   ])('venue.update rejects incoherent center input before venue access', async (location) => {
     await expect(
-      testRouter.createCaller(managerCtx()).venue.update({ id: venueRow.id, ...location }),
+      testRouter
+        .createCaller(managerCtx())
+        .venue.update({ id: venueRow.id, expectedUpdatedAt: venueRow.updatedAt, ...location }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(venueFindFirst).not.toHaveBeenCalled()
     expect(venueUpdateMany).not.toHaveBeenCalled()
@@ -1086,7 +1148,11 @@ describe('venue router', () => {
     const caller = testRouter.createCaller(managerCtx())
 
     await expect(
-      caller.venue.update({ id: 'cuid1234567890abcdef', name: 'X' }),
+      caller.venue.update({
+        id: 'cuid1234567890abcdef',
+        expectedUpdatedAt: venueRow.updatedAt,
+        name: 'X',
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
   })
 
@@ -1094,7 +1160,11 @@ describe('venue router', () => {
     const caller = testRouter.createCaller(staffCtx())
 
     await expect(
-      caller.venue.update({ id: 'cuid1234567890abcdef', name: 'X' }),
+      caller.venue.update({
+        id: 'cuid1234567890abcdef',
+        expectedUpdatedAt: venueRow.updatedAt,
+        name: 'X',
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 

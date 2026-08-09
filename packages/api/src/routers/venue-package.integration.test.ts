@@ -967,9 +967,14 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       knowledgeEntries: { create: [], update: [], delete: [] },
     }
     const { caller, applied } = await applyVersionThree(targetVenue.id, payload)
+    const manualBase = await db.venue.findFirstOrThrow({
+      where: { id: targetVenue.id, tenantId },
+      select: { updatedAt: true },
+    })
 
     await caller.venue.update({
       id: targetVenue.id,
+      expectedUpdatedAt: manualBase.updatedAt,
       description: 'Later manual description',
     })
     await caller.venuePackage.revertPackage({
@@ -1267,10 +1272,18 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       await lockRelease
     })
     await lockAcquired
+    const settingsRevision = await db.venue.findFirstOrThrow({
+      where: { id: settingsLockVenueId, tenantId },
+      select: { updatedAt: true },
+    })
 
     let updateSettled = false
     const update = caller.venue
-      .update({ id: settingsLockVenueId, name: 'Settings lock venue updated' })
+      .update({
+        id: settingsLockVenueId,
+        expectedUpdatedAt: settingsRevision.updatedAt,
+        name: 'Settings lock venue updated',
+      })
       .finally(() => {
         updateSettled = true
       })
@@ -1644,8 +1657,20 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       acknowledgedPayloadHash: draft.payloadHash,
     })
 
-    await caller.venue.update({ id: targetVenue.id, name: 'V3 venue intervening state' })
-    await caller.venue.update({ id: targetVenue.id, name: targetVenue.name })
+    const beforeIntervening = await db.venue.findFirstOrThrow({
+      where: { id: targetVenue.id, tenantId },
+      select: { updatedAt: true },
+    })
+    const intervening = await caller.venue.update({
+      id: targetVenue.id,
+      expectedUpdatedAt: beforeIntervening.updatedAt,
+      name: 'V3 venue intervening state',
+    })
+    await caller.venue.update({
+      id: targetVenue.id,
+      expectedUpdatedAt: intervening.updatedAt,
+      name: targetVenue.name,
+    })
     const latestVersion = await db.contentVersion.findFirstOrThrow({
       where: {
         tenantId,

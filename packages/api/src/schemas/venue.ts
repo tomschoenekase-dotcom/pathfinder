@@ -99,6 +99,7 @@ export const CreateVenueRequestInput = CreateVenueInput.superRefine(validateVenu
 export const UpdateVenueInput = z
   .object({
     id: z.string().cuid(),
+    expectedUpdatedAt: z.coerce.date(),
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(1000).optional(),
     guideNotes: z.string().max(2000).optional(),
