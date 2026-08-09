@@ -1,0 +1,122 @@
+/* @vitest-environment jsdom */
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import React from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+;(globalThis as typeof globalThis & { React: typeof React }).React = React
+
+const mocks = vi.hoisted(() => ({
+  tenantMutate: vi.fn(),
+  adminMutate: vi.fn(),
+  refresh: vi.fn(),
+}))
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mocks.refresh }) }))
+vi.mock('../lib/trpc', () => ({
+  useTRPCClient: () => ({
+    venue: { setAvailability: { mutate: mocks.tenantMutate } },
+    admin: { setVenueAvailability: { mutate: mocks.adminMutate } },
+  }),
+}))
+
+import { VenueAvailabilityControl } from './VenueAvailabilityControl'
+
+const initialState = {
+  isActive: true,
+  updatedAt: '2026-08-08T20:00:00.000Z',
+}
+
+describe('VenueAvailabilityControl', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(cleanup)
+
+  it('requires confirmation and submits the exact tenant revision and trimmed reason', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mocks.tenantMutate.mockResolvedValueOnce({
+      id: 'venue_1',
+      isActive: false,
+      updatedAt: new Date('2026-08-08T20:01:00.000Z'),
+      replayed: false,
+    })
+    render(
+      <VenueAvailabilityControl
+        scope="tenant"
+        venueName="Harbor Museum"
+        venueId="venue_1"
+        initialState={initialState}
+      />,
+    )
+
+    const button = screen.getByRole('button', { name: 'Pause this venue' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Internal reason'), {
+      target: { value: '  Guest service incident  ' },
+    })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(mocks.tenantMutate).toHaveBeenCalledOnce())
+    expect(confirm).toHaveBeenCalledWith(
+      'Pause guest access and venue-scoped processing for Harbor Museum?',
+    )
+    expect(mocks.tenantMutate).toHaveBeenCalledWith({
+      venueId: 'venue_1',
+      enabled: false,
+      expectedUpdatedAt: new Date(initialState.updatedAt),
+      reason: 'Guest service incident',
+    })
+    expect(await screen.findByText('Venue access and processing paused.')).toBeTruthy()
+    expect(screen.getByText('Paused')).toBeTruthy()
+    expect(mocks.refresh).toHaveBeenCalledOnce()
+    confirm.mockRestore()
+  })
+
+  it('uses the platform-admin endpoint with the exact tenant boundary', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mocks.adminMutate.mockResolvedValueOnce({
+      id: 'venue_1',
+      isActive: true,
+      updatedAt: new Date('2026-08-08T20:02:00.000Z'),
+      replayed: false,
+    })
+    render(
+      <VenueAvailabilityControl
+        scope="admin"
+        tenantId="tenant_1"
+        venueName="Harbor Museum"
+        venueId="venue_1"
+        initialState={{ ...initialState, isActive: false }}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Internal reason'), {
+      target: { value: 'Incident resolved' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Resume this venue' }))
+
+    await waitFor(() => expect(mocks.adminMutate).toHaveBeenCalledOnce())
+    expect(mocks.adminMutate).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      enabled: true,
+      expectedUpdatedAt: new Date(initialState.updatedAt),
+      reason: 'Incident resolved',
+    })
+    expect(mocks.tenantMutate).not.toHaveBeenCalled()
+  })
+
+  it('does not mutate when confirmation is declined', () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(
+      <VenueAvailabilityControl
+        scope="tenant"
+        venueName="Harbor Museum"
+        venueId="venue_1"
+        initialState={initialState}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Internal reason'), { target: { value: 'Investigate' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Pause this venue' }))
+    expect(mocks.tenantMutate).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+})

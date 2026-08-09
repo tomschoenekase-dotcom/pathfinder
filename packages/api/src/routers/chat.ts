@@ -10,7 +10,8 @@ import {
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
 import {
-  assertGlobalAiAvailable,
+  assertVenueAiAvailable,
+  isAiAdmissionControlError,
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
 } from '@pathfinder/db'
@@ -28,14 +29,17 @@ import { buildVenueSystemPromptParts } from '../lib/venue-context'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
 import { publicAiProcedure, publicProcedure } from '../trpc'
 
-function isGlobalAiAdmissionError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'GlobalAiAdmissionError'
-}
-
-function globalAiUnavailable(): TRPCError {
+function aiUnavailable(): TRPCError {
   return new TRPCError({
     code: 'SERVICE_UNAVAILABLE',
     message: GLOBAL_AI_UNAVAILABLE_MESSAGE,
+  })
+}
+
+function venueUnavailable(): TRPCError {
+  return new TRPCError({
+    code: 'SERVICE_UNAVAILABLE',
+    message: 'This venue guide is temporarily unavailable.',
   })
 }
 
@@ -140,13 +144,15 @@ export const chatRouter = router({
     // $queryRaw used here because this is a public cross-tenant lookup — the caller
     // only knows the venueId, not the tenantId. No tenant_id bind needed in the
     // WHERE because we are resolving the tenant FROM this row, not filtering by it.
-    const [venue] = await ctx.db.$queryRaw<{ id: string; tenantId: string }[]>`
-      SELECT id, tenant_id AS "tenantId" FROM venues WHERE id = ${input.venueId} AND is_active = true LIMIT 1
+    const [venue] = await ctx.db.$queryRaw<{ id: string; tenantId: string; isActive: boolean }[]>`
+      SELECT id, tenant_id AS "tenantId", is_active AS "isActive"
+      FROM venues WHERE id = ${input.venueId} LIMIT 1
     `
 
     if (!venue) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
     }
+    if (!venue.isActive) throw venueUnavailable()
 
     const updateData: Record<string, unknown> = { lastActiveAt: new Date() }
     if (input.lat !== undefined) updateData.latestLat = input.lat
@@ -207,6 +213,7 @@ export const chatRouter = router({
         guideMode: string | null
         defaultCenterLat: number | null
         defaultCenterLng: number | null
+        isActive: boolean
       }[]
     >`
       SELECT id,
@@ -221,13 +228,15 @@ export const chatRouter = router({
              category,
              guide_mode AS "guideMode",
              default_center_lat AS "defaultCenterLat",
-             default_center_lng AS "defaultCenterLng"
-      FROM venues WHERE id = ${input.venueId} AND is_active = true LIMIT 1
+             default_center_lng AS "defaultCenterLng",
+             is_active AS "isActive"
+      FROM venues WHERE id = ${input.venueId} LIMIT 1
     `
 
     if (!venue) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
     }
+    if (!venue.isActive) throw venueUnavailable()
 
     const guideMode = venue.guideMode ?? 'location_aware'
     const userLat = input.lat ?? venue.defaultCenterLat
@@ -308,11 +317,15 @@ export const chatRouter = router({
     const queryEmbeddingPromise = generateGuestQueryEmbedding(
       trimmedInput,
       embeddingAccounting.sink,
-      () => assertGlobalAiAvailable(ctx.db),
+      () =>
+        assertVenueAiAvailable(ctx.db, {
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+        }),
       embeddingAccounting.budgetGate,
     )
       .catch((error: unknown) => {
-        if (isGlobalAiAdmissionError(error)) throw globalAiUnavailable()
+        if (isAiAdmissionControlError(error)) throw aiUnavailable()
         return null
       })
       .finally(() => {
@@ -516,7 +529,11 @@ export const chatRouter = router({
     try {
       const result = await generateText({
         modelKey: AI_MODEL_KEYS.GUEST_CHAT,
-        admissionGuard: () => assertGlobalAiAvailable(ctx.db),
+        admissionGuard: () =>
+          assertVenueAiAvailable(ctx.db, {
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+          }),
         budgetGate: chatAccounting.budgetGate,
         system: [
           { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
@@ -537,7 +554,7 @@ export const chatRouter = router({
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
     } catch (err) {
-      if (isGlobalAiAdmissionError(err)) throw globalAiUnavailable()
+      if (isAiAdmissionControlError(err)) throw aiUnavailable()
       fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
       logger.error({
         action: 'chat.send.ai_failed',
@@ -793,16 +810,26 @@ export const chatRouter = router({
       // This is a public cross-tenant lookup, so resolve tenant ownership from the
       // venue-scoped session identity. Anonymous tokens are intentionally reusable
       // across venues and must never select a session from another venue.
-      const [session] = await ctx.db.$queryRaw<{ id: string; venueId: string; tenantId: string }[]>`
-        SELECT id, venue_id AS "venueId", tenant_id AS "tenantId"
-        FROM visitor_sessions
-        WHERE venue_id = ${input.venueId}
-          AND anonymous_token = ${input.anonymousToken}
+      const [session] = await ctx.db.$queryRaw<
+        { id: string | null; venueId: string; tenantId: string; isActive: boolean }[]
+      >`
+        SELECT visitor_sessions.id,
+               venues.id AS "venueId",
+               venues.tenant_id AS "tenantId",
+               venues.is_active AS "isActive"
+        FROM venues
+        LEFT JOIN visitor_sessions
+          ON visitor_sessions.venue_id = venues.id
+         AND visitor_sessions.tenant_id = venues.tenant_id
+         AND visitor_sessions.anonymous_token = ${input.anonymousToken}
+        WHERE venues.id = ${input.venueId}
         LIMIT 1
       `
 
       // No session yet — fresh visitor, return empty history
-      if (!session) {
+      if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      if (!session.isActive) throw venueUnavailable()
+      if (!session.id) {
         return { messages: [] }
       }
 

@@ -20,6 +20,8 @@ import { useGeolocation } from '../../../hooks/useGeolocation'
 import { useSession } from '../../../hooks/useSession'
 import { useVisitorId } from '../../../hooks/useVisitorId'
 import { useTRPCClient } from '../../../lib/trpc'
+import { classifyPublicVenueLookupError } from '../../../lib/public-venue-error'
+import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
 
 type VenueSummary = {
   id: string
@@ -67,6 +69,7 @@ export default function VenueChatPage() {
   const [isBooting, setIsBooting] = useState(true)
   const [isSending, setIsSending] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
+  const [isVenueUnavailable, setIsVenueUnavailable] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [language, setLanguage] = useState<string>(() => {
     const stored = getStoredLanguage()
@@ -94,6 +97,7 @@ export default function VenueChatPage() {
 
       setIsBooting(true)
       setPageError(null)
+      setIsVenueUnavailable(false)
 
       try {
         const result = await client.venue.getBySlug.query({ slug: venueSlug })
@@ -124,9 +128,15 @@ export default function VenueChatPage() {
             // blocking the page. The venue itself loaded successfully.
           }
         }
-      } catch {
+      } catch (error) {
         if (!disposed) {
-          setPageError('We could not find this venue.')
+          const failure = classifyPublicVenueLookupError(error)
+          setIsVenueUnavailable(failure === 'temporarily-unavailable')
+          setPageError(
+            failure === 'not-found'
+              ? 'We could not find this venue.'
+              : 'We could not load this venue. Please try again.',
+          )
           setVenue(null)
         }
       } finally {
@@ -174,9 +184,13 @@ export default function VenueChatPage() {
             lastSyncedPosRef.current = { lat, lng }
           }
         }
-      } catch {
+      } catch (error) {
         if (!disposed) {
-          setSendError('We could not prepare the chat session. Please try again.')
+          if (classifyPublicVenueLookupError(error) === 'temporarily-unavailable') {
+            setIsVenueUnavailable(true)
+          } else {
+            setSendError('We could not prepare the chat session. Please try again.')
+          }
         }
       }
     }
@@ -301,8 +315,12 @@ export default function VenueChatPage() {
         { role: 'assistant', content: result.response, places: result.places },
       ])
       setSessionId(result.sessionId)
-    } catch {
-      setSendError('That message did not send. Please try again.')
+    } catch (error) {
+      if (classifyPublicVenueLookupError(error) === 'temporarily-unavailable') {
+        setIsVenueUnavailable(true)
+      } else {
+        setSendError('That message did not send. Please try again.')
+      }
     } finally {
       setIsSending(false)
     }
@@ -317,6 +335,10 @@ export default function VenueChatPage() {
         </div>
       </main>
     )
+  }
+
+  if (isVenueUnavailable) {
+    return <VenueTemporarilyUnavailable />
   }
 
   if (!venue) {

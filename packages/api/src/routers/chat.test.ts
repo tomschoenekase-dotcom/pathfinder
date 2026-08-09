@@ -79,13 +79,14 @@ const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
 const platformConfigFindUnique = vi.fn()
 const aiCostBudgetFindFirst = vi.fn()
+const venueFindFirst = vi.fn()
 const dbTransaction = vi.fn()
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   platformConfig: { findUnique: platformConfigFindUnique },
-  venue: {},
+  venue: { findFirst: venueFindFirst },
   visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
   tenant: { findUnique: tenantFindUnique },
   engagementQuestion: {
@@ -142,6 +143,7 @@ const venueRow = {
   name: 'City Zoo',
   description: 'A great zoo.',
   category: 'zoo',
+  isActive: true,
 }
 
 const placeRows = [
@@ -181,6 +183,7 @@ describe('chat router', () => {
     aiUsageEventCreate.mockResolvedValue({})
     platformConfigFindUnique.mockResolvedValue(null)
     aiCostBudgetFindFirst.mockResolvedValue(null)
+    venueFindFirst.mockResolvedValue({ isActive: true })
     dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -196,7 +199,7 @@ describe('chat router', () => {
 
   describe('chat.session', () => {
     it('creates a session and returns sessionId', async () => {
-      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID }])
+      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
 
       const result = await caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN })
@@ -214,7 +217,7 @@ describe('chat router', () => {
     })
 
     it('calling session twice with same token returns same session (upsert idempotency)', async () => {
-      dbQueryRaw.mockResolvedValue([{ id: VENUE_ID, tenantId: TENANT_ID }])
+      dbQueryRaw.mockResolvedValue([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
       sessionUpsert.mockResolvedValue({ id: SESSION_ID })
 
       const r1 = await caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN })
@@ -227,8 +230,8 @@ describe('chat router', () => {
     it('scopes the same anonymous token independently for different venues', async () => {
       const otherVenueId = 'cvenueother1234567890'
       dbQueryRaw
-        .mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID }])
-        .mockResolvedValueOnce([{ id: otherVenueId, tenantId: 'tenant_2' }])
+        .mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
+        .mockResolvedValueOnce([{ id: otherVenueId, tenantId: 'tenant_2', isActive: true }])
       sessionUpsert
         .mockResolvedValueOnce({ id: SESSION_ID })
         .mockResolvedValueOnce({ id: 'session_2' })
@@ -256,16 +259,18 @@ describe('chat router', () => {
       )
     })
 
-    it('throws NOT_FOUND for inactive venue', async () => {
-      dbQueryRaw.mockResolvedValueOnce([])
+    it('returns generic unavailability for an inactive venue', async () => {
+      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: false }])
 
       await expect(
         caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN }),
-      ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+      ).rejects.toThrowError(
+        expect.objectContaining<Partial<TRPCError>>({ code: 'SERVICE_UNAVAILABLE' }),
+      )
     })
 
     it('persists visitorId on the session when provided', async () => {
-      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID }])
+      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
 
       const visitorId = '11111111-1111-4111-8111-111111111111'
@@ -292,7 +297,7 @@ describe('chat router', () => {
     }
 
     it('denies before session or provider work when a rate-limit dependency fails closed', async () => {
-      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID }])
+      dbQueryRaw.mockResolvedValueOnce([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
       checkRateLimit.mockResolvedValue(false)
 
       await expect(caller.chat.send(sendInput)).rejects.toThrowError(
@@ -403,6 +408,21 @@ describe('chat router', () => {
         code: 'SERVICE_UNAVAILABLE',
         message: 'The AI service is temporarily unavailable. Please try again later.',
       })
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(messageCreate).not.toHaveBeenCalled()
+    })
+
+    it('returns a generic 503 without provider or message writes when the venue pauses mid-request', async () => {
+      setupHappyPath()
+      venueFindFirst
+        .mockResolvedValueOnce({ isActive: true })
+        .mockResolvedValueOnce({ isActive: false })
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The AI service is temporarily unavailable. Please try again later.',
+      })
+      expect(embeddingCreate).not.toHaveBeenCalled()
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(messageCreate).not.toHaveBeenCalled()
     })
@@ -924,12 +944,14 @@ describe('chat router', () => {
 
   describe('chat.history', () => {
     it('binds both venue and anonymous token before loading messages', async () => {
-      dbQueryRaw.mockResolvedValueOnce([{ id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID }])
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: SESSION_ID, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
       messageFindMany.mockResolvedValueOnce([{ role: 'assistant', content: 'Welcome.' }])
 
       const result = await caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN })
 
-      expect(dbQueryRaw.mock.calls[0]?.slice(1)).toEqual([VENUE_ID, TOKEN])
+      expect(dbQueryRaw.mock.calls[0]?.slice(1)).toEqual([TOKEN, VENUE_ID])
       expect(messageFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { sessionId: SESSION_ID, tenantId: TENANT_ID },
@@ -939,7 +961,9 @@ describe('chat router', () => {
     })
 
     it('does not load messages when no venue-scoped session exists', async () => {
-      dbQueryRaw.mockResolvedValueOnce([])
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: null, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
 
       await expect(
         caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),

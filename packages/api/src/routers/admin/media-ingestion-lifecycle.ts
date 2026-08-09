@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import { assertVenueAvailable, db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
 import { enqueueMediaIngestion } from '@pathfinder/jobs'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
 
@@ -42,6 +42,19 @@ export const mediaIngestionLifecycleRouter = router({
       )
       if (!project) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Queued upload generation not found.' })
+      }
+      try {
+        await withTenantIsolationBypass(() =>
+          assertVenueAvailable(db, {
+            tenantId: input.tenantId,
+            venueId: project.venueId,
+          }),
+        )
+      } catch {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'This venue is temporarily unavailable.',
+        })
       }
       await enqueueMediaIngestion({
         tenantId: input.tenantId,

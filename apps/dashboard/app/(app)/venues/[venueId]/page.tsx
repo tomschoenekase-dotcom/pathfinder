@@ -7,6 +7,7 @@ import { createDashboardCaller } from '../../../../lib/server-caller'
 import { ContentHistoryPanel } from '../../../../components/ContentHistoryPanel'
 import { DeletedContentHistoryPanel } from '../../../../components/DeletedContentHistoryPanel'
 import { DeletedVenueHistoryPanel } from '../../../../components/DeletedVenueHistoryPanel'
+import { VenueAvailabilityControl } from '../../../../components/VenueAvailabilityControl'
 
 type VenueDetailPageProps = {
   params: Promise<{
@@ -175,6 +176,18 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
                 </Link>
               </div>
             </section>
+          ) : null}
+
+          {canManageVenuePackages ? (
+            <VenueAvailabilityControl
+              scope="tenant"
+              venueName={venue.name}
+              venueId={venue.id}
+              initialState={{
+                isActive: venue.isActive,
+                updatedAt: venue.updatedAt.toISOString(),
+              }}
+            />
           ) : null}
 
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

@@ -10,7 +10,7 @@ import { logger } from '@pathfinder/config'
 import {
   acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution,
-  assertGlobalAiAvailable,
+  assertVenueAiAvailable,
   db,
   deferWeeklyReportExecution,
   isAiAdmissionControlError,
@@ -381,7 +381,11 @@ export async function processWeeklyReportJob(
     })
 
     const response = await generateText({
-      admissionGuard: () => assertGlobalAiAvailable(db),
+      admissionGuard: () =>
+        assertVenueAiAvailable(db, {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+        }),
       modelKey: AI_MODEL_KEYS.WEEKLY_REPORT,
       system: [],
       messages: [{ role: 'user', content: prompt }],

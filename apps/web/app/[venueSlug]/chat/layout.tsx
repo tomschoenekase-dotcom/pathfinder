@@ -1,7 +1,11 @@
 import type { ReactNode } from 'react'
 import type { Metadata, Viewport } from 'next'
+import { notFound } from 'next/navigation'
 
+import { appRouter, createTRPCContext } from '@pathfinder/api'
 import { db } from '@pathfinder/db'
+import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
+import { classifyPublicVenueLookupError } from '../../../lib/public-venue-error'
 import { TRPCProvider } from '../../../lib/trpc'
 
 type VenueChatLayoutProps = {
@@ -47,6 +51,26 @@ export async function generateMetadata({ params }: VenueChatMetadataProps): Prom
 
 export default async function VenueChatLayout({ children, params }: VenueChatLayoutProps) {
   const { venueSlug } = await params
+
+  const ctx = await createTRPCContext({
+    req: new Request(`https://pathfinder.local/${venueSlug}/chat`),
+  })
+
+  try {
+    await appRouter.createCaller(ctx).venue.getBySlug({ slug: venueSlug })
+  } catch (error) {
+    const failure = classifyPublicVenueLookupError(error)
+
+    if (failure === 'not-found') {
+      notFound()
+    }
+
+    if (failure === 'temporarily-unavailable') {
+      return <VenueTemporarilyUnavailable />
+    }
+
+    throw error
+  }
 
   return <TRPCProvider scopeKey={`venue:${venueSlug}`}>{children}</TRPCProvider>
 }

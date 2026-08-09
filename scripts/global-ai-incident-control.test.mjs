@@ -86,15 +86,40 @@ test('direct provider calls admit before budget reservation or dispatch', async 
     /await admit\(\)\s*await reserve\(\)\s*assertActive\?\.\(\)\s*[\s\S]*?await admit\(\)\s*assertActive\?\.\(\)\s*return operation\(\)/u,
   )
   assert.equal(
-    [...media.matchAll(/executeMediaProviderOperation\(\s*\(\) => assertGlobalAiAvailable\(db\)/gu)]
-      .length,
+    [...media.matchAll(/executeMediaProviderOperation\(\s*admissionGuard/gu)].length,
     4,
+  )
+  assert.match(
+    media,
+    /const venueAdmission = \(\) =>\s*assertVenueAiAvailable\(db, \{\s*tenantId: payload\.tenantId,\s*venueId: payload\.venueId/u,
   )
   assert.match(digest, /new Anthropic\(\{ apiKey: env\.ANTHROPIC_API_KEY, maxRetries: 0 \}\)/u)
   assert.match(
     digest,
     /await assertGlobalAiAvailable\(db\)\s*const response = await getAnthropicClient\(\)\.messages\.create/u,
   )
+})
+
+test('every venue-scoped AI caller uses combined global and venue admission', async () => {
+  const venueScopedCallers = [
+    'packages/api/src/routers/chat.ts',
+    'packages/api/src/routers/venue-package.ts',
+    'apps/workers/src/processors/analytics-enrichment.ts',
+    'apps/workers/src/processors/answer-analysis.ts',
+    'apps/workers/src/processors/embed-knowledge-entry.ts',
+    'apps/workers/src/processors/embed-place.ts',
+    'apps/workers/src/processors/media-ingestion.ts',
+    'apps/workers/src/processors/weekly-report.ts',
+  ]
+
+  for (const file of venueScopedCallers) {
+    const text = await source(file)
+    assert.match(text, /assertVenueAiAvailable/u, `${file} must enforce venue availability`)
+  }
+
+  const digest = await source('apps/workers/src/processors/weekly-digest.ts')
+  assert.match(digest, /assertGlobalAiAvailable/u)
+  assert.doesNotMatch(digest, /assertVenueAiAvailable/u)
 })
 
 test('durable AI jobs defer while deterministic control-plane work remains available', async () => {

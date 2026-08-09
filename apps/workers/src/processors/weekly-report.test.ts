@@ -29,6 +29,7 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  assertVenueAiAvailable: mocks.assertGlobalAiAvailable,
   reserveAiCostAttempt: vi.fn(async () => null),
   markAiCostAttemptDispatched: vi.fn(),
   settleAiCostAttemptExact: vi.fn(),
@@ -46,7 +47,8 @@ vi.mock('@pathfinder/db', () => ({
     error instanceof Error &&
     (error.name === 'GlobalAiAdmissionError' ||
       error.name === 'AiCostBudgetExceededError' ||
-      error.name === 'AiCostBudgetUnavailableError'),
+      error.name === 'AiCostBudgetUnavailableError' ||
+      error.name === 'VenueUnavailableError'),
   db: {
     weeklyReport: { updateMany: mocks.reportUpdateMany },
     venue: { findFirst: mocks.venueFindFirst },

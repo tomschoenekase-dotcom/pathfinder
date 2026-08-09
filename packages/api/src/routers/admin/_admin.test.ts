@@ -241,6 +241,7 @@ describe('admin router', () => {
         callback(transaction),
     )
     generationRequestDispatchFindFirst.mockResolvedValue(null)
+    venueFindFirst.mockResolvedValue({ id: 'venue_1', isActive: true })
     venueReportConfigurationFindFirst.mockResolvedValue({ enabled: true })
     lockVenueReportMutation.mockResolvedValue(undefined)
     validateExistingOrganizationOwnerMock.mockResolvedValue({
@@ -670,7 +671,7 @@ describe('admin router', () => {
 
     expect(venueFindFirst).toHaveBeenCalledWith({
       where: { id: 'venue_1', tenantId: 'tenant_1' },
-      select: { id: true },
+      select: { id: true, isActive: true },
     })
     expect(answerAnalysisSnapshotCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -769,7 +770,10 @@ describe('admin router', () => {
       dispatchState: 'PENDING',
       replayed: true,
     })
-    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue_1', tenantId: 'tenant_1' },
+      select: { id: true, isActive: true },
+    })
     expect(answerAnalysisSnapshotCreate).not.toHaveBeenCalled()
     expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
     expect(auditLogCreate).not.toHaveBeenCalled()
@@ -820,11 +824,40 @@ describe('admin router', () => {
 
     expect(venueFindFirst).toHaveBeenCalledWith({
       where: { id: 'other_tenant_venue', tenantId: 'tenant_1' },
-      select: { id: true },
+      select: { id: true, isActive: true },
     })
     expect(answerAnalysisSnapshotCreate).not.toHaveBeenCalled()
     expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
     expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
+  })
+
+  it('admin.generateAnswerAnalysis blocks an exact replay while the venue is inactive', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1', isActive: false })
+    generationRequestDispatchFindFirst.mockResolvedValueOnce({
+      id: 'dispatch_existing',
+      recordId: 'snapshot_existing',
+      requestHash: generationRequestHash({
+        kind: 'ANSWER_ANALYSIS',
+        venueId: 'venue_1',
+        rangeStart: new Date('2026-07-01T00:00:00.000Z'),
+        rangeEnd: new Date('2026-07-31T23:59:59.999Z'),
+      }),
+      status: 'PENDING',
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rangeStart: '2026-07-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+        requestId: '55555555-5555-4555-8555-555555555556',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+
+    expect(generationRequestDispatchFindFirst).not.toHaveBeenCalled()
     expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
   })
 
@@ -1155,7 +1188,10 @@ describe('admin router', () => {
     ).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({ code: 'PRECONDITION_FAILED' }),
     )
-    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue_1', tenantId: 'tenant_1' },
+      select: { id: true, isActive: true },
+    })
     expect(weeklyReportCreate).not.toHaveBeenCalled()
     expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
     expect(auditLogCreate).not.toHaveBeenCalled()
@@ -1297,7 +1333,7 @@ describe('admin router', () => {
 
     expect(venueFindFirst).toHaveBeenCalledWith({
       where: { id: 'other_tenant_venue', tenantId: 'tenant_1' },
-      select: { id: true },
+      select: { id: true, isActive: true },
     })
     expect(weeklyReportCreate).not.toHaveBeenCalled()
     expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
@@ -1334,7 +1370,10 @@ describe('admin router', () => {
       dispatchState: 'PENDING',
       replayed: true,
     })
-    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue_1', tenantId: 'tenant_1' },
+      select: { id: true, isActive: true },
+    })
     expect(weeklyReportCreate).not.toHaveBeenCalled()
     expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
     expect(auditLogCreate).not.toHaveBeenCalled()
@@ -1399,6 +1438,24 @@ describe('admin router', () => {
       }),
     )
     expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private-host')
+  })
+
+  it('admin.generateWeeklyReportDraft blocks an exact replay while the venue is inactive', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1', isActive: false })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+        requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+
+    expect(generationRequestDispatchFindFirst).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
   })
 
   it('admin.getWeeklyReport scopes report detail to the supplied tenant and venue', async () => {

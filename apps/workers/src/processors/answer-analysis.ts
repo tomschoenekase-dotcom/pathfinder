@@ -10,7 +10,7 @@ import { logger } from '@pathfinder/config'
 import {
   acquireAnswerAnalysisExecution,
   acquireAnswerAnalysisRecoveryExecution,
-  assertGlobalAiAvailable,
+  assertVenueAiAvailable,
   db,
   deferAnswerAnalysisExecution,
   isAiAdmissionControlError,
@@ -348,7 +348,11 @@ export async function processAnswerAnalysisJob(
     })
 
     const response = await generateText({
-      admissionGuard: () => assertGlobalAiAvailable(db),
+      admissionGuard: () =>
+        assertVenueAiAvailable(db, {
+          tenantId: payload.tenantId,
+          venueId: payload.venueId,
+        }),
       modelKey: AI_MODEL_KEYS.ANSWER_ANALYSIS,
       system: [],
       messages: [{ role: 'user', content: prompt }],

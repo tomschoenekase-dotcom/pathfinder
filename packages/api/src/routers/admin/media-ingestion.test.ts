@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   abortMediaUpload: vi.fn(),
+  assertVenueAvailable: vi.fn(),
   assetFindFirst: vi.fn(),
   assetFindMany: vi.fn(),
   beginMediaUpload: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+  assertVenueAvailable: mocks.assertVenueAvailable,
   db: {
     mediaIngestionProject: {
       findFirst: mocks.projectFindFirst,
@@ -91,6 +93,7 @@ describe('media ingestion router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     mocks.abortMediaUpload.mockResolvedValue(undefined)
+    mocks.assertVenueAvailable.mockResolvedValue(undefined)
     mocks.beginMediaUpload.mockResolvedValue({
       uploadId: 'storage_upload_1',
       partSize: 16 * 1024 * 1024,
@@ -1883,6 +1886,26 @@ describe('media ingestion router', () => {
         uploadAttemptId: OTHER_ATTEMPT_ID,
       },
       select: { id: true, venueId: true },
+    })
+    expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
+  })
+
+  it('rejects retry enqueue while the project venue is unavailable', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({ id: 'project_1', venueId: 'venue_1' })
+    mocks.assertVenueAvailable.mockRejectedValueOnce(new Error('venue unavailable'))
+
+    const caller = testRouter.createCaller(context(true))
+    await expect(
+      caller.mediaIngestion.retryEnqueue({
+        tenantId: 'tenant_1',
+        projectId: 'project_1',
+        uploadAttemptId: ATTEMPT_ID,
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+
+    expect(mocks.assertVenueAvailable).toHaveBeenCalledWith(expect.anything(), {
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
     })
     expect(mocks.enqueueMediaIngestion).not.toHaveBeenCalled()
   })

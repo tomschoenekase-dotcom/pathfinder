@@ -49,6 +49,20 @@ export const adminWeeklyReportsRouter = router({
         withTenantIsolationBypass(() =>
           db.$transaction(async (transaction) => {
             await lockVenueReportMutation(transaction, input)
+            const venue = await transaction.venue.findFirst({
+              where: { id: input.venueId, tenantId: input.tenantId },
+              select: { id: true, isActive: true },
+            })
+            if (!venue) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+            }
+            if (venue.isActive === false) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: 'This venue is temporarily unavailable.',
+              })
+            }
+
             const existing = await transaction.generationRequestDispatch.findFirst({
               where: {
                 tenantId: input.tenantId,
@@ -86,14 +100,6 @@ export const adminWeeklyReportsRouter = router({
                 code: 'PRECONDITION_FAILED',
                 message: 'Weekly reports are disabled for this venue.',
               })
-            }
-
-            const venue = await transaction.venue.findFirst({
-              where: { id: input.venueId, tenantId: input.tenantId },
-              select: { id: true },
-            })
-            if (!venue) {
-              throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
             }
 
             const reportId = randomUUID()

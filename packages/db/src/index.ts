@@ -96,6 +96,12 @@ export {
 } from './helpers/incident-control'
 export type { GlobalAiControlState } from './helpers/incident-control'
 export {
+  assertVenueAiAvailable,
+  assertVenueAvailable,
+  isVenueUnavailableError,
+  VenueUnavailableError,
+} from './helpers/venue-availability'
+export {
   AI_COST_BUDGET_COVERAGE_VERSION,
   AI_COST_RESERVATION_TTL_MS,
   AiCostBudgetExceededError,

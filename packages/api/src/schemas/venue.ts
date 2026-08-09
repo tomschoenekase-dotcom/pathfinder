@@ -23,6 +23,5 @@ export const UpdateVenueInput = z
     guideMode: z.enum(['location_aware', 'non_location']).optional(),
     defaultCenterLat: z.number().optional(),
     defaultCenterLng: z.number().optional(),
-    isActive: z.boolean().optional(),
   })
   .strict()

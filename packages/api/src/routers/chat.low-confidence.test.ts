@@ -18,6 +18,12 @@ const { searchKnowledgeByEmbedding, searchPlacesByEmbedding } = vi.hoisted(() =>
 }))
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+  assertVenueAiAvailable: vi.fn().mockResolvedValue(undefined),
+  isAiAdmissionControlError: (error: unknown) =>
+    error instanceof Error &&
+    ['GlobalAiAdmissionError', 'VenueUnavailableError', 'AiCostBudgetExceededError'].includes(
+      error.name,
+    ),
   reserveAiCostAttempt: vi.fn().mockResolvedValue(null),
   markAiCostAttemptDispatched: vi.fn(),
   settleAiCostAttemptExact: vi.fn(),
@@ -70,7 +76,13 @@ const caller = router({ chat: chatRouter }).createCaller(ctx)
 
 const VENUE_ID = 'cvenueabc123456789012'
 const TOKEN = '123e4567-e89b-12d3-a456-426614174000'
-const venueRow = { id: VENUE_ID, tenantId: 'tenant_1', name: 'City Zoo', guideMode: 'non_location' }
+const venueRow = {
+  id: VENUE_ID,
+  tenantId: 'tenant_1',
+  name: 'City Zoo',
+  guideMode: 'non_location',
+  isActive: true,
+}
 const sendInput = { venueId: VENUE_ID, anonymousToken: TOKEN, message: 'Is there a helipad?' }
 
 function place(distance: number) {

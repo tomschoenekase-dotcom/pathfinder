@@ -25,6 +25,7 @@ vi.mock('@pathfinder/config', () => ({
 
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
+  assertVenueAiAvailable: mocks.assertGlobalAiAvailable,
   reserveAiCostAttempt: vi.fn(async () => null),
   markAiCostAttemptDispatched: vi.fn(),
   settleAiCostAttemptExact: vi.fn(),
@@ -42,7 +43,8 @@ vi.mock('@pathfinder/db', () => ({
     error instanceof Error &&
     (error.name === 'GlobalAiAdmissionError' ||
       error.name === 'AiCostBudgetExceededError' ||
-      error.name === 'AiCostBudgetUnavailableError'),
+      error.name === 'AiCostBudgetUnavailableError' ||
+      error.name === 'VenueUnavailableError'),
   acquireAnswerAnalysisExecution: mocks.acquireAnswerAnalysisExecution,
   acquireAnswerAnalysisRecoveryExecution: mocks.acquireAnswerAnalysisRecoveryExecution,
   deferAnswerAnalysisExecution: mocks.deferAnswerAnalysisExecution,
@@ -61,7 +63,6 @@ vi.mock('@pathfinder/db', () => ({
 }))
 
 import { _setAnthropicClientForTesting, processAnswerAnalysisJob } from './answer-analysis'
-import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const anthropicCreate = vi.fn()
 const mockAnthropic = { messages: { create: anthropicCreate } } as AnthropicMessagesClient
@@ -176,8 +177,8 @@ describe('processAnswerAnalysisJob', () => {
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
   })
 
-  it('fenced-releases its execution lease without recording failure when admission pauses', async () => {
-    const pause = new GlobalAiAdmissionError('global-ai-paused')
+  it('fenced-releases its execution lease without recording failure when its venue pauses', async () => {
+    const pause = Object.assign(new Error('venue unavailable'), { name: 'VenueUnavailableError' })
     mocks.assertGlobalAiAvailable.mockRejectedValueOnce(pause)
 
     await expect(processAnswerAnalysisJob(payload)).rejects.toBe(pause)

@@ -23,9 +23,9 @@ import {
 
 import { logger } from '@pathfinder/config'
 import {
-  assertGlobalAiAvailable,
+  assertVenueAiAvailable,
   db,
-  GlobalAiAdmissionError,
+  isAiAdmissionControlError,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -84,6 +84,7 @@ const videoExtensions = new Set(['.mp4', '.mov', '.m4v', '.avi', '.webm'])
 const audioExtensions = new Set(['.mp3', '.m4a', '.wav', '.aac', '.ogg'])
 const textExtensions = new Set(['.txt', '.md', '.csv', '.json'])
 type ReserveProviderOperation = () => Promise<void>
+type MediaAdmissionGuard = () => Promise<void>
 
 export class MediaSynthesisSummaryBudget {
   private retainedCharacters = 2 // Opening and closing JSON array delimiters.
@@ -398,6 +399,7 @@ function emptyAnalysis(summary: string, uncertainty?: string): Analysis {
 
 async function analyzeImage(
   openai: OpenAI,
+  admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   generatedOutputBudget: MediaGeneratedOutputBudget,
   filePath: string,
@@ -415,7 +417,7 @@ async function analyzeImage(
   assertMediaJobActive(signal)
   generatedOutputBudget.consume(jpeg.byteLength)
   const response = await executeMediaProviderOperation(
-    () => assertGlobalAiAvailable(db),
+    admissionGuard,
     reserveProviderOperation,
     () =>
       openai.chat.completions.create(
@@ -458,13 +460,14 @@ async function analyzeImage(
 
 async function transcribe(
   openai: OpenAI,
+  admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   filePath: string,
   signal?: AbortSignal,
 ): Promise<Analysis> {
   assertMediaJobActive(signal)
   const result = await executeMediaProviderOperation(
-    () => assertGlobalAiAvailable(db),
+    admissionGuard,
     reserveProviderOperation,
     () =>
       openai.audio.transcriptions.create(
@@ -681,6 +684,7 @@ export async function downloadAndExtract(
 
 async function synthesize(
   openai: OpenAI,
+  admissionGuard: MediaAdmissionGuard,
   reserveProviderOperation: ReserveProviderOperation,
   venueName: string,
   context: string,
@@ -699,7 +703,7 @@ async function synthesize(
         throw new Error('Media evidence batch exceeds the synthesis memory limit.')
       }
       const response = await executeMediaProviderOperation(
-        () => assertGlobalAiAvailable(db),
+        admissionGuard,
         reserveProviderOperation,
         () =>
           openai.chat.completions.create(
@@ -741,7 +745,7 @@ async function synthesize(
   const compact = JSON.stringify(evidence)
   assertMediaJobActive(signal)
   const response = await executeMediaProviderOperation(
-    () => assertGlobalAiAvailable(db),
+    admissionGuard,
     reserveProviderOperation,
     () =>
       openai.chat.completions.create(
@@ -867,6 +871,11 @@ export async function processMediaIngestionJob(
         uploadAttemptId,
       })
     }
+    const venueAdmission = () =>
+      assertVenueAiAvailable(db, {
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+      })
 
     assertMediaJobActive(signal)
     await withTenantIsolationBypass(() =>
@@ -901,6 +910,7 @@ export async function processMediaIngestionJob(
         } else if (mediaType === 'IMAGE') {
           analysis = await analyzeImage(
             openai,
+            venueAdmission,
             reserveProviderOperation,
             generatedOutputBudget,
             file.path,
@@ -910,7 +920,13 @@ export async function processMediaIngestionJob(
             signal,
           )
         } else if (mediaType === 'AUDIO' && settings.transcribeAudio !== false) {
-          analysis = await transcribe(openai, reserveProviderOperation, file.path, signal)
+          analysis = await transcribe(
+            openai,
+            venueAdmission,
+            reserveProviderOperation,
+            file.path,
+            signal,
+          )
         } else if (mediaType === 'VIDEO') {
           const frameDir = join(workDir, `frames-${index}`)
           analysis = await withMediaGeneratedOutputDirectory(frameDir, async () => {
@@ -926,6 +942,7 @@ export async function processMediaIngestionJob(
               frameAnalyses.push(
                 await analyzeImage(
                   openai,
+                  venueAdmission,
                   reserveProviderOperation,
                   generatedOutputBudget,
                   join(frameDir, frame),
@@ -941,11 +958,18 @@ export async function processMediaIngestionJob(
               const audioPath = join(frameDir, 'audio.mp3')
               try {
                 await extractVideoAudio(file.path, audioPath, generatedOutputBudget, signal)
-                transcript = (await transcribe(openai, reserveProviderOperation, audioPath, signal))
-                  .summary
+                transcript = (
+                  await transcribe(
+                    openai,
+                    venueAdmission,
+                    reserveProviderOperation,
+                    audioPath,
+                    signal,
+                  )
+                ).summary
               } catch (error) {
                 assertMediaJobActive(signal)
-                if (error instanceof GlobalAiAdmissionError) throw error
+                if (isAiAdmissionControlError(error)) throw error
                 if (error instanceof UnrecoverableError) throw error
                 transcript = ''
               }
@@ -996,7 +1020,7 @@ export async function processMediaIngestionJob(
         })
       } catch (error) {
         assertMediaJobActive(signal)
-        if (error instanceof GlobalAiAdmissionError) throw error
+        if (isAiAdmissionControlError(error)) throw error
         if (error instanceof UnrecoverableError) throw error
         const message = error instanceof Error ? error.message : 'Unknown asset analysis error'
         analysis = emptyAnalysis('Analysis failed.', message)
@@ -1041,6 +1065,7 @@ export async function processMediaIngestionJob(
     assertMediaJobActive(signal)
     const synthesis = await synthesize(
       openai,
+      venueAdmission,
       reserveProviderOperation,
       project.venue.name,
       project.context,
@@ -1086,7 +1111,7 @@ export async function processMediaIngestionJob(
     assertMediaJobActive(signal)
     await updateJobRecord(recordId, { status: 'COMPLETE' })
   } catch (caughtError) {
-    if (caughtError instanceof GlobalAiAdmissionError) {
+    if (isAiAdmissionControlError(caughtError)) {
       await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.updateMany({
           where: {

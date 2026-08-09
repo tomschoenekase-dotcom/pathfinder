@@ -6,7 +6,7 @@ import {
   buildKnowledgeEntryText,
   embeddingSourceHash,
   acquireEmbeddingWork,
-  assertGlobalAiAvailable,
+  assertVenueAiAvailable,
   db,
   isAiAdmissionControlError,
   storeKnowledgeEntryEmbeddingForScope,
@@ -123,7 +123,11 @@ export async function processEmbedKnowledgeEntryJob(
     claim = { claimId: acquisition.claimId, leaseToken, venueId: entry.venueId }
 
     const result = await generateEmbedding({
-      admissionGuard: () => assertGlobalAiAvailable(db),
+      admissionGuard: () =>
+        assertVenueAiAvailable(db, {
+          tenantId: payload.tenantId,
+          venueId: entry.venueId,
+        }),
       modelKey: AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT,
       text,
       usageSink: createWorkerAiUsageSink({

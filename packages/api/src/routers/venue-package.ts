@@ -4,7 +4,7 @@ import { AiGatewayError } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
 import {
   getVenuePackageSemanticCoverage,
-  assertGlobalAiAvailable,
+  assertVenueAiAvailable,
   lockVenueContentMutation,
   setContentVersionContext,
   type ContentVersionSourceProvenance,
@@ -2001,7 +2001,8 @@ export const venuePackageRouter = router({
         candidates = await generateVenuePackageCandidateEmbeddings({
           payload: input.payload,
           usageSink: usage.sink,
-          admissionGuard: () => assertGlobalAiAvailable(ctx.db),
+          admissionGuard: () =>
+            assertVenueAiAvailable(ctx.db, { tenantId, venueId: input.venueId }),
           budgetGate: usage.budgetGate,
           shouldAbort: usage.persistenceFailed,
         })

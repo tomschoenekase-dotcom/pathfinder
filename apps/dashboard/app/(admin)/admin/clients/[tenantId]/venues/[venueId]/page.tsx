@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 
 import { createAdminCaller } from '../../../../../../../lib/admin-caller'
+import { VenueAvailabilityControl } from '../../../../../../../components/VenueAvailabilityControl'
 
 type AdminVenueDetailPageProps = {
   params: Promise<{ tenantId: string; venueId: string }>
@@ -32,8 +33,16 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
   let data: Awaited<
     ReturnType<Awaited<ReturnType<typeof createAdminCaller>>['admin']['getClientVenue']>
   >
+  let availability: Awaited<
+    ReturnType<Awaited<ReturnType<typeof createAdminCaller>>['admin']['getVenueAvailability']>
+  >
   try {
-    data = await caller.admin.getClientVenue({ tenantId, venueId })
+    const results = await Promise.all([
+      caller.admin.getClientVenue({ tenantId, venueId }),
+      caller.admin.getVenueAvailability({ tenantId, venueId }),
+    ])
+    data = results[0]
+    availability = results[1]
   } catch {
     return (
       <div className="space-y-6">
@@ -83,6 +92,17 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
           <p className="max-w-2xl text-sm leading-6 text-pf-deep/60">{venue.description}</p>
         ) : null}
       </header>
+
+      <VenueAvailabilityControl
+        scope="admin"
+        tenantId={tenantId}
+        venueName={venue.name}
+        venueId={venue.id}
+        initialState={{
+          isActive: availability.isActive,
+          updatedAt: availability.updatedAt.toISOString(),
+        }}
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Points of interest" value={venue._count.places} />

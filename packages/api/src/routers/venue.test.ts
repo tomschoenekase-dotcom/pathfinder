@@ -38,6 +38,7 @@ const venueFindFirst = vi.fn()
 const venueCreate = vi.fn()
 const venueUpdateMany = vi.fn()
 const venueDeleteMany = vi.fn()
+const auditLogCreate = vi.fn()
 const placeCreateMany = vi.fn()
 const knowledgeEntryCreateMany = vi.fn()
 const importReceiptFindFirst = vi.fn()
@@ -60,6 +61,7 @@ const mockDb = {
     findFirst: importReceiptFindFirst,
     createMany: importReceiptCreateMany,
   },
+  auditLog: { create: auditLogCreate },
   $queryRaw: dbQueryRaw,
   $transaction: dbTransaction,
   $executeRaw: dbExecuteRaw,
@@ -140,9 +142,88 @@ describe('venue router', () => {
     placeCreateMany.mockResolvedValue({ count: 1 })
     knowledgeEntryCreateMany.mockResolvedValue({ count: 1 })
     dbExecuteRaw.mockResolvedValue(1)
+    auditLogCreate.mockResolvedValue({ id: 'audit_1' })
     dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
+  })
+
+  it('venue.setAvailability is exact-revision, tenant-scoped, and strictly audited', async () => {
+    const updatedAt = new Date('2026-08-08T12:00:00.000Z')
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'cuid1234567890abcdef',
+      isActive: true,
+      updatedAt,
+    })
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    const result = await testRouter.createCaller(managerCtx()).venue.setAvailability({
+      venueId: 'cuid1234567890abcdef',
+      enabled: false,
+      expectedUpdatedAt: updatedAt,
+      reason: 'Provider incident',
+    })
+
+    expect(result).toMatchObject({ isActive: false, replayed: false })
+    expect(venueUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'cuid1234567890abcdef',
+          tenantId: 'tenant_1',
+          isActive: true,
+          updatedAt,
+        }),
+        data: expect.objectContaining({ isActive: false }),
+      }),
+    )
+    expect(auditLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        actorId: 'user_1',
+        actorRole: 'MANAGER',
+        action: 'venue.availability.disabled',
+        afterState: { enabled: false, reason: 'Provider incident' },
+      }),
+    })
+  })
+
+  it('venue.setAvailability rejects a stale revision without mutation or audit', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'cuid1234567890abcdef',
+      isActive: true,
+      updatedAt: new Date('2026-08-08T12:00:01.000Z'),
+    })
+
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.setAvailability({
+        venueId: 'cuid1234567890abcdef',
+        enabled: false,
+        expectedUpdatedAt: new Date('2026-08-08T12:00:00.000Z'),
+        reason: 'Provider incident',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(venueUpdateMany).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+  })
+
+  it('venue.setAvailability replays the current state without duplicate audit', async () => {
+    const updatedAt = new Date('2026-08-08T12:00:00.000Z')
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'cuid1234567890abcdef',
+      isActive: false,
+      updatedAt,
+    })
+
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.setAvailability({
+        venueId: 'cuid1234567890abcdef',
+        enabled: false,
+        expectedUpdatedAt: updatedAt,
+        reason: 'Provider incident',
+      }),
+    ).resolves.toMatchObject({ isActive: false, replayed: true })
+    expect(venueUpdateMany).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
   })
 
   // --- venue.list ---
@@ -175,6 +256,7 @@ describe('venue router', () => {
         chatAccentColor: null,
         chatLogoUrl: null,
         chatBannerUrl: null,
+        isActive: true,
       },
     ])
 

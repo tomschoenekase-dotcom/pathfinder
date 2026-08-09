@@ -36,6 +36,20 @@ export const adminAnswerAnalysisRouter = router({
       const createOrReplay = () =>
         withTenantIsolationBypass(() =>
           db.$transaction(async (transaction) => {
+            const venue = await transaction.venue.findFirst({
+              where: { id: input.venueId, tenantId: input.tenantId },
+              select: { id: true, isActive: true },
+            })
+            if (!venue) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+            }
+            if (venue.isActive === false) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: 'This venue is temporarily unavailable.',
+              })
+            }
+
             const existing = await transaction.generationRequestDispatch.findFirst({
               where: {
                 tenantId: input.tenantId,
@@ -52,14 +66,6 @@ export const adminAnswerAnalysisRouter = router({
                 })
               }
               return { ...existing, replayed: true }
-            }
-
-            const venue = await transaction.venue.findFirst({
-              where: { id: input.venueId, tenantId: input.tenantId },
-              select: { id: true },
-            })
-            if (!venue) {
-              throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
             }
 
             const snapshotId = randomUUID()

@@ -23,12 +23,19 @@ vi.mock('@pathfinder/config', () => ({
 }))
 vi.mock('@pathfinder/db', () => ({
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+  assertVenueAiAvailable: vi.fn().mockResolvedValue(undefined),
   GlobalAiAdmissionError: class GlobalAiAdmissionError extends Error {
     name = 'GlobalAiAdmissionError'
     constructor(readonly code: string) {
       super('Global AI admission is unavailable')
     }
   },
+  isAiAdmissionControlError: (error: unknown) =>
+    error instanceof Error &&
+    (error.name === 'GlobalAiAdmissionError' ||
+      error.name === 'AiCostBudgetExceededError' ||
+      error.name === 'AiCostBudgetUnavailableError' ||
+      error.name === 'VenueUnavailableError'),
   db: {
     mediaIngestionProject: {
       findFirst: mocks.projectFindFirst,
@@ -72,7 +79,6 @@ import {
   withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
-import { GlobalAiAdmissionError } from '@pathfinder/db'
 
 const payload = {
   tenantId: 'tenant_1',
@@ -605,8 +611,8 @@ describe('media ingestion lifecycle', () => {
     expect(mocks.rm).not.toHaveBeenCalled()
   })
 
-  it('fenced-restores QUEUED without recording failure when admission pauses after claim', async () => {
-    const pause = new GlobalAiAdmissionError('global-ai-paused')
+  it('fenced-restores QUEUED without recording failure when its venue pauses after claim', async () => {
+    const pause = Object.assign(new Error('venue unavailable'), { name: 'VenueUnavailableError' })
     mocks.projectFindFirst.mockResolvedValueOnce(project)
     mocks.projectUpdateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 })
     mocks.mkdtemp.mockRejectedValueOnce(pause)

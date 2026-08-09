@@ -11,6 +11,7 @@ import { adminOverviewRouter } from './overview'
 import { adminIncidentControlRouter } from './incident-control'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminWeeklyReportsRouter } from './weekly-reports'
+import { adminVenueAvailabilityRouter } from './venue-availability'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -22,6 +23,7 @@ export const adminRouter = mergeRouters(
   adminChatlogsRouter,
   adminAnswerAnalysisRouter,
   adminReportConfigurationRouter,
+  adminVenueAvailabilityRouter,
   adminWeeklyReportsRouter,
   adminDigestRouter,
 )

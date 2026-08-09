@@ -203,25 +203,25 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: 'b60eb08da4af4b7e56c4a5b111d614deaf0ebeb5cd9dcff1370ea3fd45f89b51',
+    hash: 'e01864fe4ce8d6700e6f039c158217ffac8c06a3df29dda07eec8b7985e2ba78',
     policy: 'public-venue-id',
   },
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '0d9343cf04e14fbb149568d40d9114ac091c144db25082ea4bffbff0ff4f4671',
+    hash: 'ccd60a77c031ce44ca94f199112a768b9e27d5d46e4f7b8893056d185d7864f1',
     policy: 'public-venue-id',
   },
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '0e9c67756aeb6f06c65fa2f2dcad466db1b4c646bb47c819a3b7b4dfdf6de68c',
+    hash: '38686c2c51decea761d384847af32cc2488abb5da04e6a264d587a27887c76bb',
     policy: 'public-venue-session-token',
   },
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: 'cc9351d36f562c57799328ef56fdb130629486500e382306f134062c805cb255',
+    hash: 'cc5671a14c3ec0d63578dcd44f80726777597378603178bce1388ea9f0d93a64',
     policy: 'public-venue-slug',
   },
   {

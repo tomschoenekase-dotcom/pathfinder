@@ -1,8 +1,10 @@
 import Link from 'next/link'
-import { TRPCError } from '@trpc/server'
+import { notFound } from 'next/navigation'
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 
 import { PathFinderIcon } from '@pathfinder/ui'
+import { VenueTemporarilyUnavailable } from '../../components/VenueTemporarilyUnavailable'
+import { classifyPublicVenueLookupError } from '../../lib/public-venue-error'
 
 type VenueLandingPageProps = {
   params: Promise<{
@@ -19,16 +21,23 @@ type VenueSummary = {
   defaultCenterLng: number | null
 }
 
-async function loadVenue(slug: string): Promise<VenueSummary | null> {
+type VenueLookup =
+  | { status: 'ready'; venue: VenueSummary }
+  | { status: 'not-found' }
+  | { status: 'temporarily-unavailable' }
+
+async function loadVenue(slug: string): Promise<VenueLookup> {
   const ctx = await createTRPCContext({
     req: new Request(`https://pathfinder.local/${slug}`),
   })
 
   try {
-    return await appRouter.createCaller(ctx).venue.getBySlug({ slug })
+    const venue = await appRouter.createCaller(ctx).venue.getBySlug({ slug })
+    return { status: 'ready', venue }
   } catch (error) {
-    if (error instanceof TRPCError && error.code === 'NOT_FOUND') {
-      return null
+    const failure = classifyPublicVenueLookupError(error)
+    if (failure === 'not-found' || failure === 'temporarily-unavailable') {
+      return { status: failure }
     }
 
     throw error
@@ -37,29 +46,17 @@ async function loadVenue(slug: string): Promise<VenueSummary | null> {
 
 export default async function VenueLandingPage({ params }: VenueLandingPageProps) {
   const { venueSlug } = await params
-  const venue = await loadVenue(venueSlug)
+  const lookup = await loadVenue(venueSlug)
 
-  if (!venue) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6">
-        <section className="w-full max-w-md rounded-3xl border border-pf-light bg-pf-white p-10 text-center shadow-sm">
-          <PathFinderIcon className="mx-auto h-12 w-12" />
-          <h1 className="mt-5 text-2xl font-semibold tracking-tight text-pf-deep">
-            Venue not found
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-pf-deep/60">
-            We couldn&apos;t find this venue. Check the link and try again.
-          </p>
-          <Link
-            href="/"
-            className="mt-6 inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
-          >
-            Back to home
-          </Link>
-        </section>
-      </main>
-    )
+  if (lookup.status === 'not-found') {
+    notFound()
   }
+
+  if (lookup.status === 'temporarily-unavailable') {
+    return <VenueTemporarilyUnavailable />
+  }
+
+  const venue = lookup.venue
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-pf-surface px-4 py-12 sm:px-6">

@@ -11,7 +11,7 @@ import {
 import { TOPIC_KEY_SET, TOPIC_KEYS, type TopicKey } from '@pathfinder/analytics/topics'
 import { logger } from '@pathfinder/config'
 import {
-  assertGlobalAiAvailable,
+  assertVenueAiAvailable,
   db,
   isAiAdmissionControlError,
   updateJobRecord,
@@ -152,7 +152,7 @@ async function classifyTopicBatch(params: {
   ].join('\n')
 
   const response = await generateText({
-    admissionGuard: () => assertGlobalAiAvailable(db),
+    admissionGuard: () => assertVenueAiAvailable(db, { tenantId, venueId }),
     modelKey: AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER,
     system: [],
     messages: [{ role: 'user', content: prompt }],
@@ -228,7 +228,7 @@ async function synthesizeWeeklyThemes(params: {
   ].join('\n')
 
   const response = await generateText({
-    admissionGuard: () => assertGlobalAiAvailable(db),
+    admissionGuard: () => assertVenueAiAvailable(db, { tenantId, venueId }),
     modelKey: AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES,
     system: [],
     messages: [{ role: 'user', content: prompt }],
@@ -347,7 +347,7 @@ async function buildClusters(params: {
   for (let i = 0; i < trimmed.length; i += EMBED_BATCH_SIZE) {
     const batch = trimmed.slice(i, i + EMBED_BATCH_SIZE)
     const result = await generateEmbeddings({
-      admissionGuard: () => assertGlobalAiAvailable(db),
+      admissionGuard: () => assertVenueAiAvailable(db, { tenantId, venueId }),
       modelKey: AI_EMBEDDING_MODEL_KEYS.ANALYTICS_CLUSTERING,
       texts: batch,
       usageSink: createWorkerAiUsageSink({

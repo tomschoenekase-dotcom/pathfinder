@@ -27,6 +27,13 @@ type VenueContentImportReceiptResult = {
   knowledgeEntryCount: number
 }
 
+function publicVenueUnavailable(): TRPCError {
+  return new TRPCError({
+    code: 'SERVICE_UNAVAILABLE',
+    message: 'This venue guide is temporarily unavailable.',
+  })
+}
+
 function venueContentImportPayloadHash(input: ImportVenueContentInput): string {
   return createHash('sha256').update(canonicalVenueContentImportPayload(input)).digest('hex')
 }
@@ -177,6 +184,7 @@ export const venueRouter = router({
           chatFont: string | null
           chatLogoUrl: string | null
           chatBannerUrl: string | null
+          isActive: boolean
         }[]
       >`
         SELECT id, name, description, category,
@@ -188,15 +196,18 @@ export const venueRouter = router({
                chat_accent_color     AS "chatAccentColor",
                chat_font             AS "chatFont",
                chat_logo_url         AS "chatLogoUrl",
-               chat_banner_url       AS "chatBannerUrl"
-        FROM venues WHERE slug = ${input.slug} AND is_active = true LIMIT 1
+               chat_banner_url       AS "chatBannerUrl",
+               is_active             AS "isActive"
+        FROM venues WHERE slug = ${input.slug} LIMIT 1
       `
 
       if (!venue) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
       }
+      const { isActive, ...publicVenue } = venue
+      if (!isActive) throw publicVenueUnavailable()
 
-      return venue
+      return publicVenue
     }),
 
   list: tenantProcedure.query(async ({ ctx }) => {
@@ -314,6 +325,74 @@ export const venueRouter = router({
       })
 
       return updated!
+    }),
+
+  setAvailability: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .use(withContentVersionActor)
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+          enabled: z.boolean(),
+          expectedUpdatedAt: z.coerce.date(),
+          reason: z.string().trim().min(1).max(500),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.venueId })
+
+      const before = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: { id: true, isActive: true, updatedAt: true },
+      })
+      if (!before) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      if (before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Venue availability changed; refresh and try again.',
+        })
+      }
+      if (before.isActive === input.enabled) return { ...before, replayed: true }
+
+      const updatedAt = new Date(Math.max(Date.now(), before.updatedAt.getTime() + 1))
+      const changed = await ctx.db.venue.updateMany({
+        where: {
+          id: input.venueId,
+          tenantId,
+          isActive: before.isActive,
+          updatedAt: before.updatedAt,
+        },
+        data: { isActive: input.enabled, updatedAt },
+      })
+      if (changed.count !== 1) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Venue availability changed; refresh and try again.',
+        })
+      }
+
+      await ctx.db.auditLog.create({
+        data: {
+          tenantId,
+          actorId: ctx.session.userId,
+          actorRole: ctx.session.role,
+          action: input.enabled ? 'venue.availability.enabled' : 'venue.availability.disabled',
+          targetType: 'Venue',
+          targetId: input.venueId,
+          beforeState: { enabled: before.isActive },
+          afterState: { enabled: input.enabled, reason: input.reason },
+        },
+      })
+
+      return {
+        id: before.id,
+        isActive: input.enabled,
+        updatedAt,
+        replayed: false,
+      }
     }),
 
   importContent: tenantProcedure
