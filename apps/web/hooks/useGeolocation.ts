@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type PermissionState = 'granted' | 'denied' | 'prompt' | 'loading'
 
@@ -26,15 +26,15 @@ export function useGeolocation(enabled = true): GeolocationState {
   const watchIdRef = useRef<number | null>(null)
   const watchGenerationRef = useRef(0)
 
-  function clearWatcher() {
+  const clearWatcher = useCallback(() => {
     watchGenerationRef.current += 1
     if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current)
       watchIdRef.current = null
     }
-  }
+  }, [])
 
-  function startWatch() {
+  const startWatch = useCallback(() => {
     clearWatcher()
     const watchGeneration = watchGenerationRef.current
 
@@ -79,7 +79,7 @@ export function useGeolocation(enabled = true): GeolocationState {
       },
       WATCH_OPTIONS,
     )
-  }
+  }, [clearWatcher])
 
   useEffect(() => {
     let active = true
@@ -140,7 +140,7 @@ export function useGeolocation(enabled = true): GeolocationState {
       active = false
       clearWatcher()
     }
-  }, [enabled])
+  }, [clearWatcher, enabled, startWatch])
 
   return {
     lat,

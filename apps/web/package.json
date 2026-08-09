@@ -4,7 +4,7 @@
   "scripts": {
     "build": "next build && node ../../scripts/copy-next-standalone-assets.mjs",
     "dev": "next dev --port 3000",
-    "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"instrumentation*.ts\" \"sentry.*.config.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
+    "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"components/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"public/**/*.{js,ts,tsx}\" \"instrumentation*.ts\" \"sentry.*.config.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\" \"vitest.config.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"

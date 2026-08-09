@@ -9,6 +9,8 @@ import {
   Space_Grotesk,
 } from 'next/font/google'
 
+import { ServiceWorkerRegistration } from '../components/ServiceWorkerRegistration'
+
 import './globals.css'
 
 const jakarta = Plus_Jakarta_Sans({
@@ -104,12 +106,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
       </head>
       <body className="font-jakarta antialiased">
         {children}
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              "if ('serviceWorker' in navigator) { window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); }); }",
-          }}
-        />
+        <ServiceWorkerRegistration enabled={process.env.NEXT_PUBLIC_PWA_ENABLED !== 'false'} />
       </body>
     </html>
   )

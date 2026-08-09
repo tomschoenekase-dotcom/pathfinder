@@ -6,6 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: 'PathFinder',
     description: 'Your venue guide',
     start_url: '/',
+    scope: '/',
     display: 'standalone',
     background_color: '#0f172a',
     theme_color: '#0f172a',
