@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "trpc": [
+    {
+      "path": "analytics.trackEvent",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-telemetry-write",
+      "behavioralEvidence": ["packages/api/src/routers/analytics.test.ts"]
+    },
+    {
+      "path": "chat.history",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/chat.test.ts"]
+    },
+    {
+      "path": "chat.send",
+      "kind": "mutation",
+      "exposure": "public-ai",
+      "controlProfile": "bounded-ai-write",
+      "behavioralEvidence": ["packages/api/src/routers/chat.test.ts"]
+    },
+    {
+      "path": "chat.session",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-session-write",
+      "behavioralEvidence": ["packages/api/src/routers/chat.test.ts"]
+    },
+    {
+      "path": "health",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "static-public-liveness",
+      "behavioralEvidence": [],
+      "exceptionReason": "Returns a fixed process-local object and performs no input, database, queue, provider, or tenant work."
+    },
+    {
+      "path": "venue.getBySlug",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-resource-read",
+      "behavioralEvidence": ["packages/api/src/routers/venue.test.ts"]
+    }
+  ],
+  "http": [
+    {
+      "source": "apps/dashboard/app/api/admin/impersonate/route.ts",
+      "methods": ["POST"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": ["apps/dashboard/app/api/admin/impersonate/route.test.ts"]
+    },
+    {
+      "source": "apps/dashboard/app/api/trpc/[trpc]/route.ts",
+      "methods": ["GET", "POST"],
+      "exposure": "middleware-and-procedure-controlled",
+      "controlProfile": "middleware-and-procedure-controlled",
+      "behavioralEvidence": [
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/trpc.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/webhooks/clerk/route.ts",
+      "methods": ["POST"],
+      "exposure": "signature-authenticated-public-ingress",
+      "controlProfile": "bounded-signed-webhook",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/webhooks/clerk/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
+      "source": "apps/web/app/api/health/route.ts",
+      "methods": ["GET"],
+      "exposure": "intentional-public",
+      "controlProfile": "bounded-public-health",
+      "behavioralEvidence": ["apps/web/app/api/health/route.test.ts"]
+    },
+    {
+      "source": "apps/web/app/api/trpc/[trpc]/route.ts",
+      "methods": ["GET", "POST"],
+      "exposure": "procedure-controlled-public-transport",
+      "controlProfile": "procedure-controlled-transport",
+      "behavioralEvidence": ["packages/api/src/trpc.test.ts"]
+    }
+  ],
+  "dashboardPublicApiPaths": ["/api/webhooks/clerk"]
+}

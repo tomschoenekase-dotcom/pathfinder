@@ -58,6 +58,8 @@ jobs:
       - run: pnpm verify:staging
       - name: Verify exact-revision staging health admission contract
         run: node --test scripts/staging-health-admission.test.mjs
+      - name: Verify reviewed public API surface inventory
+        run: pnpm verify:public-surfaces
       - run: pnpm verify:ai-boundary
       - run: pnpm verify:ai-budget
       - run: pnpm verify:tenant-registry
