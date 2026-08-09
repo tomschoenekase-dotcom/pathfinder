@@ -1,5 +1,8 @@
 # Codex Task Packet — Venue Knowledge Base
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`database-incident-stop.md`](database-incident-stop.md) before using any database step.
+>
 > **Audience:** ChatGPT Codex.
 > **Source of truth for current architecture:** `docs/codebase-overview.md` and the real code.
 > Read this packet fully before writing a single line. The implementation mirrors an existing

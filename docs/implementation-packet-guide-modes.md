@@ -1,5 +1,8 @@
 # IMPLEMENTATION PACKET: PathFinder Guide Modes + Non-Location Support
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`database-incident-stop.md`](database-incident-stop.md) before using any database step.
+
 **Prepared for:** Codex  
 **Date:** 2026-05-02  
 **Branch target:** feature/guide-modes  

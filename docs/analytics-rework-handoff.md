@@ -1,5 +1,9 @@
 # Analytics Rework — Handoff
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> The active stop in [`database-incident-stop.md`](database-incident-stop.md) supersedes the old
+> deployment instructions in this handoff.
+>
 > Status as of 2026-06-23. Implements `docs/analytics-rework-packet.md`.
 > Branch `feat/analytics-rework` is pushed to origin but **NOT merged** to `master`.
 
@@ -38,13 +42,10 @@ must happen before/at merge: (1) open + merge the PR, (2) apply the DB migration
 
 1. **Open + review + merge the PR** for `feat/analytics-rework`:
    https://github.com/tomschoenekase-dotcom/pathfinder/pull/new/feat/analytics-rework
-2. **Apply the DB migration** ⚠️ REQUIRED, and NOT automatic. The running code expects the new
-   columns/table. Railway runs `prisma generate` (client codegen only) on deploy but **no config
-   runs `prisma migrate deploy`** — migrations have always been applied manually here. Run once
-   against Supabase: `pnpm --filter @pathfinder/db db:migrate:prod` (uses `DIRECT_DATABASE_URL`).
-   Migration only ADDS columns/a table — safe, non-destructive. Do it before the merged code serves
-   traffic, or `chat.send` and the dashboard reads will error on missing columns. Consider adding
-   `migrate deploy` to the deploy pipeline so it's automatic going forward.
+2. **Database action is incident-stopped.** The old one-time external migration instruction is
+   withdrawn. Do not apply, inspect, seed, or automate this migration from this handoff. Follow
+   `database-incident-stop.md`; a future reviewed resolution must establish the actual migration
+   state and safe release procedure before database-dependent code serves traffic.
 3. **Tune thresholds on real data** (all named constants, flagged in code): `LOW_CONFIDENCE_DISTANCE_THRESHOLD`
    (0.55, in `packages/api/src/routers/chat.ts`), `CLUSTER_SIMILARITY_THRESHOLD` (0.83) and other
    knobs in the enrichment processor, `PLACE_INTEREST_WEIGHTS` (mentions×1, views×1, clicks×2,

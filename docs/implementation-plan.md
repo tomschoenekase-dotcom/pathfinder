@@ -1,5 +1,8 @@
 # PathFinderOS — Implementation Plan
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`database-incident-stop.md`](database-incident-stop.md) before using any database step.
+>
 > Version: 1.0  
 > Author: Principal Engineer  
 > Date: 2026-04-11  

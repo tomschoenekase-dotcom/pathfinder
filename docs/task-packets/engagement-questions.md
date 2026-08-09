@@ -1,5 +1,8 @@
 # Task Packet: Guest Engagement Questions
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`../database-incident-stop.md`](../database-incident-stop.md) before using any database step.
+
 ## Product spec (confirmed with stakeholder before this packet was written)
 
 Tenants can define a small set of "engagement questions" that the AI guide

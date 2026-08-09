@@ -1,5 +1,8 @@
 # Task Packet: Dashboard Settings Page
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`../database-incident-stop.md`](../database-incident-stop.md) before using any database step.
+
 ## Scope
 
 Build a `/settings` page in `apps/dashboard` with two sections:

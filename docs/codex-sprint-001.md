@@ -1,5 +1,8 @@
 # PathFinder — Codex Sprint 001
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`database-incident-stop.md`](database-incident-stop.md) before using any database step.
+>
 > Four sequential phases. Each phase is scoped to be completable in one Codex session.
 > Read this document top-to-bottom before starting any phase.
 > Complete phases in order — later phases depend on earlier ones.

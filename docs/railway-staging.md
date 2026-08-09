@@ -1,5 +1,9 @@
 # Railway staging configuration
 
+> **Migration instruction status: INCIDENT STOP — DO NOT EXECUTE EXTERNAL DATABASE COMMANDS.**
+> The active stop in [`database-incident-stop.md`](database-incident-stop.md) supersedes every
+> external migration, seed, and database-write step in this runbook.
+
 This runbook creates a staging release boundary for PathFinder. It does not
 authorize access to an account, provision resources, change credentials, or
 deploy anything by itself.
@@ -25,8 +29,10 @@ All three services must deploy the exact same Git commit SHA. Set
 successful build time as proof that the revisions match; record the full SHA
 reported for each deployment.
 
-Before adding application variables, provision resources that are physically
-or logically independent from production:
+After the incident stop is explicitly lifted, the following topology is a future prerequisite.
+It does not authorize provisioning, connecting to, or inspecting any resource while the stop is
+active. Before adding application variables, provision resources that are physically or logically
+independent from production:
 
 - A separate staging Supabase project or PostgreSQL instance. Both
   `DATABASE_URL` and `DIRECT_DATABASE_URL` must resolve to staging. Record and
@@ -49,8 +55,8 @@ normally do not need every worker-only outbound credential.
 
 ## Release procedure
 
-Local destructive migration proofs must use the disposable-only wrapper, never the raw
-`db:migrate` or `db:migrate:prod` scripts. The wrapper accepts only an explicitly named
+Local destructive migration proofs must use the disposable-only wrapper, never a raw migration
+script. The wrapper accepts only an explicitly named
 `pathfinder_disposable_*` database on exact loopback, removes inherited Prisma and Node target
 overrides, and forces `DATABASE_URL` and `DIRECT_DATABASE_URL` to the same validated URL. Put the
 URL only in the purpose-specific environment variable, populated through a local secret-safe
@@ -80,43 +86,21 @@ local tunnel or proxy. For evidence-grade proofs, create an exact-name disposabl
 dedicated port, verify `current_database()` and the finished migration count, then remove that
 exact container.
 
-The raw production migration command below remains reserved for an independently confirmed
-staging release shell. The disposable wrapper intentionally has no external-host escape hatch.
+### External staging release is incident-stopped
 
-1. Select a release commit and record its full SHA as `RELEASE_SHA` in the
-   release evidence. Confirm the repository tests required for that commit have
-   passed.
-2. Configure the three staging services to deploy `RELEASE_SHA`. Before
-   starting workers, compare each service's displayed source revision with the
-   recorded SHA.
-3. From a one-off shell or checkout pinned to `RELEASE_SHA`, print or inspect
-   the non-secret database host/project identity. Stop if it has not been
-   independently confirmed as staging.
-4. Apply forward migrations to the staging database before inserting synthetic
-   data:
+The disposable wrapper intentionally has no external-host escape hatch. Selecting a release,
+opening a release shell, inspecting an external database, applying migrations, seeding data, or
+deploying a database-dependent revision is paused by `database-incident-stop.md`. Do not reconstruct
+an older command from Git history or another packet document.
 
-   ```bash
-   pnpm --filter @pathfinder/db db:migrate:prod
-   ```
+After Tom lifts the stop through a reviewed incident-resolution commit, this section must be
+replaced with a newly rehearsed release procedure that records the exact release SHA, independently
+proved resource identity, migration result, synthetic-data boundary, service revisions, and
+rollback evidence. The public verifier below is retained as a post-resolution reference only; it
+does not authorize a deployment or database action.
 
-   Capture the command result and the migration status. A failed or partially
-   applied migration blocks the release.
-
-5. Only after migrations succeed, run the idempotent synthetic seed against the
-   same verified staging database:
-
-   ```bash
-   pnpm --filter @pathfinder/db db:seed
-   ```
-
-   The seed also checks `RAILWAY_ENVIRONMENT=staging`, but that check is not a
-   substitute for verifying the database endpoint.
-
-6. Deploy web, dashboard, and workers from `RELEASE_SHA`. Keep workers stopped
-   until migrations are complete. Record the resulting Railway deployment ID
-   and full source SHA for each service.
-   After independently identifying the public staging web hostname, admit that
-   deployment with the checked-in verifier:
+After an authorized deployment, admit the independently identified public staging web hostname
+with the checked-in verifier:
 
    ```bash
    pnpm verify:staging-health -- \
@@ -156,15 +140,25 @@ staging release shell. The disposable wrapper intentionally has no external-host
    reports the requested revision. It is an HTTP admission prerequisite, not browser execution proof,
    production authorization, or M4 approval.
 
-7. Start the workers with `EMBEDDING_DISPATCH_ENABLED=false`. Confirm the new
-   `EmbeddingDispatch` table and content triggers exist, then make one synthetic
-   place or knowledge edit and verify a single coalesced dispatch row is committed.
-   Only after that proof, set `EMBEDDING_DISPATCH_ENABLED=true` and restart the
-   staging worker. This flag is independent of `WORKER_SCHEDULERS_ENABLED`.
-8. Run the smoke tests below. Any failure blocks production promotion; fix it
-   in a new commit and repeat the entire exact-SHA procedure.
+## Post-resolution external exercise archive — INERT, DO NOT EXECUTE
 
-## Clerk webhook receipt canary
+Every remaining section in this file is retained only as historical design input for a future
+runbook. Its imperatives, queries, canaries, promotion steps, and proof checklists are suspended by
+`database-incident-stop.md`. They do not authorize an external connection, inspection, write,
+migration, seed, deployment, or production promotion. After Tom explicitly approves an incident
+assessment and any resulting remediation plan, rewrite and rehearse each needed procedure rather
+than executing this archive verbatim.
+
+### Embedding dispatch canary
+
+Start the workers with `EMBEDDING_DISPATCH_ENABLED=false`. Confirm the new `EmbeddingDispatch`
+table and content triggers exist, then make one synthetic place or knowledge edit and verify a
+single coalesced dispatch row is committed. Only after that proof, set
+`EMBEDDING_DISPATCH_ENABLED=true` and restart the staging worker. This flag is independent of
+`WORKER_SCHEDULERS_ENABLED`. Run the archived smoke tests afterward; any failure would block a
+future production promotion and require a new reviewed commit and complete same-SHA rerun.
+
+### Clerk webhook receipt canary
 
 Migration `20260809020000_add_clerk_webhook_receipts` adds a platform-scoped receipt table plus
 membership occurrence and welcome-completion fields. The receipt stores no raw payload, signature,
@@ -218,7 +212,7 @@ receipts exist reopens duplicate membership/audit behavior and removing the memb
 reopen stale-event authorization regressions; dropping receipts or cursor/completion columns is not
 an automatic rollback step.
 
-## Durable generation dispatch canary
+### Durable generation dispatch canary
 
 Answer-analysis and weekly-report requests now commit the domain row, request receipt, and audit
 entry in one transaction. A dispatcher publishes the durable receipt to BullMQ, and the target
@@ -262,7 +256,7 @@ and preserve audit evidence. Do not drop the additive table automatically: consu
 the idempotency record needed by clients retrying an uncertain response. Prefer roll-forward if
 any receipt exists.
 
-## Generation recovery canary
+### Generation recovery canary
 
 Generation recovery is a separate, default-off safety mechanism for answer-analysis and weekly-
 report rows left in `GENERATING` after a worker dies. Each minute it inspects at most 50 expired
@@ -304,7 +298,7 @@ drain only those staging recovery jobs under an approved incident procedure. Do 
 ordinary generation jobs or broad queue namespaces. Preserve failed-job and `JobRecord` evidence
 before any drain.
 
-## Content-history migration canary
+### Content-history migration canary
 
 `20260809030000_add_content_versions` establishes immutable baselines and capture triggers for
 venues, places, and knowledge entries. It takes `SHARE ROW EXCLUSIVE` locks on all three source
@@ -316,7 +310,8 @@ Treat the lock window as a planned staging write drain, not as a zero-downtime a
    migration on a disposable populated clone at representative row counts. Schedule a write drain
    if the measured lock duration exceeds the approved staging request budget.
 2. Stop or drain dashboard/API writers and content-import jobs. Confirm no active transaction is
-   writing the three source tables, then run `prisma migrate deploy` from the release artifact.
+   writing the three source tables, then use the reviewed forward-only migration step from the
+   release artifact after the incident stop is lifted.
    Abort promotion if the migration waits unexpectedly or application write errors appear.
 3. After commit, confirm exactly one `CREATE` baseline per pre-existing source row, all rows have
    `snapshot_schema_version = 1`, and the three capture triggers plus UPDATE/DELETE/TRUNCATE guard
@@ -325,7 +320,7 @@ Treat the lock window as a planned staging write drain, not as a zero-downtime a
    delete. Confirm the first three content changes produce actor-attributed versions in increasing
    sequence, the embedding-only update produces none, and the portal can restore the deletion.
 5. Confirm cross-tenant history reads and reverts are denied, an attempted history-row mutation is
-   rejected, and the migration is idempotent (`prisma migrate deploy` reports no pending work).
+   rejected, and the reviewed migration status reports no pending work.
 
 If the migration transaction fails, do not mark it applied manually: its explicit transaction must
 leave no partial table, functions, triggers, or baselines. Diagnose and roll forward with a corrected
@@ -334,7 +329,7 @@ guards, and capture triggers; older application code does not depend on them, an
 recovery evidence is destructive. Pause writers before rolling back application code. A destructive
 down migration or history deletion requires a separately approved retention and incident decision.
 
-## Operational-update lifecycle migration canary
+### Operational-update lifecycle migration canary
 
 `20260809040000_complete_operational_updates` adds explicit draft/published state, scheduling,
 priority, update type, publication attribution, and immutable history to operational updates. It
@@ -358,7 +353,7 @@ planned staging write drain.
    or any writer remains active.
 3. Confirm one `OPERATIONAL_UPDATE` baseline per pre-existing update, the dedicated capture trigger,
    publication/time-window constraints, and `operational_updates_guest_visibility_idx`. A second
-   `prisma migrate deploy` must report no pending work.
+   the reviewed migration status must report no pending work.
 4. Create a synthetic draft and confirm it is absent from the next guest-chat context. Publish it
    with a current start and future expiry and confirm it affects the very next chat request. Confirm
    a scheduled update is absent before its start, a deactivated update is absent immediately, and
@@ -376,7 +371,7 @@ draining writers; retain the new columns and immutable versions. Reverting to co
 rows as implicitly published would be unsafe, so a same-SHA forward fix is preferred. Dropping the
 history trigger or rows requires separate retention and incident approval.
 
-## Venue-package lifecycle migration canary
+### Venue-package lifecycle migration canary
 
 `20260809050000_add_venue_packages` adds an immutable review aggregate for strict schema-v1 venue
 packages. It does not rewrite venue content. The migration creates one enum, one table, lifecycle
@@ -416,7 +411,7 @@ Do not delete package rows: the database guard intentionally makes revisions imm
 own `revertPackage` action is allowed only while all authoritative venue content still matches its
 post-apply digest; otherwise use manual reviewed recovery rather than a partial rollback.
 
-## Venue report-configuration migration canary
+### Venue report-configuration migration canary
 
 `20260809060000_add_venue_report_configurations` makes client-facing weekly reports an explicit,
 venue-scoped capability. Absence of a configuration row means disabled. The migration does not
@@ -450,7 +445,7 @@ formal review status remain open and must not be claimed by this canary. Applica
 revert the code while retaining the additive table and disabled rows. Dropping configuration or
 historical report data requires a separate reviewed migration.
 
-## Staging smoke tests
+### Staging smoke tests
 
 - Run the exact-revision `verify:staging-health` admission command above and
   record its sanitized JSON result. Railway health must also be green.
@@ -472,7 +467,7 @@ historical report data requires a separate reviewed migration.
 - Review service logs for startup, migration, tenant-isolation, queue, and
   credential errors. Logs must not contain secrets or private payloads.
 
-## Manual production promotion
+### Manual production promotion
 
 Production promotion is an explicit manual approval, not an automatic effect
 of a staging deployment. Promote only the exact `RELEASE_SHA` that passed every
@@ -482,7 +477,7 @@ migrations using the approved migration/recovery procedure, then deploy web,
 dashboard, and workers from that same SHA. If any code changes after staging
 approval, it is a new release and must return to staging.
 
-## Required proof
+### Required proof
 
 Attach or link the following to the release record without exposing secrets:
 

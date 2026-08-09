@@ -1,5 +1,8 @@
 # PathFinderOS — Codex Task Packets
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`database-incident-stop.md`](database-incident-stop.md) before using any database step.
+>
 > Version: 1.0  
 > Date: 2026-04-11  
 > Depends on: `/docs/architecture.md`, `/docs/implementation-plan.md`, `/CLAUDE.md`  

@@ -1,5 +1,8 @@
 # PathFinderOS — Codex Sprint 002
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`database-incident-stop.md`](database-incident-stop.md) before using any database step.
+
 ## Phased Implementation Plan
 
 > Feed each task block individually to Codex. Complete tasks in order within each phase.

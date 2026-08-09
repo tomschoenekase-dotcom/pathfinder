@@ -1,5 +1,8 @@
 # PathFinder — Branding & Chatbot Design Implementation Plan
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> See [`database-incident-stop.md`](database-incident-stop.md) before using any database step.
+
 Execute every phase in order. Run `turbo run typecheck` and `turbo run test` after all phases complete.
 
 ---

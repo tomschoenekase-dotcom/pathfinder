@@ -1,5 +1,9 @@
 # Codex Backlog — PathFinderOS
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+> The active stop in [`database-incident-stop.md`](database-incident-stop.md) supersedes every
+> database migration or seed instruction retained in this historical backlog.
+>
 > Work through these tasks in order. Each task is self-contained. Run
 > `pnpm typecheck` and `pnpm --filter @pathfinder/api test` after every task
 > to verify nothing is broken before moving to the next one.
@@ -152,26 +156,13 @@ present and ordered correctly — this task is a confirmation + comment only.
 
 ---
 
-## Task 6 — Apply the pending database migrations to production
+## Task 6 — External database work (superseded and incident-stopped)
 
-This is a manual step, not a code change. The following migrations exist as SQL
-files but have not been applied to the production Supabase database:
-
-- `packages/db/prisma/migrations/20260413120000_add_weekly_digest/migration.sql`
-- `packages/db/prisma/migrations/20260413130000_add_job_records/migration.sql`
-
-**Steps:**
-
-1. Open the Supabase dashboard for the production project.
-2. Go to the SQL Editor.
-3. Run the contents of `20260413120000_add_weekly_digest/migration.sql`.
-4. Run the contents of `20260413130000_add_job_records/migration.sql`.
-5. Confirm the `weekly_digests` and `job_records` tables appear in the Table Editor.
-
-**Note for Codex:** This cannot be done in code. Flag this task as requiring manual
-execution by the developer. Output a clear reminder that these two SQL files need to
-be run in Supabase before the workers or analytics features will function correctly
-in production.
+The former manual production migration steps are withdrawn. Their stated application status is
+not trustworthy after the external-database incident, and neither file existence nor historical
+notes prove current schema state. Do not apply, inspect, seed, confirm, or remediate any external
+database from this backlog. Follow `database-incident-stop.md`; Tom must first identify the affected
+environment and authorize a bounded read-only assessment.
 
 ---
 
@@ -185,4 +176,4 @@ All tasks complete when:
 - [ ] `Dockerfile.workers` exists at repo root
 - [ ] `railway.workers.json` exists at repo root
 - [ ] Middleware comment added confirming webhook exclusion
-- [ ] Developer has been reminded to run the two pending SQL migrations in Supabase
+- [ ] External database incident resolved through the reviewed stop-lifting conditions
