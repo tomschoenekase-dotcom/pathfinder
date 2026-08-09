@@ -46,10 +46,16 @@ export const mediaIngestionProjectSelect = {
 
 export function serializeMediaIngestionProject<
   T extends { sourceBytes: bigint | null; sourceLastModified: bigint | null },
->(row: T) {
+>(
+  row: T,
+): Omit<T, 'sourceBytes' | 'sourceLastModified'> & {
+  sourceBytes: number | null
+  sourceLastModified: number | null
+} {
+  const { sourceBytes, sourceLastModified, ...project } = row
   return {
-    ...row,
-    sourceBytes: row.sourceBytes === null ? null : Number(row.sourceBytes),
-    sourceLastModified: row.sourceLastModified == null ? null : Number(row.sourceLastModified),
+    ...project,
+    sourceBytes: sourceBytes === null ? null : Number(sourceBytes),
+    sourceLastModified: sourceLastModified === null ? null : Number(sourceLastModified),
   }
 }

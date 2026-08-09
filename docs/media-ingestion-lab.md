@@ -139,5 +139,18 @@ text extraction is not yet part of the worker.
   safety ceiling once pricing and media tier policy are approved.
 - Add perceptual (not merely byte-exact) duplicate grouping and cross-batch exhibit reconciliation.
 - Persist token usage and calculate estimated/actual spend from a versioned pricing table.
-- Add server-driven polling or push updates on the intake detail screen.
-- Add a source gallery and per-finding correction UI before direct venue import is enabled.
+- The intake detail screen now polls one narrow tenant/venue/project-scoped status contract while
+  work is active, backs off on failure, stops while hidden or terminal, and fetches the complete
+  review only after the server reports a draft.
+- Review now includes a generation-fenced source-evidence gallery with at most 50 editable findings
+  per page and per-finding corrections. Original AI findings remain immutable; server-stamped
+  reviewer corrections are stored beside them. Corrections do not silently rewrite the venue
+  package because findings do not yet map one-to-one to package items.
+- The generated download is now the frozen Venue Package v1 contract shared by the worker, API,
+  and dashboard. Questions and coverage are stored outside that JSON. Drafts produced before this
+  boundary used an incompatible `title`/`description` shape and remain visibly invalid until an
+  operator edits or explicitly regenerates them; they are never silently transformed.
+- Source assets expose bounded metadata only, while separately paginated findings expose the
+  reviewable analysis; neither contract returns storage keys. Actual
+  thumbnails require separately persisted derivatives, so they remain blocked on approved raw and
+  derived-media privacy, retention, deletion, encryption, and storage-cost policy.

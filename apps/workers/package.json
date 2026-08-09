@@ -19,6 +19,7 @@
     "@pathfinder/analytics": "workspace:*",
     "@pathfinder/ai": "workspace:*",
     "@pathfinder/config": "workspace:*",
+    "@pathfinder/contracts": "workspace:*",
     "@pathfinder/db": "workspace:*",
     "@pathfinder/jobs": "workspace:*",
     "bullmq": "^5.61.0",

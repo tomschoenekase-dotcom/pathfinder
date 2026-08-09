@@ -56,6 +56,9 @@ importers:
       '@pathfinder/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@pathfinder/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pathfinder/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -211,6 +214,9 @@ importers:
       '@pathfinder/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@pathfinder/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pathfinder/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -294,6 +300,9 @@ importers:
       '@pathfinder/config':
         specifier: workspace:*
         version: link:../config
+      '@pathfinder/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@pathfinder/db':
         specifier: workspace:*
         version: link:../db
@@ -323,6 +332,12 @@ importers:
         version: 11.16.0(typescript@5.9.3)
 
   packages/config:
+    dependencies:
+      zod:
+        specifier: ^3.0.0
+        version: 3.25.76
+
+  packages/contracts:
     dependencies:
       zod:
         specifier: ^3.0.0

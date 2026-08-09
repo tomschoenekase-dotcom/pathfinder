@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   abortMediaUpload: vi.fn(),
+  assetFindFirst: vi.fn(),
+  assetFindMany: vi.fn(),
   beginMediaUpload: vi.fn(),
   enqueueMediaIngestion: vi.fn(),
   finishMediaUpload: vi.fn(),
@@ -26,6 +28,10 @@ vi.mock('@pathfinder/db', () => ({
       findFirst: mocks.projectFindFirst,
       findMany: mocks.projectFindMany,
       updateMany: mocks.projectUpdateMany,
+    },
+    mediaIngestionAsset: {
+      findFirst: mocks.assetFindFirst,
+      findMany: mocks.assetFindMany,
     },
   },
   withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
@@ -94,9 +100,304 @@ describe('media ingestion router', () => {
       { partNumber: 1, etag: 'etag_1', size: 10 },
     ])
     mocks.projectFindMany.mockResolvedValue([])
+    mocks.assetFindFirst.mockResolvedValue(null)
+    mocks.assetFindMany.mockResolvedValue([])
     mocks.enqueueMediaIngestion.mockResolvedValue(undefined)
     mocks.projectUpdateMany.mockResolvedValue({ count: 1 })
     mocks.writeAuditLog.mockResolvedValue(undefined)
+  })
+
+  it('returns only current-generation source evidence without exposing storage identity', async () => {
+    const updatedAt = new Date('2026-08-08T18:00:00.000Z')
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      id: 'project_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      name: 'Visit',
+      context: '',
+      mode: 'BALANCED',
+      status: 'READY_FOR_REVIEW',
+      stage: 'review',
+      progress: 100,
+      sourceFileName: 'visit.zip',
+      sourceBytes: 10n,
+      sourceLastModified: 123n,
+      sourceFingerprintAlgorithm: 'pathfinder-sha256-part-manifest-v1',
+      uploadAttemptId: null,
+      settings: {},
+      coverage: {},
+      questions: [],
+      findings: Array.from({ length: 51 }, (_, index) => ({
+        sourceId: `S-${index + 1}`,
+        filename: `${index + 1}.jpg`,
+        mediaType: 'IMAGE',
+        summary: `Finding ${index + 1}`,
+        uncertainties: [],
+      })),
+      draftJson: { schemaVersion: 1, places: [], knowledgeEntries: [] },
+      estimatedCostCents: null,
+      actualCostCents: 0,
+      error: null,
+      createdAt: updatedAt,
+      updatedAt,
+      completedAt: updatedAt,
+      sourceObjectKey: 'tenant/venue/project/generation/archive.zip',
+      sourceObjectGeneration: ATTEMPT_ID,
+    })
+    mocks.assetFindMany.mockResolvedValueOnce([
+      {
+        id: 'asset_1',
+        sourceId: 'S-1',
+        filename: 'one.jpg',
+        mediaType: 'IMAGE',
+        bytes: 10n,
+        status: 'COMPLETE',
+        analysis: { summary: 'One' },
+        error: null,
+        updatedAt,
+      },
+    ])
+
+    const result = await testRouter.createCaller(context(true)).mediaIngestion.get({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      projectId: 'project_1',
+    })
+
+    expect(mocks.projectFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'project_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      }),
+    )
+    expect(mocks.assetFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          projectId: 'project_1',
+          objectKey: { startsWith: 'tenant/venue/project/generation/archive.zip#' },
+        }),
+        take: 51,
+      }),
+    )
+    expect(result.assets).toEqual([expect.objectContaining({ id: 'asset_1', bytes: 10 })])
+    expect(result.findings).toHaveLength(50)
+    expect(result.findingsNextCursor).toBe('S-50')
+    expect(serializeCalls(result)).not.toContain('Finding 51')
+    expect(serializeCalls(result)).not.toContain('sourceObjectKey')
+    expect(serializeCalls(result)).not.toContain('archive.zip#')
+  })
+
+  it('paginates source evidence only for the exact review generation', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      sourceObjectKey: 'tenant/venue/project/generation/archive.zip',
+      sourceObjectGeneration: ATTEMPT_ID,
+    })
+    mocks.assetFindFirst.mockResolvedValueOnce({
+      id: 'cm00000000000000000000001',
+      filename: 'one.jpg',
+    })
+    mocks.assetFindMany.mockResolvedValueOnce([
+      {
+        id: 'asset_2',
+        sourceId: 'S-2',
+        filename: 'two.jpg',
+        mediaType: 'IMAGE',
+        bytes: 20n,
+        status: 'COMPLETE',
+        analysis: {},
+        error: null,
+        updatedAt: new Date(),
+      },
+      {
+        id: 'asset_3',
+        sourceId: 'S-3',
+        filename: 'three.jpg',
+        mediaType: 'IMAGE',
+        bytes: 30n,
+        status: 'COMPLETE',
+        analysis: {},
+        error: null,
+        updatedAt: new Date(),
+      },
+    ])
+
+    const result = await testRouter.createCaller(context(true)).mediaIngestion.listAssets({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      projectId: 'project_1',
+      reviewGeneration: ATTEMPT_ID,
+      cursor: 'cm00000000000000000000001',
+      limit: 1,
+    })
+
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]).toMatchObject({ id: 'asset_2', bytes: 20 })
+    expect(result.nextCursor).toBe('asset_2')
+    expect(mocks.assetFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          projectId: 'project_1',
+          objectKey: { startsWith: 'tenant/venue/project/generation/archive.zip#' },
+          OR: [
+            { filename: { gt: 'one.jpg' } },
+            { filename: 'one.jpg', id: { gt: 'cm00000000000000000000001' } },
+          ],
+        }),
+        take: 2,
+      }),
+    )
+  })
+
+  it('rejects a source evidence cursor outside the fenced project generation', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      sourceObjectKey: 'tenant/venue/project/generation/archive.zip',
+      sourceObjectGeneration: ATTEMPT_ID,
+    })
+
+    await expect(
+      testRouter.createCaller(context(true)).mediaIngestion.listAssets({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        projectId: 'project_1',
+        reviewGeneration: ATTEMPT_ID,
+        cursor: 'cm00000000000000000000001',
+        limit: 50,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.assetFindMany).not.toHaveBeenCalled()
+  })
+
+  it('preserves generated evidence and questions while saving fenced reviewer patches', async () => {
+    const expectedUpdatedAt = new Date('2026-08-08T18:00:00.000Z')
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      sourceObjectGeneration: ATTEMPT_ID,
+      questions: [{ id: 'Q-1', question: 'Accessible?' }],
+      findings: [
+        {
+          sourceId: 'S-1',
+          filename: 'one.jpg',
+          mediaType: 'IMAGE',
+          summary: 'Original summary',
+          uncertainties: ['Original uncertainty'],
+        },
+      ],
+    })
+
+    const result = await testRouter.createCaller(context(true)).mediaIngestion.saveReview({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      projectId: 'project_1',
+      reviewGeneration: ATTEMPT_ID,
+      expectedUpdatedAt,
+      questionAnswers: [{ id: 'Q-1', answer: '' }],
+      findingCorrections: [
+        {
+          sourceId: 'S-1',
+          summary: 'Corrected summary',
+          uncertainties: [],
+          note: 'Checked against the source.',
+        },
+      ],
+      draftJson: {
+        schemaVersion: 1,
+        places: [{ name: 'North Hall', type: 'exhibit', tags: [], importanceScore: 50 }],
+        knowledgeEntries: [],
+      },
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      updatedAt: expect.any(Date),
+      status: 'NEEDS_INPUT',
+      questions: [{ id: 'Q-1', question: 'Accessible?', answer: '' }],
+      findingReviews: [
+        expect.objectContaining({
+          sourceId: 'S-1',
+          review: expect.objectContaining({ summary: 'Corrected summary' }),
+        }),
+      ],
+    })
+    expect(mocks.projectUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'project_1',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          sourceObjectGeneration: ATTEMPT_ID,
+          updatedAt: expectedUpdatedAt,
+        }),
+        data: expect.objectContaining({
+          status: 'NEEDS_INPUT',
+          stage: 'questions',
+          questions: [{ id: 'Q-1', question: 'Accessible?', answer: '' }],
+          findings: [
+            expect.objectContaining({
+              summary: 'Original summary',
+              review: expect.objectContaining({
+                summary: 'Corrected summary',
+                reviewedBy: 'user_1',
+              }),
+            }),
+          ],
+          updatedAt: result.updatedAt,
+        }),
+      }),
+    )
+    expect(mocks.writeAuditLog).toHaveBeenCalledOnce()
+  })
+
+  it('paginates editable findings without returning the full project payload', async () => {
+    const findings = Array.from({ length: 51 }, (_, index) => ({
+      sourceId: `S-${index + 1}`,
+      filename: `${String(index + 1).padStart(2, '0')}.jpg`,
+      mediaType: 'IMAGE',
+      summary: `Finding ${index + 1}`,
+      uncertainties: [],
+    }))
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      sourceObjectGeneration: ATTEMPT_ID,
+      findings,
+    })
+
+    const result = await testRouter.createCaller(context(true)).mediaIngestion.listFindings({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      projectId: 'project_1',
+      reviewGeneration: ATTEMPT_ID,
+    })
+
+    expect(result.items).toHaveLength(50)
+    expect(result.items[0]).toMatchObject({ sourceId: 'S-1' })
+    expect(result.nextCursor).toBe('S-50')
+    expect(serializeCalls(result)).not.toContain('Finding 51')
+  })
+
+  it('rejects a stale review save without writing an audit success', async () => {
+    mocks.projectFindFirst.mockResolvedValueOnce({
+      sourceObjectGeneration: ATTEMPT_ID,
+      questions: [],
+      findings: [],
+    })
+    mocks.projectUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(
+      testRouter.createCaller(context(true)).mediaIngestion.saveReview({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        projectId: 'project_1',
+        reviewGeneration: ATTEMPT_ID,
+        expectedUpdatedAt: new Date('2026-08-08T18:00:00.000Z'),
+        questionAnswers: [],
+        findingCorrections: [],
+        draftJson: {
+          schemaVersion: 1,
+          places: [{ name: 'North Hall', type: 'exhibit' }],
+          knowledgeEntries: [],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.writeAuditLog).not.toHaveBeenCalled()
   })
 
   it('rejects all access for non-platform admins', async () => {

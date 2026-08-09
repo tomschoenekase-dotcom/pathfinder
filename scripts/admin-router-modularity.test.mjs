@@ -45,10 +45,13 @@ const expectedMediaProcedures = [
   'expireAbandonedUploads',
   'get',
   'list',
+  'listAssets',
+  'listFindings',
   'reconcileUpload',
   'retryEnqueue',
   'saveReview',
   'signPart',
+  'status',
 ]
 
 function procedureNames(source) {

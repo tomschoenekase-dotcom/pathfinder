@@ -14,6 +14,13 @@ import ffmpegPath from 'ffmpeg-static'
 import { UnrecoverableError } from 'bullmq'
 import { z } from 'zod'
 
+import {
+  MEDIA_SOURCE_FILENAME_LIMIT,
+  VENUE_PACKAGE_ITEM_LIMIT,
+  VenuePackagePayloadV1,
+  VenuePackagePayloadV1Object,
+} from '@pathfinder/contracts'
+
 import { logger } from '@pathfinder/config'
 import { db, updateJobRecord, withTenantIsolationBypass, writeJobRecord } from '@pathfinder/db'
 import {
@@ -152,51 +159,6 @@ const analysisSchema = z
   })
   .strict()
 
-const synthesisPlaceSchema = z
-  .object({
-    title: z.string().min(1).max(200),
-    type: z.string().min(1).max(200),
-    itemType: z.enum([
-      'physical_place',
-      'exhibit',
-      'room',
-      'sculpture',
-      'service_step',
-      'faq',
-      'amenity',
-      'policy',
-      'activity',
-      'general_info',
-    ]),
-    description: z.string().max(2_000),
-    shortDescription: z.string().max(500).optional(),
-    lat: z.number().min(-90).max(90).optional(),
-    lng: z.number().min(-180).max(180).optional(),
-    tags: z.array(z.string().max(100)).max(100),
-    importanceScore: z.number().int().min(0).max(100),
-    areaName: z.string().max(200).optional(),
-    hours: z.string().max(200).optional(),
-    photoUrl: z.string().url().max(2_000).optional(),
-  })
-  .strict()
-  .superRefine((place, context) => {
-    if ((place.lat === undefined) !== (place.lng === undefined)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Latitude and longitude must be supplied together.',
-      })
-    }
-  })
-
-const synthesisKnowledgeEntrySchema = z
-  .object({
-    title: z.string().min(1).max(200),
-    category: z.string().min(1).max(100),
-    content: z.string().min(1).max(5_000),
-    isEnabled: z.boolean().optional(),
-  })
-  .strict()
-
 const synthesisQuestionSchema = z
   .object({
     id: z.string().min(1).max(200),
@@ -211,15 +173,33 @@ const synthesisCoverageSchema = z
   })
   .strict()
 
-const synthesisDraftSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    places: z.array(synthesisPlaceSchema).max(500),
-    knowledgeEntries: z.array(synthesisKnowledgeEntrySchema).max(500),
-    questions: z.array(synthesisQuestionSchema).max(500),
-    coverage: synthesisCoverageSchema,
-  })
+const synthesisDraftSchema = VenuePackagePayloadV1Object.extend({
+  questions: z.array(synthesisQuestionSchema).max(500),
+  coverage: synthesisCoverageSchema,
+})
   .strict()
+  .superRefine((draft, context) => {
+    if (draft.places.length + draft.knowledgeEntries.length > VENUE_PACKAGE_ITEM_LIMIT) {
+      context.addIssue({
+        code: z.ZodIssueCode.too_big,
+        maximum: VENUE_PACKAGE_ITEM_LIMIT,
+        type: 'array',
+        inclusive: true,
+        message: 'A media synthesis draft can contain at most 500 total import entries.',
+      })
+    }
+    const questionIds = new Set<string>()
+    draft.questions.forEach((question, index) => {
+      if (questionIds.has(question.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['questions', index, 'id'],
+          message: 'Media synthesis question IDs must be unique.',
+        })
+      }
+      questionIds.add(question.id)
+    })
+  })
 
 type MediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
 
@@ -296,6 +276,14 @@ function classify(filename: string): MediaType | null {
   return null
 }
 
+export function assertMediaSourceFilename(filename: string): void {
+  if (filename.length > MEDIA_SOURCE_FILENAME_LIMIT) {
+    throw new Error(
+      `Media source path exceeds the ${MEDIA_SOURCE_FILENAME_LIMIT}-character safety limit.`,
+    )
+  }
+}
+
 function unwrapProviderJson(text: string): string {
   const unwrapped = text
     .trim()
@@ -356,7 +344,11 @@ function assertBoundedProviderJson(value: unknown): void {
   }
 }
 
-function parseProviderJson<T>(text: string, schema: z.ZodType<T>, label: string): T {
+function parseProviderJson<TSchema extends z.ZodTypeAny>(
+  text: string,
+  schema: TSchema,
+  label: string,
+): z.output<TSchema> {
   let value: unknown
   try {
     value = JSON.parse(unwrapProviderJson(text))
@@ -375,6 +367,16 @@ export function parseMediaAnalysisResponse(text: string): Analysis {
 
 export function parseMediaSynthesisResponse(text: string): z.infer<typeof synthesisDraftSchema> {
   return parseProviderJson(text, synthesisDraftSchema, 'Media synthesis provider output')
+}
+
+export function mediaSynthesisToVenuePackage(
+  synthesis: z.infer<typeof synthesisDraftSchema>,
+): z.infer<typeof VenuePackagePayloadV1> {
+  return VenuePackagePayloadV1.parse({
+    schemaVersion: synthesis.schemaVersion,
+    places: synthesis.places,
+    knowledgeEntries: synthesis.knowledgeEntries,
+  })
 }
 
 function emptyAnalysis(summary: string, uncertainty?: string): Analysis {
@@ -632,6 +634,7 @@ export async function downloadAndExtract(
       const originalName = entry.path.replace(/\\/g, '/')
       const cleanName = basename(originalName)
       const mediaType = classify(cleanName)
+      if (mediaType) assertMediaSourceFilename(originalName)
       const counter = byteBudget.createEntryCounter()
       if (!mediaType || !cleanName || cleanName.startsWith('.')) {
         const discard = new Writable({
@@ -739,7 +742,7 @@ async function synthesize(
             {
               role: 'system',
               content:
-                'Build draft PathFinder import JSON from evidence summaries. Return exactly schemaVersion 1, places, knowledgeEntries, questions, and coverage. Every place needs title (max 200 characters), type, itemType (physical_place, exhibit, room, sculpture, service_step, faq, amenity, policy, activity, or general_info), description (max 2000 characters), tags, and importanceScore (integer 0-100); include areaName, hours, photoUrl, or paired lat/lng only when supported. Every knowledge entry needs title (max 200), category (max 100), and content (max 5000). Return at most 500 places, 500 knowledge entries, and 500 questions. Every question must contain only a stable id and question string. Coverage must contain exactly evidenceSources (a nonnegative integer) and notes (a string array). Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Put ambiguity that could change the guide in questions.',
+                'Build draft PathFinder import JSON from evidence summaries. Return exactly schemaVersion 1, places, knowledgeEntries, questions, and coverage. Every place needs name (max 200 characters), type, tags, and importanceScore (integer 0-100); optionally include itemType (physical_place, exhibit, room, sculpture, service_step, faq, amenity, policy, activity, or general_info), shortDescription (max 500), longDescription (max 2000), areaName, hours, photoUrl, or paired lat/lng only when supported. Every knowledge entry needs title (max 200), category (max 100), content (max 5000), and isEnabled. Return at most 500 total places plus knowledge entries, and at most 500 questions. Every question must contain only a stable id and question string. Coverage must contain exactly evidenceSources (a nonnegative integer) and notes (a string array). Do not silently resolve conflicts, merge uncertain objects, or treat project context as direct observation. Put ambiguity that could change the guide in questions.',
             },
             {
               role: 'user',
@@ -1023,7 +1026,7 @@ export async function processMediaIngestionJob(
       }),
     )
     assertMediaJobActive(signal)
-    const draft = await synthesize(
+    const synthesis = await synthesize(
       openai,
       reserveProviderOperation,
       project.venue.name,
@@ -1032,7 +1035,8 @@ export async function processMediaIngestionJob(
       signal,
     )
     assertMediaJobActive(signal)
-    const questions = Array.isArray(draft.questions) ? draft.questions : []
+    const questions = synthesis.questions
+    const draft = mediaSynthesisToVenuePackage(synthesis)
     const failures = analyses.filter((item) => item.analysis.summary === 'Analysis failed.').length
     assertMediaJobActive(signal)
     await withTenantIsolationBypass(() =>
@@ -1059,6 +1063,7 @@ export async function processMediaIngestionJob(
             totalFiles: files.length,
             processedFiles: files.length,
             failedFiles: failures,
+            synthesis: synthesis.coverage,
           },
           completedAt: new Date(),
           uploadAttemptId: null,

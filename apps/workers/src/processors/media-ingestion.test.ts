@@ -54,6 +54,8 @@ import {
 import {
   cleanupMediaWorkDir,
   downloadAndExtract,
+  assertMediaSourceFilename,
+  mediaSynthesisToVenuePackage,
   MediaGeneratedOutputCleanupError,
   MediaSynthesisSummaryBudget,
   parseMediaAnalysisResponse,
@@ -62,6 +64,7 @@ import {
   processMediaIngestionJob,
   withMediaGeneratedOutputDirectory,
 } from './media-ingestion'
+import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
 
 const payload = {
   tenantId: 'tenant_1',
@@ -81,6 +84,13 @@ const project = {
 }
 
 describe('media ingestion provider output validation', () => {
+  it('rejects a media source path beyond the persisted review filename bound', () => {
+    expect(() => assertMediaSourceFilename('x'.repeat(1_001))).toThrow(
+      'Media source path exceeds the 1000-character safety limit.',
+    )
+    expect(() => assertMediaSourceFilename('x'.repeat(1_000))).not.toThrow()
+  })
+
   it('accepts bounded analysis JSON wrapped in a markdown fence', () => {
     expect(
       parseMediaAnalysisResponse(`\`\`\`json
@@ -132,28 +142,36 @@ describe('media ingestion provider output validation', () => {
   })
 
   it('accepts an import-compatible bounded synthesis draft', () => {
-    expect(
-      parseMediaSynthesisResponse(
-        JSON.stringify({
-          schemaVersion: 1,
-          places: [
-            {
-              title: 'North Hall',
-              type: 'exhibit',
-              itemType: 'exhibit',
-              description: 'A public exhibit hall.',
-              tags: ['indoor'],
-              importanceScore: 50,
-            },
-          ],
-          knowledgeEntries: [
-            { title: 'Hours', category: 'Operations', content: 'Open until five.' },
-          ],
-          questions: [{ id: 'Q-1', question: 'Is the hall accessible?' }],
-          coverage: { evidenceSources: 1, notes: [] },
-        }),
-      ),
-    ).toMatchObject({ schemaVersion: 1, questions: [{ id: 'Q-1' }] })
+    const synthesis = parseMediaSynthesisResponse(
+      JSON.stringify({
+        schemaVersion: 1,
+        places: [
+          {
+            name: 'North Hall',
+            type: 'exhibit',
+            itemType: 'exhibit',
+            longDescription: 'A public exhibit hall.',
+            tags: ['indoor'],
+            importanceScore: 50,
+          },
+        ],
+        knowledgeEntries: [
+          {
+            title: 'Hours',
+            category: 'Operations',
+            content: 'Open until five.',
+            isEnabled: true,
+          },
+        ],
+        questions: [{ id: 'Q-1', question: 'Is the hall accessible?' }],
+        coverage: { evidenceSources: 1, notes: [] },
+      }),
+    )
+    expect(synthesis).toMatchObject({ schemaVersion: 1, questions: [{ id: 'Q-1' }] })
+    expect(VenuePackagePayloadV1.parse(mediaSynthesisToVenuePackage(synthesis))).toMatchObject({
+      schemaVersion: 1,
+      places: [{ name: 'North Hall' }],
+    })
   })
 
   it.each([
@@ -173,10 +191,10 @@ describe('media ingestion provider output validation', () => {
         schemaVersion: 1,
         places: [
           {
-            title: 'Hall',
+            name: 'Hall',
             type: 'exhibit',
             itemType: 'exhibit',
-            description: 'Description',
+            longDescription: 'Description',
             tags: [],
             importanceScore: 101,
           },
@@ -208,15 +226,28 @@ describe('media ingestion provider output validation', () => {
       },
     ],
     [
+      'duplicate question IDs',
+      {
+        schemaVersion: 1,
+        places: [{ name: 'Hall', type: 'exhibit' }],
+        knowledgeEntries: [],
+        questions: [
+          { id: 'Q-1', question: 'First?' },
+          { id: 'Q-1', question: 'Second?' },
+        ],
+        coverage: { evidenceSources: 1, notes: [] },
+      },
+    ],
+    [
       'unexpected nested field',
       {
         schemaVersion: 1,
         places: [
           {
-            title: 'Hall',
+            name: 'Hall',
             type: 'exhibit',
             itemType: 'exhibit',
-            description: 'Description',
+            longDescription: 'Description',
             tags: [],
             importanceScore: 50,
             rawProviderDebug: 'must not persist',
@@ -228,15 +259,15 @@ describe('media ingestion provider output validation', () => {
       },
     ],
     [
-      'import-incompatible title length',
+      'import-incompatible name length',
       {
         schemaVersion: 1,
         places: [
           {
-            title: 'x'.repeat(201),
+            name: 'x'.repeat(201),
             type: 'exhibit',
             itemType: 'exhibit',
-            description: 'Description',
+            longDescription: 'Description',
             tags: [],
             importanceScore: 50,
           },
@@ -247,14 +278,22 @@ describe('media ingestion provider output validation', () => {
       },
     ],
     [
-      'more than 500 import entries',
+      'more than 500 total import entries',
       {
         schemaVersion: 1,
-        places: [],
-        knowledgeEntries: Array.from({ length: 501 }, (_, index) => ({
+        places: [
+          {
+            name: 'Hall',
+            type: 'exhibit',
+            tags: [],
+            importanceScore: 50,
+          },
+        ],
+        knowledgeEntries: Array.from({ length: 500 }, (_, index) => ({
           title: `Entry ${index}`,
           category: 'General',
           content: 'Content',
+          isEnabled: true,
         })),
         questions: [],
         coverage: { evidenceSources: 501, notes: [] },

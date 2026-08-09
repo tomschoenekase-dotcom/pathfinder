@@ -1,68 +1,285 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import type { inferRouterOutputs } from '@trpc/server'
+
+import type { AppRouter } from '@pathfinder/api'
+import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
 
 import { useTRPCClient } from '../../lib/trpc'
 
-type JsonRecord = Record<string, unknown>
+type MediaProject = inferRouterOutputs<AppRouter>['mediaIngestion']['get']
+type MediaAsset = MediaProject['assets'][number]
+type Question = { id: string; question: string; answer: string }
+type FindingReview = {
+  summary: string
+  uncertainties: string[]
+  note: string
+  reviewedBy: string
+  reviewedAt: string
+}
+type Finding = {
+  sourceId: string
+  filename: string
+  mediaType: 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
+  summary: string
+  uncertainties: string[]
+  review?: FindingReview
+}
+type FindingEdit = { summary: string; uncertainties: string; note: string }
+type FindingCorrection = {
+  sourceId: string
+  summary: string
+  uncertainties: string[]
+  note: string
+}
 
-function normalizeQuestions(value: unknown): JsonRecord[] {
+function normalizeQuestions(value: unknown): Question[] {
   if (!Array.isArray(value)) return []
-  return value.map((item, index) => {
-    if (typeof item === 'string') return { id: `Q-${index + 1}`, question: item, answer: '' }
-    if (item && typeof item === 'object') return item as JsonRecord
-    return { id: `Q-${index + 1}`, question: String(item), answer: '' }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const question = item as Record<string, unknown>
+    if (typeof question.id !== 'string' || typeof question.question !== 'string') return []
+    return [
+      {
+        id: question.id,
+        question: question.question,
+        answer: typeof question.answer === 'string' ? question.answer : '',
+      },
+    ]
   })
 }
 
-function questionText(question: JsonRecord, index: number) {
-  const value = question.question ?? question.prompt ?? question.text
-  return typeof value === 'string' ? value : `Question ${index + 1}`
+function normalizeFindings(value: unknown): Finding[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const finding = item as Record<string, unknown>
+    if (
+      typeof finding.sourceId !== 'string' ||
+      typeof finding.filename !== 'string' ||
+      !['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'].includes(String(finding.mediaType)) ||
+      typeof finding.summary !== 'string' ||
+      !Array.isArray(finding.uncertainties) ||
+      !finding.uncertainties.every((entry) => typeof entry === 'string')
+    ) {
+      return []
+    }
+    const rawReview = finding.review
+    let review: FindingReview | undefined
+    if (rawReview && typeof rawReview === 'object') {
+      const candidate = rawReview as Record<string, unknown>
+      if (
+        typeof candidate.summary === 'string' &&
+        Array.isArray(candidate.uncertainties) &&
+        candidate.uncertainties.every((entry) => typeof entry === 'string') &&
+        typeof candidate.note === 'string' &&
+        typeof candidate.reviewedBy === 'string' &&
+        typeof candidate.reviewedAt === 'string'
+      ) {
+        review = candidate as FindingReview
+      }
+    }
+    return [
+      {
+        sourceId: finding.sourceId,
+        filename: finding.filename,
+        mediaType: finding.mediaType as Finding['mediaType'],
+        summary: finding.summary,
+        uncertainties: finding.uncertainties as string[],
+        ...(review ? { review } : {}),
+      },
+    ]
+  })
 }
 
-export function MediaIngestionReview({
-  tenantId,
-  projectId,
-  initialQuestions,
-  initialDraft,
-}: {
-  tenantId: string
-  projectId: string
-  initialQuestions: unknown
-  initialDraft: unknown
-}) {
+function initialFindingEdits(findings: Finding[]): Record<string, FindingEdit> {
+  return Object.fromEntries(
+    findings.map((finding) => [
+      finding.sourceId,
+      {
+        summary: finding.review?.summary ?? finding.summary,
+        uncertainties: (finding.review?.uncertainties ?? finding.uncertainties).join('\n'),
+        note: finding.review?.note ?? '',
+      },
+    ]),
+  )
+}
+
+function collectFindingCorrections(
+  findings: Finding[],
+  findingEdits: Record<string, FindingEdit>,
+): FindingCorrection[] {
+  return findings.flatMap((finding) => {
+    const edit = findingEdits[finding.sourceId]
+    if (!edit) return []
+    const uncertainties = edit.uncertainties
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    const baselineSummary = finding.review?.summary ?? finding.summary
+    const baselineUncertainties = finding.review?.uncertainties ?? finding.uncertainties
+    const baselineNote = finding.review?.note ?? ''
+    const unchanged =
+      edit.summary === baselineSummary &&
+      edit.note === baselineNote &&
+      uncertainties.length === baselineUncertainties.length &&
+      uncertainties.every((entry, index) => entry === baselineUncertainties[index])
+    return unchanged
+      ? []
+      : [{ sourceId: finding.sourceId, summary: edit.summary, uncertainties, note: edit.note }]
+  })
+}
+
+function humanBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / 1024 ** 2).toFixed(1)} MiB`
+}
+
+export function MediaIngestionReview({ initialProject }: { initialProject: MediaProject }) {
   const client = useTRPCClient()
-  const [questions, setQuestions] = useState(() => normalizeQuestions(initialQuestions))
-  const [draftText, setDraftText] = useState(() => JSON.stringify(initialDraft ?? {}, null, 2))
+  const [findings, setFindings] = useState(() => normalizeFindings(initialProject.findings))
+  const [findingsNextCursor, setFindingsNextCursor] = useState(initialProject.findingsNextCursor)
+  const [findingPageCursor, setFindingPageCursor] = useState<string | null>(null)
+  const [previousFindingCursors, setPreviousFindingCursors] = useState<Array<string | null>>([])
+  const [questions, setQuestions] = useState(() => normalizeQuestions(initialProject.questions))
+  const [findingEdits, setFindingEdits] = useState(() => initialFindingEdits(findings))
+  const [assets, setAssets] = useState<MediaAsset[]>(initialProject.assets)
+  const [assetNextCursor, setAssetNextCursor] = useState<string | null>(
+    initialProject.assetsTruncated ? (initialProject.assets.at(-1)?.id ?? null) : null,
+  )
+  const [updatedAt, setUpdatedAt] = useState(initialProject.updatedAt)
+  const [draftText, setDraftText] = useState(() =>
+    JSON.stringify(initialProject.draftJson ?? {}, null, 2),
+  )
   const [busy, setBusy] = useState(false)
+  const [loadingAssets, setLoadingAssets] = useState(false)
+  const [loadingFindings, setLoadingFindings] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const parseError = useMemo(() => {
     try {
       const value = JSON.parse(draftText)
-      return value && typeof value === 'object' && !Array.isArray(value)
+      return VenuePackagePayloadV1.safeParse(value).success
         ? null
-        : 'The draft root must be a JSON object.'
+        : 'The draft does not match the Venue Package v1 contract.'
     } catch {
       return 'The draft is not valid JSON.'
     }
   }, [draftText])
+  const assetsBySource = useMemo(
+    () => new Map(assets.map((asset) => [asset.sourceId, asset])),
+    [assets],
+  )
+  const pendingFindingCorrections = useMemo(
+    () => collectFindingCorrections(findings, findingEdits),
+    [findings, findingEdits],
+  )
 
   async function save() {
     if (parseError) return
     setBusy(true)
     setMessage(null)
     try {
-      await client.mediaIngestion.saveReview.mutate({
-        tenantId,
-        projectId,
-        questions,
-        draftJson: JSON.parse(draftText) as JsonRecord,
+      const result = await client.mediaIngestion.saveReview.mutate({
+        tenantId: initialProject.tenantId,
+        venueId: initialProject.venueId,
+        projectId: initialProject.id,
+        reviewGeneration: initialProject.reviewGeneration,
+        expectedUpdatedAt: updatedAt,
+        questionAnswers: questions.map(({ id, answer }) => ({ id, answer })),
+        findingCorrections: pendingFindingCorrections,
+        draftJson: JSON.parse(draftText),
       })
-      setMessage('Review saved.')
+      setUpdatedAt(result.updatedAt)
+      const reviewsBySource = new Map(
+        result.findingReviews.map((finding) => [finding.sourceId, finding.review]),
+      )
+      const savedFindings = findings.map((finding) => {
+        const review = reviewsBySource.get(finding.sourceId)
+        return review ? { ...finding, review } : finding
+      })
+      setFindings(savedFindings)
+      setFindingEdits(initialFindingEdits(savedFindings))
+      setQuestions(normalizeQuestions(result.questions))
+      setMessage(
+        result.status === 'NEEDS_INPUT'
+          ? 'Review saved. Unanswered questions remain.'
+          : 'Review saved and ready.',
+      )
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not save the review.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function loadMoreAssets() {
+    if (!assetNextCursor || loadingAssets) return
+    setLoadingAssets(true)
+    setMessage(null)
+    try {
+      const result = await client.mediaIngestion.listAssets.query({
+        tenantId: initialProject.tenantId,
+        venueId: initialProject.venueId,
+        projectId: initialProject.id,
+        reviewGeneration: initialProject.reviewGeneration,
+        cursor: assetNextCursor,
+        limit: 50,
+      })
+      setAssets((current) => [...current, ...result.items])
+      setAssetNextCursor(result.nextCursor)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load more source evidence.')
+    } finally {
+      setLoadingAssets(false)
+    }
+  }
+
+  async function loadFindingPage(cursor: string | null): Promise<boolean> {
+    if (loadingFindings) return false
+    if (pendingFindingCorrections.length > 0) {
+      setMessage('Save or discard this page\u2019s finding edits before changing pages.')
+      return false
+    }
+    setLoadingFindings(true)
+    setMessage(null)
+    try {
+      const result = await client.mediaIngestion.listFindings.query({
+        tenantId: initialProject.tenantId,
+        venueId: initialProject.venueId,
+        projectId: initialProject.id,
+        reviewGeneration: initialProject.reviewGeneration,
+        ...(cursor ? { cursor } : {}),
+      })
+      const page = normalizeFindings(result.items)
+      setFindings(page)
+      setFindingEdits(initialFindingEdits(page))
+      setFindingsNextCursor(result.nextCursor)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load source findings.')
+      return false
+    } finally {
+      setLoadingFindings(false)
+    }
+  }
+
+  async function loadNextFindingPage() {
+    if (!findingsNextCursor) return
+    const target = findingsNextCursor
+    if (await loadFindingPage(target)) {
+      setPreviousFindingCursors((current) => [...current, findingPageCursor])
+      setFindingPageCursor(target)
+    }
+  }
+
+  async function loadPreviousFindingPage() {
+    const target = previousFindingCursors.at(-1)
+    if (target === undefined) return
+    if (await loadFindingPage(target)) {
+      setPreviousFindingCursors((current) => current.slice(0, -1))
+      setFindingPageCursor(target)
     }
   }
 
@@ -72,7 +289,7 @@ export function MediaIngestionReview({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'pathfinder-venue-import.json'
+    link.download = 'pathfinder-venue-package-v1.json'
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -82,8 +299,8 @@ export function MediaIngestionReview({
       <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
         <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Questions for you</h2>
         <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-          These are ambiguities that could materially change the guide. Leave anything unanswered
-          and it stays explicitly uncertain.
+          Unanswered questions remain explicitly unresolved and keep this intake in needs-input
+          state.
         </p>
         {questions.length === 0 ? (
           <p className="mt-5 rounded-lg bg-pf-surface px-4 py-3 text-sm text-pf-deep/60">
@@ -92,14 +309,11 @@ export function MediaIngestionReview({
         ) : (
           <div className="mt-5 space-y-4">
             {questions.map((question, index) => (
-              <label
-                key={String(question.id ?? index)}
-                className="block text-sm font-medium text-pf-deep/75"
-              >
-                {questionText(question, index)}
+              <label key={question.id} className="block text-sm font-medium text-pf-deep/75">
+                {question.question}
                 <textarea
                   rows={3}
-                  value={typeof question.answer === 'string' ? question.answer : ''}
+                  value={question.answer}
                   onChange={(event) =>
                     setQuestions((current) =>
                       current.map((item, itemIndex) =>
@@ -116,11 +330,141 @@ export function MediaIngestionReview({
       </section>
 
       <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
+        <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Source evidence</h2>
+        <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+          Corrected summaries are retained beside the original AI evidence. They do not silently
+          rewrite the venue-package draft; edit that draft separately below.
+        </p>
+        {findings.length === 0 ? (
+          <p className="mt-5 rounded-lg bg-pf-surface px-4 py-3 text-sm text-pf-deep/60">
+            No source findings are available.
+          </p>
+        ) : (
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            {findings.map((finding) => {
+              const edit = findingEdits[finding.sourceId]!
+              const asset = assetsBySource.get(finding.sourceId)
+              return (
+                <article key={finding.sourceId} className="rounded-xl border border-pf-light p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold text-pf-deep">{finding.filename}</h3>
+                      <p className="text-xs text-pf-deep/55">
+                        {finding.mediaType}
+                        {asset
+                          ? ` · ${humanBytes(asset.bytes)} · ${asset.status.toLowerCase()}`
+                          : ''}
+                      </p>
+                    </div>
+                    {finding.review ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                        corrected
+                      </span>
+                    ) : null}
+                  </div>
+                  <details className="mt-3 text-sm text-pf-deep/65">
+                    <summary className="cursor-pointer font-medium">Original AI finding</summary>
+                    <p className="mt-2 whitespace-pre-wrap">{finding.summary}</p>
+                    {finding.uncertainties.length > 0 ? (
+                      <ul className="mt-2 list-disc pl-5">
+                        {finding.uncertainties.map((uncertainty) => (
+                          <li key={uncertainty}>{uncertainty}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </details>
+                  <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-pf-deep/55">
+                    Corrected summary
+                    <textarea
+                      rows={4}
+                      value={edit.summary}
+                      onChange={(event) =>
+                        setFindingEdits((current) => ({
+                          ...current,
+                          [finding.sourceId]: { ...edit, summary: event.target.value },
+                        }))
+                      }
+                      className="mt-2 w-full rounded-lg border border-pf-light bg-pf-surface px-3 py-2 text-sm font-normal normal-case tracking-normal outline-none focus:border-pf-accent"
+                    />
+                  </label>
+                  <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-pf-deep/55">
+                    Uncertainties, one per line
+                    <textarea
+                      rows={3}
+                      value={edit.uncertainties}
+                      onChange={(event) =>
+                        setFindingEdits((current) => ({
+                          ...current,
+                          [finding.sourceId]: { ...edit, uncertainties: event.target.value },
+                        }))
+                      }
+                      className="mt-2 w-full rounded-lg border border-pf-light bg-pf-surface px-3 py-2 text-sm font-normal normal-case tracking-normal outline-none focus:border-pf-accent"
+                    />
+                  </label>
+                  <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-pf-deep/55">
+                    Reviewer note
+                    <textarea
+                      rows={2}
+                      value={edit.note}
+                      onChange={(event) =>
+                        setFindingEdits((current) => ({
+                          ...current,
+                          [finding.sourceId]: { ...edit, note: event.target.value },
+                        }))
+                      }
+                      className="mt-2 w-full rounded-lg border border-pf-light bg-pf-surface px-3 py-2 text-sm font-normal normal-case tracking-normal outline-none focus:border-pf-accent"
+                    />
+                  </label>
+                  {asset?.error ? (
+                    <p className="mt-3 text-sm text-rose-700">{asset.error}</p>
+                  ) : null}
+                </article>
+              )
+            })}
+          </div>
+        )}
+        <div className="mt-5 flex flex-wrap gap-3">
+          {previousFindingCursors.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => void loadPreviousFindingPage()}
+              disabled={loadingFindings}
+              className="rounded-full border border-pf-light px-4 py-2 text-sm font-semibold text-pf-primary hover:border-pf-accent disabled:opacity-40"
+            >
+              Previous findings
+            </button>
+          ) : null}
+          {findingsNextCursor ? (
+            <button
+              type="button"
+              onClick={() => void loadNextFindingPage()}
+              disabled={loadingFindings}
+              className="rounded-full border border-pf-light px-4 py-2 text-sm font-semibold text-pf-primary hover:border-pf-accent disabled:opacity-40"
+            >
+              {loadingFindings ? 'Loading\u2026' : 'Next findings'}
+            </button>
+          ) : null}
+        </div>
+        {assetNextCursor ? (
+          <button
+            type="button"
+            onClick={() => void loadMoreAssets()}
+            disabled={loadingAssets}
+            className="mt-5 rounded-full border border-pf-light px-4 py-2 text-sm font-semibold text-pf-primary hover:border-pf-accent disabled:opacity-40"
+          >
+            {loadingAssets ? 'Loading…' : 'Load more source metadata'}
+          </button>
+        ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-pf-light bg-pf-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">PathFinder JSON</h2>
+            <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
+              Venue package JSON
+            </h2>
             <p className="mt-2 text-sm text-pf-deep/60">
-              Review or edit the generated import before downloading it.
+              This is validated by the server against the frozen Venue Package v1 contract.
             </p>
           </div>
           <button

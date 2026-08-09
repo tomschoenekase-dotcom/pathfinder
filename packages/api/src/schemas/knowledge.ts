@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import { KnowledgeEntryInput as VenuePackageKnowledgeEntryInput } from '@pathfinder/contracts'
+
+// Preserve the legacy bulk-create behavior that strips unknown keys. Venue Package v1
+// imports use the strict shared contract directly at their boundary.
+export const KnowledgeEntryInput = VenuePackageKnowledgeEntryInput.strip()
 
 export const CreateKnowledgeEntryInput = z.object({
   venueId: z.string().cuid(),
@@ -7,8 +12,6 @@ export const CreateKnowledgeEntryInput = z.object({
   content: z.string().min(1).max(5000),
   isEnabled: z.boolean().default(true),
 })
-
-export const KnowledgeEntryInput = CreateKnowledgeEntryInput.omit({ venueId: true })
 
 export const BulkCreateKnowledgeEntriesInput = z
   .object({

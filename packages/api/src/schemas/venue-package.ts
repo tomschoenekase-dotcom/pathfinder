@@ -1,16 +1,21 @@
 import { z } from 'zod'
+import {
+  VENUE_PACKAGE_ITEM_LIMIT,
+  VENUE_PACKAGE_SCHEMA_VERSION_V1,
+  VenuePackagePayloadV1Object,
+} from '@pathfinder/contracts'
 
 import { KnowledgeEntryInput } from './knowledge'
 import { PlaceInput } from './place'
 import { VENUE_CONTENT_IMPORT_LIMIT, canonicalVenueContentImportPayload } from './venue-content'
 
-export const VENUE_PACKAGE_SCHEMA_VERSION_V1 = 1 as const
+export { VENUE_PACKAGE_SCHEMA_VERSION_V1 }
 export const VENUE_PACKAGE_SCHEMA_VERSION_V2 = 2 as const
 export const VENUE_PACKAGE_SCHEMA_VERSION_V3 = 3 as const
 /** Legacy alias retained for callers that still emit the frozen additive V1 format. */
 export const VENUE_PACKAGE_SCHEMA_VERSION = VENUE_PACKAGE_SCHEMA_VERSION_V1
 export const VENUE_PACKAGE_LATEST_SCHEMA_VERSION = VENUE_PACKAGE_SCHEMA_VERSION_V3
-export const VENUE_PACKAGE_ITEM_LIMIT = VENUE_CONTENT_IMPORT_LIMIT
+export { VENUE_PACKAGE_ITEM_LIMIT }
 
 const VenueIdentityPatch = z
   .object({
@@ -60,14 +65,6 @@ export const VenuePackageVenuePatch = z
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, 'Include at least one venue field')
-
-const VenuePackagePayloadV1Object = z
-  .object({
-    schemaVersion: z.literal(VENUE_PACKAGE_SCHEMA_VERSION_V1),
-    places: z.array(PlaceInput).max(VENUE_CONTENT_IMPORT_LIMIT),
-    knowledgeEntries: z.array(KnowledgeEntryInput.strict()).max(VENUE_CONTENT_IMPORT_LIMIT),
-  })
-  .strict()
 
 const VenuePackagePayloadV2Object = z
   .object({

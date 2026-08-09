@@ -5,6 +5,21 @@ import { canonicalVenueContentImportPayload, ImportVenueContentInput } from './v
 const venueId = 'cvenueabc123456789012'
 
 describe('canonical venue content import payload', () => {
+  it('preserves legacy unknown-key stripping for knowledge imports', () => {
+    const parsed = ImportVenueContentInput.parse({
+      venueId,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      places: [],
+      knowledgeEntries: [
+        { title: 'Policy', category: 'FAQ', content: 'Details', legacyExtra: 'ignored' },
+      ],
+    })
+
+    expect(parsed.knowledgeEntries).toEqual([
+      { title: 'Policy', category: 'FAQ', content: 'Details', isEnabled: true },
+    ])
+  })
+
   it('normalizes schema defaults and excludes the attempt key', () => {
     const omittedDefaults = ImportVenueContentInput.parse({
       venueId,
