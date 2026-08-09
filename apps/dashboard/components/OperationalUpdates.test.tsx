@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -60,6 +60,35 @@ const base = {
   updatedAt: '2026-08-08T10:00:00.000Z',
   venue: { id: 'venue-1', name: 'City Museum' },
   place: null,
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
+function serializedRows<
+  T extends {
+    startsAt: string
+    expiresAt: string
+    publishedAt: string | null
+    createdAt: string
+    updatedAt: string
+  },
+>(rows: T[]) {
+  return rows.map((row) => ({
+    ...row,
+    startsAt: new Date(row.startsAt),
+    expiresAt: new Date(row.expiresAt),
+    publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
+    createdAt: new Date(row.createdAt),
+    updatedAt: new Date(row.updatedAt),
+  }))
 }
 
 describe('operational-update management', () => {
@@ -121,7 +150,7 @@ describe('operational-update management', () => {
   })
 
   it('uses optimistic concurrency when updating a draft', async () => {
-    mocks.update.mockRejectedValue(new Error('Draft changed in another session'))
+    mocks.update.mockRejectedValue({ data: { code: 'CONFLICT' } })
     render(
       <OperationalUpdateForm
         venues={[{ id: 'venue-1', name: 'City Museum' }]}
@@ -149,7 +178,9 @@ describe('operational-update management', () => {
         }),
       ),
     )
-    expect((await screen.findByRole('alert')).textContent).toContain('Reload this draft')
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'changed in another session. Reload this draft',
+    )
   })
 
   it('updates and publishes an edited draft atomically', async () => {
@@ -185,6 +216,75 @@ describe('operational-update management', () => {
     expect(mocks.publish).not.toHaveBeenCalled()
   })
 
+  it('synchronously fences draft/publish overlap and locks every form control', async () => {
+    const pending = deferred<{ id: string; updatedAt: Date }>()
+    mocks.create.mockReturnValueOnce(pending.promise)
+    render(<OperationalUpdateForm venues={[{ id: 'venue-1', name: 'City Museum' }]} />)
+    await screen.findByRole('option', { name: 'East Gallery' })
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'One notice' } })
+
+    const publish = screen.getByRole('button', { name: 'Publish' })
+    const form = publish.closest('form')!
+    act(() => {
+      publish.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+
+    expect(mocks.create).toHaveBeenCalledOnce()
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ publish: true }))
+    expect(form.getAttribute('aria-busy')).toBe('true')
+    expect(
+      [...form.querySelectorAll('button, input, select, textarea')].every(
+        (control) =>
+          (
+            control as
+              | HTMLButtonElement
+              | HTMLInputElement
+              | HTMLSelectElement
+              | HTMLTextAreaElement
+          ).disabled,
+      ),
+    ).toBe(true)
+
+    pending.resolve({ id: 'update-1', updatedAt: new Date('2026-08-08T12:01:00Z') })
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/operational-updates'))
+  })
+
+  it('retains a failed form draft, unlocks it, and permits transport retry', async () => {
+    mocks.create
+      .mockRejectedValueOnce(new Error('Transport failed'))
+      .mockResolvedValueOnce({ id: 'update-1', updatedAt: new Date('2026-08-08T12:01:00Z') })
+    render(<OperationalUpdateForm venues={[{ id: 'venue-1', name: 'City Museum' }]} />)
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Retry this notice' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Transport failed')
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Save status may be unknown; check the updates list',
+    )
+    expect(screen.getByDisplayValue('Retry this notice')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2))
+  })
+
+  it('suppresses late form navigation after unmount', async () => {
+    const pending = deferred<{ id: string; updatedAt: Date }>()
+    mocks.create.mockReturnValueOnce(pending.promise)
+    const view = render(<OperationalUpdateForm venues={[{ id: 'venue-1', name: 'City Museum' }]} />)
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Leaving now' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
+    view.unmount()
+    pending.resolve({ id: 'update-1', updatedAt: new Date('2026-08-08T12:01:00Z') })
+    await act(async () => pending.promise)
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
   it('groups every lifecycle state and refreshes after a publish conflict', async () => {
     const rows = [
       { ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' },
@@ -192,17 +292,8 @@ describe('operational-update management', () => {
       { ...base, id: 'current', title: 'Current item' },
       { ...base, id: 'past', isActive: false, title: 'Past item' },
     ]
-    mocks.publish.mockRejectedValue(new Error('Update changed since it was loaded'))
-    mocks.list.mockResolvedValue(
-      rows.map((row) => ({
-        ...row,
-        startsAt: new Date(row.startsAt),
-        expiresAt: new Date(row.expiresAt),
-        publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
-        createdAt: new Date(row.createdAt),
-        updatedAt: new Date(row.updatedAt),
-      })),
-    )
+    mocks.publish.mockRejectedValue({ data: { code: 'CONFLICT' } })
+    mocks.list.mockResolvedValue(serializedRows(rows))
     render(<OperationalUpdatesList initialUpdates={rows} />)
 
     for (const [section, title] of [
@@ -222,5 +313,76 @@ describe('operational-update management', () => {
     )
     expect(mocks.list).toHaveBeenCalledOnce()
     expect((await screen.findByRole('alert')).textContent).toContain('list was refreshed')
+  })
+
+  it('does not invite a repeated action when mutation succeeds but refresh fails', async () => {
+    const rows = [{ ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' }]
+    mocks.publish.mockResolvedValueOnce(undefined)
+    mocks.list.mockRejectedValueOnce(new Error('List unavailable'))
+    render(<OperationalUpdatesList initialUpdates={rows} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('action succeeded')
+    expect(alert.textContent).toContain('do not repeat the action')
+    expect(mocks.publish).toHaveBeenCalledOnce()
+  })
+
+  it('does not claim a refreshed list when conflict recovery also fails', async () => {
+    const rows = [{ ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' }]
+    mocks.publish.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
+    mocks.list.mockRejectedValueOnce(new Error('List unavailable'))
+    render(<OperationalUpdatesList initialUpdates={rows} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('current list could not be refreshed')
+    expect(alert.textContent).not.toContain('The list was refreshed')
+  })
+
+  it('serializes list actions globally before rerender and locks every lifecycle control', async () => {
+    const rows = [
+      { ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' },
+      { ...base, id: 'current', title: 'Current item' },
+    ]
+    const pending = deferred<undefined>()
+    mocks.publish.mockReturnValueOnce(pending.promise)
+    mocks.list.mockResolvedValue(serializedRows(rows))
+    render(<OperationalUpdatesList initialUpdates={rows} />)
+
+    const publish = screen.getByRole('button', { name: 'Publish' })
+    const deactivate = screen.getByRole('button', { name: 'Deactivate' })
+    act(() => {
+      publish.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      deactivate.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(mocks.publish).toHaveBeenCalledOnce()
+    expect(mocks.deactivate).not.toHaveBeenCalled()
+    expect(
+      screen
+        .getAllByRole('button', { name: /^(Publishing\.\.\.|Deactivate)$/ })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true)
+
+    pending.resolve(undefined)
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledOnce())
+  })
+
+  it('suppresses list recovery and refresh after unmount', async () => {
+    const rows = [{ ...base, id: 'draft', status: 'DRAFT' as const, title: 'Draft item' }]
+    const pending = deferred<undefined>()
+    mocks.publish.mockReturnValueOnce(pending.promise)
+    const view = render(<OperationalUpdatesList initialUpdates={rows} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
+    view.unmount()
+    pending.resolve(undefined)
+    await act(async () => pending.promise)
+
+    expect(mocks.list).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
@@ -61,6 +61,31 @@ function errorMessage(error: unknown) {
     : 'The update could not be changed. Please try again.'
 }
 
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) return null
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('code' in data)) return null
+  return typeof data.code === 'string' ? data.code : null
+}
+
+function mutationErrorMessage(error: unknown, listRefreshed: boolean) {
+  if (errorCode(error) === 'CONFLICT') {
+    return listRefreshed
+      ? 'This operational update changed in another session. The list was refreshed; review the current version and try again.'
+      : 'This operational update changed in another session, and the current list could not be refreshed. Reload the page before trying again.'
+  }
+
+  const message = errorMessage(error)
+  if (/conflict|changed|stale/i.test(message)) {
+    return listRefreshed
+      ? `${message} The list was refreshed; review the current version and try again.`
+      : `${message} The current list could not be refreshed. Reload the page before trying again.`
+  }
+  return listRefreshed
+    ? message
+    : `${message} The action status and current list could not be confirmed. Reload the page before trying again.`
+}
+
 function serializeUpdate(
   row: {
     startsAt: Date
@@ -90,8 +115,18 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
   const [now, setNow] = useState(Date.now())
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const isMountedRef = useRef(true)
+  const mutationInFlightRef = useRef(false)
 
   useEffect(() => setUpdates(initialUpdates), [initialUpdates])
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+      mutationInFlightRef.current = false
+    }
+  }, [])
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000)
     return () => window.clearInterval(timer)
@@ -99,35 +134,52 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
 
   async function refreshUpdates() {
     const rows = await client.operationalUpdate.list.query()
+    if (!isMountedRef.current) return
     setUpdates(rows.map((row) => serializeUpdate(row)))
     router.refresh()
   }
 
   async function mutate(id: string, action: 'publish' | 'deactivate') {
+    if (mutationInFlightRef.current) return
     const update = updates.find((candidate) => candidate.id === id)
     if (!update) return
+    mutationInFlightRef.current = true
     setPendingId(id)
     setActionError(null)
     try {
-      await client.operationalUpdate[action].mutate({
-        id,
-        expectedUpdatedAt: new Date(update.updatedAt),
-      })
-      await refreshUpdates()
-    } catch (error) {
-      const message = errorMessage(error)
+      try {
+        await client.operationalUpdate[action].mutate({
+          id,
+          expectedUpdatedAt: new Date(update.updatedAt),
+        })
+      } catch (mutationError) {
+        if (!isMountedRef.current) return
+        let listRefreshed = false
+        try {
+          await refreshUpdates()
+          listRefreshed = isMountedRef.current
+        } catch {
+          // Preserve the actionable mutation error when the recovery query is also unavailable.
+        }
+        if (isMountedRef.current) {
+          setActionError(mutationErrorMessage(mutationError, listRefreshed))
+        }
+        return
+      }
+
+      if (!isMountedRef.current) return
       try {
         await refreshUpdates()
       } catch {
-        // Preserve the actionable mutation error when the recovery query is also unavailable.
+        if (isMountedRef.current) {
+          setActionError(
+            'The action succeeded, but the current list could not be refreshed. Reload the page to see the confirmed state; do not repeat the action.',
+          )
+        }
       }
-      setActionError(
-        /conflict|changed|stale/i.test(message)
-          ? `${message} The list was refreshed; review the current version and try again.`
-          : message,
-      )
     } finally {
-      setPendingId(null)
+      mutationInFlightRef.current = false
+      if (isMountedRef.current) setPendingId(null)
     }
   }
 
@@ -139,7 +191,10 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
   ) as Record<Section, OperationalUpdateItem[]>
 
   return (
-    <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+    <section
+      aria-busy={pendingId !== null}
+      className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm"
+    >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
@@ -240,7 +295,7 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                         {section === 'Draft' ? (
                           <button
                             type="button"
-                            disabled={pendingId === update.id}
+                            disabled={pendingId !== null}
                             onClick={() => void mutate(update.id, 'publish')}
                             className="inline-flex min-h-10 items-center rounded-full bg-pf-primary px-4 text-sm font-medium text-white disabled:opacity-50"
                           >
@@ -250,7 +305,7 @@ export function OperationalUpdatesList({ initialUpdates }: Props) {
                         {section === 'Scheduled' || section === 'Current' ? (
                           <button
                             type="button"
-                            disabled={pendingId === update.id}
+                            disabled={pendingId !== null}
                             onClick={() => void mutate(update.id, 'deactivate')}
                             className="inline-flex min-h-10 items-center rounded-full border border-pf-light bg-white px-4 text-sm font-medium text-pf-primary disabled:opacity-50"
                           >

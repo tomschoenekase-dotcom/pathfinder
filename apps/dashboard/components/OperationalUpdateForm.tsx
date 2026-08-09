@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { useTRPCClient } from '../lib/trpc'
@@ -65,6 +65,24 @@ function errorMessage(error: unknown) {
     : 'The update could not be saved. Please try again.'
 }
 
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) return null
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('code' in data)) return null
+  return typeof data.code === 'string' ? data.code : null
+}
+
+function mutationErrorMessage(error: unknown) {
+  if (errorCode(error) === 'CONFLICT') {
+    return 'This operational update changed in another session. Reload this draft before trying again.'
+  }
+
+  const message = errorMessage(error)
+  return /conflict|changed|stale/i.test(message)
+    ? `${message} Reload this draft before trying again.`
+    : message
+}
+
 function severityFor(updateType: UpdateType): 'INFO' | 'WARNING' | 'CLOSURE' | 'REDIRECT' {
   if (updateType === 'TEMPORARY_CLOSURE' || updateType === 'UNAVAILABLE_EXHIBIT') return 'CLOSURE'
   if (
@@ -102,6 +120,17 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
   )
   const [pendingAction, setPendingAction] = useState<'draft' | 'publish' | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const isMountedRef = useRef(true)
+  const mutationInFlightRef = useRef(false)
+
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+      mutationInFlightRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -130,6 +159,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
   }, [client, venueId])
 
   async function submit(action: 'draft' | 'publish') {
+    if (mutationInFlightRef.current) return
     setFormError(null)
     const start = new Date(startsAt)
     const expiry = new Date(expiresAt)
@@ -142,6 +172,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
       return
     }
 
+    mutationInFlightRef.current = true
     setPendingAction(action)
     const values = {
       venueId,
@@ -171,21 +202,27 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
         })
       }
 
-      router.push('/operational-updates')
-      router.refresh()
+      if (isMountedRef.current) {
+        router.push('/operational-updates')
+        router.refresh()
+      }
     } catch (error) {
-      const message = errorMessage(error)
-      setFormError(
-        /conflict|changed|stale/i.test(message)
-          ? `${message} Reload this draft before trying again.`
-          : message,
-      )
+      if (isMountedRef.current) {
+        const message = mutationErrorMessage(error)
+        setFormError(
+          !initialUpdate && errorCode(error) !== 'CONFLICT'
+            ? `${message} Save status may be unknown; check the updates list before trying again.`
+            : message,
+        )
+      }
     } finally {
-      setPendingAction(null)
+      mutationInFlightRef.current = false
+      if (isMountedRef.current) setPendingAction(null)
     }
   }
 
   const isEditing = Boolean(initialUpdate)
+  const isMutating = pendingAction !== null
   return (
     <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
       <div className="mb-6 space-y-2">
@@ -204,6 +241,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
       </div>
 
       <form
+        aria-busy={isMutating}
         className="space-y-6"
         onSubmit={(event) => {
           event.preventDefault()
@@ -214,6 +252,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
           <Field label="Venue" htmlFor="update-venue">
             <select
               id="update-venue"
+              disabled={isMutating}
               value={venueId}
               onChange={(event) => setVenueId(event.target.value)}
               className={fieldClass}
@@ -232,7 +271,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
               value={placeId}
               onChange={(event) => setPlaceId(event.target.value)}
               className={fieldClass}
-              disabled={placesLoading}
+              disabled={placesLoading || isMutating}
             >
               <option value="">Entire venue</option>
               {places.map((place) => (
@@ -245,6 +284,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
           <Field label="Update type" htmlFor="update-type">
             <select
               id="update-type"
+              disabled={isMutating}
               value={updateType}
               onChange={(event) => setUpdateType(event.target.value as UpdateType)}
               className={fieldClass}
@@ -259,6 +299,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
           <Field label="Priority" htmlFor="update-priority">
             <select
               id="update-priority"
+              disabled={isMutating}
               value={priority}
               onChange={(event) => setPriority(event.target.value as Priority)}
               className={fieldClass}
@@ -272,6 +313,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
           <Field label="Starts" htmlFor="update-starts-at">
             <input
               id="update-starts-at"
+              disabled={isMutating}
               type="datetime-local"
               value={startsAt}
               onChange={(event) => setStartsAt(event.target.value)}
@@ -282,6 +324,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
           <Field label="Expires" htmlFor="update-expires-at">
             <input
               id="update-expires-at"
+              disabled={isMutating}
               type="datetime-local"
               value={expiresAt}
               onChange={(event) => setExpiresAt(event.target.value)}
@@ -293,6 +336,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
             <Field label="Title" htmlFor="update-title">
               <input
                 id="update-title"
+                disabled={isMutating}
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 maxLength={60}
@@ -305,6 +349,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
             <Field label="Details" htmlFor="update-body">
               <textarea
                 id="update-body"
+                disabled={isMutating}
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
                 maxLength={300}
@@ -316,6 +361,7 @@ export function OperationalUpdateForm({ venues, initialUpdate }: Props) {
             <Field label="Redirect (optional)" htmlFor="update-redirect">
               <input
                 id="update-redirect"
+                disabled={isMutating}
                 value={redirectTo}
                 onChange={(event) => setRedirectTo(event.target.value)}
                 placeholder="/alternate-location or https://..."
