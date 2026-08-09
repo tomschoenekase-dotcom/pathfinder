@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -16,35 +16,110 @@ type GlobalAiIncidentControlProps = {
   }
 }
 
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) return null
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('code' in data)) return null
+  return typeof data.code === 'string' ? data.code : null
+}
+
+type Feedback = { kind: 'error' | 'success'; text: string }
+
 export function GlobalAiIncidentControl({ initialState }: GlobalAiIncidentControlProps) {
   const client = useTRPCClient()
   const router = useRouter()
+  const {
+    configured: initialConfigured,
+    malformed: initialMalformed,
+    paused: initialPaused,
+    reason: initialReason,
+    updatedAt: initialUpdatedAt,
+    updatedBy: initialUpdatedBy,
+  } = initialState
   const [state, setState] = useState(initialState)
   const [reason, setReason] = useState(initialState.reason ?? '')
   const [pending, setPending] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const mounted = useRef(false)
+  const scopeGeneration = useRef(0)
+  const actionSequence = useRef(0)
+  const activeAction = useRef<number | null>(null)
 
   useEffect(() => {
-    setState(initialState)
-    setReason(initialState.reason ?? '')
-  }, [initialState])
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      activeAction.current = null
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    scopeGeneration.current += 1
+    activeAction.current = null
+    setState({
+      configured: initialConfigured,
+      malformed: initialMalformed,
+      paused: initialPaused,
+      reason: initialReason,
+      updatedAt: initialUpdatedAt,
+      updatedBy: initialUpdatedBy,
+    })
+    setReason(initialReason ?? '')
+    setPending(false)
+    setFeedback(null)
+  }, [
+    initialConfigured,
+    initialMalformed,
+    initialPaused,
+    initialReason,
+    initialUpdatedAt,
+    initialUpdatedBy,
+  ])
+
+  function startAction(): { scope: number; token: number } | null {
+    if (activeAction.current !== null) return null
+    const token = ++actionSequence.current
+    activeAction.current = token
+    setPending(true)
+    return { scope: scopeGeneration.current, token }
+  }
+
+  function isCurrentAction(action: { scope: number; token: number }) {
+    return (
+      mounted.current &&
+      scopeGeneration.current === action.scope &&
+      activeAction.current === action.token
+    )
+  }
+
+  function finishAction(action: { scope: number; token: number }) {
+    if (!isCurrentAction(action)) return
+    activeAction.current = null
+    setPending(false)
+  }
 
   async function updateControl() {
     const normalizedReason = reason.trim()
     if (!normalizedReason) {
-      setMessage('Enter an internal reason before changing the platform control.')
+      setFeedback({
+        kind: 'error',
+        text: 'Enter an internal reason before changing the platform control.',
+      })
       return
     }
 
-    setPending(true)
-    setMessage(null)
+    const action = startAction()
+    if (!action) return
+    const targetState = state
+    setFeedback(null)
     try {
-      const nextPaused = state.malformed ? true : !state.paused
+      const nextPaused = targetState.malformed ? true : !targetState.paused
       const result = await client.admin.setGlobalAiControl.mutate({
         paused: nextPaused,
         reason: normalizedReason,
-        expectedUpdatedAt: state.updatedAt ? new Date(state.updatedAt) : null,
+        expectedUpdatedAt: targetState.updatedAt ? new Date(targetState.updatedAt) : null,
       })
+      if (!isCurrentAction(action)) return
       setState({
         paused: result.paused,
         reason: result.reason,
@@ -54,22 +129,35 @@ export function GlobalAiIncidentControl({ initialState }: GlobalAiIncidentContro
         updatedBy: result.updatedBy,
       })
       setReason(result.reason ?? '')
-      setMessage(result.paused ? 'Global AI processing paused.' : 'Global AI processing resumed.')
+      setFeedback({
+        kind: 'success',
+        text: result.paused ? 'Global AI processing paused.' : 'Global AI processing resumed.',
+      })
       router.refresh()
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to update global AI control.')
+      if (!isCurrentAction(action)) return
+      setFeedback({
+        kind: 'error',
+        text:
+          errorCode(error) === 'CONFLICT'
+            ? 'The global AI control changed in another session. Reloading authoritative state; review it before retrying.'
+            : 'The global AI control update could not be confirmed. Reloading authoritative state; review it before retrying.',
+      })
       // A CAS conflict means the rendered revision is stale. Refresh on every failed write so
       // the next action is based on authoritative server state rather than a rejected snapshot.
       router.refresh()
     } finally {
-      setPending(false)
+      finishAction(action)
     }
   }
 
   const statusLabel = state.malformed ? 'Fail-closed' : state.paused ? 'Paused' : 'Active'
 
   return (
-    <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
+    <section
+      className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm"
+      aria-busy={pending}
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
@@ -107,7 +195,11 @@ export function GlobalAiIncidentControl({ initialState }: GlobalAiIncidentContro
         value={reason}
         maxLength={500}
         rows={2}
-        onChange={(event) => setReason(event.target.value)}
+        disabled={pending}
+        onChange={(event) => {
+          if (activeAction.current !== null) return
+          setReason(event.target.value)
+        }}
         placeholder={state.paused ? 'Describe why AI can safely resume' : 'Describe the incident'}
         className="mt-2 w-full rounded-2xl border border-pf-light bg-white px-4 py-3 text-sm text-pf-deep outline-none transition focus:border-pf-accent"
       />
@@ -136,7 +228,14 @@ export function GlobalAiIncidentControl({ initialState }: GlobalAiIncidentContro
         </p>
       </div>
 
-      {message ? <p className="mt-3 text-sm text-pf-deep/70">{message}</p> : null}
+      {feedback ? (
+        <p
+          className="mt-3 text-sm text-pf-deep/70"
+          role={feedback.kind === 'error' ? 'alert' : 'status'}
+        >
+          {feedback.text}
+        </p>
+      ) : null}
     </section>
   )
 }

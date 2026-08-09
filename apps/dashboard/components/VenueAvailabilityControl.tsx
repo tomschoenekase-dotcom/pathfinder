@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../lib/trpc'
@@ -22,72 +22,151 @@ type VenueAvailabilityControlProps = {
     }
 )
 
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) return null
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('code' in data)) return null
+  return typeof data.code === 'string' ? data.code : null
+}
+
+type Feedback = { kind: 'error' | 'success'; text: string }
+
 export function VenueAvailabilityControl(props: VenueAvailabilityControlProps) {
   const client = useTRPCClient()
   const router = useRouter()
+  const initialIsActive = props.initialState.isActive
+  const initialUpdatedAt = props.initialState.updatedAt
+  const scopeTenantId = props.scope === 'admin' ? props.tenantId : null
   const [state, setState] = useState(props.initialState)
   const [reason, setReason] = useState('')
   const [pending, setPending] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const mounted = useRef(false)
+  const scopeGeneration = useRef(0)
+  const actionSequence = useRef(0)
+  const activeAction = useRef<number | null>(null)
 
   useEffect(() => {
-    setState(props.initialState)
-  }, [props.initialState])
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      activeAction.current = null
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    scopeGeneration.current += 1
+    activeAction.current = null
+    setState({ isActive: initialIsActive, updatedAt: initialUpdatedAt })
+    setReason('')
+    setPending(false)
+    setFeedback(null)
+  }, [
+    initialIsActive,
+    initialUpdatedAt,
+    props.scope,
+    props.venueId,
+    props.venueName,
+    scopeTenantId,
+  ])
+
+  function startAction(): { scope: number; token: number } | null {
+    if (activeAction.current !== null) return null
+    const token = ++actionSequence.current
+    activeAction.current = token
+    setPending(true)
+    return { scope: scopeGeneration.current, token }
+  }
+
+  function isCurrentAction(action: { scope: number; token: number }) {
+    return (
+      mounted.current &&
+      scopeGeneration.current === action.scope &&
+      activeAction.current === action.token
+    )
+  }
+
+  function finishAction(action: { scope: number; token: number }) {
+    if (!isCurrentAction(action)) return
+    activeAction.current = null
+    setPending(false)
+  }
 
   async function changeAvailability() {
     const normalizedReason = reason.trim()
     if (!normalizedReason) {
-      setMessage('Enter an internal reason before changing venue availability.')
+      setFeedback({
+        kind: 'error',
+        text: 'Enter an internal reason before changing venue availability.',
+      })
       return
     }
 
-    const enabling = !state.isActive
+    const action = startAction()
+    if (!action) return
+    const targetState = state
+    const targetProps = props
+    const enabling = !targetState.isActive
     const confirmed = window.confirm(
       enabling
-        ? `Resume guest access and venue-scoped processing for ${props.venueName}?`
-        : `Pause guest access and venue-scoped processing for ${props.venueName}?`,
+        ? `Resume guest access and venue-scoped processing for ${targetProps.venueName}?`
+        : `Pause guest access and venue-scoped processing for ${targetProps.venueName}?`,
     )
-    if (!confirmed) return
+    if (!confirmed) {
+      finishAction(action)
+      return
+    }
 
-    setPending(true)
-    setMessage(null)
+    setFeedback(null)
     try {
       const commonInput = {
-        venueId: props.venueId,
+        venueId: targetProps.venueId,
         enabled: enabling,
-        expectedUpdatedAt: new Date(state.updatedAt),
+        expectedUpdatedAt: new Date(targetState.updatedAt),
         reason: normalizedReason,
       }
       const result =
-        props.scope === 'admin'
+        targetProps.scope === 'admin'
           ? await client.admin.setVenueAvailability.mutate({
               ...commonInput,
-              tenantId: props.tenantId,
+              tenantId: targetProps.tenantId,
             })
           : await client.venue.setAvailability.mutate(commonInput)
 
+      if (!isCurrentAction(action)) return
       setState({
         isActive: result.isActive,
         updatedAt: result.updatedAt.toISOString(),
       })
       setReason('')
-      setMessage(
-        result.isActive
+      setFeedback({
+        kind: 'success',
+        text: result.isActive
           ? 'Venue access and processing resumed.'
           : 'Venue access and processing paused.',
-      )
+      })
       router.refresh()
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to change venue availability.')
+      if (!isCurrentAction(action)) return
+      setFeedback({
+        kind: 'error',
+        text:
+          errorCode(error) === 'CONFLICT'
+            ? 'Venue availability changed in another session. Reloading authoritative state; review it before retrying.'
+            : 'The venue availability update could not be confirmed. Reloading authoritative state; review it before retrying.',
+      })
       // Refresh authoritative state after a stale-revision conflict or any uncertain write.
       router.refresh()
     } finally {
-      setPending(false)
+      finishAction(action)
     }
   }
 
   return (
-    <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+    <section
+      className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm"
+      aria-busy={pending}
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pf-accent">
@@ -124,7 +203,11 @@ export function VenueAvailabilityControl(props: VenueAvailabilityControlProps) {
         maxLength={500}
         rows={2}
         required
-        onChange={(event) => setReason(event.target.value)}
+        disabled={pending}
+        onChange={(event) => {
+          if (activeAction.current !== null) return
+          setReason(event.target.value)
+        }}
         placeholder={
           state.isActive
             ? 'Describe why this venue must be paused'
@@ -149,9 +232,12 @@ export function VenueAvailabilityControl(props: VenueAvailabilityControlProps) {
         </p>
       </div>
 
-      {message ? (
-        <p className="mt-3 text-sm text-pf-deep/70" aria-live="polite">
-          {message}
+      {feedback ? (
+        <p
+          className="mt-3 text-sm text-pf-deep/70"
+          role={feedback.kind === 'error' ? 'alert' : 'status'}
+        >
+          {feedback.text}
         </p>
       ) : null}
     </section>
