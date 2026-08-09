@@ -22,4 +22,14 @@ describe('QuickPromptChips', () => {
       'Where are the restrooms?',
     ])
   })
+
+  it('offers knowledge prompts when a location-aware venue has no live position', () => {
+    expect(
+      buildPrompts('Riverside Aquarium', 'AQUARIUM', 'location_aware', 'English', false),
+    ).toEqual([
+      'What should I know first?',
+      'Explain this place to me.',
+      'Walk me through what to do when I arrive.',
+    ])
+  })
 })

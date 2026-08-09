@@ -24,8 +24,10 @@ export function useGeolocation(enabled = true): GeolocationState {
   const [error, setError] = useState<string | null>(null)
   const [permission, setPermission] = useState<PermissionState>('loading')
   const watchIdRef = useRef<number | null>(null)
+  const watchGenerationRef = useRef(0)
 
   function clearWatcher() {
+    watchGenerationRef.current += 1
     if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current)
       watchIdRef.current = null
@@ -33,7 +35,12 @@ export function useGeolocation(enabled = true): GeolocationState {
   }
 
   function startWatch() {
+    clearWatcher()
+    const watchGeneration = watchGenerationRef.current
+
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setLat(null)
+      setLng(null)
       setPermission('denied')
       setError('Geolocation is not supported on this device.')
       return
@@ -43,17 +50,25 @@ export function useGeolocation(enabled = true): GeolocationState {
     // behave differently from deployed HTTPS builds.
     setPermission('loading')
     setError(null)
-    clearWatcher()
+    setLat(null)
+    setLng(null)
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
+        if (watchGenerationRef.current !== watchGeneration) return
+
         setLat(position.coords.latitude)
         setLng(position.coords.longitude)
         setPermission('granted')
         setError(null)
       },
       (positionError) => {
+        if (watchGenerationRef.current !== watchGeneration) return
+
+        setLat(null)
+        setLng(null)
         if (positionError.code === positionError.PERMISSION_DENIED) {
+          clearWatcher()
           setPermission('denied')
           setError('Location permission was denied.')
           return
@@ -83,6 +98,8 @@ export function useGeolocation(enabled = true): GeolocationState {
 
     async function readPermission() {
       if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        setLat(null)
+        setLng(null)
         setPermission('denied')
         setError('Geolocation is not supported on this device.')
         return
@@ -105,9 +122,13 @@ export function useGeolocation(enabled = true): GeolocationState {
           return
         }
 
+        setLat(null)
+        setLng(null)
         setPermission(result.state)
       } catch {
         if (active) {
+          setLat(null)
+          setLng(null)
           setPermission('prompt')
         }
       }

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   startNewConversation: vi.fn(),
   setSessionId: vi.fn(),
   geolocation: { lat: null as number | null, lng: null as number | null },
+  geolocationPermission: 'granted' as 'granted' | 'denied' | 'prompt' | 'loading',
   geolocationEnabled: vi.fn(),
   client: {
     venue: { getBySlug: { query: vi.fn() } },
@@ -34,7 +35,7 @@ vi.mock('../hooks/useGeolocation', () => ({
     mocks.geolocationEnabled(enabled)
     return {
       ...mocks.geolocation,
-      permission: 'granted',
+      permission: mocks.geolocationPermission,
       refresh: vi.fn(),
     }
   },
@@ -122,6 +123,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.startNewConversation.mockReturnValue(true)
     mocks.geolocation.lat = null
     mocks.geolocation.lng = null
+    mocks.geolocationPermission = 'granted'
     mocks.client.chat.session.mutate.mockResolvedValue({ sessionId: 'session-1' })
     mocks.client.chat.send.mutate.mockResolvedValue({
       response: 'Nearby.',
@@ -195,6 +197,109 @@ describe('VenueChatExperience presentation boundary', () => {
       venueId: activeVenue.id,
       anonymousToken: mocks.anonymousToken,
       message: 'Where is the café?',
+    })
+  })
+
+  it('allows location-aware knowledge chat without coordinates or a default center', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174020'
+    mocks.geolocationPermission = 'denied'
+    mocks.getBySlug.mockResolvedValueOnce({ ...activeVenue, guideMode: 'location_aware' })
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
+      venueId: activeVenue.id,
+      anonymousToken: mocks.anonymousToken,
+      message: 'Where is the café?',
+    })
+    expect(screen.queryByText(/Location is still unavailable/)).toBeNull()
+  })
+
+  it('does not send a venue default center as the visitor position', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174021'
+    mocks.getBySlug.mockResolvedValueOnce({
+      ...activeVenue,
+      guideMode: 'location_aware',
+      defaultCenterLat: 38.627,
+      defaultCenterLng: -90.1994,
+    })
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
+      venueId: activeVenue.id,
+      anonymousToken: mocks.anonymousToken,
+      message: 'Where is the café?',
+    })
+  })
+
+  it('sends a complete live position for distance-aware chat', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174022'
+    mocks.geolocation.lat = 38.63
+    mocks.geolocation.lng = -90.2
+    mocks.getBySlug.mockResolvedValueOnce({ ...activeVenue, guideMode: 'location_aware' })
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
+      venueId: activeVenue.id,
+      anonymousToken: mocks.anonymousToken,
+      message: 'Where is the café?',
+      lat: 38.63,
+      lng: -90.2,
+    })
+  })
+
+  it('syncs only coordinate pairs and resyncs the same position after access returns', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174023'
+    mocks.geolocation.lat = 38.63
+    mocks.geolocation.lng = null
+    mocks.getBySlug.mockResolvedValueOnce({ ...activeVenue, guideMode: 'location_aware' })
+
+    const view = render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.client.chat.session.mutate).toHaveBeenLastCalledWith({
+      venueId: activeVenue.id,
+      anonymousToken: mocks.anonymousToken,
+    })
+
+    mocks.geolocation.lng = -90.2
+    view.rerender(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(2))
+    expect(mocks.client.chat.session.mutate).toHaveBeenLastCalledWith({
+      venueId: activeVenue.id,
+      anonymousToken: mocks.anonymousToken,
+      lat: 38.63,
+      lng: -90.2,
+    })
+
+    mocks.geolocation.lat = null
+    mocks.geolocation.lng = null
+    view.rerender(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(3))
+
+    mocks.geolocation.lat = 38.63
+    mocks.geolocation.lng = -90.2
+    view.rerender(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledTimes(4))
+    expect(mocks.client.chat.session.mutate).toHaveBeenLastCalledWith({
+      venueId: activeVenue.id,
+      anonymousToken: mocks.anonymousToken,
+      lat: 38.63,
+      lng: -90.2,
     })
   })
 

@@ -201,6 +201,10 @@ export function VenueChatExperience({
         return
       }
 
+      if (lat === null || lng === null) {
+        lastSyncedPosRef.current = null
+      }
+
       if (lat !== null && lng !== null && lastSyncedPosRef.current !== null) {
         const dLat = Math.abs(lat - lastSyncedPosRef.current.lat)
         const dLng = Math.abs(lng - lastSyncedPosRef.current.lng)
@@ -216,8 +220,9 @@ export function VenueChatExperience({
           venueId: venue.id,
           anonymousToken,
           ...(visitorId ? { visitorId } : {}),
-          ...(venue.guideMode !== 'non_location' && lat !== null ? { lat } : {}),
-          ...(venue.guideMode !== 'non_location' && lng !== null ? { lng } : {}),
+          ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null
+            ? { lat, lng }
+            : {}),
         })
 
         if (!disposed && conversationEpochRef.current === conversationEpoch) {
@@ -327,18 +332,7 @@ export function VenueChatExperience({
     }
 
     const location =
-      venue.guideMode === 'non_location'
-        ? null
-        : lat !== null && lng !== null
-          ? { lat, lng }
-          : venue.defaultCenterLat !== null && venue.defaultCenterLng !== null
-            ? { lat: venue.defaultCenterLat, lng: venue.defaultCenterLng }
-            : null
-
-    if (venue.guideMode !== 'non_location' && location === null) {
-      setSendError('Location is still unavailable for this venue. Try allowing location first.')
-      return
-    }
+      venue.guideMode === 'non_location' ? null : lat !== null && lng !== null ? { lat, lng } : null
 
     setSendError(null)
     setIsSending(true)
@@ -471,6 +465,7 @@ export function VenueChatExperience({
   }
 
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
+  const hasLocationContext = venue.guideMode !== 'non_location' && lat !== null && lng !== null
   const fontFamily = getChatFontFamily(venue.chatFont)
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
   const headerTextClass = venue.chatBannerUrl
@@ -592,6 +587,7 @@ export function VenueChatExperience({
                 venueName={venue.name}
                 venueCategory={venue.category ?? undefined}
                 guideMode={venue.guideMode}
+                locationAvailable={hasLocationContext}
                 onSend={(prompt) => {
                   void handleSend(prompt)
                 }}

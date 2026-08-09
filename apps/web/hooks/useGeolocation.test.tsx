@@ -70,6 +70,63 @@ describe('useGeolocation', () => {
       expect(result.current.lat).toBeNull()
       expect(result.current.lng).toBeNull()
     })
+
+    act(() => {
+      onSuccess?.({ coords: { latitude: 51.5, longitude: -0.1 } } as GeolocationPosition)
+    })
+    expect(result.current.lat).toBeNull()
+    expect(result.current.lng).toBeNull()
+  })
+
+  it('ignores callbacks from a watcher invalidated by refresh', async () => {
+    const successCallbacks: PositionCallback[] = []
+    const errorCallbacks: PositionErrorCallback[] = []
+    const watchPosition = vi.fn(
+      (success: PositionCallback, errorCallback: PositionErrorCallback) => {
+        successCallbacks.push(success)
+        errorCallbacks.push(errorCallback)
+        return successCallbacks.length
+      },
+    )
+
+    Object.defineProperty(globalThis.navigator, 'permissions', {
+      configurable: true,
+      value: { query: vi.fn().mockResolvedValue({ state: 'granted' }) },
+    })
+    Object.defineProperty(globalThis.navigator, 'geolocation', {
+      configurable: true,
+      value: { clearWatch: vi.fn(), watchPosition },
+    })
+
+    const { result } = renderHook(() => useGeolocation())
+    await waitFor(() => expect(watchPosition).toHaveBeenCalledTimes(1))
+
+    act(() => result.current.refresh())
+    await waitFor(() => expect(watchPosition).toHaveBeenCalledTimes(2))
+
+    act(() => {
+      successCallbacks[0]?.({
+        coords: { latitude: 51.5, longitude: -0.1 },
+      } as GeolocationPosition)
+      errorCallbacks[0]?.({
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3,
+        code: 1,
+        message: 'stale denial',
+      } as GeolocationPositionError)
+    })
+
+    expect(result.current.lat).toBeNull()
+    expect(result.current.lng).toBeNull()
+    expect(result.current.permission).toBe('loading')
+
+    act(() => {
+      successCallbacks[1]?.({
+        coords: { latitude: 40.7, longitude: -74 },
+      } as GeolocationPosition)
+    })
+    await waitFor(() => expect(result.current.lat).toBe(40.7))
   })
 
   it("sets permission to 'denied' when the browser denies access", async () => {
@@ -116,6 +173,50 @@ describe('useGeolocation', () => {
     await waitFor(() => {
       expect(result.current.permission).toBe('denied')
       expect(result.current.error).toBe('Location permission was denied.')
+    })
+  })
+
+  it('clears a prior position when the active watch loses access', async () => {
+    let onSuccess: PositionCallback | null = null
+    let onError: PositionErrorCallback | null = null
+    Object.defineProperty(globalThis.navigator, 'permissions', {
+      configurable: true,
+      value: { query: vi.fn().mockResolvedValue({ state: 'granted' }) },
+    })
+    Object.defineProperty(globalThis.navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        clearWatch: vi.fn(),
+        watchPosition: vi.fn((success: PositionCallback, error: PositionErrorCallback) => {
+          onSuccess = success
+          onError = error
+          return 9
+        }),
+      },
+    })
+
+    const { result } = renderHook(() => useGeolocation())
+    await waitFor(() => expect(onSuccess).not.toBeNull())
+
+    act(() => {
+      onSuccess?.({ coords: { latitude: 40.7, longitude: -74 } } as GeolocationPosition)
+    })
+    await waitFor(() => expect(result.current.lat).toBe(40.7))
+
+    act(() => {
+      onError?.({
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3,
+        code: 2,
+        message: 'unavailable',
+      } as GeolocationPositionError)
+    })
+
+    await waitFor(() => {
+      expect(result.current.lat).toBeNull()
+      expect(result.current.lng).toBeNull()
+      expect(result.current.permission).toBe('prompt')
     })
   })
 })

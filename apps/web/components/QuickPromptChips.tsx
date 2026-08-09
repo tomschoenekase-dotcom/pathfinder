@@ -215,6 +215,7 @@ type QuickPromptChipsProps = {
   venueName?: string | undefined
   venueCategory?: string | undefined
   guideMode?: string | undefined
+  locationAvailable?: boolean | undefined
 }
 
 const MAX_PROMPTS = 3
@@ -224,10 +225,11 @@ export function buildPrompts(
   venueCategory?: string,
   guideMode?: string,
   language = 'English',
+  locationAvailable = true,
 ): string[] {
   const set = LOCALIZED_PROMPTS[language] ?? LOCALIZED_PROMPTS['English']!
   const prompts =
-    guideMode === 'non_location'
+    guideMode === 'non_location' || !locationAvailable
       ? set.nonLocation(venueName)
       : set.location(venueName, venueCategory)
   return prompts.slice(0, MAX_PROMPTS)
@@ -239,8 +241,9 @@ export function QuickPromptChips({
   venueName,
   venueCategory,
   guideMode,
+  locationAvailable = true,
 }: QuickPromptChipsProps) {
-  const prompts = buildPrompts(venueName, venueCategory, guideMode, language)
+  const prompts = buildPrompts(venueName, venueCategory, guideMode, language, locationAvailable)
   const startLabel = LANGUAGE_START_LABELS[language] ?? LANGUAGE_START_LABELS['English']!
 
   return (

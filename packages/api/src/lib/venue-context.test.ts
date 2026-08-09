@@ -41,7 +41,7 @@ const relevantPlaces = [
 
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v1')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v2')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -58,6 +58,16 @@ describe('guest chat prompt provenance', () => {
           userLat: 0,
           userLng: 0,
           guideMode: 'non_location',
+        }),
+      },
+      {
+        id: 'location-aware-without-live-position',
+        prompt: buildVenueSystemPrompt({
+          venue,
+          relevantPlaces,
+          userLat: null,
+          userLng: null,
+          guideMode: 'location_aware',
         }),
       },
       {
@@ -191,6 +201,21 @@ describe('buildVenueSystemPrompt', () => {
     expect(prompt).toContain('about 150 feet away')
     // 15m = ~49 feet → under 60ft threshold → "right nearby"
     expect(prompt).toContain('right nearby')
+  })
+
+  it('withholds visitor-relative distance guidance without a live position', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue,
+      relevantPlaces,
+      userLat: null,
+      userLng: null,
+      guideMode: 'location_aware',
+    })
+
+    expect(prompt).toContain('has not shared a usable live position')
+    expect(prompt).toContain('never reuse earlier user-relative distance')
+    expect(prompt).not.toContain('about 150 feet away')
+    expect(prompt).not.toContain('right nearby')
   })
 
   it('falls back to default description when venue.description is null', () => {

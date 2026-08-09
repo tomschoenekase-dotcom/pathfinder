@@ -1,3 +1,5 @@
+import React from 'react'
+
 type LocationBannerProps = {
   permission: 'granted' | 'denied' | 'prompt' | 'loading'
   onRefresh: () => void
@@ -18,7 +20,7 @@ export function LocationBanner({ permission, onRefresh, show = true }: LocationB
       <section className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-4 text-[var(--chat-text-muted)] shadow-sm">
         <p className="text-sm font-semibold text-[var(--chat-text)]">Checking location...</p>
         <p className="mt-1 text-sm leading-6 text-[var(--chat-text-muted)]">
-          Waiting for your device to share its position.
+          You can still ask general questions while we wait for your device position.
         </p>
       </section>
     )
@@ -28,12 +30,13 @@ export function LocationBanner({ permission, onRefresh, show = true }: LocationB
     permission === 'denied'
       ? {
           title: 'Location access denied',
-          description: 'Enable location in your browser settings to get distance-aware answers.',
+          description:
+            'General questions still work. Enable location in your browser settings for distance-aware answers.',
           action: 'Try again',
         }
       : {
           title: 'Allow location for better answers',
-          description: 'PathFinder uses your position to tell you what is nearby.',
+          description: 'General questions work without it. Share location to learn what is nearby.',
           action: 'Share location',
         }
 

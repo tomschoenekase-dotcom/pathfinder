@@ -267,13 +267,10 @@ export const chatRouter = router({
     if (!venue.isActive) throw venueUnavailable()
 
     const isNonLocation = venue.guideMode === 'non_location'
-    const updateData: Record<string, unknown> = { lastActiveAt: new Date() }
-    if (isNonLocation) {
-      updateData.latestLat = null
-      updateData.latestLng = null
-    } else if (input.lat !== undefined && input.lng !== undefined) {
-      updateData.latestLat = input.lat
-      updateData.latestLng = input.lng
+    const updateData: Record<string, unknown> = {
+      lastActiveAt: new Date(),
+      latestLat: isNonLocation ? null : (input.lat ?? null),
+      latestLng: isNonLocation ? null : (input.lng ?? null),
     }
     if (input.visitorId !== undefined) updateData.visitorId = input.visitorId
 
@@ -317,41 +314,21 @@ export const chatRouter = router({
     const guideMode = venue.guideMode ?? 'location_aware'
     const callerLocation =
       input.lat !== undefined && input.lng !== undefined ? { lat: input.lat, lng: input.lng } : null
-    const hasDefaultLocation = venue.defaultCenterLat != null && venue.defaultCenterLng != null
-    const userLat =
-      guideMode === 'location_aware'
-        ? callerLocation
-          ? callerLocation.lat
-          : hasDefaultLocation
-            ? venue.defaultCenterLat
-            : null
+    const liveLocation = guideMode === 'location_aware' ? callerLocation : null
+    const defaultCenterLat = venue.defaultCenterLat
+    const defaultCenterLng = venue.defaultCenterLng
+    const defaultLocation =
+      defaultCenterLat != null && defaultCenterLng != null
+        ? { lat: defaultCenterLat, lng: defaultCenterLng }
         : null
-    const userLng =
-      guideMode === 'location_aware'
-        ? callerLocation
-          ? callerLocation.lng
-          : hasDefaultLocation
-            ? venue.defaultCenterLng
-            : null
-        : null
-
-    if (guideMode === 'location_aware' && (userLat == null || userLng == null)) {
-      throw new TRPCError({
-        code: 'BAD_REQUEST',
-        message: 'Location is still unavailable for this venue.',
-      })
-    }
-
-    const contextLat = userLat ?? 0
-    const contextLng = userLng ?? 0
+    const rankingLocation =
+      guideMode === 'location_aware' ? (liveLocation ?? defaultLocation) : null
+    const hasLiveLocation = liveLocation !== null
 
     // 2. Upsert session, update location
-    const sessionLocationData =
-      guideMode === 'non_location'
-        ? { latestLat: null, latestLng: null }
-        : callerLocation
-          ? { latestLat: callerLocation.lat, latestLng: callerLocation.lng }
-          : {}
+    const sessionLocationData = liveLocation
+      ? { latestLat: liveLocation.lat, latestLng: liveLocation.lng }
+      : { latestLat: null, latestLng: null }
     const session = await ctx.db.visitorSession.upsert({
       where: {
         venueId_anonymousToken: {
@@ -476,8 +453,8 @@ export const chatRouter = router({
           queryEmbedding,
           venueId: input.venueId,
           tenantId: venue.tenantId,
-          userLat: contextLat,
-          userLng: contextLng,
+          userLat: rankingLocation?.lat ?? null,
+          userLng: rankingLocation?.lng ?? null,
           limit: NEAREST_PLACES_LIMIT,
         }),
         searchKnowledgeByEmbedding({
@@ -487,7 +464,12 @@ export const chatRouter = router({
           limit: KNOWLEDGE_ENTRIES_LIMIT,
         }).catch(() => []),
       ])
-      relevantPlaces = places
+      relevantPlaces = hasLiveLocation
+        ? places
+        : places.map(({ distanceMeters, ...place }) => {
+            void distanceMeters
+            return place
+          })
       relevantKnowledgeEntries = knowledge
     } else {
       relevantKnowledgeEntries = []
@@ -511,13 +493,26 @@ export const chatRouter = router({
         orderBy: { importanceScore: 'desc' },
         take: NEAREST_PLACES_LIMIT,
       })
-      relevantPlaces =
-        guideMode === 'location_aware' && userLat != null && userLng != null
-          ? findNearestPlaces(userLat, userLng, fallbackPlaces, NEAREST_PLACES_LIMIT)
-          : fallbackPlaces.map(({ importanceScore, ...place }) => {
-              void importanceScore
-              return { ...place, distanceMeters: 0 }
+      const importanceRankedPlaces = fallbackPlaces.map(({ importanceScore, ...place }) => {
+        void importanceScore
+        return place
+      })
+      if (rankingLocation) {
+        const rankedPlaces = findNearestPlaces(
+          rankingLocation.lat,
+          rankingLocation.lng,
+          importanceRankedPlaces,
+          NEAREST_PLACES_LIMIT,
+        )
+        relevantPlaces = hasLiveLocation
+          ? rankedPlaces
+          : rankedPlaces.map(({ distanceMeters, ...place }) => {
+              void distanceMeters
+              return place
             })
+      } else {
+        relevantPlaces = importanceRankedPlaces
+      }
     }
     retrievalMs = elapsedMilliseconds(retrievalStartedAt)
 
@@ -573,8 +568,8 @@ export const chatRouter = router({
       relevantPlaces,
       knowledgeEntries: relevantKnowledgeEntries,
       activeUpdates,
-      userLat: contextLat,
-      userLng: contextLng,
+      userLat: liveLocation?.lat ?? null,
+      userLng: liveLocation?.lng ?? null,
       featuredPlace,
       ...(input.language ? { language: input.language } : {}),
       guideMode,
@@ -751,6 +746,19 @@ export const chatRouter = router({
       totalMs,
     }
 
+    // Filter cards to live-position places the model actually mentioned.
+    // Cap at three to keep the guest-visible response and analytics aligned.
+    const mentionedPlaces = !hasLiveLocation
+      ? []
+      : relevantPlaces
+          .filter(
+            (p) =>
+              p.lat != null &&
+              p.lng != null &&
+              assistantResponse.toLowerCase().includes(p.name.toLowerCase()),
+          )
+          .slice(0, 3)
+
     if (fallbackFailureCode) {
       try {
         await emitEvent({
@@ -791,9 +799,17 @@ export const chatRouter = router({
         eventType: 'message.received',
         metadata: {
           responseLength: assistantResponse.length,
-          placesReturned: relevantPlaces.length,
+          placesReturned: mentionedPlaces.length,
           fallback: fallbackFailureCode !== null,
-          retrievalMode: queryEmbedding ? 'semantic' : 'geo-or-importance',
+          retrievalMode: queryEmbedding
+            ? hasLiveLocation
+              ? 'semantic'
+              : 'semantic-without-live-location'
+            : hasLiveLocation
+              ? 'geo'
+              : rankingLocation
+                ? 'default-center-without-live-location'
+                : 'importance-without-location',
           ...(fallbackFailureCode ? { failureCode: fallbackFailureCode } : {}),
           ...timingMetadata,
         },
@@ -846,20 +862,6 @@ export const chatRouter = router({
         // Low-confidence analytics are best-effort and must not break guest chat.
       }
     }
-
-    // Filter places to only those Claude actually mentioned in the response.
-    // Cap at 3 — more than that in a single turn is visual noise.
-    const mentionedPlaces =
-      guideMode === 'non_location'
-        ? []
-        : relevantPlaces
-            .filter(
-              (p) =>
-                p.lat != null &&
-                p.lng != null &&
-                assistantResponse.toLowerCase().includes(p.name.toLowerCase()),
-            )
-            .slice(0, 3)
 
     return {
       response: assistantResponse,

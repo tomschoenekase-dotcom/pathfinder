@@ -378,6 +378,22 @@ describe('chat router', () => {
       )
     })
 
+    it('clears a stale position when a location-aware client omits coordinates', async () => {
+      dbQueryRaw.mockResolvedValueOnce([
+        { id: VENUE_ID, tenantId: TENANT_ID, guideMode: 'location_aware', isActive: true },
+      ])
+      sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
+
+      await caller.chat.session({ venueId: VENUE_ID, anonymousToken: TOKEN })
+
+      expect(sessionUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ latestLat: null, latestLng: null }),
+          update: expect.objectContaining({ latestLat: null, latestLng: null }),
+        }),
+      )
+    })
+
     it('clears live coordinates instead of retaining them for a non-location venue', async () => {
       dbQueryRaw.mockResolvedValueOnce([
         { id: VENUE_ID, tenantId: TENANT_ID, guideMode: 'non_location', isActive: true },
@@ -675,26 +691,206 @@ describe('chat router', () => {
       )
     })
 
-    it('never combines a caller or venue coordinate with a missing opposite half', async () => {
-      dbQueryRaw.mockResolvedValueOnce([
+    it('answers knowledge questions without a complete location and withholds distance UI', async () => {
+      setupHappyPath('The elephants are in the Safari Zone.', {
+        ...venueRow,
+        guideMode: 'location_aware',
+        defaultCenterLat: 40.7,
+        defaultCenterLng: null,
+      })
+      semanticSearch.places.mockResolvedValueOnce([
+        { ...placeRows[0], distance: 0.1, distanceMeters: 125 },
+      ])
+
+      const result = await caller.chat.send({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        message: 'Tell me about the elephants.',
+      })
+
+      expect(result.places).toEqual([])
+      expect(sessionUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ latestLat: null, latestLng: null }),
+          update: expect.objectContaining({ latestLat: null, latestLng: null }),
+        }),
+      )
+      expect(getConcatenatedSystemPrompt()).toContain('has not shared a usable live position')
+      expect(getConcatenatedSystemPrompt()).not.toContain('about 400 feet away')
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({
+            placesReturned: 0,
+            retrievalMode: 'semantic-without-live-location',
+          }),
+        }),
+      )
+    })
+
+    it('uses a complete default center only for ranking without claiming visitor distance', async () => {
+      setupHappyPath('The elephants are in the Safari Zone.', {
+        ...venueRow,
+        guideMode: 'location_aware',
+        defaultCenterLat: 40.7,
+        defaultCenterLng: -74,
+      })
+      semanticSearch.places.mockResolvedValueOnce([
+        { ...placeRows[0], distance: 0.1, distanceMeters: 15, photoUrl: null },
+      ])
+
+      const result = await caller.chat.send({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        message: 'Where are the elephants?',
+      })
+
+      expect(getConcatenatedSystemPrompt()).not.toContain('right nearby')
+      expect(getConcatenatedSystemPrompt()).toContain('has not shared a usable live position')
+      expect(result.places).toEqual([])
+      expect(semanticSearch.places).toHaveBeenCalledWith(
+        expect.objectContaining({ userLat: 40.7, userLng: -74 }),
+      )
+    })
+
+    it('uses the caller position instead of the venue default when both are available', async () => {
+      setupHappyPath('The elephants are nearby.', {
+        ...venueRow,
+        guideMode: 'location_aware',
+        defaultCenterLat: 41.2,
+        defaultCenterLng: -75.3,
+      })
+      semanticSearch.places.mockResolvedValueOnce([
+        { ...placeRows[0], distance: 0.1, distanceMeters: 125, photoUrl: null },
+      ])
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(semanticSearch.places).toHaveBeenCalledWith(
+        expect.objectContaining({ userLat: sendInput.lat, userLng: sendInput.lng }),
+      )
+      expect(result.places[0]).toMatchObject({ id: 'p1', distanceMeters: 125 })
+    })
+
+    it('falls back to importance without inventing a visitor position when embedding fails', async () => {
+      setupHappyPath('The elephants are in the Safari Zone.', {
+        ...venueRow,
+        guideMode: 'location_aware',
+        defaultCenterLat: null,
+        defaultCenterLng: null,
+      })
+      embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValueOnce([{ ...placeRows[0], importanceScore: 90 }])
+
+      const result = await caller.chat.send({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        message: 'Tell me about the elephants.',
+      })
+
+      expect(result.places).toEqual([])
+      expect(semanticSearch.places).not.toHaveBeenCalled()
+      expect(getConcatenatedSystemPrompt()).toContain('has not shared a usable live position')
+      expect(getConcatenatedSystemPrompt()).not.toContain('right nearby')
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({
+            placesReturned: 0,
+            retrievalMode: 'importance-without-location',
+          }),
+        }),
+      )
+    })
+
+    it('uses the venue default only to rank fallback places when no visitor position exists', async () => {
+      setupHappyPath('The Safari Zone includes both habitats.', {
+        ...venueRow,
+        guideMode: 'location_aware',
+        defaultCenterLat: 40.7,
+        defaultCenterLng: -74,
+      })
+      embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValueOnce([
         {
-          ...venueRow,
-          guideMode: 'location_aware',
-          defaultCenterLat: 40.7,
-          defaultCenterLng: null,
+          ...placeRows[0],
+          id: 'far_from_default',
+          name: 'Far Habitat',
+          lat: 40.8,
+          importanceScore: 100,
+        },
+        {
+          ...placeRows[0],
+          id: 'near_default',
+          name: 'Near Habitat',
+          lat: 40.7001,
+          importanceScore: 10,
         },
       ])
 
-      await expect(
-        caller.chat.send({
-          venueId: VENUE_ID,
-          anonymousToken: TOKEN,
-          message: 'Where should I start?',
-        }),
-      ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
+      const result = await caller.chat.send({
+        venueId: VENUE_ID,
+        anonymousToken: TOKEN,
+        message: 'Tell me about the habitats.',
+      })
+      const prompt = getConcatenatedSystemPrompt()
 
-      expect(sessionUpsert).not.toHaveBeenCalled()
-      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(prompt.indexOf('Near Habitat')).toBeLessThan(prompt.indexOf('Far Habitat'))
+      expect(prompt).not.toContain('right nearby')
+      expect(prompt).not.toMatch(/feet away|minute walk/)
+      expect(result.places).toEqual([])
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({
+            retrievalMode: 'default-center-without-live-location',
+          }),
+        }),
+      )
+    })
+
+    it('uses live visitor coordinates ahead of the venue default for fallback ranking', async () => {
+      setupHappyPath('The Visitor Habitat is right nearby.', {
+        ...venueRow,
+        guideMode: 'location_aware',
+        defaultCenterLat: 40.7,
+        defaultCenterLng: -74,
+      })
+      embeddingCreate.mockRejectedValueOnce(new Error('embedding unavailable'))
+      placeFindMany.mockReset()
+      placeFindMany.mockResolvedValueOnce([
+        {
+          ...placeRows[0],
+          id: 'near_default',
+          name: 'Default Habitat',
+          lat: 40.7,
+          lng: -74,
+          importanceScore: 100,
+        },
+        {
+          ...placeRows[0],
+          id: 'near_visitor',
+          name: 'Visitor Habitat',
+          lat: sendInput.lat,
+          lng: sendInput.lng,
+          importanceScore: 10,
+        },
+      ])
+
+      const result = await caller.chat.send(sendInput)
+      const prompt = getConcatenatedSystemPrompt()
+
+      expect(prompt.indexOf('Visitor Habitat')).toBeLessThan(prompt.indexOf('Default Habitat'))
+      expect(prompt).toContain('Visitor Habitat (attraction) - right nearby')
+      expect(result.places[0]).toMatchObject({ id: 'near_visitor', distanceMeters: 0 })
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({ retrievalMode: 'geo' }),
+        }),
+      )
     })
 
     it('trims a padded message before provider and persistence work', async () => {

@@ -121,8 +121,8 @@ export async function searchPlacesByEmbedding(params: {
   queryEmbedding: number[]
   venueId: string
   tenantId: string
-  userLat: number
-  userLng: number
+  userLat: number | null
+  userLng: number | null
   limit?: number
 }): Promise<SemanticPlace[]> {
   const { queryEmbedding, venueId, tenantId, userLat, userLng, limit = DEFAULT_LIMIT } = params
@@ -168,7 +168,7 @@ export async function searchPlacesByEmbedding(params: {
     hours: row.hours,
     photoUrl: row.photo_url,
     distance: Number(row.distance),
-    ...(row.lat != null && row.lng != null
+    ...(row.lat != null && row.lng != null && userLat != null && userLng != null
       ? { distanceMeters: haversineDistanceMeters(userLat, userLng, row.lat, row.lng) }
       : {}),
   }))

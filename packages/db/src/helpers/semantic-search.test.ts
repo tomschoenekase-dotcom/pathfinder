@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { claimUpdateMany, executeRaw, queryRaw, transaction } = vi.hoisted(() => ({
-  claimUpdateMany: vi.fn(),
-  executeRaw: vi.fn(),
-  queryRaw: vi.fn(),
-  transaction: vi.fn(),
-}))
+const { claimUpdateMany, executeRaw, haversineDistanceMeters, queryRaw, transaction } = vi.hoisted(
+  () => ({
+    claimUpdateMany: vi.fn(),
+    executeRaw: vi.fn(),
+    haversineDistanceMeters: vi.fn(() => 125),
+    queryRaw: vi.fn(),
+    transaction: vi.fn(),
+  }),
+)
 
 vi.mock('../client', () => ({
   db: {
@@ -15,11 +18,12 @@ vi.mock('../client', () => ({
 }))
 
 vi.mock('@pathfinder/config/geo', () => ({
-  haversineDistanceMeters: vi.fn(() => 0),
+  haversineDistanceMeters,
 }))
 
 import {
   searchKnowledgeByEmbedding,
+  searchPlacesByEmbedding,
   storeKnowledgeEntryEmbeddingForScope,
   storePlaceEmbeddingForScope,
 } from './semantic-search'
@@ -84,6 +88,69 @@ describe('knowledge semantic search helpers', () => {
       },
     ])
     expect(queryRaw).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits visitor distance when semantic place ranking has no position', async () => {
+    queryRaw.mockResolvedValueOnce([
+      {
+        id: 'place_1',
+        name: 'Main Hall',
+        type: 'exhibit',
+        item_type: null,
+        short_description: 'A short description',
+        long_description: null,
+        lat: 40.7,
+        lng: -74,
+        tags: [],
+        area_name: null,
+        hours: null,
+        photo_url: null,
+        distance: '0.1',
+      },
+    ])
+
+    const result = await searchPlacesByEmbedding({
+      queryEmbedding: [0.1],
+      venueId: 'venue_1',
+      tenantId: 'tenant_1',
+      userLat: null,
+      userLng: null,
+    })
+
+    expect(result[0]).not.toHaveProperty('distanceMeters')
+    expect(result[0]).toMatchObject({ id: 'place_1', distance: 0.1 })
+    expect(haversineDistanceMeters).not.toHaveBeenCalled()
+  })
+
+  it('adds visitor distance only when both position coordinates are present', async () => {
+    queryRaw.mockResolvedValueOnce([
+      {
+        id: 'place_1',
+        name: 'Main Hall',
+        type: 'exhibit',
+        item_type: null,
+        short_description: null,
+        long_description: null,
+        lat: 40.7,
+        lng: -74,
+        tags: [],
+        area_name: null,
+        hours: null,
+        photo_url: null,
+        distance: 0.1,
+      },
+    ])
+
+    const result = await searchPlacesByEmbedding({
+      queryEmbedding: [0.1],
+      venueId: 'venue_1',
+      tenantId: 'tenant_1',
+      userLat: 40.6,
+      userLng: -73.9,
+    })
+
+    expect(result[0]).toMatchObject({ distanceMeters: 125 })
+    expect(haversineDistanceMeters).toHaveBeenCalledWith(40.6, -73.9, 40.7, -74)
   })
 
   it('binds place writes to scope, revision, and every captured source field', async () => {

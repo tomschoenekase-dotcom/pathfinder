@@ -83,8 +83,8 @@ export function buildVenueSystemPromptParts(params: {
   relevantPlaces: RelevantPlace[]
   knowledgeEntries?: KnowledgeEntry[]
   activeUpdates?: ActiveUpdate[]
-  userLat: number
-  userLng: number
+  userLat: number | null
+  userLng: number | null
   featuredPlace?: FeaturedPlace | null
   engagementQuestion?: EngagementQuestionContext | null
   language?: string | null
@@ -94,6 +94,8 @@ export function buildVenueSystemPromptParts(params: {
   const knowledgeEntries = params.knowledgeEntries ?? []
   const activeUpdates = params.activeUpdates ?? []
   const guideMode = params.guideMode ?? venue.guideMode ?? 'location_aware'
+  const hasLocationContext =
+    guideMode === 'location_aware' && params.userLat != null && params.userLng != null
 
   const venueDescription = venue.description ?? 'A venue with many things to explore.'
   const guideName = venue.aiGuideName?.trim() || 'Path Finder'
@@ -144,7 +146,7 @@ export function buildVenueSystemPromptParts(params: {
       : relevantPlaces
           .map((p, i) => {
             const distance =
-              guideMode !== 'non_location' && p.distanceMeters != null
+              hasLocationContext && p.distanceMeters != null
                 ? ` - ${formatDistance(p.distanceMeters)}`
                 : ''
             const area = p.areaName ? ` in ${p.areaName}` : ''
@@ -181,8 +183,7 @@ export function buildVenueSystemPromptParts(params: {
       ? `LANGUAGE RULE: The guest has selected ${language} as their preferred language. Always respond in ${language}, regardless of what language the guest types in.`
       : "LANGUAGE RULE: Detect the language of the guest's message. Always reply in the same language the guest uses. If the guest writes in Spanish, reply in Spanish. If French, reply in French. Do not switch languages mid-conversation unless the guest switches first. Default to English if the language is unclear."
 
-  const roleDescription =
-    guideMode === 'non_location' ? 'a knowledgeable guide' : 'a helpful on-site guide'
+  const roleDescription = hasLocationContext ? 'a helpful on-site guide' : 'a knowledgeable guide'
 
   const guideModeRules =
     guideMode === 'non_location'
@@ -190,7 +191,13 @@ export function buildVenueSystemPromptParts(params: {
 - Help the visitor understand exhibits, history, services, or processes.
 - Do not emphasize distances, nearby items, or navigation unless asked.
 - If asked about navigation or location, explain this is a content guide, not a map.`
-      : `- Lead with what makes a place worth visiting - its character, experience, or purpose. Distance is secondary context, not the headline.
+      : !hasLocationContext
+        ? `- The visitor has not shared a usable live position. Continue answering venue knowledge questions normally.
+- Do not claim that any place is near, far, nearest, closest, or a specific walking distance from the visitor. No visitor-relative distance or route is available.
+- Treat any earlier distance or directions in conversation history as stale context; never reuse earlier user-relative distance or directions as current.
+- You may use configured area names or landmarks as factual venue context, but if the visitor asks for proximity or turn-by-turn guidance, say that location is needed for distance-aware directions.
+- Suggest at most two relevant options and never rank them by proximity.`
+        : `- Lead with what makes a place worth visiting - its character, experience, or purpose. Distance is secondary context, not the headline.
 - Only mention distance when the visitor is asking how to find something or needs directions ("where is", "how far", "near me"). For questions about what to do or see, skip the distance entirely.
 - When distance is relevant, use the natural phrasing from the provided place data ("about 200 feet away", "right nearby"). Never convert to metric or use raw numbers.
 - For practical navigation questions (bathroom, exit, specific location), give the nearest match with distance and nothing else.
