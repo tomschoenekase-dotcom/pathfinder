@@ -4,6 +4,7 @@ import {
   buildVenueSystemPrompt,
   buildVenueSystemPromptParts,
   formatDistance,
+  GUEST_CHAT_PROMPT_VERSION,
 } from './venue-context'
 
 const venue = {
@@ -35,6 +36,12 @@ const relevantPlaces = [
     hours: null,
   },
 ]
+
+describe('guest chat prompt provenance', () => {
+  it('declares a stable production-owned prompt version', () => {
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v1')
+  })
+})
 
 describe('formatDistance', () => {
   it('returns "right nearby" for very short distances', () => {

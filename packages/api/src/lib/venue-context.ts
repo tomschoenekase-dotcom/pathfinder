@@ -1,3 +1,9 @@
+/**
+ * Durable version of the production guest-chat system prompt contract.
+ * Increment when prompt behavior changes in a way that invalidates evaluation baselines.
+ */
+export const GUEST_CHAT_PROMPT_VERSION = 'guest-chat-prompt-v1' as const
+
 type RelevantPlace = {
   id?: string
   name: string
