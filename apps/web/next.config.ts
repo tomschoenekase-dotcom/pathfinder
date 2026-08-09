@@ -23,9 +23,13 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/embed/:path*',
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+      },
+      {
+        source: '/widget.js',
         headers: [
-          { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
-          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
         ],
       },
       {

@@ -32,6 +32,9 @@ const rawEnvSchema = z
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
     EMBED_PREVIEW_ENABLED: z.enum(['true', 'false']).optional(),
+    // Server-only, bounded static policy for the staging framing kernel. Runtime
+    // parsing applies the exact per-venue origin shape and fails closed.
+    WIDGET_PREVIEW_ORIGINS_JSON: z.string().max(16_384).optional(),
 
     // Error monitoring is default-off. DSNs are only used when the matching
     // explicit runtime flag is true; source-map credentials are build-only.

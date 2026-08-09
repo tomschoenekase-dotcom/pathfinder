@@ -270,3 +270,26 @@ describe('EMBED_PREVIEW_ENABLED', () => {
     ).toThrow()
   })
 })
+
+describe('WIDGET_PREVIEW_ORIGINS_JSON', () => {
+  it('is optional and bounds the raw server-only policy', () => {
+    expect(
+      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'staging' })
+        .WIDGET_PREVIEW_ORIGINS_JSON,
+    ).toBeUndefined()
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        WIDGET_PREVIEW_ORIGINS_JSON: '{}',
+      }).WIDGET_PREVIEW_ORIGINS_JSON,
+    ).toBe('{}')
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        WIDGET_PREVIEW_ORIGINS_JSON: 'x'.repeat(16_385),
+      }),
+    ).toThrow()
+  })
+})

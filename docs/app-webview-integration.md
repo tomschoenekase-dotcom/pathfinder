@@ -18,7 +18,7 @@ The venue header, language picker, new-conversation control, location state, AI 
 
 ## Native-shell boundary
 
-- Navigate the web view directly to the HTTPS URL; do not place it in another iframe. The current response policy allows same-origin framing only and does not claim third-party widget support.
+- Navigate the web view directly to the HTTPS URL; do not place it in another iframe. Every query-bearing embed, including `?chrome=hidden`, remains same-origin-frame-only even if the separately configured website-widget preview is enabled.
 - Allow JavaScript and first-party session storage. PathFinder uses an anonymous per-venue browser session; do not inject cookies, API keys, tenant IDs, authorization headers, or native secrets.
 - Allow location only when the app and operating system have obtained the visitor's permission. Knowledge questions continue to work when location is denied or unavailable. A non-location guide does not request visitor location.
 - Keep navigation on the configured PathFinder origin inside the web view. Open explicit external actions, such as Google Maps directions, with the operating system after normal user confirmation.
@@ -34,4 +34,4 @@ The venue header, language picker, new-conversation control, location state, AI 
 
 ## Deliberate limitations
 
-There is no native bridge, native SDK, publishable widget key, third-party origin allow-list, API key, write API, or separate web-view analytics dimension in this slice. The ordinary guest-chat tenant resolution, admission, incident controls, and usage attribution remain authoritative. Test this contract in an authorized isolated staging environment before any app exposure.
+There is no native bridge, native SDK, publishable widget key, API key, write API, or separate web-view analytics dimension in this slice. A separate default-off website-widget preview may use a server-owned exact-origin allow-list, but it cannot frame the `?chrome=hidden` presentation. The ordinary guest-chat tenant resolution, admission, incident controls, and usage attribution remain authoritative. Test this contract in an authorized isolated staging environment before any app exposure.
