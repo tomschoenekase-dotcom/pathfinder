@@ -36,8 +36,10 @@ describe('embed middleware response boundary', () => {
   })
 
   it('emits exact external frame ancestors from server-owned venue policy', () => {
+    const revision = 'a'.repeat(40)
     const headers = getEmbedResponseHeaders(new NextRequest('https://guide.example/embed/museum'), {
       RAILWAY_ENVIRONMENT: 'staging',
+      RAILWAY_GIT_COMMIT_SHA: revision,
       EMBED_PREVIEW_ENABLED: 'true',
       WIDGET_PREVIEW_ORIGINS_JSON: JSON.stringify({
         museum: ['https://museum.example'],
@@ -49,6 +51,7 @@ describe('embed middleware response boundary', () => {
     )
     expect(headers?.get('Cache-Control')).toBe('private, no-store')
     expect(headers?.get('Referrer-Policy')).toBe('no-referrer')
+    expect(headers?.get('X-PathFinder-Revision')).toBe(revision)
     expect(headers?.get('X-Content-Type-Options')).toBe('nosniff')
     expect(headers?.get('X-Robots-Tag')).toBe('noindex, nofollow')
     expect(headers?.has('Access-Control-Allow-Origin')).toBe(false)
@@ -74,6 +77,9 @@ describe('embed middleware response boundary', () => {
       expect(response?.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'self'")
       expect(response?.headers.get('Cache-Control')).toBe('private, no-store')
       expect(response?.headers.get('Referrer-Policy')).toBe('no-referrer')
+      expect(response?.headers.get('X-PathFinder-Revision')).toBe(
+        process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'unknown',
+      )
       expect(response?.headers.get('X-Content-Type-Options')).toBe('nosniff')
       expect(response?.headers.get('X-Robots-Tag')).toBe('noindex, nofollow')
     } finally {

@@ -18,6 +18,8 @@ export function getEmbedResponseHeaders(
     'Cache-Control': 'private, no-store',
     'Content-Security-Policy': buildWidgetFrameAncestors(framingPathname, environment),
     'Referrer-Policy': 'no-referrer',
+    'X-PathFinder-Revision':
+      environment.RAILWAY_GIT_COMMIT_SHA ?? environment.VERCEL_GIT_COMMIT_SHA ?? 'unknown',
     'X-Content-Type-Options': 'nosniff',
     'X-Robots-Tag': 'noindex, nofollow',
   })

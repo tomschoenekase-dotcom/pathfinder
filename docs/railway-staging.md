@@ -136,6 +136,26 @@ staging release shell. The disposable wrapper intentionally has no external-host
    database, Redis, storage, identity-provider, and outbound-provider isolation;
    retain the manual evidence for those boundaries.
 
+   If the release includes the default-off website-widget preview, run the
+   exact-revision widget admission from a checkout that contains `RELEASE_SHA`:
+
+   ```bash
+   pnpm verify:staging-widget -- \
+     --url https://pathfinder-staging.example.com/api/health \
+     --expected-revision "$RELEASE_SHA" \
+     --confirm-environment staging \
+     --confirm-host pathfinder-staging.example.com \
+     --venue-slug museum-slug \
+     --expected-frame-origins-json '["https://www.museum.example"]' \
+     --unlisted-venue-slug widget-admission-unlisted
+   ```
+
+   Confirm that the negative-control slug is not a real venue and is absent
+   from the server-owned widget policy. Passing binds the reviewed loader bytes
+   and each revision-bearing frame-policy response to a healthy deployment that
+   reports the requested revision. It is an HTTP admission prerequisite, not browser execution proof,
+   production authorization, or M4 approval.
+
 7. Start the workers with `EMBEDDING_DISPATCH_ENABLED=false`. Confirm the new
    `EmbeddingDispatch` table and content triggers exist, then make one synthetic
    place or knowledge edit and verify a single coalesced dispatch row is committed.
@@ -434,6 +454,9 @@ historical report data requires a separate reviewed migration.
 
 - Run the exact-revision `verify:staging-health` admission command above and
   record its sanitized JSON result. Railway health must also be green.
+- For an enabled widget canary, run the exact-revision widget admission above,
+  then preserve browser evidence from one authorized third-party test page and
+  one non-allow-listed origin that CSP blocks. Record only sanitized output.
 - Open the seeded venue in the public web app and complete one cheap guest chat
   turn. Confirm a persisted visitor/message flow and no production venue data.
 - Sign in to the dashboard with a Clerk test user, select the staging tenant,

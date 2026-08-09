@@ -28,6 +28,7 @@
     "test:watch": "vitest",
     "verify:staging": "node scripts/verify-staging-config.mjs",
     "verify:staging-health": "node scripts/verify-staging-health.mjs",
+    "verify:staging-widget": "node scripts/verify-staging-widget.mjs",
     "verify:public-surfaces": "node scripts/verify-public-surface-boundary.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "prepare": "husky"
