@@ -22,14 +22,16 @@ The nightly `daily-rollup` worker derives tenant- and venue-scoped metrics from 
 - `chat_responses`
 - `chat_fallbacks`
 - `chat_fallback_rate_bps` (basis points; 100 = 1%)
-- `chat_embedding_p95_ms`
-- `chat_retrieval_p95_ms`
-- `chat_prompt_assembly_p95_ms`
-- `chat_model_p95_ms`
-- `chat_persistence_p95_ms`
-- `chat_total_p95_ms`
+- `chat_embedding_p50_ms` and `chat_embedding_p95_ms`
+- `chat_retrieval_p50_ms` and `chat_retrieval_p95_ms`
+- `chat_prompt_assembly_p50_ms` and `chat_prompt_assembly_p95_ms`
+- `chat_model_p50_ms` and `chat_model_p95_ms`
+- `chat_persistence_p50_ms` and `chat_persistence_p95_ms`
+- `chat_total_p50_ms` and `chat_total_p95_ms`
 
-Malformed or missing timing fields are ignored; an empty day produces explicit zero values. The existing tenant-scoped `analytics.getDailyStats` procedure exposes these rows.
+Malformed or missing timing fields are ignored. An empty day produces explicit zero response, fallback, and fallback-rate values but no percentile rows, preserving the difference between an unsampled stage and a legitimate zero-millisecond measurement. The existing tenant-scoped `analytics.getDailyStats` procedure exposes these rows.
+
+The dashboard presents the latest day with completed responses in the requested 30-day window for each active venue. Older p95-only rows remain readable and show p50 as unavailable rather than fabricating it.
 
 ## Limits and rollout
 

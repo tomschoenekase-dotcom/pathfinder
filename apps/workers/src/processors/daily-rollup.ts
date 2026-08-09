@@ -54,12 +54,12 @@ type AiCostRollupRow = {
 type ChatReliabilityEvent = { eventType: string; metadata: unknown }
 
 const CHAT_TIMING_METRICS = {
-  embeddingMs: 'chat_embedding_p95_ms',
-  retrievalMs: 'chat_retrieval_p95_ms',
-  promptAssemblyMs: 'chat_prompt_assembly_p95_ms',
-  modelMs: 'chat_model_p95_ms',
-  persistenceMs: 'chat_persistence_p95_ms',
-  totalMs: 'chat_total_p95_ms',
+  embeddingMs: ['chat_embedding_p50_ms', 'chat_embedding_p95_ms'],
+  retrievalMs: ['chat_retrieval_p50_ms', 'chat_retrieval_p95_ms'],
+  promptAssemblyMs: ['chat_prompt_assembly_p50_ms', 'chat_prompt_assembly_p95_ms'],
+  modelMs: ['chat_model_p50_ms', 'chat_model_p95_ms'],
+  persistenceMs: ['chat_persistence_p50_ms', 'chat_persistence_p95_ms'],
+  totalMs: ['chat_total_p50_ms', 'chat_total_p95_ms'],
 } as const
 
 const OWNED_DAILY_ROLLUP_METRICS = [
@@ -70,7 +70,7 @@ const OWNED_DAILY_ROLLUP_METRICS = [
   'chat_responses',
   'chat_fallbacks',
   'chat_fallback_rate_bps',
-  ...Object.values(CHAT_TIMING_METRICS),
+  ...Object.values(CHAT_TIMING_METRICS).flat(),
 ] as const
 
 function metadataRecord(value: unknown): Record<string, unknown> | null {
@@ -79,10 +79,10 @@ function metadataRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
-function percentile95(values: number[]): number {
+function nearestRankPercentile(values: number[], percentile: number): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((left, right) => left - right)
-  return Math.round(sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0)
+  return Math.round(sorted[Math.ceil(sorted.length * percentile) - 1] ?? 0)
 }
 
 export function buildChatReliabilityRollups(params: {
@@ -108,12 +108,15 @@ export function buildChatReliabilityRollups(params: {
     },
   ]
 
-  for (const [field, metric] of Object.entries(CHAT_TIMING_METRICS)) {
+  for (const [field, [p50Metric, p95Metric]] of Object.entries(CHAT_TIMING_METRICS)) {
     const values = metadata.flatMap((entry) => {
       const value = entry?.[field]
       return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? [value] : []
     })
-    rows.push({ ...base, metric, value: percentile95(values) })
+    if (values.length === 0) continue
+
+    rows.push({ ...base, metric: p50Metric, value: nearestRankPercentile(values, 0.5) })
+    rows.push({ ...base, metric: p95Metric, value: nearestRankPercentile(values, 0.95) })
   }
   return rows
 }

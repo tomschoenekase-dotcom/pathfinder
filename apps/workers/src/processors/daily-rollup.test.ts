@@ -47,7 +47,7 @@ import {
 const targetDate = new Date('2026-08-06T00:00:00.000Z')
 
 describe('buildChatReliabilityRollups', () => {
-  it('computes privacy-safe fallback counts, basis points, and nearest-rank p95 timings', () => {
+  it('computes privacy-safe fallback counts, basis points, and nearest-rank p50/p95 timings', () => {
     const events: Array<{ eventType: string; metadata: Record<string, unknown> }> = [
       ...Array.from({ length: 20 }, (_, index) => ({
         eventType: 'message.received',
@@ -68,25 +68,66 @@ describe('buildChatReliabilityRollups', () => {
       date: targetDate,
       events,
     })
+    expect(rows).toHaveLength(15)
 
-    expect(Object.fromEntries(rows.map((row) => [row.metric, row.value]))).toMatchObject({
+    const values = Object.fromEntries(rows.map((row) => [row.metric, row.value]))
+    expect(values).toMatchObject({
       chat_responses: 20,
       chat_fallbacks: 3,
       chat_fallback_rate_bps: 1500,
+      chat_embedding_p50_ms: 10,
       chat_embedding_p95_ms: 19,
+      chat_model_p50_ms: 100,
       chat_model_p95_ms: 190,
+      chat_total_p50_ms: 200,
       chat_total_p95_ms: 380,
     })
+    for (const stage of [
+      'embedding',
+      'retrieval',
+      'prompt_assembly',
+      'model',
+      'persistence',
+      'total',
+    ]) {
+      expect(values).toHaveProperty(`chat_${stage}_p50_ms`)
+      expect(values).toHaveProperty(`chat_${stage}_p95_ms`)
+    }
   })
 
-  it('ignores malformed timing metadata and reports explicit zeroes for an empty day', () => {
+  it('omits unsampled timing percentiles and reports explicit zero response counts', () => {
     const rows = buildChatReliabilityRollups({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       date: targetDate,
       events: [],
     })
+    expect(rows.map((row) => row.metric)).toEqual([
+      'chat_responses',
+      'chat_fallbacks',
+      'chat_fallback_rate_bps',
+    ])
     expect(rows.every((row) => row.value === 0)).toBe(true)
+  })
+
+  it('preserves a legitimate zero-millisecond sample while omitting malformed stages', () => {
+    const rows = buildChatReliabilityRollups({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      date: targetDate,
+      events: [
+        {
+          eventType: 'message.received',
+          metadata: { totalMs: 0, modelMs: -1, retrievalMs: 'not-a-number' },
+        },
+      ],
+    })
+    const values = Object.fromEntries(rows.map((row) => [row.metric, row.value]))
+
+    expect(values.chat_total_p50_ms).toBe(0)
+    expect(values.chat_total_p95_ms).toBe(0)
+    expect(values).not.toHaveProperty('chat_model_p50_ms')
+    expect(values).not.toHaveProperty('chat_retrieval_p95_ms')
   })
 })
 
@@ -290,11 +331,17 @@ describe('processDailyRollupJob AI cost rollups', () => {
             'chat_responses',
             'chat_fallbacks',
             'chat_fallback_rate_bps',
+            'chat_embedding_p50_ms',
             'chat_embedding_p95_ms',
+            'chat_retrieval_p50_ms',
             'chat_retrieval_p95_ms',
+            'chat_prompt_assembly_p50_ms',
             'chat_prompt_assembly_p95_ms',
+            'chat_model_p50_ms',
             'chat_model_p95_ms',
+            'chat_persistence_p50_ms',
             'chat_persistence_p95_ms',
+            'chat_total_p50_ms',
             'chat_total_p95_ms',
           ],
         },
@@ -367,6 +414,7 @@ describe('processDailyRollupJob AI cost rollups', () => {
           metric: 'chat_fallback_rate_bps',
           value: 3333,
         }),
+        expect.objectContaining({ venueId: 'venue_1', metric: 'chat_total_p50_ms', value: 200 }),
         expect.objectContaining({ venueId: 'venue_1', metric: 'chat_total_p95_ms', value: 240 }),
       ]),
     })

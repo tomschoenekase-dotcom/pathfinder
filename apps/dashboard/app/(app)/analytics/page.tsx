@@ -1,4 +1,5 @@
 import { createDashboardCaller } from '../../../lib/server-caller'
+import { ReliabilityMetrics } from '../../../components/ReliabilityMetrics'
 
 function aggregateSessionSeries(
   rows: Array<{
@@ -310,6 +311,8 @@ export default async function AnalyticsPage() {
         <VisitorStatsCards stats={visitorStats} />
 
         <SessionTrendChart rows={dailyStats} />
+
+        <ReliabilityMetrics rows={dailyStats} venues={venues} />
 
         <WeeklyThemes
           themes={weeklyThemes.themes}
