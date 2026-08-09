@@ -8,7 +8,7 @@
     "embedding:claim-repair": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-claim-repair.ts",
     "jobs:terminal-redrive": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/terminal-redrive.ts",
     "lint": "eslint --config ../../packages/config/eslint/base.js \"src/**/*.ts\"",
-    "start": "node dist/index.js",
+    "start": "node --require ./dist/sentry.js dist/index.js",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"
@@ -16,12 +16,13 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
     "@aws-sdk/client-s3": "^3.1102.0",
-    "@pathfinder/analytics": "workspace:*",
     "@pathfinder/ai": "workspace:*",
+    "@pathfinder/analytics": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/contracts": "workspace:*",
     "@pathfinder/db": "workspace:*",
     "@pathfinder/jobs": "workspace:*",
+    "@sentry/node": "10.69.0",
     "bullmq": "^5.61.0",
     "ffmpeg-static": "^5.3.0",
     "openai": "^4.0.0",

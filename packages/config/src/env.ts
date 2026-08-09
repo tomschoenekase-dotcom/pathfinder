@@ -29,6 +29,12 @@ const rawEnvSchema = z
     // business cron. Staging/preview require an explicit canary opt-in.
     GENERATION_RECOVERY_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Error monitoring is default-off. DSNs are only used when the matching
+    // explicit runtime flag is true; source-map credentials are build-only.
+    SENTRY_ENABLED: z.enum(['true', 'false']).optional(),
+    SENTRY_DSN: z.string().url().optional(),
+    SENTRY_RELEASE: z.string().min(1).max(100).optional(),
+
     // Required from PACKET-03 onward
     DATABASE_URL: z.string().min(1),
     DIRECT_DATABASE_URL: z.string().min(1),

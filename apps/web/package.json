@@ -4,7 +4,7 @@
   "scripts": {
     "build": "next build && node ../../scripts/copy-next-standalone-assets.mjs",
     "dev": "next dev --port 3000",
-    "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
+    "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"instrumentation*.ts\" \"sentry.*.config.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests"
@@ -12,9 +12,11 @@
   "dependencies": {
     "@clerk/nextjs": "6.39.1",
     "@pathfinder/api": "workspace:*",
+    "@pathfinder/config": "workspace:*",
     "@pathfinder/db": "workspace:*",
     "@pathfinder/jobs": "workspace:*",
     "@pathfinder/ui": "workspace:*",
+    "@sentry/nextjs": "10.69.0",
     "@tanstack/react-query": "^5.59.20",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
@@ -29,7 +31,6 @@
     "tailwindcss": "3.4.17"
   },
   "devDependencies": {
-    "@pathfinder/config": "workspace:*",
     "@testing-library/react": "^16.3.0",
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",

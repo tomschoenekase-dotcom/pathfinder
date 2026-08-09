@@ -16,4 +16,4 @@ COPY --from=installer /app ./
 RUN pnpm --filter @pathfinder/db exec prisma generate
 RUN pnpm --filter @pathfinder/workers build
 
-CMD ["node", "apps/workers/dist/index.js"]
+CMD ["node", "--require", "./apps/workers/dist/sentry.js", "apps/workers/dist/index.js"]

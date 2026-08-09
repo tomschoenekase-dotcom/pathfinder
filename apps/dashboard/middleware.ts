@@ -1,4 +1,5 @@
 import { clerkMiddleware } from '@clerk/nextjs/server'
+import * as Sentry from '@sentry/nextjs'
 import { NextResponse } from 'next/server'
 
 import { isPublicDashboardPath, resolveDashboardAccess } from './lib/middleware-access'
@@ -27,7 +28,8 @@ export default clerkMiddleware(async (auth, req) => {
       return NextResponse.redirect(new URL('/onboarding', req.url))
     }
     return NextResponse.next()
-  } catch {
+  } catch (error) {
+    Sentry.captureException(error)
     return NextResponse.redirect(new URL('/sign-in', req.url))
   }
 })

@@ -76,6 +76,21 @@ describe('RAILWAY_ENVIRONMENT', () => {
   )
 })
 
+describe('error monitoring environment', () => {
+  it('accepts only explicit boolean enable values and a valid DSN', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        SENTRY_DSN: 'https://public@example.test/1',
+        SENTRY_ENABLED: 'true',
+      }),
+    ).toMatchObject({ SENTRY_DSN: 'https://public@example.test/1', SENTRY_ENABLED: 'true' })
+
+    expect(() => envSchema.parse({ ...requiredEnvironment, SENTRY_ENABLED: 'yes' })).toThrow()
+    expect(() => envSchema.parse({ ...requiredEnvironment, SENTRY_DSN: 'not-a-url' })).toThrow()
+  })
+})
+
 describe('WORKER_SCHEDULERS_ENABLED', () => {
   it('defaults to enabled in production', () => {
     process.env.NODE_ENV = 'production'
