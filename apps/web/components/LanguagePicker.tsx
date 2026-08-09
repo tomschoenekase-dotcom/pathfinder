@@ -1,5 +1,6 @@
 'use client'
 
+import { useId } from 'react'
 import type { ChangeEvent } from 'react'
 import { Globe } from 'lucide-react'
 
@@ -7,6 +8,29 @@ import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 export const SUPPORTED_LANGUAGES = SUPPORTED_CHAT_LANGUAGES
+const RTL_CHAT_LANGUAGE_CODES: ReadonlySet<string> = new Set(['ar'])
+
+export type ChatTextDirection = 'ltr' | 'rtl'
+
+export type ChatLanguagePresentation = {
+  code: (typeof SUPPORTED_LANGUAGES)[number]['code']
+  direction: ChatTextDirection
+}
+
+export function getChatLanguagePresentation(
+  language: SupportedChatLanguage,
+): ChatLanguagePresentation {
+  const supported = SUPPORTED_LANGUAGES.find((candidate) => candidate.label === language)
+
+  // SupportedChatLanguage and SUPPORTED_LANGUAGES share one server-owned contract. Keep the
+  // fallback fail-readable in case a stale client bundle ever receives a newer stored label.
+  if (!supported) return { code: 'en', direction: 'ltr' }
+
+  return {
+    code: supported.code,
+    direction: RTL_CHAT_LANGUAGE_CODES.has(supported.code) ? 'rtl' : 'ltr',
+  }
+}
 
 export const LANGUAGE_PLACEHOLDERS: Record<string, string> = {
   English: 'Ask anything about this place...',
@@ -81,6 +105,9 @@ type LanguagePickerProps = {
 }
 
 export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
+  const presentation = getChatLanguagePresentation(value)
+  const labelId = useId()
+
   function handleChange(event: ChangeEvent<HTMLSelectElement>) {
     const selected = SUPPORTED_LANGUAGES.find((language) => language.label === event.target.value)
     if (!selected) return
@@ -96,6 +123,9 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
 
   return (
     <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 py-1.5 shadow-sm">
+      <span id={labelId} className="sr-only" lang="en" dir="ltr">
+        Select language
+      </span>
       <Globe
         className="h-3.5 w-3.5 flex-shrink-0 text-[var(--chat-text-muted)]"
         aria-hidden="true"
@@ -103,14 +133,24 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
       <select
         value={value}
         onChange={handleChange}
+        lang={presentation.code}
+        dir={presentation.direction}
         className="cursor-pointer appearance-none border-none bg-transparent text-xs font-medium text-[var(--chat-text-muted)] outline-none transition hover:text-[var(--chat-text)] focus:text-[var(--chat-text)]"
-        aria-label="Select language"
+        aria-labelledby={labelId}
       >
-        {SUPPORTED_LANGUAGES.map((lang) => (
-          <option key={lang.code} value={lang.label}>
-            {lang.label}
-          </option>
-        ))}
+        {SUPPORTED_LANGUAGES.map((lang) => {
+          const optionPresentation = getChatLanguagePresentation(lang.label)
+          return (
+            <option
+              key={lang.code}
+              value={lang.label}
+              lang={optionPresentation.code}
+              dir={optionPresentation.direction}
+            >
+              {lang.label}
+            </option>
+          )
+        })}
       </select>
       <svg
         className="h-3 w-3 flex-shrink-0 text-[var(--chat-text-muted)]"

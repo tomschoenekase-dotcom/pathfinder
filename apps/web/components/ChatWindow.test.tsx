@@ -42,6 +42,59 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect(screen.getByText('PathFinder guide:')).toBeTruthy()
   })
 
+  it('uses automatic direction and unknown language for free-form and restored text', () => {
+    const arabicQuestion = '\u0623\u064a\u0646 \u0627\u0644\u0645\u0639\u0631\u0636\u061f'
+    const arabicResponse =
+      '\u0627\u0644\u0645\u0639\u0631\u0636 \u0641\u064a \u0627\u0644\u0637\u0627\u0628\u0642 \u0627\u0644\u0639\u0644\u0648\u064a.'
+    const view = render(
+      <ChatWindow
+        messages={[
+          { role: 'assistant', content: 'Historic English response.' },
+          {
+            role: 'user',
+            content: arabicQuestion,
+          },
+        ]}
+        onSend={vi.fn()}
+        isLoading={false}
+      />,
+    )
+
+    const log = screen.getByRole('log', { name: 'Conversation' })
+    expect(log.hasAttribute('lang')).toBe(false)
+    expect(log.hasAttribute('dir')).toBe(false)
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    expect(composer.getAttribute('lang')).toBe('')
+    expect(composer.getAttribute('dir')).toBe('auto')
+
+    const currentText = screen.getByText(arabicQuestion)
+    expect(currentText.getAttribute('lang')).toBe('')
+    expect(currentText.getAttribute('dir')).toBe('auto')
+    const historicText = screen.getByText('Historic English response.')
+    expect(historicText.getAttribute('lang')).toBe('')
+    expect(historicText.getAttribute('dir')).toBe('auto')
+
+    view.rerender(
+      <ChatWindow
+        messages={[
+          { role: 'assistant', content: 'Historic English response.' },
+          {
+            role: 'user',
+            content: arabicQuestion,
+          },
+          {
+            role: 'assistant',
+            content: arabicResponse,
+          },
+        ]}
+        onSend={vi.fn()}
+        isLoading={false}
+      />,
+    )
+    const announcedResponse = screen.getByRole('status').querySelector('span[lang=""][dir="auto"]')
+    expect(announcedResponse?.textContent).toBe(arabicResponse)
+  })
+
   it('announces send failures and gives the busy send button a name', () => {
     const view = render(
       <ChatWindow

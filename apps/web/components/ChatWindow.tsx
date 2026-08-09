@@ -44,7 +44,9 @@ export function ChatWindow({
   onDirectionsClick,
 }: ChatWindowProps) {
   const [draft, setDraft] = useState('')
-  const [liveAnnouncement, setLiveAnnouncement] = useState('')
+  const [liveAnnouncement, setLiveAnnouncement] = useState<
+    { kind: 'responding' } | { kind: 'response'; content: string } | null
+  >(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const sendButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -99,13 +101,16 @@ export function ChatWindow({
     previousMessageCountRef.current = messages.length
 
     if (messages.length < previousMessageCount) {
-      setLiveAnnouncement('')
+      setLiveAnnouncement(null)
     } else if (hasNewMessage && latestMessage?.role === 'assistant') {
-      setLiveAnnouncement(`PathFinder guide: ${latestMessage.content}`)
+      setLiveAnnouncement({
+        kind: 'response',
+        content: latestMessage.content,
+      })
     } else if (isLoading) {
-      setLiveAnnouncement(RESPONDING_ANNOUNCEMENT)
+      setLiveAnnouncement({ kind: 'responding' })
     } else {
-      setLiveAnnouncement((current) => (current === RESPONDING_ANNOUNCEMENT ? '' : current))
+      setLiveAnnouncement((current) => (current?.kind === 'responding' ? null : current))
     }
   }, [isLoading, messages])
 
@@ -171,7 +176,20 @@ export function ChatWindow({
       </div>
 
       <div className="sr-only" role="status" aria-atomic="true">
-        {liveAnnouncement}
+        {liveAnnouncement?.kind === 'responding' ? (
+          <span lang="en" dir="ltr">
+            {RESPONDING_ANNOUNCEMENT}
+          </span>
+        ) : liveAnnouncement?.kind === 'response' ? (
+          <>
+            <span lang="en" dir="ltr">
+              PathFinder guide:{' '}
+            </span>
+            <span lang="" dir="auto">
+              {liveAnnouncement.content}
+            </span>
+          </>
+        ) : null}
       </div>
 
       <div className="border-t border-[var(--chat-border)] bg-[var(--chat-bg)] p-3 sm:p-4">
@@ -191,6 +209,8 @@ export function ChatWindow({
           <textarea
             ref={composerRef}
             id="chat-input"
+            lang=""
+            dir="auto"
             className="min-h-14 flex-1 resize-none rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-3 text-[16px] leading-6 text-[var(--chat-text)] outline-none transition placeholder:text-[var(--chat-text-muted)] focus:border-[var(--chat-accent)] focus:ring-2 focus:ring-[var(--chat-accent)]/20"
             disabled={isLoading}
             placeholder={placeholder}

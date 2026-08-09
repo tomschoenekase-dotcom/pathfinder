@@ -22,8 +22,10 @@ export function MessageBubble({ role, content, bubbleColor, bubbleTextColor }: M
           color: isUser ? bubbleTextColor : undefined,
         }}
       >
-        <p className="whitespace-pre-wrap break-words">
-          <span className="sr-only">{speaker}:</span>
+        <span className="sr-only" lang="en" dir="ltr">
+          {speaker}:
+        </span>
+        <p className="whitespace-pre-wrap break-words" lang="" dir="auto">
           {content}
         </p>
       </div>

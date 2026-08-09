@@ -8,6 +8,7 @@ import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import { ChatWindow } from './ChatWindow'
 import {
   getStoredLanguage,
+  getChatLanguagePresentation,
   LANGUAGE_FALLBACK_DESCRIPTIONS,
   LANGUAGE_HEADINGS,
   LANGUAGE_PLACEHOLDERS,
@@ -81,6 +82,7 @@ export function VenueChatExperience({
     return match ? match.label : 'English'
   })
   const chatPlaceholder = LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'
+  const languagePresentation = getChatLanguagePresentation(language)
   const sessionStartedAtRef = useRef<number | null>(null)
   const startedSessionKeyRef = useRef<string | null>(null)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
@@ -324,6 +326,7 @@ export function VenueChatExperience({
 
     const location =
       venue.guideMode === 'non_location' ? null : lat !== null && lng !== null ? { lat, lng } : null
+    const requestedLanguage = language
 
     setSendError(null)
     setIsSending(true)
@@ -338,7 +341,7 @@ export function VenueChatExperience({
         ...(visitorId ? { visitorId } : {}),
         message: trimmed,
         ...(location ?? {}),
-        ...(language === 'English' ? {} : { language }),
+        ...(requestedLanguage === 'English' ? {} : { language: requestedLanguage }),
       })
 
       if (conversationEpochRef.current === sendingEpoch) {
@@ -562,12 +565,16 @@ export function VenueChatExperience({
           accentContrastColor={palette.accentContrast}
           placeholder={chatPlaceholder}
           emptyState={
-            <div>
+            <div lang={languagePresentation.code} dir={languagePresentation.direction}>
               <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
                 <h2 className="text-xl font-semibold text-[var(--chat-text)]">
                   {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS['English']}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]">
+                <p
+                  className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]"
+                  lang={venue.description ? '' : languagePresentation.code}
+                  dir={venue.description ? 'auto' : languagePresentation.direction}
+                >
                   {venue.description ??
                     LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
                     LANGUAGE_FALLBACK_DESCRIPTIONS['English']}

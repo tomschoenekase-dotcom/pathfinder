@@ -97,11 +97,27 @@ vi.mock('./ChatWindow', () => ({
 }))
 vi.mock('./LanguagePicker', () => ({
   getStoredLanguage: () => null,
+  getChatLanguagePresentation: (language: string) =>
+    language === '\u0627\u0644\u0639\u0631\u0628\u064a\u0629'
+      ? { code: 'ar', direction: 'rtl' }
+      : { code: 'en', direction: 'ltr' },
   LANGUAGE_FALLBACK_DESCRIPTIONS: { English: 'Fallback' },
   LANGUAGE_HEADINGS: { English: 'Ask the guide' },
   LANGUAGE_PLACEHOLDERS: { English: 'Ask' },
-  LanguagePicker: () => <div>Language</div>,
-  SUPPORTED_LANGUAGES: [{ label: 'English' }],
+  LanguagePicker: ({ onChange }: { onChange: (language: string) => void }) => (
+    <>
+      <button type="button" onClick={() => onChange('\u0627\u0644\u0639\u0631\u0628\u064a\u0629')}>
+        Choose Arabic
+      </button>
+      <button type="button" onClick={() => onChange('English')}>
+        Choose English
+      </button>
+    </>
+  ),
+  SUPPORTED_LANGUAGES: [
+    { label: 'English' },
+    { label: '\u0627\u0644\u0639\u0631\u0628\u064a\u0629' },
+  ],
 }))
 vi.mock('./LocationBanner', () => ({ LocationBanner: () => null }))
 vi.mock('./QuickPromptChips', () => ({ QuickPromptChips: () => null }))
@@ -237,6 +253,60 @@ describe('VenueChatExperience presentation boundary', () => {
       anonymousToken: mocks.anonymousToken,
       message: 'Where is the café?',
     })
+  })
+
+  it.each(['standalone', 'embed', 'webview'] as const)(
+    'sends the Arabic response preference across the %s presentation',
+    async (presentation) => {
+      mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174010'
+      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+
+      render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
+
+      await screen.findByRole('heading', { name: 'Museum Guide' })
+      fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+      const localizedEmptyState = screen.getByText('Ask the guide').closest('[lang="ar"]')
+      expect(localizedEmptyState?.getAttribute('dir')).toBe('rtl')
+      fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+
+      await waitFor(() =>
+        expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
+          venueId: activeVenue.id,
+          anonymousToken: mocks.anonymousToken,
+          message: 'Where is the caf\u00e9?',
+          language: '\u0627\u0644\u0639\u0631\u0628\u064a\u0629',
+        }),
+      )
+    },
+  )
+
+  it('keeps the dispatched response preference stable when selection changes mid-flight', async () => {
+    mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174011'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    let resolveSend!: (value: { response: string; sessionId: string; places: never[] }) => void
+    mocks.client.chat.send.mutate.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSend = resolve
+      }),
+    )
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Arabic' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Choose English' }))
+
+    expect(mocks.client.chat.send.mutate).toHaveBeenCalledWith({
+      venueId: activeVenue.id,
+      anonymousToken: mocks.anonymousToken,
+      message: 'Where is the caf\u00e9?',
+      language: '\u0627\u0644\u0639\u0631\u0628\u064a\u0629',
+    })
+
+    resolveSend({ response: 'English fallback.', sessionId: 'session-1', places: [] })
+    expect(await screen.findByText('Messages: 2')).toBeTruthy()
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(
