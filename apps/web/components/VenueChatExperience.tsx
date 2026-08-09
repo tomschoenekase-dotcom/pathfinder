@@ -70,7 +70,12 @@ export function VenueChatExperience({
   presentation = 'standalone',
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
-  const [venue, setVenue] = useState<VenueSummary | null>(null)
+  const [venueState, setVenueState] = useState<{
+    slug: string
+    venue: VenueSummary | null
+  } | null>(null)
+  const venue = venueState?.slug === venueSlug ? venueState.venue : null
+  const isVenueTransition = venueState?.slug !== venueSlug
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isBooting, setIsBooting] = useState(true)
   const [isSending, setIsSending] = useState(false)
@@ -89,14 +94,25 @@ export function VenueChatExperience({
   const startedSessionKeyRef = useRef<string | null>(null)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const viewedPlaceIdsRef = useRef<Set<string>>(new Set())
+  const conversationEpochRef = useRef(0)
+  const sendingEpochRef = useRef<number | null>(null)
   const { lat, lng, permission, refresh } = useGeolocation(
     venue !== null && venue.guideMode !== 'non_location',
   )
-  const { anonymousToken, setSessionId } = useSession(venue?.id ?? '')
+  const { anonymousToken, identityUnavailable, setSessionId, startNewConversation } = useSession(
+    venue?.id ?? '',
+  )
   const visitorId = useVisitorId()
 
   useEffect(() => {
+    if (venue && identityUnavailable) {
+      setSendError('This browser cannot create a private chat session.')
+    }
+  }, [identityUnavailable, venue])
+
+  useEffect(() => {
     let disposed = false
+    const conversationEpoch = ++conversationEpochRef.current
 
     async function run() {
       if (!venueSlug) {
@@ -106,20 +122,32 @@ export function VenueChatExperience({
       setIsBooting(true)
       setPageError(null)
       setIsVenueUnavailable(false)
+      setMessages([])
+      setSendError(null)
+      setIsSending(false)
+      sendingEpochRef.current = null
+      startedSessionKeyRef.current = null
+      sessionStartedAtRef.current = null
+      lastSyncedPosRef.current = null
+      viewedPlaceIdsRef.current.clear()
 
       try {
         const result = await client.venue.getBySlug.query({ slug: venueSlug })
 
-        if (disposed) {
+        if (disposed || conversationEpochRef.current !== conversationEpoch) {
           return
         }
 
-        setVenue(result)
+        setVenueState({ slug: venueSlug, venue: result })
 
-        const storedToken =
-          typeof window !== 'undefined'
-            ? window.sessionStorage.getItem(`pathfinder_session_${result.id}`)
-            : null
+        let storedToken: string | null = null
+        if (typeof window !== 'undefined') {
+          try {
+            storedToken = window.sessionStorage.getItem(`pathfinder_session_${result.id}`)
+          } catch {
+            // Storage may be unavailable; the session hook will use in-memory identity.
+          }
+        }
 
         if (storedToken) {
           try {
@@ -128,7 +156,11 @@ export function VenueChatExperience({
               anonymousToken: storedToken,
             })
 
-            if (!disposed && historicMessages.length > 0) {
+            if (
+              !disposed &&
+              conversationEpochRef.current === conversationEpoch &&
+              historicMessages.length > 0
+            ) {
               setMessages(historicMessages)
             }
           } catch {
@@ -137,7 +169,7 @@ export function VenueChatExperience({
           }
         }
       } catch (error) {
-        if (!disposed) {
+        if (!disposed && conversationEpochRef.current === conversationEpoch) {
           const failure = classifyPublicVenueLookupError(error)
           setIsVenueUnavailable(failure === 'temporarily-unavailable')
           setPageError(
@@ -145,10 +177,10 @@ export function VenueChatExperience({
               ? 'We could not find this venue.'
               : 'We could not load this venue. Please try again.',
           )
-          setVenue(null)
+          setVenueState({ slug: venueSlug, venue: null })
         }
       } finally {
-        if (!disposed) {
+        if (!disposed && conversationEpochRef.current === conversationEpoch) {
           setIsBooting(false)
         }
       }
@@ -177,6 +209,8 @@ export function VenueChatExperience({
         }
       }
 
+      const conversationEpoch = conversationEpochRef.current
+
       try {
         const result = await client.chat.session.mutate({
           venueId: venue.id,
@@ -186,14 +220,14 @@ export function VenueChatExperience({
           ...(venue.guideMode !== 'non_location' && lng !== null ? { lng } : {}),
         })
 
-        if (!disposed) {
+        if (!disposed && conversationEpochRef.current === conversationEpoch) {
           setSessionId(result.sessionId)
           if (lat !== null && lng !== null) {
             lastSyncedPosRef.current = { lat, lng }
           }
         }
       } catch (error) {
-        if (!disposed) {
+        if (!disposed && conversationEpochRef.current === conversationEpoch) {
           if (classifyPublicVenueLookupError(error) === 'temporarily-unavailable') {
             setIsVenueUnavailable(true)
           } else {
@@ -309,6 +343,8 @@ export function VenueChatExperience({
     setSendError(null)
     setIsSending(true)
     setMessages((current) => [...current, { role: 'user', content: trimmed }])
+    const sendingEpoch = conversationEpochRef.current
+    sendingEpochRef.current = sendingEpoch
 
     try {
       const result = await client.chat.send.mutate({
@@ -320,23 +356,76 @@ export function VenueChatExperience({
         ...(language === 'English' ? {} : { language }),
       })
 
-      setMessages((current) => [
-        ...current,
-        { role: 'assistant', content: result.response, places: result.places },
-      ])
-      setSessionId(result.sessionId)
+      if (conversationEpochRef.current === sendingEpoch) {
+        setMessages((current) => [
+          ...current,
+          { role: 'assistant', content: result.response, places: result.places },
+        ])
+        setSessionId(result.sessionId)
+      }
     } catch (error) {
+      if (conversationEpochRef.current !== sendingEpoch) {
+        return
+      }
       if (classifyPublicVenueLookupError(error) === 'temporarily-unavailable') {
         setIsVenueUnavailable(true)
       } else {
         setSendError('That message did not send. Please try again.')
       }
     } finally {
-      setIsSending(false)
+      if (sendingEpochRef.current === sendingEpoch) {
+        sendingEpochRef.current = null
+        setIsSending(false)
+      }
     }
   }
 
-  if (isBooting) {
+  function handleNewConversation() {
+    if (!venue || !anonymousToken || isSending) {
+      return
+    }
+
+    if (
+      messages.length > 0 &&
+      !window.confirm(
+        'Start a new conversation? The current chat will leave this screen, but it will not be deleted from PathFinder records.',
+      )
+    ) {
+      return
+    }
+
+    const previousToken = anonymousToken
+    const previousStartedAt = sessionStartedAtRef.current
+    if (!startNewConversation()) {
+      setSendError('We could not start a new conversation in this browser.')
+      return
+    }
+
+    conversationEpochRef.current += 1
+    sendingEpochRef.current = null
+    setMessages([])
+    setSendError(null)
+    startedSessionKeyRef.current = null
+    sessionStartedAtRef.current = null
+    lastSyncedPosRef.current = null
+    viewedPlaceIdsRef.current.clear()
+
+    const durationSeconds =
+      previousStartedAt === null
+        ? 0
+        : Math.max(0, Math.round((Date.now() - previousStartedAt) / 1000))
+    void client.analytics.trackEvent
+      .mutate({
+        venueId: venue.id,
+        sessionId: previousToken,
+        ...(visitorId ? { visitorId } : {}),
+        eventType: 'session.ended',
+        metadata: { durationSeconds },
+      })
+      .catch(() => {})
+  }
+
+  if (isBooting || isVenueTransition) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-pf-surface px-6">
         <div className="flex flex-col items-center gap-5 text-center">
@@ -453,8 +542,16 @@ export function VenueChatExperience({
               {guideName}
             </h1>
           </div>
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between gap-3">
             <LanguagePicker value={language} onChange={setLanguage} />
+            <button
+              type="button"
+              onClick={handleNewConversation}
+              disabled={isSending || !anonymousToken}
+              className="inline-flex min-h-9 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              New conversation
+            </button>
           </div>
         </div>
       </header>
