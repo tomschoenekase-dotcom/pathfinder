@@ -3,9 +3,29 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const source = (relative) => readFile(path.join(root, relative), 'utf8')
+
+function variableInitializer(sourceText, variableName) {
+  const sourceFile = ts.createSourceFile(
+    'source.ts',
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === variableName) {
+        return declaration.initializer
+      }
+    }
+  }
+  return undefined
+}
 
 test('global AI control is typed, fail-closed, and available to the admin control plane', async () => {
   const [config, db, middleware, admin] = await Promise.all([
@@ -41,7 +61,41 @@ test('API authorization runs before incident admission at every AI entry point',
 
   assert.match(trpc, /publicAiProcedure = publicProcedure\.use\(requireGlobalAi\)/u)
   assert.match(trpc, /adminAiProcedure = adminProcedure\.use\(requireGlobalAi\)/u)
-  assert.match(chat, /send: publicAiProcedure/u)
+  const admittedChatProcedure = variableInitializer(chat, 'admittedChatSendProcedure')
+  assert.ok(
+    admittedChatProcedure &&
+      ts.isCallExpression(admittedChatProcedure) &&
+      ts.isPropertyAccessExpression(admittedChatProcedure.expression) &&
+      admittedChatProcedure.expression.name.text === 'use' &&
+      admittedChatProcedure.arguments.length === 1 &&
+      ts.isIdentifier(admittedChatProcedure.arguments[0]) &&
+      admittedChatProcedure.arguments[0].text === 'requireGlobalAi',
+    'the admitted chat procedure must end with requireGlobalAi',
+  )
+
+  const chatRouter = variableInitializer(chat, 'chatRouter')
+  assert.ok(
+    chatRouter &&
+      ts.isCallExpression(chatRouter) &&
+      ts.isObjectLiteralExpression(chatRouter.arguments[0]),
+    'chatRouter must be constructed from an object literal',
+  )
+  const sendProperty = chatRouter.arguments[0].properties.find(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      ((ts.isIdentifier(property.name) && property.name.text === 'send') ||
+        (ts.isStringLiteral(property.name) && property.name.text === 'send')),
+  )
+  assert.ok(
+    sendProperty &&
+      ts.isPropertyAssignment(sendProperty) &&
+      ts.isCallExpression(sendProperty.initializer) &&
+      ts.isPropertyAccessExpression(sendProperty.initializer.expression) &&
+      sendProperty.initializer.expression.name.text === 'mutation' &&
+      ts.isIdentifier(sendProperty.initializer.expression.expression) &&
+      sendProperty.initializer.expression.expression.text === 'admittedChatSendProcedure',
+    'chat send must mutate through the admitted public procedure',
+  )
   assert.match(
     venuePackage,
     /createDraft: tenantProcedure\s*\.use\(requireRole\('MANAGER'\)\)\s*\.use\(requireGlobalAi\)/u,
@@ -85,10 +139,7 @@ test('direct provider calls admit before budget reservation or dispatch', async 
     budget,
     /await admit\(\)\s*await reserve\(\)\s*assertActive\?\.\(\)\s*[\s\S]*?await admit\(\)\s*assertActive\?\.\(\)\s*return operation\(\)/u,
   )
-  assert.equal(
-    [...media.matchAll(/executeMediaProviderOperation\(\s*admissionGuard/gu)].length,
-    4,
-  )
+  assert.equal([...media.matchAll(/executeMediaProviderOperation\(\s*admissionGuard/gu)].length, 4)
   assert.match(
     media,
     /const venueAdmission = \(\) =>\s*assertVenueAiAvailable\(db, \{\s*tenantId: payload\.tenantId,\s*venueId: payload\.venueId/u,
