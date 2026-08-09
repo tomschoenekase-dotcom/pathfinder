@@ -331,7 +331,7 @@ describe('analytics router', () => {
     },
   )
 
-  it('analytics.trackEvent rate-limits before venue lookup or writes', async () => {
+  it('analytics.trackEvent applies fixed global ingress before caller-derived keys or venue lookup', async () => {
     checkRateLimitMock.mockReset()
     checkRateLimitMock.mockResolvedValueOnce(false)
 
@@ -345,8 +345,8 @@ describe('analytics router', () => {
 
     expect(checkRateLimitMock).toHaveBeenNthCalledWith(
       1,
-      'ratelimit:analytics:session:cvenueabc123456789012:00000000-0000-4000-8000-000000000001',
-      120,
+      'ratelimit:analytics:ingress:global',
+      10_000,
       60,
     )
     expect(checkRateLimitMock).toHaveBeenCalledTimes(1)
@@ -354,9 +354,67 @@ describe('analytics router', () => {
     expect(analyticsEventCreate).not.toHaveBeenCalled()
   })
 
-  it('analytics.trackEvent checks the venue bucket only after the session bucket allows', async () => {
+  it('analytics.trackEvent uses one fixed key when venue and session identities rotate', async () => {
+    checkRateLimitMock.mockReset()
+    checkRateLimitMock.mockResolvedValue(false)
+    const inputs = [
+      {
+        venueId: 'cvenueabc123456789012',
+        sessionId: '00000000-0000-4000-8000-000000000001',
+      },
+      {
+        venueId: 'cvenueabc123456789013',
+        sessionId: '11111111-1111-4111-8111-111111111111',
+      },
+      {
+        venueId: 'cvenueabc123456789014',
+        sessionId: '22222222-2222-4222-8222-222222222222',
+      },
+    ]
+
+    for (const input of inputs) {
+      await expect(
+        testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+          ...input,
+          eventType: 'session.started',
+        }),
+      ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+    }
+
+    expect(checkRateLimitMock.mock.calls).toEqual(
+      inputs.map(() => ['ratelimit:analytics:ingress:global', 10_000, 60]),
+    )
+    expect(dbQueryRaw).not.toHaveBeenCalled()
+    expect(analyticsEventCreate).not.toHaveBeenCalled()
+  })
+
+  it('analytics.trackEvent rejects an unknown or inactive venue before derived rate keys or writes', async () => {
+    dbQueryRaw.mockResolvedValueOnce([])
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'session.started',
+      }),
+    ).resolves.toEqual({ ok: false })
+
+    expect(checkRateLimitMock).toHaveBeenCalledTimes(1)
+    expect(checkRateLimitMock).toHaveBeenCalledWith(
+      'ratelimit:analytics:ingress:global',
+      10_000,
+      60,
+    )
+    expect(dbQueryRaw).toHaveBeenCalledTimes(1)
+    expect(analyticsEventCreate).not.toHaveBeenCalled()
+    expect(visitorSessionUpsert).not.toHaveBeenCalled()
+    expect(visitorSessionUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('analytics.trackEvent checks verified venue capacity before creating a session key', async () => {
     checkRateLimitMock.mockReset()
     checkRateLimitMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
 
     await expect(
       testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
@@ -368,8 +426,8 @@ describe('analytics router', () => {
 
     expect(checkRateLimitMock).toHaveBeenNthCalledWith(
       1,
-      'ratelimit:analytics:session:cvenueabc123456789012:00000000-0000-4000-8000-000000000001',
-      120,
+      'ratelimit:analytics:ingress:global',
+      10_000,
       60,
     )
     expect(checkRateLimitMock).toHaveBeenNthCalledWith(
@@ -378,7 +436,33 @@ describe('analytics router', () => {
       3000,
       60,
     )
-    expect(dbQueryRaw).not.toHaveBeenCalled()
+    expect(dbQueryRaw).toHaveBeenCalledTimes(1)
+    expect(analyticsEventCreate).not.toHaveBeenCalled()
+  })
+
+  it('analytics.trackEvent checks the session bucket only after verified venue capacity allows', async () => {
+    checkRateLimitMock.mockReset()
+    checkRateLimitMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+    dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
+
+    await expect(
+      testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
+        sessionId: '00000000-0000-4000-8000-000000000001',
+        venueId: 'cvenueabc123456789012',
+        eventType: 'session.started',
+      }),
+    ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+
+    expect(checkRateLimitMock).toHaveBeenNthCalledWith(
+      3,
+      'ratelimit:analytics:session:cvenueabc123456789012:00000000-0000-4000-8000-000000000001',
+      120,
+      60,
+    )
+    expect(dbQueryRaw).toHaveBeenCalledTimes(1)
     expect(analyticsEventCreate).not.toHaveBeenCalled()
   })
 

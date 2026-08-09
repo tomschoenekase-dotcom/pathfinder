@@ -86,6 +86,7 @@ const analyticsTrackEventInput = z.discriminatedUnion('eventType', [
 
 const PUBLIC_ANALYTICS_SESSION_LIMIT_PER_MINUTE = 120
 const PUBLIC_ANALYTICS_VENUE_LIMIT_PER_MINUTE = 3_000
+const PUBLIC_ANALYTICS_GLOBAL_LIMIT_PER_MINUTE = 10_000
 
 const getDailyStatsInput = z
   .object({
@@ -196,24 +197,12 @@ async function syncVisitorSession(
 
 export const analyticsRouter = router({
   trackEvent: publicProcedure.input(analyticsTrackEventInput).mutation(async ({ ctx, input }) => {
-    const sessionAllowed = await checkRateLimit(
-      `ratelimit:analytics:session:${input.venueId}:${input.sessionId}`,
-      PUBLIC_ANALYTICS_SESSION_LIMIT_PER_MINUTE,
+    const globallyAllowed = await checkRateLimit(
+      'ratelimit:analytics:ingress:global',
+      PUBLIC_ANALYTICS_GLOBAL_LIMIT_PER_MINUTE,
       60,
     )
-    if (!sessionAllowed) {
-      throw publicTRPCError({
-        code: 'TOO_MANY_REQUESTS',
-        message: 'Too many analytics events. Please try again later.',
-      })
-    }
-
-    const venueAllowed = await checkRateLimit(
-      `ratelimit:analytics:venue:${input.venueId}`,
-      PUBLIC_ANALYTICS_VENUE_LIMIT_PER_MINUTE,
-      60,
-    )
-    if (!venueAllowed) {
+    if (!globallyAllowed) {
       throw publicTRPCError({
         code: 'TOO_MANY_REQUESTS',
         message: 'Too many analytics events. Please try again later.',
@@ -226,13 +215,37 @@ export const analyticsRouter = router({
       return { ok: false as const }
     }
 
+    const venueAllowed = await checkRateLimit(
+      `ratelimit:analytics:venue:${venue.id}`,
+      PUBLIC_ANALYTICS_VENUE_LIMIT_PER_MINUTE,
+      60,
+    )
+    if (!venueAllowed) {
+      throw publicTRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many analytics events. Please try again later.',
+      })
+    }
+
+    const sessionAllowed = await checkRateLimit(
+      `ratelimit:analytics:session:${venue.id}:${input.sessionId}`,
+      PUBLIC_ANALYTICS_SESSION_LIMIT_PER_MINUTE,
+      60,
+    )
+    if (!sessionAllowed) {
+      throw publicTRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Too many analytics events. Please try again later.',
+      })
+    }
+
     const occurredAt = new Date()
     if ('placeId' in input) {
       const place = await ctx.db.place.findFirst({
         where: {
           id: input.placeId,
           tenantId: venue.tenantId,
-          venueId: input.venueId,
+          venueId: venue.id,
           isActive: true,
         },
         select: { id: true },
@@ -245,7 +258,7 @@ export const analyticsRouter = router({
         where: {
           id: input.metadata.operationalUpdateId,
           tenantId: venue.tenantId,
-          venueId: input.venueId,
+          venueId: venue.id,
           status: 'PUBLISHED',
           isActive: true,
           startsAt: { lte: occurredAt },
@@ -264,7 +277,7 @@ export const analyticsRouter = router({
     await ctx.db.analyticsEvent.create({
       data: {
         tenantId: venue.tenantId,
-        venueId: input.venueId,
+        venueId: venue.id,
         sessionId: input.sessionId,
         eventType: input.eventType,
         occurredAt,
@@ -277,7 +290,7 @@ export const analyticsRouter = router({
       eventType: input.eventType,
       sessionId: input.sessionId,
       tenantId: venue.tenantId,
-      venueId: input.venueId,
+      venueId: venue.id,
       ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
     })
 
