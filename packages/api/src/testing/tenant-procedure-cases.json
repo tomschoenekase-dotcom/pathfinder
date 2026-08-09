@@ -446,6 +446,18 @@
     "input": { "id": "cvenueabc123456789012" }
   },
   {
+    "path": "venue.setAvailability",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "enabled": false,
+      "expectedUpdatedAt": "2026-08-09T12:00:00.000Z",
+      "reason": "Cross-tenant boundary test"
+    }
+  },
+  {
     "path": "venue.importContent",
     "kind": "mutation",
     "minimumRole": "MANAGER",
