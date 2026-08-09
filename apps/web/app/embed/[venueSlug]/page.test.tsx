@@ -54,7 +54,10 @@ describe('controlled embed preview', () => {
     mocks.enabled.mockReturnValue(false)
 
     await expect(
-      EmbedVenuePage({ params: Promise.resolve({ venueSlug: 'museum' }) }),
+      EmbedVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({ chrome: 'hidden' }),
+      }),
     ).rejects.toThrow('NEXT_NOT_FOUND')
     expect(mocks.createContext).not.toHaveBeenCalled()
     expect(mocks.getBySlug).not.toHaveBeenCalled()
@@ -63,16 +66,56 @@ describe('controlled embed preview', () => {
   it('renders the shared chat in embed presentation for an active venue', async () => {
     mocks.getBySlug.mockResolvedValueOnce({ id: 'venue-1' })
 
-    render(await EmbedVenuePage({ params: Promise.resolve({ venueSlug: 'museum' }) }))
+    render(
+      await EmbedVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({}),
+      }),
+    )
 
     expect(screen.getByText('embed:museum')).toBeTruthy()
     expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: 'museum' })
   })
 
+  it('renders web-view presentation only for exact hidden chrome input', async () => {
+    mocks.getBySlug.mockResolvedValueOnce({ id: 'venue-1' })
+
+    render(
+      await EmbedVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({ chrome: 'hidden' }),
+      }),
+    )
+
+    expect(screen.getByText('webview:museum')).toBeTruthy()
+  })
+
+  it.each([
+    { chrome: 'none' },
+    { chrome: ['hidden', 'hidden'] },
+    { chrome: 'hidden', source: 'native' },
+  ])('fails non-exact chrome input back to ordinary embed %#', async (searchParams) => {
+    mocks.getBySlug.mockResolvedValueOnce({ id: 'venue-1' })
+
+    render(
+      await EmbedVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve(searchParams),
+      }),
+    )
+
+    expect(screen.getByText('embed:museum')).toBeTruthy()
+  })
+
   it('uses the generic paused state without mounting chat', async () => {
     mocks.getBySlug.mockRejectedValueOnce({ code: 'SERVICE_UNAVAILABLE' })
 
-    render(await EmbedVenuePage({ params: Promise.resolve({ venueSlug: 'museum' }) }))
+    render(
+      await EmbedVenuePage({
+        params: Promise.resolve({ venueSlug: 'museum' }),
+        searchParams: Promise.resolve({}),
+      }),
+    )
 
     expect(screen.getByText('Temporarily unavailable:false')).toBeTruthy()
     expect(screen.queryByText('embed:museum')).toBeNull()
@@ -82,7 +125,10 @@ describe('controlled embed preview', () => {
     mocks.getBySlug.mockRejectedValueOnce({ code: 'NOT_FOUND' })
 
     await expect(
-      EmbedVenuePage({ params: Promise.resolve({ venueSlug: 'missing' }) }),
+      EmbedVenuePage({
+        params: Promise.resolve({ venueSlug: 'missing' }),
+        searchParams: Promise.resolve({}),
+      }),
     ).rejects.toThrow('NEXT_NOT_FOUND')
   })
 

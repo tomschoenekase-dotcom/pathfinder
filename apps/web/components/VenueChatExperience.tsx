@@ -62,7 +62,7 @@ function getChatFontFamily(chatFont: string | null | undefined): string {
 
 type VenueChatExperienceProps = {
   venueSlug: string
-  presentation?: 'standalone' | 'embed'
+  presentation?: 'standalone' | 'embed' | 'webview'
 }
 
 export function VenueChatExperience({
@@ -617,16 +617,18 @@ export function VenueChatExperience({
           AI-generated answers can be wrong. Verify important details with venue staff, and do not
           share sensitive information.
         </p>
-        <p className="text-[10px] text-[var(--chat-text-muted)]">
-          Powered by{' '}
-          {presentation === 'standalone' ? (
-            <a href="https://pathfinder.app" className="hover:text-[var(--chat-accent)]">
-              PathFinder
-            </a>
-          ) : (
-            <span>PathFinder</span>
-          )}
-        </p>
+        {presentation !== 'webview' ? (
+          <p className="text-[10px] text-[var(--chat-text-muted)]">
+            Powered by{' '}
+            {presentation === 'standalone' ? (
+              <a href="https://pathfinder.app" className="hover:text-[var(--chat-accent)]">
+                PathFinder
+              </a>
+            ) : (
+              <span>PathFinder</span>
+            )}
+          </p>
+        ) : null}
       </div>
     </div>
   )

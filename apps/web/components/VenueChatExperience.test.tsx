@@ -149,6 +149,16 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.getByText('PathFinder').closest('a')).toBeNull()
   })
 
+  it('suppresses the PathFinder footer in native web-view presentation', async () => {
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    render(<VenueChatExperience venueSlug="museum" presentation="webview" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    expect(screen.queryByText(/Powered by/)).toBeNull()
+    expect(screen.queryByText('Back')).toBeNull()
+    expect(screen.getByRole('note', { name: 'AI guidance' })).toBeTruthy()
+  })
+
   it('keeps embed lookup failures free of home navigation', async () => {
     mocks.getBySlug.mockRejectedValueOnce({ code: 'NOT_FOUND' })
     render(<VenueChatExperience venueSlug="missing" presentation="embed" />)
@@ -176,7 +186,7 @@ describe('VenueChatExperience presentation boundary', () => {
     )
   })
 
-  it.each(['standalone', 'embed'] as const)(
+  it.each(['standalone', 'embed', 'webview'] as const)(
     'keeps AI accuracy and sensitive-information guidance visible in %s presentation',
     async (presentation) => {
       mocks.getBySlug.mockResolvedValueOnce(activeVenue)

@@ -5,23 +5,26 @@ import { appRouter, createTRPCContext } from '@pathfinder/api'
 import { isEmbedPreviewEnabled } from '@pathfinder/config/feature-flags'
 import { VenueChatExperience } from '../../../components/VenueChatExperience'
 import { VenueTemporarilyUnavailable } from '../../../components/VenueTemporarilyUnavailable'
+import { resolveEmbedPresentation, type EmbedSearchParams } from '../../../lib/embed-presentation'
 import { classifyPublicVenueLookupError } from '../../../lib/public-venue-error'
 import { TRPCProvider } from '../../../lib/trpc'
 
 type EmbedVenuePageProps = {
   params: Promise<{ venueSlug: string }>
+  searchParams: Promise<EmbedSearchParams>
 }
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }
 
-export default async function EmbedVenuePage({ params }: EmbedVenuePageProps) {
+export default async function EmbedVenuePage({ params, searchParams }: EmbedVenuePageProps) {
   if (!isEmbedPreviewEnabled()) {
     notFound()
   }
 
   const { venueSlug } = await params
+  const presentation = resolveEmbedPresentation(await searchParams)
   const ctx = await createTRPCContext({
     req: new Request(`https://pathfinder.local/embed/${venueSlug}`),
   })
@@ -44,7 +47,7 @@ export default async function EmbedVenuePage({ params }: EmbedVenuePageProps) {
 
   return (
     <TRPCProvider scopeKey={`embed:${venueSlug}`}>
-      <VenueChatExperience venueSlug={venueSlug} presentation="embed" />
+      <VenueChatExperience venueSlug={venueSlug} presentation={presentation} />
     </TRPCProvider>
   )
 }
