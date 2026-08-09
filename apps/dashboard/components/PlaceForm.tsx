@@ -1,7 +1,7 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, type Resolver, useForm } from 'react-hook-form'
 
@@ -195,7 +195,9 @@ export function PlaceForm({
   const router = useRouter()
   const client = useTRPCClient()
   const [formError, setFormError] = useState<string | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
+  const isMountedRef = useRef(true)
+  const mutationInFlightRef = useRef(false)
+  const [activeMutation, setActiveMutation] = useState<'save' | 'delete' | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(
     initialValues ? hasAdvancedFields(initialValues, venueGuideMode) : false,
   )
@@ -231,6 +233,15 @@ export function PlaceForm({
       isActive: true,
     },
   })
+
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+      mutationInFlightRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     let disposed = false
@@ -282,6 +293,23 @@ export function PlaceForm({
     }
   }, [mode])
 
+  function startMutation(kind: 'save' | 'delete'): boolean {
+    if (mutationInFlightRef.current) {
+      return false
+    }
+
+    mutationInFlightRef.current = true
+    setActiveMutation(kind)
+    return true
+  }
+
+  function finishMutation() {
+    mutationInFlightRef.current = false
+    if (isMountedRef.current) {
+      setActiveMutation(null)
+    }
+  }
+
   async function onSubmit(values: PlaceFormValues) {
     setFormError(null)
 
@@ -330,15 +358,32 @@ export function PlaceForm({
         )
       }
 
-      router.push(`/venues/${venueId}`)
-      router.refresh()
+      if (isMountedRef.current) {
+        router.push(`/venues/${venueId}`)
+        router.refresh()
+      }
     } catch (error) {
-      setFormError(getErrorMessage(error))
+      if (isMountedRef.current) {
+        setFormError(getErrorMessage(error))
+      }
+    }
+  }
+
+  async function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
+    if (!startMutation('save')) {
+      event.preventDefault()
+      return
+    }
+
+    try {
+      await handleSubmit(onSubmit)(event)
+    } finally {
+      finishMutation()
     }
   }
 
   async function handleDelete() {
-    if (mode !== 'edit' || !placeId) {
+    if (mode !== 'edit' || !placeId || mutationInFlightRef.current) {
       return
     }
 
@@ -348,19 +393,28 @@ export function PlaceForm({
       return
     }
 
-    setIsDeleting(true)
+    if (!startMutation('delete')) {
+      return
+    }
+
     setFormError(null)
 
     try {
       await client.place.delete.mutate({ id: placeId })
-      router.push(`/venues/${venueId}`)
-      router.refresh()
+      if (isMountedRef.current) {
+        router.push(`/venues/${venueId}`)
+        router.refresh()
+      }
     } catch (error) {
-      setFormError(getErrorMessage(error))
+      if (isMountedRef.current) {
+        setFormError(getErrorMessage(error))
+      }
     } finally {
-      setIsDeleting(false)
+      finishMutation()
     }
   }
+
+  const isMutating = activeMutation !== null || isSubmitting
 
   const itemTypeField = (
     <div>
@@ -369,6 +423,7 @@ export function PlaceForm({
       </label>
       <select
         id="place-item-type"
+        disabled={isMutating}
         className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
         {...register('itemType')}
       >
@@ -394,6 +449,7 @@ export function PlaceForm({
           render={({ field }) => (
             <input
               id="place-lat"
+              disabled={isMutating}
               inputMode="decimal"
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               value={field.value ?? ''}
@@ -415,6 +471,7 @@ export function PlaceForm({
           render={({ field }) => (
             <input
               id="place-lng"
+              disabled={isMutating}
               inputMode="decimal"
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               value={field.value ?? ''}
@@ -449,7 +506,7 @@ export function PlaceForm({
       {isLoadingPlace ? (
         <p className="text-sm text-pf-deep/50">Loading guide item...</p>
       ) : (
-        <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
+        <form aria-busy={isMutating} className="space-y-5" onSubmit={handleFormSubmit}>
           <input type="hidden" {...register('venueId')} value={venueId} />
           {mode === 'edit' ? <input type="hidden" {...register('id')} value={placeId} /> : null}
 
@@ -463,6 +520,7 @@ export function PlaceForm({
               </label>
               <input
                 id="place-name"
+                disabled={isMutating}
                 className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('name')}
               />
@@ -483,6 +541,7 @@ export function PlaceForm({
                 </label>
                 <select
                   id="place-type"
+                  disabled={isMutating}
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('type')}
                 >
@@ -514,6 +573,7 @@ export function PlaceForm({
               </label>
               <textarea
                 id="place-short-description"
+                disabled={isMutating}
                 className="min-h-24 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                 {...register('shortDescription')}
               />
@@ -525,9 +585,24 @@ export function PlaceForm({
           <details
             className="group rounded-2xl border border-pf-light"
             open={showAdvanced}
-            onToggle={(event) => setShowAdvanced((event.target as HTMLDetailsElement).open)}
+            onToggle={(event) => {
+              if (!isMutating) {
+                setShowAdvanced((event.target as HTMLDetailsElement).open)
+              }
+            }}
           >
-            <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-medium text-pf-deep/70">
+            <summary
+              aria-disabled={isMutating}
+              className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-medium text-pf-deep/70 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              onClick={(event) => {
+                if (isMutating) event.preventDefault()
+              }}
+              onKeyDown={(event) => {
+                if (isMutating && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault()
+                }
+              }}
+            >
               <span>Advanced options</span>
               <span className="text-xs text-pf-deep/40 group-open:hidden">Show</span>
               <span className="hidden text-xs text-pf-deep/40 group-open:inline">Hide</span>
@@ -545,6 +620,7 @@ export function PlaceForm({
                 </label>
                 <textarea
                   id="place-long-description"
+                  disabled={isMutating}
                   className="min-h-32 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('longDescription')}
                 />
@@ -563,6 +639,7 @@ export function PlaceForm({
                   render={({ field }) => (
                     <input
                       id="place-tags"
+                      disabled={isMutating}
                       className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                       placeholder="family, indoor, water"
                       value={field.value.join(', ')}
@@ -587,6 +664,7 @@ export function PlaceForm({
                   render={({ field }) => (
                     <input
                       id="place-importance"
+                      disabled={isMutating}
                       inputMode="numeric"
                       className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                       value={field.value}
@@ -607,6 +685,7 @@ export function PlaceForm({
                 </label>
                 <input
                   id="place-area"
+                  disabled={isMutating}
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('areaName')}
                 />
@@ -621,6 +700,7 @@ export function PlaceForm({
                 </label>
                 <input
                   id="place-hours"
+                  disabled={isMutating}
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
                   {...register('hours')}
                 />
@@ -635,6 +715,7 @@ export function PlaceForm({
                 </label>
                 <input
                   id="place-photo-url"
+                  disabled={isMutating}
                   type="text"
                   placeholder="https://..."
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
@@ -656,6 +737,7 @@ export function PlaceForm({
                     <input
                       className="h-4 w-4"
                       type="checkbox"
+                      disabled={isMutating}
                       checked={field.value ?? true}
                       onChange={(e) => field.onChange(e.target.checked)}
                     />
@@ -667,7 +749,10 @@ export function PlaceForm({
           </details>
 
           {formError ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            <p
+              className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+              role="alert"
+            >
               {formError}
             </p>
           ) : null}
@@ -676,13 +761,13 @@ export function PlaceForm({
             {mode === 'edit' ? (
               <button
                 type="button"
-                disabled={isDeleting || isSubmitting}
+                disabled={isMutating}
                 onClick={() => {
                   void handleDelete()
                 }}
                 className="inline-flex min-h-11 items-center rounded-full border border-rose-200 px-5 text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isDeleting ? 'Deleting...' : 'Delete guide item'}
+                {activeMutation === 'delete' ? 'Deleting...' : 'Delete guide item'}
               </button>
             ) : (
               <div />
@@ -690,10 +775,14 @@ export function PlaceForm({
 
             <button
               className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
-              disabled={isSubmitting || isDeleting}
+              disabled={isMutating}
               type="submit"
             >
-              {isSubmitting ? 'Saving...' : mode === 'create' ? 'Add guide item' : 'Save changes'}
+              {activeMutation === 'save'
+                ? 'Saving...'
+                : mode === 'create'
+                  ? 'Add guide item'
+                  : 'Save changes'}
             </button>
           </div>
         </form>

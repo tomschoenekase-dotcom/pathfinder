@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -36,6 +36,17 @@ import { PlaceForm } from './PlaceForm'
 
 const venueId = 'cm00000000000000000000001'
 const placeId = 'cm00000000000000000000002'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return { promise, reject, resolve }
+}
 
 describe('PlaceForm', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -109,8 +120,47 @@ describe('PlaceForm', () => {
     )
   })
 
+  it('admits one same-tick save and locks every editable surface while pending', async () => {
+    const pendingCreate = deferred<{ id: string }>()
+    mocks.create.mockReturnValueOnce(pendingCreate.promise)
+    render(<PlaceForm mode="create" venueId={venueId} venueGuideMode="non_location" />)
+
+    const nameInput = screen.getByLabelText('Name') as HTMLInputElement
+    const submitButton = screen.getByRole('button', { name: 'Add guide item' })
+    const form = submitButton.closest('form') as HTMLFormElement
+    fireEvent.change(nameInput, { target: { value: 'Visitor policy' } })
+
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce())
+    expect(form.getAttribute('aria-busy')).toBe('true')
+    expect(nameInput.disabled).toBe(true)
+    expect((screen.getByLabelText('Item type (optional)') as HTMLSelectElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Short description') as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Latitude (optional)') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Longitude (optional)') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Long description') as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Tags') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Importance score') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Area name') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Hours') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Photo URL') as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Guide item is active') as HTMLInputElement).disabled).toBe(true)
+    expect(
+      screen.getByText('Advanced options').closest('summary')?.getAttribute('aria-disabled'),
+    ).toBe('true')
+    expect((screen.getByRole('button', { name: 'Saving...' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+
+    await act(async () => pendingCreate.resolve({ id: placeId }))
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(`/venues/${venueId}`))
+  })
+
   it('maps edit-only null and activity semantics while preserving state on failure', async () => {
-    mocks.update.mockRejectedValueOnce(new Error('Guide item changed in another session'))
+    const pendingUpdate = deferred<{ id: string }>()
+    mocks.update.mockReturnValueOnce(pendingUpdate.promise)
     render(
       <PlaceForm
         mode="edit"
@@ -143,6 +193,11 @@ describe('PlaceForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => expect(mocks.update).toHaveBeenCalledOnce())
+    expect((screen.getByRole('button', { name: 'Saving...' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    expect((screen.getByLabelText('Short description') as HTMLTextAreaElement).disabled).toBe(true)
+    await act(async () => pendingUpdate.reject(new Error('Guide item changed in another session')))
     expect(mocks.update).toHaveBeenCalledWith(
       expect.objectContaining({
         id: placeId,
@@ -154,10 +209,127 @@ describe('PlaceForm', () => {
       }),
     )
     expect(await screen.findByText('Guide item changed in another session')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('Guide item changed in another session')
+    expect(
+      screen
+        .getByRole('button', { name: 'Save changes' })
+        .closest('form')
+        ?.getAttribute('aria-busy'),
+    ).toBe('false')
     expect((screen.getByLabelText('Short description') as HTMLTextAreaElement).value).toBe(
       'Revised answer',
     )
     expect(mocks.push).not.toHaveBeenCalled()
+
+    mocks.update.mockResolvedValueOnce({ id: placeId })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(2))
+    expect(mocks.push).toHaveBeenCalledWith(`/venues/${venueId}`)
+  })
+
+  it('prevents save/delete overlap and duplicate deletion while a delete is pending', async () => {
+    const pendingDelete = deferred<{ id: string }>()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mocks.remove.mockReturnValueOnce(pendingDelete.promise)
+    render(
+      <PlaceForm
+        mode="edit"
+        venueId={venueId}
+        venueGuideMode="non_location"
+        placeId={placeId}
+        initialValues={{
+          id: placeId,
+          venueId,
+          name: 'FAQ',
+          type: 'faq',
+          itemType: 'faq',
+          shortDescription: '',
+          longDescription: '',
+          lat: undefined,
+          lng: undefined,
+          tags: [],
+          importanceScore: 0,
+          areaName: '',
+          hours: '',
+          photoUrl: '',
+          isActive: true,
+        }}
+      />,
+    )
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete guide item' })
+    fireEvent.click(deleteButton)
+    fireEvent.click(deleteButton)
+    fireEvent.submit(deleteButton.closest('form') as HTMLFormElement)
+
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledOnce())
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(
+      (screen.getByRole('button', { name: 'Deleting...' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Save changes' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    await act(async () => pendingDelete.resolve({ id: placeId }))
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(`/venues/${venueId}`))
+  })
+
+  it('does not navigate or update UI when a save completes after unmount', async () => {
+    const pendingCreate = deferred<{ id: string }>()
+    mocks.create.mockReturnValueOnce(pendingCreate.promise)
+    const view = render(<PlaceForm mode="create" venueId={venueId} venueGuideMode="non_location" />)
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Visitor policy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add guide item' }))
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce())
+    view.unmount()
+
+    await act(async () => pendingCreate.resolve({ id: placeId }))
+
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it('does not navigate or update UI when deletion completes after unmount', async () => {
+    const pendingDelete = deferred<{ id: string }>()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    mocks.remove.mockReturnValueOnce(pendingDelete.promise)
+    const view = render(
+      <PlaceForm
+        mode="edit"
+        venueId={venueId}
+        venueGuideMode="non_location"
+        placeId={placeId}
+        initialValues={{
+          id: placeId,
+          venueId,
+          name: 'FAQ',
+          type: 'faq',
+          itemType: 'faq',
+          shortDescription: '',
+          longDescription: '',
+          lat: undefined,
+          lng: undefined,
+          tags: [],
+          importanceScore: 0,
+          areaName: '',
+          hours: '',
+          photoUrl: '',
+          isActive: true,
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete guide item' }))
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledOnce())
+    view.unmount()
+
+    await act(async () => pendingDelete.resolve({ id: placeId }))
+
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
   })
 
   it('does not delete when confirmation is declined', () => {
