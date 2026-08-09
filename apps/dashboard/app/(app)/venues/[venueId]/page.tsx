@@ -93,6 +93,7 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
       Number.isFinite(venue.defaultCenterLng)
 
     const activePlacesCount = places.filter((place) => place.isActive).length
+    const enabledKnowledgeCount = venue._count.knowledgeEntries
     const featuredPlace =
       aiConfig.aiFeaturedPlaceId !== null && aiConfig.aiFeaturedPlaceId !== undefined
         ? (places.find((place) => place.id === aiConfig.aiFeaturedPlaceId) ?? null)
@@ -155,15 +156,21 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             <section className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-6 py-5">
               <p className="text-sm font-semibold text-emerald-800">Your venue is set up.</p>
               <p className="mt-1 text-sm leading-6 text-emerald-700">
-                Add more guide items to improve the AI guide. Review and test the guest experience
-                before sharing it with guests.
+                Add public content when it improves the AI guide. Review and test the guest
+                experience before sharing it with guests.
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link
                   href={`/venues/${venueId}/places/new`}
                   className="inline-flex min-h-9 items-center rounded-full bg-emerald-700 px-4 text-sm font-medium text-white transition hover:bg-emerald-800"
                 >
-                  Add more guide items
+                  Add guide item
+                </Link>
+                <Link
+                  href={`/venues/${venueId}/knowledge`}
+                  className="inline-flex min-h-9 items-center rounded-full border border-emerald-300 bg-white px-4 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50"
+                >
+                  Manage Knowledge
                 </Link>
                 <Link
                   href="/ai-controls"
@@ -180,6 +187,7 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             guestChatUrl={guestChatUrl}
             isVenueActive={venue.isActive}
             activePlacesCount={activePlacesCount}
+            enabledKnowledgeCount={enabledKnowledgeCount}
             guideMode={isLocationAware ? 'location_aware' : 'non_location'}
             hasCompleteCenter={hasCompleteCenter}
           />
@@ -243,6 +251,12 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             </article>
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
+                Enabled Knowledge entries
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-pf-deep">{enabledKnowledgeCount}</p>
+            </article>
+            <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">
                 Featured guide item
               </p>
               <p className="mt-2 text-lg font-semibold text-pf-deep">
@@ -274,7 +288,8 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
               <div className="px-6 py-10 text-center">
                 <p className="text-lg font-medium text-pf-deep">No guide items yet</p>
                 <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-                  Add guide items so the public chat can answer venue questions.
+                  Knowledge can answer general questions without a guide item. Add one when a place,
+                  exhibit, or service should have its own card.
                 </p>
               </div>
             ) : (

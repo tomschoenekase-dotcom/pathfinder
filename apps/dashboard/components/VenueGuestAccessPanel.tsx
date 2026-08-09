@@ -5,6 +5,7 @@ type VenueGuestAccessPanelProps = {
   guestChatUrl: string | null
   isVenueActive: boolean
   activePlacesCount: number
+  enabledKnowledgeCount: number
   guideMode: 'location_aware' | 'non_location'
   hasCompleteCenter: boolean
 }
@@ -14,13 +15,16 @@ export function VenueGuestAccessPanel({
   guestChatUrl,
   isVenueActive,
   activePlacesCount,
+  enabledKnowledgeCount,
   guideMode,
   hasCompleteCenter,
 }: VenueGuestAccessPanelProps) {
   const reviewIssues = [
     ...(!isVenueActive ? ['Venue guest access is paused.'] : []),
-    ...(activePlacesCount === 0 ? ['Add an active guide item.'] : []),
-    ...(guideMode === 'location_aware' && !hasCompleteCenter
+    ...(activePlacesCount + enabledKnowledgeCount === 0
+      ? ['Add active public content: a guide item or Knowledge entry.']
+      : []),
+    ...(guideMode === 'location_aware' && activePlacesCount > 0 && !hasCompleteCenter
       ? ['Set a complete venue center for location-aware ordering.']
       : []),
   ]

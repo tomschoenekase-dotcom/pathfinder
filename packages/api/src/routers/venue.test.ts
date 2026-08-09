@@ -368,13 +368,31 @@ describe('venue router', () => {
     },
   )
 
-  it('venue.getById returns venue with place count', async () => {
-    venueFindFirst.mockResolvedValueOnce({ ...venueRow, _count: { places: 3 } })
+  it('venue.getById returns place and enabled-knowledge counts', async () => {
+    venueFindFirst.mockResolvedValueOnce({
+      ...venueRow,
+      _count: { places: 3, knowledgeEntries: 2 },
+    })
 
     const caller = testRouter.createCaller(staffCtx())
     const result = await caller.venue.getById({ id: 'cuid1234567890abcdef' })
 
-    expect(result).toMatchObject({ id: 'cuid1234567890abcdef', _count: { places: 3 } })
+    expect(result).toMatchObject({
+      id: 'cuid1234567890abcdef',
+      _count: { places: 3, knowledgeEntries: 2 },
+    })
+    expect(venueFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          _count: {
+            select: {
+              places: true,
+              knowledgeEntries: { where: { tenantId: 'tenant_1', isEnabled: true } },
+            },
+          },
+        }),
+      }),
+    )
   })
 
   it('venue.getById throws NOT_FOUND for wrong tenant', async () => {

@@ -296,10 +296,17 @@ function venueCreateMatches(
   )
 }
 
-const venueDetailSelect = {
-  ...venueListSelect,
-  _count: { select: { places: true } },
-} as const
+function buildVenueDetailSelect(tenantId: string) {
+  return {
+    ...venueListSelect,
+    _count: {
+      select: {
+        places: true,
+        knowledgeEntries: { where: { tenantId, isEnabled: true } },
+      },
+    },
+  } as const
+}
 
 const venueAiConfigSelect = {
   aiGuideNotes: true,
@@ -385,7 +392,7 @@ export const venueRouter = router({
     .query(async ({ ctx, input }) => {
       const venue = await ctx.db.venue.findFirst({
         where: { id: input.id, tenantId: ctx.session.activeTenantId },
-        select: venueDetailSelect,
+        select: buildVenueDetailSelect(ctx.session.activeTenantId),
       })
 
       if (!venue) {

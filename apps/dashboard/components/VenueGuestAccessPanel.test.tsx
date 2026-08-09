@@ -17,6 +17,7 @@ describe('VenueGuestAccessPanel', () => {
         guestChatUrl={null}
         isVenueActive
         activePlacesCount={2}
+        enabledKnowledgeCount={0}
         guideMode="non_location"
         hasCompleteCenter={false}
       />,
@@ -37,6 +38,7 @@ describe('VenueGuestAccessPanel', () => {
         guestChatUrl={url}
         isVenueActive
         activePlacesCount={2}
+        enabledKnowledgeCount={0}
         guideMode="location_aware"
         hasCompleteCenter
       />,
@@ -50,8 +52,18 @@ describe('VenueGuestAccessPanel', () => {
   })
 
   it.each([
-    { isVenueActive: false, activePlacesCount: 2, issue: 'Venue guest access is paused.' },
-    { isVenueActive: true, activePlacesCount: 0, issue: 'Add an active guide item.' },
+    {
+      isVenueActive: false,
+      activePlacesCount: 2,
+      enabledKnowledgeCount: 0,
+      issue: 'Venue guest access is paused.',
+    },
+    {
+      isVenueActive: true,
+      activePlacesCount: 0,
+      enabledKnowledgeCount: 0,
+      issue: 'Add active public content: a guide item or Knowledge entry.',
+    },
   ])('does not claim share readiness while a prerequisite is missing %#', (state) => {
     render(
       <VenueGuestAccessPanel
@@ -59,6 +71,7 @@ describe('VenueGuestAccessPanel', () => {
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive={state.isVenueActive}
         activePlacesCount={state.activePlacesCount}
+        enabledKnowledgeCount={state.enabledKnowledgeCount}
         guideMode="non_location"
         hasCompleteCenter={false}
       />,
@@ -69,6 +82,40 @@ describe('VenueGuestAccessPanel', () => {
     expect(screen.queryByText('Review link available')).toBeNull()
   })
 
+  it('treats enabled Knowledge as active public content without requiring a Place', () => {
+    render(
+      <VenueGuestAccessPanel
+        venueName="Museum"
+        guestChatUrl="https://guide.example.com/museum/chat"
+        isVenueActive
+        activePlacesCount={0}
+        enabledKnowledgeCount={1}
+        guideMode="non_location"
+        hasCompleteCenter={false}
+      />,
+    )
+
+    expect(screen.getByText('Review link available')).toBeTruthy()
+    expect(screen.queryByText(/add active public content/i)).toBeNull()
+  })
+
+  it('does not require a center for a location-aware Knowledge-only guide', () => {
+    render(
+      <VenueGuestAccessPanel
+        venueName="Museum"
+        guestChatUrl="https://guide.example.com/museum/chat"
+        isVenueActive
+        activePlacesCount={0}
+        enabledKnowledgeCount={1}
+        guideMode="location_aware"
+        hasCompleteCenter={false}
+      />,
+    )
+
+    expect(screen.getByText('Review link available')).toBeTruthy()
+    expect(screen.queryByText(/complete venue center/i)).toBeNull()
+  })
+
   it('flags an incomplete center only for the location-aware profile', () => {
     const { rerender } = render(
       <VenueGuestAccessPanel
@@ -76,6 +123,7 @@ describe('VenueGuestAccessPanel', () => {
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive
         activePlacesCount={2}
+        enabledKnowledgeCount={0}
         guideMode="location_aware"
         hasCompleteCenter={false}
       />,
@@ -92,6 +140,7 @@ describe('VenueGuestAccessPanel', () => {
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive
         activePlacesCount={2}
+        enabledKnowledgeCount={0}
         guideMode="non_location"
         hasCompleteCenter={false}
       />,

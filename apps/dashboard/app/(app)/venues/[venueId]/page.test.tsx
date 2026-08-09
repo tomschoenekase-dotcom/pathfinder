@@ -56,6 +56,7 @@ const baseVenue = {
   defaultCenterLng: -81.7,
   isActive: true,
   updatedAt: new Date('2026-08-09T00:00:00.000Z'),
+  _count: { places: 1, knowledgeEntries: 0 },
 }
 
 const basePlace = {
@@ -139,5 +140,55 @@ describe('venue detail sharing and mode presentation', () => {
     expect(screen.queryByText('Center longitude')).toBeNull()
     expect(screen.queryByRole('columnheader', { name: 'Coordinates' })).toBeNull()
     expect(document.body.textContent).not.toContain('41.51000, -81.71000')
+  })
+
+  it('hands a Knowledge-first venue to a content-neutral ready review', async () => {
+    vi.stubEnv('NEXT_PUBLIC_WEB_URL', 'https://guide.example.com')
+    mocks.getById.mockResolvedValue({
+      ...baseVenue,
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      _count: { places: 0, knowledgeEntries: 1 },
+    })
+    mocks.listPlaces.mockResolvedValue([])
+
+    render(
+      await VenueDetailPage({
+        params: Promise.resolve({ venueId: 'venue-1' }),
+        searchParams: Promise.resolve({ onboarded: '1' }),
+      }),
+    )
+
+    expect(screen.getByText('Review link available')).toBeTruthy()
+    expect(screen.queryByText(/add active public content/i)).toBeNull()
+    expect(screen.getByText('Enabled Knowledge entries').nextElementSibling?.textContent).toBe('1')
+    expect(screen.getAllByRole('link', { name: 'Add guide item' })).toHaveLength(2)
+    expect(screen.getByRole('link', { name: 'Manage Knowledge' })).toBeTruthy()
+    expect(screen.getByText(/knowledge can answer general questions/i)).toBeTruthy()
+  })
+
+  it('keeps a venue with no active Place or enabled Knowledge in preview', async () => {
+    vi.stubEnv('NEXT_PUBLIC_WEB_URL', 'https://guide.example.com')
+    mocks.getById.mockResolvedValue({
+      ...baseVenue,
+      guideMode: 'non_location',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      _count: { places: 0, knowledgeEntries: 0 },
+    })
+    mocks.listPlaces.mockResolvedValue([])
+
+    render(
+      await VenueDetailPage({
+        params: Promise.resolve({ venueId: 'venue-1' }),
+        searchParams: Promise.resolve({}),
+      }),
+    )
+
+    expect(screen.getByText('Preview only')).toBeTruthy()
+    expect(
+      screen.getByText('Add active public content: a guide item or Knowledge entry.'),
+    ).toBeTruthy()
+    expect(screen.queryByText('Review link available')).toBeNull()
   })
 })
