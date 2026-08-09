@@ -110,6 +110,9 @@ function QuestionCard({
   }
 
   async function remove() {
+    const confirmed = window.confirm('Delete this engagement question? This cannot be undone.')
+    if (!confirmed) return
+
     setSaving(true)
     setError(null)
     try {

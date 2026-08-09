@@ -126,6 +126,10 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
 
   async function onSubmit(values: VenueFormValues) {
     setFormError(null)
+    const defaultCenterLat =
+      values.guideMode === 'non_location' ? undefined : values.defaultCenterLat
+    const defaultCenterLng =
+      values.guideMode === 'non_location' ? undefined : values.defaultCenterLng
     try {
       if (mode === 'create') {
         const venue = await client.venue.create.mutate({
@@ -135,8 +139,8 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           guideNotes: values.guideNotes?.trim() || undefined,
           category: values.category?.trim() || undefined,
           guideMode: values.guideMode,
-          defaultCenterLat: values.defaultCenterLat,
-          defaultCenterLng: values.defaultCenterLng,
+          defaultCenterLat,
+          defaultCenterLng,
         })
         router.push(`/venues/${venue.id}`)
       } else {
@@ -147,8 +151,8 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
           guideNotes: values.guideNotes?.trim() || undefined,
           category: values.category?.trim() || undefined,
           guideMode: values.guideMode,
-          defaultCenterLat: values.defaultCenterLat,
-          defaultCenterLng: values.defaultCenterLng,
+          defaultCenterLat,
+          defaultCenterLng,
         })
         router.push(`/venues/${venueId}`)
       }

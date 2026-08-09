@@ -221,8 +221,8 @@ export function PlaceForm({
       itemType: '',
       shortDescription: '',
       longDescription: '',
-      lat: venueGuideMode === 'location_aware' ? 0 : undefined,
-      lng: venueGuideMode === 'location_aware' ? 0 : undefined,
+      lat: undefined,
+      lng: undefined,
       tags: [],
       importanceScore: 0,
       areaName: '',
@@ -398,11 +398,7 @@ export function PlaceForm({
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               value={field.value ?? ''}
               onChange={(event) => {
-                field.onChange(
-                  venueGuideMode === 'non_location'
-                    ? parseOptionalNumber(event.target.value)
-                    : parseNumber(event.target.value, field.value),
-                )
+                field.onChange(parseOptionalNumber(event.target.value))
               }}
             />
           )}
@@ -423,11 +419,7 @@ export function PlaceForm({
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
               value={field.value ?? ''}
               onChange={(event) => {
-                field.onChange(
-                  venueGuideMode === 'non_location'
-                    ? parseOptionalNumber(event.target.value)
-                    : parseNumber(event.target.value, field.value),
-                )
+                field.onChange(parseOptionalNumber(event.target.value))
               }}
             />
           )}
