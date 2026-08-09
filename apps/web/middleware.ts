@@ -25,10 +25,32 @@ export function getEmbedResponseHeaders(
   })
 }
 
+export function getPageResponseHeaders(request: Pick<NextRequest, 'nextUrl'>): Headers | null {
+  const { pathname } = request.nextUrl
+  if (
+    pathname === '/embed' ||
+    pathname.startsWith('/embed/') ||
+    pathname === '/api' ||
+    pathname.startsWith('/api/') ||
+    pathname === '/trpc' ||
+    pathname.startsWith('/trpc/')
+  ) {
+    return null
+  }
+
+  return new Headers({
+    'Content-Security-Policy': "frame-ancestors 'self'",
+    'Permissions-Policy': 'camera=(), geolocation=(self), microphone=(), payment=(), usb=()',
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+  })
+}
+
 // clerkMiddleware() is required for auth() to work in server components.
 // The web app is guest-facing; no routes are protected.
 export default clerkMiddleware((_auth, request) => {
-  const headers = getEmbedResponseHeaders(request)
+  const headers = getEmbedResponseHeaders(request) ?? getPageResponseHeaders(request)
   if (!headers) return
 
   const response = NextResponse.next()
