@@ -1,4 +1,4 @@
-import { APIConnectionError, APIConnectionTimeoutError } from '@anthropic-ai/sdk'
+import { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from '@anthropic-ai/sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -92,6 +92,33 @@ describe('generateText', () => {
 
     expect(result.attempts).toBe(2)
     expect(create).toHaveBeenCalledTimes(2)
+  })
+
+  it('never retries a deliberate provider abort and records its stable code', async () => {
+    const gate = budgetGate()
+    create.mockRejectedValueOnce(new APIUserAbortError())
+
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [],
+        messages: [{ role: 'user', content: 'Hello' }],
+        retryDelayMs: 0,
+        usageSink,
+        admissionGuard,
+        budgetGate: gate,
+      }),
+    ).rejects.toMatchObject({ code: 'provider-user-abort', attempts: 1 })
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(gate.settleAmbiguous).toHaveBeenCalledOnce()
+    expect(usageSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: 'provider-user-abort',
+        attempts: 1,
+      }),
+    )
   })
 
   it('rejects malformed provider output without retrying', async () => {
