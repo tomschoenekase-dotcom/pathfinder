@@ -296,6 +296,21 @@ describe('venue router', () => {
     )
   })
 
+  it.each([{ slug: 'x'.repeat(201) }, { slug: 'city-zoo', unexpected: 'field' }])(
+    'venue.getBySlug rejects invalid public input before database access',
+    async (input) => {
+      const caller = testRouter.createCaller({
+        ...baseCtx,
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      })
+
+      await expect(caller.venue.getBySlug(input as { slug: string })).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+      expect(dbQueryRaw).not.toHaveBeenCalled()
+    },
+  )
+
   it('venue.getById returns venue with place count', async () => {
     venueFindFirst.mockResolvedValueOnce({ ...venueRow, _count: { places: 3 } })
 

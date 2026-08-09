@@ -164,7 +164,7 @@ const venueAiConfigSelect = {
 
 export const venueRouter = router({
   getBySlug: publicProcedure
-    .input(z.object({ slug: z.string().min(1) }))
+    .input(z.object({ slug: z.string().min(1).max(200) }).strict())
     .query(async ({ ctx, input }) => {
       // $queryRaw used here because this is a public cross-tenant lookup — the caller
       // only knows the slug, not the tenantId. No tenant_id bind needed in the
