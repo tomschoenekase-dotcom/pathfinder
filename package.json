@@ -27,6 +27,7 @@
     "verify:client-bundles": "node scripts/verify-client-bundle-secrets.mjs",
     "test:watch": "vitest",
     "verify:staging": "node scripts/verify-staging-config.mjs",
+    "verify:staging-health": "node scripts/verify-staging-health.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "prepare": "husky"
   },

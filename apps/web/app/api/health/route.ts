@@ -81,7 +81,10 @@ function createHealthHandler({
       },
     }
 
-    return Response.json(body, { status: body.ok ? 200 : 503 })
+    return Response.json(body, {
+      status: body.ok ? 200 : 503,
+      headers: { 'cache-control': 'no-store' },
+    })
   }
 }
 

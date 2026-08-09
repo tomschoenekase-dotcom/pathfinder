@@ -115,6 +115,27 @@ staging release shell. The disposable wrapper intentionally has no external-host
 6. Deploy web, dashboard, and workers from `RELEASE_SHA`. Keep workers stopped
    until migrations are complete. Record the resulting Railway deployment ID
    and full source SHA for each service.
+   After independently identifying the public staging web hostname, admit that
+   deployment with the checked-in verifier:
+
+   ```bash
+   pnpm verify:staging-health -- \
+     --url https://pathfinder-staging.example.com/api/health \
+     --expected-revision "$RELEASE_SHA" \
+     --confirm-environment staging \
+     --confirm-host pathfinder-staging.example.com
+   ```
+
+   Replace the example hostname in both arguments with the same confirmed
+   staging host. The verifier rejects credentials, query strings, fragments,
+   redirects, cacheable responses, non-JSON or oversized bodies, degraded
+   dependencies, and any revision other than the full expected SHA. Its CI
+   test validates the contract without contacting staging; only this explicit
+   operator invocation performs a live request. Passing proves the public web
+   health response only. It does not prove dashboard or worker revisions, or
+   database, Redis, storage, identity-provider, and outbound-provider isolation;
+   retain the manual evidence for those boundaries.
+
 7. Start the workers with `EMBEDDING_DISPATCH_ENABLED=false`. Confirm the new
    `EmbeddingDispatch` table and content triggers exist, then make one synthetic
    place or knowledge edit and verify a single coalesced dispatch row is committed.
@@ -411,8 +432,8 @@ historical report data requires a separate reviewed migration.
 
 ## Staging smoke tests
 
-- Request the public web `/api/health` endpoint and record the status code and
-  response. Railway health must be green.
+- Run the exact-revision `verify:staging-health` admission command above and
+  record its sanitized JSON result. Railway health must also be green.
 - Open the seeded venue in the public web app and complete one cheap guest chat
   turn. Confirm a persisted visitor/message flow and no production venue data.
 - Sign in to the dashboard with a Clerk test user, select the staging tenant,

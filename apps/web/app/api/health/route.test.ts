@@ -30,6 +30,7 @@ describe('health route', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store')
     expect(body).toMatchObject({
       ok: true,
       deps: {
@@ -55,6 +56,7 @@ describe('health route', () => {
     const response = await GET()
 
     expect(response.status).toBe(503)
+    expect(response.headers.get('cache-control')).toBe('no-store')
     expect((await response.json()).ok).toBe(false)
   })
 
