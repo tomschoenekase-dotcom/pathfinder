@@ -1,20 +1,23 @@
 # PathFinderOS
 
-PathFinderOS is a multi-tenant SaaS monorepo for a public web app, tenant dashboard, admin console, worker process, and shared platform packages managed with pnpm workspaces and Turborepo.
+PathFinderOS is a multi-tenant SaaS monorepo for a public guest app, a tenant dashboard that also contains the platform-admin console, a worker process, and shared platform packages managed with pnpm workspaces and Turborepo.
 
 ## Workspaces
 
-- `apps/web`
-- `apps/dashboard`
-- `apps/admin`
-- `apps/workers`
-- `packages/db`
-- `packages/api`
-- `packages/auth`
-- `packages/ui`
-- `packages/jobs`
-- `packages/analytics`
-- `packages/config`
+- `apps/dashboard` — tenant dashboard and platform-admin console
+- `apps/web` — public guest chat and controlled embeds
+- `apps/workers` — background and scheduled jobs
+- `packages/ai` — centralized AI provider, admission, and budget boundary
+- `packages/analytics` — analytics event contracts and emission
+- `packages/api` — tRPC routers and server procedures
+- `packages/auth` — Clerk-backed identity helpers
+- `packages/config` — runtime configuration, logging, and shared tool configuration
+- `packages/contracts` — provider-neutral shared schemas and versioned contracts
+- `packages/db` — Prisma client, tenancy middleware, and persistence helpers
+- `packages/jobs` — BullMQ queues, payloads, and dispatch policy
+- `packages/ui` — shared React components and guest-chat theming
+
+The inventory above is checked against every `apps/*/package.json` and `packages/*/package.json` by the repository script tests.
 
 ## Local verification
 

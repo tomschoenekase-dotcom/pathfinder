@@ -1,5 +1,11 @@
 # PathFinder — Codebase Structure & How It All Works
 
+> [!WARNING]
+> **Historical snapshot:** this walkthrough predates later workspace, AI-boundary, observability,
+> and test-suite changes and is not a current repository inventory. Use the root `README.md`,
+> `CLAUDE.md`, and the checked-in workspace manifests for current structure. Historical references
+> below—including `apps/admin`, older package lists, and test counts—are intentionally preserved.
+
 > A whole-system walkthrough of the repository as it actually exists today.
 > Generated as a read-only review — no code was changed to produce this document.
 >
