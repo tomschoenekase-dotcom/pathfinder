@@ -8,7 +8,7 @@ import { enqueueEmbedPlace } from '@pathfinder/jobs'
 import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
 
-import { CreateVenueInput, UpdateVenueInput } from '../schemas/venue'
+import { CreateVenueRequestInput, UpdateVenueRequestInput } from '../schemas/venue'
 import {
   canonicalVenueContentImportPayload,
   ImportVenueContentInput,
@@ -257,7 +257,7 @@ export const venueRouter = router({
   create: tenantProcedure
     .use(requireRole('OWNER'))
     .use(withContentVersionActor)
-    .input(CreateVenueInput)
+    .input(CreateVenueRequestInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
       const baseSlug = input.slug ? slugify(input.slug) : slugify(input.name)
@@ -297,7 +297,7 @@ export const venueRouter = router({
   update: tenantProcedure
     .use(requireRole('MANAGER'))
     .use(withContentVersionActor)
-    .input(UpdateVenueInput)
+    .input(UpdateVenueRequestInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
@@ -305,7 +305,7 @@ export const venueRouter = router({
 
       const existing = await ctx.db.venue.findFirst({
         where: { id: input.id, tenantId },
-        select: { id: true },
+        select: { id: true, guideMode: true },
       })
 
       if (!existing) {
@@ -314,7 +314,24 @@ export const venueRouter = router({
 
       const { id, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
-      const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
+      const effectiveGuideMode = input.guideMode ?? existing.guideMode ?? 'location_aware'
+      if (
+        effectiveGuideMode === 'non_location' &&
+        (input.defaultCenterLat !== undefined || input.defaultCenterLng !== undefined)
+      ) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Non-location venues cannot define a default center.',
+        })
+      }
+
+      const data: Record<string, unknown> = Object.fromEntries(
+        Object.entries(raw).filter(([, v]) => v !== undefined),
+      )
+      if (effectiveGuideMode === 'non_location') {
+        data.defaultCenterLat = null
+        data.defaultCenterLng = null
+      }
 
       // updateMany accepts tenantId in where; update does not (Prisma unique-key constraint)
       await ctx.db.venue.updateMany({ where: { id, tenantId }, data })

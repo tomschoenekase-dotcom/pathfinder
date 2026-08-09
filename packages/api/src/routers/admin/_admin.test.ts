@@ -1110,6 +1110,23 @@ describe('admin router', () => {
     })
   })
 
+  it('admin.createClientAndVenue rejects incoherent venue centers before provider access', async () => {
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+        clientName: 'The Grand Hotel',
+        venue: {
+          name: 'Main Lobby',
+          guideMode: 'non_location',
+          defaultCenterLat: 41.5,
+          defaultCenterLng: -81.7,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(createOrganizationMock).not.toHaveBeenCalled()
+    expect(tenantCreate).not.toHaveBeenCalled()
+    expect(venueCreate).not.toHaveBeenCalled()
+  })
+
   it('admin.createClientAndVenue throws FORBIDDEN for non-admin users', async () => {
     const caller = testRouter.createCaller(nonAdminCtx())
 

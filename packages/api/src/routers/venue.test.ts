@@ -398,6 +398,59 @@ describe('venue router', () => {
     )
   })
 
+  it('venue.update clears stored centers when switching to non-location mode', async () => {
+    venueFindFirst
+      .mockResolvedValueOnce({ id: venueRow.id, guideMode: 'location_aware' })
+      .mockResolvedValueOnce({
+        ...venueRow,
+        guideMode: 'non_location',
+        defaultCenterLat: null,
+        defaultCenterLng: null,
+      })
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    await testRouter.createCaller(managerCtx()).venue.update({
+      id: venueRow.id,
+      guideMode: 'non_location',
+    })
+
+    expect(venueUpdateMany).toHaveBeenCalledWith({
+      where: { id: venueRow.id, tenantId: 'tenant_1' },
+      data: {
+        guideMode: 'non_location',
+        defaultCenterLat: null,
+        defaultCenterLng: null,
+      },
+    })
+  })
+
+  it('venue.update rejects adding centers to an existing non-location venue', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: venueRow.id, guideMode: 'non_location' })
+
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.update({
+        id: venueRow.id,
+        defaultCenterLat: 41.5,
+        defaultCenterLng: -81.7,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(venueUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { defaultCenterLat: 41.5 },
+    { defaultCenterLng: -81.7 },
+    { defaultCenterLat: 91, defaultCenterLng: -81.7 },
+    { defaultCenterLat: 41.5, defaultCenterLng: -181 },
+    { guideMode: 'non_location' as const, defaultCenterLat: 41.5, defaultCenterLng: -81.7 },
+  ])('venue.update rejects incoherent center input before venue access', async (location) => {
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.update({ id: venueRow.id, ...location }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(venueUpdateMany).not.toHaveBeenCalled()
+  })
+
   it('venue.update throws NOT_FOUND for wrong tenant', async () => {
     venueFindFirst.mockResolvedValueOnce(null)
 

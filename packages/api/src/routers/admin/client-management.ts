@@ -15,7 +15,7 @@ import {
 } from '@pathfinder/db'
 
 import { router } from '../../core'
-import { CreateVenueInput } from '../../schemas/venue'
+import { CreateVenueRequestInput } from '../../schemas/venue'
 import { adminProcedure } from '../../trpc'
 import { slugify } from '../venue'
 import { isUniqueConstraintError, uniqueTenantSlug } from './helpers'
@@ -162,7 +162,7 @@ export const adminClientManagementRouter = router({
       z.object({
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
-        venue: CreateVenueInput,
+        venue: CreateVenueRequestInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
