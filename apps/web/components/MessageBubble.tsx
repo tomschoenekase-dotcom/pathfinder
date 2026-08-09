@@ -7,9 +7,10 @@ type MessageBubbleProps = {
 
 export function MessageBubble({ role, content, bubbleColor, bubbleTextColor }: MessageBubbleProps) {
   const isUser = role === 'user'
+  const speaker = isUser ? 'You' : 'PathFinder guide'
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
         className={`max-w-[85%] rounded-[1.75rem] px-4 py-3 text-sm leading-6 ${
           isUser
@@ -21,8 +22,11 @@ export function MessageBubble({ role, content, bubbleColor, bubbleTextColor }: M
           color: isUser ? bubbleTextColor : undefined,
         }}
       >
-        <p className="whitespace-pre-wrap break-words">{content}</p>
+        <p className="whitespace-pre-wrap break-words">
+          <span className="sr-only">{speaker}:</span>
+          {content}
+        </p>
       </div>
-    </div>
+    </article>
   )
 }

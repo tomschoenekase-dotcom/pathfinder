@@ -176,6 +176,22 @@ describe('VenueChatExperience presentation boundary', () => {
     )
   })
 
+  it.each(['standalone', 'embed'] as const)(
+    'keeps AI accuracy and sensitive-information guidance visible in %s presentation',
+    async (presentation) => {
+      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+      render(<VenueChatExperience venueSlug="museum" presentation={presentation} />)
+
+      await screen.findByRole('heading', { name: 'Museum Guide' })
+      expect(screen.getByRole('note', { name: 'AI guidance' }).textContent).toContain(
+        'AI-generated answers can be wrong',
+      )
+      expect(screen.getByRole('note', { name: 'AI guidance' }).textContent).toContain(
+        'do not share sensitive information',
+      )
+    },
+  )
+
   it('omits granted live coordinates from non-location session and send requests', async () => {
     mocks.anonymousToken = '123e4567-e89b-12d3-a456-426614174000'
     mocks.geolocation.lat = 40.7128

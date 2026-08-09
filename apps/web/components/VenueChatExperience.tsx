@@ -609,6 +609,14 @@ export function VenueChatExperience({
       </div>
 
       <div className="pb-[env(safe-area-inset-bottom,1rem)] pt-2 text-center">
+        <p
+          className="mx-auto max-w-2xl px-4 text-[11px] leading-4 text-[var(--chat-text-muted)] sm:px-6"
+          role="note"
+          aria-label="AI guidance"
+        >
+          AI-generated answers can be wrong. Verify important details with venue staff, and do not
+          share sensitive information.
+        </p>
         <p className="text-[10px] text-[var(--chat-text-muted)]">
           Powered by{' '}
           {presentation === 'standalone' ? (

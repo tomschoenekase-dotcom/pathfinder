@@ -67,7 +67,12 @@ const STORAGE_KEY = 'pathfinder_language'
 
 export function getStoredLanguage(): string | null {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem(STORAGE_KEY)
+
+  try {
+    return localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return null
+  }
 }
 
 type LanguagePickerProps = {
@@ -79,7 +84,13 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
   function handleChange(event: ChangeEvent<HTMLSelectElement>) {
     const selected = SUPPORTED_LANGUAGES.find((language) => language.label === event.target.value)
     if (!selected) return
-    localStorage.setItem(STORAGE_KEY, selected.label)
+
+    try {
+      localStorage.setItem(STORAGE_KEY, selected.label)
+    } catch {
+      // A denied storage preference must not prevent the in-page language change.
+    }
+
     onChange(selected.label)
   }
 
