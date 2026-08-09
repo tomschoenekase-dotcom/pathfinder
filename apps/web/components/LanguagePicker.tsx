@@ -3,18 +3,10 @@
 import type { ChangeEvent } from 'react'
 import { Globe } from 'lucide-react'
 
-export const SUPPORTED_LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'es', label: 'Español' },
-  { code: 'fr', label: 'Français' },
-  { code: 'de', label: 'Deutsch' },
-  { code: 'it', label: 'Italiano' },
-  { code: 'pt', label: 'Português' },
-  { code: 'zh', label: '中文' },
-  { code: 'ja', label: '日本語' },
-  { code: 'ko', label: '한국어' },
-  { code: 'ar', label: 'العربية' },
-]
+import { SUPPORTED_CHAT_LANGUAGES } from '@pathfinder/api/schemas'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+
+export const SUPPORTED_LANGUAGES = SUPPORTED_CHAT_LANGUAGES
 
 export const LANGUAGE_PLACEHOLDERS: Record<string, string> = {
   English: 'Ask anything about this place...',
@@ -79,15 +71,16 @@ export function getStoredLanguage(): string | null {
 }
 
 type LanguagePickerProps = {
-  value: string
-  onChange: (language: string) => void
+  value: SupportedChatLanguage
+  onChange: (language: SupportedChatLanguage) => void
 }
 
 export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
   function handleChange(event: ChangeEvent<HTMLSelectElement>) {
-    const selected = event.target.value
-    localStorage.setItem(STORAGE_KEY, selected)
-    onChange(selected)
+    const selected = SUPPORTED_LANGUAGES.find((language) => language.label === event.target.value)
+    if (!selected) return
+    localStorage.setItem(STORAGE_KEY, selected.label)
+    onChange(selected.label)
   }
 
   return (

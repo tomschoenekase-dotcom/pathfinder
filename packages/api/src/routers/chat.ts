@@ -1,5 +1,4 @@
 import { TRPCError } from '@trpc/server'
-import { z } from 'zod'
 
 import {
   AiGatewayError,
@@ -26,8 +25,10 @@ import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
 import { checkRateLimit } from '../lib/rate-limit'
 import { buildVenueSystemPromptParts } from '../lib/venue-context'
+import { requireGlobalAi } from '../middleware/require-global-ai'
+import { ChatHistoryInput, ChatSendInput, ChatSessionInput } from '../schemas/chat'
 import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
-import { publicAiProcedure, publicProcedure } from '../trpc'
+import { publicProcedure } from '../trpc'
 
 function aiUnavailable(): TRPCError {
   return new TRPCError({
@@ -52,32 +53,6 @@ export function _setAnthropicClientForTesting(client: AnthropicMessagesClient | 
   setAnthropicClientForTesting(client)
 }
 
-// ---------------------------------------------------------------------------
-// Input schemas
-// ---------------------------------------------------------------------------
-
-const sessionSchema = z
-  .object({
-    venueId: z.string().min(1),
-    anonymousToken: z.string().uuid(),
-    visitorId: z.string().uuid().optional(),
-    lat: z.number().optional(),
-    lng: z.number().optional(),
-  })
-  .strict()
-
-const sendMessageSchema = z
-  .object({
-    venueId: z.string().min(1),
-    anonymousToken: z.string().uuid(),
-    visitorId: z.string().uuid().optional(),
-    message: z.string().min(1).max(1000),
-    lat: z.number().optional(),
-    lng: z.number().optional(),
-    language: z.string().max(50).optional(),
-  })
-  .strict()
-
 const NEAREST_PLACES_LIMIT = 8
 const KNOWLEDGE_ENTRIES_LIMIT = 5
 const HISTORY_LIMIT = 10
@@ -87,6 +62,31 @@ const ENGAGEMENT_ASKED_MARKER = '[[ENGAGEMENT_ASKED]]'
 // are honored loosely by the model, not exactly — this guarantees the cap
 // guests actually see, regardless of how closely the model followed the prompt.
 const MAX_RESPONSE_WORDS = 60
+const SESSION_SYNC_GLOBAL_LIMIT = 3000
+const SESSION_SYNC_SESSION_LIMIT = 120
+const SESSION_SYNC_VENUE_LIMIT = 3000
+const HISTORY_GLOBAL_LIMIT = 3000
+const HISTORY_SESSION_LIMIT = 60
+const HISTORY_VENUE_LIMIT = 3000
+const CHAT_GLOBAL_INGRESS_LIMIT = 600
+const CHAT_INGRESS_VENUE_LIMIT = 120
+
+type PublicChatVenue = {
+  id: string
+  tenantId: string
+  name: string
+  description: string | null
+  guideNotes: string | null
+  aiGuideNotes: string | null
+  aiFeaturedPlaceId: string | null
+  aiTone: string | null
+  aiGuideName: string | null
+  category: string | null
+  guideMode: string | null
+  defaultCenterLat: number | null
+  defaultCenterLng: number | null
+  isActive: boolean
+}
 
 function elapsedMilliseconds(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt))
@@ -99,6 +99,86 @@ function stripEngagementMarker(text: string): { cleaned: string; markerFound: bo
   }
   return { cleaned: text.slice(0, markerIndex).trimEnd(), markerFound: true }
 }
+
+const admittedChatSendProcedure = publicProcedure
+  .input(ChatSendInput)
+  .use(async ({ ctx, input, next }) => {
+    const globallyAllowed = await checkRateLimit(
+      'ratelimit:chat:ingress:global',
+      CHAT_GLOBAL_INGRESS_LIMIT,
+      60,
+    )
+    if (!globallyAllowed) {
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'Chat is receiving too many requests. Please try again in a moment.',
+      })
+    }
+
+    // Resolve the caller-provided venue before creating any caller-derived rate
+    // keys. The fixed global gate above bounds invalid-ID database traffic and
+    // prevents arbitrary venue IDs from expanding Redis key cardinality.
+    const [chatVenue] = await ctx.db.$queryRaw<PublicChatVenue[]>`
+      SELECT id,
+             tenant_id AS "tenantId",
+             name,
+             description,
+             guide_notes AS "guideNotes",
+             ai_guide_notes AS "aiGuideNotes",
+             ai_featured_place_id AS "aiFeaturedPlaceId",
+             ai_tone AS "aiTone",
+             ai_guide_name AS "aiGuideName",
+             category,
+             guide_mode AS "guideMode",
+             default_center_lat AS "defaultCenterLat",
+             default_center_lng AS "defaultCenterLng",
+             is_active AS "isActive"
+      FROM venues WHERE id = ${input.venueId} LIMIT 1
+    `
+
+    if (!chatVenue) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+    }
+    if (!chatVenue.isActive) throw venueUnavailable()
+
+    return next({ ctx: { ...ctx, chatVenue } })
+  })
+  .use(async ({ ctx, input, next }) => {
+    const ingressAllowed = await checkRateLimit(
+      `ratelimit:chat:ingress:venue:${ctx.chatVenue.id}`,
+      CHAT_INGRESS_VENUE_LIMIT,
+      60,
+    )
+    if (!ingressAllowed) {
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'This venue is receiving too many requests. Please try again in a moment.',
+      })
+    }
+
+    const sessionAllowed = await checkRateLimit(
+      `ratelimit:chat:session:${ctx.chatVenue.id}:${input.anonymousToken}`,
+      60,
+      3600,
+    )
+    if (!sessionAllowed) {
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'You have reached the message limit. Please try again later.',
+      })
+    }
+
+    const venueAllowed = await checkRateLimit(`ratelimit:chat:venue:${ctx.chatVenue.id}`, 30, 60)
+    if (!venueAllowed) {
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'This venue is receiving too many requests. Please try again in a moment.',
+      })
+    }
+
+    return next()
+  })
+  .use(requireGlobalAi)
 
 // Exported for test coverage — trims to the last complete sentence that fits
 // within maxWords. Always keeps at least the first sentence, even if that
@@ -140,12 +220,44 @@ export const chatRouter = router({
    * Idempotent session creation / update. Call this when the visitor first
    * opens the chat page so a session row exists before the first message.
    */
-  session: publicProcedure.input(sessionSchema).mutation(async ({ ctx, input }) => {
+  session: publicProcedure.input(ChatSessionInput).mutation(async ({ ctx, input }) => {
+    const globallyAllowed = await checkRateLimit(
+      'ratelimit:chat-session:ingress:global',
+      SESSION_SYNC_GLOBAL_LIMIT,
+      60,
+    )
+    if (!globallyAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+    }
+
+    const venueAllowed = await checkRateLimit(
+      `ratelimit:chat-session:venue:${input.venueId}`,
+      SESSION_SYNC_VENUE_LIMIT,
+      60,
+    )
+    if (!venueAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+    }
+
+    const sessionAllowed = await checkRateLimit(
+      `ratelimit:chat-session:session:${input.venueId}:${input.anonymousToken}`,
+      SESSION_SYNC_SESSION_LIMIT,
+      60,
+    )
+    if (!sessionAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many session updates.' })
+    }
+
     // $queryRaw used here because this is a public cross-tenant lookup — the caller
     // only knows the venueId, not the tenantId. No tenant_id bind needed in the
     // WHERE because we are resolving the tenant FROM this row, not filtering by it.
-    const [venue] = await ctx.db.$queryRaw<{ id: string; tenantId: string; isActive: boolean }[]>`
-      SELECT id, tenant_id AS "tenantId", is_active AS "isActive"
+    const [venue] = await ctx.db.$queryRaw<
+      { id: string; tenantId: string; guideMode: string | null; isActive: boolean }[]
+    >`
+      SELECT id,
+             tenant_id AS "tenantId",
+             guide_mode AS "guideMode",
+             is_active AS "isActive"
       FROM venues WHERE id = ${input.venueId} LIMIT 1
     `
 
@@ -154,9 +266,15 @@ export const chatRouter = router({
     }
     if (!venue.isActive) throw venueUnavailable()
 
+    const isNonLocation = venue.guideMode === 'non_location'
     const updateData: Record<string, unknown> = { lastActiveAt: new Date() }
-    if (input.lat !== undefined) updateData.latestLat = input.lat
-    if (input.lng !== undefined) updateData.latestLng = input.lng
+    if (isNonLocation) {
+      updateData.latestLat = null
+      updateData.latestLng = null
+    } else if (input.lat !== undefined && input.lng !== undefined) {
+      updateData.latestLat = input.lat
+      updateData.latestLng = input.lng
+    }
     if (input.visitorId !== undefined) updateData.visitorId = input.visitorId
 
     const session = await ctx.db.visitorSession.upsert({
@@ -171,8 +289,8 @@ export const chatRouter = router({
         tenantId: venue.tenantId,
         venueId: input.venueId,
         anonymousToken: input.anonymousToken,
-        latestLat: input.lat ?? null,
-        latestLng: input.lng ?? null,
+        latestLat: isNonLocation ? null : (input.lat ?? null),
+        latestLng: isNonLocation ? null : (input.lng ?? null),
         lastActiveAt: new Date(),
         ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
@@ -186,61 +304,36 @@ export const chatRouter = router({
   /**
    * Send a message and receive an AI response grounded in venue + location data.
    */
-  send: publicAiProcedure.input(sendMessageSchema).mutation(async ({ ctx, input }) => {
+  send: admittedChatSendProcedure.mutation(async ({ ctx, input }) => {
     const requestStartedAt = performance.now()
     let embeddingMs = 0
     let retrievalMs = 0
     let promptAssemblyMs = 0
     let modelMs = 0
     let persistenceMs = 0
-    const trimmedInput = input.message.trim()
-    // 1. Validate venue
-    // $queryRaw used here because this is a public cross-tenant lookup — the caller
-    // only knows the venueId, not the tenantId. No tenant_id bind needed in the
-    // WHERE because we are resolving the tenant FROM this row, not filtering by it.
-    const [venue] = await ctx.db.$queryRaw<
-      {
-        id: string
-        tenantId: string
-        name: string
-        description: string | null
-        guideNotes: string | null
-        aiGuideNotes: string | null
-        aiFeaturedPlaceId: string | null
-        aiTone: string | null
-        aiGuideName: string | null
-        category: string | null
-        guideMode: string | null
-        defaultCenterLat: number | null
-        defaultCenterLng: number | null
-        isActive: boolean
-      }[]
-    >`
-      SELECT id,
-             tenant_id AS "tenantId",
-             name,
-             description,
-             guide_notes AS "guideNotes",
-             ai_guide_notes AS "aiGuideNotes",
-             ai_featured_place_id AS "aiFeaturedPlaceId",
-             ai_tone AS "aiTone",
-             ai_guide_name AS "aiGuideName",
-             category,
-             guide_mode AS "guideMode",
-             default_center_lat AS "defaultCenterLat",
-             default_center_lng AS "defaultCenterLng",
-             is_active AS "isActive"
-      FROM venues WHERE id = ${input.venueId} LIMIT 1
-    `
-
-    if (!venue) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-    }
-    if (!venue.isActive) throw venueUnavailable()
+    const trimmedInput = input.message
+    const venue = ctx.chatVenue
 
     const guideMode = venue.guideMode ?? 'location_aware'
-    const userLat = input.lat ?? venue.defaultCenterLat
-    const userLng = input.lng ?? venue.defaultCenterLng
+    const callerLocation =
+      input.lat !== undefined && input.lng !== undefined ? { lat: input.lat, lng: input.lng } : null
+    const hasDefaultLocation = venue.defaultCenterLat != null && venue.defaultCenterLng != null
+    const userLat =
+      guideMode === 'location_aware'
+        ? callerLocation
+          ? callerLocation.lat
+          : hasDefaultLocation
+            ? venue.defaultCenterLat
+            : null
+        : null
+    const userLng =
+      guideMode === 'location_aware'
+        ? callerLocation
+          ? callerLocation.lng
+          : hasDefaultLocation
+            ? venue.defaultCenterLng
+            : null
+        : null
 
     if (guideMode === 'location_aware' && (userLat == null || userLng == null)) {
       throw new TRPCError({
@@ -252,21 +345,13 @@ export const chatRouter = router({
     const contextLat = userLat ?? 0
     const contextLng = userLng ?? 0
 
-    const [sessionAllowed, venueAllowed] = await Promise.all([
-      checkRateLimit(`ratelimit:chat:session:${input.venueId}:${input.anonymousToken}`, 60, 3600),
-      checkRateLimit(`ratelimit:chat:venue:${input.venueId}`, 30, 60),
-    ])
-
-    if (!sessionAllowed || !venueAllowed) {
-      throw new TRPCError({
-        code: 'TOO_MANY_REQUESTS',
-        message: sessionAllowed
-          ? 'This venue is receiving too many requests. Please try again in a moment.'
-          : 'You have reached the message limit. Please try again later.',
-      })
-    }
-
     // 2. Upsert session, update location
+    const sessionLocationData =
+      guideMode === 'non_location'
+        ? { latestLat: null, latestLng: null }
+        : callerLocation
+          ? { latestLat: callerLocation.lat, latestLng: callerLocation.lng }
+          : {}
     const session = await ctx.db.visitorSession.upsert({
       where: {
         venueId_anonymousToken: {
@@ -279,14 +364,13 @@ export const chatRouter = router({
         tenantId: venue.tenantId,
         venueId: input.venueId,
         anonymousToken: input.anonymousToken,
-        latestLat: input.lat ?? null,
-        latestLng: input.lng ?? null,
+        latestLat: guideMode === 'non_location' ? null : (input.lat ?? null),
+        latestLng: guideMode === 'non_location' ? null : (input.lng ?? null),
         lastActiveAt: new Date(),
         ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
       update: {
-        latestLat: input.lat ?? null,
-        latestLng: input.lng ?? null,
+        ...sessionLocationData,
         lastActiveAt: new Date(),
         ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
@@ -797,22 +881,40 @@ export const chatRouter = router({
    * Returns messages oldest-first. Returns an empty array if no session exists
    * yet — the chat page treats that as a fresh conversation.
    */
-  history: publicProcedure
-    .input(
-      z
-        .object({
-          venueId: z.string().min(1),
-          anonymousToken: z.string().uuid(),
-        })
-        .strict(),
+  history: publicProcedure.input(ChatHistoryInput).query(async ({ ctx, input }) => {
+    const globallyAllowed = await checkRateLimit(
+      'ratelimit:chat-history:ingress:global',
+      HISTORY_GLOBAL_LIMIT,
+      60,
     )
-    .query(async ({ ctx, input }) => {
-      // This is a public cross-tenant lookup, so resolve tenant ownership from the
-      // venue-scoped session identity. Anonymous tokens are intentionally reusable
-      // across venues and must never select a session from another venue.
-      const [session] = await ctx.db.$queryRaw<
-        { id: string | null; venueId: string; tenantId: string; isActive: boolean }[]
-      >`
+    if (!globallyAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
+    }
+
+    const venueAllowed = await checkRateLimit(
+      `ratelimit:chat-history:venue:${input.venueId}`,
+      HISTORY_VENUE_LIMIT,
+      60,
+    )
+    if (!venueAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
+    }
+
+    const sessionAllowed = await checkRateLimit(
+      `ratelimit:chat-history:session:${input.venueId}:${input.anonymousToken}`,
+      HISTORY_SESSION_LIMIT,
+      60,
+    )
+    if (!sessionAllowed) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Too many history requests.' })
+    }
+
+    // This is a public cross-tenant lookup, so resolve tenant ownership from the
+    // venue-scoped session identity. Browser tokens are generated per venue, and
+    // this lookup must never select a session from another venue.
+    const [session] = await ctx.db.$queryRaw<
+      { id: string | null; venueId: string; tenantId: string; isActive: boolean }[]
+    >`
         SELECT visitor_sessions.id,
                venues.id AS "venueId",
                venues.tenant_id AS "tenantId",
@@ -826,25 +928,25 @@ export const chatRouter = router({
         LIMIT 1
       `
 
-      // No session yet — fresh visitor, return empty history
-      if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      if (!session.isActive) throw venueUnavailable()
-      if (!session.id) {
-        return { messages: [] }
-      }
+    // No session yet — fresh visitor, return empty history
+    if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+    if (!session.isActive) throw venueUnavailable()
+    if (!session.id) {
+      return { messages: [] }
+    }
 
-      const rows = await ctx.db.message.findMany({
-        where: { sessionId: session.id, tenantId: session.tenantId },
-        orderBy: { createdAt: 'asc' },
-        take: HISTORY_LOAD_LIMIT,
-        select: { role: true, content: true },
-      })
+    const rows = await ctx.db.message.findMany({
+      where: { sessionId: session.id, tenantId: session.tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: HISTORY_LOAD_LIMIT,
+      select: { role: true, content: true },
+    })
 
-      return {
-        messages: rows.map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        })),
-      }
-    }),
+    return {
+      messages: rows.reverse().map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+    }
+  }),
 })

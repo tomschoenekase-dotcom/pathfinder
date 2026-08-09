@@ -4,6 +4,14 @@
  */
 export { CreateVenueInput, UpdateVenueInput } from './schemas/venue'
 export {
+  ChatHistoryInput,
+  ChatSendInput,
+  ChatSessionInput,
+  SUPPORTED_CHAT_LANGUAGES,
+  SupportedChatLanguageInput,
+} from './schemas/chat'
+export type { SupportedChatLanguage } from './schemas/chat'
+export {
   canonicalVenueContentImportPayload,
   ImportVenueContentInput,
   VENUE_CONTENT_IMPORT_LIMIT,

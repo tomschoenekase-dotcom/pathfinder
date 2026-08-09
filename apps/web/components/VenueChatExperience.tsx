@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 
 import { ChatWindow } from './ChatWindow'
 import {
@@ -76,7 +77,7 @@ export function VenueChatExperience({
   const [pageError, setPageError] = useState<string | null>(null)
   const [isVenueUnavailable, setIsVenueUnavailable] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const [language, setLanguage] = useState<string>(() => {
+  const [language, setLanguage] = useState<SupportedChatLanguage>(() => {
     const stored = getStoredLanguage()
     const match = SUPPORTED_LANGUAGES.find(
       (supportedLanguage) => supportedLanguage.label === stored,
@@ -88,7 +89,9 @@ export function VenueChatExperience({
   const startedSessionKeyRef = useRef<string | null>(null)
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const viewedPlaceIdsRef = useRef<Set<string>>(new Set())
-  const { lat, lng, permission, refresh } = useGeolocation()
+  const { lat, lng, permission, refresh } = useGeolocation(
+    venue !== null && venue.guideMode !== 'non_location',
+  )
   const { anonymousToken, setSessionId } = useSession(venue?.id ?? '')
   const visitorId = useVisitorId()
 
@@ -179,8 +182,8 @@ export function VenueChatExperience({
           venueId: venue.id,
           anonymousToken,
           ...(visitorId ? { visitorId } : {}),
-          ...(lat !== null ? { lat } : {}),
-          ...(lng !== null ? { lng } : {}),
+          ...(venue.guideMode !== 'non_location' && lat !== null ? { lat } : {}),
+          ...(venue.guideMode !== 'non_location' && lng !== null ? { lng } : {}),
         })
 
         if (!disposed) {
@@ -289,10 +292,16 @@ export function VenueChatExperience({
       return
     }
 
-    const fallbackLat = lat ?? venue.defaultCenterLat
-    const fallbackLng = lng ?? venue.defaultCenterLng
+    const location =
+      venue.guideMode === 'non_location'
+        ? null
+        : lat !== null && lng !== null
+          ? { lat, lng }
+          : venue.defaultCenterLat !== null && venue.defaultCenterLng !== null
+            ? { lat: venue.defaultCenterLat, lng: venue.defaultCenterLng }
+            : null
 
-    if (venue.guideMode !== 'non_location' && (fallbackLat === null || fallbackLng === null)) {
+    if (venue.guideMode !== 'non_location' && location === null) {
       setSendError('Location is still unavailable for this venue. Try allowing location first.')
       return
     }
@@ -307,8 +316,7 @@ export function VenueChatExperience({
         anonymousToken,
         ...(visitorId ? { visitorId } : {}),
         message: trimmed,
-        ...(fallbackLat !== null ? { lat: fallbackLat } : {}),
-        ...(fallbackLng !== null ? { lng: fallbackLng } : {}),
+        ...(location ?? {}),
         ...(language === 'English' ? {} : { language }),
       })
 

@@ -18,7 +18,7 @@ const WATCH_OPTIONS = {
   maximumAge: 30_000,
 } as const
 
-export function useGeolocation(): GeolocationState {
+export function useGeolocation(enabled = true): GeolocationState {
   const [lat, setLat] = useState<number | null>(null)
   const [lng, setLng] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -69,6 +69,18 @@ export function useGeolocation(): GeolocationState {
   useEffect(() => {
     let active = true
 
+    if (!enabled) {
+      clearWatcher()
+      setLat(null)
+      setLng(null)
+      setError(null)
+      setPermission('prompt')
+      return () => {
+        active = false
+        clearWatcher()
+      }
+    }
+
     async function readPermission() {
       if (typeof navigator === 'undefined' || !navigator.geolocation) {
         setPermission('denied')
@@ -107,13 +119,15 @@ export function useGeolocation(): GeolocationState {
       active = false
       clearWatcher()
     }
-  }, [])
+  }, [enabled])
 
   return {
     lat,
     lng,
     error,
     permission,
-    refresh: startWatch,
+    refresh: () => {
+      if (enabled) startWatch()
+    },
   }
 }
