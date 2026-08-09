@@ -134,14 +134,20 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "engagementQuestion.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "expectedUpdatedAt": "2026-08-09T18:00:00.000Z"
+    }
   },
   {
     "path": "engagementQuestion.delete",
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "engagementQuestion.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "expectedUpdatedAt": "2026-08-09T18:00:00.000Z"
+    }
   },
 
   {

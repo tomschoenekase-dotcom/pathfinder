@@ -16,6 +16,7 @@ export const CreateEngagementQuestionInput = z
 export const UpdateEngagementQuestionInput = z
   .object({
     id: z.string().cuid(),
+    expectedUpdatedAt: z.coerce.date(),
     questionType: EngagementQuestionTypeInput.optional(),
     prompt: z.string().trim().min(1).max(500).optional(),
     choiceOptions: z.array(ChoiceOptionInput).max(4).optional(),

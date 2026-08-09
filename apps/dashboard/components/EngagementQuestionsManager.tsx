@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Flame, Plus, Sparkles, Trash2 } from 'lucide-react'
 
 import { type DashboardTRPCClient, useTRPCClient } from '../lib/trpc'
@@ -44,6 +44,18 @@ const MODE_OPTIONS: Array<{ value: TenantEngagementMode; label: string; descript
 ]
 
 function getErrorMessage(error: unknown) {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'data' in error &&
+    error.data &&
+    typeof error.data === 'object' &&
+    'code' in error.data &&
+    error.data.code === 'CONFLICT'
+  ) {
+    return 'This engagement question changed in another session. Refresh the page to reconcile your draft.'
+  }
+
   if (error instanceof Error && error.message) {
     return error.message
   }
@@ -57,6 +69,37 @@ function emptyChoiceOptions(): string[] {
 
 function normalizedOptions(choiceOptions: string[]) {
   return choiceOptions.map((option) => option.trim()).filter((option) => option.length > 0)
+}
+
+function useMutationLifecycle<TKind extends string>() {
+  const isMountedRef = useRef(true)
+  const mutationInFlightRef = useRef(false)
+  const [activeMutation, setActiveMutation] = useState<TKind | null>(null)
+
+  useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+      mutationInFlightRef.current = false
+    }
+  }, [])
+
+  return {
+    activeMutation,
+    isMounted: () => isMountedRef.current,
+    isMutationInFlight: () => mutationInFlightRef.current,
+    startMutation(kind: TKind) {
+      if (mutationInFlightRef.current) return false
+      mutationInFlightRef.current = true
+      setActiveMutation(kind)
+      return true
+    },
+    finishMutation() {
+      mutationInFlightRef.current = false
+      if (isMountedRef.current) setActiveMutation(null)
+    },
+  }
 }
 
 function QuestionCard({
@@ -77,59 +120,72 @@ function QuestionCard({
   )
   const [intensity, setIntensity] = useState(question.intensity)
   const [isActive, setIsActive] = useState(question.isActive)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const mutation = useMutationLifecycle<'save' | 'delete'>()
 
   const cleanOptions = normalizedOptions(choiceOptions)
   const hasEnoughOptions = questionType === 'OPEN_ENDED' || cleanOptions.length >= 2
+  const isMutating = mutation.activeMutation !== null
 
   async function save() {
-    if (!prompt.trim() || !hasEnoughOptions) return
+    if (!prompt.trim() || !hasEnoughOptions || !mutation.startMutation('save')) return
 
-    setSaving(true)
     setError(null)
     try {
       const updated = await client.engagementQuestion.update.mutate({
         id: question.id,
+        expectedUpdatedAt: new Date(question.updatedAt),
         questionType,
         prompt: prompt.trim(),
         choiceOptions: questionType === 'MULTIPLE_CHOICE' ? cleanOptions : [],
         intensity,
         isActive,
       })
-      onUpdated({
-        ...updated,
-        createdAt: updated.createdAt.toISOString(),
-        updatedAt: updated.updatedAt.toISOString(),
-      })
+      if (mutation.isMounted()) {
+        onUpdated({
+          ...updated,
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        })
+      }
     } catch (err) {
-      setError(getErrorMessage(err))
+      if (mutation.isMounted()) setError(getErrorMessage(err))
     } finally {
-      setSaving(false)
+      mutation.finishMutation()
     }
   }
 
   async function remove() {
+    if (mutation.isMutationInFlight()) return
     const confirmed = window.confirm('Delete this engagement question? This cannot be undone.')
     if (!confirmed) return
+    if (!mutation.startMutation('delete')) return
 
-    setSaving(true)
     setError(null)
     try {
-      await client.engagementQuestion.delete.mutate({ id: question.id })
-      onDeleted(question.id)
+      await client.engagementQuestion.delete.mutate({
+        id: question.id,
+        expectedUpdatedAt: new Date(question.updatedAt),
+      })
+      if (mutation.isMounted()) onDeleted(question.id)
     } catch (err) {
-      setError(getErrorMessage(err))
-      setSaving(false)
+      if (mutation.isMounted()) setError(getErrorMessage(err))
+    } finally {
+      mutation.finishMutation()
     }
   }
 
   return (
-    <div className="rounded-[1.5rem] border border-pf-light bg-pf-surface p-5">
+    <div
+      aria-busy={isMutating}
+      className="rounded-[1.5rem] border border-pf-light bg-pf-surface p-5"
+    >
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            aria-pressed={questionType === 'OPEN_ENDED'}
+            disabled={isMutating}
             onClick={() => setQuestionType('OPEN_ENDED')}
             className={`rounded-full px-3 py-1 text-xs font-medium transition ${
               questionType === 'OPEN_ENDED'
@@ -141,6 +197,8 @@ function QuestionCard({
           </button>
           <button
             type="button"
+            aria-pressed={questionType === 'MULTIPLE_CHOICE'}
+            disabled={isMutating}
             onClick={() => setQuestionType('MULTIPLE_CHOICE')}
             className={`rounded-full px-3 py-1 text-xs font-medium transition ${
               questionType === 'MULTIPLE_CHOICE'
@@ -154,6 +212,7 @@ function QuestionCard({
         <label className="flex items-center gap-2 text-xs font-medium text-pf-deep/60">
           <input
             type="checkbox"
+            disabled={isMutating}
             checked={isActive}
             onChange={(event) => setIsActive(event.target.checked)}
             className="h-4 w-4 rounded border-pf-light text-pf-primary focus:ring-pf-accent"
@@ -163,6 +222,7 @@ function QuestionCard({
       </div>
 
       <textarea
+        disabled={isMutating}
         value={prompt}
         maxLength={500}
         onChange={(event) => setPrompt(event.target.value)}
@@ -179,6 +239,7 @@ function QuestionCard({
             <div key={index} className="flex items-center gap-2">
               <input
                 type="text"
+                disabled={isMutating}
                 value={option}
                 maxLength={100}
                 onChange={(event) => {
@@ -192,6 +253,7 @@ function QuestionCard({
               {choiceOptions.length > 2 ? (
                 <button
                   type="button"
+                  disabled={isMutating}
                   onClick={() => setChoiceOptions(choiceOptions.filter((_, i) => i !== index))}
                   className="text-pf-deep/40 hover:text-rose-500"
                   aria-label="Remove option"
@@ -204,6 +266,7 @@ function QuestionCard({
           {choiceOptions.length < 4 ? (
             <button
               type="button"
+              disabled={isMutating}
               onClick={() => setChoiceOptions([...choiceOptions, ''])}
               className="text-xs font-medium text-pf-accent hover:underline"
             >
@@ -219,6 +282,7 @@ function QuestionCard({
           <span>{intensity}/5</span>
         </div>
         <input
+          disabled={isMutating}
           type="range"
           min={1}
           max={5}
@@ -229,24 +293,28 @@ function QuestionCard({
         />
       </div>
 
-      {error ? <p className="mt-3 text-xs text-rose-600">{error}</p> : null}
+      {error ? (
+        <p className="mt-3 text-xs text-rose-600" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       <div className="mt-4 flex items-center justify-between">
         <button
           type="button"
           onClick={() => void remove()}
-          disabled={saving}
+          disabled={isMutating}
           className="text-xs font-medium text-rose-500 hover:underline disabled:opacity-50"
         >
-          Delete
+          {mutation.activeMutation === 'delete' ? 'Deleting...' : 'Delete'}
         </button>
         <button
           type="button"
           onClick={() => void save()}
-          disabled={saving || !prompt.trim() || !hasEnoughOptions}
+          disabled={isMutating || !prompt.trim() || !hasEnoughOptions}
           className="inline-flex min-h-9 items-center rounded-full bg-pf-primary px-4 text-xs font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {saving ? 'Saving...' : 'Save'}
+          {mutation.activeMutation === 'save' ? 'Saving...' : 'Save'}
         </button>
       </div>
     </div>
@@ -264,17 +332,17 @@ function NewQuestionForm({
   const [prompt, setPrompt] = useState('')
   const [choiceOptions, setChoiceOptions] = useState<string[]>(emptyChoiceOptions())
   const [intensity, setIntensity] = useState(3)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const mutation = useMutationLifecycle<'create'>()
 
   const cleanOptions = normalizedOptions(choiceOptions)
   const hasEnoughOptions = questionType === 'OPEN_ENDED' || cleanOptions.length >= 2
+  const isMutating = mutation.activeMutation !== null
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!prompt.trim() || !hasEnoughOptions) return
+    if (!prompt.trim() || !hasEnoughOptions || !mutation.startMutation('create')) return
 
-    setSaving(true)
     setError(null)
     try {
       const created = await client.engagementQuestion.create.mutate({
@@ -283,24 +351,27 @@ function NewQuestionForm({
         choiceOptions: questionType === 'MULTIPLE_CHOICE' ? cleanOptions : [],
         intensity,
       })
-      onCreated({
-        ...created,
-        createdAt: created.createdAt.toISOString(),
-        updatedAt: created.updatedAt.toISOString(),
-      })
-      setPrompt('')
-      setChoiceOptions(emptyChoiceOptions())
-      setIntensity(3)
-      setQuestionType('OPEN_ENDED')
+      if (mutation.isMounted()) {
+        onCreated({
+          ...created,
+          createdAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
+        })
+        setPrompt('')
+        setChoiceOptions(emptyChoiceOptions())
+        setIntensity(3)
+        setQuestionType('OPEN_ENDED')
+      }
     } catch (err) {
-      setError(getErrorMessage(err))
+      if (mutation.isMounted()) setError(getErrorMessage(err))
     } finally {
-      setSaving(false)
+      mutation.finishMutation()
     }
   }
 
   return (
     <form
+      aria-busy={isMutating}
       onSubmit={handleSubmit}
       className="rounded-[1.5rem] border border-dashed border-pf-light bg-pf-surface p-5"
     >
@@ -312,6 +383,8 @@ function NewQuestionForm({
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
+          aria-pressed={questionType === 'OPEN_ENDED'}
+          disabled={isMutating}
           onClick={() => setQuestionType('OPEN_ENDED')}
           className={`rounded-full px-3 py-1 text-xs font-medium transition ${
             questionType === 'OPEN_ENDED'
@@ -323,6 +396,8 @@ function NewQuestionForm({
         </button>
         <button
           type="button"
+          aria-pressed={questionType === 'MULTIPLE_CHOICE'}
+          disabled={isMutating}
           onClick={() => setQuestionType('MULTIPLE_CHOICE')}
           className={`rounded-full px-3 py-1 text-xs font-medium transition ${
             questionType === 'MULTIPLE_CHOICE'
@@ -335,6 +410,7 @@ function NewQuestionForm({
       </div>
 
       <textarea
+        disabled={isMutating}
         value={prompt}
         maxLength={500}
         onChange={(event) => setPrompt(event.target.value)}
@@ -348,6 +424,7 @@ function NewQuestionForm({
             <div key={index} className="flex items-center gap-2">
               <input
                 type="text"
+                disabled={isMutating}
                 value={option}
                 maxLength={100}
                 onChange={(event) => {
@@ -361,6 +438,7 @@ function NewQuestionForm({
               {choiceOptions.length > 2 ? (
                 <button
                   type="button"
+                  disabled={isMutating}
                   onClick={() => setChoiceOptions(choiceOptions.filter((_, i) => i !== index))}
                   className="text-pf-deep/40 hover:text-rose-500"
                   aria-label="Remove option"
@@ -373,6 +451,7 @@ function NewQuestionForm({
           {choiceOptions.length < 4 ? (
             <button
               type="button"
+              disabled={isMutating}
               onClick={() => setChoiceOptions([...choiceOptions, ''])}
               className="text-xs font-medium text-pf-accent hover:underline"
             >
@@ -388,6 +467,7 @@ function NewQuestionForm({
           <span>{intensity}/5</span>
         </div>
         <input
+          disabled={isMutating}
           type="range"
           min={1}
           max={5}
@@ -398,14 +478,18 @@ function NewQuestionForm({
         />
       </div>
 
-      {error ? <p className="mt-3 text-xs text-rose-600">{error}</p> : null}
+      {error ? (
+        <p className="mt-3 text-xs text-rose-600" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       <button
         type="submit"
-        disabled={saving || !prompt.trim() || !hasEnoughOptions}
+        disabled={isMutating || !prompt.trim() || !hasEnoughOptions}
         className="mt-4 inline-flex min-h-10 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {saving ? 'Adding...' : 'Add question'}
+        {isMutating ? 'Adding...' : 'Add question'}
       </button>
     </form>
   )
@@ -419,27 +503,29 @@ export function EngagementQuestionsManager({
 
   const [mode, setMode] = useState<TenantEngagementMode>(initialMode)
   const [questions, setQuestions] = useState<EngagementQuestion[]>(initialQuestions)
-  const [modeSaving, setModeSaving] = useState(false)
   const [modeError, setModeError] = useState<string | null>(null)
+  const modeMutation = useMutationLifecycle<'mode'>()
 
   async function handleModeChange(next: TenantEngagementMode) {
-    if (next === mode) return
+    if (next === mode || !modeMutation.startMutation('mode')) return
 
-    setModeSaving(true)
     setModeError(null)
     try {
       await client.tenant.setEngagementMode.mutate({ mode: next })
-      setMode(next)
+      if (modeMutation.isMounted()) setMode(next)
     } catch (err) {
-      setModeError(getErrorMessage(err))
+      if (modeMutation.isMounted()) setModeError(getErrorMessage(err))
     } finally {
-      setModeSaving(false)
+      modeMutation.finishMutation()
     }
   }
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
+      <section
+        aria-busy={modeMutation.activeMutation !== null}
+        className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm"
+      >
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-deep text-pf-light">
             <Flame className="h-6 w-6" aria-hidden="true" />
@@ -463,7 +549,8 @@ export function EngagementQuestionsManager({
               <button
                 key={option.value}
                 type="button"
-                disabled={modeSaving}
+                aria-pressed={isSelected}
+                disabled={modeMutation.activeMutation !== null}
                 onClick={() => void handleModeChange(option.value)}
                 className={`rounded-[1.5rem] border p-5 text-left transition disabled:opacity-60 ${
                   isSelected
@@ -477,7 +564,11 @@ export function EngagementQuestionsManager({
             )
           })}
         </div>
-        {modeError ? <p className="mt-4 text-sm text-rose-600">{modeError}</p> : null}
+        {modeError ? (
+          <p className="mt-4 text-sm text-rose-600" role="alert">
+            {modeError}
+          </p>
+        ) : null}
       </section>
 
       <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">

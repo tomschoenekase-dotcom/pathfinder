@@ -50,6 +50,7 @@ function staffCtx(): TRPCContext {
 const testRouter = router({ engagementQuestion: engagementQuestionRouter })
 
 const QUESTION_ID = 'ckengagequestion000000000001'
+const QUESTION_REVISION = new Date('2026-08-09T18:00:00.000Z')
 
 const questionRow = {
   id: QUESTION_ID,
@@ -59,8 +60,8 @@ const questionRow = {
   choiceOptions: ['exhibit', 'food court'],
   intensity: 3,
   isActive: true,
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  createdAt: new Date('2026-08-09T17:00:00.000Z'),
+  updatedAt: QUESTION_REVISION,
 }
 
 describe('engagementQuestion router', () => {
@@ -137,15 +138,52 @@ describe('engagementQuestion router', () => {
     engagementQuestionUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(managerCtx())
-    const result = await caller.engagementQuestion.update({ id: QUESTION_ID, intensity: 5 })
+    const result = await caller.engagementQuestion.update({
+      id: QUESTION_ID,
+      expectedUpdatedAt: QUESTION_REVISION,
+      intensity: 5,
+    })
 
     expect(result).toMatchObject({ intensity: 5 })
     expect(engagementQuestionUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: QUESTION_ID, tenantId: 'tenant_1' },
-        data: { intensity: 5 },
+        where: { id: QUESTION_ID, tenantId: 'tenant_1', updatedAt: QUESTION_REVISION },
+        data: expect.objectContaining({ intensity: 5, updatedAt: expect.any(Date) }),
       }),
     )
+    const write = engagementQuestionUpdateMany.mock.calls[0]?.[0] as {
+      data: { updatedAt: Date }
+    }
+    expect(write.data.updatedAt.getTime()).toBeGreaterThan(QUESTION_REVISION.getTime())
+  })
+
+  it('update rejects a stale loaded revision before attempting a write', async () => {
+    engagementQuestionFindFirst.mockResolvedValueOnce(questionRow)
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.engagementQuestion.update({
+        id: QUESTION_ID,
+        expectedUpdatedAt: new Date('2026-08-09T17:59:59.000Z'),
+        intensity: 5,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+
+    expect(engagementQuestionUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('update reports a compare-and-swap race instead of overwriting it', async () => {
+    engagementQuestionFindFirst.mockResolvedValueOnce(questionRow)
+    engagementQuestionUpdateMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.engagementQuestion.update({
+        id: QUESTION_ID,
+        expectedUpdatedAt: QUESTION_REVISION,
+        intensity: 5,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
   })
 
   it('update throws NOT_FOUND for a question outside the tenant', async () => {
@@ -154,7 +192,11 @@ describe('engagementQuestion router', () => {
     const caller = testRouter.createCaller(managerCtx())
 
     await expect(
-      caller.engagementQuestion.update({ id: QUESTION_ID, intensity: 5 }),
+      caller.engagementQuestion.update({
+        id: QUESTION_ID,
+        expectedUpdatedAt: QUESTION_REVISION,
+        intensity: 5,
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
   })
 
@@ -163,8 +205,49 @@ describe('engagementQuestion router', () => {
 
     const caller = testRouter.createCaller(managerCtx())
 
-    await expect(caller.engagementQuestion.delete({ id: QUESTION_ID })).rejects.toThrowError(
-      expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }),
-    )
+    await expect(
+      caller.engagementQuestion.delete({
+        id: QUESTION_ID,
+        expectedUpdatedAt: QUESTION_REVISION,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
+  })
+
+  it('delete rejects a stale loaded revision before attempting deletion', async () => {
+    engagementQuestionFindFirst.mockResolvedValueOnce(questionRow)
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.engagementQuestion.delete({
+        id: QUESTION_ID,
+        expectedUpdatedAt: new Date('2026-08-09T17:59:59.000Z'),
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
+
+    expect(engagementQuestionDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it('delete uses the loaded revision as a compare-and-swap boundary', async () => {
+    engagementQuestionFindFirst.mockResolvedValueOnce(questionRow)
+    engagementQuestionDeleteMany.mockResolvedValueOnce({ count: 1 })
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.engagementQuestion.delete({ id: QUESTION_ID, expectedUpdatedAt: QUESTION_REVISION }),
+    ).resolves.toEqual({ id: QUESTION_ID })
+
+    expect(engagementQuestionDeleteMany).toHaveBeenCalledWith({
+      where: { id: QUESTION_ID, tenantId: 'tenant_1', updatedAt: QUESTION_REVISION },
+    })
+  })
+
+  it('delete reports a compare-and-swap race instead of deleting a newer revision', async () => {
+    engagementQuestionFindFirst.mockResolvedValueOnce(questionRow)
+    engagementQuestionDeleteMany.mockResolvedValueOnce({ count: 0 })
+
+    const caller = testRouter.createCaller(managerCtx())
+    await expect(
+      caller.engagementQuestion.delete({ id: QUESTION_ID, expectedUpdatedAt: QUESTION_REVISION }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
   })
 })
