@@ -19,12 +19,10 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
       <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
         <div className="mx-auto max-w-6xl space-y-8">
           <section className="rounded-[2rem] bg-pf-deep px-8 py-10 text-white shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
-              AI Controls
-            </p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight">AI configuration</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
-              Control how your AI assistant behaves for guests.
+            <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">Tone</p>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight">PathFinder tone</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/90">
+              Choose how PathFinder speaks with your visitors.
             </p>
           </section>
 
@@ -58,12 +56,11 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
       <div className="mx-auto max-w-6xl space-y-8">
         <section className="rounded-[2rem] bg-pf-deep px-8 py-10 text-white shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
-            AI Controls
+            Your PathFinder
           </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight">AI configuration</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
-            Shape how your AI assistant responds to guests, what it promotes, and how it should
-            sound.
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight">Choose its tone</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/90">
+            A simple voice preference for visitor conversations. No technical setup required.
           </p>
         </section>
 

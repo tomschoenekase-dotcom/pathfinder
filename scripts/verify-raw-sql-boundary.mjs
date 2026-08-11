@@ -33,6 +33,7 @@ const approvedPolicies = new Set([
   'tenant-content-history-entity-lock',
   'tenant-venue-content-mutation-lock',
   'tenant-venue-report-mutation-lock',
+  'tenant-venue-create-slug-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -189,12 +190,6 @@ const approvedOperations = [
     policy: 'system-probe',
   },
   {
-    file: 'apps/web/app/[venueSlug]/chat/layout.tsx',
-    method: '$queryRaw',
-    hash: '18364e754072766ce9704c6ca743a1774c58cfb786ff322c33e8367af6ed7b71',
-    policy: 'public-venue-slug',
-  },
-  {
     file: 'packages/api/src/routers/analytics.ts',
     method: '$queryRaw',
     hash: '46303d6622b41aff5fc44f7d2d9201ba9b6cfada52486596296c0ce5784a8056',
@@ -203,13 +198,13 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: 'e01864fe4ce8d6700e6f039c158217ffac8c06a3df29dda07eec8b7985e2ba78',
+    hash: 'dfe095d1ca9373227d2238a089b4b13f473d096e5b8438cef4e891b9ca1ef70b',
     policy: 'public-venue-id',
   },
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: 'ccd60a77c031ce44ca94f199112a768b9e27d5d46e4f7b8893056d185d7864f1',
+    hash: '53ee21670e01df2748f02d1fffcf03f8aa0653ace9f7626fc4634625fd48f6d1',
     policy: 'public-venue-id',
   },
   {
@@ -229,6 +224,12 @@ const approvedOperations = [
     method: '$queryRaw',
     hash: 'f869aa4e6f5b7b4015b2462ed70877c7691212ed0325374357ab8144470833ab',
     policy: 'tenant-and-venue',
+  },
+  {
+    file: 'packages/api/src/routers/venue.ts',
+    method: '$executeRaw',
+    hash: '0167f37efb0edaa472576392989b92bec88c17efeb258f11190c8141e398d285',
+    policy: 'tenant-venue-create-slug-lock',
   },
   {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',

@@ -8,6 +8,7 @@ export default defineWorkspace([
   './packages/config/vitest.config.ts',
   './packages/contracts/vitest.config.ts',
   './packages/db/vitest.config.ts',
+  './packages/intake-engine/vitest.config.ts',
   './packages/jobs/vitest.config.ts',
   './packages/ui/vitest.config.ts',
 ])

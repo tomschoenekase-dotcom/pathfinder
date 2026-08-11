@@ -175,7 +175,7 @@ describe('PathFinder deterministic lexical smoke evaluation', () => {
     )
 
     expect(caseHash).toBe('ff7807fad686cfd13f08f62f669a46e9e78d6a8c4c5f38113774dd3daa7bf896')
-    expect(observationHash).toBe('7263554fdbd07d2408eee4af2d6f1f00c73eea4afd3987566afb4bea88c32208')
+    expect(observationHash).toBe('a62bc53097b5b8e345c822cad425b6ef6b80c7358bc4dbe448809157d46bb4ed')
     expect(observationHash).not.toBe(caseHash)
   })
 

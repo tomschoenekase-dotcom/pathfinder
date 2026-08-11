@@ -3,6 +3,11 @@ import { TRPCError } from '@trpc/server'
 import { AiGatewayError } from '@pathfinder/ai'
 import { logger } from '@pathfinder/config'
 import {
+  LEGACY_AI_TONE_TO_PRESET,
+  TONE_PRESET_BEHAVIOR_VERSION,
+  TONE_PRESET_TO_LEGACY_AI_TONE,
+} from '@pathfinder/contracts/tone-presets'
+import {
   getVenuePackageSemanticCoverage,
   assertVenueAiAvailable,
   lockVenueContentMutation,
@@ -79,6 +84,8 @@ const venuePackageVenueSelect = {
   chatBannerUrl: true,
   aiGuideNotes: true,
   aiTone: true,
+  tonePreset: true,
+  tonePresetVersion: true,
   aiGuideName: true,
 } as const
 
@@ -201,6 +208,10 @@ function venueSnapshot(venue: PackageVenue): VenuePackageVenueSnapshot {
     chatBannerUrl: venue.chatBannerUrl,
     aiGuideNotes: venue.aiGuideNotes,
     aiTone: venue.aiTone,
+    ...(venue.tonePreset !== undefined ? { tonePreset: venue.tonePreset } : {}),
+    ...(venue.tonePresetVersion !== undefined
+      ? { tonePresetVersion: venue.tonePresetVersion }
+      : {}),
     aiGuideName: venue.aiGuideName,
   })
 }
@@ -221,7 +232,21 @@ function venuePatchData(payload: PackagePayload): Partial<VenuePackageVenueSnaps
     ...(branding?.chatLogoUrl !== undefined ? { chatLogoUrl: branding.chatLogoUrl } : {}),
     ...(branding?.chatBannerUrl !== undefined ? { chatBannerUrl: branding.chatBannerUrl } : {}),
     ...(aiBehavior?.aiGuideNotes !== undefined ? { aiGuideNotes: aiBehavior.aiGuideNotes } : {}),
-    ...(aiBehavior?.aiTone !== undefined ? { aiTone: aiBehavior.aiTone } : {}),
+    ...(aiBehavior?.tonePreset !== undefined
+      ? {
+          tonePreset: aiBehavior.tonePreset,
+          tonePresetVersion: TONE_PRESET_BEHAVIOR_VERSION,
+          aiTone: TONE_PRESET_TO_LEGACY_AI_TONE[aiBehavior.tonePreset],
+        }
+      : aiBehavior?.aiTone !== undefined
+        ? aiBehavior.aiTone === null
+          ? { aiTone: null, tonePreset: null, tonePresetVersion: null }
+          : {
+              aiTone: aiBehavior.aiTone,
+              tonePreset: LEGACY_AI_TONE_TO_PRESET[aiBehavior.aiTone],
+              tonePresetVersion: TONE_PRESET_BEHAVIOR_VERSION,
+            }
+        : {}),
     ...(aiBehavior?.aiGuideName !== undefined ? { aiGuideName: aiBehavior.aiGuideName } : {}),
   }
 }
@@ -238,6 +263,8 @@ const venueChangePaths = {
   chatBannerUrl: 'venue.branding.chatBannerUrl',
   aiGuideNotes: 'venue.aiBehavior.aiGuideNotes',
   aiTone: 'venue.aiBehavior.aiTone',
+  tonePreset: 'venue.aiBehavior.tonePreset',
+  tonePresetVersion: 'venue.aiBehavior.tonePresetVersion',
   aiGuideName: 'venue.aiBehavior.aiGuideName',
 } as const
 
@@ -253,12 +280,28 @@ function venueChanges(payload: PackagePayload, current: VenuePackageVenueSnapsho
 function changedVenuePatchData(
   payload: PackagePayload,
   current: VenuePackageVenueSnapshot,
-): Partial<VenuePackageVenueSnapshot> {
+): Parameters<DbClient['venue']['updateMany']>[0]['data'] {
   return Object.fromEntries(
     Object.entries(venuePatchData(payload)).filter(
       ([field, after]) => current[field as keyof VenuePackageVenueSnapshot] !== after,
     ),
-  ) as Partial<VenuePackageVenueSnapshot>
+  ) as Parameters<DbClient['venue']['updateMany']>[0]['data']
+}
+
+function venueRestoreData(
+  snapshot: VenuePackageVenueSnapshot,
+): Parameters<DbClient['venue']['updateMany']>[0]['data'] {
+  return Object.fromEntries(
+    Object.entries(snapshot).filter(([, value]) => value !== undefined),
+  ) as Parameters<DbClient['venue']['updateMany']>[0]['data']
+}
+
+function venueFieldCount(payload: PackagePayload, current: VenuePackageVenueSnapshot): number {
+  const requested = venuePatchData(payload)
+  return Object.keys(venueChangePaths).filter((field) => {
+    const key = field as keyof VenuePackageVenueSnapshot
+    return current[key] !== undefined || Object.prototype.hasOwnProperty.call(requested, key)
+  }).length
 }
 
 async function contentState(db: DbClient, tenantId: string, venueId: string) {
@@ -828,7 +871,7 @@ async function buildPreview(
         venue: {
           expectedVersionId: expectedVenueVersionId,
           change: exactVenueChanges,
-          unchanged: Object.keys(venueChangePaths).length - exactVenueChanges.length,
+          unchanged: venueFieldCount(payload, venue) - exactVenueChanges.length,
         },
         places: {
           add: payload.places.create.map((operation) => ({
@@ -920,7 +963,7 @@ async function buildPreview(
         changes: {
           venue: {
             change: exactVenueChanges,
-            unchanged: Object.keys(venueChangePaths).length - exactVenueChanges.length,
+            unchanged: venueFieldCount(payload, venue) - exactVenueChanges.length,
           },
           ...contentChanges,
         },
@@ -1287,6 +1330,8 @@ const mutableEntityFields = {
     'aiGuideNotes',
     'aiFeaturedPlaceId',
     'aiTone',
+    'tonePreset',
+    'tonePresetVersion',
     'aiGuideName',
     'chatTheme',
     'chatAccentColor',
@@ -1397,6 +1442,8 @@ async function currentEntitySnapshot(input: {
         aiGuideNotes: true,
         aiFeaturedPlaceId: true,
         aiTone: true,
+        tonePreset: true,
+        tonePresetVersion: true,
         aiGuideName: true,
         chatTheme: true,
         chatAccentColor: true,
@@ -2622,7 +2669,7 @@ export const venuePackageRouter = router({
       if ('schemaVersion' in manifest && manifest.venue) {
         const restoredVenue = await ctx.db.venue.updateMany({
           where: { id: existing.venueId, tenantId },
-          data: manifest.venue.before,
+          data: venueRestoreData(manifest.venue.before),
         })
         if (restoredVenue.count !== 1) conflict('Venue changed during package rollback')
       }

@@ -10,6 +10,7 @@ import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
 import { tenantRouter } from './routers/tenant'
+import { supportRouter } from './routers/support'
 import { venueRouter } from './routers/venue'
 import { venuePackageRouter } from './routers/venue-package'
 
@@ -22,6 +23,7 @@ export const appRouter = router({
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,
+  support: supportRouter,
   tenant: tenantRouter,
   venue: venueRouter,
   venuePackage: venuePackageRouter,

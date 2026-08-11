@@ -3,7 +3,9 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./schemas": "./src/schemas.ts"
+    "./schemas": "./src/schemas.ts",
+    "./mcp": "./src/mcp/index.ts",
+    "./partner-api": "./src/partner-api/index.ts"
   },
   "types": "./src/index.ts",
   "scripts": {
@@ -23,6 +25,7 @@
     "@pathfinder/config": "workspace:*",
     "@pathfinder/contracts": "workspace:*",
     "@pathfinder/db": "workspace:*",
+    "@pathfinder/intake-engine": "workspace:*",
     "@pathfinder/jobs": "workspace:*",
     "@trpc/server": "^11.0.0",
     "ioredis": "^5.8.1",

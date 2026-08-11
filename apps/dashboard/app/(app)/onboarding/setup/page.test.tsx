@@ -95,6 +95,18 @@ describe('mode- and content-aware onboarding setup', () => {
 
   afterEach(cleanup)
 
+  it('frames onboarding as a managed PathFinder build instead of DIY configuration', () => {
+    render(<OnboardingSetupPage />)
+
+    expect(screen.getByRole('heading', { name: /Give us the raw details/i })).toBeTruthy()
+    expect(screen.getByText(/PathFinder does the assembly/i)).toBeTruthy()
+    expect(screen.getByText(/Review the preview before anything is published/i)).toBeTruthy()
+    expect(screen.queryByText(/configure your chatbot/i)).toBeNull()
+
+    const slugInput = screen.getByLabelText('Slug')
+    expect(slugInput.closest('[hidden]')).toBeTruthy()
+  })
+
   it('requires an explicit content choice and makes no write when it is omitted', async () => {
     render(<OnboardingSetupPage />)
     await advanceToContentChoice('non_location')
@@ -307,7 +319,12 @@ describe('mode- and content-aware onboarding setup', () => {
     fireEvent.click(createButton)
 
     await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledOnce())
+    expect(createButton.textContent).toMatch(/Receiving your information/i)
+    expect(screen.getByText(/Nothing goes live from this step/i)).toBeTruthy()
     resolveCreate?.({ id: 'venue-created' })
     expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
+    expect(screen.getByText('Information received')).toBeTruthy()
+    expect(screen.getByText('Building your workspace')).toBeTruthy()
+    expect(screen.getByText('First preview')).toBeTruthy()
   })
 })

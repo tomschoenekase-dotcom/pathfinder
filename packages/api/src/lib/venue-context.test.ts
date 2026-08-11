@@ -41,7 +41,7 @@ const relevantPlaces = [
 
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v2')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v3')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -354,5 +354,22 @@ describe('buildVenueSystemPrompt', () => {
     expect(staticPart).toContain('Rules:')
     expect(staticPart).not.toContain('No specific points of interest have been configured yet.')
     expect(dynamicPart).toContain('No specific points of interest have been configured yet.')
+  })
+
+  it('uses the versioned preset before legacy aiTone without exposing raw client instructions', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue: {
+        ...venue,
+        tonePreset: 'concise',
+        tonePresetVersion: 1,
+        aiTone: 'PLAYFUL',
+      },
+      relevantPlaces: [],
+      userLat: null,
+      userLng: null,
+    })
+
+    expect(prompt).toContain('Prefer short, direct answers')
+    expect(prompt).not.toContain('upbeat, energetic style')
   })
 })

@@ -1,4 +1,5 @@
-import { Prisma, type EvalResult as PersistedEvalResult } from '@prisma/client'
+import * as prismaClient from '@prisma/client'
+import type { EvalResult as PersistedEvalResult } from '@prisma/client'
 import {
   canonicalEvaluationJson,
   EvalCaseManifestSchema,
@@ -274,8 +275,13 @@ export async function createOrReplayEvaluationResult(params: {
         id: params.resultId,
         ...expected,
         observationSnapshot:
-          expected.observationSnapshot === null ? Prisma.DbNull : expected.observationSnapshot,
-        checksSnapshot: expected.checksSnapshot === null ? Prisma.DbNull : expected.checksSnapshot,
+          expected.observationSnapshot === null
+            ? prismaClient['Prisma']['DbNull']
+            : expected.observationSnapshot,
+        checksSnapshot:
+          expected.checksSnapshot === null
+            ? prismaClient['Prisma']['DbNull']
+            : expected.checksSnapshot,
       },
     })
     return { evalResult, replayed: false }

@@ -1480,6 +1480,32 @@ describe('venue router', () => {
     expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
 
+  it('persists a versioned tone preset and mirrors a safe legacy aiTone value', async () => {
+    venueFindFirst
+      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
+      .mockResolvedValueOnce({
+        aiGuideNotes: 'Hidden operator guidance',
+        aiGuideName: 'Pip',
+        aiTone: 'PROFESSIONAL',
+        tonePreset: 'concise',
+        tonePresetVersion: 1,
+      })
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+    dbQueryRaw.mockResolvedValueOnce([])
+
+    const caller = testRouter.createCaller(managerCtx())
+    await caller.venue.updateAiConfig({ venueId: venueRow.id, tonePreset: 'concise' })
+
+    expect(venueUpdateMany).toHaveBeenCalledWith({
+      where: { id: venueRow.id, tenantId: 'tenant_1' },
+      data: {
+        tonePreset: 'concise',
+        tonePresetVersion: 1,
+        aiTone: 'PROFESSIONAL',
+      },
+    })
+  })
+
   // --- venue.updateChatDesign ---
 
   it('venue.updateChatDesign accepts the dark theme and a valid font', async () => {

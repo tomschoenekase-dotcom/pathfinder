@@ -4,11 +4,22 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Controller, useForm } from 'react-hook-form'
-import { CheckCircle2 } from 'lucide-react'
+import {
+  ArrowRight,
+  Building2,
+  Check,
+  CheckCircle2,
+  Compass,
+  FileText,
+  LoaderCircle,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react'
 
 import { CreateVenueInput, KnowledgeEntryInput, PlaceInput } from '@pathfinder/api/schemas'
 
 import { useTRPCClient } from '../../../../lib/trpc'
+import styles from './onboarding.module.css'
 
 const PLACE_CATEGORIES = [
   'EXHIBIT',
@@ -161,14 +172,14 @@ function getSetupSteps(
   contentKind: FirstContentKind | null,
 ) {
   return [
-    { id: 'basics', label: 'Venue info', title: 'Tell us about your venue' },
+    { id: 'basics', label: 'Your venue', title: 'Tell us about your venue' },
     ...(guideMode === 'location_aware'
-      ? [{ id: 'location', label: 'Location', title: 'Set the venue center' }]
+      ? [{ id: 'location', label: 'Visitor arrival', title: 'Set the venue center' }]
       : []),
-    { id: 'content-kind', label: 'Content type', title: 'Choose your first public content' },
+    { id: 'content-kind', label: 'Starting point', title: 'Choose your first public content' },
     {
       id: 'content',
-      label: 'First content',
+      label: 'Share a detail',
       title:
         contentKind === 'knowledge'
           ? 'Add venue knowledge'
@@ -176,7 +187,7 @@ function getSetupSteps(
             ? 'Add a place or guide item'
             : 'Add your first public content',
     },
-    { id: 'done', label: 'Done', title: 'Review your setup' },
+    { id: 'done', label: 'Received', title: 'Information received' },
   ]
 }
 
@@ -199,44 +210,39 @@ function StepIndicator({
   const currentTitle = steps[currentIndex]?.title ?? steps[0]!.title
 
   return (
-    <div className="mt-8">
-      <p className="text-sm font-medium text-pf-light">
-        Step {currentIndex + 1} of {steps.length} - {currentTitle}
-      </p>
-      <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
+    <div className={styles.stepper} aria-label="Onboarding progress">
+      <div className={styles.stepperHeading} aria-live="polite">
+        <span>
+          Step {currentIndex + 1} of {steps.length}
+        </span>
+        <span>{currentTitle}</span>
+      </div>
+      <div className={styles.stepTrack} aria-hidden="true">
+        <span style={{ width: `${((currentIndex + 1) / steps.length) * 100}%` }} />
+      </div>
+      <ol className={styles.stepList}>
         {steps.map((step, index) => {
           const isActive = index === currentIndex
           const isComplete = index < currentIndex
 
           return (
-            <div key={step.id} className="flex items-center gap-3 text-sm">
+            <li
+              key={step.id}
+              className={styles.stepItem}
+              aria-current={isActive ? 'step' : undefined}
+            >
               <span
-                className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
-                  isActive || isComplete
-                    ? 'border-pf-accent bg-pf-accent text-white'
-                    : 'border-white/25 text-pf-light/50'
-                }`}
+                className={`${styles.stepDot} ${isActive ? styles.stepDotActive : ''} ${isComplete ? styles.stepDotComplete : ''}`}
               >
-                {isActive || isComplete ? '' : index + 1}
+                {isComplete ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : index + 1}
               </span>
-              <span
-                className={
-                  isActive
-                    ? 'font-semibold text-white'
-                    : isComplete
-                      ? 'text-pf-light'
-                      : 'text-pf-light/50'
-                }
-              >
+              <span className={isActive ? styles.stepLabelActive : styles.stepLabel}>
                 {step.label}
               </span>
-              {index < steps.length - 1 ? (
-                <span className="hidden h-px w-12 bg-pf-primary/30 md:block" aria-hidden="true" />
-              ) : null}
-            </div>
+            </li>
           )
         })}
-      </div>
+      </ol>
     </div>
   )
 }
@@ -279,9 +285,13 @@ function VenueBasicsStep({
     <form className="space-y-8" onSubmit={handleSubmit(onNext)}>
       <div className="space-y-5">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Name your venue</h2>
-          <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Start with its identity, then choose whether this guide uses visitor location.
+          <p className={styles.eyebrow}>A quick introduction</p>
+          <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
+            Tell us where to begin
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+            A few basics help our team shape the right visitor experience. You can refine everything
+            when your first preview is ready.
           </p>
         </div>
 
@@ -292,24 +302,28 @@ function VenueBasicsStep({
             </label>
             <input
               id="venue-name"
+              aria-invalid={errors.name ? true : undefined}
+              aria-describedby={`venue-name-help${errors.name ? ' venue-name-error' : ''}`}
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
               {...register('name')}
             />
-            <p className="mt-1 text-xs text-pf-deep/40">
-              This is what guests will see in the chat header.
+            <p id="venue-name-help" className="mt-1 text-xs text-pf-deep/70">
+              Use the name visitors already know.
             </p>
             {errors.name ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p>
+              <p id="venue-name-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.name.message}
+              </p>
             ) : null}
           </div>
 
-          <div>
+          <div hidden>
             <label className="mb-2 block text-sm font-medium text-pf-deep/70" htmlFor="venue-slug">
               Slug
             </label>
             <input
               id="venue-slug"
-              className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
+              type="text"
               {...register('slug', {
                 onChange: () => {
                   setSlugManuallyEdited(true)
@@ -334,7 +348,7 @@ function VenueBasicsStep({
               placeholder="Museum, hotel, campus..."
               {...register('category')}
             />
-            <p className="mt-1 text-xs text-pf-deep/40">
+            <p className="mt-1 text-xs text-pf-deep/70">
               Descriptive only. It does not lock the venue into a product mode.
             </p>
             {errors.category ? (
@@ -343,24 +357,24 @@ function VenueBasicsStep({
           </div>
 
           <fieldset className="space-y-3 sm:col-span-2">
-            <legend className="text-sm font-medium text-pf-deep/70">Guide style</legend>
-            <label className="flex cursor-pointer gap-3 rounded-2xl border border-pf-light p-4">
+            <legend className="text-sm font-medium text-pf-deep/70">
+              How will visitors usually use PathFinder?
+            </legend>
+            <label className={styles.choiceCard}>
               <input type="radio" value="location_aware" {...register('guideMode')} />
               <span>
-                <span className="block text-sm font-semibold text-pf-deep">On-site guide</span>
-                <span className="mt-1 block text-xs leading-5 text-pf-deep/50">
-                  Uses visitor location for nearby places and directions when permission is shared.
+                <span className={styles.choiceTitle}>On-site guide</span>
+                <span className="mt-1 block text-xs leading-5 text-pf-deep/70">
+                  Help people explore nearby places and get directions while they visit.
                 </span>
               </span>
             </label>
-            <label className="flex cursor-pointer gap-3 rounded-2xl border border-pf-light p-4">
+            <label className={styles.choiceCard}>
               <input type="radio" value="non_location" {...register('guideMode')} />
               <span>
-                <span className="block text-sm font-semibold text-pf-deep">
-                  Guide without visitor location
-                </span>
-                <span className="mt-1 block text-xs leading-5 text-pf-deep/50">
-                  Answers venue questions without collecting or using visitor location.
+                <span className={styles.choiceTitle}>Guide without visitor location</span>
+                <span className="mt-1 block text-xs leading-5 text-pf-deep/70">
+                  Answer questions anywhere, without asking visitors to share their location.
                 </span>
               </span>
             </label>
@@ -384,7 +398,7 @@ function VenueBasicsStep({
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
           type="submit"
         >
-          Continue
+          Continue <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </form>
@@ -424,9 +438,11 @@ function VenueLocationStep({
     <form className="space-y-8" onSubmit={handleSubmit(onNext)}>
       <div className="space-y-5">
         <div>
+          <p className={styles.eyebrow}>Visitor arrival</p>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Set your location</h2>
-          <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Coordinates start blank. Enter the venue&apos;s real center or main entrance.
+          <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+            Share the center of your venue or its main entrance so nearby recommendations begin in
+            the right place.
           </p>
         </div>
 
@@ -441,6 +457,8 @@ function VenueLocationStep({
               render={({ field }) => (
                 <input
                   id="venue-lat"
+                  aria-invalid={errors.defaultCenterLat ? true : undefined}
+                  aria-describedby={`venue-lat-help${errors.defaultCenterLat ? ' venue-lat-error' : ''}`}
                   inputMode="decimal"
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
                   value={field.value || field.value === 0 ? field.value : ''}
@@ -450,12 +468,13 @@ function VenueLocationStep({
                 />
               )}
             />
-            <p className="mt-1 text-xs text-pf-deep/40">
-              Used to order venue content when a guest has not shared a live position. It is never
-              treated as the guest&apos;s location.
+            <p id="venue-lat-help" className="mt-1 text-xs text-pf-deep/70">
+              You can copy this from your venue&apos;s pin in any map app.
             </p>
             {errors.defaultCenterLat ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.defaultCenterLat.message}</p>
+              <p id="venue-lat-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.defaultCenterLat.message}
+              </p>
             ) : null}
           </div>
 
@@ -469,6 +488,8 @@ function VenueLocationStep({
               render={({ field }) => (
                 <input
                   id="venue-lng"
+                  aria-invalid={errors.defaultCenterLng ? true : undefined}
+                  aria-describedby={`venue-lng-help${errors.defaultCenterLng ? ' venue-lng-error' : ''}`}
                   inputMode="decimal"
                   className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
                   value={field.value || field.value === 0 ? field.value : ''}
@@ -478,11 +499,13 @@ function VenueLocationStep({
                 />
               )}
             />
-            <p className="mt-1 text-xs text-pf-deep/40">
-              Right-click the venue center or main entrance in your map tool and copy its longitude.
+            <p id="venue-lng-help" className="mt-1 text-xs text-pf-deep/70">
+              PathFinder only uses this venue location; it is not a visitor&apos;s live location.
             </p>
             {errors.defaultCenterLng ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.defaultCenterLng.message}</p>
+              <p id="venue-lng-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.defaultCenterLng.message}
+              </p>
             ) : null}
           </div>
         </div>
@@ -500,7 +523,7 @@ function VenueLocationStep({
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800"
           type="submit"
         >
-          Continue
+          Continue <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </form>
@@ -539,14 +562,21 @@ function ContentKindStep({
         aria-invalid={showError}
         aria-required="true"
       >
-        <legend className="text-2xl font-semibold tracking-tight text-pf-deep">
-          Choose your first public content
-        </legend>
-        <p className="text-sm leading-6 text-pf-deep/60">
-          This content is available to guests using the public guide. Audience-restricted or
-          employee-only content is not supported by this setup.
+        <legend className="sr-only">Choose your first public content</legend>
+        <div>
+          <p className={styles.eyebrow}>One useful starting point</p>
+          <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
+            What should PathFinder learn first?
+          </h2>
+        </div>
+        <p className="text-sm leading-6 text-pf-deep/75">
+          Share one representative detail now. We&apos;ll use it to shape the first preview; your
+          brochures, links, photos, and the rest can follow from your portal.
         </p>
-        <label className="flex cursor-pointer gap-4 rounded-2xl border border-pf-light p-4">
+        <p className="text-xs leading-5 text-pf-deep/70">
+          Audience-restricted or employee-only content is not supported in the public experience.
+        </p>
+        <label className={styles.choiceCard}>
           <input
             ref={firstChoiceRef}
             type="radio"
@@ -559,13 +589,14 @@ function ContentKindStep({
             }}
           />
           <span>
-            <span className="block font-semibold text-pf-deep">Place or guide item</span>
-            <span className="mt-1 block text-sm text-pf-deep/60">
-              An exhibit, room, landmark, amenity, service point, or other named item.
+            <span className={styles.choiceTitle}>A place visitors ask about</span>
+            <span className="sr-only">Place or guide item</span>
+            <span className="mt-1 block text-sm text-pf-deep/75">
+              For example, an entrance, exhibit, room, landmark, or service point.
             </span>
           </span>
         </label>
-        <label className="flex cursor-pointer gap-4 rounded-2xl border border-pf-light p-4">
+        <label className={styles.choiceCard}>
           <input
             type="radio"
             name="first-content-kind"
@@ -577,9 +608,11 @@ function ContentKindStep({
             }}
           />
           <span>
-            <span className="block font-semibold text-pf-deep">Venue knowledge</span>
-            <span className="mt-1 block text-sm text-pf-deep/60">
-              A fact, policy, procedure, frequently asked question, or general answer.
+            <span className={styles.choiceTitle}>An answer visitors need</span>
+            <span className="sr-only">Venue knowledge</span>
+            <span className="mt-1 block text-sm text-pf-deep/75">
+              For example, a policy, accessibility detail, frequently asked question, or useful
+              fact.
             </span>
           </span>
         </label>
@@ -602,7 +635,7 @@ function ContentKindStep({
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800"
           type="submit"
         >
-          Continue
+          Continue <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </form>
@@ -636,15 +669,16 @@ function FirstPlaceStep({
     <form className="space-y-8" onSubmit={handleSubmit(onSubmit)}>
       <div className="space-y-5">
         <div>
+          <p className={styles.eyebrow}>A visitor-facing example</p>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
             {guideMode === 'location_aware'
               ? 'Add your central starting point'
               : 'Add your first place or guide item'}
           </h2>
-          <p className="mt-2 text-sm leading-6 text-pf-deep/60">
+          <p className="mt-2 text-sm leading-6 text-pf-deep/75">
             {guideMode === 'location_aware'
-              ? 'Choose the main entrance or a central landmark at the center coordinates you entered.'
-              : 'Add one named exhibit, room, service point, experience, or other guide item.'}
+              ? 'Share a main entrance or central landmark. We will turn it into a polished part of your first preview.'
+              : 'Share one named place or experience. A rough description is enough for us to begin.'}
           </p>
         </div>
 
@@ -655,16 +689,19 @@ function FirstPlaceStep({
             </label>
             <input
               id="place-name"
+              aria-invalid={errors.name ? true : undefined}
+              aria-describedby={`place-name-help${errors.name ? ' place-name-error' : ''}`}
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
               {...register('name')}
             />
-            <p className="mt-1 text-xs text-pf-deep/40">
-              {guideMode === 'location_aware'
-                ? 'This item starts at the venue center. You can add other precisely located items after setup.'
-                : 'You can add and organize more guide content after setup.'}
+            <p id="place-name-help" className="mt-1 text-xs text-pf-deep/70">
+              Don&apos;t worry about perfect wording. PathFinder will organize and refine it for
+              review.
             </p>
             {errors.name ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.name.message}</p>
+              <p id="place-name-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.name.message}
+              </p>
             ) : null}
           </div>
 
@@ -674,6 +711,8 @@ function FirstPlaceStep({
             </label>
             <select
               id="place-type"
+              aria-invalid={errors.type ? true : undefined}
+              aria-describedby={errors.type ? 'place-type-error' : undefined}
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
               {...register('type')}
             >
@@ -684,7 +723,9 @@ function FirstPlaceStep({
               ))}
             </select>
             {errors.type ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.type.message}</p>
+              <p id="place-type-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.type.message}
+              </p>
             ) : null}
           </div>
 
@@ -697,18 +738,21 @@ function FirstPlaceStep({
             </label>
             <textarea
               id="place-description"
+              aria-invalid={errors.shortDescription ? true : undefined}
+              aria-describedby={errors.shortDescription ? 'place-description-error' : undefined}
               className="min-h-28 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
               {...register('shortDescription')}
             />
             {errors.shortDescription ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.shortDescription.message}</p>
+              <p id="place-description-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.shortDescription.message}
+              </p>
             ) : null}
           </div>
         </div>
-        <p className="rounded-2xl bg-pf-surface px-4 py-3 text-xs leading-5 text-pf-deep/40">
-          {guideMode === 'location_aware'
-            ? 'The server creates this central item at the validated venue center in the same atomic setup operation.'
-            : 'This public guide item stores no venue center or item coordinates.'}
+        <p className={styles.reassurance}>
+          <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Nothing goes live from this step. You&apos;ll review the visitor experience first.
         </p>
       </div>
 
@@ -721,11 +765,24 @@ function FirstPlaceStep({
           Back
         </button>
         <button
+          aria-label="Create venue"
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           disabled={isSubmitting}
           type="submit"
         >
-          {isSubmitting ? 'Creating venue...' : 'Create venue'}
+          {isSubmitting ? (
+            <>
+              <LoaderCircle
+                className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+              Receiving your information...
+            </>
+          ) : (
+            <>
+              Send to PathFinder <Sparkles className="ml-2 h-4 w-4" aria-hidden="true" />
+            </>
+          )}
         </button>
       </div>
     </form>
@@ -757,12 +814,13 @@ function FirstKnowledgeStep({
     <form className="space-y-8" onSubmit={handleSubmit(onSubmit)}>
       <div className="space-y-5">
         <div>
+          <p className={styles.eyebrow}>A visitor-facing example</p>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
             Add venue knowledge
           </h2>
-          <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-            Add one fact, policy, procedure, or answer for the public guest guide. It is independent
-            of visitor location and is not employee-only content.
+          <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+            Share one question and the answer your staff would give. Notes and rough wording are
+            welcome—we&apos;ll shape them for your first preview.
           </p>
         </div>
 
@@ -776,11 +834,15 @@ function FirstKnowledgeStep({
             </label>
             <input
               id="knowledge-title"
+              aria-invalid={errors.title ? true : undefined}
+              aria-describedby={errors.title ? 'knowledge-title-error' : undefined}
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
               {...register('title')}
             />
             {errors.title ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.title.message}</p>
+              <p id="knowledge-title-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.title.message}
+              </p>
             ) : null}
           </div>
 
@@ -793,11 +855,15 @@ function FirstKnowledgeStep({
             </label>
             <input
               id="knowledge-category"
+              aria-invalid={errors.category ? true : undefined}
+              aria-describedby={errors.category ? 'knowledge-category-error' : undefined}
               className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
               {...register('category')}
             />
             {errors.category ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.category.message}</p>
+              <p id="knowledge-category-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.category.message}
+              </p>
             ) : null}
           </div>
 
@@ -810,17 +876,21 @@ function FirstKnowledgeStep({
             </label>
             <textarea
               id="knowledge-content"
+              aria-invalid={errors.content ? true : undefined}
+              aria-describedby={errors.content ? 'knowledge-content-error' : undefined}
               className="min-h-32 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-pf-accent/20"
               {...register('content')}
             />
             {errors.content ? (
-              <p className="mt-2 text-sm text-rose-600">{errors.content.message}</p>
+              <p id="knowledge-content-error" role="alert" className="mt-2 text-sm text-rose-700">
+                {errors.content.message}
+              </p>
             ) : null}
           </div>
         </div>
-        <p className="rounded-2xl bg-pf-surface px-4 py-3 text-xs leading-5 text-pf-deep/40">
-          The server creates this enabled knowledge entry in the same atomic setup operation as the
-          venue. No coordinates are attached to knowledge.
+        <p className={styles.reassurance}>
+          <ShieldCheck className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Nothing goes live from this step. You&apos;ll review the visitor experience first.
         </p>
       </div>
 
@@ -833,11 +903,24 @@ function FirstKnowledgeStep({
           Back
         </button>
         <button
+          aria-label="Create venue"
           className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           disabled={isSubmitting}
           type="submit"
         >
-          {isSubmitting ? 'Creating venue...' : 'Create venue'}
+          {isSubmitting ? (
+            <>
+              <LoaderCircle
+                className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+              Receiving your information...
+            </>
+          ) : (
+            <>
+              Send to PathFinder <Sparkles className="ml-2 h-4 w-4" aria-hidden="true" />
+            </>
+          )}
         </button>
       </div>
     </form>
@@ -905,22 +988,46 @@ export default function OnboardingSetupPage() {
 
   if (isComplete) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6 py-10">
-        <section className="w-full max-w-xl rounded-3xl border border-emerald-200 bg-pf-white p-8 text-center shadow-sm">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+      <main className={styles.completePage}>
+        <section className={styles.completeCard} aria-labelledby="received-title">
+          <div className={styles.successMark}>
             <CheckCircle2 className="h-8 w-8" aria-hidden="true" />
           </div>
-          <p className="mt-6 text-sm font-medium text-emerald-700">
-            Step {totalSteps} of {totalSteps} - Done
+          <p className={styles.eyebrow}>
+            Step {totalSteps} of {totalSteps} - Information received
           </p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-pf-deep">
+          <h1 id="received-title" className={styles.completeTitle}>
             Your venue setup is ready for review.
           </h1>
-          <p className="mt-3 text-sm leading-6 text-pf-deep/60">
-            Review the guide content and availability settings before sharing it with guests.
+          <p className={styles.completeCopy}>
+            We&apos;ve safely received your starting information. Nothing is public yet; you&apos;ll
+            review everything before visitors see it.
           </p>
-          <p className="mt-6 text-sm font-medium text-emerald-700">
-            Taking you to your dashboard...
+          <ol className={styles.buildMilestones} aria-label="What happens next">
+            <li className={styles.milestoneComplete}>
+              <Check className="h-4 w-4" aria-hidden="true" />
+              <span>
+                <strong>Information received</strong>
+                <small>Your starting details are secure.</small>
+              </span>
+            </li>
+            <li className={styles.milestoneActive}>
+              <LoaderCircle className="h-4 w-4" aria-hidden="true" />
+              <span>
+                <strong>Building your workspace</strong>
+                <small>Preparing the next step for you.</small>
+              </span>
+            </li>
+            <li>
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+              <span>
+                <strong>First preview</strong>
+                <small>You&apos;ll review before anything goes live.</small>
+              </span>
+            </li>
+          </ol>
+          <p className={styles.redirectNote} aria-live="polite">
+            Taking you to your PathFinder...
           </p>
         </section>
       </main>
@@ -928,15 +1035,27 @@ export default function OnboardingSetupPage() {
   }
 
   return (
-    <main className="min-h-screen bg-pf-surface px-6 py-10">
-      <div className="mx-auto max-w-4xl space-y-8">
-        <section className="rounded-[2rem] bg-pf-deep px-8 py-10 text-white shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
-            Onboarding
-          </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight">Set up your first venue</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/70">
-            Create the basics PathFinder needs to prepare your dashboard and AI guide for review.
+    <main className={styles.page}>
+      <div className={styles.shell}>
+        <section className={styles.hero}>
+          <div className={styles.brandLine}>
+            <span className={styles.brandMark}>
+              <Compass className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <span>PATHFINDER</span>
+            <span className={styles.secureNote}>
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Private setup
+            </span>
+          </div>
+          <p className={styles.heroEyebrow}>Your visitor experience starts here</p>
+          <h1>
+            Give us the raw details.
+            <br />
+            <span>We&apos;ll build the PathFinder.</span>
+          </h1>
+          <p className={styles.heroCopy}>
+            No chatbot configuration and no perfect copy required. Start with what you know; our
+            team and tools will turn it into a polished experience for your review.
           </p>
           <StepIndicator
             currentStep={currentStep}
@@ -945,135 +1064,176 @@ export default function OnboardingSetupPage() {
           />
         </section>
 
-        {formError ? (
-          <p
-            role="alert"
-            className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-          >
-            {formError}
-          </p>
-        ) : null}
+        <div className={styles.workArea}>
+          <aside className={styles.promisePanel} aria-label="What to expect">
+            <p className={styles.eyebrow}>What to expect</p>
+            <h2>A thoughtful first preview, built with you.</h2>
+            <ul>
+              <li>
+                <Building2 aria-hidden="true" />
+                <span>
+                  <strong>You share the essentials</strong>
+                  <small>A few venue details and one useful example.</small>
+                </span>
+              </li>
+              <li>
+                <FileText aria-hidden="true" />
+                <span>
+                  <strong>Add source material later</strong>
+                  <small>Links, brochures, photos, video, and staff knowledge.</small>
+                </span>
+              </li>
+              <li>
+                <Sparkles aria-hidden="true" />
+                <span>
+                  <strong>PathFinder does the assembly</strong>
+                  <small>We organize, refine, and prepare the visitor experience.</small>
+                </span>
+              </li>
+              <li>
+                <CheckCircle2 aria-hidden="true" />
+                <span>
+                  <strong>You stay in control</strong>
+                  <small>Review the preview before anything is published.</small>
+                </span>
+              </li>
+            </ul>
+          </aside>
 
-        <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
-          {currentStep === 'basics' ? (
-            <VenueBasicsStep
-              defaultValues={{
-                name: setupState.venue.name,
-                slug: setupState.venue.slug,
-                category: setupState.venue.category,
-                guideMode: setupState.venue.guideMode,
-              }}
-              onBack={() => {}}
-              onNext={(values) => {
-                setSetupState((current) => ({
-                  ...current,
-                  venue: {
-                    ...current.venue,
-                    ...values,
-                    ...(values.guideMode === 'non_location'
-                      ? { defaultCenterLat: undefined, defaultCenterLng: undefined }
-                      : {}),
-                  },
-                  place:
-                    current.venue.guideMode !== values.guideMode
-                      ? {
-                          name: '',
-                          type: values.guideMode === 'location_aware' ? 'ENTRANCE' : 'OTHER',
-                          shortDescription: '',
-                        }
-                      : {
-                          ...current.place,
-                          type:
-                            current.place.name.length > 0
-                              ? current.place.type
-                              : values.guideMode === 'location_aware'
-                                ? 'ENTRANCE'
-                                : 'OTHER',
-                        },
-                }))
-                setCurrentStep(values.guideMode === 'location_aware' ? 'location' : 'content-kind')
-              }}
-            />
-          ) : null}
+          <div className={styles.formColumn}>
+            {formError ? (
+              <p role="alert" className={styles.errorBanner}>
+                {formError}
+              </p>
+            ) : null}
 
-          {currentStep === 'location' ? (
-            <VenueLocationStep
-              defaultValues={{
-                defaultCenterLat: setupState.venue.defaultCenterLat,
-                defaultCenterLng: setupState.venue.defaultCenterLng,
-              }}
-              onBack={(values) => {
-                setSetupState((current) => ({
-                  ...current,
-                  venue: { ...current.venue, ...values },
-                }))
-                setCurrentStep('basics')
-              }}
-              onNext={(values) => {
-                setSetupState((current) => ({
-                  ...current,
-                  venue: {
-                    ...current.venue,
-                    ...values,
-                  },
-                }))
-                setCurrentStep('content-kind')
-              }}
-            />
-          ) : null}
+            <section className={styles.formCard}>
+              {currentStep === 'basics' ? (
+                <VenueBasicsStep
+                  defaultValues={{
+                    name: setupState.venue.name,
+                    slug: setupState.venue.slug,
+                    category: setupState.venue.category,
+                    guideMode: setupState.venue.guideMode,
+                  }}
+                  onBack={() => {}}
+                  onNext={(values) => {
+                    setSetupState((current) => ({
+                      ...current,
+                      venue: {
+                        ...current.venue,
+                        ...values,
+                        ...(values.guideMode === 'non_location'
+                          ? { defaultCenterLat: undefined, defaultCenterLng: undefined }
+                          : {}),
+                      },
+                      place:
+                        current.venue.guideMode !== values.guideMode
+                          ? {
+                              name: '',
+                              type: values.guideMode === 'location_aware' ? 'ENTRANCE' : 'OTHER',
+                              shortDescription: '',
+                            }
+                          : {
+                              ...current.place,
+                              type:
+                                current.place.name.length > 0
+                                  ? current.place.type
+                                  : values.guideMode === 'location_aware'
+                                    ? 'ENTRANCE'
+                                    : 'OTHER',
+                            },
+                    }))
+                    setCurrentStep(
+                      values.guideMode === 'location_aware' ? 'location' : 'content-kind',
+                    )
+                  }}
+                />
+              ) : null}
 
-          {currentStep === 'content-kind' ? (
-            <ContentKindStep
-              defaultValue={setupState.contentKind}
-              onBack={() => {
-                setCurrentStep(
-                  setupState.venue.guideMode === 'location_aware' ? 'location' : 'basics',
-                )
-              }}
-              onNext={(contentKind) => {
-                setSetupState((current) => ({ ...current, contentKind }))
-                setCurrentStep(contentKind)
-              }}
-            />
-          ) : null}
+              {currentStep === 'location' ? (
+                <VenueLocationStep
+                  defaultValues={{
+                    defaultCenterLat: setupState.venue.defaultCenterLat,
+                    defaultCenterLng: setupState.venue.defaultCenterLng,
+                  }}
+                  onBack={(values) => {
+                    setSetupState((current) => ({
+                      ...current,
+                      venue: { ...current.venue, ...values },
+                    }))
+                    setCurrentStep('basics')
+                  }}
+                  onNext={(values) => {
+                    setSetupState((current) => ({
+                      ...current,
+                      venue: {
+                        ...current.venue,
+                        ...values,
+                      },
+                    }))
+                    setCurrentStep('content-kind')
+                  }}
+                />
+              ) : null}
 
-          {currentStep === 'place' ? (
-            <FirstPlaceStep
-              defaultValues={setupState.place}
-              guideMode={setupState.venue.guideMode}
-              isSubmitting={isSubmitting}
-              onBack={(values) => {
-                setSetupState((current) => ({ ...current, place: values }))
-                setCurrentStep('content-kind')
-              }}
-              onSubmit={(values) => {
-                setSetupState((current) => ({
-                  ...current,
-                  place: values,
-                }))
-                void handleCreateVenue({
-                  kind: 'place',
-                  value: { ...values, tags: [], importanceScore: 0 },
-                })
-              }}
-            />
-          ) : null}
+              {currentStep === 'content-kind' ? (
+                <ContentKindStep
+                  defaultValue={setupState.contentKind}
+                  onBack={() => {
+                    setCurrentStep(
+                      setupState.venue.guideMode === 'location_aware' ? 'location' : 'basics',
+                    )
+                  }}
+                  onNext={(contentKind) => {
+                    setSetupState((current) => ({ ...current, contentKind }))
+                    setCurrentStep(contentKind)
+                  }}
+                />
+              ) : null}
 
-          {currentStep === 'knowledge' ? (
-            <FirstKnowledgeStep
-              defaultValues={setupState.knowledge}
-              isSubmitting={isSubmitting}
-              onBack={(values) => {
-                setSetupState((current) => ({ ...current, knowledge: values }))
-                setCurrentStep('content-kind')
-              }}
-              onSubmit={(values) => {
-                setSetupState((current) => ({ ...current, knowledge: values }))
-                void handleCreateVenue({ kind: 'knowledge', value: values })
-              }}
-            />
-          ) : null}
-        </section>
+              {currentStep === 'place' ? (
+                <FirstPlaceStep
+                  defaultValues={setupState.place}
+                  guideMode={setupState.venue.guideMode}
+                  isSubmitting={isSubmitting}
+                  onBack={(values) => {
+                    setSetupState((current) => ({ ...current, place: values }))
+                    setCurrentStep('content-kind')
+                  }}
+                  onSubmit={(values) => {
+                    setSetupState((current) => ({
+                      ...current,
+                      place: values,
+                    }))
+                    void handleCreateVenue({
+                      kind: 'place',
+                      value: { ...values, tags: [], importanceScore: 0 },
+                    })
+                  }}
+                />
+              ) : null}
+
+              {currentStep === 'knowledge' ? (
+                <FirstKnowledgeStep
+                  defaultValues={setupState.knowledge}
+                  isSubmitting={isSubmitting}
+                  onBack={(values) => {
+                    setSetupState((current) => ({ ...current, knowledge: values }))
+                    setCurrentStep('content-kind')
+                  }}
+                  onSubmit={(values) => {
+                    setSetupState((current) => ({ ...current, knowledge: values }))
+                    void handleCreateVenue({ kind: 'knowledge', value: values })
+                  }}
+                />
+              ) : null}
+            </section>
+            <p className={styles.privacyLine}>
+              <ShieldCheck aria-hidden="true" /> Your information stays private during setup.
+            </p>
+          </div>
+        </div>
       </div>
     </main>
   )

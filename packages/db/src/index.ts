@@ -115,6 +115,17 @@ export {
   settleAiCostAttemptExact,
 } from './helpers/ai-cost-budgets'
 export { isAiAdmissionControlError } from './helpers/ai-admission-control'
+export {
+  appendSupportMessageAction,
+  createSupportRequestAction,
+  SupportActionError,
+} from './helpers/support-actions'
+export type { SupportActionActor, SupportAttachmentDraft } from './helpers/support-actions'
+export {
+  ApprovalDecisionActionError,
+  recordApprovalDecisionAction,
+} from './helpers/approval-decisions'
+export type { ApprovalDecisionActor } from './helpers/approval-decisions'
 export type {
   AiCostAttemptIdentity,
   AiCostReservationRef,
@@ -183,6 +194,17 @@ export {
   EvaluationResultReplayConflictError,
 } from './helpers/evaluation-results'
 export type { EvaluationResultTerminal } from './helpers/evaluation-results'
+export { hashEvalObservation } from './helpers/evaluation-hash'
+export {
+  buildVenueContentSnapshot,
+  createVenueContentSnapshot,
+  VENUE_CONTENT_SNAPSHOT_SCHEMA_VERSION,
+  VenueContentSnapshotError,
+} from './helpers/venue-content-snapshot'
+export type {
+  VenueContentSnapshot,
+  VenueContentSnapshotSource,
+} from './helpers/venue-content-snapshot'
 
 export type {
   AnalyticsEvent,

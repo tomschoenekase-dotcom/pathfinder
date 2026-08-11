@@ -13,6 +13,7 @@
     "@clerk/nextjs": "6.39.3",
     "@pathfinder/api": "workspace:*",
     "@pathfinder/config": "workspace:*",
+    "@pathfinder/contracts": "workspace:*",
     "@pathfinder/db": "workspace:*",
     "@pathfinder/jobs": "workspace:*",
     "@pathfinder/ui": "workspace:*",

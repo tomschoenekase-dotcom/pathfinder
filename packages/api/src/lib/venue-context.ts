@@ -6,6 +6,7 @@ export {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
   GUEST_CHAT_PROMPT_VERSION,
 } from '@pathfinder/contracts/prompt-contract'
+import { resolveEffectiveTone } from '@pathfinder/contracts/tone-presets'
 
 type RelevantPlace = {
   id?: string
@@ -31,6 +32,8 @@ type VenueInfo = {
   guideNotes?: string | null
   aiGuideNotes?: string | null
   aiTone?: string | null
+  tonePreset?: string | null
+  tonePresetVersion?: number | null
   aiGuideName?: string | null
   guideMode?: string | null
 }
@@ -133,12 +136,7 @@ export function buildVenueSystemPromptParts(params: {
     // No active authored questions at all - invention is the only option.
     return `\n\nGuest engagement moment: This operator is especially interested in learning from guests. Look for one genuinely natural opening in this conversation (e.g. it's wrapping up, or the guest just finished an experience) to ask a single low-key question of your own invention that's genuinely curious about this specific guest's visit so far - grounded in something they actually said or did, not generic small talk. Never force it into an unrelated answer, never present it as a survey, and never ask more than one engagement question in the whole conversation.${ENGAGEMENT_ASKED_INSTRUCTION}`
   })()
-  const toneInstruction =
-    venue.aiTone === 'PROFESSIONAL'
-      ? 'Respond in a clear, informative, professional tone.'
-      : venue.aiTone === 'PLAYFUL'
-        ? 'Respond in an enthusiastic, fun, engaging tone suitable for families.'
-        : 'Respond in a warm, helpful, conversational tone.'
+  const toneInstruction = resolveEffectiveTone(venue).styleInstruction
 
   const placesSection =
     relevantPlaces.length === 0

@@ -38,6 +38,9 @@ export {
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
+  EVALUATION_RUN_PROCESS_JOB,
+  EVALUATION_RUN_QUEUE,
+  EVALUATION_RUN_RETRY_BACKOFF,
 } from './queues'
 export { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 export {
@@ -72,6 +75,7 @@ export {
   enqueueWeeklyReportDispatch,
   enqueueWeeklyReportRecovery,
   enqueueMediaIngestion,
+  enqueueEvaluationRun,
 } from './enqueue'
 export type {
   AnswerAnalysisJobPayload,
@@ -86,4 +90,5 @@ export type {
   WeeklyReportJobPayload,
   WeeklyReportRecoveryJobPayload,
   MediaIngestionJobPayload,
+  EvaluationRunJobPayload,
 } from './types'

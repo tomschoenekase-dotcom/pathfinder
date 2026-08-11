@@ -12,6 +12,24 @@ export { CreateVenueInput, UpdateVenueInput } from './routers/venue'
 export { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from './routers/place'
 export type { GuestPlaceCard } from './lib/guest-place-card'
 export {
+  buildWebsiteIntakeProposal,
+  isPublicWebsiteAddress,
+  WebsiteIntakePolicyError,
+} from './lib/website-intake'
+export type {
+  ExtractedWebsiteFact,
+  ExtractedWebsitePage,
+  WebsiteIntakeCitation,
+  WebsiteIntakeDependencies,
+  WebsiteIntakeFetchRequest,
+  WebsiteIntakeFetchResponse,
+  WebsiteIntakeIntermediate,
+  WebsiteIntakeRequest,
+  WebsiteIntakeResult,
+} from './lib/website-intake'
+export { createWebsiteIntakeSourceAdapter } from './lib/website-intake-adapter'
+export type { WebsiteIntakeAdapterCandidate } from './lib/website-intake-adapter'
+export {
   BulkCreateKnowledgeEntriesInput,
   CreateKnowledgeEntryInput,
   UpdateKnowledgeEntryInput,

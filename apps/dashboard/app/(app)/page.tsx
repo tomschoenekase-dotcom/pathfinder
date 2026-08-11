@@ -6,12 +6,15 @@ import { DashboardOverview } from '../../components/DashboardOverview'
 import { buildGuestChatUrl } from '../../lib/guest-chat-url'
 import { createDashboardCaller } from '../../lib/server-caller'
 
-export default async function DashboardIndexPage() {
+type DashboardIndexPageProps = {
+  searchParams: Promise<{ venue?: string }>
+}
+
+export default async function DashboardIndexPage({ searchParams }: DashboardIndexPageProps) {
   const caller = await createDashboardCaller('/')
-  const [venues, operationalUpdates, dailyStats] = await Promise.all([
+  const [venues, operationalUpdates] = await Promise.all([
     caller.venue.list(),
     caller.operationalUpdate.list(),
-    caller.analytics.getDailyStats({ days: 7 }),
   ])
 
   const { sessionClaims } = await auth()
@@ -29,40 +32,34 @@ export default async function DashboardIndexPage() {
     redirect('/onboarding/setup')
   }
 
+  const { venue: requestedVenueId } = await searchParams
+  const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0] ?? null
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
-  type DailyStatItem = (typeof dailyStats)[number]
   const now = new Date()
   const activeAlerts = operationalUpdates.filter(
     (update: OperationalUpdateItem) =>
       update.status === 'PUBLISHED' &&
       update.isActive &&
+      update.venueId === selectedVenue?.id &&
       update.startsAt <= now &&
       update.expiresAt > now,
   ).length
-  const sessionsThisWeek = dailyStats.reduce((sum: number, row: DailyStatItem) => {
-    if (row.metric !== 'sessions') {
-      return sum
-    }
-
-    return sum + row.value
-  }, 0)
-
-  const stats = {
-    activeAlerts,
-    sessionsThisWeek,
-    totalPlaces: venues.reduce((sum: number, venue) => sum + venue._count.places, 0),
-    venues: venues.length,
-  }
-  const firstVenue = venues[0] ?? null
-  const chatUrl = firstVenue
-    ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, firstVenue.slug, {
+  const chatUrl = selectedVenue
+    ? buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, selectedVenue.slug, {
         allowLoopbackHttp: process.env.NODE_ENV === 'development',
       })
     : null
 
   return (
     <DashboardOverview
-      stats={stats}
+      venue={{
+        id: selectedVenue!.id,
+        name: selectedVenue!.name,
+        isActive: selectedVenue!.isActive,
+        placeCount: selectedVenue!._count.places,
+      }}
+      venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
+      activeUpdates={activeAlerts}
       chatUrl={chatUrl}
       {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
     />

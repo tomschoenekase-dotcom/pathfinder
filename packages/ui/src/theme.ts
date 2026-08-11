@@ -36,6 +36,8 @@ export const CHAT_FONT_OPTIONS: { value: ChatFontValue; label: string; cssVar: s
 ]
 
 const DEFAULT_ACCENT = '#3A7BD5'
+const LIGHT_ACCENT_TEXT = '#FFFFFF'
+const DARK_ACCENT_TEXT = '#000000'
 
 export function isHexColor(value: string | null | undefined): value is string {
   return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value)
@@ -101,6 +103,27 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`
 }
 
+function relativeLuminance(hex: string): number {
+  const channels = [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)].map((channel) => {
+    const value = parseInt(channel, 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!
+}
+
+function contrastRatio(first: string, second: string): number {
+  const firstLuminance = relativeLuminance(first)
+  const secondLuminance = relativeLuminance(second)
+  const lighter = Math.max(firstLuminance, secondLuminance)
+  const darker = Math.min(firstLuminance, secondLuminance)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function accessibleAccentText(accent: string): string {
+  return contrastRatio(accent, LIGHT_ACCENT_TEXT) >= 4.5 ? LIGHT_ACCENT_TEXT : DARK_ACCENT_TEXT
+}
+
 /**
  * Derives a neon-dark palette from a venue's existing brand accent, preserving
  * the brand hue so every venue's dark mode looks distinct rather than a shared preset.
@@ -132,14 +155,16 @@ export function getChatPalette(
 
   const preset = CHAT_THEME_PRESETS.find((p) => p.value === theme) ?? CHAT_THEME_PRESETS[0]!
 
+  const accent = isHexColor(accentOverride) ? accentOverride : preset.accent
+
   return {
-    accent: isHexColor(accentOverride) ? accentOverride : preset.accent,
-    accentContrast: '#FFFFFF',
+    accent,
+    accentContrast: accessibleAccentText(accent),
     bg: preset.surface,
     card: '#FFFFFF',
     border: '#C9D4E3',
     text: '#0F2A4A',
-    textMuted: '#6B7C93',
+    textMuted: '#59697E',
     isDark: false,
   }
 }

@@ -3,6 +3,9 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { OrganizationList, SignOutButton, useClerk, useOrganizationList } from '@clerk/nextjs'
+import { ArrowRight, Check, Compass, LoaderCircle, ShieldCheck, Sparkles } from 'lucide-react'
+
+import styles from './onboarding.module.css'
 
 export default function DashboardOnboardingPage() {
   const router = useRouter()
@@ -14,8 +17,8 @@ export default function DashboardOnboardingPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  async function handleCreate(e: FormEvent) {
-    e.preventDefault()
+  async function handleCreate(event: FormEvent) {
+    event.preventDefault()
     if (!orgName.trim() || !setActive) return
 
     setIsCreating(true)
@@ -25,21 +28,19 @@ export default function DashboardOnboardingPage() {
       const org = await clerk.createOrganization({ name: orgName.trim() })
       await setActive({ organization: org.id })
       router.replace('/')
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    } catch (error) {
+      setCreateError(
+        error instanceof Error ? error.message : 'Something went wrong. Please try again.',
+      )
       setIsCreating(false)
     }
   }
 
-  // If the user belongs to exactly one org, activate it automatically and
-  // skip the picker entirely. Clients will always have exactly one org.
   useEffect(() => {
     if (!isLoaded || !userMemberships.data) return
 
-    const memberships = userMemberships.data
-
-    const first = memberships[0]
-    if (memberships.length === 1 && setActive && first) {
+    const first = userMemberships.data[0]
+    if (userMemberships.data.length === 1 && setActive && first) {
       void setActive({ organization: first.organization.id }).then(() => {
         router.replace('/')
       })
@@ -48,49 +49,76 @@ export default function DashboardOnboardingPage() {
 
   if (!isLoaded || (userMemberships.data && userMemberships.data.length === 1)) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-pf-surface">
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-sm text-pf-deep/60">Loading your dashboard...</p>
+      <main className={styles.page}>
+        <section className={styles.loadingCard} aria-labelledby="loading-title" aria-live="polite">
+          <span className={styles.loadingIcon}>
+            <LoaderCircle aria-hidden="true" />
+          </span>
+          <p className={styles.eyebrow}>PathFinder</p>
+          <h1 id="loading-title">Opening your workspace</h1>
+          <p>Bringing your venue and latest progress into view.</p>
           <SignOutButton>
-            <button
-              type="button"
-              className="text-xs text-pf-deep/30 underline hover:text-pf-primary"
-            >
+            <button type="button" className={styles.textButton}>
               Sign out
             </button>
           </SignOutButton>
-        </div>
+        </section>
       </main>
     )
   }
 
-  // Multi-org users (platform admin) see the picker; new users with no org see create form.
   const hasMemberships = userMemberships.data && userMemberships.data.length > 0
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-pf-surface">
-      <div className="flex flex-col items-center gap-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold text-pf-deep">Welcome to PathFinder</h1>
-          <p className="mt-2 text-pf-deep/60">
-            {hasMemberships
-              ? 'Select your organization.'
-              : 'Create an organization to get started.'}
+    <main className={styles.page}>
+      <div className={styles.shell}>
+        <section className={styles.storyPanel}>
+          <div className={styles.brand}>
+            <span>
+              <Compass aria-hidden="true" />
+            </span>{' '}
+            PATHFINDER
+          </div>
+          <p className={styles.kicker}>Your venue, thoughtfully translated</p>
+          <h1>A remarkable visitor guide starts with what you already have.</h1>
+          <p className={styles.storyCopy}>
+            Share the essentials, then add links, documents, photos, videos, and staff knowledge.
+            PathFinder handles the difficult work and prepares a first preview for your approval.
           </p>
-        </div>
-        <div className="rounded-3xl border border-pf-light bg-pf-white p-8 shadow-sm">
-          {hasMemberships ? (
-            <OrganizationList
-              hidePersonal
-              afterSelectOrganizationUrl="/"
-              afterCreateOrganizationUrl="/"
-            />
-          ) : (
-            <form className="w-80 max-w-full space-y-5" onSubmit={handleCreate}>
-              <div className="space-y-2">
-                <label htmlFor="organization-name" className="text-sm font-medium text-pf-deep">
-                  Organization name
-                </label>
+          <ul className={styles.promiseList}>
+            <li>
+              <Check aria-hidden="true" /> Modest input, professionally assembled
+            </li>
+            <li>
+              <Check aria-hidden="true" /> Nothing goes live without review
+            </li>
+            <li>
+              <ShieldCheck aria-hidden="true" /> Private and secure during setup
+            </li>
+          </ul>
+        </section>
+
+        <section className={styles.actionPanel} aria-labelledby="welcome-title">
+          <span className={styles.sparkle}>
+            <Sparkles aria-hidden="true" />
+          </span>
+          <p className={styles.eyebrow}>Welcome</p>
+          <h2 id="welcome-title">Let&apos;s build your PathFinder.</h2>
+          <p className={styles.actionCopy}>
+            {hasMemberships
+              ? 'Choose the organization you want to continue with.'
+              : 'First, tell us the organization or venue name your visitors know.'}
+          </p>
+          <div className={styles.actionBody}>
+            {hasMemberships ? (
+              <OrganizationList
+                hidePersonal
+                afterSelectOrganizationUrl="/"
+                afterCreateOrganizationUrl="/"
+              />
+            ) : (
+              <form onSubmit={handleCreate}>
+                <label htmlFor="organization-name">Organization or venue name</label>
                 <input
                   id="organization-name"
                   name="organizationName"
@@ -98,32 +126,41 @@ export default function DashboardOnboardingPage() {
                   value={orgName}
                   onChange={(event) => setOrgName(event.target.value)}
                   autoFocus
-                  className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+                  autoComplete="organization"
+                  className={styles.input}
                 />
-                <p className="text-xs text-pf-deep/50">
-                  This is typically your company or venue operator name.
+                <p className={styles.hint}>
+                  You can update branding details when your first preview is ready.
                 </p>
-              </div>
-              {createError ? <p className="text-sm text-rose-600">{createError}</p> : null}
-              <button
-                type="submit"
-                disabled={isCreating || !orgName.trim()}
-                className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isCreating ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                ) : (
-                  'Get started →'
-                )}
-              </button>
-            </form>
-          )}
-        </div>
-        <SignOutButton>
-          <button type="button" className="text-xs text-pf-deep/30 underline hover:text-pf-primary">
-            Sign out
-          </button>
-        </SignOutButton>
+                {createError ? (
+                  <p role="alert" className={styles.error}>
+                    {createError}
+                  </p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={isCreating || !orgName.trim()}
+                  className={styles.primaryButton}
+                >
+                  {isCreating ? (
+                    <>
+                      <LoaderCircle aria-hidden="true" /> Creating your private workspace...
+                    </>
+                  ) : (
+                    <>
+                      Continue <ArrowRight aria-hidden="true" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
+          </div>
+          <SignOutButton>
+            <button type="button" className={styles.textButton}>
+              Sign out
+            </button>
+          </SignOutButton>
+        </section>
       </div>
     </main>
   )

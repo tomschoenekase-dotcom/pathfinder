@@ -63,7 +63,7 @@ function statusClass(status: PackageRecord['status']) {
   return 'bg-amber-100 text-amber-800'
 }
 
-function venueConfigValue(value: string | null, isAfter = false): string {
+function venueConfigValue(value: string | number | null, isAfter = false): string {
   if (value === null) return isAfter ? 'null (clear)' : 'null'
   return JSON.stringify(value)
 }

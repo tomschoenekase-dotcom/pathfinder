@@ -32,7 +32,6 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
 
   let impersonatedTenantName: string | undefined
   const caller = await createDashboardCaller('/')
-  const reportAvailability = await caller.analytics.getWeeklyReportAvailability()
   if (isPlatformAdmin && adminTenantOverride) {
     const { tenant } = await caller.tenant.getSettings()
     impersonatedTenantName = tenant.name
@@ -40,10 +39,7 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
 
   return (
     <TRPCProvider scopeKey={`tenant:${effectiveOrgId}`}>
-      <DashboardShell
-        weeklyReportsEnabled={reportAvailability.enabledVenueIds.length > 0}
-        {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
-      >
+      <DashboardShell {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}>
         {children}
       </DashboardShell>
     </TRPCProvider>

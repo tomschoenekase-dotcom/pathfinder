@@ -83,20 +83,15 @@ describe('weekly report capability controls', () => {
     vi.restoreAllMocks()
   })
 
-  it('hides the client navigation entry until at least one venue is enabled', () => {
-    const { rerender } = render(
-      <DashboardShell weeklyReportsEnabled={false}>
+  it('keeps reports and analytics out of the ultra-simple client navigation', () => {
+    render(
+      <DashboardShell>
         <div>content</div>
       </DashboardShell>,
     )
     expect(screen.queryByText('Weekly Reports')).toBeNull()
-
-    rerender(
-      <DashboardShell weeklyReportsEnabled>
-        <div>content</div>
-      </DashboardShell>,
-    )
-    expect(screen.getByText('Weekly Reports')).toBeTruthy()
+    expect(screen.queryByText('Analytics')).toBeNull()
+    expect(screen.getByText('Visitor updates')).toBeTruthy()
   })
 
   it('sends an exact configuration revision and refreshes after enabling', async () => {

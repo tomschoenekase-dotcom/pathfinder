@@ -4,6 +4,14 @@ const AUTH_ROUTES = ['/sign-in', '/sign-up']
 // here would redirect the webhook and prevent automatic tenant creation.
 const PUBLIC_ROUTES = ['/api/webhooks/clerk']
 
+const INTERNAL_WORKSPACE_ROUTES = [
+  '/analytics',
+  '/chat-design',
+  '/engagement-questions',
+  '/venues',
+  '/weekly-reports',
+] as const
+
 type DashboardAccessInput = {
   pathname: string
   userId: string | null | undefined
@@ -25,6 +33,12 @@ export function isPublicDashboardPath(pathname: string): boolean {
   )
 }
 
+export function isInternalWorkspacePath(pathname: string): boolean {
+  return INTERNAL_WORKSPACE_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  )
+}
+
 export function resolveDashboardAccess({
   pathname,
   userId,
@@ -40,5 +54,6 @@ export function resolveDashboardAccess({
 
   const effectiveOrgId = orgId ?? (isPlatformAdmin ? adminTenantOverride : undefined)
   if (!effectiveOrgId && pathname !== '/onboarding') return 'onboarding'
+  if (isInternalWorkspacePath(pathname) && !isPlatformAdmin) return 'root'
   return 'next'
 }

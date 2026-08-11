@@ -71,3 +71,12 @@ export type MediaIngestionJobPayload = {
   projectId: string
   uploadAttemptId: string
 }
+
+/** Carries only the immutable run identity. The worker reloads and verifies the
+ * frozen manifest rather than accepting cases or prompts through Redis. */
+export type EvaluationRunJobPayload = {
+  tenantId: string
+  venueId: string
+  runId: string
+  runIdentityHash: string
+}

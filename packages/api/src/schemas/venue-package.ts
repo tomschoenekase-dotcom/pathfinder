@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  TonePresetId,
   VENUE_PACKAGE_ITEM_LIMIT,
   VENUE_PACKAGE_SCHEMA_VERSION_V1,
   VenuePackagePayloadV1Object,
@@ -51,6 +52,7 @@ const VenueAiBehaviorPatch = z
   .object({
     aiGuideNotes: z.string().max(2000).nullable().optional(),
     aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).nullable().optional(),
+    tonePreset: TonePresetId.optional(),
     aiGuideName: z.string().max(80).nullable().optional(),
   })
   .strict()
@@ -541,6 +543,8 @@ export const VenuePackageVenueSnapshot = z
     chatBannerUrl: nullableString,
     aiGuideNotes: nullableString,
     aiTone: nullableString,
+    tonePreset: nullableString.optional(),
+    tonePresetVersion: z.number().int().positive().nullable().optional(),
     aiGuideName: nullableString,
   })
   .strict()
@@ -585,6 +589,14 @@ export const VenuePackageVenueChange = z.discriminatedUnion('path', [
     'venue.aiBehavior.aiTone',
     z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).nullable(),
   ),
+  venueStringChange('venue.aiBehavior.tonePreset', TonePresetId.nullable()),
+  z
+    .object({
+      path: z.literal('venue.aiBehavior.tonePresetVersion'),
+      before: z.number().int().positive().nullable(),
+      after: z.number().int().positive().nullable(),
+    })
+    .strict(),
   venueStringChange('venue.aiBehavior.aiGuideName', z.string().max(80).nullable()),
 ])
 
@@ -775,6 +787,9 @@ function canonicalVenuePatch(patch: z.infer<typeof VenuePackageVenuePatch> | und
               ? { aiGuideNotes: patch.aiBehavior.aiGuideNotes }
               : {}),
             ...(patch.aiBehavior.aiTone !== undefined ? { aiTone: patch.aiBehavior.aiTone } : {}),
+            ...(patch.aiBehavior.tonePreset !== undefined
+              ? { tonePreset: patch.aiBehavior.tonePreset }
+              : {}),
             ...(patch.aiBehavior.aiGuideName !== undefined
               ? { aiGuideName: patch.aiBehavior.aiGuideName }
               : {}),

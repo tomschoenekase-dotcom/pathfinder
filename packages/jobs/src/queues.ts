@@ -55,3 +55,7 @@ export const SEND_WELCOME_EMAIL_RETRY_BACKOFF = 'send-welcome-email-retry'
 export const MEDIA_INGESTION_QUEUE = queueName('media-ingestion')
 export const MEDIA_INGESTION_PROCESS_JOB = 'media-ingestion-process'
 export const MEDIA_INGESTION_RETRY_BACKOFF = 'media-ingestion-retry'
+
+export const EVALUATION_RUN_QUEUE = queueName('evaluation-run')
+export const EVALUATION_RUN_PROCESS_JOB = 'evaluation-run-process'
+export const EVALUATION_RUN_RETRY_BACKOFF = 'evaluation-run-retry'

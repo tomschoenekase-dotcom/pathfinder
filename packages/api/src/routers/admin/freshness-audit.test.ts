@@ -1,0 +1,124 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+  place: vi.fn(),
+  knowledge: vi.fn(),
+  update: vi.fn(),
+}))
+vi.mock('@pathfinder/db', () => ({
+  withTenantIsolationBypass: mocks.bypass,
+  db: {
+    place: { findMany: mocks.place },
+    venueKnowledgeEntry: { findMany: mocks.knowledge },
+    operationalUpdate: { findMany: mocks.update },
+  },
+}))
+
+import { router } from '../../core'
+import type { TRPCContext } from '../../context'
+import { adminFreshnessAuditRouter } from './freshness-audit'
+
+const testRouter = router({ freshness: adminFreshnessAuditRouter })
+function context(admin = true): TRPCContext {
+  return {
+    db: {} as TRPCContext['db'],
+    headers: new Headers(),
+    session: { userId: 'operator', activeTenantId: 'other', role: 'STAFF', isPlatformAdmin: admin },
+  }
+}
+
+describe('admin freshness audit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.place.mockResolvedValue([])
+    mocks.knowledge.mockResolvedValue([])
+    mocks.update.mockResolvedValue([])
+  })
+
+  it('rejects non-admin access before bypass', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).freshness.listFreshnessAudit({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        queue: 'STALE_TRUSTED',
+        entityType: 'PLACE',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.bypass).not.toHaveBeenCalled()
+  })
+
+  it('scopes stale trusted records and returns no source bodies', async () => {
+    await testRouter.createCaller(context()).freshness.listFreshnessAudit({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      queue: 'STALE_TRUSTED',
+      entityType: 'PLACE',
+      thresholdDays: 60,
+      limit: 10,
+    })
+    expect(mocks.place).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          isActive: true,
+          humanConfirmedAt: { not: null },
+          lastReviewedAt: { lte: expect.any(Date) },
+        }),
+        take: 11,
+        select: expect.not.objectContaining({
+          longDescription: expect.anything(),
+          shortDescription: expect.anything(),
+        }),
+      }),
+    )
+  })
+
+  it('scopes date-sensitive updates and paginates by expiry', async () => {
+    await testRouter.createCaller(context()).freshness.listFreshnessAudit({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      queue: 'DATE_SENSITIVE',
+      cursor: { sortAt: '2026-08-11T12:00:00.000Z', id: 'update_1' },
+    })
+    expect(mocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          status: 'PUBLISHED',
+          isActive: true,
+          expiresAt: { lte: expect.any(Date) },
+          AND: [
+            {
+              OR: [
+                { expiresAt: { gt: new Date('2026-08-11T12:00:00.000Z') } },
+                { expiresAt: new Date('2026-08-11T12:00:00.000Z'), id: { gt: 'update_1' } },
+              ],
+            },
+          ],
+        }),
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+      }),
+    )
+  })
+
+  it('requires content entity type but rejects one for update windows', async () => {
+    await expect(
+      testRouter.createCaller(context()).freshness.listFreshnessAudit({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        queue: 'PROVENANCE_GAP',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(
+      testRouter.createCaller(context()).freshness.listFreshnessAudit({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        queue: 'DATE_SENSITIVE',
+        entityType: 'PLACE',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+})

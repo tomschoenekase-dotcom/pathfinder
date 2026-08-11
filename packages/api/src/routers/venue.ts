@@ -7,6 +7,12 @@ import { db, lockVenueContentMutation, setContentVersionContext } from '@pathfin
 import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from '@pathfinder/jobs'
 import { emitEvent } from '@pathfinder/analytics'
 import { logger } from '@pathfinder/config/logger'
+import {
+  LEGACY_AI_TONE_TO_PRESET,
+  TONE_PRESET_BEHAVIOR_VERSION,
+  TONE_PRESET_TO_LEGACY_AI_TONE,
+  TonePresetId,
+} from '@pathfinder/contracts/tone-presets'
 
 import {
   CreateVenueRequestInput,
@@ -312,6 +318,8 @@ const venueAiConfigSelect = {
   aiGuideNotes: true,
   aiFeaturedPlaceId: true,
   aiTone: true,
+  tonePreset: true,
+  tonePresetVersion: true,
   aiGuideName: true,
 } as const
 
@@ -810,6 +818,7 @@ export const venueRouter = router({
           aiGuideNotes: z.string().max(2000).nullable().optional(),
           aiFeaturedPlaceId: z.string().cuid().nullable().optional(),
           aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).optional(),
+          tonePreset: TonePresetId.optional(),
           aiGuideName: z.string().max(80).nullable().optional(),
         })
         .strict(),
@@ -836,9 +845,22 @@ export const venueRouter = router({
           if (!place) throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
         }
 
-        const data = Object.fromEntries(
-          Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
-        )
+        const requestedPreset =
+          input.tonePreset ?? (input.aiTone ? LEGACY_AI_TONE_TO_PRESET[input.aiTone] : undefined)
+        const data = {
+          ...(input.aiGuideNotes !== undefined ? { aiGuideNotes: input.aiGuideNotes } : {}),
+          ...(input.aiFeaturedPlaceId !== undefined
+            ? { aiFeaturedPlaceId: input.aiFeaturedPlaceId }
+            : {}),
+          ...(input.aiGuideName !== undefined ? { aiGuideName: input.aiGuideName } : {}),
+          ...(requestedPreset
+            ? {
+                tonePreset: requestedPreset,
+                tonePresetVersion: TONE_PRESET_BEHAVIOR_VERSION,
+                aiTone: TONE_PRESET_TO_LEGACY_AI_TONE[requestedPreset],
+              }
+            : {}),
+        }
         const changed = await tx.venue.updateMany({
           where: { id: input.venueId, tenantId },
           data,

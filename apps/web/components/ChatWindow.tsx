@@ -3,15 +3,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { GuestPlaceCard } from '@pathfinder/api'
+import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
 
 import { MessageBubble } from './MessageBubble'
-import { PlaceCard } from './PlaceCard'
 import { TypingIndicator } from './TypingIndicator'
 
 type Message = {
   role: 'user' | 'assistant'
   content: string
   places?: GuestPlaceCard[]
+  blocks?: GuestResponseBlock[]
 }
 
 type ChatWindowProps = {
@@ -144,33 +145,16 @@ export function ChatWindow({
             <MessageBubble
               role={message.role}
               content={message.content}
+              {...(message.blocks ? { blocks: message.blocks } : {})}
+              {...(message.places ? { places: message.places } : {})}
+              {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
+              {...(onPlaceCardView ? { onPlaceCardView } : {})}
+              {...(onDirectionsClick ? { onDirectionsClick } : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
               {...(message.role === 'user' && accentContrastColor
                 ? { bubbleTextColor: accentContrastColor }
                 : {})}
             />
-            {message.places && message.places.length > 0 ? (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {message.places.map((place) => (
-                  <PlaceCard
-                    key={place.id}
-                    id={place.id}
-                    name={place.name}
-                    type={place.type}
-                    photoUrl={place.photoUrl}
-                    shortDescription={place.shortDescription}
-                    areaName={place.areaName}
-                    hours={place.hours}
-                    distanceMeters={place.distanceMeters}
-                    lat={place.lat}
-                    lng={place.lng}
-                    {...(onPlaceCardClick ? { onCardClick: onPlaceCardClick } : {})}
-                    {...(onPlaceCardView ? { onView: onPlaceCardView } : {})}
-                    {...(onDirectionsClick ? { onDirectionsClick } : {})}
-                  />
-                ))}
-              </div>
-            ) : null}
           </div>
         ))}
 

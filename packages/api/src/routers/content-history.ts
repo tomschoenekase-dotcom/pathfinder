@@ -56,6 +56,8 @@ const venueSnapshotSchema = z
     aiGuideNotes: nullableString,
     aiFeaturedPlaceId: nullableString,
     aiTone: nullableString,
+    tonePreset: nullableString.optional(),
+    tonePresetVersion: z.number().int().positive().nullable().optional(),
     aiGuideName: nullableString,
     chatTheme: nullableString,
     chatAccentColor: nullableString,
@@ -179,6 +181,10 @@ function venueMutableData(snapshot: z.infer<typeof venueSnapshotSchema>) {
     aiGuideNotes: snapshot.aiGuideNotes,
     aiFeaturedPlaceId: snapshot.aiFeaturedPlaceId,
     aiTone: snapshot.aiTone,
+    ...(snapshot.tonePreset !== undefined ? { tonePreset: snapshot.tonePreset } : {}),
+    ...(snapshot.tonePresetVersion !== undefined
+      ? { tonePresetVersion: snapshot.tonePresetVersion }
+      : {}),
     aiGuideName: snapshot.aiGuideName,
     chatTheme: snapshot.chatTheme,
     chatAccentColor: snapshot.chatAccentColor,

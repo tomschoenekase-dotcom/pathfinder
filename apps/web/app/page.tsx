@@ -9,6 +9,7 @@ import {
   Trophy,
 } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 
 import { FadeIn } from '@pathfinder/ui'
 
@@ -37,9 +38,12 @@ export default function WebHomePage() {
         style={{ height: '80px' }}
       >
         <div className="mx-auto max-w-7xl px-6 lg:px-10" style={{ marginTop: '-65px' }}>
-          <img
+          <Image
             src="/pathfinder-logo.svg"
             alt="PathFinder"
+            width={560}
+            height={200}
+            priority
             className="w-auto"
             style={{ height: '200px' }}
           />

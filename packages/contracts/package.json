@@ -5,7 +5,18 @@
     ".": "./src/index.ts",
     "./venue-package": "./src/venue-package.ts",
     "./evaluation": "./src/evaluation.ts",
-    "./prompt-contract": "./src/prompt-contract.ts"
+    "./prompt-contract": "./src/prompt-contract.ts",
+    "./tone-presets": "./src/tone-presets.ts",
+    "./venue-configuration": "./src/venue-configuration.ts",
+    "./guest-response": "./src/guest-response.ts",
+    "./support-workflow": "./src/support-workflow.ts",
+    "./content-model": "./src/content-model.ts",
+    "./intake-engine": "./src/intake-engine.ts",
+    "./staff-interview": "./src/staff-interview.ts",
+    "./venue-deployment-manifest": "./src/venue-deployment-manifest.ts",
+    "./mcp-v0": "./src/mcp-v0.ts",
+    "./offboarding": "./src/offboarding.ts",
+    "./partner-read-api": "./src/partner-read-api.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

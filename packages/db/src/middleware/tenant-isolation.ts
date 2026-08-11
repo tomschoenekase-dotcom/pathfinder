@@ -23,8 +23,28 @@ const APPEND_ONLY_MODELS = [
   'EvalRun',
   'EvalResult',
   'EvalReview',
+  'AgentAction',
+  'AgentTimelineEvent',
+  'ApprovalRequest',
+  'ApprovalDecision',
+  'SupportMessage',
+  'SupportMessageAttachment',
+  'SupportRequestAuditEvent',
+  'OffboardingVenueTarget',
+  'OffboardingRevocationEvidence',
+  'OffboardingExportArtifact',
+  'ContentModuleIdentity',
+  'ContentModuleRevision',
+  'ServiceContent',
+  'PolicyContent',
+  'EventContent',
+  'OperationalFactContent',
+  'RelationshipContent',
+  'ContentModuleEvidence',
 ] as const
+const AUDIT_LIFECYCLE_MODELS = ['AgentRun', 'SupportRequest', 'OffboardingPlan'] as const
 const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']
+const DESTRUCTIVE_ACTIONS = ['delete', 'deleteMany']
 
 function hasOwnTenantKey(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -161,6 +181,13 @@ export async function tenantIsolationMiddleware(
   if (
     APPEND_ONLY_MODELS.includes(params.model as (typeof APPEND_ONLY_MODELS)[number]) &&
     MUTATING_EXISTING_ACTIONS.includes(params.action)
+  ) {
+    throw new AppendOnlyModelError(params.model, params.action)
+  }
+
+  if (
+    AUDIT_LIFECYCLE_MODELS.includes(params.model as (typeof AUDIT_LIFECYCLE_MODELS)[number]) &&
+    DESTRUCTIVE_ACTIONS.includes(params.action)
   ) {
     throw new AppendOnlyModelError(params.model, params.action)
   }

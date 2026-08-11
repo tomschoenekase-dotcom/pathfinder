@@ -81,6 +81,8 @@ type PublicChatVenue = {
   aiGuideNotes: string | null
   aiFeaturedPlaceId: string | null
   aiTone: string | null
+  tonePreset: string | null
+  tonePresetVersion: number | null
   aiGuideName: string | null
   category: string | null
   guideMode: string | null
@@ -128,6 +130,8 @@ const admittedChatSendProcedure = publicProcedure
              ai_guide_notes AS "aiGuideNotes",
              ai_featured_place_id AS "aiFeaturedPlaceId",
              ai_tone AS "aiTone",
+             tone_preset AS "tonePreset",
+             tone_preset_version AS "tonePresetVersion",
              ai_guide_name AS "aiGuideName",
              category,
              guide_mode AS "guideMode",

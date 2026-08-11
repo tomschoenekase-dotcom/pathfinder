@@ -424,6 +424,47 @@
     }
   },
   {
+    "path": "support.listRequests",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "supportRequest.findMany",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "support.getRequest",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "supportRequest.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "requestId": "csupportabc1234567890"
+    }
+  },
+  {
+    "path": "support.createRequest",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "category": "GENERAL",
+      "subject": "Visitor information request",
+      "body": "Please review the visitor information."
+    }
+  },
+  {
+    "path": "support.addMessage",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "supportRequest.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "requestId": "csupportabc1234567890",
+      "expectedVersion": 1,
+      "body": "Here is the requested clarification."
+    }
+  },
+  {
     "path": "venue.getById",
     "kind": "query",
     "minimumRole": "STAFF",

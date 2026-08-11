@@ -2,187 +2,213 @@
 
 import Link from 'next/link'
 import { useOrganization } from '@clerk/nextjs'
-import { Bot, MapPin, Megaphone, Sparkles, Users, type LucideIcon } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Check,
+  CircleHelp,
+  Clock3,
+  Megaphone,
+  MessageCircle,
+  Sparkles,
+} from 'lucide-react'
 
 type DashboardOverviewProps = {
-  stats: {
-    activeAlerts: number
-    sessionsThisWeek: number
-    totalPlaces: number
-    venues: number
+  venue: {
+    id: string
+    name: string
+    isActive: boolean
+    placeCount: number
   }
+  venues: Array<{ id: string; name: string }>
+  activeUpdates: number
   chatUrl?: string | null
   impersonatedTenantName?: string
 }
 
-type QuickAction = {
-  href: string
-  label: string
-  description: string
-  icon: LucideIcon
-}
-
-type StatCard = {
-  href: string
-  icon: LucideIcon
-  iconClassName?: string
-  label: string
-  valueKey: keyof DashboardOverviewProps['stats']
-  description: string
-}
-
-function getQuickActions(stats: DashboardOverviewProps['stats']) {
-  const actions: QuickAction[] = []
-
-  if (stats.venues === 0) {
-    actions.push({
-      href: '/venues/new',
-      label: 'Create your chatbot',
-      description: 'Set up your chatbot to get started.',
-      icon: Bot,
-    })
-  } else if (stats.totalPlaces < 5) {
-    actions.push({
-      href: '/venues',
-      label: 'Add guide items',
-      description: 'The more guide items you add, the better the chatbot answers.',
-      icon: MapPin,
-    })
-  } else {
-    actions.push({
-      href: '/ai-controls',
-      label: 'Tune the AI guide',
-      description: 'Adjust tone, featured guide items, and guide notes.',
-      icon: Bot,
-    })
-  }
-
-  actions.push({
-    href: '/operational-updates/new',
-    label: 'Publish an alert',
-    description: 'Let guests know about closures or changes right now.',
-    icon: Megaphone,
-  })
-
-  actions.push({
-    href: '/chat-design',
-    label: 'Customise chat design',
-    description: 'Change colours, logo, and header image for your guest chat.',
-    icon: Sparkles,
-  })
-
-  return actions
-}
-
-const statCards: StatCard[] = [
-  {
-    href: '/venues',
-    icon: MapPin,
-    iconClassName: 'text-pf-accent',
-    label: 'Total Guide Items',
-    valueKey: 'totalPlaces',
-    description: 'Guide items configured for your chatbot.',
-  },
-  {
-    href: '/operational-updates',
-    icon: Megaphone,
-    label: 'Active Alerts',
-    valueKey: 'activeAlerts',
-    description: 'Closures and redirects currently published to guests.',
-  },
-  {
-    href: '/analytics',
-    icon: Users,
-    iconClassName: 'text-pf-accent',
-    label: 'Sessions this week',
-    valueKey: 'sessionsThisWeek',
-    description: 'Unique guest chat sessions opened in the last 7 days.',
-  },
-] as const
-
 export function DashboardOverview({
-  stats,
+  venue,
+  venues,
+  activeUpdates,
   chatUrl,
   impersonatedTenantName,
 }: DashboardOverviewProps) {
   const { organization } = useOrganization()
-  const orgName = impersonatedTenantName ?? organization?.name ?? 'Your organization'
-  const quickActions = getQuickActions(stats)
+  const orgName = impersonatedTenantName ?? organization?.name ?? venue.name
+  const isReady = venue.isActive && venue.placeCount > 0
 
   return (
-    <div className="min-h-screen px-6 py-10 lg:px-10">
-      <div className="mx-auto max-w-7xl space-y-8">
-        <section>
-          <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">{orgName}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-pf-deep/50">
-            Monitor guest activity, publish operational alerts, and fine-tune your AI guide.
-          </p>
+    <div className="min-h-screen px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
+      <div className="mx-auto max-w-6xl space-y-6 sm:space-y-8">
+        <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-pf-primary">Welcome back</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-pf-deep sm:text-4xl">
+              {orgName}
+            </h1>
+            {venues.length > 1 ? (
+              <nav className="mt-3 flex flex-wrap gap-2" aria-label="Choose venue">
+                {venues.map((option) => {
+                  const selected = option.id === venue.id
+                  return (
+                    <Link
+                      key={option.id}
+                      href={`/?venue=${encodeURIComponent(option.id)}`}
+                      aria-current={selected ? 'page' : undefined}
+                      className={[
+                        'rounded-full border px-3 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent',
+                        selected
+                          ? 'border-pf-primary bg-pf-primary text-white'
+                          : 'border-pf-light bg-white text-pf-deep hover:border-pf-accent',
+                      ].join(' ')}
+                    >
+                      {option.name}
+                    </Link>
+                  )
+                })}
+              </nav>
+            ) : null}
+          </div>
           {chatUrl ? (
             <a
               href={chatUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-4 inline-flex min-h-10 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-pf-deep px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
             >
-              Open guest chat →
+              Open PathFinder <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
             </a>
           ) : null}
-        </section>
+        </header>
 
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {statCards.map((card) => {
-            const Icon = card.icon
-            const iconClassName =
-              card.valueKey === 'activeAlerts' && stats.activeAlerts > 0
-                ? 'text-amber-500'
-                : (card.iconClassName ?? 'text-pf-accent')
-
-            return (
-              <Link
-                key={card.label}
-                href={card.href}
-                className="block rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm transition hover:border-pf-accent/40 hover:shadow-md"
-              >
-                <Icon className={`h-5 w-5 ${iconClassName}`} aria-hidden="true" />
-                <p className="mt-4 text-sm font-medium text-pf-deep/50">{card.label}</p>
-                <p className="mt-3 text-3xl font-semibold tracking-tight text-pf-deep">
-                  {stats[card.valueKey]}
-                </p>
-                <p className="mt-3 text-sm text-pf-deep/60">{card.description}</p>
-              </Link>
-            )
-          })}
-        </section>
-
-        <section className="rounded-3xl border border-pf-light bg-pf-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-5 w-5 text-pf-accent" aria-hidden="true" />
+        <section className="overflow-hidden rounded-[2rem] bg-pf-deep text-white shadow-sm">
+          <div className="grid gap-8 px-6 py-8 sm:px-9 sm:py-10 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
             <div>
-              <h2 className="text-xl font-semibold text-pf-deep">Quick Actions</h2>
-              <p className="text-sm leading-6 text-pf-deep/50">
-                Jump into the next setup steps for your tenant workspace.
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-sm font-medium">
+                {isReady ? (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-emerald-300" /> PathFinder is live
+                  </>
+                ) : (
+                  <>
+                    <Clock3 className="h-4 w-4" aria-hidden="true" /> Your PathFinder is being
+                    prepared
+                  </>
+                )}
+              </div>
+              <h2 className="mt-6 max-w-2xl text-2xl font-semibold tracking-tight sm:text-3xl">
+                {isReady
+                  ? 'Your visitors can explore with PathFinder now.'
+                  : 'We’re building the experience for your visitors.'}
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-pf-light/80">
+                {isReady
+                  ? 'Use this portal for timely visitor updates, voice preferences, and help from the PathFinder team.'
+                  : 'We’ll keep this page current as your content is reviewed and your first preview becomes ready.'}
               </p>
             </div>
+            <div className="rounded-3xl bg-white/10 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pf-light/90">
+                Right now
+              </p>
+              <p className="mt-3 text-lg font-semibold">
+                {activeUpdates === 0
+                  ? 'No temporary visitor updates'
+                  : `${activeUpdates} visitor update${activeUpdates === 1 ? '' : 's'} live`}
+              </p>
+              <Link
+                href="/operational-updates/new"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-white underline decoration-white/30 underline-offset-4 hover:decoration-white"
+              >
+                Add an update <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </div>
           </div>
+        </section>
 
-          <div className="mt-6 grid gap-4 lg:grid-cols-3">
-            {quickActions.map((action) => {
-              const Icon = action.icon
+        {!isReady ? (
+          <section
+            aria-labelledby="next-step-heading"
+            className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8"
+          >
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Check className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-pf-primary">Your next step</p>
+                <h2 id="next-step-heading" className="mt-1 text-xl font-semibold text-pf-deep">
+                  {venue.placeCount === 0
+                    ? 'Your information is with the PathFinder team'
+                    : 'Preview preparation is underway'}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+                  {venue.placeCount === 0
+                    ? 'There is nothing technical for you to configure here. We’ll ask for any missing information as we assemble your PathFinder.'
+                    : 'Your venue information has been added. We’ll let you know here when the visitor preview is ready.'}
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
-              return (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  className="rounded-3xl border border-pf-light bg-pf-surface p-5 transition hover:border-pf-accent/40 hover:bg-pf-white"
-                >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-pf-white text-pf-primary shadow-sm">
-                    <Icon className="h-5 w-5" aria-hidden="true" />
-                  </div>
-                  <h3 className="mt-5 text-lg font-semibold text-pf-deep">{action.label}</h3>
-                  <p className="mt-2 text-sm leading-6 text-pf-deep/60">{action.description}</p>
-                </Link>
-              )
-            })}
+        <section aria-labelledby="manage-heading">
+          <div>
+            <p className="text-sm font-medium text-pf-primary">Keep it current</p>
+            <h2
+              id="manage-heading"
+              className="mt-1 text-2xl font-semibold tracking-tight text-pf-deep"
+            >
+              The essentials
+            </h2>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <Link
+              href="/operational-updates"
+              className="group rounded-[1.75rem] border border-pf-light bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-pf-accent/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent motion-reduce:transform-none motion-reduce:transition-none"
+            >
+              <Megaphone className="h-5 w-5 text-pf-primary" aria-hidden="true" />
+              <h3 className="mt-5 text-lg font-semibold text-pf-deep">Visitor updates</h3>
+              <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+                Share a closure, event, parking change, or other temporary notice.
+              </p>
+              <span className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-pf-primary">
+                Manage updates{' '}
+                <ArrowUpRight
+                  className="h-4 w-4 transition group-hover:translate-x-0.5 motion-reduce:transform-none motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+              </span>
+            </Link>
+            <Link
+              href="/ai-controls"
+              className="group rounded-[1.75rem] border border-pf-light bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-pf-accent/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent motion-reduce:transform-none motion-reduce:transition-none"
+            >
+              <Sparkles className="h-5 w-5 text-pf-primary" aria-hidden="true" />
+              <h3 className="mt-5 text-lg font-semibold text-pf-deep">PathFinder tone</h3>
+              <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+                Choose a simple voice that feels right for your visitors.
+              </p>
+              <span className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-pf-primary">
+                Choose a tone{' '}
+                <ArrowUpRight
+                  className="h-4 w-4 transition group-hover:translate-x-0.5 motion-reduce:transform-none motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+              </span>
+            </Link>
+            <Link
+              href="/support"
+              className="group rounded-[1.75rem] border border-pf-light bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-pf-accent/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent motion-reduce:transform-none motion-reduce:transition-none"
+            >
+              <MessageCircle className="h-5 w-5 text-pf-primary" aria-hidden="true" />
+              <h3 className="mt-5 text-lg font-semibold text-pf-deep">PathFinder Support</h3>
+              <p className="mt-2 text-sm leading-6 text-pf-deep/75">
+                See the current support option for questions and change requests.
+              </p>
+              <span className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-pf-primary">
+                Get support <CircleHelp className="h-4 w-4" aria-hidden="true" />
+              </span>
+            </Link>
           </div>
         </section>
       </div>

@@ -11,9 +11,11 @@ type AdminVenueDetailPageProps = {
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-2xl border border-pf-light bg-pf-white p-5 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-widest text-pf-deep/40">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep">{value}</p>
+    <div className="border-l-2 border-pf-primary/20 px-4 py-2 first:border-l-0 first:pl-0">
+      <p className="text-[0.68rem] font-bold uppercase tracking-[0.15em] text-pf-deep/40">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-semibold tracking-tight text-pf-deep">{value}</p>
     </div>
   )
 }
@@ -64,34 +66,47 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
   const hasCenter = venue.defaultCenterLat != null && venue.defaultCenterLng != null
 
   return (
-    <div className="space-y-10">
-      <Link
-        href={`/admin/clients/${tenantId}`}
-        className="text-sm font-medium text-pf-primary hover:text-pf-accent"
-      >
-        ← Back to client
-      </Link>
-
-      <header className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-4xl font-semibold tracking-tight text-pf-deep">{venue.name}</h1>
-          {venue.isActive ? null : (
-            <span className="inline-flex rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-semibold uppercase tracking-wider text-pf-deep/50">
-              Inactive
-            </span>
+    <div className="space-y-8">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-pf-primary">
+            Venue control room
+          </p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-pf-deep">
+            Venue overview
+          </h2>
+          {venue.description ? (
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-pf-deep/55">{venue.description}</p>
+          ) : (
+            <p className="mt-1 text-sm text-pf-deep/55">No venue description has been added.</p>
           )}
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-pf-deep/50">
-          <span className="rounded-full bg-pf-surface px-2 py-0.5 font-mono">{venue.slug}</span>
-          <span>{formatGuideMode(venue.guideMode)}</span>
+          <span
+            className={`rounded-full px-3 py-1 font-bold uppercase tracking-wider ${venue.isActive ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}
+          >
+            {venue.isActive ? 'Live' : 'Paused'}
+          </span>
+          <span className="rounded-full bg-pf-surface px-3 py-1">
+            {formatGuideMode(venue.guideMode)}
+          </span>
           {venue.category ? <span>{venue.category}</span> : null}
-          {venue.aiGuideName ? <span>Guide: {venue.aiGuideName}</span> : null}
-          {venue.aiTone ? <span>Tone: {venue.aiTone}</span> : null}
         </div>
-        {venue.description ? (
-          <p className="max-w-2xl text-sm leading-6 text-pf-deep/60">{venue.description}</p>
-        ) : null}
       </header>
+
+      {!venue.isActive || places.length === 0 ? (
+        <section
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3"
+          aria-label="Venue warnings"
+        >
+          <p className="text-sm font-semibold text-amber-950">Guest experience needs attention</p>
+          <p className="mt-0.5 text-sm text-amber-900/75">
+            {!venue.isActive
+              ? 'Guest access and venue-scoped processing are paused.'
+              : 'This venue has no public guide items yet.'}
+          </p>
+        </section>
+      ) : null}
 
       <VenueAvailabilityControl
         scope="admin"
@@ -104,8 +119,11 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
         }}
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Points of interest" value={venue._count.places} />
+      <section
+        className="grid grid-cols-2 gap-y-5 rounded-2xl border border-pf-light bg-pf-surface/45 px-5 py-4 lg:grid-cols-4"
+        aria-label="Venue summary"
+      >
+        <StatCard label="Guide items" value={venue._count.places} />
         <StatCard label="Sessions (7d)" value={engagement7d.sessions} />
         <StatCard label="Messages (7d)" value={engagement7d.messages} />
         <StatCard
@@ -113,49 +131,67 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
           value={
             hasCenter
               ? `${venue.defaultCenterLat!.toFixed(4)}, ${venue.defaultCenterLng!.toFixed(4)}`
-              : '—'
+              : 'Not set'
           }
         />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        {[
-          {
-            href: `/admin/clients/${tenantId}/venues/${venueId}/media`,
-            title: 'Media lab',
-            body: 'Turn a ZIP of photos, video, audio, and notes into reviewed venue JSON.',
-          },
-          {
-            href: `/admin/clients/${tenantId}/venues/${venueId}/chatlogs`,
-            title: 'Chatlog review',
-            body: 'Browse transcripts, captured answers, notable flags, and private notes.',
-          },
-          {
-            href: `/admin/clients/${tenantId}/venues/${venueId}/analysis`,
-            title: 'Answer analysis',
-            body: 'Generate AI summaries from collected visitor answers.',
-          },
-          {
-            href: `/admin/clients/${tenantId}/venues/${venueId}/reports`,
-            title: 'Reports',
-            body: 'Draft, edit, and publish client-facing reports for any date range.',
-          },
-        ].map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="rounded-2xl border border-pf-light bg-pf-white p-5 shadow-sm transition hover:border-pf-accent"
-          >
-            <h2 className="text-lg font-semibold tracking-tight text-pf-deep">{item.title}</h2>
-            <p className="mt-2 text-sm leading-6 text-pf-deep/60">{item.body}</p>
-            <span className="mt-4 inline-flex text-sm font-medium text-pf-primary">Open</span>
-          </Link>
-        ))}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight text-pf-deep">Operator workflows</h2>
+          <p className="mt-1 text-sm text-pf-deep/55">
+            The same tools are grouped in the workspace navigation for quick repeat access.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            {
+              href: `/admin/clients/${tenantId}/venues/${venueId}/media`,
+              title: 'Media lab',
+              body: 'Turn a ZIP of photos, video, audio, and notes into reviewed venue JSON.',
+            },
+            {
+              href: `/admin/clients/${tenantId}/venues/${venueId}/chatlogs`,
+              title: 'Chatlog review',
+              body: 'Browse transcripts, captured answers, notable flags, and private notes.',
+            },
+            {
+              href: `/admin/clients/${tenantId}/venues/${venueId}/analysis`,
+              title: 'Answer analysis',
+              body: 'Generate AI summaries from collected visitor answers.',
+            },
+            {
+              href: `/admin/clients/${tenantId}/venues/${venueId}/reports`,
+              title: 'Reports',
+              body: 'Draft, edit, and publish client-facing reports for any date range.',
+            },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-2xl border border-pf-light bg-pf-white p-5 transition hover:border-pf-accent hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+            >
+              <h2 className="text-lg font-semibold tracking-tight text-pf-deep">{item.title}</h2>
+              <p className="mt-2 text-sm leading-6 text-pf-deep/60">{item.body}</p>
+              <span className="mt-4 inline-flex text-sm font-semibold text-pf-primary">
+                Open workflow{' '}
+                <span aria-hidden="true" className="ml-1">
+                  →
+                </span>
+              </span>
+            </Link>
+          ))}
+        </div>
       </section>
 
       <section className="space-y-4">
         <div className="flex items-end justify-between">
-          <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">Points of interest</h2>
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-pf-deep">Guide content</h2>
+            <p className="mt-1 text-sm text-pf-deep/55">
+              Granular knowledge available to this venue experience.
+            </p>
+          </div>
           <span className="text-sm text-pf-deep/50">{places.length} total</span>
         </div>
 
@@ -164,8 +200,8 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
             This venue has no points of interest yet.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-pf-light bg-pf-white shadow-sm">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto rounded-2xl border border-pf-light bg-pf-white">
+            <table className="min-w-[44rem] w-full text-left text-sm">
               <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Name</th>

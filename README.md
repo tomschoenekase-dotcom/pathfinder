@@ -15,6 +15,7 @@ PathFinderOS is a multi-tenant SaaS monorepo for a public guest app, a tenant da
 - `packages/contracts` — provider-neutral shared schemas and versioned contracts
 - `packages/db` — Prisma client, tenancy middleware, and persistence helpers
 - `packages/jobs` — BullMQ queues, payloads, and dispatch policy
+- `packages/intake-engine` — source-adapter orchestration, evidence reconciliation, and draft handoff
 - `packages/ui` — shared React components and guest-chat theming
 
 The inventory above is checked against every `apps/*/package.json` and `packages/*/package.json` by the repository script tests.

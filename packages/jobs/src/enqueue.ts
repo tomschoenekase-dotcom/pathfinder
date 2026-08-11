@@ -37,6 +37,9 @@ import {
   WEEKLY_REPORT_QUEUE,
   WEEKLY_REPORT_RECOVERY_JOB,
   WEEKLY_REPORT_RETRY_BACKOFF,
+  EVALUATION_RUN_PROCESS_JOB,
+  EVALUATION_RUN_QUEUE,
+  EVALUATION_RUN_RETRY_BACKOFF,
 } from './queues'
 import { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 import type {
@@ -50,6 +53,7 @@ import type {
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
   MediaIngestionJobPayload,
+  EvaluationRunJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -203,6 +207,36 @@ const mediaIngestionJobOptions: JobsOptions = {
   backoff: { type: MEDIA_INGESTION_RETRY_BACKOFF },
   removeOnComplete: 100,
   removeOnFail: 500,
+}
+
+const evaluationRunJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: { type: EVALUATION_RUN_RETRY_BACKOFF },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+/** Evaluation execution is deliberately default-off. Callers must pass the
+ * operator-controlled gate explicitly; omission can never enqueue work. */
+export async function enqueueEvaluationRun(
+  payload: EvaluationRunJobPayload,
+  options: { enabled?: boolean } = {},
+): Promise<{ enqueued: boolean }> {
+  if (options.enabled !== true) return { enqueued: false }
+  if (!UUID_PATTERN.test(payload.runId) || !/^[0-9a-f]{64}$/u.test(payload.runIdentityHash)) {
+    throw new Error('Evaluation run payload must contain a UUID and lowercase identity hash')
+  }
+  await getQueue(EVALUATION_RUN_QUEUE).add(EVALUATION_RUN_PROCESS_JOB, payload, {
+    ...evaluationRunJobOptions,
+    jobId: `evaluation-run-${payload.runId}`,
+  })
+  logger.info({
+    action: 'jobs.evaluation-run.enqueued',
+    tenantId: payload.tenantId,
+    venueId: payload.venueId,
+    runId: payload.runId,
+  })
+  return { enqueued: true }
 }
 
 export async function enqueueMediaIngestion(payload: MediaIngestionJobPayload): Promise<void> {

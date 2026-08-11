@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isAdminPath, resolveDashboardAccess } from './middleware-access'
+import { isAdminPath, isInternalWorkspacePath, resolveDashboardAccess } from './middleware-access'
 
 const signedIn = {
   userId: 'user_1',
@@ -54,6 +54,29 @@ describe('dashboard middleware access policy', () => {
       }),
     ).toBe('root')
   })
+
+  it.each([
+    '/analytics',
+    '/chat-design',
+    '/engagement-questions',
+    '/venues',
+    '/venues/venue_1/import',
+    '/weekly-reports',
+  ])('keeps the internal workspace route %s unavailable to client users', (pathname) => {
+    expect(isInternalWorkspacePath(pathname)).toBe(true)
+    expect(resolveDashboardAccess({ ...signedIn, pathname })).toBe('root')
+    expect(resolveDashboardAccess({ ...signedIn, pathname, platformRole: 'PLATFORM_ADMIN' })).toBe(
+      'next',
+    )
+  })
+
+  it.each(['/', '/ai-controls', '/operational-updates', '/support', '/settings', '/onboarding'])(
+    'keeps the client portal route %s available to client users',
+    (pathname) => {
+      expect(isInternalWorkspacePath(pathname)).toBe(false)
+      expect(resolveDashboardAccess({ ...signedIn, pathname })).toBe('next')
+    },
+  )
 
   it('preserves tenant onboarding for a signed-in user without an organization', () => {
     expect(

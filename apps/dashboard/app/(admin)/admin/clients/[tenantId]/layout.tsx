@@ -2,7 +2,9 @@ export const dynamic = 'force-dynamic'
 
 import type { ReactNode } from 'react'
 
-import { AdminTab } from '../../../../../components/admin/AdminTab'
+import { ClientWorkspaceShell } from '../../../../../components/admin/ClientWorkspaceShell'
+import { createAdminCaller } from '../../../../../lib/admin-caller'
+import { buildGuestChatUrl } from '../../../../../lib/guest-chat-url'
 
 type AdminClientLayoutProps = {
   children: ReactNode
@@ -11,14 +13,34 @@ type AdminClientLayoutProps = {
 
 export default async function AdminClientLayout({ children, params }: AdminClientLayoutProps) {
   const { tenantId } = await params
+  const caller = await createAdminCaller()
+
+  let data: Awaited<ReturnType<Awaited<ReturnType<typeof createAdminCaller>>['admin']['getClient']>>
+  try {
+    data = await caller.admin.getClient({ tenantId })
+  } catch {
+    return <>{children}</>
+  }
 
   return (
-    <div className="space-y-6">
-      <nav className="flex gap-1 border-b border-pf-light pb-0" aria-label="Client sections">
-        <AdminTab href={`/admin/clients/${tenantId}`} label="Overview" />
-        <AdminTab href={`/admin/clients/${tenantId}/analytics`} label="Analytics" />
-      </nav>
+    <ClientWorkspaceShell
+      client={{
+        id: data.tenant.id,
+        name: data.tenant.name,
+        slug: data.tenant.slug,
+        status: data.tenant.status,
+      }}
+      venues={data.venues.map((venue) => ({
+        id: venue.id,
+        name: venue.name,
+        slug: venue.slug,
+        isActive: venue.isActive,
+        guestUrl: buildGuestChatUrl(process.env.NEXT_PUBLIC_WEB_URL, venue.slug, {
+          allowLoopbackHttp: process.env.NODE_ENV !== 'production',
+        }),
+      }))}
+    >
       {children}
-    </div>
+    </ClientWorkspaceShell>
   )
 }

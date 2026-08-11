@@ -9,6 +9,22 @@ function hexToLightness(hex: string): number {
   return (Math.max(r, g, b) + Math.min(r, g, b)) / 2
 }
 
+function contrastRatio(first: string, second: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)].map((channel) => {
+      const value = parseInt(channel, 16) / 255
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+  }
+  const firstLuminance = luminance(first)
+  const secondLuminance = luminance(second)
+  return (
+    (Math.max(firstLuminance, secondLuminance) + 0.05) /
+    (Math.min(firstLuminance, secondLuminance) + 0.05)
+  )
+}
+
 describe('deriveNeonPalette', () => {
   it('produces a dark background, card, and border', () => {
     const palette = deriveNeonPalette('#3A7BD5')
@@ -40,6 +56,15 @@ describe('getChatPalette', () => {
 
     expect(palette.isDark).toBe(false)
     expect(palette.accent).toBe('#2D6A4F')
+  })
+
+  it('keeps normal accent and muted text at AA contrast', () => {
+    for (const theme of ['default', 'forest', 'sunset', 'midnight', 'rose']) {
+      const palette = getChatPalette(theme)
+      expect(contrastRatio(palette.accent, palette.accentContrast)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(palette.card, palette.textMuted)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(palette.bg, palette.textMuted)).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   it('returns a derived neon palette for the dark theme using the accent override', () => {

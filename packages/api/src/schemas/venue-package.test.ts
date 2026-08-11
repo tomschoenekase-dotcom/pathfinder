@@ -268,6 +268,7 @@ describe('venue package schema', () => {
         aiBehavior: {
           aiGuideNotes: null,
           aiTone: null,
+          tonePreset: 'concise',
           aiGuideName: null,
         },
       },
@@ -278,6 +279,7 @@ describe('venue package schema', () => {
     expect(parsed.venue?.identity).not.toHaveProperty('category')
     expect(parsed.venue?.identity?.description).toBeNull()
     expect(parsed.venue?.guideNotes).toBeNull()
+    expect(parsed.venue?.aiBehavior?.tonePreset).toBe('concise')
 
     expect(
       VenuePackagePayload.safeParse({

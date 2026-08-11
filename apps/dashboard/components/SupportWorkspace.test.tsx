@@ -1,0 +1,221 @@
+/* @vitest-environment jsdom */
+
+import React from 'react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+;(globalThis as typeof globalThis & { React: typeof React }).React = React
+
+const mocks = vi.hoisted(() => ({
+  replace: vi.fn(),
+  listRequests: vi.fn(),
+  getRequest: vi.fn(),
+  createRequest: vi.fn(),
+  addMessage: vi.fn(),
+}))
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: mocks.replace }) }))
+vi.mock('../lib/trpc', () => ({
+  useTRPCClient: () => ({
+    support: {
+      listRequests: { query: mocks.listRequests },
+      getRequest: { query: mocks.getRequest },
+      createRequest: { mutate: mocks.createRequest },
+      addMessage: { mutate: mocks.addMessage },
+    },
+  }),
+}))
+
+import { SupportWorkspace } from './SupportWorkspace'
+
+const venue = { id: 'venue_alpha', name: 'Science Museum' }
+const otherVenue = { id: 'venue_beta', name: 'History Center' }
+const request = {
+  id: 'request_1',
+  venueId: venue.id,
+  category: 'GENERAL',
+  status: 'OPEN',
+  subject: 'Update our opening time',
+  missingInformation: [],
+  version: 4,
+  statusChangedAt: '2026-08-10T14:00:00.000Z',
+  createdAt: '2026-08-10T14:00:00.000Z',
+  updatedAt: '2026-08-10T15:00:00.000Z',
+}
+const clientMessage = {
+  id: 'message_1',
+  authorKind: 'CLIENT',
+  visibility: 'CLIENT_VISIBLE' as const,
+  body: 'We now open at nine.',
+  createdAt: '2026-08-10T14:00:00.000Z',
+  attachments: [],
+}
+const detail = { ...request, messages: [clientMessage], nextMessageCursor: null }
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+function renderWorkspace(overrides: Partial<React.ComponentProps<typeof SupportWorkspace>> = {}) {
+  return render(
+    <SupportWorkspace
+      venues={[venue]}
+      activeVenue={venue}
+      initialRequests={[request]}
+      initialNextCursor={null}
+      initialDetail={detail}
+      {...overrides}
+    />,
+  )
+}
+
+describe('SupportWorkspace', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.listRequests.mockResolvedValue({ items: [], nextCursor: null })
+    mocks.getRequest.mockResolvedValue(detail)
+  })
+
+  afterEach(cleanup)
+
+  it('keeps a single venue implicit and defensively renders only client-visible conversation data', () => {
+    const adversarialDetail = {
+      ...detail,
+      internalNotes: 'INTERNAL ONLY: call the worker',
+      artifacts: { patch: 'secret patch' },
+      analytics: { cost: 99 },
+      messages: [
+        clientMessage,
+        {
+          ...clientMessage,
+          id: 'message_internal',
+          visibility: 'INTERNAL',
+          body: 'Internal worker note with artifact analytics',
+        },
+      ],
+    }
+
+    renderWorkspace({ initialDetail: adversarialDetail as never })
+
+    expect(screen.queryByLabelText('Venue')).toBeNull()
+    expect(screen.getByText('We now open at nine.')).toBeTruthy()
+    expect(
+      screen.queryByText(/INTERNAL ONLY|secret patch|worker note|artifact analytics/i),
+    ).toBeNull()
+    expect(document.body.textContent).not.toMatch(/internalNotes|artifacts|analytics/)
+  })
+
+  it('uses an unobtrusive selector for multiple venues and changes only the venue query', () => {
+    renderWorkspace({ venues: [venue, otherVenue] })
+
+    fireEvent.change(screen.getByLabelText('Venue'), { target: { value: otherVenue.id } })
+
+    expect(mocks.replace).toHaveBeenCalledWith('/support?venue=venue_beta')
+  })
+
+  it('loads paginated requests with the exact active venue scope', async () => {
+    const cursor = { updatedAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }
+    renderWorkspace({ initialNextCursor: cursor })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+    await waitFor(() =>
+      expect(mocks.listRequests).toHaveBeenCalledWith({ venueId: venue.id, cursor }),
+    )
+  })
+
+  it('does not claim a create succeeded while pending or after failure, and preserves the draft', async () => {
+    const pending = deferred<never>()
+    mocks.createRequest.mockReturnValueOnce(pending.promise)
+    renderWorkspace({ initialRequests: [], initialDetail: null })
+
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'New visitor hours' } })
+    fireEvent.change(screen.getByLabelText('Message'), {
+      target: { value: 'Please show our summer schedule.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sending…' }))
+
+    expect(mocks.createRequest).toHaveBeenCalledOnce()
+    expect(mocks.createRequest).toHaveBeenCalledWith({
+      venueId: venue.id,
+      category: 'GENERAL',
+      subject: 'New visitor hours',
+      body: 'Please show our summer schedule.',
+    })
+    expect(screen.queryByText(/message was sent/i)).toBeNull()
+
+    await act(async () => pending.reject(new Error('Connection lost.')))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('draft is still here')
+    expect(screen.queryByText(/message was sent/i)).toBeNull()
+    expect(screen.getByLabelText<HTMLInputElement>('Subject').value).toBe('New visitor hours')
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Message').value).toBe(
+      'Please show our summer schedule.',
+    )
+  })
+
+  it('sends replies with the displayed version and handles CAS conflicts without losing or falsely sending the draft', async () => {
+    mocks.addMessage.mockRejectedValueOnce(new Error('Support request changed; refresh it'))
+    renderWorkspace()
+
+    fireEvent.change(screen.getByLabelText('Reply'), {
+      target: { value: 'The revised wording looks right.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+
+    await waitFor(() =>
+      expect(mocks.addMessage).toHaveBeenCalledWith({
+        venueId: venue.id,
+        requestId: request.id,
+        expectedVersion: 4,
+        body: 'The revised wording looks right.',
+      }),
+    )
+    expect((await screen.findByRole('alert')).textContent).toMatch(/not sent.*changed/i)
+    expect(screen.queryByText('Your reply was sent.')).toBeNull()
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe(
+      'The revised wording looks right.',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() =>
+      expect(mocks.getRequest).toHaveBeenCalledWith({
+        venueId: venue.id,
+        requestId: request.id,
+      }),
+    )
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe(
+      'The revised wording looks right.',
+    )
+  })
+
+  it('shows success and clears a reply only after the write resolves', async () => {
+    const pending = deferred<{
+      requestVersion: number
+      message: typeof clientMessage
+    }>()
+    mocks.addMessage.mockReturnValueOnce(pending.promise)
+    renderWorkspace()
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Thank you.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+
+    expect(screen.queryByText('Your reply was sent.')).toBeNull()
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('Thank you.')
+
+    await act(async () =>
+      pending.resolve({
+        requestVersion: 5,
+        message: { ...clientMessage, id: 'message_2', body: 'Thank you.' },
+      }),
+    )
+
+    expect(await screen.findByText('Your reply was sent.')).toBeTruthy()
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('')
+  })
+})

@@ -156,6 +156,9 @@ importers:
       '@pathfinder/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@pathfinder/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pathfinder/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -327,6 +330,9 @@ importers:
       '@pathfinder/db':
         specifier: workspace:*
         version: link:../db
+      '@pathfinder/intake-engine':
+        specifier: workspace:*
+        version: link:../intake-engine
       '@pathfinder/jobs':
         specifier: workspace:*
         version: link:../jobs
@@ -385,6 +391,16 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
+
+  packages/intake-engine:
+    dependencies:
+      '@pathfinder/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.12.2
 
   packages/jobs:
     dependencies:

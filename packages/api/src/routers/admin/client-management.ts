@@ -25,10 +25,22 @@ export const adminClientManagementRouter = router({
     return withTenantIsolationBypass(() =>
       db.tenant.findMany({
         orderBy: { createdAt: 'desc' },
-        include: {
+        // Compatibility-only endpoint. New interfaces use searchClients;
+        // keep legacy callers bounded until the procedure can be removed.
+        take: 100,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          createdAt: true,
           memberships: {
             where: { status: 'ACTIVE' },
-            include: { user: true },
+            select: {
+              id: true,
+              role: true,
+              user: { select: { email: true, fullName: true } },
+            },
           },
         },
       }),

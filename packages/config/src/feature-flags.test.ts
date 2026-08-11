@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { FEATURE_FLAGS, isEmbedPreviewEnabled } from './feature-flags'
+import { FEATURE_FLAGS, isEmbedPreviewEnabled, isFeatureEnabled } from './feature-flags'
 
 describe('embed preview feature boundary', () => {
   it('is documented as default-off', () => {
@@ -17,3 +17,28 @@ describe('embed preview feature boundary', () => {
     expect(isEmbedPreviewEnabled({ EMBED_PREVIEW_ENABLED: 'true' })).toBe(true)
   })
 })
+
+describe('Packet 2 dark-launch boundaries', () => {
+  it('keeps every risky infrastructure flag default-off', () => {
+    for (const flag of Object.values(FEATURE_FLAGS)) {
+      expect(flag.defaultEnabled).toBe(false)
+      expect(isFeatureEnabledByEnvironmentVariable(flag.environmentVariable, {})).toBe(false)
+    }
+  })
+
+  it('does not enable similarly spelled or truthy values', () => {
+    expect(isFeatureEnabled('partnerReadApi', { PARTNER_READ_API_ENABLED: 'TRUE' })).toBe(false)
+    expect(isFeatureEnabled('partnerReadApi', { PARTNER_READ_API_ENABLED: '1' })).toBe(false)
+    expect(isFeatureEnabled('partnerReadApi', { PARTNER_READ_API_ENABLED: 'true' })).toBe(true)
+  })
+})
+
+function isFeatureEnabledByEnvironmentVariable(
+  environmentVariable: string,
+  environment: Readonly<Record<string, string | undefined>>,
+) {
+  const key = Object.entries(FEATURE_FLAGS).find(
+    ([, flag]) => flag.environmentVariable === environmentVariable,
+  )?.[0] as keyof typeof FEATURE_FLAGS | undefined
+  return key === undefined ? false : isFeatureEnabled(key, environment)
+}

@@ -40,7 +40,40 @@ const harness = vi.hoisted(() => {
 })
 
 vi.mock('@pathfinder/db', () => ({
+  SupportActionError: class SupportActionError extends Error {},
+  appendSupportMessageAction: vi.fn(
+    (
+      input: { requestId: string; tenantId: string; venueId: string },
+      client: {
+        $transaction: (
+          callback: (tx: { supportRequest: { findFirst: (args: unknown) => unknown } }) => unknown,
+        ) => unknown
+      },
+    ) =>
+      client.$transaction((tx) =>
+        tx.supportRequest.findFirst({
+          where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
+          select: { id: true, status: true, version: true },
+        }),
+      ),
+  ),
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+  createSupportRequestAction: vi.fn(
+    (
+      input: { tenantId: string; venueId: string },
+      client: {
+        $transaction: (
+          callback: (tx: { venue: { findFirst: (args: unknown) => unknown } }) => unknown,
+        ) => unknown
+      },
+    ) =>
+      client.$transaction((tx) =>
+        tx.venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        }),
+      ),
+  ),
   db: harness.db,
   lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
   lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),
@@ -79,6 +112,7 @@ import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
+import { supportRouter } from './routers/support'
 import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
 import { venuePackageRouter } from './routers/venue-package'
@@ -93,6 +127,7 @@ const testRouter = router({
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,
   place: placeRouter,
+  support: supportRouter,
   tenant: tenantRouter,
   venue: venueRouter,
   venuePackage: venuePackageRouter,

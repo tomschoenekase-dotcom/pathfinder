@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import { notFound } from 'next/navigation'
 import { TRPCError } from '@trpc/server'
+import { TONE_PRESET_REGISTRY, resolveEffectiveTone } from '@pathfinder/contracts/tone-presets'
 
 import { createDashboardCaller } from '../../../../lib/server-caller'
 import { ContentHistoryPanel } from '../../../../components/ContentHistoryPanel'
@@ -18,12 +19,6 @@ type VenueDetailPageProps = {
   searchParams: Promise<{
     onboarded?: string
   }>
-}
-
-const TONE_LABELS: Record<string, string> = {
-  FRIENDLY: 'Friendly',
-  PROFESSIONAL: 'Professional',
-  PLAYFUL: 'Playful',
 }
 
 function formatCoordinate(value: number | null): string {
@@ -213,7 +208,7 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">
               <p className="text-xs uppercase tracking-[0.18em] text-pf-deep/30">AI tone</p>
               <p className="mt-2 text-lg font-semibold text-pf-deep">
-                {TONE_LABELS[aiConfig.aiTone ?? 'FRIENDLY'] ?? 'Friendly'}
+                {TONE_PRESET_REGISTRY[resolveEffectiveTone(aiConfig).preset].label}
               </p>
             </article>
             <article className="rounded-[1.75rem] border border-pf-light bg-pf-white p-6 shadow-sm">

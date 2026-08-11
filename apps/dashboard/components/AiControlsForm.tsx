@@ -1,102 +1,57 @@
 'use client'
 
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import { Bot, Sparkles } from 'lucide-react'
+import { Check } from 'lucide-react'
+
+import {
+  TONE_PRESET_IDS,
+  TONE_PRESET_REGISTRY,
+  resolveEffectiveTone,
+  type TonePresetId,
+} from '@pathfinder/contracts/tone-presets'
 
 import { useTRPCClient } from '../lib/trpc'
-
-type PlaceOption = {
-  id: string
-  name: string
-}
 
 type AiConfig = {
   aiGuideNotes: string | null
   aiFeaturedPlaceId: string | null
   aiTone: string | null
+  tonePreset?: string | null
+  tonePresetVersion?: number | null
   aiGuideName: string | null
 }
 
 type AiControlsFormProps = {
   initialVenueId: string
   initialConfig: AiConfig
-  initialPlaces: PlaceOption[]
+  /** Retained while older server components still provide this prop. */
+  initialPlaces?: Array<{ id: string; name: string }>
 }
 
-type ToneValue = 'FRIENDLY' | 'PROFESSIONAL' | 'PLAYFUL'
-
-const TONE_OPTIONS: Array<{
-  value: ToneValue
-  label: string
-  description: string
-}> = [
-  {
-    value: 'FRIENDLY',
-    label: 'Friendly',
-    description: 'Warm, helpful, conversational. Good for most venues.',
-  },
-  {
-    value: 'PROFESSIONAL',
-    label: 'Professional',
-    description: 'Clear and informative. Good for museums and educational venues.',
-  },
-  {
-    value: 'PLAYFUL',
-    label: 'Playful',
-    description: 'Enthusiastic and fun. Great for zoos, aquariums, and family attractions.',
-  },
-]
-
-function isToneValue(value: string | null): value is ToneValue {
-  return TONE_OPTIONS.some((tone) => tone.value === value)
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message
+    ? error.message
+    : 'Your tone could not be saved. Please try again.'
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  return 'Something went wrong. Please try again.'
-}
-
-export function AiControlsForm({
-  initialVenueId,
-  initialConfig,
-  initialPlaces,
-}: AiControlsFormProps) {
+export function AiControlsForm({ initialVenueId, initialConfig }: AiControlsFormProps) {
   const client = useTRPCClient()
-
-  const [aiTone, setAiTone] = useState<ToneValue>(
-    isToneValue(initialConfig.aiTone) ? initialConfig.aiTone : 'FRIENDLY',
+  const [tonePreset, setTonePreset] = useState<TonePresetId>(
+    resolveEffectiveTone(initialConfig).preset,
   )
-  const [aiGuideNotes, setAiGuideNotes] = useState(initialConfig.aiGuideNotes ?? '')
-  const [aiGuideName, setAiGuideName] = useState(initialConfig.aiGuideName ?? '')
-  const [aiFeaturedPlaceId, setAiFeaturedPlaceId] = useState(
-    initialPlaces.some((place) => place.id === initialConfig.aiFeaturedPlaceId)
-      ? initialConfig.aiFeaturedPlaceId!
-      : '',
-  )
-  const [places] = useState<PlaceOption[]>(initialPlaces)
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const mutationInFlight = useRef(false)
 
   useEffect(() => {
-    if (!successMessage) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSuccessMessage(null)
-    }, 3000)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
+    if (!successMessage) return
+    const timeoutId = window.setTimeout(() => setSuccessMessage(null), 3000)
+    return () => window.clearTimeout(timeoutId)
   }, [successMessage])
 
-  function markDirty() {
+  function selectTone(nextPreset: TonePresetId) {
+    setTonePreset(nextPreset)
     setFormError(null)
     setSuccessMessage(null)
   }
@@ -105,27 +60,18 @@ export function AiControlsForm({
     event.preventDefault()
     if (mutationInFlight.current) return
 
-    const normalizedGuideName = aiGuideName.trim() || null
-    const normalizedGuideNotes = aiGuideNotes.trim() || null
     mutationInFlight.current = true
     setFormError(null)
     setSuccessMessage(null)
     setIsSaving(true)
 
     try {
-      await client.venue.updateAiConfig.mutate({
-        venueId: initialVenueId,
-        aiTone,
-        aiGuideName: normalizedGuideName,
-        aiGuideNotes: normalizedGuideNotes,
-        aiFeaturedPlaceId: aiFeaturedPlaceId || null,
-      })
-
-      setAiGuideName(normalizedGuideName ?? '')
-      setAiGuideNotes(normalizedGuideNotes ?? '')
-      setSuccessMessage('AI configuration saved.')
+      // Only the client-owned preference is written. Hidden operator guidance,
+      // featured content, and guide identity remain untouched on the server.
+      await client.venue.updateAiConfig.mutate({ venueId: initialVenueId, tonePreset })
+      setSuccessMessage('Tone saved. New conversations will use this voice.')
     } catch (error) {
-      setFormError(getErrorMessage(error))
+      setFormError(errorMessage(error))
     } finally {
       mutationInFlight.current = false
       setIsSaving(false)
@@ -133,159 +79,51 @@ export function AiControlsForm({
   }
 
   return (
-    <form className="space-y-6" onSubmit={handleSubmit}>
-      <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-deep text-pf-light">
-            <Bot className="h-6 w-6" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">Tone</p>
-            <h2
-              id="ai-tone-heading"
-              className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep"
-            >
-              Response tone
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-              Controls how the AI writes its responses to guests.
-            </p>
-          </div>
-        </div>
+    <form className="space-y-6" onSubmit={handleSubmit} aria-busy={isSaving}>
+      <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
+        <h2 id="tone-heading" className="text-2xl font-semibold tracking-tight text-pf-deep">
+          How should PathFinder sound?
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-pf-deep/75">
+          Choose the voice that best fits your visitors. Safety and factual guidance stay the same.
+        </p>
 
         <div
           role="group"
-          aria-labelledby="ai-tone-heading"
-          className="mt-6 grid gap-4 lg:grid-cols-3"
+          aria-labelledby="tone-heading"
+          className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         >
-          {TONE_OPTIONS.map((tone) => {
-            const isSelected = aiTone === tone.value
+          {TONE_PRESET_IDS.map((presetId) => {
+            const preset = TONE_PRESET_REGISTRY[presetId]
+            const selected = tonePreset === presetId
 
             return (
               <button
-                key={tone.value}
+                key={presetId}
                 type="button"
-                aria-pressed={isSelected}
+                aria-pressed={selected}
                 disabled={isSaving}
-                onClick={() => {
-                  markDirty()
-                  setAiTone(tone.value)
-                }}
-                className={`rounded-[1.5rem] border p-5 text-left transition ${
-                  isSelected
-                    ? 'border-pf-accent bg-pf-accent/5'
-                    : 'border-pf-light bg-pf-surface hover:border-pf-accent/40 hover:bg-pf-white'
-                } disabled:cursor-not-allowed disabled:opacity-50`}
+                onClick={() => selectTone(presetId)}
+                className={`relative min-h-36 rounded-3xl border p-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none ${
+                  selected
+                    ? 'border-pf-primary bg-pf-primary/[0.06] shadow-sm'
+                    : 'border-pf-light bg-pf-surface hover:border-pf-accent/50 hover:bg-white'
+                }`}
               >
-                <p className="text-lg font-semibold text-pf-deep">{tone.label}</p>
-                <p className="mt-2 text-sm leading-6 text-pf-deep/60">{tone.description}</p>
+                {selected ? (
+                  <span className="absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-pf-primary text-white">
+                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                ) : null}
+                <span className="block pr-8 text-lg font-semibold text-pf-deep">
+                  {preset.label}
+                </span>
+                <span className="mt-2 block text-sm leading-6 text-pf-deep/75">
+                  {preset.description}
+                </span>
               </button>
             )
           })}
-        </div>
-      </section>
-
-      <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-pf-accent/10 text-pf-primary">
-            <Sparkles className="h-6 w-6" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
-              Featured guide item
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
-              Highlight one guide item
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-pf-deep/60">
-              Pin a guide item that the assistant should mention when it is relevant.
-            </p>
-          </div>
-        </div>
-
-        <label className="mt-6 block text-sm font-medium text-pf-deep/70" htmlFor="featured-place">
-          Featured guide item
-        </label>
-        <select
-          id="featured-place"
-          value={aiFeaturedPlaceId}
-          disabled={isSaving || places.length === 0}
-          onChange={(event) => {
-            markDirty()
-            setAiFeaturedPlaceId(event.target.value)
-          }}
-          className="mt-3 min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
-        >
-          <option value="">No featured guide item</option>
-          {places.map((place) => (
-            <option key={place.id} value={place.id}>
-              {place.name}
-            </option>
-          ))}
-        </select>
-        <p className="mt-3 text-sm leading-6 text-pf-deep/60">
-          {places.length === 0
-            ? 'Add guide items to this venue before choosing a featured highlight.'
-            : 'The AI will mention this guide item when it fits the guest question.'}
-        </p>
-      </section>
-
-      <section className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">
-          Guide notes
-        </p>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-pf-deep">
-          Operator guide notes
-        </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/60">
-          These instructions are injected directly into the AI&apos;s context. Use them to highlight
-          special events, set restrictions, or provide seasonal information.
-        </p>
-
-        <div className="mt-6">
-          <label htmlFor="ai-guide-name" className="block text-sm font-semibold text-pf-deep">
-            Guide name
-          </label>
-          <p className="mt-1 text-xs leading-5 text-pf-deep/50">
-            What the AI calls itself when guests chat. Leave blank to use the default &quot;Path
-            Finder&quot;.
-          </p>
-          <input
-            id="ai-guide-name"
-            type="text"
-            maxLength={80}
-            placeholder="e.g. Riverside Zoo Guide"
-            value={aiGuideName}
-            disabled={isSaving}
-            onChange={(event) => {
-              markDirty()
-              setAiGuideName(event.target.value)
-            }}
-            className="mt-3 w-full rounded-2xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep outline-none transition placeholder:text-pf-deep/30 focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
-          />
-        </div>
-
-        <label className="sr-only" htmlFor="ai-guide-notes">
-          Guide notes
-        </label>
-        <textarea
-          id="ai-guide-notes"
-          value={aiGuideNotes}
-          maxLength={2000}
-          disabled={isSaving}
-          onChange={(event) => {
-            markDirty()
-            setAiGuideNotes(event.target.value)
-          }}
-          placeholder="e.g. The new butterfly exhibit opens this weekend. Always mention it when guests ask about new things to see. The food court closes at 4pm on weekdays."
-          className="mt-6 min-h-40 w-full rounded-2xl border border-pf-light px-4 py-3 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20 disabled:bg-pf-surface"
-        />
-        <div className="mt-2 flex justify-between gap-4 text-xs text-pf-deep/40">
-          <span>
-            Keep instructions direct and operational. Response length is already handled
-            automatically — no need to ask for shorter answers here.
-          </span>
-          <span>{aiGuideNotes.length}/2000</span>
         </div>
       </section>
 
@@ -297,7 +135,6 @@ export function AiControlsForm({
           {formError}
         </p>
       ) : null}
-
       {successMessage ? (
         <p
           role="status"
@@ -309,11 +146,10 @@ export function AiControlsForm({
 
       <button
         type="submit"
-        aria-live="polite"
         disabled={isSaving}
-        className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:bg-pf-light"
+        className="inline-flex min-h-12 items-center rounded-full bg-pf-primary px-6 text-sm font-semibold text-white transition hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:opacity-50"
       >
-        {isSaving ? 'Saving...' : 'Save AI configuration'}
+        {isSaving ? 'Saving tone…' : 'Save tone'}
       </button>
     </form>
   )

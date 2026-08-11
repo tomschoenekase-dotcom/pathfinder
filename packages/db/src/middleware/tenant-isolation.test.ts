@@ -116,6 +116,28 @@ describe('tenantIsolationMiddleware', () => {
       'MediaIngestionAsset',
       'EmbeddingWorkClaim',
       'EmbeddingDispatch',
+      'AgentIdentity',
+      'AgentRun',
+      'AgentAction',
+      'AgentTimelineEvent',
+      'ApprovalRequest',
+      'ApprovalDecision',
+      'SupportRequest',
+      'SupportMessage',
+      'SupportMessageAttachment',
+      'SupportRequestAuditEvent',
+      'OffboardingPlan',
+      'OffboardingVenueTarget',
+      'OffboardingRevocationEvidence',
+      'OffboardingExportArtifact',
+      'ContentModuleIdentity',
+      'ContentModuleRevision',
+      'ServiceContent',
+      'PolicyContent',
+      'EventContent',
+      'OperationalFactContent',
+      'RelationshipContent',
+      'ContentModuleEvidence',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual([
       'User',
@@ -138,7 +160,31 @@ describe('tenantIsolationMiddleware', () => {
   })
 
   it.each(
-    ['AiUsageEvent', 'EvalCase', 'EvalRun', 'EvalResult', 'EvalReview'].flatMap((model) =>
+    [
+      'AiUsageEvent',
+      'EvalCase',
+      'EvalRun',
+      'EvalResult',
+      'EvalReview',
+      'AgentAction',
+      'AgentTimelineEvent',
+      'ApprovalRequest',
+      'ApprovalDecision',
+      'SupportMessage',
+      'SupportMessageAttachment',
+      'SupportRequestAuditEvent',
+      'OffboardingVenueTarget',
+      'OffboardingRevocationEvidence',
+      'OffboardingExportArtifact',
+      'ContentModuleIdentity',
+      'ContentModuleRevision',
+      'ServiceContent',
+      'PolicyContent',
+      'EventContent',
+      'OperationalFactContent',
+      'RelationshipContent',
+      'ContentModuleEvidence',
+    ].flatMap((model) =>
       ['update', 'updateMany', 'upsert', 'delete', 'deleteMany'].map((action) => [model, action]),
     ),
   )('rejects %s %s on append-only models even with tenant scope', async (model, action) => {
@@ -159,6 +205,50 @@ describe('tenantIsolationMiddleware', () => {
       ),
     ).rejects.toEqual(new AppendOnlyModelError(model, action))
     expect(next).not.toHaveBeenCalled()
+  })
+
+  it.each(
+    ['AgentRun', 'SupportRequest', 'OffboardingPlan'].flatMap((model) =>
+      ['delete', 'deleteMany'].map((action) => [model, action]),
+    ),
+  )('rejects %s %s while preserving lifecycle updates', async (model, action) => {
+    const next = vi.fn(async (params) => params)
+
+    await expect(
+      tenantIsolationMiddleware(
+        createParams({ action, model, args: { where: { tenantId: 'org_1' } } }),
+        next,
+      ),
+    ).rejects.toEqual(new AppendOnlyModelError(model, action))
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('allows tenant-scoped AgentRun lifecycle updates', async () => {
+    const next = vi.fn(async (params) => params)
+    await expect(
+      tenantIsolationMiddleware(
+        createParams({
+          action: 'update',
+          model: 'AgentRun',
+          args: { where: { tenantId: 'org_1' }, data: { status: 'RUNNING' } },
+        }),
+        next,
+      ),
+    ).resolves.toMatchObject({ action: 'update', model: 'AgentRun' })
+  })
+
+  it('allows tenant-scoped SupportRequest version updates', async () => {
+    const next = vi.fn(async (params) => params)
+    await expect(
+      tenantIsolationMiddleware(
+        createParams({
+          action: 'updateMany',
+          model: 'SupportRequest',
+          args: { where: { tenantId: 'org_1' }, data: { version: 2 } },
+        }),
+        next,
+      ),
+    ).resolves.toMatchObject({ action: 'updateMany', model: 'SupportRequest' })
   })
 
   it('findMany on a tenanted table without tenantId throws', async () => {
