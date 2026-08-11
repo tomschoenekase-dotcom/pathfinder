@@ -55,11 +55,13 @@ function getChatFontFamily(chatFont: string | null | undefined): string {
 type VenueChatExperienceProps = {
   venueSlug: string
   presentation?: 'standalone' | 'embed' | 'webview'
+  initialDraft?: string
 }
 
 export function VenueChatExperience({
   venueSlug,
   presentation = 'standalone',
+  initialDraft = '',
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
   const [venueState, setVenueState] = useState<{
@@ -564,6 +566,7 @@ export function VenueChatExperience({
           accentColor={palette.accent}
           accentContrastColor={palette.accentContrast}
           placeholder={chatPlaceholder}
+          initialDraft={initialDraft}
           emptyState={
             <div lang={languagePresentation.code} dir={languagePresentation.direction}>
               <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">

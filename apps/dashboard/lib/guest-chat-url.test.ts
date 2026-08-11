@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildGuestChatUrl } from './guest-chat-url'
+import { buildGuestChatUrl, buildGuideItemEntryUrl } from './guest-chat-url'
 
 describe('guest chat URL boundary', () => {
   it('builds an encoded chat URL from an exact HTTPS origin', () => {
@@ -41,5 +41,26 @@ describe('guest chat URL boundary', () => {
 
   it.each(['   ', '.', '..'])('returns unavailable for an unsafe venue slug: %s', (slug) => {
     expect(buildGuestChatUrl('https://guide.example.com', slug)).toBeNull()
+  })
+})
+
+describe('guide item entry URL boundary', () => {
+  it('builds a bounded, non-sending item prompt', () => {
+    const url = buildGuideItemEntryUrl('https://guide.example.com/museum/chat', {
+      id: 'place_1',
+      name: 'Tide Clock & Gallery',
+    })
+    expect(url).toBe(
+      'https://guide.example.com/museum/chat?entry=guide-item&item=place_1&prompt=Tell+me+about+Tide+Clock+%26+Gallery.',
+    )
+  })
+
+  it.each([
+    [null, { id: 'place_1', name: 'Gallery' }],
+    ['https://guide.example.com/museum/chat?existing=1', { id: 'place_1', name: 'Gallery' }],
+    ['https://guide.example.com/museum/chat', { id: '', name: 'Gallery' }],
+    ['https://guide.example.com/museum/chat', { id: 'place_1', name: ' '.repeat(121) }],
+  ])('rejects ambiguous or incomplete inputs %#', (base, guideItem) => {
+    expect(buildGuideItemEntryUrl(base, guideItem)).toBeNull()
   })
 })

@@ -13,6 +13,7 @@ describe('VenueGuestAccessPanel', () => {
   it('shows a contained configuration state without a placeholder or copy action', () => {
     render(
       <VenueGuestAccessPanel
+        venueId="venue_1"
         venueName="Museum"
         guestChatUrl={null}
         isVenueActive
@@ -34,6 +35,7 @@ describe('VenueGuestAccessPanel', () => {
     const url = 'https://guide.example.com/museum/chat'
     render(
       <VenueGuestAccessPanel
+        venueId="venue_1"
         venueName="Museum"
         guestChatUrl={url}
         isVenueActive
@@ -49,6 +51,9 @@ describe('VenueGuestAccessPanel', () => {
     expect(screen.getByText(url)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open guest chat' }).getAttribute('href')).toBe(url)
     expect(screen.getByRole('button', { name: 'Copy guest chat URL' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Create QR kit' }).getAttribute('href')).toBe(
+      '/venues/venue_1/qr-kit',
+    )
   })
 
   it.each([
@@ -67,6 +72,7 @@ describe('VenueGuestAccessPanel', () => {
   ])('does not claim share readiness while a prerequisite is missing %#', (state) => {
     render(
       <VenueGuestAccessPanel
+        venueId="venue_1"
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive={state.isVenueActive}
@@ -85,6 +91,7 @@ describe('VenueGuestAccessPanel', () => {
   it('treats enabled Knowledge as active public content without requiring a Place', () => {
     render(
       <VenueGuestAccessPanel
+        venueId="venue_1"
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive
@@ -102,6 +109,7 @@ describe('VenueGuestAccessPanel', () => {
   it('does not require a center for a location-aware Knowledge-only guide', () => {
     render(
       <VenueGuestAccessPanel
+        venueId="venue_1"
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive
@@ -119,6 +127,7 @@ describe('VenueGuestAccessPanel', () => {
   it('flags an incomplete center only for the location-aware profile', () => {
     const { rerender } = render(
       <VenueGuestAccessPanel
+        venueId="venue_1"
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive
@@ -136,6 +145,7 @@ describe('VenueGuestAccessPanel', () => {
 
     rerender(
       <VenueGuestAccessPanel
+        venueId="venue_1"
         venueName="Museum"
         guestChatUrl="https://guide.example.com/museum/chat"
         isVenueActive

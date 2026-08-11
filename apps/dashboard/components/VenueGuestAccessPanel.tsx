@@ -1,6 +1,9 @@
+import Link from 'next/link'
+
 import { CopyUrlButton } from './CopyUrlButton'
 
 type VenueGuestAccessPanelProps = {
+  venueId: string
   venueName: string
   guestChatUrl: string | null
   isVenueActive: boolean
@@ -11,6 +14,7 @@ type VenueGuestAccessPanelProps = {
 }
 
 export function VenueGuestAccessPanel({
+  venueId,
   venueName,
   guestChatUrl,
   isVenueActive,
@@ -94,6 +98,12 @@ export function VenueGuestAccessPanel({
               Open guest chat
             </a>
             <CopyUrlButton url={guestChatUrl} />
+            <Link
+              href={`/venues/${venueId}/qr-kit`}
+              className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-pf-white px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
+            >
+              Create QR kit
+            </Link>
           </div>
         </div>
       )}

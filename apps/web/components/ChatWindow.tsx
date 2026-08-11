@@ -22,6 +22,7 @@ type ChatWindowProps = {
   accentColor?: string
   accentContrastColor?: string
   placeholder?: string
+  initialDraft?: string
   emptyState?: ReactNode
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
@@ -38,12 +39,13 @@ export function ChatWindow({
   accentColor,
   accentContrastColor,
   placeholder = 'Ask anything about this place...',
+  initialDraft = '',
   emptyState,
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
 }: ChatWindowProps) {
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(initialDraft)
   const [liveAnnouncement, setLiveAnnouncement] = useState<
     { kind: 'responding' } | { kind: 'response'; content: string } | null
   >(null)

@@ -183,6 +183,7 @@ export default async function VenueDetailPage({ params, searchParams }: VenueDet
           ) : null}
 
           <VenueGuestAccessPanel
+            venueId={venue.id}
             venueName={venue.name}
             guestChatUrl={guestChatUrl}
             isVenueActive={venue.isActive}

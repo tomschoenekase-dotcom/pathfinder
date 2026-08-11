@@ -204,6 +204,23 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect((composer as HTMLTextAreaElement).value).toBe('')
   })
 
+  it('prefills an entry prompt without sending it automatically', () => {
+    const onSend = vi.fn()
+    render(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        isLoading={false}
+        initialDraft="Tell me about the Tide Clock."
+      />,
+    )
+
+    expect(
+      (screen.getByRole('textbox', { name: 'Ask a question' }) as HTMLTextAreaElement).value,
+    ).toBe('Tell me about the Tide Clock.')
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   it('renders descriptive cards without coordinates and records a real details action', () => {
     const onPlaceCardClick = vi.fn()
     render(
