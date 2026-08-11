@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import { AgentIdentityConfigurationFields } from '@pathfinder/contracts'
 
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 
 type Cursor = { createdAt: string; id: string } | null
 
@@ -18,6 +20,7 @@ type Identity = {
   defaultProvider: string | null
   defaultModel: string | null
   enabled: boolean
+  updatedAt: Date
   _count: { runs: number; approvalRequests: number }
 }
 
@@ -115,6 +118,7 @@ export function AgentOperationsOverview({ tenantId, venueId, identities, runs, a
             Configured authority and operating boundaries.
           </p>
         </div>
+        <AgentIdentityCreateEditor tenantId={tenantId} venueId={venueId} />
         {identities.items.length === 0 ? (
           <Empty text="No agent identities are configured for this venue." />
         ) : (
@@ -170,6 +174,11 @@ export function AgentOperationsOverview({ tenantId, venueId, identities, runs, a
                   {[identity.defaultProvider, identity.defaultModel].filter(Boolean).join(' / ') ||
                     'No default model'}
                 </p>
+                <IdentityConfigurationEditor
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  identity={identity}
+                />
               </article>
             ))}
           </div>
@@ -316,6 +325,38 @@ export function AgentOperationsOverview({ tenantId, venueId, identities, runs, a
         ) : null}
       </section>
     </div>
+  )
+}
+
+function IdentityConfigurationEditor({
+  tenantId,
+  venueId,
+  identity,
+}: {
+  tenantId: string
+  venueId: string
+  identity: Identity
+}) {
+  const fields = AgentIdentityConfigurationFields.safeParse(identity)
+  if (!fields.success) {
+    return (
+      <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+        This legacy identity uses authority values outside the staged allowlist. It can be reviewed
+        here but requires a separate migration before it can use this editor.
+      </p>
+    )
+  }
+  return (
+    <AgentIdentityEditEditor
+      tenantId={tenantId}
+      venueId={venueId}
+      identity={{
+        id: identity.id,
+        enabled: identity.enabled,
+        updatedAt: identity.updatedAt,
+        ...fields.data,
+      }}
+    />
   )
 }
 

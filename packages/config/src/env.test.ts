@@ -208,6 +208,34 @@ describe('GENERATION_RECOVERY_ENABLED', () => {
   })
 })
 
+describe('EVALUATION_RUNNER_ENABLED', () => {
+  it.each(['production', 'staging', 'preview'] as const)(
+    'defaults to disabled in %s',
+    (RAILWAY_ENVIRONMENT) => {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).EVALUATION_RUNNER_ENABLED,
+      ).toBe(false)
+    },
+  )
+
+  it('requires an exact explicit enable value', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        EVALUATION_RUNNER_ENABLED: 'true',
+      }).EVALUATION_RUNNER_ENABLED,
+    ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        EVALUATION_RUNNER_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('GENERATION_DISPATCH_ENABLED', () => {
   it('defaults to enabled in production', () => {
     expect(

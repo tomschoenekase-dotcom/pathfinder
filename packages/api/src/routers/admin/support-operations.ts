@@ -8,9 +8,6 @@ import {
 import {
   appendSupportMessageAction,
   linkSupportRequestDraftPackageAction,
-  SupportActionError,
-  SupportPackageHandoffError,
-  SupportStatusTransitionError,
   transitionSupportRequestStatusAction,
 } from '@pathfinder/db'
 
@@ -21,87 +18,16 @@ import {
   SupportAttachmentDraftInput,
 } from '../../schemas/support'
 import { adminProcedure } from '../../trpc'
-
-const adminScope = z
-  .object({
-    tenantId: z.string().min(1),
-    venueId: z.string().min(1),
-  })
-  .strict()
-
-const requestSelect = {
-  id: true,
-  tenantId: true,
-  venueId: true,
-  category: true,
-  status: true,
-  subject: true,
-  missingInformation: true,
-  artifacts: true,
-  version: true,
-  statusChangedAt: true,
-  createdByKind: true,
-  createdById: true,
-  updatedByKind: true,
-  updatedById: true,
-  createdAt: true,
-  updatedAt: true,
-} as const
-
-const messageSelect = {
-  id: true,
-  tenantId: true,
-  venueId: true,
-  supportRequestId: true,
-  authorKind: true,
-  authorId: true,
-  visibility: true,
-  body: true,
-  createdAt: true,
-  attachments: {
-    select: {
-      id: true,
-      filename: true,
-      mediaType: true,
-      byteSize: true,
-      sourceId: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: 'asc' as const },
-  },
-} as const
-
-function serializeMessage<T extends { attachments: Array<{ byteSize: bigint }> }>(message: T) {
-  return {
-    ...message,
-    attachments: message.attachments.map((attachment) => ({
-      ...attachment,
-      byteSize: attachment.byteSize.toString(),
-    })),
-  }
-}
-
-const requestCursor = z
-  .object({ updatedAt: z.string().datetime({ offset: true }), id: z.string().min(1) })
-  .strict()
-
-const messageCursor = z
-  .object({ createdAt: z.string().datetime({ offset: true }), id: z.string().min(1) })
-  .strict()
-
-const auditCursor = z
-  .object({ requestVersion: z.number().int().positive(), id: z.string().min(1) })
-  .strict()
-
-function supportActionError(error: unknown): never {
-  if (
-    error instanceof SupportActionError ||
-    error instanceof SupportPackageHandoffError ||
-    error instanceof SupportStatusTransitionError
-  )
-    throw new TRPCError({ code: error.code, message: error.message })
-  throw error
-}
+import {
+  adminSupportScope as adminScope,
+  serializeSupportMessage as serializeMessage,
+  supportActionError,
+  supportAuditCursor as auditCursor,
+  supportMessageCursor as messageCursor,
+  supportMessageSelect as messageSelect,
+  supportRequestCursor as requestCursor,
+  supportRequestSelect as requestSelect,
+} from './support-operations-shared'
 
 export const adminSupportOperationsRouter = router({
   transitionSupportRequestStatus: adminProcedure

@@ -7,6 +7,7 @@ export const TENANTED_TABLES = [
   'ContentVersion',
   'EvalCase',
   'EvalRun',
+  'EvalRunCostReservation',
   'EvalResult',
   'EvalReview',
   'VenueContentImportReceipt',
@@ -65,9 +66,18 @@ export const TENANTED_TABLES = [
   'IntakeEvidenceRecord',
   'IntakeRunEvent',
   'IntakePackageHandoff',
+  'AiScopedWorkloadConfigurationOverride',
+  'AiScopedWorkloadConfigurationHistory',
 ] as const
 
-export const PLATFORM_TABLES = ['User', 'Tenant', 'PlatformConfig', 'ClerkWebhookReceipt'] as const
+export const PLATFORM_TABLES = [
+  'User',
+  'Tenant',
+  'PlatformConfig',
+  'ClerkWebhookReceipt',
+  'AiWorkloadConfigurationOverride',
+  'AiWorkloadConfigurationHistory',
+] as const
 
 // Models in this list deliberately support both tenant-attributed and
 // platform-wide rows. They must remain explicit because neither silently

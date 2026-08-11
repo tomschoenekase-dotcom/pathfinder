@@ -10,6 +10,7 @@ import {
   evaluationRunIdentityHash,
   EvaluationRunIdentityError,
   EvaluationRunReplayConflictError,
+  isVerifiedEvaluationRunIdentity,
   type EvaluationRunIdentity,
 } from './evaluation-runs'
 
@@ -106,6 +107,22 @@ describe('evaluation run identity', () => {
       createOrReplayEvaluationRun({ db: client as never, runId: RUN_ID, identity: identity() }),
     ).resolves.toEqual({ run: created.run, replayed: true })
     expect(client.evalRun.create).toHaveBeenCalledOnce()
+  })
+
+  it('verifies a stored identity and rejects any duplicated-column drift', async () => {
+    const client = mockClient()
+    client.evalRun.findFirst.mockResolvedValueOnce(null)
+    client.evalRun.create.mockImplementationOnce(async ({ data }) => storedRun(data))
+    const { run } = await createOrReplayEvaluationRun({
+      db: client as never,
+      runId: RUN_ID,
+      identity: identity(),
+    })
+    expect(isVerifiedEvaluationRunIdentity(run)).toBe(true)
+    expect(isVerifiedEvaluationRunIdentity({ ...run, modelName: 'changed' })).toBe(false)
+    expect(
+      isVerifiedEvaluationRunIdentity({ ...run, identitySnapshot: { malformed: 1n } as never }),
+    ).toBe(false)
   })
 
   it('rejects a changed identity behind the same idempotency key', async () => {

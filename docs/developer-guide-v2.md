@@ -78,6 +78,19 @@ preserve its effective-source result. Registry defaults, durable overrides and u
 are different states. Read APIs must use secret-free explicit output schemas and exact tenant/venue
 authorization. No UI may invent an override for a layer that has no persistence.
 
+## Evaluation dispatch and staged agents
+
+Evaluation requests persist frozen identities as `STAGED`; routers do not enqueue them directly.
+The default-off reconciler checks process, durable-global, and tenant gates, advances to `QUEUED`,
+then publishes a deterministic job and republishes queued rows to repair crash gaps. Keep lifecycle
+changes behind the SQL state machine and scoped CAS helpers. Retry must reuse terminal case results
+and prior spend; never rebuild mutable content or silently switch models.
+
+Agent identity configuration uses the closed contracts in `@pathfinder/contracts` and neutral DB
+actions. Creation is disabled-only, edits require a disabled row and current `updatedAt`, and disable
+is the only activation-related mutation exposed. Do not add enable/run/provider/credential controls
+to the staged editor or infer execution authority from an approval.
+
 ## Venue Deployment Manifest v2
 
 Validate and canonically hash the browser-safe manifest contract before conversion. PATCH operations
@@ -97,6 +110,11 @@ dark metadata only: credentials default disabled and retain an Argon2id hash plu
 exact tenant/client/optional venue scope, capabilities, and append-only rotation/revocation evidence.
 It deliberately exposes no plaintext secret, issuance, verification, enablement, rotation,
 revocation mutation, transport listener, or request authentication.
+
+The MCP read adapter is a canonical, transport-neutral binding over verified invocation context.
+Every query must reapply exact tenant/client/venue scope, use a bounded resource-specific cursor and
+positive safe selects, then pass output leakage filtering. Raw job/package payloads, internal support
+messages, snapshots, errors, signed asset/source URLs, redirects, and secrets remain excluded.
 
 ## Schema and migrations
 

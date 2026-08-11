@@ -2,6 +2,16 @@ export { db } from './client'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
+  AgentIdentityConfigurationError,
+  createDisabledAgentIdentity,
+  disableAgentIdentity,
+  editDisabledAgentIdentity,
+} from './helpers/agent-identity-configuration-actions'
+export type {
+  AgentIdentityConfigurationActor,
+  AgentIdentityConfigurationScope,
+} from './helpers/agent-identity-configuration-actions'
+export {
   lockContentVersionEntity,
   lockOperationalUpdateCapacity,
   setContentVersionContext,
@@ -192,6 +202,7 @@ export type { EvaluationCaseIdentity } from './helpers/evaluation-cases'
 export {
   canonicalEvaluationJson,
   createOrReplayEvaluationRun,
+  isVerifiedEvaluationRunIdentity,
   evaluationRunIdentityHash,
   evaluationSnapshotHash,
   EvaluationRunIdentityError,
@@ -199,12 +210,33 @@ export {
 } from './helpers/evaluation-runs'
 export type { EvaluationRunIdentity } from './helpers/evaluation-runs'
 export {
+  claimEvaluationRunAttempt,
+  failEvaluationRunAttempt,
+  finishEvaluationRunAttempt,
+  isEvaluationRunCancellationRequested,
+  markEvaluationRunQueued,
+  renewEvaluationRunLease,
+  requestEvaluationRunCancellation,
+} from './helpers/evaluation-run-lifecycle'
+export type { EvaluationRunAttemptClaim } from './helpers/evaluation-run-lifecycle'
+export {
+  EVALUATION_RUNTIME_GLOBAL_CONFIG_KEY,
+  isEvaluationRuntimeDurablyEnabled,
+} from './helpers/evaluation-runtime-admission'
+export {
   createOrReplayEvaluationResult,
   EvaluationResultIdentityError,
   EvaluationResultReplayConflictError,
 } from './helpers/evaluation-results'
 export type { EvaluationResultTerminal } from './helpers/evaluation-results'
-export { hashEvalObservation } from './helpers/evaluation-hash'
+export {
+  EvaluationRunCostReservationError,
+  persistEvaluationResultWithCostReservation,
+  persistEvaluationResultWithLease,
+  reserveEvaluationRunCaseCost,
+} from './helpers/evaluation-run-cost-reservations'
+export type { EvaluationRunCostReservationAcquisition } from './helpers/evaluation-run-cost-reservations'
+export { hashEvalCase, hashEvalObservation } from './helpers/evaluation-hash'
 export {
   buildVenueContentSnapshot,
   createVenueContentSnapshot,
@@ -245,6 +277,20 @@ export type {
 } from '@prisma/client'
 export type { WriteAuditLogParams } from './helpers/audit'
 export {
+  AiConfigurationActionError,
+  configurationOverrideFromRow,
+  configurationValuesFromRow,
+  resetAiWorkloadConfigurationOverrideAction,
+  saveAiWorkloadConfigurationOverrideAction,
+} from './helpers/ai-workload-configuration-actions'
+export type {
+  AiConfigurationActionClient,
+  AiConfigurationActionErrorCode,
+  AiConfigurationHumanActor,
+  AiConfigurationScope,
+  AiConfigurationValues,
+} from './helpers/ai-workload-configuration-actions'
+export {
   buildOperationalUpdatePreview,
   createOperationalUpdateAction,
   expireOperationalUpdateAction,
@@ -277,3 +323,17 @@ export type {
   IntakeActionErrorCode,
   IntakeProposalInput,
 } from './helpers/intake-actions'
+export {
+  addUniversalContentRevisionAction,
+  buildUniversalContentPreview,
+  createUniversalContentAction,
+  retireUniversalContentAction,
+  UniversalContentActionError,
+} from './helpers/universal-content-actions'
+export type {
+  UniversalContentActionClient,
+  UniversalContentActionErrorCode,
+  UniversalContentActionResult,
+  UniversalContentHumanActor,
+  UniversalContentPreview,
+} from './helpers/universal-content-actions'

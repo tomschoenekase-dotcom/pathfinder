@@ -25,6 +25,10 @@ import {
   EMBED_PLACE_RETRY_BACKOFF,
   EMBEDDING_DISPATCH_QUEUE,
   EMBEDDING_DISPATCH_SCHEDULER_JOB,
+  EVALUATION_RUN_PROCESS_JOB,
+  EVALUATION_RUN_DISPATCH_JOB,
+  EVALUATION_RUN_QUEUE,
+  EVALUATION_RUN_RETRY_BACKOFF,
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
   GENERATION_DISPATCH_SCHEDULER_JOB,
@@ -40,6 +44,7 @@ import {
   type AnalyticsEnrichmentJobPayload,
   type EmbedKnowledgeEntryJobPayload,
   type EmbedPlaceJobPayload,
+  type EvaluationRunJobPayload,
   type GenerationDispatchKickJobPayload,
   type SendWelcomeEmailJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
@@ -64,6 +69,8 @@ import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment
 import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
 import { processEmbedPlaceJob } from './processors/embed-place'
+import { processEvaluationRunJob } from './processors/evaluation-run'
+import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
 import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
@@ -226,6 +233,10 @@ function getSendWelcomeEmailBackoffDelay(attemptsMade: number): number {
     default:
       return -1
   }
+}
+
+function getEvaluationRunBackoffDelay(attemptsMade: number): number {
+  return attemptsMade === 1 ? 30_000 : attemptsMade === 2 ? 2 * 60_000 : -1
 }
 
 async function handleWeeklyDigestQueueJob(
@@ -423,6 +434,27 @@ async function handleMediaIngestionQueueJob(
   throw new Error(`Unsupported media ingestion job: ${job.name}`)
 }
 
+async function handleEvaluationRunQueueJob(
+  job: Job<EvaluationRunJobPayload | Record<string, never>>,
+  token?: string,
+  signal?: AbortSignal,
+) {
+  if (job.name === EVALUATION_RUN_DISPATCH_JOB) {
+    await processEvaluationDispatchJob(getJobExecutionMetadata(job))
+    return
+  }
+  if (job.name !== EVALUATION_RUN_PROCESS_JOB) {
+    throw new Error(`Unsupported evaluation run job: ${job.name}`)
+  }
+  await runAiJobWithIncidentControl(job, token, () =>
+    processEvaluationRunJob(
+      job.data as EvaluationRunJobPayload,
+      getJobExecutionMetadata(job),
+      signal,
+    ),
+  )
+}
+
 export async function startWorkers() {
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
@@ -435,6 +467,9 @@ export async function startWorkers() {
   const answerAnalysisQueue = new Queue(ANSWER_ANALYSIS_QUEUE, { connection })
   const weeklyReportQueue = new Queue(WEEKLY_REPORT_QUEUE, { connection })
   const mediaIngestionQueue = new Queue(MEDIA_INGESTION_QUEUE, { connection })
+  const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
+    ? new Queue(EVALUATION_RUN_QUEUE, { connection })
+    : null
 
   const schedulerQueueResources = [
     { name: WEEKLY_DIGEST_QUEUE, close: () => weeklyDigestQueue.close() },
@@ -447,6 +482,9 @@ export async function startWorkers() {
     { name: ANSWER_ANALYSIS_QUEUE, close: () => answerAnalysisQueue.close() },
     { name: WEEKLY_REPORT_QUEUE, close: () => weeklyReportQueue.close() },
     { name: MEDIA_INGESTION_QUEUE, close: () => mediaIngestionQueue.close() },
+    ...(evaluationRunQueue
+      ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
+      : []),
   ]
   const cleanupAfterStartupFailure = createShutdownCoordinator({
     onStart: () => logger.info({ action: 'workers.start.cleanup' }),
@@ -583,6 +621,29 @@ export async function startWorkers() {
         remove: () => generationRecoveryQueue.removeJobScheduler(GENERATION_RECOVERY_SCHEDULER_JOB),
       },
     ])
+
+    if (evaluationRunQueue) {
+      await applySchedulerState(env.EVALUATION_RUNNER_ENABLED, [
+        {
+          upsert: () =>
+            evaluationRunQueue.upsertJobScheduler(
+              EVALUATION_RUN_DISPATCH_JOB,
+              { every: 60_000 },
+              {
+                name: EVALUATION_RUN_DISPATCH_JOB,
+                data: {},
+                opts: {
+                  attempts: 3,
+                  backoff: { type: EVALUATION_RUN_RETRY_BACKOFF },
+                  removeOnComplete: 100,
+                  removeOnFail: 500,
+                },
+              },
+            ),
+          remove: () => evaluationRunQueue.removeJobScheduler(EVALUATION_RUN_DISPATCH_JOB),
+        },
+      ])
+    }
   }, cleanupAfterStartupFailure)
 
   const observeWorkerRuntime = <DataType, ResultType, NameType extends string>(
@@ -788,6 +849,25 @@ export async function startWorkers() {
     cancelAllMediaJobsAfterWorkerError(mediaIngestionWorker)
   })
 
+  // This consumer does not exist unless the server-only rollout gate is
+  // explicitly enabled. Each job additionally rechecks the tenant feature flag
+  // before every provider dispatch, so changing either gate fails closed.
+  const evaluationRunWorker = env.EVALUATION_RUNNER_ENABLED
+    ? observeWorkerRuntime(
+        EVALUATION_RUN_QUEUE,
+        new Worker(EVALUATION_RUN_QUEUE, handleEvaluationRunQueueJob, {
+          connection,
+          concurrency: 1,
+          settings: {
+            backoffStrategy: (attemptsMade, type) =>
+              type === EVALUATION_RUN_RETRY_BACKOFF
+                ? getEvaluationRunBackoffDelay(attemptsMade)
+                : 0,
+          },
+        }),
+      )
+    : null
+
   const handleCompletedJob = (job: Job) => {
     logger.info({
       action: 'workers.job.completed',
@@ -821,6 +901,7 @@ export async function startWorkers() {
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
+    ...(evaluationRunWorker ? [{ name: EVALUATION_RUN_QUEUE, worker: evaluationRunWorker }] : []),
   ]
 
   for (const { worker } of workers) {
@@ -834,6 +915,7 @@ export async function startWorkers() {
     embeddingDispatchEnabled: env.EMBEDDING_DISPATCH_ENABLED,
     generationDispatchEnabled: env.GENERATION_DISPATCH_ENABLED,
     generationRecoveryEnabled: env.GENERATION_RECOVERY_ENABLED,
+    evaluationRunnerEnabled: env.EVALUATION_RUNNER_ENABLED,
     queues: [
       WEEKLY_DIGEST_QUEUE,
       DAILY_ROLLUP_QUEUE,
@@ -847,6 +929,7 @@ export async function startWorkers() {
       WEEKLY_REPORT_QUEUE,
       SEND_EMAIL_QUEUE,
       MEDIA_INGESTION_QUEUE,
+      ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
     ],
   })
 
@@ -920,6 +1003,8 @@ export async function startWorkers() {
     sendEmailWorker,
     mediaIngestionQueue,
     mediaIngestionWorker,
+    evaluationRunWorker,
+    evaluationRunQueue,
     weeklyReportQueue,
     weeklyReportWorker,
     weeklyDigestQueue,

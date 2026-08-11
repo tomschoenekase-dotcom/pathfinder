@@ -19,6 +19,39 @@ The server-only registry is in `packages/api/src/mcp/registry.ts`. It validates 
 credential scope, capability grants, approval presence, and output around injected canonical domain
 actions. It does not implement business logic or accept tenant authority from arguments.
 
+## Concrete read bindings
+
+`packages/api/src/mcp/read-actions.ts` provides the transport- and authentication-neutral read
+adapter for the registry's injected `read` seam. The embedding server must still supply a verified
+credential context; this adapter does not issue, verify, enable, rotate, or revoke credentials.
+
+Every query reapplies the exact verified tenant/client/venue scope. In the current data model,
+`clientId` is the tenant ID, so the adapter fails closed unless `tenantId`, `clientId`, the request's
+`clientId`, and (for venue resources) an allowed `venueId` agree. Requests are bounded to 100 rows.
+Pagination uses deterministic resource-bound opaque cursors; cursors carry ordering state only and
+never authority.
+
+The bindings expose:
+
+- safe client and exact-venue identity/lifecycle fields;
+- partner-safe venue presentation configuration (never tenant configuration blobs, guide notes, or
+  raw logo/banner URLs);
+- active places and enabled knowledge entries without raw source or media URLs;
+- content-history envelope metadata without before/after snapshots or provenance payloads;
+- package lifecycle metadata without package payloads, preview plans, or validation reports;
+- support request lifecycle metadata without artifacts, messages, attachments, audit actors, or
+  internal notes;
+- operational update fields without raw redirect URLs;
+- bounded daily AI usage/cost summaries;
+- job lifecycle metadata only when the record's internal payload has an exact matching `venueId`;
+  the payload and error text are never selected or returned, and unmarked jobs are invisible;
+- evaluation lifecycle/model/budget metadata without errors, corpus, model, run-config, identity,
+  package, or content snapshots; and
+- derived readiness counts/state without configuration blobs.
+
+The adapter is exported by `@pathfinder/api/mcp`, but nothing instantiates it in a listener. Write
+actions remain injected separately and default-off at the registry boundary.
+
 ## Deliberate limitations
 
 - No MCP network listener, transport, `server/discover` handler, HTTP headers, or protocol request
@@ -27,10 +60,11 @@ actions. It does not implement business logic or accept tenant authority from ar
   server exists. The registry requires a credential scope already verified by the embedding server.
 - No database, Prisma schema, migration, environment variable, feature-flag change, or external
   database action is included. The external database incident stop remains active.
-- No canonical domain actions are bound yet. Production binding must reuse the existing authorized
-  domain services rather than call Prisma or duplicate router logic.
+- Concrete bounded read actions are available, but no deployment composition root currently injects
+  them into a transport. Draft/evaluation write actions remain unbound.
 - Draft/evaluation tools are disabled unless the embedding server explicitly enables them, and every
   such call additionally requires opaque approval evidence and invokes an injected canonical approval
   verifier for the exact tool, capability, client, and venue. Draft tools cannot publish or apply changes.
-- Resource reads and evaluation execution are not production-ready until real action adapters,
-  transport authorization, audit events, rate limits, and staging adversarial evidence exist.
+- Resource reads are not production-ready until transport authorization, current-credential checks,
+  audit events, rate limits, and staging adversarial evidence exist. Evaluation execution remains
+  separately default-off.

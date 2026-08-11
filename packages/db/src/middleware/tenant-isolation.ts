@@ -20,7 +20,6 @@ const bypassTenantIsolationStorage = new AsyncLocalStorage<boolean>()
 const APPEND_ONLY_MODELS = [
   'AiUsageEvent',
   'EvalCase',
-  'EvalRun',
   'EvalResult',
   'EvalReview',
   'AgentAction',
@@ -48,8 +47,16 @@ const APPEND_ONLY_MODELS = [
   'IntakeEvidenceRecord',
   'IntakeRunEvent',
   'IntakePackageHandoff',
+  'AiScopedWorkloadConfigurationHistory',
+  'AiWorkloadConfigurationHistory',
 ] as const
-const AUDIT_LIFECYCLE_MODELS = ['AgentRun', 'SupportRequest', 'OffboardingPlan'] as const
+const AUDIT_LIFECYCLE_MODELS = [
+  'AgentRun',
+  'EvalRun',
+  'EvalRunCostReservation',
+  'SupportRequest',
+  'OffboardingPlan',
+] as const
 const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']
 const DESTRUCTIVE_ACTIONS = ['delete', 'deleteMany']
 
@@ -181,15 +188,16 @@ export async function tenantIsolationMiddleware(
   params: TenantIsolationMiddlewareParams,
   next: MiddlewareNext,
 ) {
-  if (!isTenantedModel(params.model)) {
-    return next(params)
-  }
-
   if (
+    params.model !== undefined &&
     APPEND_ONLY_MODELS.includes(params.model as (typeof APPEND_ONLY_MODELS)[number]) &&
     MUTATING_EXISTING_ACTIONS.includes(params.action)
   ) {
     throw new AppendOnlyModelError(params.model, params.action)
+  }
+
+  if (!isTenantedModel(params.model)) {
+    return next(params)
   }
 
   if (

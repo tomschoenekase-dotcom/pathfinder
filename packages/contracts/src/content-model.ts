@@ -17,12 +17,13 @@ export type ContentAudience = z.infer<typeof ContentAudience>
 
 export const ContentEvidenceReference = z
   .object({
-    sourceId: z.string().min(1),
+    sourceId: z.string().trim().min(1).max(500),
     locator: z.string().trim().min(1).max(2_000).optional(),
     capturedAt: z.string().datetime({ offset: true }),
     excerptHash: z
       .string()
       .regex(/^[a-f0-9]{64}$/i)
+      .transform((value) => value.toLowerCase())
       .optional(),
   })
   .strict()

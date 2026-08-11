@@ -220,7 +220,7 @@ const evaluationRunJobOptions: JobsOptions = {
  * operator-controlled gate explicitly; omission can never enqueue work. */
 export async function enqueueEvaluationRun(
   payload: EvaluationRunJobPayload,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; dispatchKey?: string } = {},
 ): Promise<{ enqueued: boolean }> {
   if (options.enabled !== true) return { enqueued: false }
   if (!UUID_PATTERN.test(payload.runId) || !/^[0-9a-f]{64}$/u.test(payload.runIdentityHash)) {
@@ -228,7 +228,7 @@ export async function enqueueEvaluationRun(
   }
   await getQueue(EVALUATION_RUN_QUEUE).add(EVALUATION_RUN_PROCESS_JOB, payload, {
     ...evaluationRunJobOptions,
-    jobId: `evaluation-run-${payload.runId}`,
+    jobId: `evaluation-run-${payload.runId}${options.dispatchKey ? `-${options.dispatchKey}` : ''}`,
   })
   logger.info({
     action: 'jobs.evaluation-run.enqueued',

@@ -5,7 +5,13 @@ import { TENANTED_TABLES } from '../tenanted-tables'
 
 describe('evaluation persistence tenant registry', () => {
   it('classifies every generated evaluation model as tenant-owned', () => {
-    const modelNames = ['EvalCase', 'EvalRun', 'EvalResult', 'EvalReview'] as const
+    const modelNames = [
+      'EvalCase',
+      'EvalRun',
+      'EvalRunCostReservation',
+      'EvalResult',
+      'EvalReview',
+    ] as const
     for (const modelName of modelNames) {
       expect(TENANTED_TABLES).toContain(modelName)
       const model = Prisma.dmmf.datamodel.models.find((candidate) => candidate.name === modelName)
@@ -21,7 +27,13 @@ describe('evaluation persistence tenant registry', () => {
   })
 
   it('generates composite ownership relations for cases, runs, and results', () => {
-    for (const modelName of ['EvalCase', 'EvalRun', 'EvalResult', 'EvalReview']) {
+    for (const modelName of [
+      'EvalCase',
+      'EvalRun',
+      'EvalRunCostReservation',
+      'EvalResult',
+      'EvalReview',
+    ]) {
       const model = Prisma.dmmf.datamodel.models.find((candidate) => candidate.name === modelName)
       const venueRelation = model?.fields.find((field) => field.name === 'venue')
       expect(venueRelation?.relationFromFields).toEqual(['venueId', 'tenantId'])

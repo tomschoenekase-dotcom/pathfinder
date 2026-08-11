@@ -1,7 +1,10 @@
 export const dynamic = 'force-dynamic'
 
+import { randomUUID } from 'node:crypto'
+
 import Link from 'next/link'
 
+import { GeneralizedContentWorkbench } from '../../../../../../../../components/admin/GeneralizedContentWorkbench'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 
 type ContentPageProps = {
@@ -54,6 +57,41 @@ export default async function UniversalContentPage({ params, searchParams }: Con
     group.push(contentRecord)
     grouped.set(contentRecord.kind, group)
   }
+  const editableModules = result.items.flatMap((contentRecord) => {
+    const revision = contentRecord.revisions[0]
+    if (!revision) return []
+    let payload: Record<string, unknown> | null = null
+    if (revision.service) payload = { kind: 'SERVICE', ...revision.service }
+    if (revision.policy) payload = { kind: 'POLICY', ...revision.policy }
+    if (revision.event) {
+      payload = {
+        kind: 'EVENT',
+        ...revision.event,
+        startsAt: revision.event.startsAt.toISOString(),
+        endsAt: revision.event.endsAt?.toISOString() ?? null,
+      }
+    }
+    if (revision.operationalFact) {
+      payload = {
+        kind: 'OPERATIONAL_FACT',
+        ...revision.operationalFact,
+        expiresAt: revision.operationalFact.expiresAt?.toISOString() ?? null,
+      }
+    }
+    if (revision.relationship) payload = { kind: 'RELATIONSHIP', ...revision.relationship }
+    if (!payload) return []
+    return [
+      {
+        id: contentRecord.id,
+        kind: contentRecord.kind,
+        version: revision.version,
+        audience: revision.audience,
+        effectiveFrom: revision.effectiveFrom?.toISOString() ?? null,
+        effectiveUntil: revision.effectiveUntil?.toISOString() ?? null,
+        payload,
+      },
+    ]
+  })
 
   return (
     <div className="space-y-7">
@@ -65,10 +103,19 @@ export default async function UniversalContentPage({ params, searchParams }: Con
           Normalized module explorer
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Read-only inspection of typed content revisions and provenance. Existing Places and
-          Knowledge remain compatibility systems and are not represented or changed here.
+          Inspect typed revisions and provenance, validate drafts, and append human-authored
+          revisions. Existing Places and Knowledge remain compatibility systems and are never
+          rewritten here.
         </p>
       </header>
+
+      <GeneralizedContentWorkbench
+        tenantId={tenantId}
+        venueId={venueId}
+        authoringEnabled={result.authoringEnabled}
+        initialCreationKey={randomUUID()}
+        modules={editableModules}
+      />
 
       <nav aria-label="Filter content type" className="flex flex-wrap gap-2">
         <Link

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { EvaluationRunRequestPanel, type EvaluationCaseListItem } from './EvaluationRunRequestPanel'
+import { EvaluationRunLifecycleControl } from './EvaluationRunLifecycleControl'
 
 type EvaluationSummary = {
   resultCount: number
@@ -21,6 +22,21 @@ type EvaluationRun = {
   modelName: string
   modelSnapshotHash: string
   triggerType: string
+  status:
+    | 'LEGACY'
+    | 'STAGED'
+    | 'QUEUED'
+    | 'RETRY_SCHEDULED'
+    | 'RUNNING'
+    | 'COMPLETED'
+    | 'FAILED'
+    | 'CANCELLED'
+  attemptNumber: number
+  maxAttempts: number | null
+  startedAt: Date | null
+  completedAt: Date | null
+  cancellationRequestedAt: Date | null
+  lastErrorCode: string | null
   createdAt: Date
   summary: EvaluationSummary
 }
@@ -143,8 +159,8 @@ export function EvaluationOperationsView({
           operational failures mean a case did not receive a quality judgment.
         </p>
         <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
-          This console can request a bounded run only when execution is explicitly enabled. It
-          cannot retry, approve, publish, or change content.
+          This console can request or safely cancel a bounded run only when execution is explicitly
+          enabled. It cannot approve, publish, or change content.
         </div>
       </header>
 
@@ -186,7 +202,16 @@ export function EvaluationOperationsView({
                       {run.triggerType.replace(/_/g, ' ')} · {run.createdAt.toLocaleString()}
                     </p>
                   </div>
-                  <RunStatus summary={run.summary} />
+                  <div className="flex flex-col items-start gap-2 sm:items-end">
+                    <RunStatus summary={run.summary} />
+                    <EvaluationRunLifecycleControl
+                      tenantId={tenantId}
+                      venueId={venueId}
+                      runId={run.id}
+                      status={run.status}
+                      cancellationRequestedAt={run.cancellationRequestedAt}
+                    />
+                  </div>
                 </div>
 
                 <div className="mt-5 grid gap-4 lg:grid-cols-2">

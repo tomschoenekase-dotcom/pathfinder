@@ -109,6 +109,15 @@ describe('EvaluationRunRequestPanel', () => {
     expect(await screen.findByText(/queueing was confirmed/i)).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalledTimes(1)
   })
+  it('reports durable staging without claiming direct queue publication', async () => {
+    mocks.mutate.mockResolvedValue({ enqueued: false, dispatchPending: true, status: 'STAGED' })
+    renderPanel()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
+    expect(await screen.findByText(/Run staged/i)).toBeTruthy()
+    expect(screen.getByText(/durable worker dispatcher/i)).toBeTruthy()
+    expect(mocks.listRuns).not.toHaveBeenCalled()
+  })
   it('converts bounded decimal USD without floating point', () => {
     expect(evaluationBudgetToE8Usd('1')).toBe('100000000')
     expect(evaluationBudgetToE8Usd('0.00000001')).toBe('1')

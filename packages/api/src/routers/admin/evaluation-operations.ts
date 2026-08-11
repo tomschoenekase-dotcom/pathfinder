@@ -1,22 +1,10 @@
 import { z } from 'zod'
-import { randomUUID } from 'node:crypto'
-import { TRPCError } from '@trpc/server'
+import { env } from '@pathfinder/config'
+import { db, isEvaluationRuntimeDurablyEnabled, withTenantIsolationBypass } from '@pathfinder/db'
 
-import { AI_MODEL_KEYS, getAiModelSpec } from '@pathfinder/ai'
-import {
-  GUEST_CHAT_PROMPT_CONTRACT_HASH,
-  GUEST_CHAT_PROMPT_VERSION,
-} from '@pathfinder/contracts/prompt-contract'
-import {
-  createOrReplayEvaluationRun,
-  createVenueContentSnapshot,
-  db,
-  withTenantIsolationBypass,
-} from '@pathfinder/db'
-import { enqueueEvaluationRun } from '@pathfinder/jobs'
-
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { adminEvaluationOperationActionsRouter } from './evaluation-operation-actions'
 
 const DEFAULT_PAGE_LIMIT = 20
 const MAX_PAGE_LIMIT = 50
@@ -92,11 +80,11 @@ function summarizeOutcomes(rows: OutcomeCount[]) {
  * omits case, observation, model, and run-config snapshots. A future snapshot reveal
  * needs a separate privacy and authorization review.
  */
-export const adminEvaluationOperationsRouter = router({
+const adminEvaluationOperationReadsRouter = router({
   listEvaluationCases: adminProcedure.input(caseListInputSchema).query(({ input }) =>
     withTenantIsolationBypass(async () => {
       const cursorDate = input.cursor ? new Date(input.cursor.createdAt) : null
-      const [rows, flag] = await Promise.all([
+      const [rows, flag, durableGlobalEnabled] = await Promise.all([
         db.evalCase.findMany({
           where: {
             tenantId: input.tenantId,
@@ -132,13 +120,20 @@ export const adminEvaluationOperationsRouter = router({
           },
           select: { enabled: true },
         }),
+        isEvaluationRuntimeDurablyEnabled(db),
       ])
       const hasMore = rows.length > input.limit
       const items = rows.slice(0, input.limit)
       const last = items.at(-1)
       return {
         items,
-        runnerEnabled: flag?.enabled ?? false,
+        runnerEnabled:
+          env.EVALUATION_RUNNER_ENABLED && durableGlobalEnabled && flag?.enabled === true,
+        readiness: {
+          apiProcessEnabled: env.EVALUATION_RUNNER_ENABLED,
+          durableGlobalEnabled,
+          tenantEnabled: flag?.enabled === true,
+        },
         maximumCases: MAX_RUN_CASES,
         maximumBudgetE8Usd: MAX_RUN_BUDGET_E8_USD.toString(),
         nextCursor:
@@ -146,115 +141,6 @@ export const adminEvaluationOperationsRouter = router({
       }
     }),
   ),
-  requestEvaluationRun: adminProcedure
-    .input(
-      z.object({
-        tenantId: z.string().min(1),
-        venueId: z.string().min(1),
-        idempotencyKey: z.string().trim().min(1).max(191),
-        caseIds: z
-          .array(z.string().uuid())
-          .min(1)
-          .max(MAX_RUN_CASES)
-          .refine((ids) => new Set(ids).size === ids.length, 'Evaluation cases must be unique'),
-        budgetCeilingE8Usd: z.string().regex(/^\d+$/u),
-      }),
-    )
-    .mutation(async ({ input, ctx }) => {
-      const budget = BigInt(input.budgetCeilingE8Usd)
-      if (budget > MAX_RUN_BUDGET_E8_USD)
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Evaluation run budget exceeds the admin hard limit',
-        })
-      const frozen = await withTenantIsolationBypass(async () => {
-        return db.$transaction(async (tx) => {
-          const [snapshot, cases, flag] = await Promise.all([
-            createVenueContentSnapshot({
-              db: tx,
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-            }),
-            tx.evalCase.findMany({
-              where: {
-                tenantId: input.tenantId,
-                venueId: input.venueId,
-                id: { in: input.caseIds },
-              },
-              select: { id: true, revision: true, caseHash: true },
-            }),
-            tx.tenantFeatureFlag.findUnique({
-              where: {
-                tenantId_flagKey: { tenantId: input.tenantId, flagKey: EVALUATION_RUNNER_FLAG },
-              },
-              select: { enabled: true },
-            }),
-          ])
-          if (cases.length !== input.caseIds.length)
-            throw new TRPCError({
-              code: 'NOT_FOUND',
-              message: 'One or more evaluation cases were not found in the requested venue',
-            })
-          const byId = new Map(cases.map((item) => [item.id, item]))
-          const manifest = input.caseIds.map((caseId) => {
-            const item = byId.get(caseId)!
-            return { caseId: item.id, revision: item.revision, caseHash: item.caseHash }
-          })
-          const model = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
-          const created = await createOrReplayEvaluationRun({
-            db: tx,
-            runId: randomUUID(),
-            identity: {
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              idempotencyKey: input.idempotencyKey,
-              caseManifest: manifest,
-              promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
-              promptContractHash: GUEST_CHAT_PROMPT_CONTRACT_HASH,
-              packageSnapshotRef: null,
-              packageSnapshotHash: null,
-              contentSnapshotVersion: snapshot.contentVersion,
-              contentSnapshotHash: snapshot.hash,
-              modelProvider: model.provider,
-              modelName: model.model,
-              modelSnapshot: model,
-              runConfigSnapshot: {
-                version: 'pathfinder-evaluation-run-config-v1',
-                maximumCases: MAX_RUN_CASES,
-                requestedCases: manifest.length,
-                contentSnapshotSchemaVersion: snapshot.schemaVersion,
-                contentComponentCounts: snapshot.componentCounts,
-              },
-              declaredBudgetCeilingE8Usd: budget,
-              createdBy: ctx.session.userId,
-              triggerType: 'ADMIN_REQUEST',
-            },
-          })
-          return { created, enabled: flag?.enabled ?? false, snapshot }
-        })
-      })
-      const admission = await enqueueEvaluationRun(
-        {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId: frozen.created.run.id,
-          runIdentityHash: frozen.created.run.identityHash,
-        },
-        { enabled: frozen.enabled },
-      )
-      return {
-        runId: frozen.created.run.id,
-        replayed: frozen.created.replayed,
-        enqueued: admission.enqueued,
-        executionDefaultOff: !frozen.enabled,
-        contentSnapshot: {
-          schemaVersion: frozen.snapshot.schemaVersion,
-          hash: frozen.snapshot.hash,
-          contentVersion: frozen.snapshot.contentVersion.toString(),
-          componentCounts: frozen.snapshot.componentCounts,
-        },
-      }
-    }),
   listEvaluationRuns: adminProcedure.input(inputSchema).query(({ input }) =>
     withTenantIsolationBypass(async () => {
       const cursorDate = input.cursor ? new Date(input.cursor.createdAt) : null
@@ -295,6 +181,13 @@ export const adminEvaluationOperationsRouter = router({
           declaredBudgetCeilingE8Usd: true,
           createdBy: true,
           triggerType: true,
+          status: true,
+          attemptNumber: true,
+          maxAttempts: true,
+          startedAt: true,
+          completedAt: true,
+          cancellationRequestedAt: true,
+          lastErrorCode: true,
           createdAt: true,
         },
       })
@@ -362,3 +255,8 @@ export const adminEvaluationOperationsRouter = router({
     }),
   ),
 })
+
+export const adminEvaluationOperationsRouter = mergeRouters(
+  adminEvaluationOperationReadsRouter,
+  adminEvaluationOperationActionsRouter,
+)

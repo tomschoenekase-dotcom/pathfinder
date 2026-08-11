@@ -83,10 +83,12 @@ provider dispatch and remain conservative after ambiguous failures. Model identi
 content identity, cost, and failure evidence must remain visible to operators. Do not bypass the AI
 gateway or retry a provider call merely because usage persistence failed.
 
-The AI workload view is read-only. It reports the effective provider/model/source, fallback policy
-and budget/cost bounds without secrets. “Unavailable” means that override layer has no truthful
-durable source; do not interpret it as an inherited or approved override. Do not copy a displayed
-registry value into an ad hoc provider call.
+The AI workload view reports each effective field and its platform/workload/client/venue source. A
+platform administrator can deliberately stage a venue override; new rows remain disabled unless the
+operator explicitly enables them, every edit requires a reason and current revision, and reset leaves
+an audited tombstone. Spend-expanding or model-selection changes require the separate unsafe-change
+acknowledgement. Saving configuration never calls a provider and does not replace the runtime budget
+gate. Do not copy a displayed registry value into an ad hoc provider call.
 
 ## Search and help
 
@@ -101,11 +103,33 @@ Access scope and autonomy are independent. Inspect the run timeline, action summ
 cost, errors, and approval request. Recording an approval never implies execution. Disabled or
 read-only identities remain unable to act even when an approval exists.
 
+The staged identity editor may create an identity only in the disabled state, edit it only while it
+remains disabled with the current revision, or disable an already enabled legacy identity. It has no
+enable, run, provider, model, or credential control. A saved identity is configuration evidence, not
+evidence that an agent executed.
+
 ## Evaluations and freshness
 
 Evaluation runs freeze case, model, prompt, and content identities. Separate operational failures
 from scored quality failures. Freshness queues identify overdue trusted review, provenance gaps, and
 date-sensitive updates; they do not assert factual contradiction and never auto-publish a patch.
+
+New evaluation requests remain `STAGED` until the default-off process gate, durable global gate, and
+tenant gate all admit dispatch. The reconciler advances durable state before deterministic queue
+publication and repairs queued publication gaps. `LEGACY` runs are intentionally non-runnable;
+`RETRY_SCHEDULED` is not active execution. Cancellation records audited intent and uses lifecycle
+CAS, but none of these local controls is provider or staging proof.
+
+## Universal content and MCP reads
+
+Generalized Service, Policy, Event, Operational Fact, and Relationship modules are independently
+versioned. Create, revise, and retire only through the default-off typed workbench; every operation
+is exact-scope, audited, and previewed as unpublished even when its audience is `PUBLIC`.
+
+MCP v0 has concrete bounded read bindings for its 12 resource types. They use verified scope,
+resource-bound cursors, explicit safe selects, and output leakage filtering. There is still no MCP
+listener, credential issuance/verification, OAuth, or live authentication path; do not describe the
+bindings as an externally reachable service.
 
 ## Operational updates
 

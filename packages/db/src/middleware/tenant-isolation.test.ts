@@ -88,6 +88,7 @@ describe('tenantIsolationMiddleware', () => {
       'ContentVersion',
       'EvalCase',
       'EvalRun',
+      'EvalRunCostReservation',
       'EvalResult',
       'EvalReview',
       'VenueContentImportReceipt',
@@ -146,12 +147,16 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeEvidenceRecord',
       'IntakeRunEvent',
       'IntakePackageHandoff',
+      'AiScopedWorkloadConfigurationOverride',
+      'AiScopedWorkloadConfigurationHistory',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual([
       'User',
       'Tenant',
       'PlatformConfig',
       'ClerkWebhookReceipt',
+      'AiWorkloadConfigurationOverride',
+      'AiWorkloadConfigurationHistory',
     ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual(['AuditLog', 'JobRecord'])
   })
@@ -171,7 +176,6 @@ describe('tenantIsolationMiddleware', () => {
     [
       'AiUsageEvent',
       'EvalCase',
-      'EvalRun',
       'EvalResult',
       'EvalReview',
       'AgentAction',
@@ -199,6 +203,8 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeEvidenceRecord',
       'IntakeRunEvent',
       'IntakePackageHandoff',
+      'AiScopedWorkloadConfigurationHistory',
+      'AiWorkloadConfigurationHistory',
     ].flatMap((model) =>
       ['update', 'updateMany', 'upsert', 'delete', 'deleteMany'].map((action) => [model, action]),
     ),
@@ -223,7 +229,7 @@ describe('tenantIsolationMiddleware', () => {
   })
 
   it.each(
-    ['AgentRun', 'SupportRequest', 'OffboardingPlan'].flatMap((model) =>
+    ['AgentRun', 'EvalRun', 'SupportRequest', 'OffboardingPlan'].flatMap((model) =>
       ['delete', 'deleteMany'].map((action) => [model, action]),
     ),
   )('rejects %s %s while preserving lifecycle updates', async (model, action) => {
@@ -250,6 +256,20 @@ describe('tenantIsolationMiddleware', () => {
         next,
       ),
     ).resolves.toMatchObject({ action: 'update', model: 'AgentRun' })
+  })
+
+  it('allows tenant-scoped EvalRun lifecycle updates', async () => {
+    const next = vi.fn(async (params) => params)
+    await expect(
+      tenantIsolationMiddleware(
+        createParams({
+          action: 'updateMany',
+          model: 'EvalRun',
+          args: { where: { tenantId: 'org_1' }, data: { status: 'RUNNING' } },
+        }),
+        next,
+      ),
+    ).resolves.toMatchObject({ model: 'EvalRun' })
   })
 
   it('allows tenant-scoped SupportRequest version updates', async () => {

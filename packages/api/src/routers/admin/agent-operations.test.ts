@@ -12,9 +12,20 @@ const mocks = vi.hoisted(() => ({
   approvalRequestFindMany: vi.fn(),
   approvalRequestFindFirst: vi.fn(),
   recordDecision: vi.fn(),
+  createIdentity: vi.fn(),
+  editIdentity: vi.fn(),
+  disableIdentity: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  AgentIdentityConfigurationError: class AgentIdentityConfigurationError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
   ApprovalDecisionActionError: class ApprovalDecisionActionError extends Error {
     constructor(
       readonly code: string,
@@ -24,6 +35,9 @@ vi.mock('@pathfinder/db', () => ({
     }
   },
   recordApprovalDecisionAction: mocks.recordDecision,
+  createDisabledAgentIdentity: mocks.createIdentity,
+  editDisabledAgentIdentity: mocks.editIdentity,
+  disableAgentIdentity: mocks.disableIdentity,
   withTenantIsolationBypass: mocks.bypass,
   db: {
     agentIdentity: {
@@ -44,9 +58,14 @@ import { mergeRouters, router } from '../../core'
 import type { TRPCContext } from '../../context'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentOperationsRouter } from './agent-operations'
+import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
 
 const testRouter = router({
-  agentOperations: mergeRouters(adminAgentOperationsRouter, adminAgentApprovalDecisionsRouter),
+  agentOperations: mergeRouters(
+    adminAgentOperationsRouter,
+    adminAgentIdentityConfigurationRouter,
+    adminAgentApprovalDecisionsRouter,
+  ),
 })
 
 function context(isPlatformAdmin = true): TRPCContext {
@@ -73,6 +92,74 @@ describe('admin agent operations router', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
     expect(mocks.bypass).not.toHaveBeenCalled()
     expect(mocks.agentRunFindMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects staged identity creation by a non-admin before bypass or action dispatch', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).agentOperations.createDisabledAgentIdentity({
+        scope: { level: 'VENUE', tenantId: 'tenant_1', venueId: 'venue_1' },
+        fields: {
+          identityKey: 'content.primary',
+          name: 'Content agent',
+          description: null,
+          agentType: 'CONTENT',
+          accessCapabilities: ['content.draft'],
+          autonomyLevel: 'DRAFT',
+          autonomousActions: ['content.prepare-draft'],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    expect(mocks.bypass).not.toHaveBeenCalled()
+    expect(mocks.createIdentity).not.toHaveBeenCalled()
+  })
+
+  it('passes only parsed exact scope, allowlisted fields, CAS revision, and human admin actor', async () => {
+    mocks.editIdentity.mockResolvedValue({ id: 'agent_1', enabled: false })
+    const expectedUpdatedAt = new Date('2026-08-11T14:30:00.000Z')
+    await testRouter.createCaller(context()).agentOperations.editDisabledAgentIdentity({
+      scope: { level: 'CLIENT', tenantId: 'tenant_1' },
+      agentIdentityId: 'agent_1',
+      expectedUpdatedAt,
+      fields: {
+        identityKey: 'support.primary',
+        name: 'Support agent',
+        description: 'Draft-only support assistant.',
+        agentType: 'SUPPORT',
+        accessCapabilities: ['support.read'],
+        autonomyLevel: 'READ_ONLY',
+        autonomousActions: [],
+      },
+    })
+    expect(mocks.editIdentity).toHaveBeenCalledWith({
+      scope: { level: 'CLIENT', tenantId: 'tenant_1' },
+      agentIdentityId: 'agent_1',
+      expectedUpdatedAt,
+      fields: {
+        identityKey: 'support.primary',
+        name: 'Support agent',
+        description: 'Draft-only support assistant.',
+        agentType: 'SUPPORT',
+        accessCapabilities: ['support.read'],
+        autonomyLevel: 'READ_ONLY',
+        autonomousActions: [],
+      },
+      actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+    })
+  })
+
+  it('maps stale identity action conflicts without retrying or enabling execution', async () => {
+    const ErrorClass = (await import('@pathfinder/db')).AgentIdentityConfigurationError
+    mocks.disableIdentity.mockRejectedValue(
+      new ErrorClass('CONFLICT', 'Agent identity configuration changed'),
+    )
+    await expect(
+      testRouter.createCaller(context()).agentOperations.disableAgentIdentity({
+        scope: { level: 'VENUE', tenantId: 'tenant_1', venueId: 'venue_1' },
+        agentIdentityId: 'agent_1',
+        expectedUpdatedAt: new Date('2026-08-11T14:30:00.000Z'),
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' } satisfies Partial<TRPCError>)
+    expect(mocks.disableIdentity).toHaveBeenCalledOnce()
   })
 
   it('requires tenant scope and applies venue, enabled, pagination, and safe selects', async () => {

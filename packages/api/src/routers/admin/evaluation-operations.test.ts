@@ -11,7 +11,12 @@ const mocks = vi.hoisted(() => ({
   createRun: vi.fn(),
   featureEnabled: vi.fn(),
   enqueueRun: vi.fn(),
+  cancelRun: vi.fn(),
+  durableEnabled: vi.fn(),
+  markQueued: vi.fn(),
 }))
+
+vi.mock('@pathfinder/config', () => ({ env: { EVALUATION_RUNNER_ENABLED: true } }))
 
 vi.mock('@pathfinder/ai', () => ({
   AI_MODEL_KEYS: { GUEST_CHAT: 'guest-chat' },
@@ -24,6 +29,9 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
   createVenueContentSnapshot: mocks.createSnapshot,
   createOrReplayEvaluationRun: mocks.createRun,
+  requestEvaluationRunCancellation: mocks.cancelRun,
+  isEvaluationRuntimeDurablyEnabled: mocks.durableEnabled,
+  markEvaluationRunQueued: mocks.markQueued,
   db: {
     $transaction: vi.fn(async (operation) =>
       operation({
@@ -64,9 +72,12 @@ describe('admin evaluation operations router', () => {
     mocks.runFindMany.mockResolvedValue([])
     mocks.featureEnabled.mockResolvedValue(null)
     mocks.enqueueRun.mockResolvedValue({ enqueued: false })
+    mocks.cancelRun.mockResolvedValue('requested')
+    mocks.durableEnabled.mockResolvedValue(true)
+    mocks.markQueued.mockResolvedValue(true)
   })
 
-  it('freezes server-derived identities and remains default-off', async () => {
+  it('freezes server-derived identities as STAGED without publishing directly from the API', async () => {
     const caseId = '11111111-1111-4111-8111-111111111111'
     mocks.caseFindMany.mockResolvedValue([{ id: caseId, revision: 2, caseHash: 'b'.repeat(64) }])
     mocks.createSnapshot.mockResolvedValue({
@@ -80,20 +91,26 @@ describe('admin evaluation operations router', () => {
         operationalUpdates: 0,
         universalRevisions: 3,
       },
+      manifest: { tenantId: 'tenant_1', venueId: 'venue_1', frozen: true },
     })
     mocks.createRun.mockImplementation(async ({ identity }) => ({
-      run: { id: caseId, identityHash: 'd'.repeat(64) },
+      run: { id: caseId, identityHash: 'd'.repeat(64), status: 'STAGED' },
       replayed: false,
       identity,
     }))
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+    mocks.enqueueRun.mockResolvedValue({ enqueued: true })
 
-    const result = await testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+    const request = {
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       idempotencyKey: 'operator-request-1',
       caseIds: [caseId],
       budgetCeilingE8Usd: '1000',
-    })
+    }
+    const result = await testRouter
+      .createCaller(context())
+      .evaluations.requestEvaluationRun(request)
 
     expect(mocks.createSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
@@ -110,11 +127,48 @@ describe('admin evaluation operations router', () => {
           contentSnapshotVersion: 9n,
           caseManifest: [{ caseId, revision: 2, caseHash: 'b'.repeat(64) }],
           modelName: 'frozen-model',
+          runConfigSnapshot: expect.objectContaining({
+            contentSnapshot: { tenantId: 'tenant_1', venueId: 'venue_1', frozen: true },
+          }),
         }),
       }),
     )
-    expect(mocks.enqueueRun).toHaveBeenCalledWith(expect.anything(), { enabled: false })
-    expect(result).toMatchObject({ enqueued: false, executionDefaultOff: true })
+    expect(mocks.enqueueRun).not.toHaveBeenCalled()
+    expect(mocks.markQueued).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      enqueued: false,
+      dispatchPending: true,
+      executionDefaultOff: false,
+      status: 'STAGED',
+    })
+
+    mocks.createRun.mockImplementation(async ({ identity }) => ({
+      run: { id: caseId, identityHash: 'd'.repeat(64), status: 'COMPLETED' },
+      replayed: true,
+      identity,
+    }))
+    await expect(
+      testRouter.createCaller(context()).evaluations.requestEvaluationRun(request),
+    ).resolves.toMatchObject({
+      replayed: true,
+      dispatchPending: false,
+      status: 'COMPLETED',
+    })
+  })
+
+  it('rejects dark admission before creating a run identity', async () => {
+    const caseId = '11111111-1111-4111-8111-111111111111'
+    await expect(
+      testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        idempotencyKey: 'dark-request',
+        caseIds: [caseId],
+        budgetCeilingE8Usd: '1',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.createRun).not.toHaveBeenCalled()
+    expect(mocks.enqueueRun).not.toHaveBeenCalled()
   })
 
   it('lists only safe scoped case fields with dark readiness and pagination', async () => {
@@ -144,6 +198,11 @@ describe('admin evaluation operations router', () => {
       .evaluations.listEvaluationCases({ tenantId: 'tenant_1', venueId: 'venue_1', limit: 1 })
     expect(result).toMatchObject({
       runnerEnabled: false,
+      readiness: {
+        apiProcessEnabled: true,
+        durableGlobalEnabled: true,
+        tenantEnabled: false,
+      },
       maximumCases: 50,
       maximumBudgetE8Usd: '100000000',
       items: [{ caseKey: 'known' }],
@@ -186,6 +245,24 @@ describe('admin evaluation operations router', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
     expect(mocks.bypass).not.toHaveBeenCalled()
     expect(mocks.runFindMany).not.toHaveBeenCalled()
+  })
+
+  it('requests scoped, idempotent cancellation without exposing a queue primitive', async () => {
+    const runId = '11111111-1111-4111-8111-111111111111'
+    await expect(
+      testRouter.createCaller(context()).evaluations.cancelEvaluationRun({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        runId,
+      }),
+    ).resolves.toEqual({ cancellationRequested: true, replayed: false })
+    expect(mocks.cancelRun).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      runId,
+      requestedBy: 'operator_1',
+      requestedByRole: 'PLATFORM_ADMIN',
+    })
   })
 
   it('requires tenant and venue scope, safe selects, and stable pagination', async () => {

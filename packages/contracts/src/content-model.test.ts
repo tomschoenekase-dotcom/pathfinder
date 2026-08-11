@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ContentModule, groupContentModules } from './content-model'
+import { ContentEvidenceReference, ContentModule, groupContentModules } from './content-model'
 
 const base = {
   venueId: 'venue-1',
@@ -61,6 +61,23 @@ describe('universal content modules', () => {
         fromId: 'place-1',
         toId: 'place-1',
         relationshipType: 'NEAR',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('matches normalized evidence storage bounds', () => {
+    const uppercaseHash = 'A'.repeat(64)
+    expect(
+      ContentEvidenceReference.parse({
+        sourceId: ' source-1 ',
+        capturedAt: '2026-08-11T18:00:00.000Z',
+        excerptHash: uppercaseHash,
+      }),
+    ).toMatchObject({ sourceId: 'source-1', excerptHash: uppercaseHash.toLowerCase() })
+    expect(
+      ContentEvidenceReference.safeParse({
+        sourceId: 'x'.repeat(501),
+        capturedAt: '2026-08-11T18:00:00.000Z',
       }).success,
     ).toBe(false)
   })

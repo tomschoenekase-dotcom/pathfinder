@@ -190,6 +190,22 @@ function isMatchingReplay(run: EvalRun, identityHash: string, snapshot: Canonica
   )
 }
 
+/** Verifies that a persisted run still matches the immutable identity snapshot
+ * that was hashed when it was created. Workers call this before reading any
+ * snapshot into a provider prompt. */
+export function isVerifiedEvaluationRunIdentity(run: EvalRun): boolean {
+  const snapshot = run.identitySnapshot as CanonicalObject
+  let identityHash: string
+  try {
+    identityHash = createHash('sha256')
+      .update(canonicalEvaluationJson(snapshot), 'utf8')
+      .digest('hex')
+  } catch {
+    return false
+  }
+  return isMatchingReplay(run, identityHash, snapshot)
+}
+
 function isUniqueConflict(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002'
 }

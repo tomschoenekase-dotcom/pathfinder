@@ -1,7 +1,11 @@
 /* @vitest-environment jsdom */
 import React from 'react'
 import { cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('./EvaluationRunLifecycleControl', () => ({
+  EvaluationRunLifecycleControl: ({ status }: { status: string }) => <span>{status}</span>,
+}))
 
 import { EvaluationOperationsView } from './EvaluationOperationsView'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -27,6 +31,13 @@ const run = {
   modelName: 'model',
   modelSnapshotHash: 'e'.repeat(64),
   triggerType: 'MANUAL',
+  status: 'COMPLETED' as const,
+  attemptNumber: 1,
+  maxAttempts: 3,
+  startedAt: new Date('2026-08-11T12:00:01.000Z'),
+  completedAt: new Date('2026-08-11T12:01:00.000Z'),
+  cancellationRequestedAt: null,
+  lastErrorCode: null,
   createdAt: new Date('2026-08-11T12:00:00.000Z'),
   summary: {
     resultCount: 8,

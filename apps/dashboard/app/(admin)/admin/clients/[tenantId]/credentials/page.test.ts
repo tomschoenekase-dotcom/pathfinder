@@ -6,7 +6,7 @@ const source = readFileSync(new URL('./page.tsx', import.meta.url), 'utf8')
 describe('external credentials admin UI boundary', () => {
   it('is explicitly read-only and never renders hash or lifecycle mutations', () => {
     expect(source).toContain('Read-only metadata')
-    expect(source).toContain('cannot create, reveal, enable, rotate, revoke, or authenticate')
+    expect(source).toMatch(/cannot create, reveal, enable, rotate,\s+revoke, or authenticate/)
     expect(source).not.toContain('secretHash')
     expect(source).not.toMatch(/\.mutate\(|<button/i)
   })

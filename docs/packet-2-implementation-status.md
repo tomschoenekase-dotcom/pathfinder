@@ -85,10 +85,13 @@ Section-level evidence and blockers are indexed in
   manifest and exposes exact inputs for the existing `venuePackage.preview` and `createDraft`
   lifecycle. It never persists, approves, applies, rolls back, or queues work; V2-native persistence
   and apply/rollback remain pending.
-- A central AI workload configuration registry/resolver models provider/model identity, fallback,
-  cost and budget bounds, and platform→workload→client→venue precedence with effective-source
-  attribution. Its scoped admin API/view is read-only and secret-free. Registry defaults are shown
-  truthfully; override layers without persistence are labeled unavailable rather than invented.
+- A central AI workload configuration registry/resolver and additive persisted control plane model
+  provider/model identity, fallback, cost and budget bounds, and platform→workload→client→venue
+  precedence with field-level source attribution. Global workload and exact tenant/venue overrides
+  are disabled by default, version-CAS protected, reset through tombstones, and backed by strict
+  audit plus database-guarded immutable history. The platform-admin API/view can inspect
+  effective/source/override state and deliberately stage venue edits without storing credentials,
+  calling a provider, or replacing the runtime budget gate.
 - Offboarding contracts require evidence-backed revocation of guest links, widgets, API/MCP access,
   jobs, agents, client access, and impersonation plus export manifests. They explicitly cannot
   authorize deletion while retention policy remains owner/legal gated.
@@ -166,10 +169,11 @@ Section-level evidence and blockers are indexed in
   knowledge, current operational-update, prompt/config, and latest effective PUBLIC universal
   content fields with stable ordering and NFC. Internal audiences, provenance metadata, embeddings,
   and audit timestamps are excluded from the content identity.
-- Default-off evaluation admission freezes server-derived case/model/prompt/content identities,
-  enforces 1–50 cases and a $1 request ceiling, and enqueues through a bounded runner that separates
-  quality outcomes, operational failure, budget block, cancellation, and retry evidence. The worker
-  remains intentionally unregistered until enabled and infrastructure-verified.
+- Default-off evaluation admission freezes server-derived case/model/prompt/content identities and
+  enforces 1–50 cases plus a $1 request ceiling. Requests persist as `STAGED`; a separately gated
+  durable dispatcher advances and idempotently publishes `QUEUED` work, while the registered worker
+  records retry, cancellation, budget, operational-failure, and scored-quality evidence. Process,
+  durable-global, and tenant gates all remain off until explicitly and separately enabled.
 - Read-only Freshness Audit queues for overdue human-reviewed sources, provenance metadata gaps, and
   expired/soon-expiring operational updates. The console never represents metadata gaps as factual
   contradictions and exposes no patch/publish action.
@@ -181,10 +185,11 @@ Section-level evidence and blockers are indexed in
   autonomous support actions, MCP writes, partner API, and SDK release.
 - MCP v0 contracts and a transport-neutral adapter registry targeting official protocol revision
   2026-07-28: 12 scoped resources, read/draft/bounded-evaluation tools, strict structured results,
-  verified credential context, injected canonical domain actions, default-off writes, and exact
-  approval/scope/capability checks. Disabled hashed credential metadata now has a persistence/read
-  foundation, but issuance, verification, transport, OAuth, rate limiting and live bindings remain
-  intentionally unimplemented and dark.
+  verified credential context, default-off writes, and exact approval/scope/capability checks. All
+  12 read resources now have bounded exact-scope safe-select bindings with resource-bound cursors and
+  output-layer leakage filtering. Disabled hashed credential metadata has a persistence/read
+  foundation, but issuance, verification, transport, OAuth, rate limiting and live authentication
+  remain intentionally unimplemented and dark.
 - Dark Partner Read API v1 contracts and registry for six bounded operations. Availability requires
   the exact default-off flag plus injected revocation, expiry, rate-limit, audit, scope, and canonical
   read dependencies; shared disabled hash/prefix metadata persistence does not supply authentication.
@@ -203,7 +208,9 @@ Section-level evidence and blockers are indexed in
 - Universal normalized content persistence is additive and typed: payload-free identities,
   immutable revision envelopes, separate Service, Policy, Event, Operational Fact, and
   Relationship payloads, and append-only evidence. Exact tenant/venue/kind constraints prevent a
-  generic lowest-common-denominator content table.
+  generic lowest-common-denominator content table. Default-off operator actions create identities,
+  append CAS-protected typed revisions, or append retirement boundaries with strict audit evidence;
+  even `PUBLIC` drafts remain explicitly unpublished.
 - Venue Deployment Manifest v2 contracts support complete and granular patch manifests with
   stable-ID operations, effective configuration provenance, immutable asset references,
   evaluation/readiness evidence, canonical hashing, and deterministic diffing. The existing
@@ -212,10 +219,14 @@ Section-level evidence and blockers are indexed in
 - Offboarding persistence and the operator console can create and inspect requested plans,
   revocation targets, evidence, and export metadata. Execution and deletion remain absent by
   design pending authorization and retention policy.
-- Evaluation enqueue and runner foundations are implemented with frozen identities, case and
-  budget caps, cancellation, retry-aware terminal evidence, and separate quality/operational
-  outcomes. Admission is default-off and the worker is deliberately not registered for live
-  execution.
+- Evaluation dispatch and runner foundations are implemented with frozen identities, case and
+  budget caps, legacy-safe lifecycle migration, cancellation races, retry result reuse/prior-spend
+  accounting, and separate quality/operational outcomes. The worker is registered only behind its
+  default-off process gate; durable-global and tenant gates independently fail closed.
+- Agent identities can be created disabled, edited only while disabled with exact-scope CAS, and
+  disabled from the Internal Workspace. Closed capability/action contracts and strict transactional
+  audit evidence are present; there is intentionally no enable, run, provider, model, credential, or
+  autonomous-execution control.
 - Cross-migration integrity checks cover the ordered intake, support-package-handoff and dark
   credential migrations against the final Prisma schema, tenant registry and append-only guards.
   Custom intake index names are explicitly mapped in Prisma; all three migrations are atomic and
@@ -233,10 +244,11 @@ Section-level evidence and blockers are indexed in
   worker, API, MCP, and agent mutation shares the same services.
 - Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
   including any later automated validation/evaluation, approval, apply or agent orchestration.
-- Agent action adapters and protected enable/run/retry/cancel/approval mutations.
-- MCP transport/authentication and live domain bindings, credential issuance/verification/lifecycle, and any
+- Agent execution adapters and protected enable/run/retry controls; staged identity configuration
+  does not activate an agent.
+- MCP transport/authentication, credential issuance/verification/lifecycle, write bindings, and any
   staging-justified thin SDK.
-- Live evaluation worker registration/provider execution, reports lifecycle redesign, and
+- Live evaluation gate activation/provider execution and report-quality evidence, reports lifecycle redesign, and
   authorized offboarding execution.
 - Remaining table pagination/batching/virtualization work and measured browser performance
   evidence. Admin client lookup/directory and portal eager analytics/report fetches are already

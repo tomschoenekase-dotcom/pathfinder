@@ -13,6 +13,10 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }))
+vi.mock('../../lib/trpc', () => ({
+  useTRPCClient: () => ({ admin: {} }),
+}))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
 describe('agent operations views', () => {
   afterEach(cleanup)
@@ -23,7 +27,7 @@ describe('agent operations views', () => {
     expect(formatE8Usd(10_000_000_000_000_001n)).toBe('$100000000.00000001')
   })
 
-  it('keeps access and autonomy separate and offers no mutation controls', () => {
+  it('keeps access and autonomy separate and offers staged configuration without execution controls', () => {
     render(
       <AgentOperationsOverview
         tenantId="tenant_1"
@@ -43,6 +47,7 @@ describe('agent operations views', () => {
               defaultProvider: null,
               defaultModel: null,
               enabled: true,
+              updatedAt: new Date('2026-08-11T14:30:00.000Z'),
               _count: { runs: 2, approvalRequests: 1 },
             },
           ],
@@ -55,7 +60,8 @@ describe('agent operations views', () => {
     expect(screen.getByText('Access scope')).toBeTruthy()
     expect(screen.getByText('Autonomy')).toBeTruthy()
     expect(screen.getByText('READ_CONTENT')).toBeTruthy()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Create disabled identity' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
     expect(
       screen.getByText(/Approval decisions record evidence only and never execute/),
     ).toBeTruthy()

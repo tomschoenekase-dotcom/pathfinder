@@ -29,6 +29,11 @@ const rawEnvSchema = z
     // business cron. Staging/preview require an explicit canary opt-in.
     GENERATION_RECOVERY_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Evaluation consumption is a separate, server-only rollout gate. It is
+    // deliberately default-off in every environment; tenant admission still
+    // requires the evaluation-runner-v1 TenantFeatureFlag as well.
+    EVALUATION_RUNNER_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
     EMBED_PREVIEW_ENABLED: z.enum(['true', 'false']).optional(),
@@ -105,6 +110,7 @@ export const envSchema = rawEnvSchema.transform((values) => ({
       ? values.RAILWAY_ENVIRONMENT === 'production'
       : values.GENERATION_DISPATCH_ENABLED === 'true',
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
+  EVALUATION_RUNNER_ENABLED: values.EVALUATION_RUNNER_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',
 }))
 

@@ -3,11 +3,13 @@ import { mergeRouters } from '../../core'
 import { adminAnswerAnalysisRouter } from './answer-analysis'
 import { adminAiWorkloadConfigurationRouter } from './ai-workload-configuration'
 import { adminAgentOperationsRouter } from './agent-operations'
+import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminChatlogsRouter } from './chatlogs'
 import { adminClientAnalyticsRouter } from './client-analytics'
 import { adminClientManagementRouter } from './client-management'
 import { adminClientSearchRouter } from './client-search'
+import { adminClientDirectorySearchRouter } from './client-directory-search'
 import { adminClientReadsRouter } from './client-reads'
 import { adminCostBudgetRouter } from './cost-budget'
 import { adminDigestRouter } from './digest'
@@ -32,6 +34,7 @@ export const adminRouter = mergeRouters(
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminAgentOperationsRouter,
+  adminAgentIdentityConfigurationRouter,
   adminAgentApprovalDecisionsRouter,
   adminIncidentControlRouter,
   adminIntakeOperationsRouter,
@@ -45,6 +48,7 @@ export const adminRouter = mergeRouters(
   adminClientAnalyticsRouter,
   adminClientManagementRouter,
   adminClientSearchRouter,
+  adminClientDirectorySearchRouter,
   adminChatlogsRouter,
   adminAnswerAnalysisRouter,
   adminAiWorkloadConfigurationRouter,

@@ -78,8 +78,12 @@ export function EvaluationRunRequestPanel(props: {
         caseIds: [...selected],
         budgetCeilingE8Usd,
       })
-      if (!result.enqueued) {
-        setMessage('The run identity was frozen, but execution is dark and the run was not queued.')
+      if (result.dispatchPending) {
+        setMessage(
+          'Run staged. The durable worker dispatcher will publish it after rechecking global and tenant gates.',
+        )
+        idempotencyKey.current = crypto.randomUUID()
+        router.refresh()
         return
       }
       try {
@@ -116,8 +120,8 @@ export function EvaluationRunRequestPanel(props: {
       </h3>
       {!props.runnerEnabled ? (
         <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          Evaluation execution is dark for this tenant. Cases are visible for readiness review, but
-          requesting a run is disabled.
+          Evaluation execution is dark. The API process gate, durable global gate, and exact tenant
+          gate must all be enabled before a run identity can be created or queued.
         </p>
       ) : null}
       {cases.length === 0 ? (

@@ -34,16 +34,16 @@ model ClerkWebhookReceipt {
 }
 
 model Tenant {
-  id                            String                          @id
+  id                            String                                  @id
   name                          String
-  slug                          String                          @unique
-  planTier                      String                          @default("free") @map("plan_tier")
-  status                        TenantStatus                    @default(ACTIVE)
-  config                        Json                            @default("{}")
-  nextPaymentDue                DateTime?                       @map("next_payment_due")
-  engagementMode                TenantEngagementMode            @default(STOIC) @map("engagement_mode")
-  createdAt                     DateTime                        @default(now()) @map("created_at")
-  updatedAt                     DateTime                        @updatedAt @map("updated_at")
+  slug                          String                                  @unique
+  planTier                      String                                  @default("free") @map("plan_tier")
+  status                        TenantStatus                            @default(ACTIVE)
+  config                        Json                                    @default("{}")
+  nextPaymentDue                DateTime?                               @map("next_payment_due")
+  engagementMode                TenantEngagementMode                    @default(STOIC) @map("engagement_mode")
+  createdAt                     DateTime                                @default(now()) @map("created_at")
+  updatedAt                     DateTime                                @updatedAt @map("updated_at")
   memberships                   TenantMembership[]
   featureFlags                  TenantFeatureFlag[]
   venues                        Venue[]
@@ -75,6 +75,7 @@ model Tenant {
   evalRuns                      EvalRun[]
   evalResults                   EvalResult[]
   evalReviews                   EvalReview[]
+  evalRunCostReservations       EvalRunCostReservation[]
   agentIdentities               AgentIdentity[]
   agentRuns                     AgentRun[]
   agentActions                  AgentAction[]
@@ -100,6 +101,8 @@ model Tenant {
   externalCredentials           ExternalAccessCredential[]
   credentialRotations           ExternalCredentialRotation[]
   credentialRevocations         ExternalCredentialRevocation[]
+  aiConfigurationOverrides      AiScopedWorkloadConfigurationOverride[]
+  aiConfigurationHistory        AiScopedWorkloadConfigurationHistory[]
 
   @@map("tenants")
 }
@@ -237,32 +240,32 @@ enum VenuePackageStatus {
 }
 
 model Venue {
-  id                            String                          @id @default(cuid())
-  tenantId                      String                          @map("tenant_id")
+  id                            String                                  @id @default(cuid())
+  tenantId                      String                                  @map("tenant_id")
   name                          String
   slug                          String
   description                   String?
-  guideNotes                    String?                         @map("guide_notes")
-  aiGuideNotes                  String?                         @map("ai_guide_notes")
-  aiFeaturedPlaceId             String?                         @map("ai_featured_place_id")
-  aiTone                        String?                         @default("FRIENDLY") @map("ai_tone")
-  tonePreset                    String?                         @default("friendly") @map("tone_preset")
-  tonePresetVersion             Int?                            @default(1) @map("tone_preset_version")
-  aiGuideName                   String?                         @map("ai_guide_name")
-  chatTheme                     String?                         @default("default") @map("chat_theme")
-  chatAccentColor               String?                         @map("chat_accent_color")
-  chatFont                      String?                         @default("jakarta") @map("chat_font")
-  chatLogoUrl                   String?                         @map("chat_logo_url")
-  chatBannerUrl                 String?                         @map("chat_banner_url")
+  guideNotes                    String?                                 @map("guide_notes")
+  aiGuideNotes                  String?                                 @map("ai_guide_notes")
+  aiFeaturedPlaceId             String?                                 @map("ai_featured_place_id")
+  aiTone                        String?                                 @default("FRIENDLY") @map("ai_tone")
+  tonePreset                    String?                                 @default("friendly") @map("tone_preset")
+  tonePresetVersion             Int?                                    @default(1) @map("tone_preset_version")
+  aiGuideName                   String?                                 @map("ai_guide_name")
+  chatTheme                     String?                                 @default("default") @map("chat_theme")
+  chatAccentColor               String?                                 @map("chat_accent_color")
+  chatFont                      String?                                 @default("jakarta") @map("chat_font")
+  chatLogoUrl                   String?                                 @map("chat_logo_url")
+  chatBannerUrl                 String?                                 @map("chat_banner_url")
   category                      String?
-  guideMode                     String                          @default("location_aware") @map("guide_mode")
-  defaultCenterLat              Float?                          @map("default_center_lat")
-  defaultCenterLng              Float?                          @map("default_center_lng")
-  geoBoundary                   Json?                           @map("geo_boundary")
-  isActive                      Boolean                         @default(true) @map("is_active")
-  createdAt                     DateTime                        @default(now()) @map("created_at")
-  updatedAt                     DateTime                        @updatedAt @map("updated_at")
-  tenant                        Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  guideMode                     String                                  @default("location_aware") @map("guide_mode")
+  defaultCenterLat              Float?                                  @map("default_center_lat")
+  defaultCenterLng              Float?                                  @map("default_center_lng")
+  geoBoundary                   Json?                                   @map("geo_boundary")
+  isActive                      Boolean                                 @default(true) @map("is_active")
+  createdAt                     DateTime                                @default(now()) @map("created_at")
+  updatedAt                     DateTime                                @updatedAt @map("updated_at")
+  tenant                        Tenant                                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   places                        Place[]
   sessions                      VisitorSession[]
   operationalUpdates            OperationalUpdate[]
@@ -289,6 +292,7 @@ model Venue {
   evalRuns                      EvalRun[]
   evalResults                   EvalResult[]
   evalReviews                   EvalReview[]
+  evalRunCostReservations       EvalRunCostReservation[]
   agentIdentities               AgentIdentity[]
   agentRuns                     AgentRun[]
   agentActions                  AgentAction[]
@@ -311,6 +315,7 @@ model Venue {
   externalCredentials           ExternalAccessCredential[]
   credentialRotations           ExternalCredentialRotation[]
   credentialRevocations         ExternalCredentialRevocation[]
+  aiConfigurationOverrides      AiScopedWorkloadConfigurationOverride[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -901,6 +906,138 @@ enum AiCostSettlementKind {
   OVER_CEILING
 }
 
+enum AiConfigurationScopeLevel {
+  CLIENT
+  VENUE
+}
+
+enum AiConfigurationHistoryAction {
+  CREATED
+  UPDATED
+  RESET
+}
+
+/// A global workload-level override. Rows are staged and disabled by default.
+/// Nullable values are paired with explicit *Set fields so "inherit" and an
+/// intentional null remain distinct. No provider credentials belong here.
+model AiWorkloadConfigurationOverride {
+  id                           String                           @id @default(cuid())
+  workloadId                   String                           @unique @map("workload_id") @db.VarChar(100)
+  enabled                      Boolean                          @default(false)
+  primaryModelKey              String?                          @map("primary_model_key") @db.VarChar(100)
+  primaryModelKeySet           Boolean                          @default(false) @map("primary_model_key_set")
+  fallbackEnabled              Boolean?                         @map("fallback_enabled")
+  fallbackEnabledSet           Boolean                          @default(false) @map("fallback_enabled_set")
+  fallbackModelKeys            String[]                         @default([]) @map("fallback_model_keys")
+  fallbackModelKeysSet         Boolean                          @default(false) @map("fallback_model_keys_set")
+  timeoutMs                    Int?                             @map("timeout_ms")
+  timeoutMsSet                 Boolean                          @default(false) @map("timeout_ms_set")
+  maxAttempts                  Int?                             @map("max_attempts")
+  maxAttemptsSet               Boolean                          @default(false) @map("max_attempts_set")
+  maxOutputTokens              Int?                             @map("max_output_tokens")
+  maxOutputTokensSet           Boolean                          @default(false) @map("max_output_tokens_set")
+  requestBudgetCeilingE8Usd    String?                          @map("request_budget_ceiling_e8_usd") @db.VarChar(40)
+  requestBudgetCeilingE8UsdSet Boolean                          @default(false) @map("request_budget_ceiling_e8_usd_set")
+  unsafeChangesEnabled         Boolean                          @default(false) @map("unsafe_changes_enabled")
+  isTombstone                  Boolean                          @default(false) @map("is_tombstone")
+  reason                       String                           @db.VarChar(500)
+  revision                     Int                              @default(1)
+  createdBy                    String                           @map("created_by") @db.VarChar(191)
+  updatedBy                    String                           @map("updated_by") @db.VarChar(191)
+  createdAt                    DateTime                         @default(now()) @map("created_at")
+  updatedAt                    DateTime                         @updatedAt @map("updated_at")
+  history                      AiWorkloadConfigurationHistory[]
+
+  @@index([enabled, isTombstone])
+  @@map("ai_workload_configuration_overrides")
+}
+
+/// Immutable evidence for every global workload override transition.
+model AiWorkloadConfigurationHistory {
+  id         String                          @id @default(cuid())
+  overrideId String                          @map("override_id")
+  workloadId String                          @map("workload_id") @db.VarChar(100)
+  revision   Int
+  action     AiConfigurationHistoryAction
+  snapshot   Json
+  actorId    String                          @map("actor_id") @db.VarChar(191)
+  actorRole  String                          @map("actor_role") @db.VarChar(64)
+  reason     String                          @db.VarChar(500)
+  createdAt  DateTime                        @default(now()) @map("created_at")
+  override   AiWorkloadConfigurationOverride @relation(fields: [overrideId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([overrideId, revision])
+  @@index([workloadId, createdAt])
+  @@map("ai_workload_configuration_history")
+}
+
+/// Client- and venue-scoped overrides retain a required tenant predicate.
+/// venueScopeKey is "__client__" for client scope or the exact venue id for
+/// venue scope, providing one stable composite identity without nullable keys.
+model AiScopedWorkloadConfigurationOverride {
+  id                           String                                 @id @default(cuid())
+  tenantId                     String                                 @map("tenant_id")
+  venueId                      String?                                @map("venue_id")
+  venueScopeKey                String                                 @map("venue_scope_key") @db.VarChar(191)
+  scopeLevel                   AiConfigurationScopeLevel              @map("scope_level")
+  workloadId                   String                                 @map("workload_id") @db.VarChar(100)
+  enabled                      Boolean                                @default(false)
+  primaryModelKey              String?                                @map("primary_model_key") @db.VarChar(100)
+  primaryModelKeySet           Boolean                                @default(false) @map("primary_model_key_set")
+  fallbackEnabled              Boolean?                               @map("fallback_enabled")
+  fallbackEnabledSet           Boolean                                @default(false) @map("fallback_enabled_set")
+  fallbackModelKeys            String[]                               @default([]) @map("fallback_model_keys")
+  fallbackModelKeysSet         Boolean                                @default(false) @map("fallback_model_keys_set")
+  timeoutMs                    Int?                                   @map("timeout_ms")
+  timeoutMsSet                 Boolean                                @default(false) @map("timeout_ms_set")
+  maxAttempts                  Int?                                   @map("max_attempts")
+  maxAttemptsSet               Boolean                                @default(false) @map("max_attempts_set")
+  maxOutputTokens              Int?                                   @map("max_output_tokens")
+  maxOutputTokensSet           Boolean                                @default(false) @map("max_output_tokens_set")
+  requestBudgetCeilingE8Usd    String?                                @map("request_budget_ceiling_e8_usd") @db.VarChar(40)
+  requestBudgetCeilingE8UsdSet Boolean                                @default(false) @map("request_budget_ceiling_e8_usd_set")
+  unsafeChangesEnabled         Boolean                                @default(false) @map("unsafe_changes_enabled")
+  isTombstone                  Boolean                                @default(false) @map("is_tombstone")
+  reason                       String                                 @db.VarChar(500)
+  revision                     Int                                    @default(1)
+  createdBy                    String                                 @map("created_by") @db.VarChar(191)
+  updatedBy                    String                                 @map("updated_by") @db.VarChar(191)
+  createdAt                    DateTime                               @default(now()) @map("created_at")
+  updatedAt                    DateTime                               @updatedAt @map("updated_at")
+  tenant                       Tenant                                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                        Venue?                                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  history                      AiScopedWorkloadConfigurationHistory[]
+
+  @@unique([tenantId, venueScopeKey, workloadId])
+  @@unique([id, tenantId])
+  @@index([tenantId, scopeLevel, enabled, isTombstone])
+  @@index([tenantId, venueId])
+  @@map("ai_scoped_workload_configuration_overrides")
+}
+
+/// Immutable tenant-owned evidence for every scoped override transition.
+model AiScopedWorkloadConfigurationHistory {
+  id         String                                @id @default(cuid())
+  overrideId String                                @map("override_id")
+  tenantId   String                                @map("tenant_id")
+  venueId    String?                               @map("venue_id")
+  scopeLevel AiConfigurationScopeLevel             @map("scope_level")
+  workloadId String                                @map("workload_id") @db.VarChar(100)
+  revision   Int
+  action     AiConfigurationHistoryAction
+  snapshot   Json
+  actorId    String                                @map("actor_id") @db.VarChar(191)
+  actorRole  String                                @map("actor_role") @db.VarChar(64)
+  reason     String                                @db.VarChar(500)
+  createdAt  DateTime                              @default(now()) @map("created_at")
+  override   AiScopedWorkloadConfigurationOverride @relation(fields: [overrideId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  tenant     Tenant                                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([overrideId, revision])
+  @@index([tenantId, venueId, workloadId, createdAt])
+  @@map("ai_scoped_workload_configuration_history")
+}
+
 /// One explicitly configured spend envelope for gateway-accounted AI calls.
 /// No row (or a disabled row) means enforcement is disabled; there is no
 /// invented default commercial threshold.
@@ -965,12 +1102,29 @@ model AiCostReservation {
   @@map("ai_cost_reservations")
 }
 
+enum EvalRunStatus {
+  LEGACY
+  STAGED
+  QUEUED
+  RETRY_SCHEDULED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 enum EvalResultOutcome {
   SCORED
   OPERATIONAL_FAILURE
   ADMISSION_DEFERRED
   BUDGET_BLOCKED
   CANCELLED
+}
+
+enum EvalRunCostReservationStatus {
+  RESERVED
+  SETTLED
+  AMBIGUOUS
 }
 
 enum EvalReviewDecision {
@@ -998,6 +1152,7 @@ model EvalCase {
   tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue         Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   results       EvalResult[]
+  costReservations EvalRunCostReservation[]
 
   @@unique([tenantId, venueId, caseKey, revision])
   @@unique([id, revision, caseHash, tenantId, venueId])
@@ -1005,8 +1160,8 @@ model EvalCase {
   @@map("eval_cases")
 }
 
-/// Immutable identity and declared (not atomically enforced) budget ceiling for one run attempt.
-/// One declaredBudgetCeilingE8Usd unit is exactly 10^-8 USD. Enforcement is a later slice.
+/// Immutable identity and an atomically enforced budget ceiling for one run.
+/// One declaredBudgetCeilingE8Usd unit is exactly 10^-8 USD.
 /// The helper makes (tenant, venue, idempotencyKey) an exact replay boundary.
 model EvalRun {
   id                         String       @id @db.Uuid
@@ -1029,17 +1184,62 @@ model EvalRun {
   runConfigSnapshot          Json         @map("run_config_snapshot")
   identitySnapshot           Json         @map("identity_snapshot")
   declaredBudgetCeilingE8Usd BigInt       @map("declared_budget_ceiling_e8_usd")
+  budgetAccountedE8Usd       BigInt       @default(0) @map("budget_accounted_e8_usd")
   createdBy                  String       @map("created_by") @db.VarChar(191)
   triggerType                String       @map("trigger_type") @db.VarChar(64)
+  status                     EvalRunStatus @default(STAGED)
+  attemptNumber              Int           @default(0) @map("attempt_number")
+  maxAttempts               Int?          @map("max_attempts")
+  startedAt                  DateTime?      @map("started_at")
+  completedAt                DateTime?      @map("completed_at")
+  cancellationRequestedAt    DateTime?      @map("cancellation_requested_at")
+  cancellationRequestedBy    String?        @map("cancellation_requested_by") @db.VarChar(191)
+  lastErrorCode              String?        @map("last_error_code") @db.VarChar(100)
+  executionLeaseToken        String?        @map("execution_lease_token") @db.Uuid
+  executionLeaseExpiresAt    DateTime?      @map("execution_lease_expires_at")
   createdAt                  DateTime     @default(now()) @map("created_at")
   tenant                     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue                      Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   results                    EvalResult[]
+  costReservations           EvalRunCostReservation[]
 
   @@unique([tenantId, venueId, idempotencyKey])
   @@unique([id, identityHash, tenantId, venueId])
   @@index([tenantId, venueId, createdAt])
+  @@index([status, createdAt])
   @@map("eval_runs")
+}
+
+/// Durable, conservative provider-call reservation. The unique case boundary means
+/// an uncertain call is never dispatched again by a later worker attempt.
+model EvalRunCostReservation {
+  id                 String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String                       @map("tenant_id")
+  venueId            String                       @map("venue_id")
+  runId              String                       @map("run_id") @db.Uuid
+  runIdentityHash    String                       @map("run_identity_hash") @db.Char(64)
+  caseId             String                       @map("case_id") @db.Uuid
+  caseRevision       Int                          @map("case_revision")
+  caseHash           String                       @map("case_hash") @db.Char(64)
+  attemptNumber      Int                          @map("attempt_number")
+  leaseToken         String?                      @map("lease_token") @db.Uuid
+  status             EvalRunCostReservationStatus @default(RESERVED)
+  reservedCostE8Usd  BigInt                       @map("reserved_cost_e8_usd")
+  settledCostE8Usd   BigInt?                      @map("settled_cost_e8_usd")
+  resultId           String?                      @unique @map("result_id") @db.Uuid
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  settledAt          DateTime?                    @map("settled_at")
+  tenant             Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue              Venue                        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run                EvalRun                      @relation(fields: [runId, runIdentityHash, tenantId, venueId], references: [id, identityHash, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  evalCase           EvalCase                     @relation(fields: [caseId, caseRevision, caseHash, tenantId, venueId], references: [id, revision, caseHash, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  result             EvalResult?                  @relation(fields: [resultId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, runId, caseId, caseRevision], map: "eval_run_cost_reservations_scope_key")
+  @@unique([tenantId, venueId, runId, caseId, caseRevision, attemptNumber], map: "eval_run_cost_reservations_attempt_scope_key")
+  @@unique([resultId, tenantId, venueId])
+  @@index([tenantId, venueId, runId, status])
+  @@map("eval_run_cost_reservations")
 }
 
 /// Immutable terminal evidence for one exact case revision in one exact run.
@@ -1070,6 +1270,7 @@ model EvalResult {
   run                 EvalRun           @relation(fields: [runId, runIdentityHash, tenantId, venueId], references: [id, identityHash, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   evalCase            EvalCase          @relation(fields: [caseId, caseRevision, caseHash, tenantId, venueId], references: [id, revision, caseHash, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   reviews             EvalReview[]
+  costReservation     EvalRunCostReservation?
 
   @@unique([runId, caseId, caseRevision])
   @@unique([id, tenantId, venueId])
