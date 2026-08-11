@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ResponseRenderer } from './ResponseRenderer'
@@ -80,5 +80,109 @@ describe('ResponseRenderer', () => {
     expect(screen.queryByRole('link', { name: /Unsafe/ })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Sources' })).toBeTruthy()
     expect(screen.queryByText('Legacy fallback should not be duplicated.')).toBeNull()
+  })
+
+  it('renders choices as keyboard-native labeled controls and returns only their bounded value', () => {
+    const onChoiceSelect = vi.fn()
+    render(
+      <ResponseRenderer
+        content=""
+        onChoiceSelect={onChoiceSelect}
+        blocks={[
+          {
+            type: 'choices',
+            label: 'Choose a topic',
+            choices: [
+              {
+                id: 'hours',
+                label: 'Hours',
+                accessibleLabel: 'Ask about opening hours',
+                value: 'What are today’s hours?',
+              },
+            ],
+          },
+        ]}
+      />,
+    )
+    const choice = screen.getByRole('button', { name: 'Ask about opening hours' })
+    expect(choice.getAttribute('type')).toBe('button')
+    fireEvent.click(choice)
+    expect(onChoiceSelect).toHaveBeenCalledWith('What are today’s hours?')
+  })
+
+  it('renders HTTPS gallery metadata, semantic event times, and a map link responsively', () => {
+    render(
+      <ResponseRenderer
+        content=""
+        blocks={[
+          {
+            type: 'gallery',
+            label: 'Gallery highlights',
+            images: [
+              {
+                src: 'https://cdn.example/east-gallery.jpg',
+                alt: 'Sunlit east gallery with two sculptures',
+                caption: 'East Gallery',
+              },
+            ],
+          },
+          {
+            type: 'events',
+            label: 'Today’s events',
+            events: [
+              {
+                id: 'tour',
+                title: 'Gallery tour',
+                startsAt: '2030-01-01T10:00:00-06:00',
+                endsAt: '2030-01-01T11:00:00-06:00',
+                location: 'East Gallery',
+              },
+            ],
+          },
+          {
+            type: 'location',
+            name: 'East entrance',
+            address: '100 Museum Way',
+            mapHref: 'https://maps.example/east-entrance',
+          },
+        ]}
+      />,
+    )
+    expect(
+      screen
+        .getByRole('img', { name: 'Sunlit east gallery with two sculptures' })
+        .getAttribute('referrerpolicy'),
+    ).toBe('no-referrer')
+    const times = document.querySelectorAll('time')
+    expect([...times].map((time) => time.getAttribute('datetime'))).toEqual([
+      '2030-01-01T10:00:00-06:00',
+      '2030-01-01T11:00:00-06:00',
+    ])
+    expect(screen.getByRole('link', { name: /Open map link/ }).getAttribute('href')).toBe(
+      'https://maps.example/east-entrance',
+    )
+  })
+
+  it('defensively omits unsafe rich media and map URLs even for unparsed data', () => {
+    render(
+      <ResponseRenderer
+        content="Safe text remains excellent."
+        blocks={[
+          {
+            type: 'image',
+            image: { src: 'javascript:alert(1)', alt: 'Unsafe image' },
+          },
+          {
+            type: 'location',
+            name: 'Unsafe map',
+            mapHref: 'http://maps.example/location',
+          },
+          { type: 'text', text: 'Safe text remains excellent.' },
+        ]}
+      />,
+    )
+    expect(screen.queryByRole('img', { name: 'Unsafe image' })).toBeNull()
+    expect(screen.queryByRole('link', { name: /Open map link/ })).toBeNull()
+    expect(screen.getByText('Safe text remains excellent.')).toBeTruthy()
   })
 })

@@ -724,7 +724,7 @@ export function VenueJsonImporter({
         <h3 className="font-semibold text-gray-900">Durable package history</h3>
         {loadingHistory ? (
           <p className="mt-3 text-sm text-gray-500" role="status">
-            Loading package historyâ€¦
+            Loading package history…
           </p>
         ) : packages.length === 0 ? (
           <p className="mt-3 text-sm text-gray-500">No saved package revisions yet.</p>

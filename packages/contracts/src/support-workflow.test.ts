@@ -30,6 +30,8 @@ describe('support workflow contract', () => {
     expect(canTransitionSupportRequest('PATCH_DRAFTED', 'VALIDATING')).toBe(true)
     expect(canTransitionSupportRequest('VALIDATING', 'AWAITING_APPROVAL')).toBe(true)
     expect(canTransitionSupportRequest('PATCH_DRAFTED', 'APPLYING')).toBe(false)
+    expect(canTransitionSupportRequest('IN_REVIEW', 'COMPLETED')).toBe(false)
+    expect(canTransitionSupportRequest('APPLYING', 'AWAITING_APPROVAL')).toBe(false)
   })
 
   it('keeps terminal requests terminal', () => {

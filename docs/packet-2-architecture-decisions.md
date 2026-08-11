@@ -111,3 +111,42 @@ An operator may create a confirmed REQUESTED offboarding plan and inspect its ta
 the planning API has no execute, revoke, complete, retention, or deletion operation. Future execution
 must use canonical audited domain actions and be separately authorized. Retention/erasure behavior
 cannot be inferred from account closure and remains owner/legal-policy gated.
+
+## ADR-013: Client lifecycle is a derived read model
+
+Status: accepted
+
+The ten Packet 2 client lifecycle states are resolved from existing scoped venue, intake, package,
+availability and offboarding evidence. They are not a new mutable status column and cannot be
+advanced by a portal button. The client sees only required tasks and plain-language human milestones;
+operators retain the underlying evidence in internal surfaces. When evidence is incomplete, the
+resolver chooses the conservative state rather than inventing progress.
+
+## ADR-014: Legacy client URLs fail closed into the simple portal
+
+Status: accepted
+
+Navigation removal is insufficient for the Ultra-Simple Client Portal boundary. Direct legacy URLs
+for analytics, design tools, venue/content management and other internal functions redirect to the
+nearest approved portal destination. Redirects preserve bookmarks and compatibility while ensuring
+the old page cannot render client-visible internal tooling. Server authorization remains the final
+security boundary.
+
+## ADR-015: AI workload configuration is centralized, truthful and default-off
+
+Status: accepted
+
+Provider/model identities and workload policies resolve through platform, workload, client and venue
+layers with explicit effective-source attribution, fallback, budget and cost bounds. Read surfaces
+may expose only secret-free resolved configuration. A layer without durable persistence is labeled
+unavailable, not synthesized. New or unsafe provider/model changes remain disabled until a reviewed
+configuration and authorized execution path exist.
+
+## ADR-016: Support lineage is not package execution
+
+Status: accepted
+
+A support request may be linked at an exact request version to an existing same-scope `DRAFT`
+VenuePackage. The lineage record is append-only, HUMAN-operator attributed, CAS guarded and audited.
+It may not create a package, alter package status, approve, apply, roll back or complete the support
+request. Those lifecycle actions remain separately reviewed domain actions.

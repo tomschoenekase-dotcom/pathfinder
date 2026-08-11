@@ -30,6 +30,15 @@ export type {
 export { createWebsiteIntakeSourceAdapter } from './lib/website-intake-adapter'
 export type { WebsiteIntakeAdapterCandidate } from './lib/website-intake-adapter'
 export {
+  deploymentManifestDraftInput,
+  deploymentManifestPreviewInput,
+  previewDeploymentManifestConversion,
+} from './lib/venue-deployment-manifest'
+export type {
+  DeploymentManifestBridgeIssue,
+  DeploymentManifestBridgePreview,
+} from './lib/venue-deployment-manifest'
+export {
   BulkCreateKnowledgeEntriesInput,
   CreateKnowledgeEntryInput,
   UpdateKnowledgeEntryInput,

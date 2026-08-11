@@ -1,0 +1,89 @@
+import { TRPCError } from '@trpc/server'
+import { z } from 'zod'
+
+import {
+  IntakeActionError,
+  createIntakeProposal,
+  interviewProposalInput,
+  linkIntakePackageDraft,
+  listIntakeProposals,
+  websiteProposalInput,
+} from '@pathfinder/db'
+
+import { router } from '../core'
+import { requireRole } from '../middleware/require-role'
+import { tenantProcedure } from '../trpc'
+
+const scope = z.object({ venueId: z.string().min(1) }).strict()
+const createInput = z.discriminatedUnion('kind', [
+  websiteProposalInput.extend({ venueId: z.string().min(1) }).strict(),
+  interviewProposalInput.extend({ venueId: z.string().min(1) }).strict(),
+])
+
+function mapActionError(error: unknown): never {
+  if (error instanceof IntakeActionError) {
+    throw new TRPCError({
+      code:
+        error.code === 'INVALID_INPUT'
+          ? 'BAD_REQUEST'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'NOT_FOUND',
+      message: error.message,
+    })
+  }
+  throw error
+}
+
+export const intakeRouter = router({
+  createProposal: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(createInput)
+    .mutation(async ({ ctx, input }) => {
+      const { venueId, ...proposal } = input
+      try {
+        return await createIntakeProposal({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId,
+          actorId: ctx.session.userId,
+          proposal,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  listProposals: tenantProcedure
+    .input(scope.extend({ limit: z.number().int().min(1).max(100).default(25) }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await listIntakeProposals({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          limit: input.limit,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  linkPackageDraft: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(scope.extend({ runId: z.string().min(1), packageDraftId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await linkIntakePackageDraft({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          runId: input.runId,
+          packageDraftId: input.packageDraftId,
+          actorId: ctx.session.userId,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+})

@@ -1,12 +1,16 @@
 import Link from 'next/link'
 
+import type { SupportRequestStatus } from '@pathfinder/contracts/support-workflow'
+
 import { SupportMessageComposer } from './SupportMessageComposer'
+import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
+import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 
 type Cursor = Record<string, string | number> | null
 type RequestItem = {
   id: string
   category: string
-  status: string
+  status: SupportRequestStatus
   subject: string
   version: number
   createdByKind: string
@@ -32,6 +36,22 @@ type Audit = {
   createdAt: Date
 }
 type Page<T> = { items: T[]; nextCursor: Cursor }
+type DraftPackage = {
+  id: string
+  schemaVersion: number
+  payloadHash: string
+  createdBy: string
+  createdAt: Date
+}
+type Handoff = {
+  id: string
+  venuePackageId: string
+  requestVersion: number
+  linkedByKind: string
+  linkedById: string
+  createdAt: Date
+  venuePackage: { status: string; schemaVersion: number; payloadHash: string }
+}
 type Props = {
   tenantId: string
   venueId: string
@@ -39,6 +59,8 @@ type Props = {
   selected: RequestItem | null
   messages: Page<Message>
   audit: Page<Audit>
+  draftPackages?: DraftPackage[]
+  handoffs?: Handoff[]
 }
 
 function query(
@@ -61,6 +83,8 @@ export function SupportOperationsView({
   selected,
   messages,
   audit,
+  draftPackages = [],
+  handoffs = [],
 }: Props) {
   const base = `/admin/clients/${tenantId}/venues/${venueId}/support-operations`
   return (
@@ -70,9 +94,10 @@ export function SupportOperationsView({
           Support operations
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-pf-deep">Client request workspace</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/65">
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
           Review request history and add a bounded client-visible message or internal note. Status
-          and package workflows are intentionally unavailable here.
+          Package lifecycle controls are intentionally unavailable here; operators may record
+          lineage to an existing draft.
         </p>
       </header>
       {requests.items.length === 0 ? (
@@ -86,18 +111,18 @@ export function SupportOperationsView({
                   key={request.id}
                   href={`${base}?requestId=${encodeURIComponent(request.id)}`}
                   aria-current={selected?.id === request.id ? 'page' : undefined}
-                  className={`block rounded-2xl border p-4 ${selected?.id === request.id ? 'border-pf-primary bg-pf-surface' : 'border-pf-light bg-white'}`}
+                  className={`block rounded-2xl border p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 ${selected?.id === request.id ? 'border-pf-primary bg-pf-surface' : 'border-pf-light bg-white'}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-pf-primary">
                       {request.category.replace(/_/g, ' ')}
                     </span>
-                    <span className="text-xs text-pf-deep/55">
+                    <span className="text-xs text-pf-deep/75">
                       {request.status.replace(/_/g, ' ')}
                     </span>
                   </div>
                   <p className="mt-2 font-semibold text-pf-deep">{request.subject}</p>
-                  <p className="mt-1 text-xs text-pf-deep/55">
+                  <p className="mt-1 text-xs text-pf-deep/75">
                     Updated {request.updatedAt.toLocaleString()}
                   </p>
                 </Link>
@@ -117,10 +142,10 @@ export function SupportOperationsView({
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-800">
                     {selected.status.replace(/_/g, ' ')}
                   </span>
-                  <span className="text-xs text-pf-deep/55">Version {selected.version}</span>
+                  <span className="text-xs text-pf-deep/75">Version {selected.version}</span>
                 </div>
                 <h3 className="mt-3 text-xl font-semibold text-pf-deep">{selected.subject}</h3>
-                <p className="mt-2 text-sm text-pf-deep/65">
+                <p className="mt-2 text-sm text-pf-deep/75">
                   Created by {selected.createdByKind.toLowerCase()} · last updated by{' '}
                   {selected.updatedByKind.toLowerCase()} · {selected.updatedAt.toLocaleString()}
                 </p>
@@ -131,6 +156,44 @@ export function SupportOperationsView({
                 requestId={selected.id}
                 expectedVersion={selected.version}
               />
+              <SupportStatusTransitionForm
+                tenantId={tenantId}
+                venueId={venueId}
+                requestId={selected.id}
+                currentStatus={selected.status}
+                expectedVersion={selected.version}
+              />
+              <SupportPackageHandoffForm
+                tenantId={tenantId}
+                venueId={venueId}
+                requestId={selected.id}
+                expectedVersion={selected.version}
+                packages={draftPackages}
+                closed={selected.status === 'COMPLETED' || selected.status === 'CANCELLED'}
+              />
+              <section className="space-y-3" aria-labelledby="support-handoffs-heading">
+                <h3 id="support-handoffs-heading" className="text-xl font-semibold text-pf-deep">
+                  Package lineage
+                </h3>
+                {handoffs.length === 0 ? (
+                  <Empty text="No draft package is linked to this request." />
+                ) : (
+                  <ol className="divide-y divide-pf-light rounded-2xl border border-pf-light bg-white px-4">
+                    {handoffs.map((handoff) => (
+                      <li key={handoff.id} className="py-3">
+                        <p className="text-sm font-semibold text-pf-deep">
+                          {handoff.venuePackageId}
+                        </p>
+                        <p className="mt-1 text-xs text-pf-deep/75">
+                          Linked at request version {handoff.requestVersion} · current package
+                          status {handoff.venuePackage.status} · schema v
+                          {handoff.venuePackage.schemaVersion}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
               <section className="space-y-3" aria-labelledby="support-thread-heading">
                 <h3 id="support-thread-heading" className="text-xl font-semibold text-pf-deep">
                   Thread
@@ -151,7 +214,7 @@ export function SupportOperationsView({
                             ? 'INTERNAL ONLY'
                             : 'CLIENT VISIBLE'}
                         </span>
-                        <span className="text-xs text-pf-deep/60">
+                        <span className="text-xs text-pf-deep/75">
                           {message.authorKind} · {message.createdAt.toLocaleString()}
                         </span>
                       </div>
@@ -159,7 +222,7 @@ export function SupportOperationsView({
                         {message.body}
                       </p>
                       {message.attachments.length ? (
-                        <ul className="mt-3 space-y-1 text-xs text-pf-deep/60">
+                        <ul className="mt-3 space-y-1 text-xs text-pf-deep/75">
                           {message.attachments.map((attachment) => (
                             <li key={attachment.id}>
                               {attachment.filename} · {attachment.mediaType} · {attachment.byteSize}{' '}
@@ -191,7 +254,7 @@ export function SupportOperationsView({
                         <p className="text-sm font-semibold text-pf-deep">
                           {event.eventType.replace(/_/g, ' ')}
                         </p>
-                        <p className="mt-1 text-xs text-pf-deep/60">
+                        <p className="mt-1 text-xs text-pf-deep/75">
                           Version {event.requestVersion} · {event.actorKind} ·{' '}
                           {event.createdAt.toLocaleString()}
                           {event.fromStatus || event.toStatus
@@ -218,7 +281,7 @@ export function SupportOperationsView({
 }
 function Empty({ text }: { text: string }) {
   return (
-    <div className="rounded-3xl border border-dashed border-pf-light bg-white p-8 text-center text-sm text-pf-deep/65">
+    <div className="rounded-3xl border border-dashed border-pf-light bg-white p-8 text-center text-sm text-pf-deep/75">
       {text}
     </div>
   )

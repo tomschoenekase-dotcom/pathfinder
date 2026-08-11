@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { OffboardingDraftForm } from '../../../../../../components/admin/OffboardingDraftForm'
+import { OffboardingExportManifestPreview } from '../../../../../../components/admin/OffboardingExportManifestPreview'
 import { createAdminCaller } from '../../../../../../lib/admin-caller'
 
 type OffboardingPageProps = { params: Promise<{ tenantId: string }> }
@@ -42,6 +43,12 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
           Review scoped planning records, revocation evidence, and export artifact metadata. This
           console cannot execute revocations, mark a plan complete, or delete data.
         </p>
+        <a
+          href="#export-manifest-preview"
+          className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-pf-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+        >
+          Preview export manifest metadata
+        </a>
       </header>
 
       <section
@@ -56,6 +63,11 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
           delete, revoke, execute, cancel, or complete action.
         </p>
       </section>
+
+      <OffboardingExportManifestPreview
+        tenantId={tenantId}
+        venues={client.venues.map((venue) => ({ id: venue.id, name: venue.name }))}
+      />
 
       <section
         aria-labelledby="new-offboarding-draft"

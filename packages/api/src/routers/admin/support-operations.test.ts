@@ -10,12 +10,23 @@ const messageFindMany = vi.fn()
 const requestUpdateMany = vi.fn()
 const messageCreate = vi.fn()
 const auditEventCreate = vi.fn()
+const packageFindMany = vi.fn()
+const packageFindFirst = vi.fn()
+const handoffFindMany = vi.fn()
+const handoffFindFirst = vi.fn()
+const handoffCreate = vi.fn()
 
 const mockDb = {
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   supportRequest: { findFirst: requestFindFirst, findMany: vi.fn(), updateMany: requestUpdateMany },
   supportMessage: { findMany: messageFindMany, create: messageCreate },
   supportRequestAuditEvent: { create: auditEventCreate },
+  venuePackage: { findMany: packageFindMany, findFirst: packageFindFirst },
+  supportPackageHandoff: {
+    findMany: handoffFindMany,
+    findFirst: handoffFindFirst,
+    create: handoffCreate,
+  },
   auditLog: { create: vi.fn() },
 } as unknown as TRPCContext['db']
 
@@ -57,6 +68,21 @@ describe('admin support operations', () => {
       attachments: [],
     })
     auditEventCreate.mockResolvedValue({ id: 'event_internal' })
+    packageFindMany.mockResolvedValue([])
+    packageFindFirst.mockResolvedValue({ id: 'package_target', status: 'DRAFT' })
+    handoffFindMany.mockResolvedValue([])
+    handoffFindFirst.mockResolvedValue(null)
+    handoffCreate.mockResolvedValue({
+      id: 'handoff_1',
+      tenantId,
+      venueId,
+      supportRequestId: requestId,
+      venuePackageId: 'package_target',
+      requestVersion: 2,
+      linkedByKind: 'OPERATOR',
+      linkedById: 'platform_admin',
+      createdAt: now,
+    })
   })
 
   it('rejects non-admin callers before support data access', async () => {
@@ -118,5 +144,101 @@ describe('admin support operations', () => {
         }),
       }),
     )
+  })
+
+  it('lists only unlinked DRAFT packages within exact scope', async () => {
+    await testRouter
+      .createCaller(context(true))
+      .admin.listSupportDraftPackages({ tenantId, venueId, requestId })
+    expect(packageFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId, venueId, status: 'DRAFT', supportHandoffs: { none: {} } },
+        select: {
+          id: true,
+          schemaVersion: true,
+          payloadHash: true,
+          createdBy: true,
+          createdAt: true,
+        },
+      }),
+    )
+  })
+
+  it('links through the domain action with server-owned operator identity', async () => {
+    await testRouter.createCaller(context(true)).admin.linkSupportDraftPackage({
+      tenantId,
+      venueId,
+      requestId,
+      venuePackageId: 'package_target',
+      expectedVersion: 1,
+    })
+    expect(packageFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'package_target', tenantId, venueId } }),
+    )
+    expect(handoffCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ linkedByKind: 'OPERATOR', linkedById: 'platform_admin' }),
+      }),
+    )
+  })
+
+  it('rejects non-admin linking before any write', async () => {
+    await expect(
+      testRouter
+        .createCaller(context(false))
+        .admin.linkSupportDraftPackage({
+          tenantId,
+          venueId,
+          requestId,
+          venuePackageId: 'package_target',
+          expectedVersion: 1,
+        }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(handoffCreate).not.toHaveBeenCalled()
+  })
+
+  it('records an allowed status transition with server-owned operator and exact CAS scope', async () => {
+    await testRouter.createCaller(context(true)).admin.transitionSupportRequestStatus({
+      tenantId,
+      venueId,
+      requestId,
+      expectedVersion: 1,
+      toStatus: 'IN_REVIEW',
+    })
+    expect(requestUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: requestId, tenantId, venueId, version: 1, status: 'OPEN' },
+        data: expect.objectContaining({
+          status: 'IN_REVIEW',
+          version: 2,
+          updatedByKind: 'OPERATOR',
+          updatedById: 'platform_admin',
+        }),
+      }),
+    )
+    expect(auditEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'STATUS_CHANGED',
+          fromStatus: 'OPEN',
+          toStatus: 'IN_REVIEW',
+        }),
+      }),
+    )
+  })
+
+  it('rejects client status mutation before transaction data access', async () => {
+    await expect(
+      testRouter
+        .createCaller(context(false))
+        .admin.transitionSupportRequestStatus({
+          tenantId,
+          venueId,
+          requestId,
+          expectedVersion: 1,
+          toStatus: 'IN_REVIEW',
+        }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(requestUpdateMany).not.toHaveBeenCalled()
   })
 })

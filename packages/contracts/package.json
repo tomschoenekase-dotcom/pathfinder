@@ -16,7 +16,10 @@
     "./venue-deployment-manifest": "./src/venue-deployment-manifest.ts",
     "./mcp-v0": "./src/mcp-v0.ts",
     "./offboarding": "./src/offboarding.ts",
-    "./partner-read-api": "./src/partner-read-api.ts"
+    "./offboarding-export-preview": "./src/offboarding-export-preview.ts",
+    "./partner-read-api": "./src/partner-read-api.ts",
+    "./retention-policy": "./src/retention-policy.ts",
+    "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

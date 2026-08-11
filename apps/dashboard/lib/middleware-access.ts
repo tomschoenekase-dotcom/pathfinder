@@ -4,13 +4,7 @@ const AUTH_ROUTES = ['/sign-in', '/sign-up']
 // here would redirect the webhook and prevent automatic tenant creation.
 const PUBLIC_ROUTES = ['/api/webhooks/clerk']
 
-const INTERNAL_WORKSPACE_ROUTES = [
-  '/analytics',
-  '/chat-design',
-  '/engagement-questions',
-  '/venues',
-  '/weekly-reports',
-] as const
+const INTERNAL_WORKSPACE_ROUTES = ['/analytics', '/chat-design', '/engagement-questions'] as const
 
 type DashboardAccessInput = {
   pathname: string

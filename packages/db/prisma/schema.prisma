@@ -85,6 +85,7 @@ model Tenant {
   supportMessages               SupportMessage[]
   supportAttachments            SupportMessageAttachment[]
   supportAuditEvents            SupportRequestAuditEvent[]
+  supportPackageHandoffs        SupportPackageHandoff[]
   offboardingPlans              OffboardingPlan[]
   offboardingVenueTargets       OffboardingVenueTarget[]
   offboardingRevocationEvidence OffboardingRevocationEvidence[]
@@ -92,6 +93,13 @@ model Tenant {
   contentModuleIdentities       ContentModuleIdentity[]
   contentModuleRevisions        ContentModuleRevision[]
   contentModuleEvidence         ContentModuleEvidence[]
+  intakeRuns                    IntakeRun[]
+  intakeEvidence                IntakeEvidenceRecord[]
+  intakeEvents                  IntakeRunEvent[]
+  intakePackageHandoffs         IntakePackageHandoff[]
+  externalCredentials           ExternalAccessCredential[]
+  credentialRotations           ExternalCredentialRotation[]
+  credentialRevocations         ExternalCredentialRevocation[]
 
   @@map("tenants")
 }
@@ -291,10 +299,18 @@ model Venue {
   supportMessages               SupportMessage[]
   supportAttachments            SupportMessageAttachment[]
   supportAuditEvents            SupportRequestAuditEvent[]
+  supportPackageHandoffs        SupportPackageHandoff[]
   offboardingTargets            OffboardingVenueTarget[]
   contentModuleIdentities       ContentModuleIdentity[]
   contentModuleRevisions        ContentModuleRevision[]
   contentModuleEvidence         ContentModuleEvidence[]
+  intakeRuns                    IntakeRun[]
+  intakeEvidence                IntakeEvidenceRecord[]
+  intakeEvents                  IntakeRunEvent[]
+  intakePackageHandoffs         IntakePackageHandoff[]
+  externalCredentials           ExternalAccessCredential[]
+  credentialRotations           ExternalCredentialRotation[]
+  credentialRevocations         ExternalCredentialRevocation[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -543,6 +559,105 @@ enum NormalizedContentAudience {
   OPERATOR
 }
 
+/// Draft-only intake proposal. Extraction and publishing are external to this record.
+model IntakeRun {
+  id                       String                 @id @default(cuid())
+  tenantId                 String                 @map("tenant_id")
+  venueId                  String                 @map("venue_id")
+  sourceKind               IntakeSourceKind       @map("source_kind")
+  status                   IntakeRunStatus        @default(AWAITING_REVIEW)
+  displayName              String                 @map("display_name") @db.VarChar(255)
+  websiteUri               String?                @map("website_uri") @db.VarChar(2000)
+  interviewRole            String?                @map("interview_role") @db.VarChar(32)
+  /// Only PUBLIC_CANDIDATE answer text is retained. Withheld answers are represented by hashes and metadata.
+  interviewPublicAnswers   Json?                  @map("interview_public_answers")
+  interviewAnswerManifest  Json?                  @map("interview_answer_manifest")
+  interviewConsentTextHash String?                @map("interview_consent_text_hash") @db.Char(64)
+  requestedBy              String                 @map("requested_by") @db.VarChar(191)
+  createdAt                DateTime               @default(now()) @map("created_at")
+  tenant                   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  evidence                 IntakeEvidenceRecord[]
+  events                   IntakeRunEvent[]
+  packageHandoff           IntakePackageHandoff?
+
+  @@unique([id, tenantId, venueId], map: "intake_runs_scope_key")
+  @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
+  @@index([tenantId, venueId, createdAt], map: "intake_runs_scope_created_idx")
+  @@map("intake_runs")
+}
+
+model IntakeEvidenceRecord {
+  id             String           @id @default(cuid())
+  tenantId       String           @map("tenant_id")
+  venueId        String           @map("venue_id")
+  runId          String           @map("run_id")
+  sourceKind     IntakeSourceKind @map("source_kind")
+  locator        String           @db.VarChar(2000)
+  normalizedHash String           @map("normalized_hash") @db.Char(64)
+  confidence     Decimal          @db.Decimal(4, 3)
+  capturedAt     DateTime         @map("captured_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue            @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run            IntakeRun        @relation(fields: [runId, tenantId, venueId, sourceKind], references: [id, tenantId, venueId, sourceKind], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId, venueId], map: "intake_evidence_scope_key")
+  @@index([tenantId, venueId, runId, capturedAt], map: "intake_evidence_scope_run_idx")
+  @@map("intake_evidence")
+}
+
+model IntakeRunEvent {
+  id        String          @id @default(cuid())
+  tenantId  String          @map("tenant_id")
+  venueId   String          @map("venue_id")
+  runId     String          @map("run_id")
+  kind      IntakeEventKind
+  actorId   String          @map("actor_id") @db.VarChar(191)
+  metadata  Json            @default("{}")
+  createdAt DateTime        @default(now()) @map("created_at")
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue     Venue           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run       IntakeRun       @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, venueId, runId, createdAt], map: "intake_run_events_scope_run_idx")
+  @@map("intake_run_events")
+}
+
+model IntakePackageHandoff {
+  id             String       @id @default(cuid())
+  tenantId       String       @map("tenant_id")
+  venueId        String       @map("venue_id")
+  runId          String       @map("run_id")
+  packageDraftId String       @map("package_draft_id")
+  createdBy      String       @map("created_by") @db.VarChar(191)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run            IntakeRun    @relation(fields: [runId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  packageDraft   VenuePackage @relation(fields: [packageDraftId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([packageDraftId, tenantId, venueId], map: "intake_package_handoffs_package_scope_key")
+  @@unique([runId, tenantId, venueId], map: "intake_package_handoffs_run_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "intake_package_handoffs_scope_created_idx")
+  @@map("intake_package_handoffs")
+}
+
+enum IntakeSourceKind {
+  WEBSITE
+  INTERVIEW
+}
+
+enum IntakeRunStatus {
+  AWAITING_REVIEW
+}
+
+enum IntakeEventKind {
+  PROPOSAL_CREATED
+  EVIDENCE_RECORDED
+  PACKAGE_DRAFT_LINKED
+}
+
 /// Append-only, database-triggered history for venue, place, knowledge, and
 /// operational-update content. Snapshots exclude derived embeddings and mutable
 /// update timestamps so background refreshes do not create false revisions.
@@ -630,6 +745,8 @@ model VenuePackage {
   contentVersions         ContentVersion[]
   sourcedPlaces           Place[]
   sourcedKnowledgeEntries VenueKnowledgeEntry[]
+  intakeHandoffs          IntakePackageHandoff[]
+  supportHandoffs         SupportPackageHandoff[]
 
   @@unique([id, tenantId, venueId])
   @@unique([tenantId, venueId, draftKey])
@@ -1796,6 +1913,7 @@ model SupportRequest {
   venue              Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   messages           SupportMessage[]
   auditEvents        SupportRequestAuditEvent[]
+  packageHandoffs    SupportPackageHandoff[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, updatedAt, id])
@@ -1867,6 +1985,114 @@ model SupportRequestAuditEvent {
   @@unique([supportRequestId, tenantId, venueId, requestVersion])
   @@index([tenantId, venueId, supportRequestId, requestVersion])
   @@map("support_request_audit_events")
+}
+
+/// Immutable lineage linking an exact support-request version to one existing
+/// DRAFT VenuePackage. This relation never creates or advances the package.
+model SupportPackageHandoff {
+  id               String                 @id @default(cuid())
+  tenantId         String                 @map("tenant_id")
+  venueId          String                 @map("venue_id")
+  supportRequestId String                 @map("support_request_id")
+  venuePackageId   String                 @map("venue_package_id")
+  requestVersion   Int                    @map("request_version")
+  linkedByKind     SupportParticipantKind @default(OPERATOR) @map("linked_by_kind")
+  linkedById       String                 @map("linked_by_id") @db.VarChar(191)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue            Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest   SupportRequest         @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  venuePackage     VenuePackage           @relation(fields: [venuePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId, venueId], map: "support_package_handoffs_id_tenant_id_venue_id_key")
+  @@unique([supportRequestId, venuePackageId, tenantId, venueId], map: "support_package_handoffs_request_package_scope_key")
+  @@unique([venuePackageId, tenantId, venueId], map: "support_package_handoffs_package_scope_key")
+  @@index([tenantId, venueId, supportRequestId, createdAt, id], map: "support_package_handoffs_request_created_idx")
+  @@map("support_package_handoffs")
+}
+
+enum ExternalCredentialKind {
+  MCP
+  PARTNER_READ_API
+}
+
+enum ExternalCredentialHashAlgorithm {
+  ARGON2ID
+}
+
+/// Dark credential record. `secretHash` is a one-way verifier; plaintext
+/// credential material must never enter this database.
+model ExternalAccessCredential {
+  id            String                          @id @default(cuid())
+  tenantId      String                          @map("tenant_id")
+  clientId      String                          @map("client_id")
+  venueId       String?                         @map("venue_id")
+  scopeKey      String                          @map("scope_key") @db.VarChar(191)
+  kind          ExternalCredentialKind
+  label         String                          @db.VarChar(200)
+  capabilities  String[]
+  secretPrefix  String                          @map("secret_prefix") @db.VarChar(24)
+  secretHash    String                          @map("secret_hash") @db.VarChar(255)
+  hashAlgorithm ExternalCredentialHashAlgorithm @default(ARGON2ID) @map("hash_algorithm")
+  enabled       Boolean                         @default(false)
+  expiresAt     DateTime?                       @map("expires_at")
+  revokedAt     DateTime?                       @map("revoked_at")
+  lastUsedAt    DateTime?                       @map("last_used_at")
+  createdBy     String                          @map("created_by") @db.VarChar(191)
+  createdAt     DateTime                        @default(now()) @map("created_at")
+  updatedAt     DateTime                        @updatedAt @map("updated_at")
+  tenant        Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue?                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  rotationsFrom ExternalCredentialRotation[]    @relation("rotation_from")
+  rotationsTo   ExternalCredentialRotation[]    @relation("rotation_to")
+  revocation    ExternalCredentialRevocation?
+
+  @@unique([id, tenantId, clientId, scopeKey], map: "external_credentials_exact_scope_key")
+  @@unique([tenantId, kind, secretPrefix], map: "external_credentials_prefix_key")
+  @@index([tenantId, clientId, venueId, kind, createdAt, id], map: "external_credentials_scope_created_idx")
+  @@map("external_access_credentials")
+}
+
+/// Append-only lineage between an old credential and its replacement.
+model ExternalCredentialRotation {
+  id                   String                   @id @default(cuid())
+  tenantId             String                   @map("tenant_id")
+  clientId             String                   @map("client_id")
+  venueId              String?                  @map("venue_id")
+  scopeKey             String                   @map("scope_key") @db.VarChar(191)
+  previousCredentialId String                   @map("previous_credential_id")
+  newCredentialId      String                   @map("new_credential_id")
+  rotatedBy            String                   @map("rotated_by") @db.VarChar(191)
+  rotatedAt            DateTime                 @default(now()) @map("rotated_at")
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue?                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  previousCredential   ExternalAccessCredential @relation("rotation_from", fields: [previousCredentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+  newCredential        ExternalAccessCredential @relation("rotation_to", fields: [newCredentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([previousCredentialId, newCredentialId, tenantId, clientId, scopeKey], map: "external_rotations_pair_scope_key")
+  @@unique([newCredentialId, tenantId, clientId, scopeKey], map: "external_rotations_new_scope_key")
+  @@index([tenantId, clientId, venueId, rotatedAt, id], map: "external_rotations_scope_created_idx")
+  @@map("external_credential_rotations")
+}
+
+/// Append-only evidence for one terminal credential revocation.
+model ExternalCredentialRevocation {
+  id           String                   @id @default(cuid())
+  tenantId     String                   @map("tenant_id")
+  clientId     String                   @map("client_id")
+  venueId      String?                  @map("venue_id")
+  scopeKey     String                   @map("scope_key") @db.VarChar(191)
+  credentialId String                   @unique(map: "external_revocations_credential_key") @map("credential_id")
+  revokedBy    String                   @map("revoked_by") @db.VarChar(191)
+  reasonCode   String                   @map("reason_code") @db.VarChar(100)
+  revokedAt    DateTime                 @default(now()) @map("revoked_at")
+  tenant       Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue        Venue?                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  credential   ExternalAccessCredential @relation(fields: [credentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([credentialId, tenantId, clientId, scopeKey], map: "external_revocations_exact_scope_key")
+  @@index([tenantId, clientId, venueId, revokedAt, id], map: "external_revocations_scope_created_idx")
+  @@map("external_credential_revocations")
 }
 
 /// Reviewable offboarding intent only. This model does not execute revocations,

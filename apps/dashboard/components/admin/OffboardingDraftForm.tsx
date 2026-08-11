@@ -139,7 +139,7 @@ export function OffboardingDraftForm({ tenantId, venues }: OffboardingDraftFormP
       <button
         type="submit"
         disabled={!canSubmit}
-        className="inline-flex min-h-11 items-center rounded-xl bg-pf-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-pf-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-pf-deep/35"
+        className="inline-flex min-h-11 items-center rounded-xl bg-pf-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-pf-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 motion-reduce:transition-none disabled:cursor-not-allowed disabled:bg-pf-deep/35"
       >
         {submitting ? 'Creating requested draft…' : 'Create requested draft'}
       </button>

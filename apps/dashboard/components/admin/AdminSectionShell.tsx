@@ -8,6 +8,7 @@ import {
   Building2,
   CircleGauge,
   ExternalLink,
+  BookOpen,
   Home,
   Menu,
   Plus,
@@ -28,6 +29,7 @@ const navigationItems = [
   { href: '/admin', label: 'Command center', icon: Home, exact: true },
   { href: '/admin/directory', label: 'Client directory', icon: Building2 },
   { href: '/admin/operations', label: 'Operations', icon: Activity },
+  { href: '/admin/help', label: 'Operator guide', icon: BookOpen },
 ] as const
 
 function isActivePath(pathname: string, href: string, exact?: boolean) {

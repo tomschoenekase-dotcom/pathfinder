@@ -1,27 +1,13 @@
-/* @vitest-environment jsdom */
+import { describe, expect, it, vi } from 'vitest'
 
-import React from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-;(globalThis as typeof globalThis & { React: typeof React }).React = React
-
-const mocks = vi.hoisted(() => ({ createDashboardCaller: vi.fn(), listVenues: vi.fn() }))
-
-vi.mock('../../../lib/server-caller', () => ({
-  createDashboardCaller: mocks.createDashboardCaller,
-}))
+const redirect = vi.hoisted(() => vi.fn(() => undefined as never))
+vi.mock('next/navigation', () => ({ redirect }))
 
 import ChatDesignPage from './page'
 
-describe('ChatDesignPage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.createDashboardCaller.mockResolvedValue({ venue: { list: mocks.listVenues } })
-  })
-
-  it('propagates venue-list failures instead of presenting a false empty state', async () => {
-    mocks.listVenues.mockRejectedValueOnce(new Error('Venue service unavailable'))
-
-    await expect(ChatDesignPage()).rejects.toThrow('Venue service unavailable')
-    expect(mocks.createDashboardCaller).toHaveBeenCalledWith('/chat-design')
+describe('legacy chatbot design boundary', () => {
+  it('redirects to tone presets without loading design tooling', () => {
+    ChatDesignPage()
+    expect(redirect).toHaveBeenCalledWith('/ai-controls')
   })
 })

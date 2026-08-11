@@ -2,7 +2,9 @@ import { headers } from 'next/headers'
 
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 
-export async function createDashboardCaller(pathname: string) {
+export async function createDashboardCaller(
+  pathname: string,
+): Promise<ReturnType<typeof appRouter.createCaller>> {
   const incomingHeaders = await headers()
   const cookie = incomingHeaders.get('cookie')
   const requestHeaders = new Headers()

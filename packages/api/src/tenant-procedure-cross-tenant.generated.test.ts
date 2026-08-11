@@ -39,49 +39,162 @@ const harness = vi.hoisted(() => {
   }
 })
 
-vi.mock('@pathfinder/db', () => ({
-  SupportActionError: class SupportActionError extends Error {},
-  appendSupportMessageAction: vi.fn(
-    (
-      input: { requestId: string; tenantId: string; venueId: string },
-      client: {
-        $transaction: (
-          callback: (tx: { supportRequest: { findFirst: (args: unknown) => unknown } }) => unknown,
-        ) => unknown
-      },
-    ) =>
-      client.$transaction((tx) =>
-        tx.supportRequest.findFirst({
-          where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
-          select: { id: true, status: true, version: true },
-        }),
-      ),
-  ),
-  assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
-  createSupportRequestAction: vi.fn(
-    (
-      input: { tenantId: string; venueId: string },
-      client: {
-        $transaction: (
-          callback: (tx: { venue: { findFirst: (args: unknown) => unknown } }) => unknown,
-        ) => unknown
-      },
-    ) =>
-      client.$transaction((tx) =>
-        tx.venue.findFirst({
+vi.mock('@pathfinder/db', async () => {
+  const { z } = await import('zod')
+  return {
+    OperationalUpdateActionError: class OperationalUpdateActionError extends Error {},
+    operationalUpdateActionSelect: { id: true },
+    createOperationalUpdateAction: vi.fn(
+      (
+        input: { tenantId: string; fields: { venueId: string } },
+        client: {
+          $transaction: (
+            callback: (tx: { venue: { findFirst: (args: unknown) => unknown } }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({
+            where: { id: input.fields.venueId, tenantId: input.tenantId },
+            select: { id: true },
+          }),
+        ),
+    ),
+    updateOperationalUpdateAction: vi.fn(
+      (
+        input: { tenantId: string; id: string },
+        client: {
+          $transaction: (
+            callback: (tx: {
+              operationalUpdate: { findFirst: (args: unknown) => unknown }
+            }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.operationalUpdate.findFirst({
+            where: { id: input.id, tenantId: input.tenantId },
+            select: { id: true },
+          }),
+        ),
+    ),
+    scheduleOperationalUpdateAction: vi.fn(
+      (
+        input: { tenantId: string; id: string },
+        client: {
+          $transaction: (
+            callback: (tx: {
+              operationalUpdate: { findFirst: (args: unknown) => unknown }
+            }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.operationalUpdate.findFirst({
+            where: { id: input.id, tenantId: input.tenantId },
+            select: { id: true },
+          }),
+        ),
+    ),
+    expireOperationalUpdateAction: vi.fn(
+      (
+        input: { tenantId: string; id: string },
+        client: {
+          $transaction: (
+            callback: (tx: {
+              operationalUpdate: { findFirst: (args: unknown) => unknown }
+            }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.operationalUpdate.findFirst({
+            where: { id: input.id, tenantId: input.tenantId },
+            select: { id: true },
+          }),
+        ),
+    ),
+    IntakeActionError: class IntakeActionError extends Error {},
+    websiteProposalInput: z
+      .object({
+        kind: z.literal('WEBSITE'),
+        displayName: z.string(),
+        websiteUri: z.string().url(),
+      })
+      .strict(),
+    interviewProposalInput: z
+      .object({ kind: z.literal('INTERVIEW'), displayName: z.string(), submission: z.unknown() })
+      .strict(),
+    createIntakeProposal: vi.fn(
+      (input: { db: typeof harness.db; tenantId: string; venueId: string }) =>
+        (input.db as { venue: { findFirst: (args: unknown) => unknown } }).venue.findFirst({
           where: { id: input.venueId, tenantId: input.tenantId },
           select: { id: true },
         }),
-      ),
-  ),
-  db: harness.db,
-  lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
-  lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),
-  lockVenueContentMutation: vi.fn().mockResolvedValue(undefined),
-  setContentVersionContext: vi.fn().mockResolvedValue(undefined),
-  writeAuditLog: vi.fn(),
-  writeAuditLogStrict: vi.fn(),
-}))
+    ),
+    listIntakeProposals: vi.fn(
+      (input: { db: typeof harness.db; tenantId: string; venueId: string }) =>
+        (input.db as { venue: { findFirst: (args: unknown) => unknown } }).venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        }),
+    ),
+    linkIntakePackageDraft: vi.fn(
+      (input: { db: typeof harness.db; tenantId: string; venueId: string; runId: string }) =>
+        (
+          input.db as {
+            intakeRun: { findFirst: (args: unknown) => unknown }
+          }
+        ).intakeRun.findFirst({
+          where: { id: input.runId, tenantId: input.tenantId, venueId: input.venueId },
+          select: { id: true },
+        }),
+    ),
+    SupportActionError: class SupportActionError extends Error {},
+    appendSupportMessageAction: vi.fn(
+      (
+        input: { requestId: string; tenantId: string; venueId: string },
+        client: {
+          $transaction: (
+            callback: (tx: {
+              supportRequest: { findFirst: (args: unknown) => unknown }
+            }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.supportRequest.findFirst({
+            where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
+            select: { id: true, status: true, version: true },
+          }),
+        ),
+    ),
+    assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+    createSupportRequestAction: vi.fn(
+      (
+        input: { tenantId: string; venueId: string },
+        client: {
+          $transaction: (
+            callback: (tx: { venue: { findFirst: (args: unknown) => unknown } }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({
+            where: { id: input.venueId, tenantId: input.tenantId },
+            select: { id: true },
+          }),
+        ),
+    ),
+    db: harness.db,
+    lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
+    lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),
+    lockVenueContentMutation: vi.fn().mockResolvedValue(undefined),
+    setContentVersionContext: vi.fn().mockResolvedValue(undefined),
+    writeAuditLog: vi.fn(),
+    writeAuditLogStrict: vi.fn(),
+  }
+})
 
 vi.mock('@pathfinder/jobs', () => ({
   enqueueEmbedKnowledgeEntry: vi.fn(),
@@ -109,9 +222,11 @@ import type { TRPCContext } from './context'
 import { analyticsRouter } from './routers/analytics'
 import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
+import { intakeRouter } from './routers/intake'
 import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
+import { portalRouter } from './routers/portal'
 import { supportRouter } from './routers/support'
 import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
@@ -124,9 +239,11 @@ const testRouter = router({
   analytics: analyticsRouter,
   contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
+  intake: intakeRouter,
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,
   place: placeRouter,
+  portal: portalRouter,
   support: supportRouter,
   tenant: tenantRouter,
   venue: venueRouter,

@@ -93,7 +93,8 @@ vi.mock('@pathfinder/config/logger', () => ({
   logger: { warn: loggerWarn },
 }))
 
-vi.mock('@pathfinder/db', () => {
+vi.mock('@pathfinder/db', async () => {
+  const { z } = await import('zod')
   const transactionDb = {
     tenant: {
       findMany: tenantFindMany,
@@ -157,6 +158,16 @@ vi.mock('@pathfinder/db', () => {
     auditLog: { create: auditLogCreate },
   }
   return {
+    IntakeActionError: class IntakeActionError extends Error {},
+    websiteProposalInput: z
+      .object({ kind: z.literal('WEBSITE'), displayName: z.string(), websiteUri: z.string().url() })
+      .strict(),
+    interviewProposalInput: z
+      .object({ kind: z.literal('INTERVIEW'), displayName: z.string(), submission: z.unknown() })
+      .strict(),
+    createIntakeProposal: vi.fn(),
+    listIntakeProposals: vi.fn(),
+    linkIntakePackageDraft: vi.fn(),
     AI_COST_BUDGET_COVERAGE_VERSION: 'gateway-v1',
     assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
     reconcileExpiredAiCostAttempts: vi.fn().mockResolvedValue({

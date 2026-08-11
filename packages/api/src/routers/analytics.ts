@@ -5,6 +5,7 @@ import type { PublicAnalyticsEventType } from '@pathfinder/analytics/events'
 import { TOPIC_LABELS, type TopicKey } from '@pathfinder/analytics/topics'
 
 import { publicTRPCError, router } from '../core'
+import type { TRPCContext } from '../context'
 import { checkRateLimit } from '../lib/rate-limit'
 import { requireVenueReportsEnabled } from '../lib/venue-report-configuration'
 import { publicProcedure, tenantProcedure } from '../trpc'
@@ -112,6 +113,13 @@ const getPlaceInterestInput = z
     days: z.number().int().min(1).max(90).default(30),
   })
   .strict()
+
+const getPlaceInterestOverviewInput = z
+  .object({
+    days: z.number().int().min(1).max(90).default(30),
+    limitPerVenue: z.number().int().min(1).max(25).default(10),
+  })
+  .default({ days: 30, limitPerVenue: 10 })
 
 function startOfUtcDay(date: Date): Date {
   const result = new Date(date)
@@ -668,6 +676,66 @@ export const analyticsRouter = router({
       .sort((left, right) => right.score - left.score)
   }),
 })
+
+/** Server-only batched primitive. It is deliberately not mounted on the client-facing router. */
+export async function loadPlaceInterestOverview(
+  db: TRPCContext['db'],
+  tenantId: string,
+  rawInput?: z.input<typeof getPlaceInterestOverviewInput>,
+) {
+  const input = getPlaceInterestOverviewInput.parse(rawInput)
+  const startDate = startOfUtcDay(new Date())
+  startDate.setUTCDate(startDate.getUTCDate() - (input.days - 1))
+  const metrics = Object.keys(PLACE_INTEREST_WEIGHTS) as PlaceInterestMetric[]
+  const rows = await db.dailyRollup.groupBy({
+    by: ['venueId', 'placeId', 'metric'],
+    where: { tenantId, metric: { in: metrics }, placeId: { not: null }, date: { gte: startDate } },
+    _sum: { value: true },
+  })
+  const placeIds = Array.from(new Set(rows.flatMap((row) => (row.placeId ? [row.placeId] : []))))
+  const places = placeIds.length
+    ? await db.place.findMany({
+        where: { tenantId, id: { in: placeIds } },
+        select: { id: true, name: true },
+      })
+    : []
+  const nameById = new Map(places.map((place) => [place.id, place.name]))
+  const byVenue = new Map<string, Map<string, Record<PlaceInterestMetric, number>>>()
+  for (const row of rows) {
+    if (!row.placeId || !(row.metric in PLACE_INTEREST_WEIGHTS)) continue
+    const venue = byVenue.get(row.venueId) ?? new Map()
+    const totals =
+      venue.get(row.placeId) ??
+      ({
+        place_mentions: 0,
+        place_card_views: 0,
+        place_card_clicks: 0,
+        place_directions: 0,
+      } satisfies Record<PlaceInterestMetric, number>)
+    totals[row.metric as PlaceInterestMetric] += row._sum.value ?? 0
+    venue.set(row.placeId, totals)
+    byVenue.set(row.venueId, venue)
+  }
+  return Array.from(byVenue.entries()).map(([venueId, venue]) => ({
+    venueId,
+    places: Array.from(venue.entries())
+      .map(([placeId, totals]) => ({
+        placeId,
+        name: nameById.get(placeId) ?? 'Unknown place',
+        mentions: totals.place_mentions,
+        views: totals.place_card_views,
+        clicks: totals.place_card_clicks,
+        directions: totals.place_directions,
+        score: metrics.reduce(
+          (sum, metric) => sum + totals[metric] * PLACE_INTEREST_WEIGHTS[metric],
+          0,
+        ),
+      }))
+      .filter((place) => place.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, input.limitPerVenue),
+  }))
+}
 
 /**
  * Merges question clusters that share an identical canonical phrasing (clusters

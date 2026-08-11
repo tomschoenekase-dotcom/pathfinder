@@ -94,6 +94,11 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
       label: 'Offboarding',
       description: 'Revocation plan and exports',
     },
+    {
+      href: `${clientRoot}/credentials`,
+      label: 'External credentials',
+      description: 'Disabled MCP and partner access',
+    },
   ]
 
   const venueBuildNavigation: NavigationItem[] = venueRoot
@@ -110,9 +115,24 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
           description: 'Typed modules and provenance',
         },
         {
+          href: `${venueRoot}/intake`,
+          label: 'Guided intake',
+          description: 'Website and staff draft proposals',
+        },
+        {
+          href: `${venueRoot}/deployment-manifest`,
+          label: 'Manifest review',
+          description: 'Validate v2 package handoff',
+        },
+        {
           href: `${venueRoot}/media`,
           label: 'Media intake',
           description: 'Process and review source media',
+        },
+        {
+          href: `${venueRoot}/ai-configuration`,
+          label: 'AI configuration',
+          description: 'Effective models and safety defaults',
         },
       ]
     : []

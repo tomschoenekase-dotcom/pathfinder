@@ -55,28 +55,45 @@ describe('dashboard middleware access policy', () => {
     ).toBe('root')
   })
 
-  it.each([
-    '/analytics',
-    '/chat-design',
-    '/engagement-questions',
-    '/venues',
-    '/venues/venue_1/import',
-    '/weekly-reports',
-  ])('keeps the internal workspace route %s unavailable to client users', (pathname) => {
-    expect(isInternalWorkspacePath(pathname)).toBe(true)
-    expect(resolveDashboardAccess({ ...signedIn, pathname })).toBe('root')
-    expect(resolveDashboardAccess({ ...signedIn, pathname, platformRole: 'PLATFORM_ADMIN' })).toBe(
-      'next',
-    )
-  })
-
-  it.each(['/', '/ai-controls', '/operational-updates', '/support', '/settings', '/onboarding'])(
-    'keeps the client portal route %s available to client users',
+  it.each(['/analytics', '/chat-design', '/engagement-questions'])(
+    'keeps the internal workspace route %s unavailable to client users',
     (pathname) => {
-      expect(isInternalWorkspacePath(pathname)).toBe(false)
-      expect(resolveDashboardAccess({ ...signedIn, pathname })).toBe('next')
+      expect(isInternalWorkspacePath(pathname)).toBe(true)
+      expect(resolveDashboardAccess({ ...signedIn, pathname })).toBe('root')
+      expect(
+        resolveDashboardAccess({ ...signedIn, pathname, platformRole: 'PLATFORM_ADMIN' }),
+      ).toBe('next')
     },
   )
+
+  it.each([
+    '/',
+    '/ai-controls',
+    '/operational-updates',
+    '/support',
+    '/settings',
+    '/onboarding',
+    '/venues/venue_1/intake',
+    '/weekly-reports',
+  ])('keeps the client portal route %s available to client users', (pathname) => {
+    expect(isInternalWorkspacePath(pathname)).toBe(false)
+    expect(resolveDashboardAccess({ ...signedIn, pathname })).toBe('next')
+  })
+
+  it.each([
+    '/venues',
+    '/venues/new',
+    '/venues/venue_1',
+    '/venues/venue_1/edit',
+    '/venues/venue_1/import',
+    '/venues/venue_1/knowledge',
+    '/venues/venue_1/places/new',
+    '/venues/venue_1/places/place_1/edit',
+    '/venues/venue_1/qr-kit',
+  ])('lets the legacy URL reach its page-level compatibility redirect at %s', (pathname) => {
+    expect(isInternalWorkspacePath(pathname)).toBe(false)
+    expect(resolveDashboardAccess({ ...signedIn, pathname })).toBe('next')
+  })
 
   it('preserves tenant onboarding for a signed-in user without an organization', () => {
     expect(

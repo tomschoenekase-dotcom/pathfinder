@@ -22,7 +22,8 @@
   "dependencies": {
     "@pathfinder/contracts": "workspace:*",
     "@pathfinder/config": "workspace:*",
-    "@prisma/client": "^6.7.0"
+    "@prisma/client": "^6.7.0",
+    "zod": "^3.0.0"
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "3.2.6",

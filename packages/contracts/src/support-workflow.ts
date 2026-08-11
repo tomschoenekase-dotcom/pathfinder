@@ -90,24 +90,31 @@ export const SupportRequestSnapshot = z
   .strict()
 export type SupportRequestSnapshot = z.infer<typeof SupportRequestSnapshot>
 
-const allowedTransitions: Readonly<Record<SupportRequestStatus, readonly SupportRequestStatus[]>> =
-  {
-    OPEN: ['WAITING_FOR_CLIENT', 'IN_REVIEW', 'CANCELLED'],
-    WAITING_FOR_CLIENT: ['OPEN', 'IN_REVIEW', 'CANCELLED'],
-    IN_REVIEW: ['WAITING_FOR_CLIENT', 'PATCH_DRAFTED', 'COMPLETED', 'CANCELLED'],
-    PATCH_DRAFTED: ['IN_REVIEW', 'VALIDATING', 'CANCELLED'],
-    VALIDATING: ['PATCH_DRAFTED', 'AWAITING_APPROVAL', 'CANCELLED'],
-    AWAITING_APPROVAL: ['PATCH_DRAFTED', 'APPLYING', 'CANCELLED'],
-    APPLYING: ['AWAITING_APPROVAL', 'COMPLETED'],
-    COMPLETED: [],
-    CANCELLED: [],
-  }
+export const supportRequestTransitionGraph: Readonly<
+  Record<SupportRequestStatus, readonly SupportRequestStatus[]>
+> = {
+  OPEN: ['WAITING_FOR_CLIENT', 'IN_REVIEW', 'CANCELLED'],
+  WAITING_FOR_CLIENT: ['IN_REVIEW', 'CANCELLED'],
+  IN_REVIEW: ['WAITING_FOR_CLIENT', 'PATCH_DRAFTED', 'CANCELLED'],
+  PATCH_DRAFTED: ['IN_REVIEW', 'VALIDATING', 'CANCELLED'],
+  VALIDATING: ['PATCH_DRAFTED', 'AWAITING_APPROVAL', 'CANCELLED'],
+  AWAITING_APPROVAL: ['PATCH_DRAFTED', 'APPLYING', 'CANCELLED'],
+  APPLYING: ['COMPLETED'],
+  COMPLETED: [],
+  CANCELLED: [],
+}
 
 export function canTransitionSupportRequest(
   from: SupportRequestStatus,
   to: SupportRequestStatus,
 ): boolean {
-  return allowedTransitions[from].includes(to)
+  return supportRequestTransitionGraph[from].includes(to)
+}
+
+export function supportRequestTransitionsFrom(
+  from: SupportRequestStatus,
+): readonly SupportRequestStatus[] {
+  return supportRequestTransitionGraph[from]
 }
 
 export function visibleSupportMessages(

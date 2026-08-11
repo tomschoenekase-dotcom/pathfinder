@@ -346,6 +346,13 @@
     "input": null
   },
   {
+    "path": "portal.getVenueLifecycles",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findMany",
+    "input": null
+  },
+  {
     "path": "venuePackage.preview",
     "kind": "mutation",
     "minimumRole": "MANAGER",
@@ -462,6 +469,36 @@
       "requestId": "csupportabc1234567890",
       "expectedVersion": 1,
       "body": "Here is the requested clarification."
+    }
+  },
+  {
+    "path": "intake.createProposal",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "kind": "WEBSITE",
+      "displayName": "Website proposal",
+      "websiteUri": "https://example.com"
+    }
+  },
+  {
+    "path": "intake.listProposals",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "intake.linkPackageDraft",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "intakeRun.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "runId": "crunabc123456789012345",
+      "packageDraftId": "cdraftabc123456789012"
     }
   },
   {

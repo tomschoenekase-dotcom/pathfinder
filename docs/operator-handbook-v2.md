@@ -1,0 +1,150 @@
+# PathFinder operator handbook v2
+
+This handbook describes the intended operator workflow for PathFinder OS and the Internal Client
+Workspace. It does not authorize live database or production work. The active boundary in
+`docs/database-incident-stop.md` always wins.
+
+## Operating principles
+
+1. Establish client and venue scope before reading or changing anything.
+2. Preserve source evidence and distinguish client-visible material from internal notes.
+3. Prefer a draft, preview, evaluation, and approval over a direct production effect.
+4. Treat ambiguous mutation outcomes as unknown until authoritative state is reloaded.
+5. Never represent a queued job, recorded approval, or generated proposal as applied work.
+
+## Create a client and venue
+
+Use **PathFinder OS → New client**. Confirm the canonical organization name and whether the client
+has one or multiple venues. A single venue should remain invisible as hierarchy in the portal.
+Creation is not publication; verify membership and venue readiness in the Internal Client Workspace.
+
+## Onboarding and intake
+
+Clients supply modest raw inputs: URLs, documents, media, and answers. Operators inspect the source,
+evidence, uncertainty, contradictions, privacy classification, and proposed content mapping. Website
+intake is bounded and cited. Staff interviews are text-only and consent-gated. Intake output is a
+draft proposal; it must not auto-approve or auto-publish.
+
+The shared intake proposal service is the authoritative persistence seam for both tenant and
+platform-admin adapters. It enforces exact tenant and venue scope, preserves consent and privacy
+evidence, and may link only an existing same-scope `DRAFT` package through append-only lineage.
+Withheld source material remains evidence, not client-visible candidate copy. The service does not
+create, approve, apply, or publish a package.
+
+## Read the client lifecycle
+
+The portal lifecycle is a read model derived from current scoped evidence, not a status operators
+advance manually. When a client asks why they see a milestone, inspect the venue, intake, package,
+availability and offboarding evidence in the Internal Client Workspace. Correct the authoritative
+workflow evidence through its approved action; do not edit or promise a lifecycle label directly.
+
+## Review, preview, and publish
+
+Review granular changes at venue scope. Validate references, provenance, capability compatibility,
+and evaluation/readiness evidence. Preview the guest experience before approval. Approval records a
+decision; it does not itself execute a package or agent action. Apply through the existing package
+lifecycle only after the reviewed revision and scope are exact.
+
+For Venue Deployment Manifest v2, use the internal manifest review to validate the hash, warnings and
+exact conversion into `venuePackage.preview` / `venuePackage.createDraft` inputs. The review screen
+does not persist or execute anything. Treat base-hash and semantic compatibility warnings as review
+work, not permission to bypass the existing package lifecycle.
+
+Guest previews may include callouts, actions, citations, choices, images, galleries, events, and
+locations as well as legacy text and place cards. Reject unknown block types. Image and map links
+must be HTTPS and must not contain credential- or secret-like parameters. A safely rendered block
+is still only a preview; it does not prove that a remote asset is approved, durable, or live.
+
+## Rollback
+
+Use versioned package or content-history rollback controls. Confirm the target version, venue, actor,
+and resulting version. Do not perform direct database rollback. An ambiguous result requires a fresh
+authoritative read before retry.
+
+## Support
+
+Client-visible messages and internal notes are separate visibility classes. Never copy private or
+internal evidence into the client thread. A support request may result in a package patch, but the
+patch still follows validation, evaluation, preview, approval, and apply boundaries.
+
+The verified package-lineage action can attach an exact support request version to an existing
+same-client, same-venue `DRAFT` package. Confirm both scopes, request version and target package
+before linking. The link is append-only and auditable; it neither changes package status nor marks
+the support request complete. Status-transition controls expose only allowed next states. Transitions
+require the displayed request
+version/current status and may conflict if another operator acted first; reload before retrying.
+`VALIDATING` includes validation/evaluation review in the current persisted vocabulary. Moving a
+request to `APPLYING` or `COMPLETED` records workflow state only and never executes a package.
+
+## AI configuration and budgets
+
+The global incident control and venue admission checks are hard stops. Cost budgets reserve before
+provider dispatch and remain conservative after ambiguous failures. Model identity, prompt identity,
+content identity, cost, and failure evidence must remain visible to operators. Do not bypass the AI
+gateway or retry a provider call merely because usage persistence failed.
+
+The AI workload view is read-only. It reports the effective provider/model/source, fallback policy
+and budget/cost bounds without secrets. “Unavailable” means that override layer has no truthful
+durable source; do not interpret it as an inherited or approved override. Do not copy a displayed
+registry value into an ad hoc provider call.
+
+## Search and help
+
+Use Cmd/Ctrl-K in PathFinder OS to search the bounded authorized groups for clients, venues, content,
+support, agents, jobs, packages and evaluations. Search is navigation, not evidence that an operation
+succeeded. The client portal consolidates help at Support; `/help` and advanced legacy client routes
+redirect to an approved simple destination rather than rendering internal tools.
+
+## Agent runs and approvals
+
+Access scope and autonomy are independent. Inspect the run timeline, action summaries, version refs,
+cost, errors, and approval request. Recording an approval never implies execution. Disabled or
+read-only identities remain unable to act even when an approval exists.
+
+## Evaluations and freshness
+
+Evaluation runs freeze case, model, prompt, and content identities. Separate operational failures
+from scored quality failures. Freshness queues identify overdue trusted review, provenance gaps, and
+date-sensitive updates; they do not assert factual contradiction and never auto-publish a patch.
+
+## Operational updates
+
+Use plain language, explicit venue scope, start and expiry times, and preview. Review current,
+scheduled, expired, and historical versions. Expired updates should not remain guest-visible.
+
+Create, update, schedule, and deactivate through the canonical HUMAN manager/owner action. It
+enforces venue/place scope, content-version entity and capacity locks, expected `updatedAt` CAS,
+valid time windows, the bounded overlap limit, and transactional audit evidence. On conflict,
+reload authoritative state before retrying. A locally computed `SCHEDULED`, `LIVE`, `EXPIRED`, or
+`INACTIVE` preview is lifecycle evidence only; it is not proof that a live scheduler ran.
+
+## Failures and incidents
+
+Start in **PathFinder OS → Operations**. Determine whether the issue is AI admission, a durable job,
+evaluation, support workflow, venue availability, or deployment state. Prefer reversible controls.
+Database assessment, remediation, restore, migration, promotion, and incident-stop changes require
+the exact authorizations documented in the incident runbook.
+
+Local query bounds, pagination and loading states improve perceived performance, but there is no
+production-like latency evidence in this continuation. Record observed slow paths with exact scope
+and route; do not infer database health from a locally passing component test.
+
+## Offboarding
+
+Create a requested plan only after confirming venues and required revocation targets. Current local
+code records plans, targets, evidence, and export metadata but intentionally does not execute
+revocation or deletion. Retention and support-history handling require owner/legal policy.
+
+The export-manifest preview is metadata-only and bounded to 20 selected venues. Review its explicit
+caps and truncation evidence. It enumerates approved/current identity and content references,
+version/history identifiers, package IDs/hashes/status, and normalized module/evidence references;
+it excludes raw content, private support notes, guest conversations, source locators, assets, and
+secrets. Preview creates no artifact and performs no export, storage, revocation, or deletion.
+
+## External credentials
+
+The credential console is a dark, read-only inventory of disabled credential metadata. It may show
+tenant/client/optional venue scope, capabilities, prefix, expiry, revocation, and last-used evidence.
+PathFinder stores only a strong hash and non-secret prefix; no operator should expect plaintext
+recovery. No issue, verify, enable, rotate, revoke, listener, or transport-auth lifecycle is live in
+this foundation, even when rotation or revocation audit records are visible.

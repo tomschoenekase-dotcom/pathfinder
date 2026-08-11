@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+// Keep client-safe schema entry points free of @pathfinder/db. Importing the DB barrel here pulls
+// Prisma middleware and Node built-ins into guest browser bundles.
 export const MAX_GUEST_OPERATIONAL_UPDATES = 20
 
 export const OperationalUpdateSeverityInput = z.enum(['INFO', 'WARNING', 'CLOSURE', 'REDIRECT'])

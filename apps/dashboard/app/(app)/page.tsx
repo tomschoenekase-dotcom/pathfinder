@@ -12,9 +12,10 @@ type DashboardIndexPageProps = {
 
 export default async function DashboardIndexPage({ searchParams }: DashboardIndexPageProps) {
   const caller = await createDashboardCaller('/')
-  const [venues, operationalUpdates] = await Promise.all([
+  const [venues, operationalUpdates, lifecycleRows] = await Promise.all([
     caller.venue.list(),
     caller.operationalUpdate.list(),
+    caller.portal.getVenueLifecycles(),
   ])
 
   const { sessionClaims } = await auth()
@@ -34,6 +35,8 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
 
   const { venue: requestedVenueId } = await searchParams
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0] ?? null
+  const selectedLifecycle = lifecycleRows.find((row) => row.venueId === selectedVenue?.id)
+  if (!selectedLifecycle) throw new Error('Portal lifecycle evidence is unavailable')
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
   const now = new Date()
   const activeAlerts = operationalUpdates.filter(
@@ -55,8 +58,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       venue={{
         id: selectedVenue!.id,
         name: selectedVenue!.name,
-        isActive: selectedVenue!.isActive,
-        placeCount: selectedVenue!._count.places,
+        lifecycle: selectedLifecycle.lifecycle,
       }}
       venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
       activeUpdates={activeAlerts}

@@ -7,8 +7,10 @@ import { chatRouter } from './routers/chat'
 import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
+import { intakeRouter } from './routers/intake'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
+import { portalRouter } from './routers/portal'
 import { tenantRouter } from './routers/tenant'
 import { supportRouter } from './routers/support'
 import { venueRouter } from './routers/venue'
@@ -22,12 +24,14 @@ export const appRouter = router({
   contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
+  intake: intakeRouter,
   operationalUpdate: operationalUpdateRouter,
   support: supportRouter,
   tenant: tenantRouter,
   venue: venueRouter,
   venuePackage: venuePackageRouter,
   place: placeRouter,
+  portal: portalRouter,
   health: publicProcedure.query(() => ({
     ok: true,
     scope: 'public',

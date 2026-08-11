@@ -1,18 +1,6 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import Link from 'next/link'
-
-import { VenueForm } from '../../../../components/VenueForm'
-
+/** Venue creation remains available through the approved onboarding flow. */
 export default function NewVenuePage() {
-  return (
-    <main className="min-h-screen bg-pf-surface px-6 py-10">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <Link href="/" className="text-sm font-medium text-pf-primary hover:text-pf-accent">
-          ← Back to overview
-        </Link>
-        <VenueForm mode="create" />
-      </div>
-    </main>
-  )
+  redirect('/onboarding/setup')
 }

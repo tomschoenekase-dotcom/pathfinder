@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
-import { analyticsRouter } from './analytics'
+import { analyticsRouter, loadPlaceInterestOverview } from './analytics'
 
 const { checkRateLimitMock } = vi.hoisted(() => ({ checkRateLimitMock: vi.fn() }))
 
@@ -12,6 +12,7 @@ vi.mock('../lib/rate-limit', () => ({ checkRateLimit: checkRateLimitMock }))
 const weeklyDigestFindFirst = vi.fn()
 const weeklyDigestFindMany = vi.fn()
 const dailyRollupFindMany = vi.fn()
+const dailyRollupGroupBy = vi.fn()
 const analyticsEventCreate = vi.fn()
 const visitorSessionUpsert = vi.fn()
 const visitorSessionUpdateMany = vi.fn()
@@ -45,6 +46,7 @@ const mockDb = {
   },
   dailyRollup: {
     findMany: dailyRollupFindMany,
+    groupBy: dailyRollupGroupBy,
   },
   analyticsEvent: {
     create: analyticsEventCreate,
@@ -803,6 +805,70 @@ describe('analytics router', () => {
     await expect(
       caller.analytics.getPlaceInterest({ venueId: 'cvenueabc123456789012', days: 30 }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'UNAUTHORIZED' }))
+  })
+
+  it('analytics.getPlaceInterestOverview batches tenant venues into two scoped reads and bounds each group', async () => {
+    dailyRollupGroupBy.mockResolvedValueOnce([
+      {
+        venueId: 'venue_1',
+        placeId: 'p1',
+        metric: 'place_card_views',
+        _sum: { value: 4 },
+      },
+      {
+        venueId: 'venue_1',
+        placeId: 'p2',
+        metric: 'place_directions',
+        _sum: { value: 2 },
+      },
+      {
+        venueId: 'venue_2',
+        placeId: 'p3',
+        metric: 'place_mentions',
+        _sum: { value: 9 },
+      },
+    ])
+    placeFindMany.mockResolvedValueOnce([
+      { id: 'p1', name: 'Cafe' },
+      { id: 'p2', name: 'Gallery' },
+      { id: 'p3', name: 'Garden' },
+    ])
+
+    const result = await loadPlaceInterestOverview(mockDb, 'tenant_batched', {
+      days: 30,
+      limitPerVenue: 1,
+    })
+
+    expect(dailyRollupGroupBy).toHaveBeenCalledTimes(1)
+    expect(dailyRollupGroupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: ['venueId', 'placeId', 'metric'],
+        where: expect.objectContaining({ tenantId: 'tenant_batched', placeId: { not: null } }),
+        _sum: { value: true },
+      }),
+    )
+    expect(placeFindMany).toHaveBeenCalledTimes(1)
+    expect(placeFindMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant_batched', id: { in: ['p1', 'p2', 'p3'] } },
+      select: { id: true, name: true },
+    })
+    expect(result).toEqual([
+      {
+        venueId: 'venue_1',
+        places: [expect.objectContaining({ placeId: 'p2', score: 6 })],
+      },
+      {
+        venueId: 'venue_2',
+        places: [expect.objectContaining({ placeId: 'p3', score: 9 })],
+      },
+    ])
+  })
+
+  it('analytics.getPlaceInterestOverview does not read place rows when no rollups exist', async () => {
+    dailyRollupGroupBy.mockResolvedValueOnce([])
+    const result = await loadPlaceInterestOverview(mockDb, 'tenant_1')
+    expect(result).toEqual([])
+    expect(placeFindMany).not.toHaveBeenCalled()
   })
 
   it('analytics.listPublishedWeeklyReports only returns PUBLISHED reports for the caller tenant', async () => {

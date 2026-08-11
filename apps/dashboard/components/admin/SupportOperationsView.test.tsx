@@ -3,12 +3,20 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ mutate: vi.fn(), query: vi.fn(), refresh: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  link: vi.fn(),
+  transition: vi.fn(),
+  query: vi.fn(),
+  refresh: vi.fn(),
+}))
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       addSupportMessage: { mutate: mocks.mutate },
       getSupportRequest: { query: mocks.query },
+      linkSupportDraftPackage: { mutate: mocks.link },
+      transitionSupportRequestStatus: { mutate: mocks.transition },
     },
   }),
 }))
@@ -23,6 +31,8 @@ vi.mock('next/link', () => ({
 
 import { SupportMessageComposer } from './SupportMessageComposer'
 import { SupportOperationsView } from './SupportOperationsView'
+import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
+import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 describe('support operations UI', () => {
@@ -35,7 +45,7 @@ describe('support operations UI', () => {
     const request = {
       id: 'req_1',
       category: 'CONTENT_CHANGE',
-      status: 'OPEN',
+      status: 'OPEN' as const,
       subject: 'Update hours',
       version: 3,
       createdByKind: 'CLIENT',
@@ -146,5 +156,87 @@ describe('support operations UI', () => {
       (screen.getByRole('button', { name: 'Add internal note' }) as HTMLButtonElement).disabled,
     ).toBe(false)
     expect(screen.getByText('Request version 3')).toBeTruthy()
+  })
+
+  it('links only a selected existing draft with exact scope and CAS, once', async () => {
+    let resolve!: () => void
+    mocks.link.mockReturnValue(
+      new Promise((done) => {
+        resolve = () => done({ requestVersion: 5 })
+      }),
+    )
+    render(
+      <SupportPackageHandoffForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        closed={false}
+        packages={[
+          {
+            id: 'pkg_1',
+            schemaVersion: 2,
+            payloadHash: 'abcdef1234567890',
+            createdBy: 'admin',
+            createdAt: new Date(),
+          },
+        ]}
+      />,
+    )
+    const submit = screen.getByRole('button', { name: 'Link selected draft' })
+    fireEvent.click(submit)
+    fireEvent.click(submit)
+    expect(mocks.link).toHaveBeenCalledTimes(1)
+    expect(mocks.link).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'req_1',
+      venuePackageId: 'pkg_1',
+      expectedVersion: 4,
+    })
+    expect(screen.queryByRole('button', { name: /approve|apply|publish|create/i })).toBeNull()
+    resolve()
+    await waitFor(() => expect(screen.getByText(/Draft package linked/)).toBeTruthy())
+  })
+
+  it('requires deliberate confirmation and submits only an allowed transition with CAS', async () => {
+    mocks.transition.mockResolvedValue({ status: 'PATCH_DRAFTED', version: 4 })
+    render(
+      <SupportStatusTransitionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        currentStatus="IN_REVIEW"
+        expectedVersion={3}
+      />,
+    )
+    const submit = screen.getByRole('button', { name: 'Record status change' }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText(/I confirm/))
+    fireEvent.click(submit)
+    await waitFor(() =>
+      expect(mocks.transition).toHaveBeenCalledWith({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'req_1',
+        expectedVersion: 3,
+        toStatus: 'WAITING_FOR_CLIENT',
+      }),
+    )
+    expect(screen.getByText(/No package action was run/)).toBeTruthy()
+  })
+
+  it('offers no transition control for terminal client-visible status', () => {
+    render(
+      <SupportStatusTransitionForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        currentStatus="COMPLETED"
+        expectedVersion={8}
+      />,
+    )
+    expect(screen.getByText('This request is in a terminal status.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Record status change' })).toBeNull()
   })
 })

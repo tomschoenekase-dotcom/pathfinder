@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 
 import { WeeklyReportEditor } from '../../../../../../../../../components/admin/WeeklyReportEditor'
+import { WeeklyReportLifecycleEvidence } from '../../../../../../../../../components/admin/WeeklyReportLifecycleEvidence'
 import { createAdminCaller } from '../../../../../../../../../lib/admin-caller'
 
 type AdminReportDetailPageProps = {
@@ -12,7 +13,10 @@ type AdminReportDetailPageProps = {
 export default async function AdminReportDetailPage({ params }: AdminReportDetailPageProps) {
   const { tenantId, venueId, reportId } = await params
   const caller = await createAdminCaller()
-  const report = await caller.admin.getWeeklyReport({ tenantId, venueId, reportId })
+  const [report, lifecycle] = await Promise.all([
+    caller.admin.getWeeklyReport({ tenantId, venueId, reportId }),
+    caller.admin.getWeeklyReportLifecycle({ tenantId, venueId, reportId }).catch(() => null),
+  ])
 
   return (
     <div className="space-y-8">
@@ -30,6 +34,8 @@ export default async function AdminReportDetailPage({ params }: AdminReportDetai
           {report.status}
         </p>
       </header>
+
+      <WeeklyReportLifecycleEvidence evidence={lifecycle} />
 
       {report.status === 'GENERATING' ? (
         <div className="rounded-3xl border border-pf-light bg-pf-white p-8 text-sm text-pf-deep/60 shadow-sm">

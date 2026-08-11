@@ -1,8 +1,12 @@
 'use client'
 
 import { useId } from 'react'
-import { AlertTriangle, CheckCircle2, Info } from 'lucide-react'
-import type { GuestResponseBlock, GuestResponsePlace } from '@pathfinder/contracts/guest-response'
+import { AlertTriangle, CalendarDays, CheckCircle2, ExternalLink, Info, MapPin } from 'lucide-react'
+import {
+  legacyGuestResponseToBlocks,
+  type GuestResponseBlock,
+  type GuestResponsePlace,
+} from '@pathfinder/contracts/guest-response'
 
 import { PlaceCard } from './PlaceCard'
 
@@ -13,6 +17,35 @@ type ResponseRendererProps = {
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
+  onChoiceSelect?: (value: string) => void
+}
+
+function safeHttpsHref(href: string): string | null {
+  try {
+    const parsed = new URL(href)
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null
+    const sensitiveKey =
+      /(?:token|key|secret|signature|credential|auth|password|^sig$|^x-amz-|^x-goog-)/iu
+    const keys = [
+      ...parsed.searchParams.keys(),
+      ...new URLSearchParams(parsed.hash.slice(1)).keys(),
+    ]
+    return keys.some((key) => sensitiveKey.test(key)) ? null : parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function eventDateTime(value: string, timezone?: string): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      ...(timezone ? { timeZone: timezone } : {}),
+    }).format(new Date(value))
+  } catch {
+    return new Date(value).toLocaleString()
+  }
 }
 
 function safeWebHref(href: string): string | null {
@@ -66,14 +99,13 @@ export function ResponseRenderer({
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
+  onChoiceSelect,
 }: ResponseRendererProps) {
   const citationsHeadingId = useId()
+  const sectionHeadingId = useId()
   const renderedBlocks: GuestResponseBlock[] = blocks?.length
     ? blocks
-    : [
-        ...(content.trim() ? [{ type: 'text' as const, text: content }] : []),
-        ...(places?.length ? [{ type: 'places' as const, places }] : []),
-      ]
+    : legacyGuestResponseToBlocks({ content, ...(places ? { places } : {}) })
 
   return (
     <div className="space-y-3" data-response-format={blocks?.length ? 'structured' : 'legacy'}>
@@ -189,6 +221,199 @@ export function ResponseRenderer({
                 {...(onDirectionsClick ? { onDirectionsClick } : {})}
               />
             )
+          case 'choices':
+            return (
+              <section key={index} aria-labelledby={`${sectionHeadingId}-choices-${index}`}>
+                <h3
+                  id={`${sectionHeadingId}-choices-${index}`}
+                  className="text-sm font-semibold text-[var(--chat-text)]"
+                >
+                  {block.label}
+                </h3>
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {block.choices.map((choice) => (
+                    <li key={choice.id}>
+                      {onChoiceSelect ? (
+                        <button
+                          type="button"
+                          aria-label={choice.accessibleLabel ?? choice.label}
+                          className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-2 text-sm font-semibold text-[var(--chat-accent)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2"
+                          onClick={() => onChoiceSelect(choice.value)}
+                        >
+                          {choice.label}
+                        </button>
+                      ) : (
+                        <span className="inline-flex min-h-10 items-center rounded-full border border-[var(--chat-border)] px-4 text-sm font-medium">
+                          {choice.label}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )
+          case 'image': {
+            const src = safeHttpsHref(block.image.src)
+            return src ? (
+              <figure
+                key={index}
+                className="overflow-hidden rounded-2xl border border-[var(--chat-border)]"
+              >
+                {/* External response media is deliberately rendered without Next image optimization. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt={block.image.alt}
+                  width={block.image.width}
+                  height={block.image.height}
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  className="max-h-80 w-full object-cover"
+                />
+                {block.image.caption ? (
+                  <figcaption className="px-3 py-2 text-xs text-[var(--chat-text-muted)]">
+                    {block.image.caption}
+                  </figcaption>
+                ) : null}
+              </figure>
+            ) : null
+          }
+          case 'gallery':
+            return (
+              <section key={index} aria-labelledby={`${sectionHeadingId}-gallery-${index}`}>
+                <h3
+                  id={`${sectionHeadingId}-gallery-${index}`}
+                  className="text-sm font-semibold text-[var(--chat-text)]"
+                >
+                  {block.label}
+                </h3>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {block.images.map((item, imageIndex) => {
+                    const src = safeHttpsHref(item.src)
+                    return src ? (
+                      <figure
+                        key={`${src}-${imageIndex}`}
+                        className="overflow-hidden rounded-2xl border border-[var(--chat-border)]"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={src}
+                          alt={item.alt}
+                          width={item.width}
+                          height={item.height}
+                          loading="lazy"
+                          decoding="async"
+                          referrerPolicy="no-referrer"
+                          className="h-40 w-full object-cover sm:h-48"
+                        />
+                        {item.caption ? (
+                          <figcaption className="px-3 py-2 text-xs text-[var(--chat-text-muted)]">
+                            {item.caption}
+                          </figcaption>
+                        ) : null}
+                      </figure>
+                    ) : null
+                  })}
+                </div>
+              </section>
+            )
+          case 'events':
+            return (
+              <section key={index} aria-labelledby={`${sectionHeadingId}-events-${index}`}>
+                <h3
+                  id={`${sectionHeadingId}-events-${index}`}
+                  className="text-sm font-semibold text-[var(--chat-text)]"
+                >
+                  {block.label}
+                </h3>
+                <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {block.events.map((event) => {
+                    const href = event.href ? safeHttpsHref(event.href) : null
+                    return (
+                      <li
+                        key={event.id}
+                        className="rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-3"
+                      >
+                        <div className="flex gap-2.5">
+                          <CalendarDays
+                            className="mt-0.5 h-4 w-4 shrink-0 text-[var(--chat-accent)]"
+                            aria-hidden="true"
+                          />
+                          <div className="min-w-0">
+                            <p className="font-semibold">{event.title}</p>
+                            <p className="mt-1 text-xs text-[var(--chat-text-muted)]">
+                              <time dateTime={event.startsAt}>
+                                {eventDateTime(event.startsAt, event.timezone)}
+                              </time>
+                              {event.endsAt ? (
+                                <>
+                                  {' – '}
+                                  <time dateTime={event.endsAt}>
+                                    {eventDateTime(event.endsAt, event.timezone)}
+                                  </time>
+                                </>
+                              ) : null}
+                              {event.timezone ? ` (${event.timezone})` : null}
+                            </p>
+                            {event.location ? (
+                              <p className="mt-1 text-xs">{event.location}</p>
+                            ) : null}
+                            {event.description ? (
+                              <p className="mt-2 text-sm">{event.description}</p>
+                            ) : null}
+                            {href ? (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-[var(--chat-accent)] underline underline-offset-2"
+                              >
+                                Event details{' '}
+                                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                                <span className="sr-only"> (opens in a new tab)</span>
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            )
+          case 'location': {
+            const href = safeHttpsHref(block.mapHref)
+            return href ? (
+              <section
+                key={index}
+                className="rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-3"
+              >
+                <div className="flex gap-2.5">
+                  <MapPin
+                    className="mt-0.5 h-4 w-4 shrink-0 text-[var(--chat-accent)]"
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <h3 className="font-semibold">{block.name}</h3>
+                    {block.address ? <p className="mt-1 text-sm">{block.address}</p> : null}
+                    {block.detail ? (
+                      <p className="mt-1 text-xs text-[var(--chat-text-muted)]">{block.detail}</p>
+                    ) : null}
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-[var(--chat-accent)] underline underline-offset-2"
+                    >
+                      Open map link <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span className="sr-only"> (opens in a new tab)</span>
+                    </a>
+                  </div>
+                </div>
+              </section>
+            ) : null
+          }
         }
       })}
     </div>

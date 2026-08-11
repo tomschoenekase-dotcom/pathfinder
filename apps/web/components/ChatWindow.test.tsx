@@ -204,6 +204,38 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect((composer as HTMLTextAreaElement).value).toBe('')
   })
 
+  it('submits an explicitly rendered assistant choice through the existing send path', () => {
+    const onSend = vi.fn()
+    render(
+      <ChatWindow
+        messages={[
+          {
+            role: 'assistant',
+            content: 'Choose a topic.',
+            blocks: [
+              {
+                type: 'choices',
+                label: 'Choose a topic',
+                choices: [
+                  {
+                    id: 'accessibility',
+                    label: 'Accessibility',
+                    value: 'Tell me about accessibility.',
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+        onSend={onSend}
+        isLoading={false}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accessibility' }))
+    expect(onSend).toHaveBeenCalledWith('Tell me about accessibility.')
+  })
+
   it('prefills an entry prompt without sending it automatically', () => {
     const onSend = vi.fn()
     render(

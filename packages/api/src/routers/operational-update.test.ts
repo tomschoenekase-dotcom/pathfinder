@@ -1,77 +1,57 @@
-import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@pathfinder/db', () => ({
-  lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
-  lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),
-  setContentVersionContext: vi.fn().mockResolvedValue(undefined),
-  writeAuditLogStrict: vi.fn().mockResolvedValue(undefined),
+const actions = vi.hoisted(() => ({
+  create: vi.fn(),
+  update: vi.fn(),
+  schedule: vi.fn(),
+  expire: vi.fn(),
 }))
 
-import {
-  lockContentVersionEntity,
-  lockOperationalUpdateCapacity,
-  writeAuditLogStrict,
-} from '@pathfinder/db'
+vi.mock('@pathfinder/db', () => {
+  class OperationalUpdateActionError extends Error {
+    constructor(
+      readonly code: 'NOT_FOUND' | 'INVALID_INPUT' | 'CONFLICT',
+      message: string,
+    ) {
+      super(message)
+    }
+  }
+  return {
+    createOperationalUpdateAction: actions.create,
+    updateOperationalUpdateAction: actions.update,
+    scheduleOperationalUpdateAction: actions.schedule,
+    expireOperationalUpdateAction: actions.expire,
+    OperationalUpdateActionError,
+    operationalUpdateActionSelect: { id: true },
+  }
+})
+
+import { OperationalUpdateActionError } from '@pathfinder/db'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { operationalUpdateRouter } from './operational-update'
 
-const venueFindFirst = vi.fn()
-const placeFindFirst = vi.fn()
-const operationalUpdateFindMany = vi.fn()
-const operationalUpdateFindFirst = vi.fn()
-const operationalUpdateCreate = vi.fn()
-const operationalUpdateUpdateMany = vi.fn()
-const operationalUpdateCount = vi.fn()
-const auditLogCreate = vi.fn()
-
+const findMany = vi.fn()
+const findFirst = vi.fn()
 const mockDb = {
-  $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(mockDb)),
-  venue: { findFirst: venueFindFirst },
-  place: { findFirst: placeFindFirst },
-  operationalUpdate: {
-    findMany: operationalUpdateFindMany,
-    findFirst: operationalUpdateFindFirst,
-    create: operationalUpdateCreate,
-    count: operationalUpdateCount,
-    updateMany: operationalUpdateUpdateMany,
-  },
-  auditLog: { create: auditLogCreate },
+  operationalUpdate: { findMany, findFirst },
 } as unknown as TRPCContext['db']
-
-const baseCtx = { db: mockDb, headers: new Headers() }
-
-function staffCtx(): TRPCContext {
-  return {
-    ...baseCtx,
-    session: {
-      userId: 'user_staff',
-      activeTenantId: 'tenant_1',
-      role: 'STAFF',
-      isPlatformAdmin: false,
-    },
-  }
-}
-
-function managerCtx(): TRPCContext {
-  return {
-    ...baseCtx,
-    session: {
-      userId: 'user_manager',
-      activeTenantId: 'tenant_1',
-      role: 'MANAGER',
-      isPlatformAdmin: false,
-    },
-  }
-}
-
+const context = (role: 'STAFF' | 'MANAGER' | 'OWNER'): TRPCContext => ({
+  db: mockDb,
+  headers: new Headers(),
+  session: {
+    userId: `user_${role.toLowerCase()}`,
+    activeTenantId: 'tenant_1',
+    role,
+    isPlatformAdmin: false,
+  },
+})
 const testRouter = router({ operationalUpdate: operationalUpdateRouter })
 const startsAt = new Date('2030-01-01T08:00:00.000Z')
 const expiresAt = new Date('2030-01-01T12:00:00.000Z')
-const updatedAt = new Date('2029-12-31T23:00:00.000Z')
-const inputFields = {
+const expectedUpdatedAt = new Date('2029-12-31T23:00:00.000Z')
+const fields = {
   venueId: 'cvenueabc123456789012',
   placeId: null,
   updateType: 'TEMPORARY_CLOSURE' as const,
@@ -83,189 +63,74 @@ const inputFields = {
   startsAt,
   expiresAt,
 }
-const baseUpdate = {
-  id: 'cupdatetest1234567890',
-  tenantId: 'tenant_1',
-  ...inputFields,
-  status: 'PUBLISHED' as const,
-  isActive: true,
-  createdBy: 'user_other',
-  publishedBy: 'user_other',
-  publishedAt: startsAt,
-  createdAt: startsAt,
-  updatedAt,
-  venue: { id: inputFields.venueId, name: 'City Zoo' },
-  place: null,
-}
+const update = { id: 'cupdatetest1234567890', tenantId: 'tenant_1', ...fields }
 
-describe('operational update router', () => {
-  beforeEach(() => {
-    vi.resetAllMocks()
-    venueFindFirst.mockResolvedValue({ id: inputFields.venueId })
-    operationalUpdateCount.mockResolvedValue(0)
-  })
+describe('operational update router adapters', () => {
+  beforeEach(() => vi.resetAllMocks())
 
-  it('denies STAFF creation before any database write', async () => {
-    const caller = testRouter.createCaller(staffCtx())
+  it('denies STAFF writes before invoking the canonical action', async () => {
     await expect(
-      caller.operationalUpdate.create({ ...inputFields, publish: true }),
-    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
-    expect(venueFindFirst).not.toHaveBeenCalled()
-    expect(operationalUpdateCreate).not.toHaveBeenCalled()
+      testRouter.createCaller(context('STAFF')).operationalUpdate.create({
+        ...fields,
+        publish: false,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(actions.create).not.toHaveBeenCalled()
   })
 
-  it('returns the complete tenant lifecycle for management', async () => {
-    operationalUpdateFindMany.mockResolvedValueOnce([baseUpdate])
-    const result = await testRouter.createCaller(staffCtx()).operationalUpdate.list()
-    expect(result).toEqual([baseUpdate])
-    expect(operationalUpdateFindMany).toHaveBeenCalledWith(
+  it('passes authenticated tenant and human manager authority to create', async () => {
+    actions.create.mockResolvedValue({ update, preview: {} })
+    const result = await testRouter.createCaller(context('MANAGER')).operationalUpdate.create({
+      ...fields,
+      publish: true,
+    })
+    expect(result).toEqual(update)
+    expect(actions.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { tenantId: 'tenant_1' },
-        take: 500,
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        tenantId: 'tenant_1',
+        actor: { type: 'HUMAN', id: 'user_manager', role: 'MANAGER' },
+        schedule: true,
       }),
-    )
-  })
-
-  it('creates a draft that is not guest-visible', async () => {
-    const draft = {
-      ...baseUpdate,
-      status: 'DRAFT' as const,
-      isActive: false,
-      publishedBy: null,
-      publishedAt: null,
-      createdBy: 'user_manager',
-    }
-    operationalUpdateCreate.mockResolvedValueOnce(draft)
-
-    const result = await testRouter
-      .createCaller(managerCtx())
-      .operationalUpdate.create({ ...inputFields, publish: false })
-
-    expect(result).toEqual(draft)
-    expect(operationalUpdateCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          tenantId: 'tenant_1',
-          status: 'DRAFT',
-          isActive: false,
-          publishedBy: null,
-          publishedAt: null,
-        }),
-      }),
-    )
-    expect(writeAuditLogStrict).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'operational-update.created-draft' }),
       mockDb,
     )
   })
 
-  it('publishes a current draft using compare-and-set state', async () => {
-    const draft = {
-      ...baseUpdate,
-      status: 'DRAFT' as const,
-      isActive: false,
-      publishedBy: null,
-      publishedAt: null,
-    }
-    operationalUpdateFindFirst.mockResolvedValueOnce(draft).mockResolvedValueOnce(baseUpdate)
-    operationalUpdateUpdateMany.mockResolvedValueOnce({ count: 1 })
-
-    const result = await testRouter.createCaller(managerCtx()).operationalUpdate.publish({
-      id: baseUpdate.id,
-      expectedUpdatedAt: updatedAt,
-    })
-
-    expect(result.status).toBe('PUBLISHED')
-    expect(lockContentVersionEntity).toHaveBeenCalledWith(mockDb, {
+  it('delegates update, schedule, and expiry with CAS timestamps', async () => {
+    actions.update.mockResolvedValue({ update, preview: {} })
+    actions.schedule.mockResolvedValue({ update, preview: {} })
+    actions.expire.mockResolvedValue({ update, preview: {} })
+    const caller = testRouter.createCaller(context('OWNER')).operationalUpdate
+    await caller.update({ id: update.id, expectedUpdatedAt, ...fields, publish: false })
+    await caller.publish({ id: update.id, expectedUpdatedAt })
+    await caller.deactivate({ id: update.id, expectedUpdatedAt })
+    const authority = expect.objectContaining({
       tenantId: 'tenant_1',
-      entityType: 'OPERATIONAL_UPDATE',
-      entityId: baseUpdate.id,
+      actor: { type: 'HUMAN', id: 'user_owner', role: 'OWNER' },
+      id: update.id,
+      expectedUpdatedAt,
     })
-    expect(operationalUpdateUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          id: baseUpdate.id,
-          tenantId: 'tenant_1',
-          status: 'DRAFT',
-          updatedAt,
-        }),
-        data: expect.objectContaining({ status: 'PUBLISHED', isActive: true }),
-      }),
+    expect(actions.update).toHaveBeenCalledWith(authority, mockDb)
+    expect(actions.schedule).toHaveBeenCalledWith(authority, mockDb)
+    expect(actions.expire).toHaveBeenCalledWith(authority, mockDb)
+  })
+
+  it('maps typed domain errors without leaking adapter internals', async () => {
+    actions.schedule.mockRejectedValue(
+      new OperationalUpdateActionError('CONFLICT', 'Update changed; refresh'),
     )
-    expect(lockOperationalUpdateCapacity).toHaveBeenCalledWith(mockDb, {
-      tenantId: 'tenant_1',
-      venueId: inputFields.venueId,
-    })
-  })
-
-  it('rejects publishing when the venue prompt is already at capacity', async () => {
-    const draft = {
-      ...baseUpdate,
-      status: 'DRAFT' as const,
-      isActive: false,
-      publishedBy: null,
-      publishedAt: null,
-    }
-    operationalUpdateFindFirst.mockResolvedValueOnce(draft)
-    operationalUpdateCount.mockResolvedValueOnce(20)
-
     await expect(
-      testRouter.createCaller(managerCtx()).operationalUpdate.publish({
-        id: baseUpdate.id,
-        expectedUpdatedAt: updatedAt,
+      testRouter.createCaller(context('MANAGER')).operationalUpdate.publish({
+        id: update.id,
+        expectedUpdatedAt,
       }),
-    ).rejects.toMatchObject({ code: 'CONFLICT' })
-    expect(operationalUpdateUpdateMany).not.toHaveBeenCalled()
-    expect(writeAuditLogStrict).not.toHaveBeenCalled()
+    ).rejects.toMatchObject({ code: 'CONFLICT', message: 'Update changed; refresh' })
   })
 
-  it('rejects a stale edit without a false audit', async () => {
-    operationalUpdateFindFirst.mockResolvedValueOnce(baseUpdate)
-    operationalUpdateUpdateMany.mockResolvedValueOnce({ count: 0 })
-
-    await expect(
-      testRouter.createCaller(managerCtx()).operationalUpdate.update({
-        id: baseUpdate.id,
-        expectedUpdatedAt: updatedAt,
-        ...inputFields,
-        title: 'Changed concurrently',
-      }),
-    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'CONFLICT' }))
-    expect(writeAuditLogStrict).not.toHaveBeenCalled()
-  })
-
-  it("lets a manager deactivate another author's published update with CAS", async () => {
-    operationalUpdateFindFirst
-      .mockResolvedValueOnce(baseUpdate)
-      .mockResolvedValueOnce({ ...baseUpdate, isActive: false })
-    operationalUpdateUpdateMany.mockResolvedValueOnce({ count: 1 })
-
-    const result = await testRouter.createCaller(managerCtx()).operationalUpdate.deactivate({
-      id: baseUpdate.id,
-      expectedUpdatedAt: updatedAt,
-    })
-
-    expect(result).toMatchObject({ id: baseUpdate.id, isActive: false, createdBy: 'user_other' })
-    expect(operationalUpdateUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          id: baseUpdate.id,
-          tenantId: 'tenant_1',
-          status: 'PUBLISHED',
-          isActive: true,
-          updatedAt,
-        }),
-        data: { isActive: false },
-      }),
-    )
-    expect(writeAuditLogStrict).toHaveBeenCalledWith(
-      expect.objectContaining({
-        actorId: 'user_manager',
-        targetId: baseUpdate.id,
-        action: 'operational-update.deactivated',
-      }),
-      mockDb,
+  it('keeps reads exactly tenant scoped', async () => {
+    findMany.mockResolvedValue([update])
+    await testRouter.createCaller(context('STAFF')).operationalUpdate.list()
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: 'tenant_1' }, take: 500 }),
     )
   })
 })

@@ -150,6 +150,7 @@ export function ChatWindow({
               {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
               {...(onPlaceCardView ? { onPlaceCardView } : {})}
               {...(onDirectionsClick ? { onDirectionsClick } : {})}
+              {...(message.role === 'assistant' && !isLoading ? { onChoiceSelect: onSend } : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
               {...(message.role === 'user' && accentContrastColor
                 ? { bubbleTextColor: accentContrastColor }

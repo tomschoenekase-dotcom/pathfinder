@@ -61,11 +61,23 @@ describe('ClientWorkspaceShell', () => {
     expect(screen.getByRole('heading', { name: 'Harbor Museum' })).toBeTruthy()
     expect(screen.getByText('Build & manage')).toBeTruthy()
     expect(screen.getByText('Observe & improve')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /External credentials/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/credentials',
+    )
+    expect(screen.getByRole('link', { name: /AI configuration/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/venues/venue-1/ai-configuration',
+    )
     expect(
       screen.getByRole('link', { name: /Guest conversations/ }).getAttribute('aria-current'),
     ).toBe('page')
     expect(screen.getByRole('link', { name: /Open guest preview/ }).getAttribute('href')).toBe(
       'https://guide.example/harbor/chat',
+    )
+    expect(screen.getByRole('link', { name: /Manifest review/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/venues/venue-1/deployment-manifest',
+    )
+    expect(screen.getByRole('link', { name: /Guided intake/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/venues/venue-1/intake',
     )
   })
 })

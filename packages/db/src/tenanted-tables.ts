@@ -45,6 +45,10 @@ export const TENANTED_TABLES = [
   'SupportMessage',
   'SupportMessageAttachment',
   'SupportRequestAuditEvent',
+  'SupportPackageHandoff',
+  'ExternalAccessCredential',
+  'ExternalCredentialRotation',
+  'ExternalCredentialRevocation',
   'OffboardingPlan',
   'OffboardingVenueTarget',
   'OffboardingRevocationEvidence',
@@ -57,6 +61,10 @@ export const TENANTED_TABLES = [
   'OperationalFactContent',
   'RelationshipContent',
   'ContentModuleEvidence',
+  'IntakeRun',
+  'IntakeEvidenceRecord',
+  'IntakeRunEvent',
+  'IntakePackageHandoff',
 ] as const
 
 export const PLATFORM_TABLES = ['User', 'Tenant', 'PlatformConfig', 'ClerkWebhookReceipt'] as const

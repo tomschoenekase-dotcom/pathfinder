@@ -22,6 +22,13 @@ function toInputDate(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
+function simpleStatus(status: 'GENERATING' | 'DRAFT' | 'PUBLISHED' | 'FAILED') {
+  if (status === 'GENERATING') return 'In progress'
+  if (status === 'DRAFT') return 'Review'
+  if (status === 'PUBLISHED') return 'Published'
+  return 'Failed'
+}
+
 export default async function AdminReportsPage({ params, searchParams }: AdminReportsPageProps) {
   const { tenantId, venueId } = await params
   const query = await searchParams
@@ -125,7 +132,7 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-pf-deep/70">{report.title}</td>
-                  <td className="px-4 py-3 text-pf-deep/70">{report.status}</td>
+                  <td className="px-4 py-3 text-pf-deep/70">{simpleStatus(report.status)}</td>
                   <td className="px-4 py-3 text-pf-deep/50">{report.updatedAt.toLocaleString()}</td>
                 </tr>
               ))

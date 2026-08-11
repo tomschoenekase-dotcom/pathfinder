@@ -30,6 +30,9 @@ const APPEND_ONLY_MODELS = [
   'SupportMessage',
   'SupportMessageAttachment',
   'SupportRequestAuditEvent',
+  'SupportPackageHandoff',
+  'ExternalCredentialRotation',
+  'ExternalCredentialRevocation',
   'OffboardingVenueTarget',
   'OffboardingRevocationEvidence',
   'OffboardingExportArtifact',
@@ -41,6 +44,10 @@ const APPEND_ONLY_MODELS = [
   'OperationalFactContent',
   'RelationshipContent',
   'ContentModuleEvidence',
+  'IntakeRun',
+  'IntakeEvidenceRecord',
+  'IntakeRunEvent',
+  'IntakePackageHandoff',
 ] as const
 const AUDIT_LIFECYCLE_MODELS = ['AgentRun', 'SupportRequest', 'OffboardingPlan'] as const
 const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']

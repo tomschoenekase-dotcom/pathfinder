@@ -58,9 +58,11 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
           selected={null}
           messages={{ items: [], nextCursor: null }}
           audit={{ items: [], nextCursor: null }}
+          draftPackages={[]}
+          handoffs={[]}
         />
       )
-    const [selectedRaw, messagePage, audit] = await Promise.all([
+    const [selectedRaw, messagePage, audit, draftPackages, handoffs] = await Promise.all([
       caller.admin.getSupportRequest({ tenantId, venueId, requestId: selectedId }),
       caller.admin.listSupportMessages({
         tenantId,
@@ -76,6 +78,13 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         limit: 20,
         ...(auditCursor(query) ? { cursor: auditCursor(query) } : {}),
       }),
+      caller.admin.listSupportDraftPackages({
+        tenantId,
+        venueId,
+        requestId: selectedId,
+        limit: 50,
+      }),
+      caller.admin.listSupportPackageHandoffs({ tenantId, venueId, requestId: selectedId }),
     ])
     const selected = normalizeRequest(selectedRaw)
     const messages = {
@@ -102,6 +111,8 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         selected={selected}
         messages={messages}
         audit={audit}
+        draftPackages={draftPackages}
+        handoffs={handoffs}
       />
     )
   } catch {
@@ -113,7 +124,7 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         <h2 className="mt-2 text-2xl font-semibold text-pf-deep">
           Support evidence could not be loaded
         </h2>
-        <p className="mt-2 text-sm leading-6 text-pf-deep/65">
+        <p className="mt-2 text-sm leading-6 text-pf-deep/75">
           Refresh the page or return later. No message, note, status, or artifact change was
           attempted.
         </p>

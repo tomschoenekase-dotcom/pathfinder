@@ -122,6 +122,16 @@ export {
 } from './helpers/support-actions'
 export type { SupportActionActor, SupportAttachmentDraft } from './helpers/support-actions'
 export {
+  linkSupportRequestDraftPackageAction,
+  SupportPackageHandoffError,
+} from './helpers/support-package-handoffs'
+export type { SupportPackageHandoffActor } from './helpers/support-package-handoffs'
+export {
+  SupportStatusTransitionError,
+  transitionSupportRequestStatusAction,
+} from './helpers/support-status-transitions'
+export type { SupportStatusTransitionActor } from './helpers/support-status-transitions'
+export {
   ApprovalDecisionActionError,
   recordApprovalDecisionAction,
 } from './helpers/approval-decisions'
@@ -234,3 +244,36 @@ export type {
   WeeklyDigestStatus,
 } from '@prisma/client'
 export type { WriteAuditLogParams } from './helpers/audit'
+export {
+  buildOperationalUpdatePreview,
+  createOperationalUpdateAction,
+  expireOperationalUpdateAction,
+  MAX_GUEST_OPERATIONAL_UPDATES,
+  OperationalUpdateActionError,
+  operationalUpdateActionSelect,
+  scheduleOperationalUpdateAction,
+  updateOperationalUpdateAction,
+} from './helpers/operational-update-actions'
+export type {
+  OperationalUpdateActionClient,
+  OperationalUpdateActionErrorCode,
+  OperationalUpdateActionResult,
+  OperationalUpdateFields,
+  OperationalUpdateHumanActor,
+  OperationalUpdatePreview,
+} from './helpers/operational-update-actions'
+export {
+  createIntakeProposal,
+  IntakeActionError,
+  intakeProposalInput,
+  interviewProposalInput,
+  interviewSubmissionInput,
+  linkIntakePackageDraft,
+  listIntakeProposals,
+  websiteProposalInput,
+} from './helpers/intake-actions'
+export type {
+  IntakeActionClient,
+  IntakeActionErrorCode,
+  IntakeProposalInput,
+} from './helpers/intake-actions'

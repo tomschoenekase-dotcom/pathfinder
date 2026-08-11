@@ -67,6 +67,10 @@ const messageRow = {
 }
 
 describe('client support router', () => {
+  it('keeps client support status read-only', () => {
+    expect(supportRouter._def.procedures).not.toHaveProperty('transitionSupportRequestStatus')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     venueFindFirst.mockResolvedValue({ id: venueId })

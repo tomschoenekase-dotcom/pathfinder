@@ -12,6 +12,7 @@ type MessageBubbleProps = {
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
+  onChoiceSelect?: (value: string) => void
 }
 
 export function MessageBubble({
@@ -24,6 +25,7 @@ export function MessageBubble({
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
+  onChoiceSelect,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
   const speaker = isUser ? 'You' : 'PathFinder guide'
@@ -56,6 +58,7 @@ export function MessageBubble({
             {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
             {...(onPlaceCardView ? { onPlaceCardView } : {})}
             {...(onDirectionsClick ? { onDirectionsClick } : {})}
+            {...(onChoiceSelect ? { onChoiceSelect } : {})}
           />
         )}
       </div>

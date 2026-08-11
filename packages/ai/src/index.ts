@@ -50,3 +50,17 @@ export {
   aiCostUnitsToDecimal,
   sumAiCostDecimals,
 } from './cost-decimal'
+export {
+  AI_CENTRAL_MODEL_REGISTRY,
+  AI_CONFIGURATION_VERSION,
+  AI_PROVIDER_REGISTRY,
+  AiConfigurationOverrideSchema,
+  resolveAiWorkloadConfiguration,
+  type AiCentralModel,
+  type AiConfigurationOverride,
+  type AiConfigurationSourceLevel,
+  type AiEffectiveWorkloadConfiguration,
+  type AiModelKind,
+  type AiProviderId,
+  type AiWorkloadId,
+} from './workload-configuration'

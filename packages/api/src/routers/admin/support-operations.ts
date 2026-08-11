@@ -1,8 +1,18 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { SupportMessageVisibility } from '@pathfinder/contracts/support-workflow'
-import { appendSupportMessageAction, SupportActionError } from '@pathfinder/db'
+import {
+  SupportMessageVisibility,
+  SupportRequestStatus,
+} from '@pathfinder/contracts/support-workflow'
+import {
+  appendSupportMessageAction,
+  linkSupportRequestDraftPackageAction,
+  SupportActionError,
+  SupportPackageHandoffError,
+  SupportStatusTransitionError,
+  transitionSupportRequestStatusAction,
+} from '@pathfinder/db'
 
 import { router } from '../../core'
 import {
@@ -84,12 +94,126 @@ const auditCursor = z
   .strict()
 
 function supportActionError(error: unknown): never {
-  if (error instanceof SupportActionError)
+  if (
+    error instanceof SupportActionError ||
+    error instanceof SupportPackageHandoffError ||
+    error instanceof SupportStatusTransitionError
+  )
     throw new TRPCError({ code: error.code, message: error.message })
   throw error
 }
 
 export const adminSupportOperationsRouter = router({
+  transitionSupportRequestStatus: adminProcedure
+    .input(
+      adminScope.extend({
+        requestId: z.string().min(1),
+        expectedVersion: z.number().int().positive(),
+        toStatus: SupportRequestStatus,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await transitionSupportRequestStatusAction(
+          {
+            ...input,
+            actor: {
+              actorType: 'HUMAN',
+              participantKind: 'OPERATOR',
+              actorId: ctx.session.userId,
+              auditRole: 'PLATFORM_ADMIN',
+            },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        return supportActionError(error)
+      }
+    }),
+
+  listSupportDraftPackages: adminProcedure
+    .input(
+      adminScope.extend({
+        requestId: z.string().min(1),
+        limit: z.number().int().min(1).max(100).default(50),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const request = await ctx.db.supportRequest.findFirst({
+        where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
+        select: { id: true },
+      })
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND', message: 'Support request not found' })
+      return ctx.db.venuePackage.findMany({
+        where: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: 'DRAFT',
+          supportHandoffs: { none: {} },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: input.limit,
+        select: {
+          id: true,
+          schemaVersion: true,
+          payloadHash: true,
+          createdBy: true,
+          createdAt: true,
+        },
+      })
+    }),
+
+  listSupportPackageHandoffs: adminProcedure
+    .input(adminScope.extend({ requestId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const request = await ctx.db.supportRequest.findFirst({
+        where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
+        select: { id: true },
+      })
+      if (!request) throw new TRPCError({ code: 'NOT_FOUND', message: 'Support request not found' })
+      return ctx.db.supportPackageHandoff.findMany({
+        where: { tenantId: input.tenantId, venueId: input.venueId, supportRequestId: request.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 100,
+        select: {
+          id: true,
+          venuePackageId: true,
+          requestVersion: true,
+          linkedByKind: true,
+          linkedById: true,
+          createdAt: true,
+          venuePackage: { select: { status: true, schemaVersion: true, payloadHash: true } },
+        },
+      })
+    }),
+
+  linkSupportDraftPackage: adminProcedure
+    .input(
+      adminScope.extend({
+        requestId: z.string().min(1),
+        venuePackageId: z.string().min(1),
+        expectedVersion: z.number().int().positive(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await linkSupportRequestDraftPackageAction(
+          {
+            ...input,
+            actor: {
+              actorType: 'HUMAN',
+              participantKind: 'OPERATOR',
+              actorId: ctx.session.userId,
+              auditRole: 'PLATFORM_ADMIN',
+            },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        return supportActionError(error)
+      }
+    }),
+
   listSupportRequests: adminProcedure
     .input(
       adminScope.extend({
