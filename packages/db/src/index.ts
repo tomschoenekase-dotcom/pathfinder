@@ -162,6 +162,27 @@ export { embeddingSourceHash } from './helpers/embedding-identity'
 export type { EmbeddingSourceEntity } from './helpers/embedding-identity'
 export { repairCompleteClaimMissingVector } from './helpers/embedding-claim-repair'
 export type { RepairCompleteClaimResult } from './helpers/embedding-claim-repair'
+export {
+  createOrReplayEvaluationCase,
+  EvaluationCaseIdentityError,
+  EvaluationCaseReplayConflictError,
+} from './helpers/evaluation-cases'
+export type { EvaluationCaseIdentity } from './helpers/evaluation-cases'
+export {
+  canonicalEvaluationJson,
+  createOrReplayEvaluationRun,
+  evaluationRunIdentityHash,
+  evaluationSnapshotHash,
+  EvaluationRunIdentityError,
+  EvaluationRunReplayConflictError,
+} from './helpers/evaluation-runs'
+export type { EvaluationRunIdentity } from './helpers/evaluation-runs'
+export {
+  createOrReplayEvaluationResult,
+  EvaluationResultIdentityError,
+  EvaluationResultReplayConflictError,
+} from './helpers/evaluation-results'
+export type { EvaluationResultTerminal } from './helpers/evaluation-results'
 
 export type {
   AnalyticsEvent,

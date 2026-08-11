@@ -17,7 +17,13 @@ export type TenantIsolationMiddlewareParams = {
 type MiddlewareNext = (params: TenantIsolationMiddlewareParams) => Promise<unknown>
 
 const bypassTenantIsolationStorage = new AsyncLocalStorage<boolean>()
-const APPEND_ONLY_MODELS = ['AiUsageEvent'] as const
+const APPEND_ONLY_MODELS = [
+  'AiUsageEvent',
+  'EvalCase',
+  'EvalRun',
+  'EvalResult',
+  'EvalReview',
+] as const
 const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']
 
 function hasOwnTenantKey(value: unknown): boolean {

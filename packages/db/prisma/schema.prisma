@@ -71,6 +71,10 @@ model Tenant {
   venuePackageDuplicateAnalyses VenuePackageDuplicateAnalysis[]
   generationRequestDispatches   GenerationRequestDispatch[]
   contentVersions               ContentVersion[]
+  evalCases                     EvalCase[]
+  evalRuns                      EvalRun[]
+  evalResults                   EvalResult[]
+  evalReviews                   EvalReview[]
 
   @@map("tenants")
 }
@@ -254,6 +258,10 @@ model Venue {
   contentImportReceipts         VenueContentImportReceipt[]
   venuePackageDuplicateAnalyses VenuePackageDuplicateAnalysis[]
   generationRequestDispatches   GenerationRequestDispatch[]
+  evalCases                     EvalCase[]
+  evalRuns                      EvalRun[]
+  evalResults                   EvalResult[]
+  evalReviews                   EvalReview[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -634,6 +642,140 @@ model AiCostReservation {
   @@index([tenantId, venueId, createdAt])
   @@index([status, expiresAt])
   @@map("ai_cost_reservations")
+}
+
+enum EvalResultOutcome {
+  SCORED
+  OPERATIONAL_FAILURE
+  ADMISSION_DEFERRED
+  BUDGET_BLOCKED
+  CANCELLED
+}
+
+enum EvalReviewDecision {
+  ACCEPTED
+  REJECTED
+  NEEDS_FOLLOW_UP
+}
+
+/// Append-only revision of one tenant- and venue-owned deterministic evaluation case.
+/// caseKey is the stable logical identity; revision and caseHash identify exact content.
+model EvalCase {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String       @map("tenant_id")
+  venueId       String       @map("venue_id")
+  caseKey       String       @map("case_key") @db.VarChar(100)
+  revision      Int
+  schemaVersion String       @map("schema_version") @db.VarChar(64)
+  category      String       @db.VarChar(64)
+  caseHash      String       @map("case_hash") @db.Char(64)
+  caseSnapshot  Json         @map("case_snapshot")
+  createdBy     String       @map("created_by") @db.VarChar(191)
+  sourceType    String       @map("source_type") @db.VarChar(64)
+  sourceRef     String       @map("source_ref") @db.VarChar(500)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  results       EvalResult[]
+
+  @@unique([tenantId, venueId, caseKey, revision])
+  @@unique([id, revision, caseHash, tenantId, venueId])
+  @@index([tenantId, venueId, category, createdAt])
+  @@map("eval_cases")
+}
+
+/// Immutable identity and declared (not atomically enforced) budget ceiling for one run attempt.
+/// One declaredBudgetCeilingE8Usd unit is exactly 10^-8 USD. Enforcement is a later slice.
+/// The helper makes (tenant, venue, idempotencyKey) an exact replay boundary.
+model EvalRun {
+  id                         String       @id @db.Uuid
+  tenantId                   String       @map("tenant_id")
+  venueId                    String       @map("venue_id")
+  idempotencyKey             String       @map("idempotency_key") @db.VarChar(191)
+  identityHash               String       @map("identity_hash") @db.Char(64)
+  corpusHash                 String       @map("corpus_hash") @db.Char(64)
+  caseManifestSnapshot       Json         @map("case_manifest_snapshot")
+  promptContractVersion      String       @map("prompt_contract_version") @db.VarChar(64)
+  promptContractHash         String       @map("prompt_contract_hash") @db.Char(64)
+  packageSnapshotRef         String?      @map("package_snapshot_ref") @db.VarChar(191)
+  packageSnapshotHash        String?      @map("package_snapshot_hash") @db.Char(64)
+  contentSnapshotVersion     BigInt       @map("content_snapshot_version")
+  contentSnapshotHash        String       @map("content_snapshot_hash") @db.Char(64)
+  modelProvider              String       @map("model_provider") @db.VarChar(64)
+  modelName                  String       @map("model_name") @db.VarChar(191)
+  modelSnapshotHash          String       @map("model_snapshot_hash") @db.Char(64)
+  modelSnapshot              Json         @map("model_snapshot")
+  runConfigSnapshot          Json         @map("run_config_snapshot")
+  identitySnapshot           Json         @map("identity_snapshot")
+  declaredBudgetCeilingE8Usd BigInt       @map("declared_budget_ceiling_e8_usd")
+  createdBy                  String       @map("created_by") @db.VarChar(191)
+  triggerType                String       @map("trigger_type") @db.VarChar(64)
+  createdAt                  DateTime     @default(now()) @map("created_at")
+  tenant                     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                      Venue        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  results                    EvalResult[]
+
+  @@unique([tenantId, venueId, idempotencyKey])
+  @@unique([id, identityHash, tenantId, venueId])
+  @@index([tenantId, venueId, createdAt])
+  @@map("eval_runs")
+}
+
+/// Immutable terminal evidence for one exact case revision in one exact run.
+/// Non-scored operational outcomes remain separate from quality pass/fail.
+model EvalResult {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String            @map("tenant_id")
+  venueId             String            @map("venue_id")
+  runId               String            @map("run_id") @db.Uuid
+  runIdentityHash     String            @map("run_identity_hash") @db.Char(64)
+  caseId              String            @map("case_id") @db.Uuid
+  caseRevision        Int               @map("case_revision")
+  caseHash            String            @map("case_hash") @db.Char(64)
+  outcome             EvalResultOutcome
+  observationHash     String?           @map("observation_hash") @db.Char(64)
+  observationSnapshot Json?             @map("observation_snapshot")
+  checksSnapshot      Json?             @map("checks_snapshot")
+  passed              Boolean?
+  passedChecks        Int?              @map("passed_checks")
+  totalChecks         Int?              @map("total_checks")
+  errorCode           String?           @map("error_code") @db.VarChar(100)
+  latencyMs           Int               @map("latency_ms")
+  /// One costE8Usd unit is exactly 10^-8 USD.
+  costE8Usd           BigInt            @map("cost_e8_usd")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  tenant              Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue             @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  run                 EvalRun           @relation(fields: [runId, runIdentityHash, tenantId, venueId], references: [id, identityHash, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  evalCase            EvalCase          @relation(fields: [caseId, caseRevision, caseHash, tenantId, venueId], references: [id, revision, caseHash, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  reviews             EvalReview[]
+
+  @@unique([runId, caseId, caseRevision])
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, venueId, createdAt])
+  @@index([tenantId, runId])
+  @@map("eval_results")
+}
+
+/// Append-only human review conclusion. It stores a bounded conclusion, never hidden reasoning.
+model EvalReview {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String             @map("tenant_id")
+  venueId       String             @map("venue_id")
+  resultId      String             @map("result_id") @db.Uuid
+  reviewerId    String             @map("reviewer_id") @db.VarChar(191)
+  conclusion    String             @db.VarChar(1000)
+  decision      EvalReviewDecision
+  rubricVersion String             @map("rubric_version") @db.VarChar(64)
+  revision      Int
+  createdAt     DateTime           @default(now()) @map("created_at")
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  result        EvalResult         @relation(fields: [resultId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([resultId, revision])
+  @@index([tenantId, venueId, createdAt])
+  @@map("eval_reviews")
 }
 
 model EngagementQuestionResponse {

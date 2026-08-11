@@ -86,6 +86,10 @@ describe('tenantIsolationMiddleware', () => {
       'Place',
       'VenueKnowledgeEntry',
       'ContentVersion',
+      'EvalCase',
+      'EvalRun',
+      'EvalResult',
+      'EvalReview',
       'VenueContentImportReceipt',
       'VenuePackage',
       'VenuePackageDuplicateAnalysis',
@@ -133,28 +137,29 @@ describe('tenantIsolationMiddleware', () => {
     })
   })
 
-  it.each(['update', 'updateMany', 'upsert', 'delete', 'deleteMany'])(
-    'rejects %s on append-only AI usage events even with tenant scope',
-    async (action) => {
-      const next = vi.fn(async (params) => params)
+  it.each(
+    ['AiUsageEvent', 'EvalCase', 'EvalRun', 'EvalResult', 'EvalReview'].flatMap((model) =>
+      ['update', 'updateMany', 'upsert', 'delete', 'deleteMany'].map((action) => [model, action]),
+    ),
+  )('rejects %s %s on append-only models even with tenant scope', async (model, action) => {
+    const next = vi.fn(async (params) => params)
 
-      await expect(
-        tenantIsolationMiddleware(
-          createParams({
-            action,
-            model: 'AiUsageEvent',
-            args: {
-              where: { tenantId: 'org_1' },
-              create: { tenantId: 'org_1' },
-              data: { tenantId: 'org_1' },
-            },
-          }),
-          next,
-        ),
-      ).rejects.toEqual(new AppendOnlyModelError('AiUsageEvent', action))
-      expect(next).not.toHaveBeenCalled()
-    },
-  )
+    await expect(
+      tenantIsolationMiddleware(
+        createParams({
+          action,
+          model,
+          args: {
+            where: { tenantId: 'org_1' },
+            create: { tenantId: 'org_1' },
+            data: { tenantId: 'org_1' },
+          },
+        }),
+        next,
+      ),
+    ).rejects.toEqual(new AppendOnlyModelError(model, action))
+    expect(next).not.toHaveBeenCalled()
+  })
 
   it('findMany on a tenanted table without tenantId throws', async () => {
     const db = createMockDb()

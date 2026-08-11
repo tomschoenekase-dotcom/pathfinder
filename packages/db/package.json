@@ -20,6 +20,7 @@
     "test:watch": "vitest --passWithNoTests"
   },
   "dependencies": {
+    "@pathfinder/contracts": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@prisma/client": "^6.7.0"
   },
