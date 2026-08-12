@@ -38,7 +38,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-reads.ts', 2],
   ['packages/api/src/routers/admin/cost-budget.ts', 3],
   ['packages/api/src/routers/admin/digest.ts', 1],
-  ['packages/api/src/routers/admin/deployment-manifest-review.ts', 2],
+  // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
+  ['packages/api/src/routers/admin/deployment-manifest-review.ts', 3],
   // Review append uses one exact tenant-scoped bypass for durable conclusion evidence.
   ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 2],
   // Evaluation comparison uses one additional exact tenant-scoped read.

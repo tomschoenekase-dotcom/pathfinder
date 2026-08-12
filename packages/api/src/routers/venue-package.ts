@@ -1071,6 +1071,7 @@ export async function createVenuePackageDraftService(request: {
   actor: { type: 'HUMAN'; id: string; role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN' }
   input: typeof VenuePackageDraftInput._output
   finalizer?: VenuePackageDraftFinalizer
+  isolationLevel?: 'ReadCommitted' | 'Serializable'
 }) {
   const { db, tenantId, actor, input, finalizer } = request
   await assertGlobalAiAvailable(db)
@@ -1084,148 +1085,151 @@ export async function createVenuePackageDraftService(request: {
 
   let prepared
   try {
-    prepared = await db.$transaction(async (transaction) => {
-      await lockVenueContentMutation(transaction, { tenantId, venueId: input.venueId })
-      const existingPackage = await transaction.venuePackage.findFirst({
-        where: key,
-        select: venuePackageSelect,
-      })
-      if (existingPackage) {
-        if (existingPackage.payloadHash !== requestedPayloadHash) {
-          conflict('Draft key was already used for different venue-package content')
-        }
-        const existingPreview = parseStoredVenuePackagePreview(existingPackage)
-        const attachment = await runExplicitFinalizer(finalizer, {
-          tx: transaction as DbClient,
-          packageId: existingPackage.id,
-          tenantId,
-          venueId: input.venueId,
-          status: existingPackage.status,
-          createdBy: existingPackage.createdBy,
-          preview: existingPreview,
-          replayed: true,
-        })
-        return {
-          kind: 'complete' as const,
-          pkg: existingPackage,
-          preview: existingPreview,
-          replayed: true,
-          attachment,
-        }
-      }
-
-      const preview = await buildVenuePackagePreview(
-        transaction as DbClient,
-        tenantId,
-        input.venueId,
-        input.payload,
-      )
-      const existingAnalysis = await transaction.venuePackageDuplicateAnalysis.findFirst({
-        where: key,
-        select: {
-          status: true,
-          payloadHash: true,
-          baseDigest: true,
-          errorCode: true,
-        },
-      })
-      if (existingAnalysis) {
-        if (
-          existingAnalysis.payloadHash !== preview.payloadHash ||
-          existingAnalysis.baseDigest !== preview.baseDigest
-        ) {
-          conflict('Draft key was already used for different venue-package content or base')
-        }
-        if (existingAnalysis.status === 'RUNNING') {
-          return { kind: 'running' as const }
-        }
-        return { kind: 'terminal-failure' as const, status: existingAnalysis.status }
-      }
-
-      const coverage = await getVenuePackageSemanticCoverage(transaction, {
-        tenantId,
-        venueId: input.venueId,
-        placeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
-        knowledgeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
-        ...semanticCoverageParams(input.payload),
-      })
-      const incomplete = buildIncompleteSemanticScan({ payload: input.payload, coverage })
-      if (incomplete.errors.length > 0) {
-        const finalPreview = withSemanticEvidence(preview, incomplete)
-        const pkg = await transaction.venuePackage.create({
-          data: {
-            ...key,
-            schemaVersion: input.payload.schemaVersion,
-            payload: jsonValue(input.payload),
-            payloadHash: finalPreview.payloadHash,
-            baseDigest: finalPreview.baseDigest,
-            validationReport: jsonValue(finalPreview.report),
-            previewPlan: jsonValue(finalPreview),
-            createdBy: actor.id,
-          },
+    prepared = await db.$transaction(
+      async (transaction) => {
+        await lockVenueContentMutation(transaction, { tenantId, venueId: input.venueId })
+        const existingPackage = await transaction.venuePackage.findFirst({
+          where: key,
           select: venuePackageSelect,
         })
-        const attachment = await runExplicitFinalizer(finalizer, {
-          tx: transaction as DbClient,
-          packageId: pkg.id,
+        if (existingPackage) {
+          if (existingPackage.payloadHash !== requestedPayloadHash) {
+            conflict('Draft key was already used for different venue-package content')
+          }
+          const existingPreview = parseStoredVenuePackagePreview(existingPackage)
+          const attachment = await runExplicitFinalizer(finalizer, {
+            tx: transaction as DbClient,
+            packageId: existingPackage.id,
+            tenantId,
+            venueId: input.venueId,
+            status: existingPackage.status,
+            createdBy: existingPackage.createdBy,
+            preview: existingPreview,
+            replayed: true,
+          })
+          return {
+            kind: 'complete' as const,
+            pkg: existingPackage,
+            preview: existingPreview,
+            replayed: true,
+            attachment,
+          }
+        }
+
+        const preview = await buildVenuePackagePreview(
+          transaction as DbClient,
+          tenantId,
+          input.venueId,
+          input.payload,
+        )
+        const existingAnalysis = await transaction.venuePackageDuplicateAnalysis.findFirst({
+          where: key,
+          select: {
+            status: true,
+            payloadHash: true,
+            baseDigest: true,
+            errorCode: true,
+          },
+        })
+        if (existingAnalysis) {
+          if (
+            existingAnalysis.payloadHash !== preview.payloadHash ||
+            existingAnalysis.baseDigest !== preview.baseDigest
+          ) {
+            conflict('Draft key was already used for different venue-package content or base')
+          }
+          if (existingAnalysis.status === 'RUNNING') {
+            return { kind: 'running' as const }
+          }
+          return { kind: 'terminal-failure' as const, status: existingAnalysis.status }
+        }
+
+        const coverage = await getVenuePackageSemanticCoverage(transaction, {
           tenantId,
           venueId: input.venueId,
-          status: pkg.status,
-          createdBy: pkg.createdBy,
-          preview: finalPreview,
-          replayed: false,
+          placeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
+          knowledgeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
+          ...semanticCoverageParams(input.payload),
         })
-        await transaction.venuePackageDuplicateAnalysis.create({
+        const incomplete = buildIncompleteSemanticScan({ payload: input.payload, coverage })
+        if (incomplete.errors.length > 0) {
+          const finalPreview = withSemanticEvidence(preview, incomplete)
+          const pkg = await transaction.venuePackage.create({
+            data: {
+              ...key,
+              schemaVersion: input.payload.schemaVersion,
+              payload: jsonValue(input.payload),
+              payloadHash: finalPreview.payloadHash,
+              baseDigest: finalPreview.baseDigest,
+              validationReport: jsonValue(finalPreview.report),
+              previewPlan: jsonValue(finalPreview),
+              createdBy: actor.id,
+            },
+            select: venuePackageSelect,
+          })
+          const attachment = await runExplicitFinalizer(finalizer, {
+            tx: transaction as DbClient,
+            packageId: pkg.id,
+            tenantId,
+            venueId: input.venueId,
+            status: pkg.status,
+            createdBy: pkg.createdBy,
+            preview: finalPreview,
+            replayed: false,
+          })
+          await transaction.venuePackageDuplicateAnalysis.create({
+            data: {
+              ...key,
+              payloadHash: finalPreview.payloadHash,
+              baseDigest: finalPreview.baseDigest,
+              status: 'COMPLETE',
+              claimToken,
+              embeddingProfiles: jsonValue(VENUE_PACKAGE_SEMANTIC_PROFILES),
+              similarityThreshold: VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
+              result: jsonValue(finalPreview),
+              usageEventIds: [],
+              draftId: pkg.id,
+              createdBy: actor.id,
+              completedAt: new Date(),
+            },
+          })
+          await writeAuditLogStrict(
+            {
+              tenantId,
+              actorId: actor.id,
+              actorRole: actor.role,
+              action: 'venue-package.created-draft',
+              targetType: 'VenuePackage',
+              targetId: pkg.id,
+              afterState: auditState(pkg),
+            },
+            transaction as DbClient,
+          )
+          return {
+            kind: 'complete' as const,
+            pkg,
+            preview: finalPreview,
+            replayed: false,
+            attachment,
+          }
+        }
+
+        const analysis = await transaction.venuePackageDuplicateAnalysis.create({
           data: {
             ...key,
-            payloadHash: finalPreview.payloadHash,
-            baseDigest: finalPreview.baseDigest,
-            status: 'COMPLETE',
+            payloadHash: preview.payloadHash,
+            baseDigest: preview.baseDigest,
             claimToken,
             embeddingProfiles: jsonValue(VENUE_PACKAGE_SEMANTIC_PROFILES),
             similarityThreshold: VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
-            result: jsonValue(finalPreview),
-            usageEventIds: [],
-            draftId: pkg.id,
             createdBy: actor.id,
-            completedAt: new Date(),
           },
+          select: { id: true },
         })
-        await writeAuditLogStrict(
-          {
-            tenantId,
-            actorId: actor.id,
-            actorRole: actor.role,
-            action: 'venue-package.created-draft',
-            targetType: 'VenuePackage',
-            targetId: pkg.id,
-            afterState: auditState(pkg),
-          },
-          transaction as DbClient,
-        )
-        return {
-          kind: 'complete' as const,
-          pkg,
-          preview: finalPreview,
-          replayed: false,
-          attachment,
-        }
-      }
-
-      const analysis = await transaction.venuePackageDuplicateAnalysis.create({
-        data: {
-          ...key,
-          payloadHash: preview.payloadHash,
-          baseDigest: preview.baseDigest,
-          claimToken,
-          embeddingProfiles: jsonValue(VENUE_PACKAGE_SEMANTIC_PROFILES),
-          similarityThreshold: VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
-          createdBy: actor.id,
-        },
-        select: { id: true },
-      })
-      return { kind: 'claimed' as const, analysisId: analysis.id, preview }
-    })
+        return { kind: 'claimed' as const, analysisId: analysis.id, preview }
+      },
+      { isolationLevel: request.isolationLevel ?? 'ReadCommitted' },
+    )
   } catch (error) {
     if (error instanceof VenuePackageDraftFinalizerError) throw error.cause
     throw error
@@ -1320,30 +1324,98 @@ export async function createVenuePackageDraftService(request: {
   }
 
   try {
-    const finalized = await db.$transaction(async (transaction) => {
-      await lockVenueContentMutation(transaction, { tenantId, venueId: input.venueId })
-      const preview = await buildVenuePackagePreview(
-        transaction as DbClient,
-        tenantId,
-        input.venueId,
-        input.payload,
-      )
-      const analysis = await transaction.venuePackageDuplicateAnalysis.findFirst({
-        where: {
-          id: prepared.analysisId,
+    const finalized = await db.$transaction(
+      async (transaction) => {
+        await lockVenueContentMutation(transaction, { tenantId, venueId: input.venueId })
+        const preview = await buildVenuePackagePreview(
+          transaction as DbClient,
+          tenantId,
+          input.venueId,
+          input.payload,
+        )
+        const analysis = await transaction.venuePackageDuplicateAnalysis.findFirst({
+          where: {
+            id: prepared.analysisId,
+            tenantId,
+            venueId: input.venueId,
+            status: 'RUNNING',
+            claimToken,
+          },
+          select: { id: true, payloadHash: true, baseDigest: true },
+        })
+        if (!analysis) conflict('Duplicate-analysis claim is no longer active')
+        if (
+          analysis.payloadHash !== preview.payloadHash ||
+          analysis.baseDigest !== preview.baseDigest
+        ) {
+          await transaction.venuePackageDuplicateAnalysis.updateMany({
+            where: {
+              id: analysis.id,
+              tenantId,
+              venueId: input.venueId,
+              status: 'RUNNING',
+              claimToken,
+            },
+            data: {
+              status: 'STALE',
+              errorCode: 'venue-base-changed',
+              usageEventIds: jsonValue(usage.usageEventIds()),
+              completedAt: new Date(),
+            },
+          })
+          return { kind: 'stale' as const }
+        }
+
+        const coverage = await getVenuePackageSemanticCoverage(transaction, {
           tenantId,
           venueId: input.venueId,
-          status: 'RUNNING',
-          claimToken,
-        },
-        select: { id: true, payloadHash: true, baseDigest: true },
-      })
-      if (!analysis) conflict('Duplicate-analysis claim is no longer active')
-      if (
-        analysis.payloadHash !== preview.payloadHash ||
-        analysis.baseDigest !== preview.baseDigest
-      ) {
-        await transaction.venuePackageDuplicateAnalysis.updateMany({
+          placeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
+          knowledgeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
+          ...semanticCoverageParams(input.payload),
+        })
+        const incomplete = buildIncompleteSemanticScan({ payload: input.payload, coverage })
+        if (incomplete.errors.length > 0) {
+          await transaction.venuePackageDuplicateAnalysis.updateMany({
+            where: {
+              id: analysis.id,
+              tenantId,
+              venueId: input.venueId,
+              status: 'RUNNING',
+              claimToken,
+            },
+            data: {
+              status: 'STALE',
+              errorCode: 'semantic-scan-became-incomplete',
+              usageEventIds: jsonValue(usage.usageEventIds()),
+              completedAt: new Date(),
+            },
+          })
+          return { kind: 'stale' as const }
+        }
+
+        const semantic = await analyzeVenuePackageSemanticDuplicates({
+          db: transaction as DbClient,
+          tenantId,
+          venueId: input.venueId,
+          payload: input.payload,
+          coverage,
+          candidates,
+        })
+        const finalPreview = withSemanticEvidence(preview, semantic)
+        const pkg = await transaction.venuePackage.create({
+          data: {
+            ...key,
+            schemaVersion: input.payload.schemaVersion,
+            payload: jsonValue(input.payload),
+            payloadHash: finalPreview.payloadHash,
+            baseDigest: finalPreview.baseDigest,
+            validationReport: jsonValue(finalPreview.report),
+            previewPlan: jsonValue(finalPreview),
+            createdBy: actor.id,
+          },
+          select: venuePackageSelect,
+        })
+        const completed = await transaction.venuePackageDuplicateAnalysis.updateMany({
           where: {
             id: analysis.id,
             tenantId,
@@ -1352,105 +1424,40 @@ export async function createVenuePackageDraftService(request: {
             claimToken,
           },
           data: {
-            status: 'STALE',
-            errorCode: 'venue-base-changed',
+            status: 'COMPLETE',
+            result: jsonValue(finalPreview),
             usageEventIds: jsonValue(usage.usageEventIds()),
+            draftId: pkg.id,
             completedAt: new Date(),
           },
         })
-        return { kind: 'stale' as const }
-      }
-
-      const coverage = await getVenuePackageSemanticCoverage(transaction, {
-        tenantId,
-        venueId: input.venueId,
-        placeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.places,
-        knowledgeProfile: VENUE_PACKAGE_SEMANTIC_PROFILES.knowledgeEntries,
-        ...semanticCoverageParams(input.payload),
-      })
-      const incomplete = buildIncompleteSemanticScan({ payload: input.payload, coverage })
-      if (incomplete.errors.length > 0) {
-        await transaction.venuePackageDuplicateAnalysis.updateMany({
-          where: {
-            id: analysis.id,
-            tenantId,
-            venueId: input.venueId,
-            status: 'RUNNING',
-            claimToken,
-          },
-          data: {
-            status: 'STALE',
-            errorCode: 'semantic-scan-became-incomplete',
-            usageEventIds: jsonValue(usage.usageEventIds()),
-            completedAt: new Date(),
-          },
-        })
-        return { kind: 'stale' as const }
-      }
-
-      const semantic = await analyzeVenuePackageSemanticDuplicates({
-        db: transaction as DbClient,
-        tenantId,
-        venueId: input.venueId,
-        payload: input.payload,
-        coverage,
-        candidates,
-      })
-      const finalPreview = withSemanticEvidence(preview, semantic)
-      const pkg = await transaction.venuePackage.create({
-        data: {
-          ...key,
-          schemaVersion: input.payload.schemaVersion,
-          payload: jsonValue(input.payload),
-          payloadHash: finalPreview.payloadHash,
-          baseDigest: finalPreview.baseDigest,
-          validationReport: jsonValue(finalPreview.report),
-          previewPlan: jsonValue(finalPreview),
-          createdBy: actor.id,
-        },
-        select: venuePackageSelect,
-      })
-      const completed = await transaction.venuePackageDuplicateAnalysis.updateMany({
-        where: {
-          id: analysis.id,
+        if (completed.count !== 1) conflict('Duplicate-analysis completion lost ownership')
+        const attachment = await runExplicitFinalizer(finalizer, {
+          tx: transaction as DbClient,
+          packageId: pkg.id,
           tenantId,
           venueId: input.venueId,
-          status: 'RUNNING',
-          claimToken,
-        },
-        data: {
-          status: 'COMPLETE',
-          result: jsonValue(finalPreview),
-          usageEventIds: jsonValue(usage.usageEventIds()),
-          draftId: pkg.id,
-          completedAt: new Date(),
-        },
-      })
-      if (completed.count !== 1) conflict('Duplicate-analysis completion lost ownership')
-      const attachment = await runExplicitFinalizer(finalizer, {
-        tx: transaction as DbClient,
-        packageId: pkg.id,
-        tenantId,
-        venueId: input.venueId,
-        status: pkg.status,
-        createdBy: pkg.createdBy,
-        preview: finalPreview,
-        replayed: false,
-      })
-      await writeAuditLogStrict(
-        {
-          tenantId,
-          actorId: actor.id,
-          actorRole: actor.role,
-          action: 'venue-package.created-draft',
-          targetType: 'VenuePackage',
-          targetId: pkg.id,
-          afterState: auditState(pkg),
-        },
-        transaction as DbClient,
-      )
-      return { kind: 'complete' as const, pkg, preview: finalPreview, attachment }
-    })
+          status: pkg.status,
+          createdBy: pkg.createdBy,
+          preview: finalPreview,
+          replayed: false,
+        })
+        await writeAuditLogStrict(
+          {
+            tenantId,
+            actorId: actor.id,
+            actorRole: actor.role,
+            action: 'venue-package.created-draft',
+            targetType: 'VenuePackage',
+            targetId: pkg.id,
+            afterState: auditState(pkg),
+          },
+          transaction as DbClient,
+        )
+        return { kind: 'complete' as const, pkg, preview: finalPreview, attachment }
+      },
+      { isolationLevel: request.isolationLevel ?? 'ReadCommitted' },
+    )
     if (finalized.kind === 'stale') {
       throw new TRPCError({
         code: 'CONFLICT',

@@ -108,6 +108,7 @@ model Tenant {
   embeddingDispatches           EmbeddingDispatch[]
   venueContentImportReceipts    VenueContentImportReceipt[]
   venuePackages                 VenuePackage[]
+  venuePackageManifestArtifacts VenuePackageManifestArtifact[]
   venuePackageDuplicateAnalyses VenuePackageDuplicateAnalysis[]
   generationRequestDispatches   GenerationRequestDispatch[]
   contentVersions               ContentVersion[]
@@ -332,6 +333,7 @@ model Venue {
   embeddingWorkClaims           EmbeddingWorkClaim[]
   embeddingDispatches           EmbeddingDispatch[]
   contentImportReceipts         VenueContentImportReceipt[]
+  venuePackageManifestArtifacts VenuePackageManifestArtifact[]
   venuePackageDuplicateAnalyses VenuePackageDuplicateAnalysis[]
   generationRequestDispatches   GenerationRequestDispatch[]
   evalCases                     EvalCase[]
@@ -861,6 +863,7 @@ model VenuePackage {
   tenantId                String                         @map("tenant_id")
   venueId                 String                         @map("venue_id")
   draftKey                String                         @map("draft_key") @db.Uuid
+  manifestArtifactId      String?                        @unique(map: "venue_packages_manifest_artifact_key") @map("manifest_artifact_id")
   schemaVersion           Int                            @map("schema_version")
   payload                 Json
   payloadHash             String                         @map("payload_hash") @db.Char(64)
@@ -891,8 +894,10 @@ model VenuePackage {
   intakeHandoffs          IntakePackageHandoff[]
   supportHandoffs         SupportPackageHandoff[]
   supportPreviewFeedback  SupportPreviewFeedback[]
+  manifestArtifact        VenuePackageManifestArtifact?  @relation(fields: [manifestArtifactId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([id, tenantId, venueId])
+  @@unique([manifestArtifactId, tenantId, venueId], map: "venue_packages_manifest_artifact_scope_key")
   @@unique([tenantId, venueId, draftKey])
   @@unique([tenantId, approvedCommandKey])
   @@unique([tenantId, appliedCommandKey])
@@ -900,6 +905,48 @@ model VenuePackage {
   @@index([tenantId, venueId, createdAt])
   @@index([tenantId, status, updatedAt])
   @@map("venue_packages")
+}
+
+enum VenuePackageManifestArtifactType {
+  FULL
+  PATCH
+}
+
+enum VenuePackageManifestMaterializationStatus {
+  MATERIALIZABLE
+  NOT_MATERIALIZABLE
+}
+
+/// Immutable canonical Venue Deployment Manifest v2 review evidence. Legacy
+/// VenuePackage rows have no artifact; a materializable artifact may link to
+/// exactly one compatibility DRAFT without inventing historical identity.
+model VenuePackageManifestArtifact {
+  id                    String                                    @id @default(cuid())
+  tenantId              String                                    @map("tenant_id")
+  venueId               String                                    @map("venue_id")
+  artifactKind          String                                    @default("VENUE_DEPLOYMENT_MANIFEST_V2") @map("artifact_kind") @db.VarChar(64)
+  manifestSchemaVersion Int                                       @map("manifest_schema_version")
+  packageType           VenuePackageManifestArtifactType          @map("package_type")
+  manifestId            String                                    @map("manifest_id") @db.Uuid
+  idempotencyKey        String                                    @map("idempotency_key") @db.Uuid
+  canonicalManifest     Json                                      @map("canonical_manifest")
+  manifestHash          String                                    @map("manifest_hash") @db.Char(64)
+  baseManifestHash      String?                                   @map("base_manifest_hash") @db.Char(64)
+  evidenceDigest        String                                    @map("evidence_digest") @db.Char(64)
+  materializationStatus VenuePackageManifestMaterializationStatus @map("materialization_status")
+  materializationReport Json                                      @map("materialization_report")
+  createdBy             String                                    @map("created_by") @db.VarChar(191)
+  createdAt             DateTime                                  @default(now()) @map("created_at")
+  tenant                Tenant                                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venuePackage          VenuePackage?
+
+  @@unique([tenantId, venueId, manifestId], map: "venue_package_manifest_artifacts_manifest_key")
+  @@unique([tenantId, venueId, idempotencyKey], map: "venue_package_manifest_artifacts_idempotency_key")
+  @@unique([tenantId, venueId, manifestHash], map: "venue_package_manifest_artifacts_hash_key")
+  @@unique([id, tenantId, venueId], map: "venue_package_manifest_artifacts_id_scope_key")
+  @@index([tenantId, venueId, packageType, createdAt], map: "venue_package_manifest_artifacts_scope_idx")
+  @@map("venue_package_manifest_artifacts")
 }
 
 /// Durable at-most-once receipt for the provider-backed semantic scan that

@@ -297,7 +297,7 @@ export function VenueJsonImporter({
     }
     if (
       action === 'revert' &&
-      !window.confirm('Revert every unchanged item created by this package?')
+      !window.confirm('Reverse this package’s recorded effects? Compatible later edits may remain.')
     ) {
       finishAction(operation.token, operation.scope)
       return
@@ -345,7 +345,7 @@ export function VenueJsonImporter({
           ? 'Package approved. Application remains a separate action.'
           : action === 'apply'
             ? 'Package applied atomically.'
-            : 'Package reverted to its exact approved base.',
+            : 'Package effects reversed. Compatible later edits may remain.',
       )
     } catch (cause) {
       if (!isCurrentAction(operation.token, operation.scope)) return

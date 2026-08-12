@@ -93,6 +93,7 @@ describe('tenantIsolationMiddleware', () => {
       'EvalReview',
       'VenueContentImportReceipt',
       'VenuePackage',
+      'VenuePackageManifestArtifact',
       'VenuePackageDuplicateAnalysis',
       'VisitorSession',
       'GuestChatTurn',

@@ -239,11 +239,23 @@ to the staged editor or infer execution authority from an approval.
 
 ## Venue Deployment Manifest v2
 
-Validate and canonically hash the browser-safe manifest contract before conversion. PATCH operations
-must remain stable-ID upsert/retire/reset operations; do not reintroduce monolithic content
-replacement. The current API bridge is a pure conversion/review seam that returns exact legacy
-VenuePackage preview/draft inputs. Calling preview or createDraft remains an explicit, separately
-authorized lifecycle action; review itself is non-mutating.
+Validate the browser-safe FULL/PATCH contract before review. Canonical artifact bytes retain the
+complete manifest, while the hash domain excludes the FULL evaluation field that would otherwise
+refer to its own manifest hash. Evidence locators accept only credential-free HTTPS references or
+the explicit internal schemes; signed URLs, query credentials, fragments and secret-shaped values
+fail closed. PATCH operations remain stable-ID upsert/retire/reset operations and require an exact
+persisted FULL artifact in the same tenant/venue scope.
+
+The canonical service reviews under `RepeatableRead` and persists under `Serializable` with the
+venue advisory lock. It can append a one-to-one immutable
+`VENUE_DEPLOYMENT_MANIFEST_V2` artifact with complete deterministic section coverage and
+`MATERIALIZABLE`/`NOT_MATERIALIZABLE` evidence. For the narrowly supported, lossless PATCH bridge,
+artifact creation/replay, the compatibility `DRAFT`, and its artifact link finalize atomically in
+the ordinary stateless draft service. FULL manifests and PATCH operations that cannot be represented
+losslessly persist review evidence only and remain `NOT_MATERIALIZABLE`; they never create a legacy
+draft. Recording either result does not approve, apply, publish, call a provider or authorize a
+lifecycle transition. Forward-only migration `20260812000800_add_venue_package_manifest_artifacts`
+remains unapplied; local schema and transaction tests are not live database evidence.
 
 `admin.previewFullVenueDeploymentManifest` is a separate read-only projection. It requires exact
 platform-admin tenant/venue scope and caller-supplied manifest/idempotency UUIDs, selects only safe

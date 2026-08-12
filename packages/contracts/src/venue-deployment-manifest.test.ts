@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { VenuePackagePayloadV1 } from './venue-package'
 import {
   canonicalDeploymentManifest,
+  canonicalDeploymentManifestHashInput,
   deploymentManifestHash,
   diffDeploymentManifests,
   sha256Hex,
@@ -14,6 +15,7 @@ import {
 
 const HASH_A = 'a'.repeat(64)
 const HASH_B = 'b'.repeat(64)
+const HASH_C = 'c'.repeat(64)
 const manifestId = '00000000-0000-4000-8000-000000000001'
 const idempotencyKey = '00000000-0000-4000-8000-000000000002'
 
@@ -245,6 +247,48 @@ describe('Venue Deployment Manifest v2', () => {
         aiConfiguration: { ...base.aiConfiguration, apiKey: 'secret-value' },
       }).success,
     ).toBe(false)
+  })
+
+  it('keeps complete canonical bytes while excluding the self-referential evaluation hash from the hash domain', () => {
+    const value = full()
+    const withEvaluatedHash = VenueDeploymentFullManifest.parse({
+      ...value,
+      evaluation: { ...value.evaluation, evaluatedManifestHash: HASH_C },
+    })
+    expect(canonicalDeploymentManifest(withEvaluatedHash)).toContain(HASH_C)
+    expect(canonicalDeploymentManifestHashInput(withEvaluatedHash)).not.toContain(HASH_C)
+    expect(deploymentManifestHash(withEvaluatedHash)).toBe(deploymentManifestHash(value))
+  })
+
+  it('rejects signed, credentialed and secret-like evidence locators', () => {
+    const value = full()
+    const module = value.contentModules[0]!
+    for (const locator of [
+      'https://example.org/source?token=secret',
+      'https://user:password@example.org/source',
+      'https://example.org/source#secret',
+      'javascript:alert(1)',
+    ]) {
+      expect(
+        VenueDeploymentFullManifest.safeParse({
+          ...value,
+          contentModules: [
+            {
+              ...module,
+              evidence: [
+                {
+                  evidenceId: 'evidence_1',
+                  sourceId: 'source_1',
+                  locator,
+                  capturedAt: '2026-08-12T12:00:00.000Z',
+                },
+              ],
+            },
+            ...value.contentModules.slice(1),
+          ],
+        }).success,
+      ).toBe(false)
+    }
   })
 
   it('does not alter the frozen legacy VenuePackage v1 contract', () => {

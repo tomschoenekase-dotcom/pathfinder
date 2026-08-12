@@ -15,6 +15,14 @@ function statusLabel(status: string): string {
   return status.charAt(0) + status.slice(1).toLowerCase()
 }
 
+function procedureErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null
+  if ('data' in error && error.data && typeof error.data === 'object' && 'code' in error.data) {
+    return typeof error.data.code === 'string' ? error.data.code : null
+  }
+  return 'code' in error && typeof error.code === 'string' ? error.code : null
+}
+
 export default async function PackageOperationsPage({
   params,
   searchParams,
@@ -29,11 +37,25 @@ export default async function PackageOperationsPage({
     ...(cursorComplete ? { cursorAt: query.cursorAt!, cursorId: query.cursorId! } : {}),
   })
   const selectedId = query.packageId ?? page.items[0]?.id ?? null
-  const selected = selectedId
-    ? await caller.admin
-        .getVenuePackageForReview({ tenantId, venueId, packageId: selectedId })
-        .catch(() => null)
-    : null
+  let selected: Awaited<ReturnType<typeof caller.admin.getVenuePackageForReview>> | null = null
+  let selectedError: 'NOT_FOUND' | 'INVALID_EVIDENCE' | 'UNAVAILABLE' | null = null
+  if (selectedId) {
+    try {
+      selected = await caller.admin.getVenuePackageForReview({
+        tenantId,
+        venueId,
+        packageId: selectedId,
+      })
+    } catch (error) {
+      const code = procedureErrorCode(error)
+      selectedError =
+        code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : code === 'PRECONDITION_FAILED' || code === 'BAD_REQUEST'
+            ? 'INVALID_EVIDENCE'
+            : 'UNAVAILABLE'
+    }
+  }
   const base = `/admin/clients/${tenantId}/venues/${venueId}/packages`
 
   return (
@@ -119,10 +141,20 @@ export default async function PackageOperationsPage({
             </p>
           ) : !selected ? (
             <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
-              <h4 className="font-semibold text-rose-950">Package evidence unavailable</h4>
+              <h4 className="font-semibold text-rose-950">
+                {selectedError === 'NOT_FOUND'
+                  ? 'Package no longer available'
+                  : selectedError === 'INVALID_EVIDENCE'
+                    ? 'Package evidence is invalid'
+                    : 'Package evidence unavailable'}
+              </h4>
               <p className="mt-1 text-sm text-rose-900">
-                The selected package could not be verified in this exact tenant and venue scope. No
-                state was changed.
+                {selectedError === 'NOT_FOUND'
+                  ? 'The selected package is not available in this exact tenant and venue scope.'
+                  : selectedError === 'INVALID_EVIDENCE'
+                    ? 'The stored review evidence did not match its immutable package identity. Lifecycle actions remain disabled.'
+                    : 'The selected package evidence could not be loaded. Lifecycle actions remain disabled.'}{' '}
+                No state was changed.
               </p>
             </div>
           ) : (

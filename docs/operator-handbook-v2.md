@@ -75,17 +75,26 @@ and evaluation/readiness evidence. Preview the guest experience before approval.
 decision; it does not itself execute a package or agent action. Apply through the existing package
 lifecycle only after the reviewed revision and scope are exact.
 
-For Venue Deployment Manifest v2, use the internal manifest review to validate the hash, warnings and
-exact conversion into `venuePackage.preview` / `venuePackage.createDraft` inputs. The review screen
-does not persist or execute anything. Treat base-hash and semantic compatibility warnings as review
-work, not permission to bypass the existing package lifecycle.
+For Venue Deployment Manifest v2, use Internal Workspace review to inspect the canonical hash,
+exact FULL base, safe evidence references, all seven coverage sections and materialization issues.
+Review is read-only. **Record immutable artifact** appends exact review evidence. When and only when
+a PATCH is marked `MATERIALIZABLE`, recording also atomically creates or replays its linked
+compatibility `DRAFT`; that is not approval or application. FULL and unsupported PATCH results are
+`NOT_MATERIALIZABLE`, record artifact evidence only, and expose no draft handoff. Never treat an
+artifact, coverage report or linked `DRAFT` as permission to approve, apply, publish or call a
+provider.
 
-The FULL projection on that screen is a different read-only review artifact. Supply fresh manifest
+The FULL projection on that screen is a different read-only candidate. Supply fresh manifest
 and idempotency UUIDs, review the canonical hash and every omission, then download only the artifact
 bound to that envelope. Editing either UUID or a failed regeneration invalidates the prior download.
 The projection is always `NOT_READY`: it reads safe current venue configuration, not an immutable
 publication snapshot, and omits generalized modules, immutable assets, capabilities, model
-references, and readiness evidence. It cannot create or apply a package.
+references, and readiness evidence. It cannot create or apply a package; recording the subsequently
+reviewed FULL contract still produces only a `NOT_MATERIALIZABLE` immutable artifact.
+
+Migration `20260812000800_add_venue_package_manifest_artifacts` remains unapplied. The local screen,
+schema validation and focused tests are not evidence that artifacts or linked drafts exist in a live
+database.
 
 Guest previews may include callouts, actions, citations, choices, images, galleries, events, and
 locations as well as legacy text and place cards. Reject unknown block types. Image and map links

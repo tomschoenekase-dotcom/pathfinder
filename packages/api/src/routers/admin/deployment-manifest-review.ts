@@ -5,18 +5,51 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import {
-  deploymentManifestDraftInput,
-  deploymentManifestPreviewInput,
-} from '../../lib/venue-deployment-manifest'
-import {
   FullManifestProjectionError,
   projectFullVenueDeploymentManifest,
 } from '../../lib/full-venue-deployment-manifest'
 import { adminProcedure } from '../../trpc'
+import { reviewVenuePackageManifestService } from '../../lib/venue-package-manifest-service'
 
 const MAX_MANIFEST_JSON_BYTES = 250_000
 
 export const adminDeploymentManifestReviewRouter = router({
+  createVenuePackageManifestArtifact: adminProcedure
+    .input(
+      z
+        .object({
+          tenantId: z.string().min(1),
+          venueId: z.string().min(1),
+          manifestJson: z.string().min(2).max(MAX_MANIFEST_JSON_BYTES),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        let manifest: unknown
+        try {
+          manifest = JSON.parse(input.manifestJson) as unknown
+        } catch {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Manifest text is not valid JSON.' })
+        }
+        try {
+          return await reviewVenuePackageManifestService({
+            db,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+            manifest,
+            persist: true,
+          })
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Manifest validation failed.' })
+          }
+          throw error
+        }
+      }),
+    ),
+
   previewFullVenueDeploymentManifest: adminProcedure
     .input(
       z
@@ -57,19 +90,14 @@ export const adminDeploymentManifestReviewRouter = router({
         })
         .strict(),
     )
-    .query(({ input }) =>
+    .query(({ ctx, input }) =>
       withTenantIsolationBypass(async () => {
-        const venue = await db.venue.findFirst({
-          where: { id: input.venueId, tenantId: input.tenantId },
-          select: { id: true, name: true },
-        })
-        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
         let manifest: unknown
         try {
           manifest = JSON.parse(input.manifestJson) as unknown
         } catch {
           return {
-            scope: { tenantId: input.tenantId, venueId: input.venueId, venueName: venue.name },
+            scope: { tenantId: input.tenantId, venueId: input.venueId, venueName: null },
             compatible: false,
             manifestHash: null,
             issues: [
@@ -85,16 +113,60 @@ export const adminDeploymentManifestReviewRouter = router({
             draftInput: null,
           }
         }
-        const preview = deploymentManifestPreviewInput({ venueId: input.venueId, manifest })
-        const draft = deploymentManifestDraftInput({ venueId: input.venueId, manifest })
+        let reviewed
+        try {
+          reviewed = await reviewVenuePackageManifestService({
+            db,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+            manifest,
+            persist: false,
+          })
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            return {
+              scope: { tenantId: input.tenantId, venueId: input.venueId, venueName: null },
+              compatible: false,
+              manifestHash: null,
+              issues: error.issues.map((issue) => ({
+                severity: 'ERROR' as const,
+                code: 'INVALID_MANIFEST',
+                path: issue.path.join('.'),
+                message: issue.message,
+              })),
+              handoff: null,
+              previewInput: null,
+              draftInput: null,
+              materialization: null,
+            }
+          }
+          throw error
+        }
+        const draftInput = reviewed.legacyDraftInput as {
+          venueId: string
+          draftKey: string
+          payload: unknown
+        } | null
         return {
-          scope: { tenantId: input.tenantId, venueId: input.venueId, venueName: venue.name },
-          compatible: preview.converted.compatible,
-          manifestHash: preview.converted.manifestHash,
-          issues: preview.converted.issues,
-          handoff: preview.converted.handoff,
-          previewInput: preview.previewInput,
-          draftInput: draft.draftInput,
+          scope: reviewed.scope,
+          compatible: reviewed.materialization.status === 'MATERIALIZABLE',
+          manifestHash: reviewed.manifestHash,
+          issues: reviewed.materialization.issues,
+          handoff: draftInput
+            ? {
+                previewProcedure: 'venuePackage.preview' as const,
+                draftProcedure: 'venuePackage.createDraft' as const,
+                approvalProcedure: 'venuePackage.approve' as const,
+                applyProcedure: 'venuePackage.applyPackage' as const,
+                rollbackProcedure: 'venuePackage.revertPackage' as const,
+              }
+            : null,
+          previewInput: draftInput
+            ? { venueId: draftInput.venueId, payload: draftInput.payload }
+            : null,
+          draftInput,
+          materialization: reviewed.materialization,
         }
       }),
     ),

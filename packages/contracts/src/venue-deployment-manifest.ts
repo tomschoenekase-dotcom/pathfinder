@@ -9,6 +9,27 @@ export const VENUE_DEPLOYMENT_MAX_ASSETS = 500
 export const VENUE_DEPLOYMENT_MAX_OPERATIONS = 1_000
 
 const Hash = z.string().regex(/^[a-f0-9]{64}$/u)
+const unsafeLocator =
+  /(?:[?&](?:token|signature|sig|key|secret|credential|auth)=)|(?:bearer\s)|(?:-----BEGIN)|(?:[A-Za-z0-9_-]{32,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})/iu
+const EvidenceLocator = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2_000)
+  .refine((value) => {
+    if (unsafeLocator.test(value)) return false
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(value) && !/^https:\/\//iu.test(value)) {
+      return /^(?:evidence|interview|onboarding|intake-upload):[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/u.test(
+        value,
+      )
+    }
+    try {
+      const url = new URL(value)
+      return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash
+    } catch {
+      return false
+    }
+  }, 'Evidence locators must be safe HTTPS references without credentials/query/fragment or allowlisted internal references.')
 const StableId = z
   .string()
   .trim()
@@ -25,7 +46,7 @@ const EvidenceReference = z
   .object({
     evidenceId: StableId,
     sourceId: StableId,
-    locator: z.string().trim().min(1).max(2_000),
+    locator: EvidenceLocator,
     capturedAt: z.string().datetime({ offset: true }),
     excerptHash: Hash.optional(),
   })
@@ -477,6 +498,48 @@ export const VenueDeploymentManifest = z.union([
   VenueDeploymentPatchManifest,
 ])
 export type VenueDeploymentManifest = z.infer<typeof VenueDeploymentManifest>
+
+export const VenueDeploymentMaterializationSection = z.enum([
+  'IDENTITY',
+  'BRANDING',
+  'AI_CONFIGURATION',
+  'CAPABILITIES',
+  'CONTENT',
+  'ASSETS',
+  'EVALUATION',
+])
+export const VenueDeploymentMaterializationIssue = z
+  .object({
+    severity: z.enum(['ERROR', 'WARNING']),
+    code: z.string().trim().min(1).max(100),
+    path: z.string().max(500),
+    message: z.string().trim().min(1).max(1_000),
+  })
+  .strict()
+export const VenueDeploymentMaterializationReport = z
+  .object({
+    artifactKind: z.literal('VENUE_DEPLOYMENT_MANIFEST_V2'),
+    manifestHash: Hash,
+    baseManifestHash: Hash.nullable(),
+    status: z.enum(['MATERIALIZABLE', 'NOT_MATERIALIZABLE']),
+    coverage: z
+      .object({
+        IDENTITY: z.enum(['COMPLETE', 'BLOCKED']),
+        BRANDING: z.enum(['COMPLETE', 'BLOCKED']),
+        AI_CONFIGURATION: z.enum(['COMPLETE', 'BLOCKED']),
+        CAPABILITIES: z.enum(['COMPLETE', 'BLOCKED']),
+        CONTENT: z.enum(['COMPLETE', 'BLOCKED']),
+        ASSETS: z.enum(['COMPLETE', 'BLOCKED']),
+        EVALUATION: z.enum(['COMPLETE', 'BLOCKED']),
+      })
+      .strict(),
+    issues: z.array(VenueDeploymentMaterializationIssue).max(5_000),
+    legacyPayloadHash: Hash.nullable(),
+  })
+  .strict()
+export type VenueDeploymentMaterializationReport = z.infer<
+  typeof VenueDeploymentMaterializationReport
+>
 type DeploymentPatchOperationInput<T = VenueDeploymentPatchOperation> = T extends unknown
   ? Omit<T, 'operationId'>
   : never
@@ -500,6 +563,18 @@ function canonicalValue(value: unknown): unknown {
 
 export function canonicalDeploymentManifest(manifest: VenueDeploymentManifest): string {
   return JSON.stringify(canonicalValue(VenueDeploymentManifest.parse(manifest)))
+}
+
+export function canonicalDeploymentManifestHashInput(manifest: VenueDeploymentManifest): string {
+  const parsed = VenueDeploymentManifest.parse(manifest)
+  const hashDomain =
+    parsed.packageType === 'FULL'
+      ? {
+          ...parsed,
+          evaluation: { ...parsed.evaluation, evaluatedManifestHash: undefined },
+        }
+      : parsed
+  return JSON.stringify(canonicalValue(hashDomain))
 }
 
 export function validateDeploymentManifest(input: unknown): VenueDeploymentManifest {
@@ -604,7 +679,7 @@ export function sha256Hex(value: string): string {
 }
 
 export function deploymentManifestHash(manifest: VenueDeploymentManifest): string {
-  return sha256Hex(canonicalDeploymentManifest(manifest))
+  return sha256Hex(canonicalDeploymentManifestHashInput(manifest))
 }
 
 function deterministicOperationId(seed: string) {

@@ -177,10 +177,14 @@ Section-level evidence and blockers are indexed in
   identity, branding/assets, versioned AI/tone/model references, effective configuration provenance,
   typed content/evidence, readiness/evaluation, immutable hashes, base hash, and idempotency. Patch
   operations use stable-ID upsert/retire/reset; tenant authority, secrets, binaries, unsafe URLs, and
-  monolithic content replacement are rejected. A read-only admin review/conversion seam validates a
-  manifest and exposes exact inputs for the existing `venuePackage.preview` and `createDraft`
-  lifecycle. It never persists, approves, applies, rolls back, or queues work; V2-native persistence
-  and apply/rollback remain pending.
+  monolithic content replacement are rejected. Canonical artifact serialization is distinct from
+  the non-circular hash input, and evidence locators reject credentials, signed/query URLs and
+  secret-shaped values. The exact-scoped canonical service reviews under `RepeatableRead` and can
+  persist a one-to-one immutable FULL/PATCH artifact under `Serializable` with deterministic
+  seven-section coverage. PATCH requires an exact persisted same-scope FULL base. Only a proven
+  lossless supported PATCH atomically creates/replays its compatibility `DRAFT` and artifact link;
+  FULL and unsupported PATCH artifacts remain `NOT_MATERIALIZABLE` and create no draft. No result
+  approves, applies, publishes, rolls back, queues work or calls a provider.
 - The same internal screen can project one exact tenant/venue's safe current configuration fields
   into a caller-enveloped, FULL-contract-validated canonical preview and reviewed JSON download.
   The projection is not an immutable publication snapshot and is always `NOT_READY`: generalized
@@ -393,10 +397,14 @@ Section-level evidence and blockers are indexed in
 - Venue Deployment Manifest v2 contracts support complete and granular patch manifests with
   stable-ID operations, effective configuration provenance, immutable asset references,
   evaluation/readiness evidence, canonical hashing, and deterministic diffing. The existing
-  package v1-v3 lifecycle remains the persisted compatibility path. The reviewed conversion seam
-  can produce exact preview/draft inputs but cannot mutate lifecycle state. The FULL projection is
-  a read-only canonical review artifact over safe current venue fields and remains `NOT_READY` with
-  generalized modules, immutable assets, capabilities, model references and readiness omitted.
+  package v1-v3 lifecycle remains the compatibility execution path. Immutable review artifacts now
+  retain canonical manifest, hash, evidence digest and complete materialization report. A supported
+  PATCH may atomically create its linked compatibility `DRAFT`; FULL and unsupported PATCH reviews
+  remain artifact-only. The separate FULL projection remains a read-only `NOT_READY` candidate over
+  safe current venue fields with generalized modules, immutable assets, capabilities, model
+  references and readiness omitted. Migration
+  `20260812000800_add_venue_package_manifest_artifacts` is unapplied and no live database or package
+  execution evidence was produced.
 - Offboarding persistence and the operator console can create and inspect requested plans,
   revocation targets, evidence, and export metadata. Execution and deletion remain absent by
   design pending authorization and retention policy.
@@ -414,16 +422,17 @@ Section-level evidence and blockers are indexed in
   checked migrations are atomic and
   use restrictive exact-scope foreign keys. Offline format/validate/generate and the DB suite passed,
   but none of these forward migrations, including durable guest chat turn migration
-  `20260812000400_add_durable_guest_chat_turns` and requester-isolation migration
-  `20260812000500_support_requester_isolation`, was applied or rehearsed against a database.
+  `20260812000400_add_durable_guest_chat_turns`, requester isolation `20260812000500`, evaluation
+  review `20260812000600`, analytics attribution `20260812000700`, or immutable manifest artifacts
+  `20260812000800`, was applied or rehearsed against a database.
 
 ## Required program work not yet proven complete
 
 - Remaining Internal Client Workspace deep capability views and domain-action adapters.
 - Intake adapters beyond website and text-only staff interviews, plus live extraction and
   end-to-end reviewed onboarding beyond the bounded reviewed-DRAFT handoff boundary.
-- Venue Deployment Manifest v2-native persistence/apply semantics beyond the bounded conversion into
-  existing preview/draft inputs.
+- Lossless V2-native FULL materialization and native apply/revert semantics beyond the bounded
+  immutable review artifact and supported PATCH-to-compatibility-DRAFT bridge.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
 - Support workflow beyond verified status transitions and reviewed-DRAFT creation/linkage,

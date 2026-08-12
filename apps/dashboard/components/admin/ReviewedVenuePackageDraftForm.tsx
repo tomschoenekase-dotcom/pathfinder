@@ -37,6 +37,7 @@ function candidateText(candidate: ReviewedVenuePackageDraftCandidate | undefined
 
 export function ReviewedVenuePackageDraftForm(props: Props) {
   const client = useTRPCClient()
+  const scopeKey = `${props.tenantId}:${props.venueId}:${props.support?.requestId ?? ''}:${props.intakeRunId ?? ''}:${props.prefillCandidate?.identity ?? ''}`
   const instanceId = useId()
   const titleId = `${instanceId}-draft-title`
   const editorId = `${instanceId}-reviewed-package-json`
@@ -48,23 +49,34 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
   const [busy, setBusy] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [stateScope, setStateScope] = useState(scopeKey)
   const inFlight = useRef(false)
   const attemptedKey = useRef(false)
-  const prefillIdentity = useRef(props.prefillCandidate?.identity)
+  const renderedScope = useRef(scopeKey)
+  const scopeGeneration = useRef(0)
+  if (renderedScope.current !== scopeKey) {
+    renderedScope.current = scopeKey
+    scopeGeneration.current += 1
+    inFlight.current = false
+  }
+  const scopeReady = stateScope === scopeKey
 
   useEffect(() => {
-    const nextIdentity = props.prefillCandidate?.identity
-    if (nextIdentity === prefillIdentity.current) return
-    prefillIdentity.current = nextIdentity
     setText(candidateText(props.prefillCandidate))
+    setStateScope(scopeKey)
     setReviewed(null)
     setDraftKey(props.prefillCandidate ? '' : crypto.randomUUID())
     setCompleted(false)
+    setBusy(false)
+    inFlight.current = false
     attemptedKey.current = false
     setMessage(null)
-  }, [props.prefillCandidate])
+    // The candidate identity is part of scopeKey; equal identities intentionally retain review state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey])
 
   function review() {
+    if (!scopeReady) return
     setMessage(null)
     try {
       setReviewed(JSON.parse(text))
@@ -75,8 +87,16 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
   }
 
   async function createDraft() {
-    if (!reviewed || inFlight.current || (props.intakeRunId && !props.prefillCandidate)) return
+    if (
+      !scopeReady ||
+      !reviewed ||
+      inFlight.current ||
+      (props.intakeRunId && !props.prefillCandidate)
+    )
+      return
     inFlight.current = true
+    const generation = scopeGeneration.current
+    const key = renderedScope.current
     attemptedKey.current = true
     setBusy(true)
     setMessage(null)
@@ -102,6 +122,7 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
                 expectedVersion: props.support.expectedVersion,
               })
             : await client.admin.createReviewedVenuePackageDraft.mutate(common)
+      if (scopeGeneration.current !== generation || renderedScope.current !== key) return
       setMessage(
         result.value.replayed
           ? 'The exact existing DRAFT was reconciled.'
@@ -116,13 +137,16 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
         attemptedKey.current = false
         setReviewed(null)
       }
-    } catch (error) {
+    } catch {
+      if (scopeGeneration.current !== generation || renderedScope.current !== key) return
       setMessage(
-        error instanceof Error ? error.message : 'The reviewed DRAFT could not be created.',
+        'The reviewed DRAFT outcome could not be confirmed. Retry unchanged to reconcile the same request identity.',
       )
     } finally {
-      inFlight.current = false
-      setBusy(false)
+      if (scopeGeneration.current === generation && renderedScope.current === key) {
+        inFlight.current = false
+        setBusy(false)
+      }
     }
   }
 
@@ -174,7 +198,7 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
       </label>
       <textarea
         id={editorId}
-        value={text}
+        value={scopeReady ? text : candidateText(props.prefillCandidate)}
         readOnly={Boolean(props.prefillCandidate)}
         onChange={(event) => {
           if (props.prefillCandidate) return
@@ -194,6 +218,7 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
         <button
           type="button"
           disabled={
+            !scopeReady ||
             busy ||
             completed ||
             Boolean(props.intakeRunId && !props.prefillCandidate) ||
@@ -207,7 +232,11 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
         <button
           type="button"
           disabled={
-            busy || completed || Boolean(props.intakeRunId && !props.prefillCandidate) || !reviewed
+            !scopeReady ||
+            busy ||
+            completed ||
+            Boolean(props.intakeRunId && !props.prefillCandidate) ||
+            !reviewed
           }
           onClick={() => void createDraft()}
           className="rounded-lg bg-pf-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
@@ -215,7 +244,7 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
           {props.prefillCandidate ? 'Create and link DRAFT only' : 'Create DRAFT only'}
         </button>
       </div>
-      {reviewed ? (
+      {scopeReady && reviewed ? (
         <div
           className="mt-4 max-h-80 overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100"
           aria-label="Reviewed VenuePackage payload"
@@ -223,7 +252,7 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
           <pre className="whitespace-pre-wrap break-words">{JSON.stringify(reviewed, null, 2)}</pre>
         </div>
       ) : null}
-      {message ? (
+      {scopeReady && message ? (
         <p className="mt-3 text-sm text-pf-deep" role="status">
           {message}
         </p>

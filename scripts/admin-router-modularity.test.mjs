@@ -29,6 +29,7 @@ const expectedAdminProcedures = [
   'createOffboardingDraft',
   'createReviewedVenuePackageDraft',
   'createUniversalContent',
+  'createVenuePackageManifestArtifact',
   'disableAgentIdentity',
   'editDisabledAgentIdentity',
   'generateAnswerAnalysis',

@@ -282,7 +282,7 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
     renderControls({ ...review, status: 'APPLIED' } as PackageReview)
     expect(screen.queryByRole('button', { name: /approve/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /apply approved/i })).toBeNull()
-    fireEvent.click(screen.getByLabelText(/revert every unchanged item/i))
+    fireEvent.click(screen.getByLabelText(/reverse this package’s recorded effects/i))
     fireEvent.click(screen.getByRole('button', { name: 'Revert applied package' }))
     await waitFor(() => expect(mocks.revert).toHaveBeenCalledOnce())
   })
@@ -291,7 +291,7 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
     mocks.apply.mockResolvedValue({ ...review, status: 'APPLIED' })
     renderControls({ ...review, status: 'APPROVED' } as PackageReview)
     expect(screen.queryByRole('button', { name: /approve reviewed/i })).toBeNull()
-    fireEvent.click(screen.getByLabelText(/change venue content atomically/i))
+    fireEvent.click(screen.getByLabelText(/apply every recorded change atomically/i))
     fireEvent.click(screen.getByRole('button', { name: 'Apply approved package' }))
     await waitFor(() => expect(mocks.apply).toHaveBeenCalledOnce())
     expect(mocks.apply).toHaveBeenCalledWith({
@@ -338,6 +338,22 @@ describe('Internal Workspace VenuePackage lifecycle controls', () => {
     )
     expect(mocks.get).not.toHaveBeenCalled()
     expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it('does not carry an old confirmation into a replacement package scope', () => {
+    const { rerender } = renderControls()
+    fireEvent.click(screen.getByLabelText(/intend to approve it/i))
+    rerender(
+      <VenuePackageLifecycleControls
+        tenantId="tenant-1"
+        venueId="venue-1"
+        initialPackage={{ ...review, id: 'package-2', status: 'APPROVED' } as PackageReview}
+      />,
+    )
+    const apply = screen.getByRole<HTMLButtonElement>('button', { name: 'Apply approved package' })
+    expect(apply.disabled).toBe(true)
+    fireEvent.click(apply)
+    expect(mocks.apply).not.toHaveBeenCalled()
   })
 
   it('has no automated accessibility violations in the actionable state', async () => {

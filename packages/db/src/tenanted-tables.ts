@@ -12,6 +12,7 @@ export const TENANTED_TABLES = [
   'EvalReview',
   'VenueContentImportReceipt',
   'VenuePackage',
+  'VenuePackageManifestArtifact',
   'VenuePackageDuplicateAnalysis',
   'VisitorSession',
   'GuestChatTurn',

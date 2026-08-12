@@ -190,7 +190,7 @@ describe('ReviewedVenuePackageDraftForm', () => {
     expect(mutate).toHaveBeenCalledTimes(1)
     const firstKey = mutate.mock.calls[0]?.[0].draftKey
     rejectFirst(new Error('Response unavailable'))
-    await screen.findByText('Response unavailable')
+    await screen.findByText(/outcome could not be confirmed/iu)
 
     fireEvent.change(editor, {
       target: {

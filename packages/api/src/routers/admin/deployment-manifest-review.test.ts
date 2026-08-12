@@ -3,10 +3,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
   venue: vi.fn(),
+  artifact: vi.fn(),
+  artifactCreate: vi.fn(),
+  draftCreate: vi.fn(),
+}))
+vi.mock('../../routers/venue-package', () => ({
+  createVenuePackageDraftService: mocks.draftCreate,
 }))
 vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
-  db: { venue: { findFirst: mocks.venue } },
+  lockVenueContentMutation: vi.fn().mockResolvedValue(undefined),
+  db: {
+    $transaction: (operation: (tx: unknown) => Promise<unknown>) =>
+      operation({
+        venue: { findFirst: mocks.venue },
+        venuePackageManifestArtifact: {
+          findFirst: mocks.artifact,
+          create: mocks.artifactCreate,
+        },
+      }),
+    venue: { findFirst: mocks.venue },
+  },
 }))
 
 import { router } from '../../core'
@@ -52,6 +69,24 @@ describe('deployment manifest review', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.venue.mockResolvedValue({ id: venueId, name: 'Museum' })
+    mocks.artifact.mockImplementation(async ({ where }) =>
+      where.packageType === 'FULL' ? { id: 'base_1' } : null,
+    )
+    mocks.artifactCreate.mockImplementation(async ({ data }) => ({ id: 'artifact_1', ...data }))
+    mocks.draftCreate.mockImplementation(async ({ finalizer }) => {
+      const tx = {
+        venuePackageManifestArtifact: {
+          findFirst: mocks.artifact,
+          create: mocks.artifactCreate,
+        },
+        venuePackage: {
+          findFirst: vi.fn().mockResolvedValue({ manifestArtifactId: null }),
+          update: vi.fn().mockResolvedValue({ id: 'draft_1' }),
+        },
+      }
+      const attachment = await finalizer({ tx, packageId: 'draft_1', replayed: false })
+      return { value: { id: 'draft_1' }, attachment }
+    })
   })
   it('rejects non-admin access before the bypass', async () => {
     await expect(
@@ -59,17 +94,47 @@ describe('deployment manifest review', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(mocks.bypass).not.toHaveBeenCalled()
   })
+  it('rejects non-admin artifact persistence before bypass or writes', async () => {
+    await expect(
+      call(false).admin.createVenuePackageManifestArtifact({
+        tenantId: 't1',
+        venueId,
+        manifestJson: JSON.stringify(manifest),
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.bypass).not.toHaveBeenCalled()
+    expect(mocks.artifactCreate).not.toHaveBeenCalled()
+  })
+  it('persists canonical evidence with its supported compatibility DRAFT', async () => {
+    const result = await call().admin.createVenuePackageManifestArtifact({
+      tenantId: 't1',
+      venueId,
+      manifestJson: JSON.stringify(manifest),
+    })
+    expect(result).toMatchObject({
+      artifactKind: 'VENUE_DEPLOYMENT_MANIFEST_V2',
+      materialization: { status: 'MATERIALIZABLE' },
+      artifact: { id: 'artifact_1', createdBy: 'operator' },
+      draft: { id: 'draft_1' },
+      replayed: false,
+    })
+    expect(mocks.artifactCreate).toHaveBeenCalledTimes(1)
+  })
   it('requires the venue in the exact tenant scope', async () => {
     mocks.venue.mockResolvedValue(null)
     await expect(
-      call().admin.reviewDeploymentManifest({ tenantId: 't1', venueId, manifestJson: '{}' }),
+      call().admin.reviewDeploymentManifest({
+        tenantId: 't1',
+        venueId,
+        manifestJson: JSON.stringify(manifest),
+      }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(mocks.venue).toHaveBeenCalledWith({
       where: { id: venueId, tenantId: 't1' },
       select: { id: true, name: true },
     })
   })
-  it('returns exact preview/draft handoff shapes without persistence', async () => {
+  it('returns exact base-bound preview/draft handoff shapes without persistence', async () => {
     const result = await call().admin.reviewDeploymentManifest({
       tenantId: 't1',
       venueId,
@@ -86,6 +151,7 @@ describe('deployment manifest review', () => {
       previewProcedure: 'venuePackage.preview',
       draftProcedure: 'venuePackage.createDraft',
     })
+    expect(result.materialization).toMatchObject({ status: 'MATERIALIZABLE' })
   })
   it('does not echo rejected secret-bearing input', async () => {
     const secret = 'do-not-reflect-this-secret'

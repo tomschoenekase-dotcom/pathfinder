@@ -18,10 +18,8 @@ function errorCode(error: unknown): string | null {
   return typeof data.code === 'string' ? data.code : null
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message
-    ? error.message
-    : 'The venue-package action could not be confirmed.'
+function errorMessage(): string {
+  return 'The venue-package action could not be confirmed.'
 }
 
 export function VenuePackageLifecycleControls({
@@ -35,7 +33,9 @@ export function VenuePackageLifecycleControls({
 }) {
   const client = useTRPCClient()
   const router = useRouter()
-  const [current, setCurrent] = useState(initialPackage)
+  const scopeKey = `${tenantId}:${venueId}:${initialPackage.id}`
+  const [storedCurrent, setCurrent] = useState(initialPackage)
+  const [currentScope, setCurrentScope] = useState(scopeKey)
   const [confirmed, setConfirmed] = useState(false)
   const [warningsAcknowledged, setWarningsAcknowledged] = useState(false)
   const [warningsExpanded, setWarningsExpanded] = useState(false)
@@ -47,10 +47,19 @@ export function VenuePackageLifecycleControls({
   const actionInFlight = useRef(false)
   const commandKeys = useRef(new Map<string, string>())
   const scopeGeneration = useRef(0)
+  const renderedScope = useRef(scopeKey)
+  if (renderedScope.current !== scopeKey) {
+    renderedScope.current = scopeKey
+    scopeGeneration.current += 1
+    actionInFlight.current = false
+    commandKeys.current.clear()
+  }
+  const current = currentScope === scopeKey ? storedCurrent : initialPackage
+  const scopeReady = currentScope === scopeKey
 
   useEffect(() => {
-    scopeGeneration.current += 1
     setCurrent(initialPackage)
+    setCurrentScope(scopeKey)
     setConfirmed(false)
     setWarningsAcknowledged(false)
     setWarningsExpanded(false)
@@ -61,7 +70,7 @@ export function VenuePackageLifecycleControls({
     setNotice(null)
     actionInFlight.current = false
     commandKeys.current.clear()
-  }, [initialPackage, tenantId, venueId])
+  }, [initialPackage, scopeKey, tenantId, venueId])
 
   const warningCount = current.validationReport.warnings.length
   const allWarningsVisible = warningCount <= 20 || warningsExpanded
@@ -106,7 +115,13 @@ export function VenuePackageLifecycleControls({
   }
 
   async function runLifecycle(action: LifecycleAction) {
-    if (actionInFlight.current || action !== availableAction || !confirmed || refreshedConflict)
+    if (
+      !scopeReady ||
+      actionInFlight.current ||
+      action !== availableAction ||
+      !confirmed ||
+      refreshedConflict
+    )
       return
     if (!reviewComplete && action !== 'revert') return
     if (action === 'approve' && warningCount > 0 && !warningsAcknowledged) return
@@ -152,7 +167,7 @@ export function VenuePackageLifecycleControls({
           ? 'Package approved. Applying it remains a separate action.'
           : action === 'apply'
             ? 'Package applied atomically.'
-            : 'Package reverted to its exact approved base.',
+            : 'Package effects reversed. Compatible later edits may remain.',
       )
       router.refresh()
     } catch (cause) {
@@ -183,7 +198,7 @@ export function VenuePackageLifecycleControls({
         setError('This package is no longer available in the selected tenant and venue scope.')
       } else {
         setError(
-          `${errorMessage(cause)} Retry is safe and will use the same command identity until the exact outcome is confirmed.`,
+          `${errorMessage()} Retry is safe and will use the same command identity until the exact outcome is confirmed.`,
         )
       }
     } finally {
@@ -282,20 +297,21 @@ export function VenuePackageLifecycleControls({
           <label className="flex items-start gap-2 text-sm text-pf-deep/80">
             <input
               type="checkbox"
-              checked={confirmed}
-              disabled={busy !== null || refreshedConflict}
+              checked={scopeReady && confirmed}
+              disabled={!scopeReady || busy !== null || refreshedConflict}
               onChange={(event) => setConfirmed(event.target.checked)}
               className="mt-1"
             />
             {availableAction === 'apply'
-              ? 'I confirm that I reviewed this exact approved revision and intend to change venue content atomically.'
+              ? 'I confirm that I reviewed this exact approved revision and intend to apply every recorded change atomically.'
               : availableAction === 'revert'
-                ? 'I confirm that I intend to revert every unchanged item created by this exact applied package.'
+                ? 'I confirm that I intend to reverse this package’s recorded effects. Compatible later edits may remain.'
                 : 'I confirm that I reviewed this exact revision and intend to approve it.'}
           </label>
           <button
             type="button"
             disabled={
+              !scopeReady ||
               busy !== null ||
               refreshedConflict ||
               !confirmed ||
