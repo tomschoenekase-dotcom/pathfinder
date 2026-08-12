@@ -674,6 +674,18 @@ export {
   releaseIntakeUploadVerificationAction,
   reserveIntakeUploadAction,
 } from './helpers/intake-upload-actions'
+export {
+  approveNativeVenueDeploymentAction,
+  createNativeVenueDeploymentAction,
+  applyNativeVenueDeploymentAction,
+  NativeVenueDeploymentError,
+  projectNativeVenueStateAction,
+  revertNativeVenueDeploymentAction,
+} from './helpers/native-venue-deployment-actions'
+export type {
+  NativeVenueDeploymentActor,
+  NativeVenueDeploymentClient,
+} from './helpers/native-venue-deployment-actions'
 export type {
   IntakeUploadActionClient,
   IntakeUploadActionErrorCode,

@@ -141,6 +141,11 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
           description: 'Review immutable package evidence',
         },
         {
+          href: `${venueRoot}/native-releases`,
+          label: 'Native FULL releases',
+          description: 'Review NATIVE_CORE_V1 deployment evidence',
+        },
+        {
           href: `${venueRoot}/media`,
           label: 'Media intake',
           description: 'Process and review source media',

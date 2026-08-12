@@ -83,6 +83,9 @@ describe('ClientWorkspaceShell', () => {
     expect(screen.getByRole('link', { name: /Venue packages/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/packages',
     )
+    expect(screen.getByRole('link', { name: /Native FULL releases/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/venues/venue-1/native-releases',
+    )
     expect(screen.getByRole('link', { name: /Legacy compatibility/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/compatibility-content',
     )

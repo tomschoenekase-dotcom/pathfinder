@@ -263,6 +263,12 @@ const approvedOperations = [
     policy: 'tenant-offboarding-request-lock',
   },
   {
+    file: 'packages/db/src/helpers/native-venue-deployment-actions.ts',
+    method: '$queryRaw',
+    hash: 'a1306f1dfc78039c6bab6a6793310ecd57ef79b270ef6d457f8c02ac61baaef1',
+    policy: 'tenant-and-venue',
+  },
+  {
     file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
     method: '$executeRaw',
     hash: '5ee40398a3024504c858f238560e4cdf3f1a30d0a7b855cb621a3d8414314b60',

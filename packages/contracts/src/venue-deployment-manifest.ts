@@ -11,7 +11,7 @@ export const VENUE_DEPLOYMENT_MAX_OPERATIONS = 1_000
 const Hash = z.string().regex(/^[a-f0-9]{64}$/u)
 const unsafeLocator =
   /(?:[?&](?:token|signature|sig|key|secret|credential|auth)=)|(?:bearer\s)|(?:-----BEGIN)|(?:[A-Za-z0-9_-]{32,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})/iu
-const EvidenceLocator = z
+export const EvidenceLocator = z
   .string()
   .trim()
   .min(1)

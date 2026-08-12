@@ -290,6 +290,32 @@ draft. Recording either result does not approve, apply, publish, call a provider
 lifecycle transition. Forward-only migration `20260812000800_add_venue_package_manifest_artifacts`
 remains unapplied; local schema and transaction tests are not live database evidence.
 
+`NATIVE_CORE_V1` is a separate, explicitly versioned FULL materialization profile; it does not
+change the generic FULL artifact above from evidence-only `NOT_MATERIALIZABLE`. Its bounded,
+lossless visible-state domain is the complete current Venue configuration, active Places, enabled
+Knowledge entries, and published PUBLIC Service, Policy, Event, Operational Fact, and Relationship
+revisions with provenance/evidence. ITEM, asset, capability, model-reference, and evaluation inputs
+must be explicitly empty or `NOT_REQUIRED_FOR_CORE_PROFILE`; any unsupported nonempty input fails
+closed. Canonical state and replacement-universe hashes bind exact visible base rows and generalized
+publication heads. The planner also inspects hidden rows and revision history so omission retires
+only currently visible state and identity/version collisions cannot fabricate history.
+
+The native service owns a `Serializable` transaction and exact venue advisory lock for DRAFT
+creation and guarded `DRAFT` -> `APPROVED` -> `APPLIED` -> `REVERTED` commands. Apply appends or
+retires runtime state without deleting history, records ordered immutable before/after effects, and
+links each generalized publication effect to its exact append-only publication row. A native head
+binds the applied release/artifact/state; revert first verifies the exact head, applied universe,
+effect envelopes, and current mutable rows, then appends inverse publication events and restores the
+captured prior head or removes the first head. Drift fails closed atomically. UUID/hash replay,
+bounded transaction convergence, and strict audit preserve each produced lifecycle snapshot.
+
+The platform-admin native deployment routes and Internal Workspace view expose only bounded safe
+coverage, issues, impact/effect counts, lifecycle milestones, and server-derived action gates. They
+do not expose manifests, raw plans/effect states, actors, digests, or internal publication lineage.
+Revert is offered only for the exact current venue head. Forward-only migration
+`20260812001400_add_native_venue_deployments` is intentionally unapplied and has no live database,
+browser, publication, provider, asset, capability, model, or evaluation evidence.
+
 `admin.previewFullVenueDeploymentManifest` is a separate read-only projection. It requires exact
 platform-admin tenant/venue scope and caller-supplied manifest/idempotency UUIDs, selects only safe
 current venue configuration fields, validates the FULL v2 contract, and returns canonical JSON plus
@@ -344,6 +370,14 @@ operation receipts and database guards for disabled-only issuance, single-origin
 single-outgoing rotation, exact actor/time/scope lineage, canonical capability allowlists and
 terminal revocation. It performs no legacy backfill and remains unapplied and unrehearsed; local
 schema and action tests are not live credential or authentication evidence.
+
+Forward-only migration `20260812001400_add_native_venue_deployments` adds separate immutable native
+artifact, release, effect, command, publication-lineage, and current-head evidence for the bounded
+`NATIVE_CORE_V1` profile. Database guards bind pristine creation, exact lifecycle transitions,
+ordered planned effects, publication actors/rows, command-produced snapshots, and forward or
+restored heads. It performs no legacy backfill, does not weaken the generic FULL artifact guards,
+and remains unapplied and unrehearsed; local contracts, migration-source tests, Prisma validation,
+actions, API, UI, and browser-foundation checks are not live database or deployment evidence.
 
 Guest chat turns use a client `operationId` UUID and a versioned canonical request hash bound to the
 exact tenant, venue, anonymous session actor, normalized message, language, visitor identity,

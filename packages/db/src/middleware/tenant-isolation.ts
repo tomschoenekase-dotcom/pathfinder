@@ -56,6 +56,10 @@ const APPEND_ONLY_MODELS = [
   'AiWorkloadConfigurationHistory',
   'ClientCreateIntentEvent',
   'VenuePackageManifestArtifact',
+  'NativeVenueDeploymentArtifact',
+  'NativeVenueDeploymentEffect',
+  'NativeVenueDeploymentCommand',
+  'NativeVenueDeploymentPublicationLineage',
 ] as const
 const AUDIT_LIFECYCLE_MODELS = [
   'AgentRun',

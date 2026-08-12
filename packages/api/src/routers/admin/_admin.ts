@@ -27,6 +27,7 @@ import { adminIncidentControlRouter } from './incident-control'
 import { adminIntakeOperationsRouter } from './intake-operations'
 import { adminIntakeUploadReviewRouter } from './intake-upload-review'
 import { adminLegacyContentRouter } from './legacy-content'
+import { adminNativeVenueDeploymentsRouter } from './native-venue-deployments'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminSupportOperationsRouter } from './support-operations'
 import { adminSupportManualLoopRouter } from './support-manual-loop'
@@ -52,6 +53,7 @@ export const adminRouter = mergeRouters(
   adminIntakeOperationsRouter,
   adminIntakeUploadReviewRouter,
   adminLegacyContentRouter,
+  adminNativeVenueDeploymentsRouter,
   adminCostBudgetRouter,
   adminEvaluationOperationsRouter,
   adminExternalCredentialsRouter,

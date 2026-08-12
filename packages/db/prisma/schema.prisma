@@ -74,81 +74,87 @@ model ClientCreateIntentEvent {
 }
 
 model Tenant {
-  id                            String                                  @id
-  name                          String
-  slug                          String                                  @unique
-  planTier                      String                                  @default("free") @map("plan_tier")
-  status                        TenantStatus                            @default(ACTIVE)
-  config                        Json                                    @default("{}")
-  nextPaymentDue                DateTime?                               @map("next_payment_due")
-  engagementMode                TenantEngagementMode                    @default(STOIC) @map("engagement_mode")
-  createdAt                     DateTime                                @default(now()) @map("created_at")
-  updatedAt                     DateTime                                @updatedAt @map("updated_at")
-  memberships                   TenantMembership[]
-  featureFlags                  TenantFeatureFlag[]
-  venues                        Venue[]
-  operationalUpdates            OperationalUpdate[]
-  analyticsEvents               AnalyticsEvent[]
-  dailyRollups                  DailyRollup[]
-  weeklyDigests                 WeeklyDigest[]
-  questionClusters              QuestionCluster[]
-  engagementQuestions           EngagementQuestion[]
-  engagementQuestionResponses   EngagementQuestionResponse[]
-  adminChatlogNotes             AdminChatlogNote[]
-  weeklyReports                 WeeklyReport[]
-  venueReportConfigurations     VenueReportConfiguration[]
-  answerAnalysisSnapshots       AnswerAnalysisSnapshot[]
-  venueWeeklyThemes             VenueWeeklyTheme[]
-  mediaIngestionProjects        MediaIngestionProject[]
-  aiUsageEvents                 AiUsageEvent[]
-  aiUsageDailyRollups           AiUsageDailyRollup[]
-  aiCostBudgets                 AiCostBudget[]
-  aiCostReservations            AiCostReservation[]
-  embeddingWorkClaims           EmbeddingWorkClaim[]
-  embeddingDispatches           EmbeddingDispatch[]
-  venueContentImportReceipts    VenueContentImportReceipt[]
-  venuePackages                 VenuePackage[]
-  venuePackageManifestArtifacts VenuePackageManifestArtifact[]
-  venuePackageDuplicateAnalyses VenuePackageDuplicateAnalysis[]
-  generationRequestDispatches   GenerationRequestDispatch[]
-  contentVersions               ContentVersion[]
-  evalCases                     EvalCase[]
-  evalRuns                      EvalRun[]
-  evalResults                   EvalResult[]
-  evalReviews                   EvalReview[]
-  evalRunCostReservations       EvalRunCostReservation[]
-  agentIdentities               AgentIdentity[]
-  agentRuns                     AgentRun[]
-  agentActions                  AgentAction[]
-  agentTimelineEvents           AgentTimelineEvent[]
-  approvalRequests              ApprovalRequest[]
-  approvalDecisions             ApprovalDecision[]
-  supportRequests               SupportRequest[]
-  supportMessages               SupportMessage[]
-  supportAttachments            SupportMessageAttachment[]
-  supportAuditEvents            SupportRequestAuditEvent[]
-  supportPackageHandoffs        SupportPackageHandoff[]
-  supportPreviewFeedback        SupportPreviewFeedback[]
-  supportAgentRunLineages       SupportAgentRunLineage[]
-  supportRequestParticipants    SupportRequestParticipant[]
-  offboardingPlans              OffboardingPlan[]
-  offboardingVenueTargets       OffboardingVenueTarget[]
-  offboardingRevocationEvidence OffboardingRevocationEvidence[]
-  offboardingExportArtifacts    OffboardingExportArtifact[]
-  contentModuleIdentities       ContentModuleIdentity[]
-  contentModuleRevisions        ContentModuleRevision[]
-  contentModuleEvidence         ContentModuleEvidence[]
-  contentModulePublications     ContentModulePublication[]
-  intakeRuns                    IntakeRun[]
-  intakeEvidence                IntakeEvidenceRecord[]
-  intakeEvents                  IntakeRunEvent[]
-  intakePackageHandoffs         IntakePackageHandoff[]
-  intakeUploads                 IntakeUpload[]
-  externalCredentials           ExternalAccessCredential[]
-  credentialRotations           ExternalCredentialRotation[]
-  credentialRevocations         ExternalCredentialRevocation[]
-  aiConfigurationOverrides      AiScopedWorkloadConfigurationOverride[]
-  aiConfigurationHistory        AiScopedWorkloadConfigurationHistory[]
+  id                             String                                    @id
+  name                           String
+  slug                           String                                    @unique
+  planTier                       String                                    @default("free") @map("plan_tier")
+  status                         TenantStatus                              @default(ACTIVE)
+  config                         Json                                      @default("{}")
+  nextPaymentDue                 DateTime?                                 @map("next_payment_due")
+  engagementMode                 TenantEngagementMode                      @default(STOIC) @map("engagement_mode")
+  createdAt                      DateTime                                  @default(now()) @map("created_at")
+  updatedAt                      DateTime                                  @updatedAt @map("updated_at")
+  memberships                    TenantMembership[]
+  featureFlags                   TenantFeatureFlag[]
+  venues                         Venue[]
+  operationalUpdates             OperationalUpdate[]
+  analyticsEvents                AnalyticsEvent[]
+  dailyRollups                   DailyRollup[]
+  weeklyDigests                  WeeklyDigest[]
+  questionClusters               QuestionCluster[]
+  engagementQuestions            EngagementQuestion[]
+  engagementQuestionResponses    EngagementQuestionResponse[]
+  adminChatlogNotes              AdminChatlogNote[]
+  weeklyReports                  WeeklyReport[]
+  venueReportConfigurations      VenueReportConfiguration[]
+  answerAnalysisSnapshots        AnswerAnalysisSnapshot[]
+  venueWeeklyThemes              VenueWeeklyTheme[]
+  mediaIngestionProjects         MediaIngestionProject[]
+  aiUsageEvents                  AiUsageEvent[]
+  aiUsageDailyRollups            AiUsageDailyRollup[]
+  aiCostBudgets                  AiCostBudget[]
+  aiCostReservations             AiCostReservation[]
+  embeddingWorkClaims            EmbeddingWorkClaim[]
+  embeddingDispatches            EmbeddingDispatch[]
+  venueContentImportReceipts     VenueContentImportReceipt[]
+  venuePackages                  VenuePackage[]
+  venuePackageManifestArtifacts  VenuePackageManifestArtifact[]
+  nativeVenueDeploymentReleases  NativeVenueDeploymentRelease[]
+  nativeVenueDeploymentArtifacts NativeVenueDeploymentArtifact[]
+  nativeVenueDeploymentEffects   NativeVenueDeploymentEffect[]
+  nativeVenueDeploymentHeads     NativeVenueDeploymentHead[]
+  nativeVenueDeploymentCommands  NativeVenueDeploymentCommand[]
+  nativeVenuePublicationLineages NativeVenueDeploymentPublicationLineage[]
+  venuePackageDuplicateAnalyses  VenuePackageDuplicateAnalysis[]
+  generationRequestDispatches    GenerationRequestDispatch[]
+  contentVersions                ContentVersion[]
+  evalCases                      EvalCase[]
+  evalRuns                       EvalRun[]
+  evalResults                    EvalResult[]
+  evalReviews                    EvalReview[]
+  evalRunCostReservations        EvalRunCostReservation[]
+  agentIdentities                AgentIdentity[]
+  agentRuns                      AgentRun[]
+  agentActions                   AgentAction[]
+  agentTimelineEvents            AgentTimelineEvent[]
+  approvalRequests               ApprovalRequest[]
+  approvalDecisions              ApprovalDecision[]
+  supportRequests                SupportRequest[]
+  supportMessages                SupportMessage[]
+  supportAttachments             SupportMessageAttachment[]
+  supportAuditEvents             SupportRequestAuditEvent[]
+  supportPackageHandoffs         SupportPackageHandoff[]
+  supportPreviewFeedback         SupportPreviewFeedback[]
+  supportAgentRunLineages        SupportAgentRunLineage[]
+  supportRequestParticipants     SupportRequestParticipant[]
+  offboardingPlans               OffboardingPlan[]
+  offboardingVenueTargets        OffboardingVenueTarget[]
+  offboardingRevocationEvidence  OffboardingRevocationEvidence[]
+  offboardingExportArtifacts     OffboardingExportArtifact[]
+  contentModuleIdentities        ContentModuleIdentity[]
+  contentModuleRevisions         ContentModuleRevision[]
+  contentModuleEvidence          ContentModuleEvidence[]
+  contentModulePublications      ContentModulePublication[]
+  intakeRuns                     IntakeRun[]
+  intakeEvidence                 IntakeEvidenceRecord[]
+  intakeEvents                   IntakeRunEvent[]
+  intakePackageHandoffs          IntakePackageHandoff[]
+  intakeUploads                  IntakeUpload[]
+  externalCredentials            ExternalAccessCredential[]
+  credentialRotations            ExternalCredentialRotation[]
+  credentialRevocations          ExternalCredentialRevocation[]
+  aiConfigurationOverrides       AiScopedWorkloadConfigurationOverride[]
+  aiConfigurationHistory         AiScopedWorkloadConfigurationHistory[]
 
   @@map("tenants")
 }
@@ -288,88 +294,94 @@ enum VenuePackageStatus {
 }
 
 model Venue {
-  id                            String                                  @id @default(cuid())
-  tenantId                      String                                  @map("tenant_id")
-  name                          String
-  slug                          String
-  description                   String?
-  guideNotes                    String?                                 @map("guide_notes")
-  aiGuideNotes                  String?                                 @map("ai_guide_notes")
-  aiFeaturedPlaceId             String?                                 @map("ai_featured_place_id")
-  aiTone                        String?                                 @default("FRIENDLY") @map("ai_tone")
-  tonePreset                    String?                                 @default("friendly") @map("tone_preset")
-  tonePresetVersion             Int?                                    @default(1) @map("tone_preset_version")
-  aiGuideName                   String?                                 @map("ai_guide_name")
-  chatTheme                     String?                                 @default("default") @map("chat_theme")
-  chatAccentColor               String?                                 @map("chat_accent_color")
-  chatFont                      String?                                 @default("jakarta") @map("chat_font")
-  chatLogoUrl                   String?                                 @map("chat_logo_url")
-  chatBannerUrl                 String?                                 @map("chat_banner_url")
-  category                      String?
-  guideMode                     String                                  @default("location_aware") @map("guide_mode")
-  defaultCenterLat              Float?                                  @map("default_center_lat")
-  defaultCenterLng              Float?                                  @map("default_center_lng")
-  geoBoundary                   Json?                                   @map("geo_boundary")
-  isActive                      Boolean                                 @default(true) @map("is_active")
-  createdAt                     DateTime                                @default(now()) @map("created_at")
-  updatedAt                     DateTime                                @updatedAt @map("updated_at")
-  tenant                        Tenant                                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  places                        Place[]
-  sessions                      VisitorSession[]
-  operationalUpdates            OperationalUpdate[]
-  analyticsEvents               AnalyticsEvent[]
-  dailyRollups                  DailyRollup[]
-  questionClusters              QuestionCluster[]
-  knowledgeEntries              VenueKnowledgeEntry[]
-  engagementResponses           EngagementQuestionResponse[]
-  adminChatlogNotes             AdminChatlogNote[]
-  weeklyReports                 WeeklyReport[]
-  reportConfiguration           VenueReportConfiguration?
-  answerAnalysisSnapshots       AnswerAnalysisSnapshot[]
-  weeklyThemes                  VenueWeeklyTheme[]
-  mediaIngestionProjects        MediaIngestionProject[]
-  aiUsageEvents                 AiUsageEvent[]
-  aiUsageDailyRollups           AiUsageDailyRollup[]
-  aiCostReservations            AiCostReservation[]
-  embeddingWorkClaims           EmbeddingWorkClaim[]
-  embeddingDispatches           EmbeddingDispatch[]
-  contentImportReceipts         VenueContentImportReceipt[]
-  venuePackageManifestArtifacts VenuePackageManifestArtifact[]
-  venuePackageDuplicateAnalyses VenuePackageDuplicateAnalysis[]
-  generationRequestDispatches   GenerationRequestDispatch[]
-  evalCases                     EvalCase[]
-  evalRuns                      EvalRun[]
-  evalResults                   EvalResult[]
-  evalReviews                   EvalReview[]
-  evalRunCostReservations       EvalRunCostReservation[]
-  agentIdentities               AgentIdentity[]
-  agentRuns                     AgentRun[]
-  agentActions                  AgentAction[]
-  agentTimelineEvents           AgentTimelineEvent[]
-  approvalRequests              ApprovalRequest[]
-  approvalDecisions             ApprovalDecision[]
-  supportRequests               SupportRequest[]
-  supportMessages               SupportMessage[]
-  supportAttachments            SupportMessageAttachment[]
-  supportAuditEvents            SupportRequestAuditEvent[]
-  supportPackageHandoffs        SupportPackageHandoff[]
-  supportPreviewFeedback        SupportPreviewFeedback[]
-  supportAgentRunLineages       SupportAgentRunLineage[]
-  supportRequestParticipants    SupportRequestParticipant[]
-  offboardingTargets            OffboardingVenueTarget[]
-  contentModuleIdentities       ContentModuleIdentity[]
-  contentModuleRevisions        ContentModuleRevision[]
-  contentModuleEvidence         ContentModuleEvidence[]
-  contentModulePublications     ContentModulePublication[]
-  intakeRuns                    IntakeRun[]
-  intakeEvidence                IntakeEvidenceRecord[]
-  intakeEvents                  IntakeRunEvent[]
-  intakePackageHandoffs         IntakePackageHandoff[]
-  intakeUploads                 IntakeUpload[]
-  externalCredentials           ExternalAccessCredential[]
-  credentialRotations           ExternalCredentialRotation[]
-  credentialRevocations         ExternalCredentialRevocation[]
-  aiConfigurationOverrides      AiScopedWorkloadConfigurationOverride[]
+  id                                  String                                    @id @default(cuid())
+  tenantId                            String                                    @map("tenant_id")
+  name                                String
+  slug                                String
+  description                         String?
+  guideNotes                          String?                                   @map("guide_notes")
+  aiGuideNotes                        String?                                   @map("ai_guide_notes")
+  aiFeaturedPlaceId                   String?                                   @map("ai_featured_place_id")
+  aiTone                              String?                                   @default("FRIENDLY") @map("ai_tone")
+  tonePreset                          String?                                   @default("friendly") @map("tone_preset")
+  tonePresetVersion                   Int?                                      @default(1) @map("tone_preset_version")
+  aiGuideName                         String?                                   @map("ai_guide_name")
+  chatTheme                           String?                                   @default("default") @map("chat_theme")
+  chatAccentColor                     String?                                   @map("chat_accent_color")
+  chatFont                            String?                                   @default("jakarta") @map("chat_font")
+  chatLogoUrl                         String?                                   @map("chat_logo_url")
+  chatBannerUrl                       String?                                   @map("chat_banner_url")
+  category                            String?
+  guideMode                           String                                    @default("location_aware") @map("guide_mode")
+  defaultCenterLat                    Float?                                    @map("default_center_lat")
+  defaultCenterLng                    Float?                                    @map("default_center_lng")
+  geoBoundary                         Json?                                     @map("geo_boundary")
+  isActive                            Boolean                                   @default(true) @map("is_active")
+  createdAt                           DateTime                                  @default(now()) @map("created_at")
+  updatedAt                           DateTime                                  @updatedAt @map("updated_at")
+  tenant                              Tenant                                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  places                              Place[]
+  sessions                            VisitorSession[]
+  operationalUpdates                  OperationalUpdate[]
+  analyticsEvents                     AnalyticsEvent[]
+  dailyRollups                        DailyRollup[]
+  questionClusters                    QuestionCluster[]
+  knowledgeEntries                    VenueKnowledgeEntry[]
+  engagementResponses                 EngagementQuestionResponse[]
+  adminChatlogNotes                   AdminChatlogNote[]
+  weeklyReports                       WeeklyReport[]
+  reportConfiguration                 VenueReportConfiguration?
+  answerAnalysisSnapshots             AnswerAnalysisSnapshot[]
+  weeklyThemes                        VenueWeeklyTheme[]
+  mediaIngestionProjects              MediaIngestionProject[]
+  aiUsageEvents                       AiUsageEvent[]
+  aiUsageDailyRollups                 AiUsageDailyRollup[]
+  aiCostReservations                  AiCostReservation[]
+  embeddingWorkClaims                 EmbeddingWorkClaim[]
+  embeddingDispatches                 EmbeddingDispatch[]
+  contentImportReceipts               VenueContentImportReceipt[]
+  venuePackageManifestArtifacts       VenuePackageManifestArtifact[]
+  nativeDeploymentReleases            NativeVenueDeploymentRelease[]
+  nativeDeploymentArtifacts           NativeVenueDeploymentArtifact[]
+  nativeDeploymentEffects             NativeVenueDeploymentEffect[]
+  nativeDeploymentHead                NativeVenueDeploymentHead?
+  nativeDeploymentCommands            NativeVenueDeploymentCommand[]
+  nativeDeploymentPublicationLineages NativeVenueDeploymentPublicationLineage[]
+  venuePackageDuplicateAnalyses       VenuePackageDuplicateAnalysis[]
+  generationRequestDispatches         GenerationRequestDispatch[]
+  evalCases                           EvalCase[]
+  evalRuns                            EvalRun[]
+  evalResults                         EvalResult[]
+  evalReviews                         EvalReview[]
+  evalRunCostReservations             EvalRunCostReservation[]
+  agentIdentities                     AgentIdentity[]
+  agentRuns                           AgentRun[]
+  agentActions                        AgentAction[]
+  agentTimelineEvents                 AgentTimelineEvent[]
+  approvalRequests                    ApprovalRequest[]
+  approvalDecisions                   ApprovalDecision[]
+  supportRequests                     SupportRequest[]
+  supportMessages                     SupportMessage[]
+  supportAttachments                  SupportMessageAttachment[]
+  supportAuditEvents                  SupportRequestAuditEvent[]
+  supportPackageHandoffs              SupportPackageHandoff[]
+  supportPreviewFeedback              SupportPreviewFeedback[]
+  supportAgentRunLineages             SupportAgentRunLineage[]
+  supportRequestParticipants          SupportRequestParticipant[]
+  offboardingTargets                  OffboardingVenueTarget[]
+  contentModuleIdentities             ContentModuleIdentity[]
+  contentModuleRevisions              ContentModuleRevision[]
+  contentModuleEvidence               ContentModuleEvidence[]
+  contentModulePublications           ContentModulePublication[]
+  intakeRuns                          IntakeRun[]
+  intakeEvidence                      IntakeEvidenceRecord[]
+  intakeEvents                        IntakeRunEvent[]
+  intakePackageHandoffs               IntakePackageHandoff[]
+  intakeUploads                       IntakeUpload[]
+  externalCredentials                 ExternalAccessCredential[]
+  credentialRotations                 ExternalCredentialRotation[]
+  credentialRevocations               ExternalCredentialRevocation[]
+  aiConfigurationOverrides            AiScopedWorkloadConfigurationOverride[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -611,23 +623,25 @@ model ContentModuleEvidence {
 /// authoritative guest-publication state; authoring a PUBLIC revision alone
 /// never publishes it.
 model ContentModulePublication {
-  id         String                         @id @default(cuid())
-  tenantId   String                         @map("tenant_id")
-  venueId    String                         @map("venue_id")
-  moduleId   String                         @map("module_id")
-  revisionId String                         @map("revision_id")
-  moduleKind NormalizedContentModuleKind    @map("module_kind")
-  action     ContentModulePublicationAction
-  eventOrder BigInt                         @unique @default(autoincrement()) @map("event_order")
-  requestId  String                         @map("request_id") @db.Uuid
-  actorId    String                         @map("actor_id") @db.VarChar(191)
-  createdAt  DateTime                       @default(now()) @map("created_at")
-  tenant     Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue      Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  module     ContentModuleIdentity          @relation(fields: [moduleId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  revision   ContentModuleRevision          @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+  id                      String                                   @id @default(cuid())
+  tenantId                String                                   @map("tenant_id")
+  venueId                 String                                   @map("venue_id")
+  moduleId                String                                   @map("module_id")
+  revisionId              String                                   @map("revision_id")
+  moduleKind              NormalizedContentModuleKind              @map("module_kind")
+  action                  ContentModulePublicationAction
+  eventOrder              BigInt                                   @unique @default(autoincrement()) @map("event_order")
+  requestId               String                                   @map("request_id") @db.Uuid
+  actorId                 String                                   @map("actor_id") @db.VarChar(191)
+  createdAt               DateTime                                 @default(now()) @map("created_at")
+  tenant                  Tenant                                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                   Venue                                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  module                  ContentModuleIdentity                    @relation(fields: [moduleId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  revision                ContentModuleRevision                    @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+  nativeDeploymentLineage NativeVenueDeploymentPublicationLineage?
 
   @@unique([tenantId, requestId])
+  @@unique([id, tenantId, venueId, requestId], map: "content_module_publications_native_scope_key")
   @@index([tenantId, venueId, moduleId, eventOrder])
   @@map("content_module_publications")
 }
@@ -990,6 +1004,193 @@ model VenuePackageManifestArtifact {
   @@unique([id, tenantId, venueId], map: "venue_package_manifest_artifacts_id_scope_key")
   @@index([tenantId, venueId, packageType, createdAt], map: "venue_package_manifest_artifacts_scope_idx")
   @@map("venue_package_manifest_artifacts")
+}
+
+enum NativeVenueDeploymentReleaseStatus {
+  DRAFT
+  APPROVED
+  APPLIED
+  REVERTED
+}
+
+enum NativeVenueDeploymentEffectKind {
+  VENUE
+  PLACE
+  KNOWLEDGE
+  GENERALIZED_MODULE
+  GENERALIZED_PUBLICATION
+}
+
+enum NativeVenueDeploymentCommandKind {
+  APPROVE
+  APPLY
+  REVERT
+}
+
+enum NativeVenueDeploymentPublicationPhase {
+  APPLY
+  REVERT
+}
+
+/// Immutable canonical NATIVE_CORE_V1 FULL input. It is intentionally separate
+/// from the generic v2 review artifact whose FULL rows remain evidence-only.
+model NativeVenueDeploymentArtifact {
+  id                String                        @id @db.Uuid
+  tenantId          String                        @map("tenant_id")
+  venueId           String                        @map("venue_id")
+  profile           String                        @db.VarChar(64)
+  idempotencyKey    String                        @map("idempotency_key") @db.Uuid
+  canonicalManifest Json                          @map("canonical_manifest")
+  manifestHash      String                        @map("manifest_hash") @db.Char(64)
+  baseStateHash     String                        @map("base_state_hash") @db.Char(64)
+  desiredStateHash  String                        @map("desired_state_hash") @db.Char(64)
+  baseUniverse      Json                          @map("base_universe")
+  createdBy         String                        @map("created_by") @db.VarChar(191)
+  createdAt         DateTime                      @default(now()) @map("created_at")
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  release           NativeVenueDeploymentRelease? @relation("NativeArtifactRelease")
+  heads             NativeVenueDeploymentHead[]   @relation("NativeArtifactHead")
+
+  @@unique([tenantId, venueId, idempotencyKey], map: "native_venue_artifacts_idempotency_key")
+  @@unique([tenantId, venueId, manifestHash], map: "native_venue_artifacts_manifest_hash_key")
+  @@unique([id, tenantId, venueId], map: "native_venue_artifacts_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "native_venue_artifacts_scope_idx")
+  @@map("native_venue_deployment_artifacts")
+}
+
+/// Immutable NATIVE_CORE_V1 FULL plan with guarded lifecycle attribution.
+model NativeVenueDeploymentRelease {
+  id                  String                             @id @db.Uuid
+  tenantId            String                             @map("tenant_id")
+  venueId             String                             @map("venue_id")
+  artifactId          String                             @unique @map("artifact_id") @db.Uuid
+  profile             String                             @db.VarChar(64)
+  manifestHash        String                             @map("manifest_hash") @db.Char(64)
+  baseStateHash       String                             @map("base_state_hash") @db.Char(64)
+  desiredStateHash    String                             @map("desired_state_hash") @db.Char(64)
+  planHash            String                             @map("plan_hash") @db.Char(64)
+  expectedEffectCount Int                                @map("expected_effect_count")
+  replacementUniverse Json                               @map("replacement_universe")
+  plan                Json
+  status              NativeVenueDeploymentReleaseStatus @default(DRAFT)
+  createdBy           String                             @map("created_by") @db.VarChar(191)
+  approvedBy          String?                            @map("approved_by") @db.VarChar(191)
+  approvedAt          DateTime?                          @map("approved_at")
+  approvedCommandId   String?                            @map("approved_command_id") @db.Uuid
+  approvedCommandHash String?                            @map("approved_command_hash") @db.Char(64)
+  appliedBy           String?                            @map("applied_by") @db.VarChar(191)
+  appliedAt           DateTime?                          @map("applied_at")
+  appliedCommandId    String?                            @map("applied_command_id") @db.Uuid
+  appliedCommandHash  String?                            @map("applied_command_hash") @db.Char(64)
+  revertedBy          String?                            @map("reverted_by") @db.VarChar(191)
+  revertedAt          DateTime?                          @map("reverted_at")
+  revertedCommandId   String?                            @map("reverted_command_id") @db.Uuid
+  revertedCommandHash String?                            @map("reverted_command_hash") @db.Char(64)
+  createdAt           DateTime                           @default(now()) @map("created_at")
+  updatedAt           DateTime                           @updatedAt @map("updated_at")
+  tenant              Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  artifact            NativeVenueDeploymentArtifact      @relation("NativeArtifactRelease", fields: [artifactId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  effects             NativeVenueDeploymentEffect[]
+  heads               NativeVenueDeploymentHead[]        @relation("NativeReleaseHead")
+  commands            NativeVenueDeploymentCommand[]
+
+  @@unique([id, tenantId, venueId])
+  @@unique([artifactId, tenantId, venueId])
+  @@unique([tenantId, approvedCommandId])
+  @@unique([tenantId, appliedCommandId])
+  @@unique([tenantId, revertedCommandId])
+  @@index([tenantId, venueId, status, createdAt])
+  @@map("native_venue_deployment_releases")
+}
+
+/// Append-only exact before/after evidence for one native apply effect.
+model NativeVenueDeploymentEffect {
+  id                  String                                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String                                    @map("tenant_id")
+  venueId             String                                    @map("venue_id")
+  releaseId           String                                    @map("release_id") @db.Uuid
+  effectOrder         Int                                       @map("effect_order")
+  kind                NativeVenueDeploymentEffectKind
+  targetId            String                                    @map("target_id") @db.VarChar(191)
+  beforeHash          String                                    @map("before_hash") @db.Char(64)
+  afterHash           String                                    @map("after_hash") @db.Char(64)
+  beforeState         Json                                      @map("before_state")
+  afterState          Json                                      @map("after_state")
+  createdAt           DateTime                                  @default(now()) @map("created_at")
+  tenant              Tenant                                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  release             NativeVenueDeploymentRelease              @relation(fields: [releaseId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  publicationLineages NativeVenueDeploymentPublicationLineage[]
+
+  @@unique([releaseId, effectOrder])
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, venueId, releaseId, effectOrder])
+  @@map("native_venue_deployment_effects")
+}
+
+model NativeVenueDeploymentPublicationLineage {
+  id            String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String                                @map("tenant_id")
+  venueId       String                                @map("venue_id")
+  effectId      String                                @map("effect_id") @db.Uuid
+  phase         NativeVenueDeploymentPublicationPhase
+  publicationId String                                @unique @map("publication_id")
+  requestId     String                                @map("request_id") @db.Uuid
+  createdAt     DateTime                              @default(now()) @map("created_at")
+  tenant        Tenant                                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue                                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  effect        NativeVenueDeploymentEffect           @relation(fields: [effectId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  publication   ContentModulePublication              @relation(fields: [publicationId, tenantId, venueId, requestId], references: [id, tenantId, venueId, requestId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([effectId, phase], map: "native_venue_publication_lineages_effect_phase_key")
+  @@unique([publicationId, tenantId, venueId, requestId], map: "native_venue_publication_lineages_publication_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "native_venue_publication_lineages_scope_idx")
+  @@map("native_venue_deployment_publication_lineages")
+}
+
+/// Exact mutable native deployment head. Legacy package application does not fabricate it.
+model NativeVenueDeploymentHead {
+  tenantId     String                        @map("tenant_id")
+  venueId      String                        @unique @map("venue_id")
+  releaseId    String                        @map("release_id") @db.Uuid
+  artifactId   String                        @map("artifact_id") @db.Uuid
+  manifestHash String                        @map("manifest_hash") @db.Char(64)
+  stateHash    String                        @map("state_hash") @db.Char(64)
+  revision     Int
+  updatedAt    DateTime                      @updatedAt @map("updated_at")
+  tenant       Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue        Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  release      NativeVenueDeploymentRelease  @relation("NativeReleaseHead", fields: [releaseId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  artifact     NativeVenueDeploymentArtifact @relation("NativeArtifactHead", fields: [artifactId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([tenantId, venueId])
+  @@unique([venueId, tenantId])
+  @@unique([releaseId, tenantId, venueId])
+  @@map("native_venue_deployment_heads")
+}
+
+/// Append-only replay evidence preserving the exact result produced by a
+/// lifecycle command even after a later command changes the release/head.
+model NativeVenueDeploymentCommand {
+  id               String                             @id @db.Uuid
+  tenantId         String                             @map("tenant_id")
+  venueId          String                             @map("venue_id")
+  releaseId        String                             @map("release_id") @db.Uuid
+  kind             NativeVenueDeploymentCommandKind
+  commandHash      String                             @map("command_hash") @db.Char(64)
+  actorId          String                             @map("actor_id") @db.VarChar(191)
+  producedStatus   NativeVenueDeploymentReleaseStatus @map("produced_status")
+  producedSnapshot Json                               @map("produced_snapshot")
+  createdAt        DateTime                           @default(now()) @map("created_at")
+  tenant           Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue            Venue                              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  release          NativeVenueDeploymentRelease       @relation(fields: [releaseId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, id], map: "native_venue_commands_scope_key")
+  @@index([tenantId, venueId, releaseId, createdAt], map: "native_venue_commands_release_idx")
+  @@map("native_venue_deployment_commands")
 }
 
 /// Durable at-most-once receipt for the provider-backed semantic scan that

@@ -96,6 +96,22 @@ Migration `20260812000800_add_venue_package_manifest_artifacts` remains unapplie
 schema validation and focused tests are not evidence that artifacts or linked drafts exist in a live
 database.
 
+For a native FULL deployment, use the separate `NATIVE_CORE_V1` panel. Confirm all seven coverage
+rows, bounded issues and impact counts, then use only the server-enabled action for the exact release
+version. This profile can replace the complete visible Venue configuration, active Places, enabled
+Knowledge and published PUBLIC generalized modules that it captures. ITEM, assets, capabilities,
+model references and evaluation are outside the profile and must remain explicitly empty/not
+required; do not interpret the native result as support for them.
+
+Approval records the reviewed native plan. Apply records exact ordered effects, publication lineage
+and the current native head. Revert is available only while that release is the exact current head;
+a later head, changed row, changed publication universe, or other drift requires a fresh read and
+must fail closed. Revert retires/restores visible state and appends inverse publication events rather
+than deleting history. The view intentionally omits raw manifests, plans, effect bodies, actors and
+digests. Migration `20260812001400_add_native_venue_deployments` is unapplied, so the local view and
+tests are not evidence of a live deployment, publication, asset pipeline, provider call, capability,
+model or evaluation gate.
+
 Guest previews may include callouts, actions, citations, choices, images, galleries, events, and
 locations as well as legacy text and place cards. Reject unknown block types. Image and map links
 must be HTTPS and must not contain credential- or secret-like parameters. A safely rendered block

@@ -71,6 +71,15 @@ export default async function PackageOperationsPage({
           Inspect exact stored evidence, create a reviewed DRAFT, and run separately authorized
           approval, apply, or revert actions against the selected immutable revision.
         </p>
+        <p className="mt-2 text-sm text-pf-deep/75">
+          This history contains compatibility packages only.{' '}
+          <Link
+            href={`/admin/clients/${tenantId}/venues/${venueId}/native-releases`}
+            className="font-semibold text-pf-primary underline"
+          >
+            Review native FULL releases separately.
+          </Link>
+        </p>
       </header>
 
       <ReviewedVenuePackageDraftForm tenantId={tenantId} venueId={venueId} />

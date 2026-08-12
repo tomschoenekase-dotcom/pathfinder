@@ -1,6 +1,6 @@
 # PathFinder Packet 2 implementation status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 Authoritative product target: `C:\Users\tomsc\Downloads\AwesomeVault\00 Inbox\2026-08-11 1430 Capture.md`.
 Packet 2 supersedes earlier feature packets and planning notes where they conflict. Earlier documents
@@ -222,6 +222,24 @@ Section-level evidence and blockers are indexed in
   The projection is not an immutable publication snapshot and is always `NOT_READY`: generalized
   content, immutable assets, capability truth, model references and readiness evidence remain
   explicitly omitted. It creates no package or database row and exposes no apply action.
+- A separate `NATIVE_CORE_V1` FULL path now losslessly projects, reviews and materializes only its
+  bounded visible-state profile: complete Venue configuration, active Places, enabled Knowledge and
+  published PUBLIC Service, Policy, Event, Operational Fact and Relationship revisions with exact
+  provenance/evidence. It requires ITEM, assets, capability/model references to be empty and uses an
+  explicit evaluation-not-required disposition; unsupported nonempty content fails closed. This
+  does not change generic FULL review artifacts from evidence-only `NOT_MATERIALIZABLE`.
+- Native lifecycle actions guard `DRAFT` -> `APPROVED` -> `APPLIED` -> `REVERTED` under Serializable
+  venue locking, UUID/hash replay and strict audit. Apply records exact ordered before/after effects,
+  generalized publication lineage and a current native head; revert verifies the exact applied
+  universe, effect/current-row state and head before restoring visible rows and appending one inverse
+  publication event per publication effect. Drift fails atomically, legacy V1-V3 remains unchanged,
+  and no destructive history rewrite occurs.
+- Platform-admin routes and the Internal Workspace native review surface expose bounded seven-part
+  coverage, safe issues/impact/effect summaries, lifecycle milestones and authoritative action gates.
+  Revert is enabled only for the exact current head. Raw manifests, plans, effect states, actors,
+  hashes and publication lineage are excluded from the UI DTO. Forward-only migration
+  `20260812001400_add_native_venue_deployments` remains unapplied and unrehearsed; no live database,
+  browser, asset, provider, capability, model or evaluation evidence is claimed.
 - Internal Workspace now also has a bounded Venue Package history/detail and deliberate lifecycle
   surface. It revalidates the stored payload schema and venue-bound canonical hash, plus preview
   schema, payload/base/warning digests and validation-report identity before displaying evidence. A
@@ -476,14 +494,17 @@ Section-level evidence and blockers are indexed in
   Disabled external credential operation migration
   `20260812001300_add_external_credential_operations` is also unapplied and unrehearsed, performs no
   legacy operation-evidence backfill, and is not proof of a live credential or authentication path.
+  Native deployment migration `20260812001400_add_native_venue_deployments` is likewise unapplied
+  and unrehearsed, performs no backfill, and is not proof that native releases or effects exist in a
+  live database.
 
 ## Required program work not yet proven complete
 
 - Remaining Internal Client Workspace deep capability views and domain-action adapters.
 - Intake adapters beyond website and text-only staff interviews, plus live extraction and
   end-to-end reviewed onboarding beyond the bounded reviewed-DRAFT handoff boundary.
-- Lossless V2-native FULL materialization and native apply/revert semantics beyond the bounded
-  immutable review artifact and supported PATCH-to-compatibility-DRAFT bridge.
+- Native materialization beyond the bounded `NATIVE_CORE_V1` visible profile, including ITEM,
+  assets, capability/model references, evaluation gates, and any provider/live deployment work.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
 - Support workflow beyond verified participant management, manual prompting/response/completion,
