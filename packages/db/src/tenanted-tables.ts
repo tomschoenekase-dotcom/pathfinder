@@ -77,6 +77,8 @@ export const PLATFORM_TABLES = [
   'ClerkWebhookReceipt',
   'AiWorkloadConfigurationOverride',
   'AiWorkloadConfigurationHistory',
+  'ClientCreateIntent',
+  'ClientCreateIntentEvent',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and

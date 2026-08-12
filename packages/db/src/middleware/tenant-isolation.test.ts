@@ -157,6 +157,8 @@ describe('tenantIsolationMiddleware', () => {
       'ClerkWebhookReceipt',
       'AiWorkloadConfigurationOverride',
       'AiWorkloadConfigurationHistory',
+      'ClientCreateIntent',
+      'ClientCreateIntentEvent',
     ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual(['AuditLog', 'JobRecord'])
   })
@@ -205,6 +207,7 @@ describe('tenantIsolationMiddleware', () => {
       'IntakePackageHandoff',
       'AiScopedWorkloadConfigurationHistory',
       'AiWorkloadConfigurationHistory',
+      'ClientCreateIntentEvent',
     ].flatMap((model) =>
       ['update', 'updateMany', 'upsert', 'delete', 'deleteMany'].map((action) => [model, action]),
     ),

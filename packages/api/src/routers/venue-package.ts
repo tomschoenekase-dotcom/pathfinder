@@ -8,11 +8,15 @@ import {
   TONE_PRESET_TO_LEGACY_AI_TONE,
 } from '@pathfinder/contracts/tone-presets'
 import {
+  approveVenuePackageAction,
+  applyVenuePackageAction,
   getVenuePackageSemanticCoverage,
   assertVenueAiAvailable,
   lockVenueContentMutation,
   setContentVersionContext,
+  revertVenuePackageAction,
   type ContentVersionSourceProvenance,
+  VenuePackageLifecycleError,
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
@@ -120,6 +124,20 @@ const venuePackageSelect = {
 
 function conflict(message = 'Venue package changed; refresh and review it again'): never {
   throw new TRPCError({ code: 'CONFLICT', message })
+}
+
+function mapLifecycleError(error: unknown): never {
+  if (!(error instanceof VenuePackageLifecycleError)) throw error
+  throw new TRPCError({
+    code:
+      error.code === 'NOT_FOUND'
+        ? 'NOT_FOUND'
+        : error.code === 'CONFLICT'
+          ? 'CONFLICT'
+          : 'BAD_REQUEST',
+    message: error.message,
+    cause: error,
+  })
 }
 
 function digest(value: unknown): string {
@@ -1066,6 +1084,62 @@ function auditState(pkg: NonNullable<Awaited<ReturnType<typeof findPackage>>>) {
     revertedAt: pkg.revertedAt?.toISOString() ?? null,
     createdAt: pkg.createdAt.toISOString(),
     updatedAt: pkg.updatedAt.toISOString(),
+  }
+}
+
+async function finalizePackageApply(input: {
+  db: DbClient
+  tenantId: string
+  id: string
+  expectedUpdatedAt: Date
+  commandKey: string
+  actorId: string
+  appliedEntities: object
+}) {
+  try {
+    return await applyVenuePackageAction(
+      {
+        tenantId: input.tenantId,
+        id: input.id,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+        commandKey: input.commandKey,
+        actor: { type: 'HUMAN', id: input.actorId, role: 'OWNER' },
+        load: (tx, scope) => findPackage(tx as DbClient, scope.tenantId, scope.id),
+        validate: async () => undefined,
+        execute: async () => ({ appliedEntities: jsonValue(input.appliedEntities) }),
+        auditState,
+      },
+      input.db,
+    )
+  } catch (error) {
+    mapLifecycleError(error)
+  }
+}
+
+async function finalizePackageRevert(input: {
+  db: DbClient
+  tenantId: string
+  id: string
+  expectedUpdatedAt: Date
+  commandKey: string
+  actorId: string
+}) {
+  try {
+    return await revertVenuePackageAction(
+      {
+        tenantId: input.tenantId,
+        id: input.id,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+        commandKey: input.commandKey,
+        actor: { type: 'HUMAN', id: input.actorId, role: 'OWNER' },
+        load: (tx, scope) => findPackage(tx as DbClient, scope.tenantId, scope.id),
+        validate: async () => undefined,
+        auditState,
+      },
+      input.db,
+    )
+  } catch (error) {
+    mapLifecycleError(error)
   }
 }
 
@@ -2229,81 +2303,70 @@ export const venuePackageRouter = router({
 
   approve: tenantProcedure
     .use(requireRole('OWNER'))
-    .use(withContentVersionActor)
     .input(VenuePackageApprovalInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-      let existing = await findPackage(ctx.db, tenantId, input.id)
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: existing.venueId })
-      existing = await findPackage(ctx.db, tenantId, input.id)
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
-      if (existing.status !== 'DRAFT') {
-        if (existing.approvedCommandKey === input.commandKey) return existing
-        conflict('Only a draft venue package can be approved')
+      let evidence: ReturnType<typeof parseStoredPreview> | undefined
+      try {
+        return await approveVenuePackageAction(
+          {
+            tenantId,
+            id: input.id,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+            commandKey: input.commandKey,
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'OWNER' },
+            load: (tx, scope) => findPackage(tx as DbClient, scope.tenantId, scope.id),
+            auditState,
+            validate: async (tx, existing) => {
+              const payload = parsePayload(existing.payload, existing.schemaVersion)
+              const deterministic = await buildPreview(
+                tx as DbClient,
+                tenantId,
+                existing.venueId,
+                payload,
+              )
+              evidence = parseStoredPreview(existing)
+              assertStoredEvidenceCurrent({ stored: evidence, deterministic })
+              if (
+                evidence.report.errors.length > 0 ||
+                evidence.report.semanticDuplicateScan.status !== 'COMPLETE'
+              ) {
+                throw new TRPCError({
+                  code: 'PRECONDITION_FAILED',
+                  message:
+                    'This draft does not contain a complete semantic scan; save a new draft.',
+                })
+              }
+              if (evidence.payloadHash !== input.acknowledgedPayloadHash) {
+                throw new TRPCError({
+                  code: 'BAD_REQUEST',
+                  message:
+                    'The acknowledged venue-package payload does not match this immutable draft',
+                })
+              }
+              if (evidence.warningDigest !== input.acknowledgedWarningDigest) {
+                throw new TRPCError({
+                  code: 'BAD_REQUEST',
+                  message:
+                    'Review and acknowledge the current venue-package warnings before approval',
+                })
+              }
+            },
+            execute: async () => {
+              if (!evidence) conflict('Venue-package approval evidence was not retained')
+              return {
+                approvalWarningDigest: evidence.warningDigest,
+                approvedWarningCodes: jsonValue(
+                  [...new Set(evidence.report.warnings.map((warning) => warning.code))].sort(),
+                ),
+              }
+            },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapLifecycleError(error)
       }
-      const payload = parsePayload(existing.payload, existing.schemaVersion)
-      const deterministic = await buildPreview(ctx.db, tenantId, existing.venueId, payload)
-      const stored = parseStoredPreview(existing)
-      assertStoredEvidenceCurrent({ stored, deterministic })
-      if (
-        stored.report.errors.length > 0 ||
-        stored.report.semanticDuplicateScan.status !== 'COMPLETE'
-      ) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This draft does not contain a complete semantic scan; save a new draft.',
-        })
-      }
-      if (stored.payloadHash !== input.acknowledgedPayloadHash) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'The acknowledged venue-package payload does not match this immutable draft',
-        })
-      }
-      if (stored.warningDigest !== input.acknowledgedWarningDigest) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Review and acknowledge the current venue-package warnings before approval',
-        })
-      }
-
-      const now = new Date()
-      const changed = await ctx.db.venuePackage.updateMany({
-        where: {
-          id: input.id,
-          tenantId,
-          status: 'DRAFT',
-          updatedAt: input.expectedUpdatedAt,
-        },
-        data: {
-          status: 'APPROVED',
-          approvedBy: ctx.session.userId,
-          approvedAt: now,
-          approvedCommandKey: input.commandKey,
-          approvalWarningDigest: stored.warningDigest,
-          approvedWarningCodes: jsonValue(
-            [...new Set(stored.report.warnings.map((warning) => warning.code))].sort(),
-          ),
-        },
-      })
-      if (changed.count !== 1) conflict()
-      const approved = await findPackage(ctx.db, tenantId, input.id)
-      if (!approved) conflict()
-      await writeAuditLogStrict(
-        {
-          tenantId,
-          actorId: ctx.session.userId,
-          actorRole: ctx.session.role ?? 'MANAGER',
-          action: 'venue-package.approved',
-          targetType: 'VenuePackage',
-          targetId: input.id,
-          beforeState: auditState(existing),
-          afterState: auditState(approved),
-        },
-        ctx.db,
-      )
-      return approved
     }),
 
   applyPackage: tenantProcedure
@@ -2362,39 +2425,15 @@ export const venuePackageRouter = router({
             postApplyDigest,
             effects,
           })
-          const now = new Date()
-          const changed = await ctx.db.venuePackage.updateMany({
-            where: {
-              id: input.id,
-              tenantId,
-              status: 'APPROVED',
-              updatedAt: input.expectedUpdatedAt,
-            },
-            data: {
-              status: 'APPLIED',
-              appliedBy: ctx.session.userId,
-              appliedAt: now,
-              appliedCommandKey: input.commandKey,
-              appliedEntities: jsonValue(appliedEntities),
-            },
+          return finalizePackageApply({
+            db: ctx.db,
+            tenantId,
+            id: input.id,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+            commandKey: input.commandKey,
+            actorId: ctx.session.userId,
+            appliedEntities,
           })
-          if (changed.count !== 1) conflict()
-          const applied = await findPackage(ctx.db, tenantId, input.id)
-          if (!applied) conflict()
-          await writeAuditLogStrict(
-            {
-              tenantId,
-              actorId: ctx.session.userId,
-              actorRole: ctx.session.role ?? 'MANAGER',
-              action: 'venue-package.applied',
-              targetType: 'VenuePackage',
-              targetId: input.id,
-              beforeState: auditState(existing),
-              afterState: auditState(applied),
-            },
-            ctx.db,
-          )
-          return applied
         }
         let appliedVenue: VenuePackageAppliedEntitiesV2['venue'] = null
         if (payload.schemaVersion === 2) {
@@ -2484,39 +2523,15 @@ export const venuePackageRouter = router({
                 places,
                 knowledgeEntries,
               })
-        const now = new Date()
-        const changed = await ctx.db.venuePackage.updateMany({
-          where: {
-            id: input.id,
-            tenantId,
-            status: 'APPROVED',
-            updatedAt: input.expectedUpdatedAt,
-          },
-          data: {
-            status: 'APPLIED',
-            appliedBy: ctx.session.userId,
-            appliedAt: now,
-            appliedCommandKey: input.commandKey,
-            appliedEntities: jsonValue(appliedEntities),
-          },
+        return finalizePackageApply({
+          db: ctx.db,
+          tenantId,
+          id: input.id,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          commandKey: input.commandKey,
+          actorId: ctx.session.userId,
+          appliedEntities,
         })
-        if (changed.count !== 1) conflict()
-        const applied = await findPackage(ctx.db, tenantId, input.id)
-        if (!applied) conflict()
-        await writeAuditLogStrict(
-          {
-            tenantId,
-            actorId: ctx.session.userId,
-            actorRole: ctx.session.role ?? 'MANAGER',
-            action: 'venue-package.applied',
-            targetType: 'VenuePackage',
-            targetId: input.id,
-            beforeState: auditState(existing),
-            afterState: auditState(applied),
-          },
-          ctx.db,
-        )
-        return applied
       } catch (error) {
         if (
           error instanceof TRPCError ||
@@ -2585,38 +2600,14 @@ export const venuePackageRouter = router({
           }
           throw error
         }
-        const now = new Date()
-        const changed = await ctx.db.venuePackage.updateMany({
-          where: {
-            id: input.id,
-            tenantId,
-            status: 'APPLIED',
-            updatedAt: input.expectedUpdatedAt,
-          },
-          data: {
-            status: 'REVERTED',
-            revertedBy: ctx.session.userId,
-            revertedAt: now,
-            revertedCommandKey: input.commandKey,
-          },
+        return finalizePackageRevert({
+          db: ctx.db,
+          tenantId,
+          id: input.id,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          commandKey: input.commandKey,
+          actorId: ctx.session.userId,
         })
-        if (changed.count !== 1) conflict()
-        const reverted = await findPackage(ctx.db, tenantId, input.id)
-        if (!reverted) conflict()
-        await writeAuditLogStrict(
-          {
-            tenantId,
-            actorId: ctx.session.userId,
-            actorRole: ctx.session.role ?? 'MANAGER',
-            action: 'venue-package.reverted',
-            targetType: 'VenuePackage',
-            targetId: input.id,
-            beforeState: auditState(existing),
-            afterState: auditState(reverted),
-          },
-          ctx.db,
-        )
-        return reverted
       }
       if ('rollbackContractVersion' in manifest) {
         conflict('Venue package rollback manifest version is inconsistent')
@@ -2680,37 +2671,13 @@ export const venuePackageRouter = router({
         conflict('Venue package rollback did not restore the approved base state')
       }
 
-      const now = new Date()
-      const changed = await ctx.db.venuePackage.updateMany({
-        where: {
-          id: input.id,
-          tenantId,
-          status: 'APPLIED',
-          updatedAt: input.expectedUpdatedAt,
-        },
-        data: {
-          status: 'REVERTED',
-          revertedBy: ctx.session.userId,
-          revertedAt: now,
-          revertedCommandKey: input.commandKey,
-        },
+      return finalizePackageRevert({
+        db: ctx.db,
+        tenantId,
+        id: input.id,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+        commandKey: input.commandKey,
+        actorId: ctx.session.userId,
       })
-      if (changed.count !== 1) conflict()
-      const reverted = await findPackage(ctx.db, tenantId, input.id)
-      if (!reverted) conflict()
-      await writeAuditLogStrict(
-        {
-          tenantId,
-          actorId: ctx.session.userId,
-          actorRole: ctx.session.role ?? 'MANAGER',
-          action: 'venue-package.reverted',
-          targetType: 'VenuePackage',
-          targetId: input.id,
-          beforeState: auditState(existing),
-          afterState: auditState(reverted),
-        },
-        ctx.db,
-      )
-      return reverted
     }),
 })

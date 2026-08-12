@@ -65,6 +65,18 @@ Section-level evidence and blockers are indexed in
   locking, optimistic `updatedAt` CAS, bounded overlapping published updates, valid time windows,
   transactional strict audit, and a truthful guest-visibility preview. These local actions do not
   prove that production schedulers or expiry behavior are running.
+- VenuePackage approve/apply/revert lifecycle authority now lives in one neutral OWNER-only action
+  with exact tenant/venue/package scope, venue locking, command-key replay and collision handling,
+  status/`updatedAt` CAS, content-version context, and strict sanitized transactional audit. Existing
+  V1/V2/V3 effect and rollback orchestration remains unchanged in the compatibility router.
+- Weekly-report configuration, draft edit, and publish now use neutral HUMAN platform-admin actions
+  with exact scope, locks, CAS, legal DRAFT transitions, default-off configuration, and strict audit.
+  Generation rejects inverted week ranges before durable work and retains existing post-commit
+  dispatch behavior.
+- Client/account create and metadata changes use canonical actions. Provider-backed creation is
+  fenced by a durable pre-Clerk request intent and append-only lifecycle evidence; ambiguous outcomes
+  cannot auto-retry and require verified organization/owner/email reconciliation. Client status,
+  plan, and local payment-due metadata use exact CAS and never charge a payment method.
 - Shared intake contracts for every packet source type, bounded draft-only website intake,
   evidence/discrepancy records, and the complete orchestration stage sequence.
 - Server-side website adapter with exact-host allowlists, credentialed-URL rejection, DNS/IP and
@@ -253,7 +265,7 @@ Section-level evidence and blockers are indexed in
   onboarding beyond the bounded existing-DRAFT lineage bridge.
 - Venue Deployment Manifest v2-native persistence/apply semantics beyond the bounded conversion into
   existing preview/draft inputs.
-- Broader canonical domain action coverage for remaining package, media, report, and account
+- Broader canonical domain action coverage for remaining media and secondary account/workspace
   mutations, so every UI, worker, API, MCP, and agent mutation shares the same services.
 - Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
   including any later automated validation/evaluation, approval, apply or agent orchestration.

@@ -41,6 +41,7 @@ const harness = vi.hoisted(() => {
 
 type LegacyHarnessTx = {
   venue: { findFirst: (args: unknown) => unknown }
+  venuePackage: { findFirst: (args: unknown) => unknown }
   place: { findFirst: (args: unknown) => unknown }
   venueKnowledgeEntry: { findFirst: (args: unknown) => unknown }
 }
@@ -52,6 +53,31 @@ type LegacyHarnessClient = {
 vi.mock('@pathfinder/db', async () => {
   const { z } = await import('zod')
   return {
+    VenuePackageLifecycleError: class VenuePackageLifecycleError extends Error {},
+    approveVenuePackageAction: vi.fn(
+      (input: { tenantId: string; packageId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venuePackage.findFirst({
+            where: { id: input.packageId, tenantId: input.tenantId },
+          }),
+        ),
+    ),
+    applyVenuePackageAction: vi.fn(
+      (input: { tenantId: string; packageId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venuePackage.findFirst({
+            where: { id: input.packageId, tenantId: input.tenantId },
+          }),
+        ),
+    ),
+    revertVenuePackageAction: vi.fn(
+      (input: { tenantId: string; packageId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venuePackage.findFirst({
+            where: { id: input.packageId, tenantId: input.tenantId },
+          }),
+        ),
+    ),
     VenueActionError: class VenueActionError extends Error {},
     createVenueAction: vi.fn(
       (input: { tenantId: string; baseSlug: string }, client: LegacyHarnessClient) =>

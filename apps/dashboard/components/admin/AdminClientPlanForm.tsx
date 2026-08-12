@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -8,6 +8,7 @@ import { useTRPCClient } from '../../lib/trpc'
 type AdminClientPlanFormProps = {
   tenantId: string
   currentPlanTier: string
+  expectedUpdatedAt: string
 }
 
 function getErrorMessage(error: unknown) {
@@ -18,26 +19,34 @@ function getErrorMessage(error: unknown) {
   return 'Something went wrong. Please try again.'
 }
 
-export function AdminClientPlanForm({ tenantId, currentPlanTier }: AdminClientPlanFormProps) {
+export function AdminClientPlanForm({
+  tenantId,
+  currentPlanTier,
+  expectedUpdatedAt,
+}: AdminClientPlanFormProps) {
   const router = useRouter()
   const client = useTRPCClient()
 
   const [pendingPlan, setPendingPlan] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const mutationInFlightRef = useRef(false)
 
   async function handlePlanChange(planTier: 'free' | 'pro' | 'enterprise') {
+    if (mutationInFlightRef.current) return
+    mutationInFlightRef.current = true
     setPendingPlan(planTier)
     setMessage(null)
     setErrorMessage(null)
 
     try {
-      await client.admin.updateClientPlanTier.mutate({ tenantId, planTier })
+      await client.admin.updateClientPlanTier.mutate({ tenantId, planTier, expectedUpdatedAt })
       setMessage(`Plan updated to ${planTier}.`)
       router.refresh()
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     } finally {
+      mutationInFlightRef.current = false
       setPendingPlan(null)
     }
   }

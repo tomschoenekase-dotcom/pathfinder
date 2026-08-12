@@ -74,6 +74,7 @@ const expectedAdminProcedures = [
   'previewOffboardingExportManifest',
   'previewUniversalContent',
   'publishWeeklyReport',
+  'reconcileClientAndVenue',
   'recordApprovalDecision',
   'requestEvaluationRun',
   'resetAiCostBudgetWindow',

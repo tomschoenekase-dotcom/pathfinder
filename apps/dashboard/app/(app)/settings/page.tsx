@@ -96,11 +96,13 @@ function PaymentDateEditor({
   client,
   tenantId,
   currentDate,
+  expectedUpdatedAt,
   onUpdated,
 }: {
   client: DashboardTRPCClient
   tenantId: string
   currentDate: Date | null
+  expectedUpdatedAt: Date
   onUpdated: () => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
@@ -119,7 +121,11 @@ function PaymentDateEditor({
     setError(null)
 
     try {
-      await client.admin.setTenantPaymentDue.mutate({ tenantId, nextPaymentDue })
+      await client.admin.setTenantPaymentDue.mutate({
+        tenantId,
+        nextPaymentDue,
+        expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+      })
       await onUpdated()
       setEditing(false)
     } catch (err) {
@@ -463,6 +469,7 @@ export default function SettingsPage() {
                       client={client}
                       tenantId={data.tenant.id}
                       currentDate={data.tenant.nextPaymentDue ?? null}
+                      expectedUpdatedAt={data.tenant.updatedAt}
                       onUpdated={loadSettings}
                     />
                   ) : (

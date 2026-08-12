@@ -33,6 +33,46 @@ model ClerkWebhookReceipt {
   @@map("clerk_webhook_receipts")
 }
 
+enum ClientCreateIntentStatus {
+  RESERVED
+  PROVIDER_STARTED
+  PROVIDER_CONFIRMED
+  COMPLETED
+}
+
+/// Durable pre-provider fence for platform-admin client creation. The request
+/// hash binds caller-supplied setup without storing that setup or credentials.
+model ClientCreateIntent {
+  id                     String                   @id @default(cuid())
+  requestId              String                   @unique @map("request_id") @db.Uuid
+  requestHash            String                   @map("request_hash") @db.Char(64)
+  actorId                String                   @map("actor_id")
+  localSlug              String?                  @map("local_slug")
+  status                 ClientCreateIntentStatus @default(RESERVED)
+  providerOrganizationId String?                  @unique @map("provider_organization_id")
+  completedTenantId      String?                  @unique @map("completed_tenant_id")
+  completedVenueId       String?                  @map("completed_venue_id")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  events                 ClientCreateIntentEvent[]
+
+  @@index([status, updatedAt])
+  @@map("client_create_intents")
+}
+
+/// Append-only, sanitized lifecycle evidence for a client-create intent.
+model ClientCreateIntentEvent {
+  id        String                   @id @default(cuid())
+  intentId  String                   @map("intent_id")
+  status    ClientCreateIntentStatus
+  actorId   String                   @map("actor_id")
+  createdAt DateTime                 @default(now()) @map("created_at")
+  intent    ClientCreateIntent       @relation(fields: [intentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([intentId, createdAt])
+  @@map("client_create_intent_events")
+}
+
 model Tenant {
   id                            String                                  @id
   name                          String

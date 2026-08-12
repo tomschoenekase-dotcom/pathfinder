@@ -4,7 +4,14 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
 import { logger } from '@pathfinder/config/logger'
-import { db, lockVenueReportMutation, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  db,
+  lockVenueReportMutation,
+  publishWeeklyReportAction,
+  updateWeeklyReportDraftAction,
+  WeeklyReportActionError,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 import { enqueueGenerationDispatchKick } from '@pathfinder/jobs'
 
 import { router } from '../../core'
@@ -15,6 +22,26 @@ import {
 import { findVenueReportConfiguration } from '../../lib/venue-report-configuration'
 import { adminAiProcedure, adminProcedure } from '../../trpc'
 import { isUniqueConstraintError } from './helpers'
+
+function reportActor(userId: string) {
+  return { type: 'HUMAN' as const, id: userId, role: 'PLATFORM_ADMIN' as const }
+}
+
+function mapWeeklyReportActionError(error: unknown): never {
+  if (!(error instanceof WeeklyReportActionError)) throw error
+  throw new TRPCError({
+    code:
+      error.code === 'NOT_FOUND'
+        ? 'NOT_FOUND'
+        : error.code === 'CONFLICT'
+          ? 'CONFLICT'
+          : error.code === 'PRECONDITION_FAILED'
+            ? 'PRECONDITION_FAILED'
+            : 'BAD_REQUEST',
+    message: error.message,
+    cause: error,
+  })
+}
 
 export const adminWeeklyReportsRouter = router({
   generateWeeklyReportDraft: adminAiProcedure
@@ -31,6 +58,12 @@ export const adminWeeklyReportsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const weekStart = new Date(input.weekStart)
       const weekEnd = new Date(input.weekEnd)
+      if (weekStart.getTime() > weekEnd.getTime()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Report week start must be on or before week end.',
+        })
+      }
 
       const title = effectiveWeeklyReportTitle(input.title)
       const requestHash = generationRequestHash({
@@ -224,73 +257,24 @@ export const adminWeeklyReportsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      return withTenantIsolationBypass(() =>
-        db.$transaction(async (transaction) => {
-          await lockVenueReportMutation(transaction, input)
-          const existing = await transaction.weeklyReport.findFirst({
-            where: {
-              id: input.reportId,
+      try {
+        return await withTenantIsolationBypass(() =>
+          updateWeeklyReportDraftAction(
+            {
               tenantId: input.tenantId,
               venueId: input.venueId,
-            },
-            select: { status: true, updatedAt: true },
-          })
-          if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
-          if (existing.status !== 'DRAFT') {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Only a draft report can be edited.',
-            })
-          }
-
-          const expectedUpdatedAt = new Date(input.expectedUpdatedAt)
-          if (existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'This report was edited elsewhere. Reload it before saving again.',
-            })
-          }
-
-          // Make each successful draft-save token strictly newer than the token it consumed,
-          // even when two operations fall in the same clock millisecond.
-          const nextUpdatedAt = new Date(Math.max(Date.now(), expectedUpdatedAt.getTime() + 1))
-          const updated = await transaction.weeklyReport.updateMany({
-            where: {
-              id: input.reportId,
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              status: 'DRAFT',
-              updatedAt: expectedUpdatedAt,
-            },
-            data: {
-              content: input.content,
-              updatedAt: nextUpdatedAt,
+              reportId: input.reportId,
+              expectedUpdatedAt: new Date(input.expectedUpdatedAt),
               ...(input.title !== undefined ? { title: input.title } : {}),
+              content: input.content,
+              actor: reportActor(ctx.session.userId),
             },
-          })
-          if (updated.count !== 1) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'Report state changed before the draft could be saved.',
-            })
-          }
-
-          await transaction.auditLog.create({
-            data: {
-              tenantId: input.tenantId,
-              actorId: ctx.session.userId,
-              actorRole: 'PLATFORM_ADMIN',
-              action: 'admin.report.edited',
-              targetType: 'WeeklyReport',
-              targetId: input.reportId,
-              beforeState: { status: existing.status, updatedAt: existing.updatedAt.toISOString() },
-              afterState: { status: 'DRAFT', updatedAt: nextUpdatedAt.toISOString() },
-            },
-          })
-
-          return { ok: true, updatedAt: nextUpdatedAt.toISOString() }
-        }),
-      )
+            db,
+          ),
+        )
+      } catch (error) {
+        mapWeeklyReportActionError(error)
+      }
     }),
 
   publishWeeklyReport: adminProcedure
@@ -305,83 +289,21 @@ export const adminWeeklyReportsRouter = router({
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      return withTenantIsolationBypass(() =>
-        db.$transaction(async (transaction) => {
-          await lockVenueReportMutation(transaction, input)
-          const configuration = await findVenueReportConfiguration(
-            transaction,
-            input.tenantId,
-            input.venueId,
-          )
-          if (configuration?.enabled !== true) {
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: 'Weekly reports are disabled for this venue.',
-            })
-          }
-
-          const existing = await transaction.weeklyReport.findFirst({
-            where: {
-              id: input.reportId,
+      try {
+        return await withTenantIsolationBypass(() =>
+          publishWeeklyReportAction(
+            {
               tenantId: input.tenantId,
               venueId: input.venueId,
+              reportId: input.reportId,
+              expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+              actor: reportActor(ctx.session.userId),
             },
-            select: { status: true, content: true, updatedAt: true },
-          })
-          if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
-          if (existing.status !== 'DRAFT') {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Only a draft report can be published.',
-            })
-          }
-          if (!existing.content) {
-            throw new TRPCError({
-              code: 'BAD_REQUEST',
-              message: 'Report has no content to publish.',
-            })
-          }
-
-          const expectedUpdatedAt = new Date(input.expectedUpdatedAt)
-          if (existing.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'This report changed after review. Reload it before publishing.',
-            })
-          }
-          const publishedAt = new Date()
-          const updated = await transaction.weeklyReport.updateMany({
-            where: {
-              id: input.reportId,
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              status: 'DRAFT',
-              updatedAt: expectedUpdatedAt,
-            },
-            data: { status: 'PUBLISHED', publishedAt },
-          })
-          if (updated.count !== 1) {
-            throw new TRPCError({
-              code: 'CONFLICT',
-              message: 'Report state changed before it could be published.',
-            })
-          }
-
-          await transaction.auditLog.create({
-            data: {
-              tenantId: input.tenantId,
-              actorId: ctx.session.userId,
-              actorRole: 'PLATFORM_ADMIN',
-              action: 'admin.report.published',
-              targetType: 'WeeklyReport',
-              targetId: input.reportId,
-              beforeState: { status: existing.status, updatedAt: existing.updatedAt.toISOString() },
-              afterState: { status: 'PUBLISHED', publishedAt: publishedAt.toISOString() },
-            },
-          })
-
-          return { ok: true }
-        }),
-      )
+            db,
+          ),
+        )
+      } catch (error) {
+        mapWeeklyReportActionError(error)
+      }
     }),
 })

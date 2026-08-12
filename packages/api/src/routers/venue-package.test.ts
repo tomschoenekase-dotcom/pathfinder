@@ -36,7 +36,8 @@ vi.mock('@pathfinder/ai', () => ({
   }),
 }))
 
-vi.mock('@pathfinder/db', () => ({
+vi.mock('@pathfinder/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/db')>()),
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
   buildKnowledgeEntryText: vi.fn((entry) => `${entry.title}\n${entry.content}`),
   buildPlaceText: vi.fn((place) => place.name),
@@ -93,6 +94,7 @@ const auditLogCreate = vi.fn()
 
 const mockDb = {
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(mockDb)),
+  $executeRaw: vi.fn(async () => 1),
   venue: { findFirst: venueFindFirst, updateMany: venueUpdateMany },
   place: {
     findMany: placeFindMany,
@@ -698,6 +700,8 @@ describe('venue package router', () => {
     packageFindFirst
       .mockResolvedValueOnce(approved)
       .mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce(approved)
       .mockResolvedValueOnce(applied)
     knowledgeFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([created])
     knowledgeCreateManyAndReturn.mockResolvedValueOnce([created])
@@ -720,10 +724,9 @@ describe('venue package router', () => {
         }),
       }),
     )
-    expect(writeAuditLogStrict).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'venue-package.applied' }),
-      mockDb,
-    )
+    expect(auditLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'venue-package.applied' }),
+    })
   })
 
   it('applies only changed supplied V2 venue fields and records an exact before/after manifest', async () => {
@@ -757,6 +760,8 @@ describe('venue package router', () => {
       appliedEntities,
     }
     packageFindFirst
+      .mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce(approved)
       .mockResolvedValueOnce(approved)
       .mockResolvedValueOnce(approved)
       .mockResolvedValueOnce(applied)
@@ -832,6 +837,8 @@ describe('venue package router', () => {
       revertedCommandKey: commandKey,
     }
     packageFindFirst
+      .mockResolvedValueOnce(appliedPackage)
+      .mockResolvedValueOnce(appliedPackage)
       .mockResolvedValueOnce(appliedPackage)
       .mockResolvedValueOnce(appliedPackage)
       .mockResolvedValueOnce(reverted)

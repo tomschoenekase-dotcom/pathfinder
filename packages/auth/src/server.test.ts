@@ -30,7 +30,7 @@ describe('validateExistingOrganizationOwner', () => {
       organizations: { getOrganization, getOrganizationMembershipList },
       users: { getUser },
     })
-    getOrganization.mockResolvedValue({ id: 'org_1' })
+    getOrganization.mockResolvedValue({ id: 'org_1', name: 'Organization One', slug: 'org-one' })
     getUser.mockResolvedValue({
       id: 'user_1',
       primaryEmailAddressId: 'email_primary',
@@ -52,6 +52,8 @@ describe('validateExistingOrganizationOwner', () => {
   it('returns exact Clerk identity and canonical primary email for an admin member', async () => {
     await expect(validateExistingOrganizationOwner(input)).resolves.toEqual({
       organizationId: 'org_1',
+      organizationName: 'Organization One',
+      organizationSlug: 'org-one',
       userId: 'user_1',
       emailAddress: 'Owner@Example.com',
     })

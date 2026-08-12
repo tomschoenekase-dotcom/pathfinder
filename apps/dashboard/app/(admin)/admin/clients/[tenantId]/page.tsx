@@ -193,7 +193,11 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
             </summary>
             <p className="mt-2 text-sm text-pf-deep/55">Current state: {tenant.status}</p>
             <div className="mt-4">
-              <AdminClientStatusForm tenantId={tenant.id} currentStatus={tenant.status} />
+              <AdminClientStatusForm
+                tenantId={tenant.id}
+                currentStatus={tenant.status}
+                expectedUpdatedAt={tenant.updatedAt.toISOString()}
+              />
             </div>
           </details>
           <details className="rounded-2xl border border-pf-light bg-pf-white p-5">
@@ -201,7 +205,11 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
               Plan & reporting
             </summary>
             <div className="mt-4 space-y-5">
-              <AdminClientPlanForm tenantId={tenant.id} currentPlanTier={tenant.planTier} />
+              <AdminClientPlanForm
+                tenantId={tenant.id}
+                currentPlanTier={tenant.planTier}
+                expectedUpdatedAt={tenant.updatedAt.toISOString()}
+              />
               <div className="border-t border-pf-light pt-4">
                 <p className="mb-3 text-sm text-pf-deep/55">
                   Queue this week&apos;s client digest manually.

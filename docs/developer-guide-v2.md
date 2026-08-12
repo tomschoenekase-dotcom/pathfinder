@@ -63,6 +63,16 @@ content relies exclusively on the durable embedding-dispatch trigger/outbox; nev
 direct queue enqueue. The destructive venue-delete helper requires a HUMAN `OWNER` before opening a
 transaction, even when its current transport adapter already enforces the same role.
 
+VenuePackage lifecycle transition authority is neutral and shared: HUMAN `OWNER`, exact
+tenant/venue/package, venue lock, command replay/collision, CAS, content-version context, and strict
+audit. The compatibility router still owns V1/V2/V3 effect orchestration inside the same outer
+transaction; do not split effects from final transition or replace legacy rollback with V3 rules.
+Weekly-report configuration/edit/publish actions are similarly neutral, but generation dispatch is
+an orchestration concern and must reject an inverted range before any transaction. Client creation
+uses a durable pre-provider intent: commit `PROVIDER_STARTED` before Clerk I/O, block ambiguous retry,
+and reconcile only after revalidating the exact organization, owner-equivalent membership, and email.
+The intent/event migration enforces its state machine and append-only evidence; it remains unapplied.
+
 ## Adding an intake adapter
 
 Implement the adapter interface in `@pathfinder/intake-engine`. Bound time, size, count, evidence,
@@ -154,3 +164,18 @@ For continuation reporting, link focused checks to the applicable row in
 `partial` when packet outcomes remain, and `live-unverified` whenever local evidence has not been
 reproduced in an authorized runtime. Do not roll historical full-suite counts forward as if they
 covered concurrent changes.
+
+## Client creation and Clerk reconciliation
+
+Provider-backed client creation is fenced by a durable `requestId` before the Clerk call. The
+request hash binds the client and initial-venue input without persisting email addresses, content,
+or credentials. Once the intent records `PROVIDER_STARTED`, an unconfirmed provider result must not
+be retried automatically. A platform administrator must use the reconciliation mutation with the
+same request and a verified Clerk organization ID; the original create call can then finish local
+tenant, owner, venue, and audit persistence idempotently.
+
+Clerk membership validation is authoritative at the instant it is read, but it cannot make the
+subsequent local transaction atomic with Clerk. Reconciliation therefore revalidates the selected
+user's owner-equivalent Clerk membership and email before claiming the organization. Later Clerk
+membership changes remain the responsibility of the existing webhook/membership reconciliation
+path; local creation never assumes that an earlier validation is permanently authoritative.

@@ -31,6 +31,8 @@ const {
   venueReportConfigurationFindFirst,
   venueReportConfigurationCreate,
   venueReportConfigurationUpdate,
+  venueReportConfigurationUpdateMany,
+  executeRaw,
   generationRequestDispatchFindFirst,
   generationRequestDispatchCreate,
   auditLogCreate,
@@ -44,6 +46,14 @@ const {
   validateExistingOrganizationOwnerMock,
   loggerWarn,
   lockVenueReportMutation,
+  createClientAccountActionMock,
+  setClientPaymentDueActionMock,
+  updateClientPlanTierActionMock,
+  updateClientStatusActionMock,
+  beginClientCreateIntentActionMock,
+  confirmClientCreateProviderActionMock,
+  completeClientCreateIntentActionMock,
+  startClientCreateProviderActionMock,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -74,6 +84,8 @@ const {
   venueReportConfigurationFindFirst: vi.fn(),
   venueReportConfigurationCreate: vi.fn(),
   venueReportConfigurationUpdate: vi.fn(),
+  venueReportConfigurationUpdateMany: vi.fn(),
+  executeRaw: vi.fn(),
   generationRequestDispatchFindFirst: vi.fn(),
   generationRequestDispatchCreate: vi.fn(),
   auditLogCreate: vi.fn(),
@@ -87,15 +99,25 @@ const {
   validateExistingOrganizationOwnerMock: vi.fn(),
   loggerWarn: vi.fn(),
   lockVenueReportMutation: vi.fn(),
+  createClientAccountActionMock: vi.fn(),
+  setClientPaymentDueActionMock: vi.fn(),
+  updateClientPlanTierActionMock: vi.fn(),
+  updateClientStatusActionMock: vi.fn(),
+  beginClientCreateIntentActionMock: vi.fn(),
+  confirmClientCreateProviderActionMock: vi.fn(),
+  completeClientCreateIntentActionMock: vi.fn(),
+  startClientCreateProviderActionMock: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config/logger', () => ({
   logger: { warn: loggerWarn },
 }))
 
-vi.mock('@pathfinder/db', async () => {
+vi.mock('@pathfinder/db', async (importOriginal) => {
   const { z } = await import('zod')
+  const weeklyReportActions = await importOriginal<typeof import('@pathfinder/db')>()
   const transactionDb = {
+    $executeRaw: executeRaw,
     tenant: {
       findMany: tenantFindMany,
       findUnique: tenantFindUnique,
@@ -150,6 +172,7 @@ vi.mock('@pathfinder/db', async () => {
       findFirst: venueReportConfigurationFindFirst,
       create: venueReportConfigurationCreate,
       update: venueReportConfigurationUpdate,
+      updateMany: venueReportConfigurationUpdateMany,
     },
     generationRequestDispatch: {
       findFirst: generationRequestDispatchFindFirst,
@@ -161,6 +184,30 @@ vi.mock('@pathfinder/db', async () => {
     SUPPORT_TRIAGE_MISSING_INFORMATION_MAX: 30,
     SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX: 500,
     LegacyContentActionError: class LegacyContentActionError extends Error {},
+    ClientAccountActionError: class ClientAccountActionError extends Error {
+      constructor(
+        readonly code: string,
+        message: string,
+      ) {
+        super(message)
+      }
+    },
+    ClientCreateIntentError: class ClientCreateIntentError extends Error {
+      constructor(
+        readonly code: string,
+        message: string,
+      ) {
+        super(message)
+      }
+    },
+    beginClientCreateIntentAction: beginClientCreateIntentActionMock,
+    confirmClientCreateProviderAction: confirmClientCreateProviderActionMock,
+    completeClientCreateIntentAction: completeClientCreateIntentActionMock,
+    startClientCreateProviderAction: startClientCreateProviderActionMock,
+    createClientAccountAction: createClientAccountActionMock,
+    setClientPaymentDueAction: setClientPaymentDueActionMock,
+    updateClientPlanTierAction: updateClientPlanTierActionMock,
+    updateClientStatusAction: updateClientStatusActionMock,
     createLegacyPlaceAction: vi.fn(),
     updateLegacyPlaceAction: vi.fn(),
     retireLegacyPlaceAction: vi.fn(),
@@ -192,6 +239,11 @@ vi.mock('@pathfinder/db', async () => {
     writeAuditLog: writeAuditLogMock,
     writeAuditLogStrict: writeAuditLogStrictMock,
     lockVenueReportMutation,
+    WeeklyReportActionError: weeklyReportActions.WeeklyReportActionError,
+    updateWeeklyReportConfigurationAction:
+      weeklyReportActions.updateWeeklyReportConfigurationAction,
+    updateWeeklyReportDraftAction: weeklyReportActions.updateWeeklyReportDraftAction,
+    publishWeeklyReportAction: weeklyReportActions.publishWeeklyReportAction,
     setContentVersionContext: vi.fn().mockResolvedValue(undefined),
     withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
   }
@@ -269,6 +321,18 @@ describe('admin router', () => {
       userId: 'user_owner',
       emailAddress: 'Owner@Example.com',
     })
+    createClientAccountActionMock.mockResolvedValue({
+      tenant: { id: 'org_existing', name: 'Existing Organization', slug: 'existing-organization' },
+      venue: null,
+      replayed: false,
+    })
+    setClientPaymentDueActionMock.mockResolvedValue({})
+    updateClientPlanTierActionMock.mockResolvedValue({})
+    updateClientStatusActionMock.mockResolvedValue({})
+    beginClientCreateIntentActionMock.mockResolvedValue({ state: 'READY' })
+    startClientCreateProviderActionMock.mockResolvedValue({ state: 'CALL_PROVIDER' })
+    confirmClientCreateProviderActionMock.mockResolvedValue({})
+    completeClientCreateIntentActionMock.mockResolvedValue({})
     generationRequestDispatchCreate.mockImplementation(async ({ data }) => ({
       id: data.id,
       recordId: data.recordId,
@@ -929,9 +993,6 @@ describe('admin router', () => {
   })
 
   it('admin.createClient validates Clerk identity before atomically creating the tenant owner', async () => {
-    tenantFindUnique.mockResolvedValueOnce(null)
-    tenantCreate.mockResolvedValueOnce({ id: 'org_existing' })
-
     const result = await testRouter.createCaller(adminCtx()).admin.createClient({
       orgId: 'org_existing',
       name: 'Existing Organization',
@@ -945,42 +1006,17 @@ describe('admin router', () => {
       userId: 'user_owner',
       emailAddress: 'owner@example.com',
     })
-    expect(dbTransaction).toHaveBeenCalledOnce()
-    expect(tenantCreate).toHaveBeenCalledWith({
-      data: {
-        id: 'org_existing',
-        name: 'Existing Organization',
-        slug: 'existing-organization',
-      },
+    expect(createClientAccountActionMock).toHaveBeenCalledWith({
+      tenantId: 'org_existing',
+      name: 'Existing Organization',
+      slug: 'existing-organization',
+      owner: { id: 'user_owner', email: 'Owner@Example.com' },
+      actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
     })
-    expect(userUpsert).toHaveBeenCalledWith({
-      where: { id: 'user_owner' },
-      create: { id: 'user_owner', email: 'Owner@Example.com' },
-      update: { email: 'Owner@Example.com' },
-    })
-    expect(tenantMembershipUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          tenantId: 'org_existing',
-          userId: 'user_owner',
-          role: 'OWNER',
-          status: 'ACTIVE',
-        }),
-      }),
-    )
-    expect(writeAuditLogStrictMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'admin.client.created',
-        targetId: 'org_existing',
-        afterState: expect.objectContaining({ ownerUserId: 'user_owner' }),
-      }),
-      expect.objectContaining({ tenant: expect.any(Object), auditLog: expect.any(Object) }),
-    )
     expect(result).toEqual({ ok: true })
   })
 
   it('admin.createClient performs no database work when Clerk identity validation fails', async () => {
-    tenantFindUnique.mockResolvedValueOnce(null)
     validateExistingOrganizationOwnerMock.mockRejectedValueOnce(
       new TRPCError({ code: 'BAD_REQUEST', message: 'Clerk identity rejected' }),
     )
@@ -995,17 +1031,11 @@ describe('admin router', () => {
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
 
-    expect(tenantFindUnique).toHaveBeenCalledOnce()
-    expect(dbTransaction).not.toHaveBeenCalled()
-    expect(tenantCreate).not.toHaveBeenCalled()
-    expect(userUpsert).not.toHaveBeenCalled()
-    expect(tenantMembershipUpsert).not.toHaveBeenCalled()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(createClientAccountActionMock).not.toHaveBeenCalled()
   })
 
-  it('admin.createClient fails the transaction when its strict audit cannot be written', async () => {
-    tenantFindUnique.mockResolvedValueOnce(null)
-    writeAuditLogStrictMock.mockRejectedValueOnce(new Error('audit unavailable'))
+  it('admin.createClient preserves an unexpected canonical action failure', async () => {
+    createClientAccountActionMock.mockRejectedValueOnce(new Error('audit unavailable'))
 
     await expect(
       testRouter.createCaller(adminCtx()).admin.createClient({
@@ -1017,13 +1047,14 @@ describe('admin router', () => {
       }),
     ).rejects.toThrow('audit unavailable')
 
-    expect(dbTransaction).toHaveBeenCalledOnce()
-    expect(writeAuditLogStrictMock).toHaveBeenCalledOnce()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    expect(createClientAccountActionMock).toHaveBeenCalledOnce()
   })
 
-  it('admin.createClient does not mutate when the validated Clerk org already exists locally', async () => {
-    tenantFindUnique.mockResolvedValueOnce({ id: 'org_existing' })
+  it('admin.createClient maps canonical account conflicts', async () => {
+    const { ClientAccountActionError } = await import('@pathfinder/db')
+    createClientAccountActionMock.mockRejectedValueOnce(
+      new ClientAccountActionError('CONFLICT', 'Account details differ'),
+    )
 
     await expect(
       testRouter.createCaller(adminCtx()).admin.createClient({
@@ -1035,49 +1066,7 @@ describe('admin router', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
 
-    expect(dbTransaction).not.toHaveBeenCalled()
-    expect(tenantCreate).not.toHaveBeenCalled()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
-    expect(validateExistingOrganizationOwnerMock).not.toHaveBeenCalled()
-  })
-
-  it('admin.createClient maps a concurrent unique create race to CONFLICT', async () => {
-    tenantFindUnique.mockResolvedValueOnce(null)
-    tenantCreate.mockRejectedValueOnce({ code: 'P2002' })
-
-    await expect(
-      testRouter.createCaller(adminCtx()).admin.createClient({
-        orgId: 'org_existing',
-        name: 'Existing Organization',
-        slug: 'existing-organization',
-        userId: 'user_owner',
-        userEmail: 'owner@example.com',
-      }),
-    ).rejects.toMatchObject({
-      code: 'CONFLICT',
-      message: 'A client with this organization ID or slug already exists',
-    })
-
     expect(validateExistingOrganizationOwnerMock).toHaveBeenCalledOnce()
-    expect(writeAuditLogStrictMock).not.toHaveBeenCalled()
-  })
-
-  it('admin.createClient does not mislabel a local user identity conflict as a client race', async () => {
-    tenantFindUnique.mockResolvedValueOnce(null)
-    tenantCreate.mockResolvedValueOnce({ id: 'org_existing' })
-    userUpsert.mockRejectedValueOnce({ code: 'P2002', meta: { target: ['email'] } })
-
-    await expect(
-      testRouter.createCaller(adminCtx()).admin.createClient({
-        orgId: 'org_existing',
-        name: 'Existing Organization',
-        slug: 'existing-organization',
-        userId: 'user_owner',
-        userEmail: 'owner@example.com',
-      }),
-    ).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' })
-
-    expect(writeAuditLogStrictMock).not.toHaveBeenCalled()
   })
 
   it('admin.createClientAndVenue creates the org, tenant, admin membership, and venue', async () => {
@@ -1091,16 +1080,15 @@ describe('admin router', () => {
       emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
     })
     tenantFindUnique.mockResolvedValueOnce(null) // slug uniqueness check
-    tenantCreate.mockResolvedValueOnce({
-      id: 'org_new',
-      name: 'The Grand Hotel',
-      slug: 'the-grand-hotel',
+    createClientAccountActionMock.mockResolvedValueOnce({
+      tenant: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
+      venue: { id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' },
+      replayed: false,
     })
-    venueFindFirst.mockResolvedValueOnce(null) // venue slug uniqueness check
-    venueCreate.mockResolvedValueOnce({ id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' })
 
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.createClientAndVenue({
+      requestId: '77777777-7777-4777-8777-777777777777',
       clientName: 'The Grand Hotel',
       venue: { name: 'Main Lobby' },
     })
@@ -1108,28 +1096,13 @@ describe('admin router', () => {
     expect(createOrganizationMock).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'The Grand Hotel', createdByUserId: 'admin_1' }),
     )
-    expect(tenantCreate).toHaveBeenCalledWith(
+    expect(createClientAccountActionMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
+        tenantId: 'org_new',
+        owner: { id: 'admin_1', email: 'admin@pathfinder.test' },
+        actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+        initialVenue: expect.objectContaining({ name: 'Main Lobby', slug: 'main-lobby' }),
       }),
-    )
-    expect(tenantMembershipUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({
-          tenantId: 'org_new',
-          userId: 'admin_1',
-          role: 'OWNER',
-          status: 'ACTIVE',
-        }),
-      }),
-    )
-    expect(venueCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ tenantId: 'org_new', name: 'Main Lobby' }),
-      }),
-    )
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'admin.client.created', targetId: 'org_new' }),
     )
     expect(result).toEqual({
       tenant: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
@@ -1140,6 +1113,7 @@ describe('admin router', () => {
   it('admin.createClientAndVenue rejects incoherent venue centers before provider access', async () => {
     await expect(
       testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
         clientName: 'The Grand Hotel',
         venue: {
           name: 'Main Lobby',
@@ -1159,11 +1133,240 @@ describe('admin router', () => {
 
     await expect(
       caller.admin.createClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
         clientName: 'The Grand Hotel',
         venue: { name: 'Main Lobby' },
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
     expect(createOrganizationMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.createClientAndVenue reports an unconfirmed provider outcome without local work', async () => {
+    tenantFindUnique.mockResolvedValueOnce(null)
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    createOrganizationMock.mockRejectedValueOnce(new Error('provider timeout'))
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        clientName: 'The Grand Hotel',
+        venue: { name: 'Main Lobby' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: expect.stringContaining('outcome is unconfirmed'),
+    })
+    expect(createClientAccountActionMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.createClientAndVenue blocks an ambiguous-request retry before provider access', async () => {
+    beginClientCreateIntentActionMock.mockResolvedValueOnce({
+      state: 'RECONCILIATION_REQUIRED',
+    })
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        clientName: 'The Grand Hotel',
+        venue: { name: 'Main Lobby' },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', message: expect.stringContaining('Reconcile') })
+
+    expect(createOrganizationMock).not.toHaveBeenCalled()
+    expect(createClientAccountActionMock).not.toHaveBeenCalled()
+  })
+
+  it('admin.createClientAndVenue resumes a confirmed provider result without creating another org', async () => {
+    beginClientCreateIntentActionMock.mockResolvedValueOnce({
+      state: 'PROVIDER_CONFIRMED',
+      providerOrganizationId: 'org_new',
+      localSlug: 'the-grand-hotel',
+    })
+    tenantFindUnique.mockResolvedValueOnce(null)
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    validateExistingOrganizationOwnerMock.mockResolvedValueOnce({
+      organizationId: 'org_new',
+      organizationName: 'The Grand Hotel',
+      organizationSlug: 'org_new',
+      userId: 'admin_1',
+      emailAddress: 'admin@pathfinder.test',
+    })
+    createClientAccountActionMock.mockResolvedValueOnce({
+      tenant: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
+      venue: { id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' },
+      replayed: false,
+    })
+
+    await testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+      requestId: '77777777-7777-4777-8777-777777777777',
+      clientName: 'The Grand Hotel',
+      venue: { name: 'Main Lobby' },
+    })
+
+    expect(validateExistingOrganizationOwnerMock).toHaveBeenCalledWith({
+      organizationId: 'org_new',
+      userId: 'admin_1',
+      emailAddress: 'admin@pathfinder.test',
+    })
+    expect(createOrganizationMock).not.toHaveBeenCalled()
+    expect(createClientAccountActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ slug: 'the-grand-hotel' }),
+    )
+  })
+
+  it('admin.reconcileClientAndVenue claims only a currently verified owned organization', async () => {
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    validateExistingOrganizationOwnerMock.mockResolvedValueOnce({
+      organizationId: 'org_reconciled',
+      organizationName: 'The Grand Hotel',
+      organizationSlug: 'the-grand-hotel',
+      userId: 'admin_1',
+      emailAddress: 'admin@pathfinder.test',
+    })
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.reconcileClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        organizationId: 'org_reconciled',
+        clientName: 'The Grand Hotel',
+        venue: { name: 'Main Lobby' },
+      }),
+    ).resolves.toEqual({ confirmed: true })
+
+    expect(confirmClientCreateProviderActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        providerOrganizationId: 'org_reconciled',
+        actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+      }),
+    )
+  })
+
+  it('admin.reconcileClientAndVenue maps a cross-intent provider claim to conflict', async () => {
+    const { ClientCreateIntentError } = await import('@pathfinder/db')
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    validateExistingOrganizationOwnerMock.mockResolvedValueOnce({
+      organizationId: 'org_claimed',
+      organizationName: 'Claimed Organization',
+      organizationSlug: 'claimed-organization',
+      userId: 'admin_1',
+      emailAddress: 'admin@pathfinder.test',
+    })
+    confirmClientCreateProviderActionMock.mockRejectedValueOnce(
+      new ClientCreateIntentError('CONFLICT', 'Provider organization is already claimed'),
+    )
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.reconcileClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        organizationId: 'org_claimed',
+        clientName: 'Claimed Organization',
+        venue: { name: 'Main Lobby' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Provider organization is already claimed',
+    })
+  })
+
+  it('admin.createClientAndVenue reports provider success plus incomplete local setup', async () => {
+    tenantFindUnique.mockResolvedValueOnce(null)
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    createOrganizationMock.mockResolvedValueOnce({
+      id: 'org_new',
+      name: 'The Grand Hotel',
+      slug: 'the-grand-hotel',
+    })
+    createClientAccountActionMock.mockRejectedValueOnce(new Error('database unavailable'))
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        clientName: 'The Grand Hotel',
+        venue: { name: 'Main Lobby' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: expect.stringContaining('provider organization exists'),
+    })
+  })
+
+  it('admin.createClientAndVenue maps a provider claim collision before local account work', async () => {
+    const { ClientCreateIntentError } = await import('@pathfinder/db')
+    tenantFindUnique.mockResolvedValueOnce(null)
+    currentUserMock.mockResolvedValueOnce({
+      primaryEmailAddressId: 'email_1',
+      emailAddresses: [{ id: 'email_1', emailAddress: 'admin@pathfinder.test' }],
+    })
+    createOrganizationMock.mockResolvedValueOnce({
+      id: 'org_claimed',
+      name: 'The Grand Hotel',
+      slug: 'the-grand-hotel',
+    })
+    confirmClientCreateProviderActionMock.mockRejectedValueOnce(
+      new ClientCreateIntentError('CONFLICT', 'Provider organization is already claimed'),
+    )
+
+    await expect(
+      testRouter.createCaller(adminCtx()).admin.createClientAndVenue({
+        requestId: '77777777-7777-4777-8777-777777777777',
+        clientName: 'The Grand Hotel',
+        venue: { name: 'Main Lobby' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Provider organization is already claimed',
+    })
+
+    expect(createOrganizationMock).toHaveBeenCalledOnce()
+    expect(createClientAccountActionMock).not.toHaveBeenCalled()
+  })
+
+  it('admin account metadata mutations pass exact CAS and platform actor to canonical actions', async () => {
+    const caller = testRouter.createCaller(adminCtx())
+    const expectedUpdatedAt = '2026-08-11T14:30:00.000Z'
+    await caller.admin.updateClientStatus({
+      tenantId: 'tenant_1',
+      status: 'SUSPENDED',
+      expectedUpdatedAt,
+    })
+    await caller.admin.updateClientPlanTier({
+      tenantId: 'tenant_1',
+      planTier: 'pro',
+      expectedUpdatedAt,
+    })
+    await caller.admin.setTenantPaymentDue({
+      tenantId: 'tenant_1',
+      nextPaymentDue: '2026-09-01T00:00:00.000Z',
+      expectedUpdatedAt,
+    })
+    const common = {
+      tenantId: 'tenant_1',
+      expectedUpdatedAt: new Date(expectedUpdatedAt),
+      actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+    }
+    expect(updateClientStatusActionMock).toHaveBeenCalledWith({
+      ...common,
+      status: 'SUSPENDED',
+    })
+    expect(updateClientPlanTierActionMock).toHaveBeenCalledWith({ ...common, planTier: 'pro' })
+    expect(setClientPaymentDueActionMock).toHaveBeenCalledWith({
+      ...common,
+      nextPaymentDue: new Date('2026-09-01T00:00:00.000Z'),
+    })
   })
 
   it('admin.generateWeeklyReportDraft atomically creates domain, dispatch, and audit', async () => {
@@ -1284,10 +1487,7 @@ describe('admin router', () => {
     })
 
     expect(result).toMatchObject({ id: 'config_1', enabled: true, replayed: false })
-    expect(lockVenueReportMutation).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
-    )
+    expect(executeRaw).toHaveBeenCalledOnce()
     expect(auditLogCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -1336,7 +1536,8 @@ describe('admin router', () => {
       createdAt: revision,
       updatedAt: revision,
     })
-    venueReportConfigurationUpdate.mockResolvedValueOnce({
+    venueReportConfigurationUpdateMany.mockResolvedValueOnce({ count: 1 })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce({
       id: 'config_1',
       tenantId: 'tenant_1',
       venueId: 'venue_1',
@@ -1354,8 +1555,16 @@ describe('admin router', () => {
       expectedUpdatedAt: revision,
     })
 
-    expect(venueReportConfigurationUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ updatedAt: nextRevision }) }),
+    expect(venueReportConfigurationUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'config_1',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          updatedAt: revision,
+        }),
+        data: expect.objectContaining({ updatedAt: nextRevision }),
+      }),
     )
     nowSpy.mockRestore()
   })
@@ -1379,6 +1588,32 @@ describe('admin router', () => {
       where: { id: 'other_tenant_venue', tenantId: 'tenant_1' },
       select: { id: true, isActive: true },
     })
+    expect(weeklyReportCreate).not.toHaveBeenCalled()
+    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+    expect(auditLogCreate).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
+  })
+
+  it('admin.generateWeeklyReportDraft rejects an inverted range before durable work', async () => {
+    const caller = testRouter.createCaller(adminCtx())
+
+    await expect(
+      caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        weekStart: '2026-07-08T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+        requestId: '77777777-7777-4777-8777-777777777778',
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'Report week start must be on or before week end.',
+    })
+
+    expect(dbTransaction).not.toHaveBeenCalled()
+    expect(lockVenueReportMutation).not.toHaveBeenCalled()
+    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(generationRequestDispatchFindFirst).not.toHaveBeenCalled()
     expect(weeklyReportCreate).not.toHaveBeenCalled()
     expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
     expect(auditLogCreate).not.toHaveBeenCalled()
@@ -1628,7 +1863,7 @@ describe('admin router', () => {
       auditLogCreate.mock.invocationCallOrder[0]!,
     )
     expect(dbTransaction).toHaveBeenCalledOnce()
-    expect(lockVenueReportMutation).toHaveBeenCalledOnce()
+    expect(executeRaw).toHaveBeenCalledOnce()
     dateNow.mockRestore()
   })
 

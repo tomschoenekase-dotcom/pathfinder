@@ -29,6 +29,7 @@ export const adminClientReadsRouter = router({
             status: true,
             planTier: true,
             createdAt: true,
+            updatedAt: true,
             memberships: {
               where: { status: 'ACTIVE' },
               select: {

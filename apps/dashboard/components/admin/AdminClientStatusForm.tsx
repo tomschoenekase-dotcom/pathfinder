@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -8,6 +8,7 @@ import { useTRPCClient } from '../../lib/trpc'
 type AdminClientStatusFormProps = {
   tenantId: string
   currentStatus: 'ACTIVE' | 'SUSPENDED' | 'TRIAL'
+  expectedUpdatedAt: string
 }
 
 function getErrorMessage(error: unknown) {
@@ -18,26 +19,34 @@ function getErrorMessage(error: unknown) {
   return 'Something went wrong. Please try again.'
 }
 
-export function AdminClientStatusForm({ tenantId, currentStatus }: AdminClientStatusFormProps) {
+export function AdminClientStatusForm({
+  tenantId,
+  currentStatus,
+  expectedUpdatedAt,
+}: AdminClientStatusFormProps) {
   const router = useRouter()
   const client = useTRPCClient()
 
   const [pendingStatus, setPendingStatus] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const mutationInFlightRef = useRef(false)
 
   async function handleStatusChange(status: AdminClientStatusFormProps['currentStatus']) {
+    if (mutationInFlightRef.current) return
+    mutationInFlightRef.current = true
     setPendingStatus(status)
     setMessage(null)
     setErrorMessage(null)
 
     try {
-      await client.admin.updateClientStatus.mutate({ tenantId, status })
+      await client.admin.updateClientStatus.mutate({ tenantId, status, expectedUpdatedAt })
       setMessage(`Client status updated to ${status.toLowerCase()}.`)
       router.refresh()
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
     } finally {
+      mutationInFlightRef.current = false
       setPendingStatus(null)
     }
   }

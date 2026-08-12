@@ -90,6 +90,11 @@ workflow state. Triage requires the displayed request version, retains selection
 and records one audited revision. It does not message the client, change status, create a package,
 or apply content; communicate deliberately through the separate message composer.
 
+Package approval, apply, and revert require an owner, the displayed package revision, exact reviewed
+evidence, and a unique command key. A repeated matching command is a replay; a command key already
+used by another package is a conflict. Existing V1/V2/V3 rollback behavior remains distinct—do not
+assume the richer V3 lineage rules apply to legacy packages.
+
 ## AI configuration and budgets
 
 The global incident control and venue admission checks are hard stops. Cost budgets reserve before

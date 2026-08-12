@@ -34,6 +34,8 @@ const approvedPolicies = new Set([
   'tenant-venue-content-mutation-lock',
   'tenant-venue-report-mutation-lock',
   'tenant-venue-create-slug-lock',
+  'platform-client-create-id-lock',
+  'platform-client-create-request-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -224,6 +226,18 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '19f67dc59cfb8f7262bda219dc7c9d2feb4c8fd354150f439951d87e57faeca6',
     policy: 'tenant-venue-create-slug-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-account-actions.ts',
+    method: '$executeRaw',
+    hash: '3b698ad7e37449be6a1e831d34591b41ae1793f5ec22e27edd7151054aea45bc',
+    policy: 'platform-client-create-id-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-create-intents.ts',
+    method: '$executeRaw',
+    hash: 'd318aa1b435d868e28ec324666fd4d5b38d72f2e0a3f05345ef16668b40bdb8c',
+    policy: 'platform-client-create-request-lock',
   },
   {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',

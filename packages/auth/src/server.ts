@@ -26,6 +26,8 @@ export type CreatedOrganization = {
 
 export type ValidatedOrganizationOwner = {
   organizationId: string
+  organizationName: string
+  organizationSlug: string
   userId: string
   emailAddress: string
 }
@@ -116,6 +118,8 @@ export async function validateExistingOrganizationOwner(input: {
 
     return {
       organizationId: organization.id,
+      organizationName: organization.name,
+      organizationSlug: organization.slug ?? organization.id,
       userId: user.id,
       emailAddress,
     }

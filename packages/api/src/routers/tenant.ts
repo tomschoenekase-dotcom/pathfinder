@@ -40,6 +40,7 @@ export const tenantRouter = router({
           status: true,
           nextPaymentDue: true,
           engagementMode: true,
+          updatedAt: true,
         },
       }),
       db.tenantMembership.findMany({

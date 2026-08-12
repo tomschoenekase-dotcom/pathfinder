@@ -375,6 +375,31 @@ export type {
   ContentHumanReviewResult,
 } from './helpers/content-human-review-actions'
 export {
+  clientAccountSelect,
+  ClientAccountActionError,
+  createClientAccountAction,
+  setClientPaymentDueAction,
+  updateClientPlanTierAction,
+  updateClientStatusAction,
+} from './helpers/client-account-actions'
+export type {
+  ClientAccountActionClient,
+  ClientAccountActionErrorCode,
+  CreateClientAccountInput,
+  PlatformAdminActor,
+} from './helpers/client-account-actions'
+export {
+  beginClientCreateIntentAction,
+  ClientCreateIntentError,
+  completeClientCreateIntentAction,
+  confirmClientCreateProviderAction,
+  startClientCreateProviderAction,
+} from './helpers/client-create-intents'
+export type {
+  ClientCreateIntentActor,
+  ClientCreateIntentClient,
+} from './helpers/client-create-intents'
+export {
   createVenueAction,
   normalizeVenueSlug,
   venueCreateSelect,
@@ -400,3 +425,27 @@ export type {
   UpdateVenueChatDesignFields,
   UpdateVenueFields,
 } from './helpers/venue-actions'
+export {
+  publishWeeklyReportAction,
+  updateWeeklyReportConfigurationAction,
+  updateWeeklyReportDraftAction,
+  weeklyReportConfigurationSelect,
+  WeeklyReportActionError,
+} from './helpers/weekly-report-actions'
+export type {
+  WeeklyReportActionClient,
+  WeeklyReportActionErrorCode,
+  WeeklyReportHumanActor,
+} from './helpers/weekly-report-actions'
+export {
+  approveVenuePackageAction,
+  applyVenuePackageAction,
+  revertVenuePackageAction,
+  VenuePackageLifecycleError,
+} from './helpers/venue-package-lifecycle-actions'
+export type {
+  VenuePackageLifecycleClient,
+  VenuePackageLifecycleRecord,
+  VenuePackageLifecycleStatus,
+  VenuePackageOwnerActor,
+} from './helpers/venue-package-lifecycle-actions'

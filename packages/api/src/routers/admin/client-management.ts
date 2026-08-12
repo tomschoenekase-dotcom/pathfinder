@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
@@ -7,18 +8,58 @@ import {
   validateExistingOrganizationOwner,
 } from '@pathfinder/auth'
 import {
+  beginClientCreateIntentAction,
+  clientAccountSelect,
+  ClientAccountActionError,
+  ClientCreateIntentError,
+  completeClientCreateIntentAction,
+  confirmClientCreateProviderAction,
+  createClientAccountAction,
   db,
-  setContentVersionContext,
+  setClientPaymentDueAction,
+  startClientCreateProviderAction,
+  updateClientPlanTierAction,
+  updateClientStatusAction,
   withTenantIsolationBypass,
-  writeAuditLog,
-  writeAuditLogStrict,
 } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { CreateVenueRequestInput } from '../../schemas/venue'
 import { adminProcedure } from '../../trpc'
 import { slugify } from '../venue'
-import { isUniqueConstraintError, uniqueTenantSlug } from './helpers'
+import { uniqueTenantSlug } from './helpers'
+
+function platformAdminActor(userId: string) {
+  return { type: 'HUMAN', id: userId, role: 'PLATFORM_ADMIN' } as const
+}
+function clientCreateHash(input: {
+  clientName: string
+  clientSlug?: string | undefined
+  venue: z.infer<typeof CreateVenueRequestInput>
+}): string {
+  return createHash('sha256').update(JSON.stringify(input)).digest('hex')
+}
+function mapClientCreateIntentError(error: unknown): never {
+  if (error instanceof ClientCreateIntentError) {
+    throw new TRPCError({ code: 'CONFLICT', message: error.message })
+  }
+  throw error
+}
+
+function mapClientActionError(error: unknown): never {
+  if (error instanceof ClientAccountActionError) {
+    throw new TRPCError({
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'BAD_REQUEST',
+      message: error.message,
+    })
+  }
+  throw error
+}
 
 export const adminClientManagementRouter = router({
   listClients: adminProcedure.query(async () => {
@@ -57,19 +98,23 @@ export const adminClientManagementRouter = router({
       z.object({
         tenantId: z.string().min(1),
         nextPaymentDue: z.string().datetime().nullable(),
+        expectedUpdatedAt: z.string().datetime(),
       }),
     )
-    .mutation(async ({ input }) => {
-      await withTenantIsolationBypass(async () => {
-        await db.tenant.update({
-          where: { id: input.tenantId },
-          data: {
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await withTenantIsolationBypass(() =>
+          setClientPaymentDueAction({
+            tenantId: input.tenantId,
             nextPaymentDue: input.nextPaymentDue ? new Date(input.nextPaymentDue) : null,
-          },
-        })
-      })
-
-      return { ok: true }
+            expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+            actor: platformAdminActor(ctx.session.userId),
+          }),
+        )
+        return { ok: true }
+      } catch (error) {
+        mapClientActionError(error)
+      }
     }),
 
   createClient: adminProcedure
@@ -83,109 +128,84 @@ export const adminClientManagementRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const existing = await withTenantIsolationBypass(() =>
-        db.tenant.findUnique({ where: { id: input.orgId } }),
-      )
-      if (existing) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'A client with this org ID already exists',
-        })
-      }
-
       const owner = await validateExistingOrganizationOwner({
         organizationId: input.orgId,
         userId: input.userId,
         emailAddress: input.userEmail,
       })
 
-      await withTenantIsolationBypass(() =>
-        db.$transaction(async (tx) => {
-          try {
-            await tx.tenant.create({
-              data: { id: owner.organizationId, name: input.name, slug: input.slug },
-            })
-          } catch (error) {
-            if (isUniqueConstraintError(error)) {
-              throw new TRPCError({
-                code: 'CONFLICT',
-                message: 'A client with this organization ID or slug already exists',
-              })
-            }
-            throw error
-          }
-
-          await tx.user.upsert({
-            where: { id: owner.userId },
-            create: { id: owner.userId, email: owner.emailAddress },
-            update: { email: owner.emailAddress },
-          })
-
-          await tx.tenantMembership.upsert({
-            where: {
-              tenantId: owner.organizationId,
-              tenantId_userId: { tenantId: owner.organizationId, userId: owner.userId },
-            },
-            create: {
-              tenantId: owner.organizationId,
-              userId: owner.userId,
-              role: 'OWNER',
-              status: 'ACTIVE',
-              joinedAt: new Date(),
-            },
-            update: { role: 'OWNER', status: 'ACTIVE' },
-          })
-
-          await writeAuditLogStrict(
-            {
-              tenantId: owner.organizationId,
-              actorId: ctx.session.userId,
-              actorRole: 'PLATFORM_ADMIN',
-              action: 'admin.client.created',
-              targetType: 'Tenant',
-              targetId: owner.organizationId,
-              afterState: {
-                id: owner.organizationId,
-                name: input.name,
-                slug: input.slug,
-                ownerUserId: owner.userId,
-              },
-            },
-            tx,
-          )
-        }),
-      )
-
-      return { ok: true }
+      try {
+        await withTenantIsolationBypass(() =>
+          createClientAccountAction({
+            tenantId: owner.organizationId,
+            name: input.name,
+            slug: input.slug,
+            owner: { id: owner.userId, email: owner.emailAddress },
+            actor: platformAdminActor(ctx.session.userId),
+          }),
+        )
+        return { ok: true }
+      } catch (error) {
+        mapClientActionError(error)
+      }
     }),
 
-  /**
-   * Creates a brand-new client end-to-end: a real Clerk Organization, its
-   * Tenant row, the calling admin as its OWNER (so they can immediately
-   * manage it and, later, switch into the org via the picker to invite the
-   * real client through the existing Settings invite flow), and a first
-   * Venue. Lets an admin onboard a client who won't self-serve a Clerk
-   * account, instead of the old workaround of hand-creating a throwaway
-   * account per venue.
-   */
-
+  /** Creates the Clerk organization and canonical local client/venue behind a durable fence. */
   createClientAndVenue: adminProcedure
     .input(
       z.object({
+        requestId: z.string().uuid(),
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
         venue: CreateVenueRequestInput,
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const tenantSlug = await uniqueTenantSlug(slugify(input.clientSlug ?? input.clientName))
-
-      const organization = await createOrganization({
-        name: input.clientName,
-        slug: tenantSlug,
-        createdByUserId: ctx.session.userId,
+      const actor = platformAdminActor(ctx.session.userId)
+      const requestHash = clientCreateHash({
+        clientName: input.clientName,
+        ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
+        venue: input.venue,
       })
-
+      let intent
+      try {
+        intent = await beginClientCreateIntentAction({
+          requestId: input.requestId,
+          requestHash,
+          actor,
+        })
+      } catch (error) {
+        if (error instanceof ClientCreateIntentError) {
+          throw new TRPCError({ code: 'CONFLICT', message: error.message })
+        }
+        throw error
+      }
+      if (intent.state === 'COMPLETED') {
+        const completed = await withTenantIsolationBypass(() =>
+          Promise.all([
+            db.tenant.findUnique({ where: { id: intent.tenantId }, select: clientAccountSelect }),
+            db.venue.findFirst({
+              where: { id: intent.venueId, tenantId: intent.tenantId },
+              select: { id: true, name: true, slug: true },
+            }),
+          ]),
+        )
+        if (!completed[0] || !completed[1]) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Completed client setup is unavailable',
+          })
+        }
+        return { tenant: completed[0], venue: completed[1] }
+      }
+      if (intent.state === 'RECONCILIATION_REQUIRED') {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message:
+            'Provider outcome is unconfirmed. Reconcile this request to the verified organization before continuing.',
+        })
+      }
+      const tenantSlug = await uniqueTenantSlug(slugify(input.clientSlug ?? input.clientName))
       const adminUser = await currentUser()
       const adminEmail =
         adminUser?.emailAddresses.find((address) => address.id === adminUser.primaryEmailAddressId)
@@ -197,42 +217,69 @@ export const adminClientManagementRouter = router({
           message: 'Could not resolve the admin email address',
         })
       }
-
-      const { tenant, venue } = await withTenantIsolationBypass(() =>
-        db.$transaction(async (tx) => {
-          await setContentVersionContext(tx, { actorId: ctx.session.userId })
-          const tenant = await tx.tenant.create({
-            data: { id: organization.id, name: input.clientName, slug: organization.slug },
+      if (intent.state === 'READY') {
+        const started = await startClientCreateProviderAction({
+          requestId: input.requestId,
+          requestHash,
+          localSlug: tenantSlug,
+          actor,
+        })
+        if (started.state !== 'CALL_PROVIDER') {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Provider creation is already in progress or requires reconciliation.',
           })
-
-          await tx.user.upsert({
-            where: { id: ctx.session.userId },
-            create: { id: ctx.session.userId, email: adminEmail },
-            update: { email: adminEmail },
+        }
+      }
+      let organization: Awaited<ReturnType<typeof createOrganization>>
+      if (intent.state === 'PROVIDER_CONFIRMED') {
+        const verified = await validateExistingOrganizationOwner({
+          organizationId: intent.providerOrganizationId,
+          userId: ctx.session.userId,
+          emailAddress: adminEmail,
+        })
+        organization = {
+          id: verified.organizationId,
+          name: verified.organizationName,
+          slug: intent.localSlug,
+        }
+      } else {
+        try {
+          organization = await createOrganization({
+            name: input.clientName,
+            slug: tenantSlug,
+            createdByUserId: ctx.session.userId,
           })
-
-          await tx.tenantMembership.upsert({
-            where: {
-              tenantId: organization.id,
-              tenantId_userId: { tenantId: organization.id, userId: ctx.session.userId },
-            },
-            create: {
-              tenantId: organization.id,
-              userId: ctx.session.userId,
-              role: 'OWNER',
-              status: 'ACTIVE',
-              joinedAt: new Date(),
-            },
-            update: { role: 'OWNER', status: 'ACTIVE' },
+        } catch {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message:
+              'Identity-provider outcome is unconfirmed. Reconcile this request before retrying.',
           })
+        }
+        try {
+          await confirmClientCreateProviderAction({
+            requestId: input.requestId,
+            requestHash,
+            providerOrganizationId: organization.id,
+            actor,
+          })
+        } catch (error) {
+          mapClientCreateIntentError(error)
+        }
+      }
 
-          const venueSlug = slugify(input.venue.slug ?? input.venue.name)
-
-          const venue = await tx.venue.create({
-            data: {
-              tenantId: organization.id,
+      try {
+        const result = await withTenantIsolationBypass(() =>
+          createClientAccountAction({
+            tenantId: organization.id,
+            name: input.clientName,
+            slug: organization.slug,
+            owner: { id: ctx.session.userId, email: adminEmail },
+            actor,
+            initialVenue: {
               name: input.venue.name,
-              slug: venueSlug,
+              slug: slugify(input.venue.slug ?? input.venue.name),
               guideMode: input.venue.guideMode ?? 'location_aware',
               ...(input.venue.description !== undefined
                 ? { description: input.venue.description }
@@ -248,29 +295,69 @@ export const adminClientManagementRouter = router({
                 ? { defaultCenterLng: input.venue.defaultCenterLng }
                 : {}),
             },
-            select: { id: true, name: true, slug: true },
-          })
+          }),
+        )
+        if (!result.venue) throw new Error('Initial venue result was missing')
+        await completeClientCreateIntentAction({
+          requestId: input.requestId,
+          requestHash,
+          providerOrganizationId: organization.id,
+          tenantId: result.tenant.id,
+          venueId: result.venue.id,
+          actor,
+        })
+        return { tenant: result.tenant, venue: result.venue }
+      } catch (error) {
+        if (error instanceof ClientAccountActionError && error.code === 'CONFLICT') {
+          mapClientActionError(error)
+        }
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message:
+            'The provider organization exists, but local client setup did not complete. Reconcile it before retrying.',
+        })
+      }
+    }),
 
-          return { tenant, venue }
-        }),
-      )
-
-      await writeAuditLog({
-        tenantId: organization.id,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.client.created',
-        targetType: 'Tenant',
-        targetId: organization.id,
-        afterState: {
-          id: organization.id,
-          name: input.clientName,
-          slug: tenantSlug,
-          venueId: venue.id,
-        },
+  reconcileClientAndVenue: adminProcedure
+    .input(
+      z.object({
+        requestId: z.string().uuid(),
+        organizationId: z.string().min(1),
+        clientName: z.string().min(1).max(120),
+        clientSlug: z.string().min(1).max(80).optional(),
+        venue: CreateVenueRequestInput,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const actor = platformAdminActor(ctx.session.userId)
+      const requestHash = clientCreateHash({
+        clientName: input.clientName,
+        ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
+        venue: input.venue,
       })
-
-      return { tenant, venue }
+      const adminUser = await currentUser()
+      const adminEmail =
+        adminUser?.emailAddresses.find((address) => address.id === adminUser.primaryEmailAddressId)
+          ?.emailAddress ?? adminUser?.emailAddresses[0]?.emailAddress
+      if (!adminEmail)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Admin email unavailable' })
+      const verified = await validateExistingOrganizationOwner({
+        organizationId: input.organizationId,
+        userId: ctx.session.userId,
+        emailAddress: adminEmail,
+      })
+      try {
+        await confirmClientCreateProviderAction({
+          requestId: input.requestId,
+          requestHash,
+          providerOrganizationId: verified.organizationId,
+          actor,
+        })
+      } catch (error) {
+        mapClientCreateIntentError(error)
+      }
+      return { confirmed: true as const }
     }),
 
   updateClientStatus: adminProcedure
@@ -278,40 +365,23 @@ export const adminClientManagementRouter = router({
       z.object({
         tenantId: z.string(),
         status: z.enum(['ACTIVE', 'SUSPENDED', 'TRIAL']),
+        expectedUpdatedAt: z.string().datetime(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const updated = await withTenantIsolationBypass(async () => {
-        const existing = await db.tenant.findUnique({
-          where: { id: input.tenantId },
-          select: { id: true, status: true },
-        })
-
-        if (!existing) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
-        }
-
-        const tenant = await db.tenant.update({
-          where: { id: input.tenantId },
-          data: { status: input.status },
-          select: { id: true, status: true },
-        })
-
-        return { existing, tenant }
-      })
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.client.status_updated',
-        targetType: 'Tenant',
-        targetId: input.tenantId,
-        beforeState: updated.existing,
-        afterState: updated.tenant,
-      })
-
-      return { ok: true }
+      try {
+        await withTenantIsolationBypass(() =>
+          updateClientStatusAction({
+            tenantId: input.tenantId,
+            status: input.status,
+            expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+            actor: platformAdminActor(ctx.session.userId),
+          }),
+        )
+        return { ok: true }
+      } catch (error) {
+        mapClientActionError(error)
+      }
     }),
 
   updateClientPlanTier: adminProcedure
@@ -319,39 +389,22 @@ export const adminClientManagementRouter = router({
       z.object({
         tenantId: z.string(),
         planTier: z.enum(['free', 'pro', 'enterprise']),
+        expectedUpdatedAt: z.string().datetime(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const updated = await withTenantIsolationBypass(async () => {
-        const existing = await db.tenant.findUnique({
-          where: { id: input.tenantId },
-          select: { id: true, planTier: true },
-        })
-
-        if (!existing) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
-        }
-
-        const tenant = await db.tenant.update({
-          where: { id: input.tenantId },
-          data: { planTier: input.planTier },
-          select: { id: true, planTier: true },
-        })
-
-        return { existing, tenant }
-      })
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.client.plan_updated',
-        targetType: 'Tenant',
-        targetId: input.tenantId,
-        beforeState: updated.existing,
-        afterState: updated.tenant,
-      })
-
-      return { ok: true }
+      try {
+        await withTenantIsolationBypass(() =>
+          updateClientPlanTierAction({
+            tenantId: input.tenantId,
+            planTier: input.planTier,
+            expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+            actor: platformAdminActor(ctx.session.userId),
+          }),
+        )
+        return { ok: true }
+      } catch (error) {
+        mapClientActionError(error)
+      }
     }),
 })

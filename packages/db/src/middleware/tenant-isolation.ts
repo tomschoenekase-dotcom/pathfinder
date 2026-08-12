@@ -49,6 +49,7 @@ const APPEND_ONLY_MODELS = [
   'IntakePackageHandoff',
   'AiScopedWorkloadConfigurationHistory',
   'AiWorkloadConfigurationHistory',
+  'ClientCreateIntentEvent',
 ] as const
 const AUDIT_LIFECYCLE_MODELS = [
   'AgentRun',

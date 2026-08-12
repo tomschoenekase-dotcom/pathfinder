@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useRef, useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 
@@ -20,16 +20,20 @@ export function AdminCreateClientForm() {
   const [venueCategory, setVenueCategory] = useState('')
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const submitInFlightRef = useRef(false)
+  const requestIdRef = useRef(crypto.randomUUID())
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!clientName.trim() || !venueName.trim() || saving) return
+    if (!clientName.trim() || !venueName.trim() || saving || submitInFlightRef.current) return
 
+    submitInFlightRef.current = true
     setSaving(true)
     setErrorMessage(null)
 
     try {
       const { tenant } = await client.admin.createClientAndVenue.mutate({
+        requestId: requestIdRef.current,
         clientName: clientName.trim(),
         venue: {
           name: venueName.trim(),
@@ -46,6 +50,7 @@ export function AdminCreateClientForm() {
       })
       window.location.href = '/'
     } catch (error) {
+      submitInFlightRef.current = false
       setErrorMessage(getErrorMessage(error))
       setSaving(false)
     }
