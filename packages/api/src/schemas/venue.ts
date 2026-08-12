@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts'
+import { TonePresetId } from '@pathfinder/contracts/tone-presets'
 
 const InitialGuideItemInput = PlaceInput.omit({ itemType: true, lat: true, lng: true }).extend({
   shortDescription: z.string().min(1).max(500),
@@ -109,3 +110,37 @@ export const UpdateVenueInput = z
   .strict()
 
 export const UpdateVenueRequestInput = UpdateVenueInput.superRefine(validateVenueLocation)
+
+export const UpdateVenueAiConfigInput = z
+  .object({
+    venueId: z.string().cuid(),
+    expectedUpdatedAt: z.coerce.date(),
+    aiGuideNotes: z.string().max(2000).nullable().optional(),
+    aiFeaturedPlaceId: z.string().cuid().nullable().optional(),
+    aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).optional(),
+    tonePreset: TonePresetId.optional(),
+    aiGuideName: z.string().max(80).nullable().optional(),
+  })
+  .strict()
+
+export const UpdateVenueChatDesignInput = z
+  .object({
+    venueId: z.string().cuid(),
+    expectedUpdatedAt: z.coerce.date(),
+    chatTheme: z.enum(['default', 'forest', 'sunset', 'midnight', 'rose', 'dark']).optional(),
+    chatAccentColor: z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a hex colour e.g. #3A7BD5')
+      .nullable()
+      .optional(),
+    chatFont: z
+      .enum(['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'playfair'])
+      .optional(),
+    chatLogoUrl: z.string().url().max(500).nullable().optional(),
+    chatBannerUrl: z.string().url().max(500).nullable().optional(),
+  })
+  .strict()
+
+export const DeleteVenueInput = z
+  .object({ id: z.string().cuid(), expectedUpdatedAt: z.coerce.date() })
+  .strict()

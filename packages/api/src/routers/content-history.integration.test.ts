@@ -601,7 +601,7 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
       name: 'Venue recovery fixture',
       guideMode: 'non_location',
     })
-    await owner.venue.delete({ id: deletedVenue.id })
+    await owner.venue.delete({ id: deletedVenue.id, expectedUpdatedAt: deletedVenue.updatedAt })
 
     const deletedVersion = (await owner.contentHistory.listDeletedVenues({ limit: 100 })).find(
       (version) => version.entityId === deletedVenue.id,

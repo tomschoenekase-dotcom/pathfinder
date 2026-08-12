@@ -141,4 +141,32 @@ describe('legacy content actions', () => {
     )
     expect(JSON.stringify(tx.auditLog.create.mock.calls[0])).not.toContain('private body')
   })
+
+  it('accepts an explicit human platform administrator without weakening scope or audit attribution', async () => {
+    const { tx, db } = client()
+    await updateLegacyPlaceAction(
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        id: 'place-1',
+        expectedUpdatedAt: updatedAt,
+        actor: { type: 'HUMAN', id: 'platform-admin-1', role: 'PLATFORM_ADMIN' },
+        fields: { name: 'Updated' },
+      },
+      db as never,
+    )
+    expect(tx.place.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant-1', venueId: 'venue-1' }),
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorId: 'platform-admin-1',
+          actorRole: 'PLATFORM_ADMIN',
+        }),
+      }),
+    )
+  })
 })

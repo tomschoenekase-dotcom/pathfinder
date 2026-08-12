@@ -46,6 +46,7 @@ describe('ClientWorkspaceShell', () => {
       '/admin/clients/client-1/venues/venue-1',
     )
     expect(screen.queryByText('Observe & improve')).toBeNull()
+    expect(screen.queryByRole('link', { name: /Legacy compatibility/ })).toBeNull()
     expect(screen.queryByRole('link', { name: /Open guest preview/ })).toBeNull()
   })
 
@@ -78,6 +79,9 @@ describe('ClientWorkspaceShell', () => {
     )
     expect(screen.getByRole('link', { name: /Guided intake/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/intake',
+    )
+    expect(screen.getByRole('link', { name: /Legacy compatibility/ }).getAttribute('href')).toBe(
+      '/admin/clients/client-1/venues/venue-1/compatibility-content',
     )
   })
 })

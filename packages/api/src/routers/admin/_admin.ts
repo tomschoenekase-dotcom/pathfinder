@@ -1,6 +1,7 @@
 import { mergeRouters } from '../../core'
 
 import { adminAnswerAnalysisRouter } from './answer-analysis'
+import { adminAttentionConsoleRouter } from './attention-console'
 import { adminAiWorkloadConfigurationRouter } from './ai-workload-configuration'
 import { adminAgentOperationsRouter } from './agent-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
@@ -22,6 +23,7 @@ import { adminOffboardingPlansRouter } from './offboarding-plans'
 import { adminOffboardingExportPreviewRouter } from './offboarding-export-preview'
 import { adminIncidentControlRouter } from './incident-control'
 import { adminIntakeOperationsRouter } from './intake-operations'
+import { adminLegacyContentRouter } from './legacy-content'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminSupportOperationsRouter } from './support-operations'
 import { adminUniversalContentRouter } from './universal-content'
@@ -31,6 +33,7 @@ import { adminVenueAvailabilityRouter } from './venue-availability'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
+  adminAttentionConsoleRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminAgentOperationsRouter,
@@ -38,6 +41,7 @@ export const adminRouter = mergeRouters(
   adminAgentApprovalDecisionsRouter,
   adminIncidentControlRouter,
   adminIntakeOperationsRouter,
+  adminLegacyContentRouter,
   adminCostBudgetRouter,
   adminEvaluationOperationsRouter,
   adminExternalCredentialsRouter,

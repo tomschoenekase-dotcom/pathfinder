@@ -546,7 +546,13 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       }),
     ])
 
-    await expect(caller.venue.delete({ id: configVenueId })).rejects.toMatchObject({
+    const deleteRevision = await db.venue.findFirstOrThrow({
+      where: { id: configVenueId, tenantId },
+      select: { updatedAt: true },
+    })
+    await expect(
+      caller.venue.delete({ id: configVenueId, expectedUpdatedAt: deleteRevision.updatedAt }),
+    ).rejects.toMatchObject({
       code: 'CONFLICT',
       message: expect.stringContaining('dependent history'),
     })
@@ -1291,7 +1297,8 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     expect(updateSettled).toBe(false)
     releaseLock()
     await blocker
-    await expect(update).resolves.toMatchObject({ name: 'Settings lock venue updated' })
+    const updatedVenue = await update
+    expect(updatedVenue).toMatchObject({ name: 'Settings lock venue updated' })
 
     let signalDeleteLock!: () => void
     let releaseDeleteLock!: () => void
@@ -1309,9 +1316,11 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     await deleteLockAcquired
 
     let deleteSettled = false
-    const deletion = caller.venue.delete({ id: settingsLockVenueId }).finally(() => {
-      deleteSettled = true
-    })
+    const deletion = caller.venue
+      .delete({ id: settingsLockVenueId, expectedUpdatedAt: updatedVenue.updatedAt })
+      .finally(() => {
+        deleteSettled = true
+      })
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect(deleteSettled).toBe(false)
     releaseDeleteLock()

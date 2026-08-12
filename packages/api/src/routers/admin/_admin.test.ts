@@ -160,6 +160,13 @@ vi.mock('@pathfinder/db', async () => {
   return {
     SUPPORT_TRIAGE_MISSING_INFORMATION_MAX: 30,
     SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX: 500,
+    LegacyContentActionError: class LegacyContentActionError extends Error {},
+    createLegacyPlaceAction: vi.fn(),
+    updateLegacyPlaceAction: vi.fn(),
+    retireLegacyPlaceAction: vi.fn(),
+    createLegacyKnowledgeAction: vi.fn(),
+    updateLegacyKnowledgeAction: vi.fn(),
+    retireLegacyKnowledgeAction: vi.fn(),
     IntakeActionError: class IntakeActionError extends Error {},
     websiteProposalInput: z
       .object({ kind: z.literal('WEBSITE'), displayName: z.string(), websiteUri: z.string().url() })

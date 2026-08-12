@@ -421,6 +421,16 @@ describe('venue router', () => {
         data: expect.objectContaining({ slug: 'city-zoo', tenantId: 'tenant_1' }),
       }),
     )
+    expect(JSON.stringify(dbExecuteRaw.mock.calls)).toContain(
+      'pathfinder:venue-create:tenant_1:city-zoo',
+    )
+  })
+
+  it('venue.create rejects a normalized empty slug before persistence', async () => {
+    await expect(
+      testRouter.createCaller(ownerCtx()).venue.create({ name: '🦒🦁' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(venueCreate).not.toHaveBeenCalled()
   })
 
   it('venue.create with MANAGER role throws FORBIDDEN', async () => {
@@ -456,16 +466,7 @@ describe('venue router', () => {
     )
   })
 
-  it('venue.create atomically nests a discriminated location-aware Place at the center', async () => {
-    let transactionCommitted = false
-    dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) => {
-      const result = await callback(mockDb)
-      transactionCommitted = true
-      return result
-    })
-    enqueueEmbedPlaceMock.mockImplementationOnce(async () => {
-      expect(transactionCommitted).toBe(true)
-    })
+  it('venue.create atomically nests a Place and leaves embedding to the database outbox', async () => {
     const placeUpdatedAt = new Date('2026-08-09T18:00:00.123Z')
     venueFindFirst.mockResolvedValueOnce(null)
     venueCreate.mockResolvedValueOnce({
@@ -508,11 +509,7 @@ describe('venue router', () => {
       }),
     )
     expect(venueCreate.mock.calls[0]?.[0]?.data.places.create).not.toHaveProperty('itemType')
-    expect(enqueueEmbedPlaceMock).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      placeId: 'place_1',
-      contentUpdatedAt: placeUpdatedAt.toISOString(),
-    })
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
 
   it('venue.create nests a no-location initial item without coordinates', async () => {
@@ -551,16 +548,7 @@ describe('venue router', () => {
       center: {},
     },
     { guideMode: 'non_location' as const, center: {} },
-  ])('venue.create atomically nests $guideMode initial knowledge after commit', async (input) => {
-    let transactionCommitted = false
-    dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) => {
-      const result = await callback(mockDb)
-      transactionCommitted = true
-      return result
-    })
-    enqueueEmbedKnowledgeEntryMock.mockImplementationOnce(async () => {
-      expect(transactionCommitted).toBe(true)
-    })
+  ])('venue.create nests $guideMode knowledge for database-outbox dispatch', async (input) => {
     const entryUpdatedAt = new Date('2026-08-09T19:00:00.123Z')
     venueFindFirst.mockResolvedValueOnce(null)
     venueCreate.mockResolvedValueOnce({
@@ -599,11 +587,7 @@ describe('venue router', () => {
       }),
     )
     expect(venueCreate.mock.calls[0]?.[0]?.data).not.toHaveProperty('places')
-    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledWith({
-      tenantId: 'tenant_1',
-      entryId: 'entry_1',
-      contentUpdatedAt: entryUpdatedAt.toISOString(),
-    })
+    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
     expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
     expect(result).not.toHaveProperty('places')
     expect(result).not.toHaveProperty('knowledgeEntries')
@@ -794,13 +778,12 @@ describe('venue router', () => {
     expect(venueCreate).not.toHaveBeenCalled()
   })
 
-  it('venue.create keeps a committed venue when the direct embedding enqueue fails', async () => {
+  it('venue.create never directly enqueues a nested Place embedding', async () => {
     const placeUpdatedAt = new Date('2026-08-09T18:00:00.123Z')
     venueCreate.mockResolvedValueOnce({
       ...venueRow,
       places: [{ id: 'place_1', tenantId: 'tenant_1', updatedAt: placeUpdatedAt }],
     })
-    enqueueEmbedPlaceMock.mockRejectedValueOnce(new Error('redis unavailable'))
 
     const replayed = await testRouter.createCaller(ownerCtx()).venue.create({
       name: 'City Zoo',
@@ -816,17 +799,16 @@ describe('venue router', () => {
     expect(replayed).toMatchObject({ id: venueRow.id, slug: 'city-zoo' })
     expect(replayed).not.toHaveProperty('places')
 
-    expect(enqueueEmbedPlaceMock).toHaveBeenCalledOnce()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
 
-  it('venue.create keeps a committed venue when the knowledge embedding enqueue fails', async () => {
+  it('venue.create never directly enqueues a nested knowledge embedding', async () => {
     const entryUpdatedAt = new Date('2026-08-09T19:00:00.123Z')
     venueCreate.mockResolvedValueOnce({
       ...venueRow,
       places: [],
       knowledgeEntries: [{ id: 'entry_1', tenantId: 'tenant_1', updatedAt: entryUpdatedAt }],
     })
-    enqueueEmbedKnowledgeEntryMock.mockRejectedValueOnce(new Error('redis unavailable'))
 
     const created = await testRouter.createCaller(ownerCtx()).venue.create({
       name: 'City Zoo',
@@ -844,7 +826,7 @@ describe('venue router', () => {
 
     expect(created).toMatchObject({ id: venueRow.id, slug: 'city-zoo' })
     expect(created).not.toHaveProperty('knowledgeEntries')
-    expect(enqueueEmbedKnowledgeEntryMock).toHaveBeenCalledOnce()
+    expect(enqueueEmbedKnowledgeEntryMock).not.toHaveBeenCalled()
   })
 
   it('venue.create replays an exact caller-supplied slug without writes or enqueue', async () => {
@@ -1408,101 +1390,133 @@ describe('venue router', () => {
 
   // --- venue.updateAiConfig ---
 
-  it('saves AI config and enqueues every scoped unembedded place', async () => {
-    let transactionCommitted = false
-    dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) => {
-      const result = await callback(mockDb)
-      transactionCommitted = true
-      return result
-    })
-    enqueueEmbedPlaceMock.mockImplementation(async () => {
-      expect(transactionCommitted).toBe(true)
-    })
-    const place1UpdatedAt = new Date('2026-08-07T18:00:00.123Z')
-    const place2UpdatedAt = new Date('2026-08-07T18:00:00.456Z')
+  it('saves AI config without bypassing the embedding dispatch outbox', async () => {
     venueFindFirst
-      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
+      .mockResolvedValueOnce({
+        aiGuideNotes: null,
+        aiFeaturedPlaceId: null,
+        aiGuideName: null,
+        aiTone: 'FRIENDLY',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        updatedAt: venueRow.updatedAt,
+      })
       .mockResolvedValueOnce({
         aiGuideNotes: 'Keep it concise',
+        aiFeaturedPlaceId: null,
         aiGuideName: 'Pip',
         aiTone: 'FRIENDLY',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        updatedAt: new Date(venueRow.updatedAt.getTime() + 1),
       })
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
-    dbQueryRaw.mockResolvedValueOnce([
-      { id: 'place_1', updatedAt: place1UpdatedAt },
-      { id: 'place_2', updatedAt: place2UpdatedAt },
-    ])
 
     const caller = testRouter.createCaller(managerCtx())
-    await caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: 'Keep it concise' })
+    await caller.venue.updateAiConfig({
+      venueId: venueRow.id,
+      expectedUpdatedAt: venueRow.updatedAt,
+      aiGuideNotes: 'Keep it concise',
+    })
 
     expect(dbExecuteRaw).toHaveBeenCalled()
-    expect(dbQueryRaw).toHaveBeenCalledOnce()
-    expect(enqueueEmbedPlaceMock).toHaveBeenCalledTimes(2)
-    expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(1, {
-      tenantId: 'tenant_1',
-      placeId: 'place_1',
-      contentUpdatedAt: place1UpdatedAt.toISOString(),
-    })
-    expect(enqueueEmbedPlaceMock).toHaveBeenNthCalledWith(2, {
-      tenantId: 'tenant_1',
-      placeId: 'place_2',
-      contentUpdatedAt: place2UpdatedAt.toISOString(),
-    })
+    expect(dbQueryRaw).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
 
-  it('returns saved AI config when an embedding enqueue fails', async () => {
-    const updated = { aiGuideNotes: 'Keep it concise', aiGuideName: 'Pip', aiTone: 'FRIENDLY' }
+  it('returns saved AI config without consulting direct embedding jobs', async () => {
+    const updated = {
+      aiGuideNotes: 'Keep it concise',
+      aiFeaturedPlaceId: null,
+      aiGuideName: 'Pip',
+      aiTone: 'FRIENDLY',
+      tonePreset: 'friendly',
+      tonePresetVersion: 1,
+      updatedAt: new Date(venueRow.updatedAt.getTime() + 1),
+    }
     venueFindFirst
-      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
+      .mockResolvedValueOnce({ ...updated, aiGuideNotes: null, updatedAt: venueRow.updatedAt })
       .mockResolvedValueOnce(updated)
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
-    dbQueryRaw.mockResolvedValueOnce([
-      { id: 'place_1', updatedAt: new Date('2026-08-07T18:00:00.123Z') },
-    ])
-    enqueueEmbedPlaceMock.mockRejectedValueOnce(new Error('redis unavailable'))
-
     const caller = testRouter.createCaller(managerCtx())
     await expect(
-      caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: 'Keep it concise' }),
+      caller.venue.updateAiConfig({
+        venueId: venueRow.id,
+        expectedUpdatedAt: venueRow.updatedAt,
+        aiGuideNotes: 'Keep it concise',
+      }),
     ).resolves.toEqual(updated)
+    expect(dbQueryRaw).not.toHaveBeenCalled()
+    expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
 
-  it('does not enqueue when every active scoped place already has an embedding', async () => {
+  it('does not directly enqueue embeddings after an AI configuration save', async () => {
     venueFindFirst
-      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
-      .mockResolvedValueOnce({ aiGuideNotes: null, aiGuideName: null, aiTone: 'FRIENDLY' })
+      .mockResolvedValueOnce({
+        aiGuideNotes: null,
+        aiFeaturedPlaceId: null,
+        aiGuideName: null,
+        aiTone: 'FRIENDLY',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        updatedAt: venueRow.updatedAt,
+      })
+      .mockResolvedValueOnce({
+        aiGuideNotes: null,
+        aiFeaturedPlaceId: null,
+        aiGuideName: null,
+        aiTone: 'FRIENDLY',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        updatedAt: new Date(venueRow.updatedAt.getTime() + 1),
+      })
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
-    dbQueryRaw.mockResolvedValueOnce([])
-
     const caller = testRouter.createCaller(managerCtx())
-    await caller.venue.updateAiConfig({ venueId: venueRow.id, aiGuideNotes: null })
+    await caller.venue.updateAiConfig({
+      venueId: venueRow.id,
+      expectedUpdatedAt: venueRow.updatedAt,
+      aiGuideNotes: null,
+    })
     expect(enqueueEmbedPlaceMock).not.toHaveBeenCalled()
   })
 
   it('persists a versioned tone preset and mirrors a safe legacy aiTone value', async () => {
     venueFindFirst
-      .mockResolvedValueOnce({ id: venueRow.id, tenantId: 'tenant_1' })
       .mockResolvedValueOnce({
         aiGuideNotes: 'Hidden operator guidance',
+        aiFeaturedPlaceId: null,
+        aiGuideName: 'Pip',
+        aiTone: 'FRIENDLY',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        updatedAt: venueRow.updatedAt,
+      })
+      .mockResolvedValueOnce({
+        aiGuideNotes: 'Hidden operator guidance',
+        aiFeaturedPlaceId: null,
         aiGuideName: 'Pip',
         aiTone: 'PROFESSIONAL',
         tonePreset: 'concise',
         tonePresetVersion: 1,
+        updatedAt: new Date(venueRow.updatedAt.getTime() + 1),
       })
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
     dbQueryRaw.mockResolvedValueOnce([])
 
     const caller = testRouter.createCaller(managerCtx())
-    await caller.venue.updateAiConfig({ venueId: venueRow.id, tonePreset: 'concise' })
+    await caller.venue.updateAiConfig({
+      venueId: venueRow.id,
+      expectedUpdatedAt: venueRow.updatedAt,
+      tonePreset: 'concise',
+    })
 
     expect(venueUpdateMany).toHaveBeenCalledWith({
-      where: { id: venueRow.id, tenantId: 'tenant_1' },
-      data: {
+      where: { id: venueRow.id, tenantId: 'tenant_1', updatedAt: venueRow.updatedAt },
+      data: expect.objectContaining({
         tonePreset: 'concise',
         tonePresetVersion: 1,
         aiTone: 'PROFESSIONAL',
-      },
+      }),
     })
   })
 
@@ -1510,19 +1524,28 @@ describe('venue router', () => {
 
   it('venue.updateChatDesign accepts the dark theme and a valid font', async () => {
     venueFindFirst
-      .mockResolvedValueOnce({ id: 'cuid1234567890abcdef' }) // ownership check
+      .mockResolvedValueOnce({
+        chatTheme: 'default',
+        chatAccentColor: null,
+        chatFont: 'jakarta',
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+        updatedAt: venueRow.updatedAt,
+      })
       .mockResolvedValueOnce({
         chatTheme: 'dark',
         chatAccentColor: '#3A7BD5',
         chatFont: 'inter',
         chatLogoUrl: null,
         chatBannerUrl: null,
+        updatedAt: new Date(venueRow.updatedAt.getTime() + 1),
       })
     venueUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(managerCtx())
     const result = await caller.venue.updateChatDesign({
       venueId: 'cuid1234567890abcdef',
+      expectedUpdatedAt: venueRow.updatedAt,
       chatTheme: 'dark',
       chatAccentColor: '#3A7BD5',
       chatFont: 'inter',
@@ -1543,6 +1566,7 @@ describe('venue router', () => {
     await expect(
       caller.venue.updateChatDesign({
         venueId: 'cuid1234567890abcdef',
+        expectedUpdatedAt: venueRow.updatedAt,
         chatFont: 'comic-sans' as never,
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
@@ -1552,18 +1576,30 @@ describe('venue router', () => {
     const caller = testRouter.createCaller(staffCtx())
 
     await expect(
-      caller.venue.updateChatDesign({ venueId: 'cuid1234567890abcdef', chatTheme: 'dark' }),
+      caller.venue.updateChatDesign({
+        venueId: 'cuid1234567890abcdef',
+        expectedUpdatedAt: venueRow.updatedAt,
+        chatTheme: 'dark',
+      }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 
   // --- venue.delete ---
 
   it('venue.delete removes venue with no places', async () => {
-    venueFindFirst.mockResolvedValueOnce({ id: 'cuid1234567890abcdef', _count: { places: 0 } })
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'cuid1234567890abcdef',
+      name: 'City Zoo',
+      updatedAt: venueRow.updatedAt,
+      _count: { places: 0 },
+    })
     venueDeleteMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(ownerCtx())
-    const result = await caller.venue.delete({ id: 'cuid1234567890abcdef' })
+    const result = await caller.venue.delete({
+      id: 'cuid1234567890abcdef',
+      expectedUpdatedAt: venueRow.updatedAt,
+    })
 
     expect(result).toEqual({ id: 'cuid1234567890abcdef' })
     expect(dbExecuteRaw).toHaveBeenCalled()
@@ -1573,22 +1609,34 @@ describe('venue router', () => {
   })
 
   it('venue.delete throws BAD_REQUEST when venue has places', async () => {
-    venueFindFirst.mockResolvedValueOnce({ id: 'cuid1234567890abcdef', _count: { places: 5 } })
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'cuid1234567890abcdef',
+      name: 'City Zoo',
+      updatedAt: venueRow.updatedAt,
+      _count: { places: 5 },
+    })
 
     const caller = testRouter.createCaller(ownerCtx())
 
-    await expect(caller.venue.delete({ id: 'cuid1234567890abcdef' })).rejects.toThrowError(
-      expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }),
-    )
+    await expect(
+      caller.venue.delete({ id: 'cuid1234567890abcdef', expectedUpdatedAt: venueRow.updatedAt }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
   })
 
   it('venue.delete reports retained package history as a conflict', async () => {
-    venueFindFirst.mockResolvedValueOnce({ id: 'cuid1234567890abcdef', _count: { places: 0 } })
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'cuid1234567890abcdef',
+      name: 'City Zoo',
+      updatedAt: venueRow.updatedAt,
+      _count: { places: 0 },
+    })
     venueDeleteMany.mockRejectedValueOnce({ code: 'P2003' })
 
     const caller = testRouter.createCaller(ownerCtx())
 
-    await expect(caller.venue.delete({ id: 'cuid1234567890abcdef' })).rejects.toThrowError(
+    await expect(
+      caller.venue.delete({ id: 'cuid1234567890abcdef', expectedUpdatedAt: venueRow.updatedAt }),
+    ).rejects.toThrowError(
       expect.objectContaining<Partial<TRPCError>>({
         code: 'CONFLICT',
         message: expect.stringContaining('dependent history'),
@@ -1599,8 +1647,8 @@ describe('venue router', () => {
   it('venue.delete with MANAGER role throws FORBIDDEN', async () => {
     const caller = testRouter.createCaller(managerCtx())
 
-    await expect(caller.venue.delete({ id: 'cuid1234567890abcdef' })).rejects.toThrowError(
-      expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }),
-    )
+    await expect(
+      caller.venue.delete({ id: 'cuid1234567890abcdef', expectedUpdatedAt: venueRow.updatedAt }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 })

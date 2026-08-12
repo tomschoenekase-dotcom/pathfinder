@@ -19,12 +19,13 @@ const config = {
   tonePreset: 'friendly',
   tonePresetVersion: 1,
   aiGuideName: 'Pip',
+  updatedAt: new Date('2026-08-11T14:30:00.000Z'),
 }
 
 describe('AiControlsForm client tone control', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.updateAiConfig.mockResolvedValue({})
+    mocks.updateAiConfig.mockResolvedValue({ updatedAt: new Date('2026-08-11T14:31:00.000Z') })
   })
   afterEach(cleanup)
 
@@ -43,6 +44,7 @@ describe('AiControlsForm client tone control', () => {
     await waitFor(() =>
       expect(mocks.updateAiConfig).toHaveBeenCalledWith({
         venueId: 'venue_1',
+        expectedUpdatedAt: config.updatedAt,
         tonePreset: 'concise',
       }),
     )

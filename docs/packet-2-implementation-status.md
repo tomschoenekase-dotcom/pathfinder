@@ -126,8 +126,9 @@ Section-level evidence and blockers are indexed in
 - Responsive internal OS shell with persistent, grouped navigation.
 - Global Cmd/Ctrl-K client lookup backed by authorized, server-filtered bounded admin data.
 - Attention-first command center replacing the prohibited endless-directory homepage.
-- Operational exception triage for AI incident state, failed jobs, suspended clients, and setup
-  accounts.
+- Operational exception triage for AI incident state, failed/retryable jobs, evaluation lifecycle,
+  pending/expired approvals, support workflow attention, recent agent runs, suspended clients, and
+  setup accounts. Every queue is bounded, cursor-paginated, read-only, and omits sensitive payloads.
 - Recent work, operational status, compact recent operations, a separate client directory, and a
   dedicated operations view. The directory now uses server search and stable cursor pagination;
   the legacy all-client procedure is compatibility-bounded.
@@ -158,9 +159,12 @@ Section-level evidence and blockers are indexed in
 
 - Scope-aware Internal Client Workspace with client/venue breadcrumbs, grouped workflows, venue
   switching, readiness warnings, guest preview, and advanced controls separated from client UI.
+- Internal-only legacy compatibility management exposes scoped Place/Knowledge create, CAS edit,
+  and soft-retire actions to platform admins without restoring these tools to the Client Portal.
 - Admin-only Universal Content explorer groups typed modules and shows version, audience, effective
   state, and provenance summaries with strict venue scope and cursor pagination. Places/Knowledge
-  remain explicitly labeled compatibility systems; no client/guest exposure or mutation exists.
+  remain explicitly labeled compatibility systems and are mutable only in the Internal Workspace;
+  neither system is exposed through the client or guest surface.
 - Agent identity, run, action, access/autonomy, timeline, and reusable approval persistence
   primitives with append-only and cross-scope migration guards.
 - Canonical approval-decision action requires a human platform admin, exact tenant/venue/request,
@@ -249,7 +253,7 @@ Section-level evidence and blockers are indexed in
   onboarding beyond the bounded existing-DRAFT lineage bridge.
 - Venue Deployment Manifest v2-native persistence/apply semantics beyond the bounded conversion into
   existing preview/draft inputs.
-- Broader canonical domain action coverage for remaining package, venue, media, report, and account
+- Broader canonical domain action coverage for remaining package, media, report, and account
   mutations, so every UI, worker, API, MCP, and agent mutation shares the same services.
 - Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
   including any later automated validation/evaluation, approval, apply or agent orchestration.

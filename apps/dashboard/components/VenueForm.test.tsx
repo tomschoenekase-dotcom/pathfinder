@@ -327,7 +327,12 @@ describe('VenueForm', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete venue' }))
 
-    await waitFor(() => expect(mocks.deleteVenue).toHaveBeenCalledWith({ id: 'venue-1' }))
+    await waitFor(() =>
+      expect(mocks.deleteVenue).toHaveBeenCalledWith({
+        id: 'venue-1',
+        expectedUpdatedAt: new Date(venueRevision),
+      }),
+    )
     expect(confirm).toHaveBeenCalledWith('Delete this venue? This cannot be undone.')
     expect(await screen.findByText('Remove all guide items first')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Delete venue' })).toBeTruthy()

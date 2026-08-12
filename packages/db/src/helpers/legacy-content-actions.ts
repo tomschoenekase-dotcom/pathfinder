@@ -2,7 +2,11 @@ import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { lockContentVersionEntity, setContentVersionContext } from './content-version-context'
 import { lockVenueContentMutation } from './venue-content-lock'
-export type LegacyContentActor = { type: 'HUMAN'; id: string; role: 'MANAGER' | 'OWNER' }
+export type LegacyContentActor = {
+  type: 'HUMAN'
+  id: string
+  role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN'
+}
 export type LegacyContentActionClient = Pick<typeof db, '$transaction'>
 export type LegacyContentActionErrorCode = 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT'
 export class LegacyContentActionError extends Error {
@@ -64,7 +68,11 @@ type PlaceFields = {
 type KnowledgeFields = { title: string; category: string; content: string; isEnabled: boolean }
 
 function actor(actor: LegacyContentActor): void {
-  if (actor.type !== 'HUMAN' || !actor.id || !['MANAGER', 'OWNER'].includes(actor.role)) {
+  if (
+    actor.type !== 'HUMAN' ||
+    !actor.id ||
+    !['MANAGER', 'OWNER', 'PLATFORM_ADMIN'].includes(actor.role)
+  ) {
     throw new LegacyContentActionError('INVALID_INPUT', 'A manager human actor is required')
   }
 }

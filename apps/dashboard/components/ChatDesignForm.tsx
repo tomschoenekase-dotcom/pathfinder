@@ -21,6 +21,7 @@ type Venue = {
   chatFont?: string | null
   chatLogoUrl?: string | null
   chatBannerUrl?: string | null
+  updatedAt: string | Date
 }
 
 type ChatDesignFormProps = {
@@ -59,6 +60,9 @@ function designStateForVenue(venue: Venue | undefined) {
 
 export function ChatDesignForm({ venues }: ChatDesignFormProps) {
   const client = useTRPCClient()
+  const revisions = useRef(
+    new Map(venues.map((candidate) => [candidate.id, new Date(candidate.updatedAt)])),
+  )
 
   const [selectedVenueId, setSelectedVenueId] = useState(venues[0]?.id ?? '')
   const venue = venues.find((candidate) => candidate.id === selectedVenueId)
@@ -135,12 +139,14 @@ export function ChatDesignForm({ venues }: ChatDesignFormProps) {
     setIsSaving(true)
 
     try {
-      await client.venue.updateChatDesign.mutate({
+      const saved = await client.venue.updateChatDesign.mutate({
         venueId: venue.id,
+        expectedUpdatedAt: revisions.current.get(venue.id) ?? new Date(venue.updatedAt),
         chatTheme: effectiveTheme,
         chatAccentColor: accentOverride,
         chatFont,
       })
+      revisions.current.set(venue.id, saved.updatedAt)
       const savedAccentColor = accentOverride ?? ''
       setChatAccentColor(savedAccentColor)
       setSavedDesign({ chatTheme, darkMode, chatAccentColor: savedAccentColor, chatFont })

@@ -21,6 +21,7 @@ const venues = [
     chatTheme: 'forest',
     chatAccentColor: null,
     chatFont: 'inter',
+    updatedAt: new Date('2026-08-11T14:30:00.000Z'),
   },
   {
     id: 'clxvenue00000000000000002',
@@ -29,13 +30,14 @@ const venues = [
     chatTheme: 'dark',
     chatAccentColor: '#D4607A',
     chatFont: 'playfair',
+    updatedAt: new Date('2026-08-11T14:30:00.000Z'),
   },
 ]
 
 describe('ChatDesignForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.updateChatDesign.mockResolvedValue({})
+    mocks.updateChatDesign.mockResolvedValue({ updatedAt: new Date('2026-08-11T14:31:00.000Z') })
   })
 
   afterEach(() => {
@@ -61,6 +63,7 @@ describe('ChatDesignForm', () => {
     await waitFor(() =>
       expect(mocks.updateChatDesign).toHaveBeenCalledWith({
         venueId: venues[0]!.id,
+        expectedUpdatedAt: venues[0]!.updatedAt,
         chatTheme: 'sunset',
         chatAccentColor: '#ABCDEF',
         chatFont: 'poppins',
@@ -95,9 +98,9 @@ describe('ChatDesignForm', () => {
   })
 
   it('fences duplicate writes and locks design and venue controls while pending', async () => {
-    let resolveSave!: () => void
+    let resolveSave!: (value: { updatedAt: Date }) => void
     mocks.updateChatDesign.mockImplementationOnce(
-      () => new Promise<void>((resolve) => (resolveSave = resolve)),
+      () => new Promise<{ updatedAt: Date }>((resolve) => (resolveSave = resolve)),
     )
     render(<ChatDesignForm venues={venues} />)
 
@@ -118,7 +121,7 @@ describe('ChatDesignForm', () => {
     expect((screen.getByLabelText('Custom accent colour') as HTMLInputElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Inter' }) as HTMLButtonElement).disabled).toBe(true)
 
-    await act(async () => resolveSave())
+    await act(async () => resolveSave({ updatedAt: new Date('2026-08-11T14:31:00.000Z') }))
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy())
   })
 
@@ -147,6 +150,7 @@ describe('ChatDesignForm', () => {
     await waitFor(() =>
       expect(mocks.updateChatDesign).toHaveBeenCalledWith({
         venueId: venues[1]!.id,
+        expectedUpdatedAt: venues[1]!.updatedAt,
         chatTheme: 'dark',
         chatAccentColor: '#D4607A',
         chatFont: 'playfair',

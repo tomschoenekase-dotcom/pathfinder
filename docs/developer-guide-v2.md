@@ -56,6 +56,13 @@ same exact scope and `updatedAt` concurrency boundary but may update review/prov
 only, never factual content or publication state. Support triage uses request-version CAS and must
 remain separate from status transitions, client messaging, package lineage, and execution.
 
+Venue creation and configuration also route through neutral actions. Normalize and validate slugs
+inside the domain boundary, serialize automatic suffix allocation with the tenant/base advisory
+lock, rotate monotonic `updatedAt` tokens, and preserve tone preset/version mappings. Nested initial
+content relies exclusively on the durable embedding-dispatch trigger/outbox; never add a second
+direct queue enqueue. The destructive venue-delete helper requires a HUMAN `OWNER` before opening a
+transaction, even when its current transport adapter already enforces the same role.
+
 ## Adding an intake adapter
 
 Implement the adapter interface in `@pathfinder/intake-engine`. Bound time, size, count, evidence,

@@ -3,20 +3,24 @@ import { createHash } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, lockVenueContentMutation, setContentVersionContext } from '@pathfinder/db'
-import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from '@pathfinder/jobs'
-import { emitEvent } from '@pathfinder/analytics'
-import { logger } from '@pathfinder/config/logger'
 import {
-  LEGACY_AI_TONE_TO_PRESET,
-  TONE_PRESET_BEHAVIOR_VERSION,
-  TONE_PRESET_TO_LEGACY_AI_TONE,
-  TonePresetId,
-} from '@pathfinder/contracts/tone-presets'
-
+  createVenueAction,
+  deleteVenueAction,
+  lockVenueContentMutation,
+  setContentVersionContext,
+  updateVenueAction,
+  updateVenueAiConfigAction,
+  updateVenueChatDesignAction,
+  VenueActionError,
+  type VenueHumanActor,
+} from '@pathfinder/db'
+import { emitEvent } from '@pathfinder/analytics'
 import {
   CreateVenueRequestInput,
+  DeleteVenueInput,
   normalizeInitialVenueContent,
+  UpdateVenueAiConfigInput,
+  UpdateVenueChatDesignInput,
   UpdateVenueRequestInput,
 } from '../schemas/venue'
 import {
@@ -26,13 +30,33 @@ import {
 
 import { router } from '../core'
 import { checkRateLimit } from '../lib/rate-limit'
-import { requireRole } from '../middleware/require-role'
 import { withContentVersionActor } from '../middleware/content-version-actor'
+import { requireRole } from '../middleware/require-role'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
-type Db = typeof db
-
 const PUBLIC_VENUE_LOOKUP_GLOBAL_LIMIT_PER_MINUTE = 10_000
+
+function venueActor(session: { userId: string | null; role: string | null }): VenueHumanActor {
+  return {
+    type: 'HUMAN',
+    id: session.userId!,
+    role: session.role === 'OWNER' ? 'OWNER' : 'MANAGER',
+  }
+}
+
+function mapVenueActionError(error: unknown): void {
+  if (!(error instanceof VenueActionError)) return
+  throw new TRPCError({
+    code:
+      error.code === 'NOT_FOUND'
+        ? 'NOT_FOUND'
+        : error.code === 'CONFLICT'
+          ? 'CONFLICT'
+          : 'BAD_REQUEST',
+    message: error.message,
+    cause: error,
+  })
+}
 
 type VenueContentImportReceiptResult = {
   payloadHash: string
@@ -69,44 +93,6 @@ function replayVenueContentImport(
   }
 }
 
-async function embedPlace(place: { id: string; tenantId: string; updatedAt: Date }): Promise<void> {
-  try {
-    await enqueueEmbedPlace({
-      placeId: place.id,
-      tenantId: place.tenantId,
-      contentUpdatedAt: place.updatedAt.toISOString(),
-    })
-  } catch (err) {
-    logger.warn({
-      action: 'place.embed.enqueue.failed',
-      tenantId: place.tenantId,
-      placeId: place.id,
-      error: err instanceof Error ? err.message : String(err),
-    })
-  }
-}
-
-async function embedKnowledgeEntry(entry: {
-  id: string
-  tenantId: string
-  updatedAt: Date
-}): Promise<void> {
-  try {
-    await enqueueEmbedKnowledgeEntry({
-      entryId: entry.id,
-      tenantId: entry.tenantId,
-      contentUpdatedAt: entry.updatedAt.toISOString(),
-    })
-  } catch (err) {
-    logger.warn({
-      action: 'knowledge.embed.enqueue.failed',
-      tenantId: entry.tenantId,
-      entryId: entry.id,
-      error: err instanceof Error ? err.message : String(err),
-    })
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Slug utility
 // ---------------------------------------------------------------------------
@@ -118,32 +104,6 @@ export function slugify(name: string): string {
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
-}
-
-export async function uniqueSlug(
-  db: Pick<Db, 'venue'>,
-  tenantId: string,
-  base: string,
-  excludeId?: string,
-): Promise<string> {
-  let candidate = base
-  let suffix = 2
-
-  for (;;) {
-    const existing = await db.venue.findFirst({
-      where: {
-        tenantId,
-        slug: candidate,
-        ...(excludeId ? { NOT: { id: excludeId } } : {}),
-      },
-      select: { id: true },
-    })
-
-    if (!existing) return candidate
-
-    candidate = `${base}-${suffix}`
-    suffix++
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -180,128 +140,6 @@ const venueListSelect = {
   // geoBoundary intentionally excluded from list views
 } as const
 
-const venueCreateSelect = {
-  ...venueListSelect,
-  places: {
-    select: {
-      id: true,
-      tenantId: true,
-      name: true,
-      type: true,
-      itemType: true,
-      shortDescription: true,
-      longDescription: true,
-      lat: true,
-      lng: true,
-      tags: true,
-      importanceScore: true,
-      areaName: true,
-      hours: true,
-      photoUrl: true,
-      updatedAt: true,
-    },
-    orderBy: { createdAt: 'asc' as const },
-    take: 2,
-  },
-  knowledgeEntries: {
-    select: {
-      id: true,
-      tenantId: true,
-      title: true,
-      category: true,
-      content: true,
-      isEnabled: true,
-      updatedAt: true,
-    },
-    orderBy: { createdAt: 'asc' as const },
-    take: 2,
-  },
-} as const
-
-type VenueCreateRequest = z.infer<typeof CreateVenueRequestInput>
-
-function venueCreateMatches(
-  existing: {
-    name: string
-    description: string | null
-    guideNotes: string | null
-    category: string | null
-    guideMode: string
-    defaultCenterLat: number | null
-    defaultCenterLng: number | null
-    places: Array<{
-      name: string
-      type: string
-      itemType: string | null
-      shortDescription: string | null
-      longDescription: string | null
-      lat: number | null
-      lng: number | null
-      tags: string[]
-      importanceScore: number
-      areaName: string | null
-      hours: string | null
-      photoUrl: string | null
-    }>
-    knowledgeEntries?: Array<{
-      title: string
-      category: string
-      content: string
-      isEnabled: boolean
-    }>
-  },
-  input: VenueCreateRequest,
-  guideMode: 'location_aware' | 'non_location',
-): boolean {
-  if (
-    existing.name !== input.name ||
-    existing.description !== (input.description ?? null) ||
-    existing.guideNotes !== (input.guideNotes ?? null) ||
-    existing.category !== (input.category ?? null) ||
-    existing.guideMode !== guideMode ||
-    existing.defaultCenterLat !== (input.defaultCenterLat ?? null) ||
-    existing.defaultCenterLng !== (input.defaultCenterLng ?? null)
-  ) {
-    return false
-  }
-
-  const initialContent = normalizeInitialVenueContent(input)
-  const storedPlaces = existing.places
-  const storedKnowledgeEntries = existing.knowledgeEntries ?? []
-  const stored = storedPlaces[0]
-  const storedKnowledge = storedKnowledgeEntries[0]
-  if (!initialContent) return storedPlaces.length === 0 && storedKnowledgeEntries.length === 0
-
-  if (initialContent.kind === 'knowledge') {
-    return (
-      storedPlaces.length === 0 &&
-      storedKnowledgeEntries.length === 1 &&
-      storedKnowledge?.title === initialContent.value.title &&
-      storedKnowledge.category === initialContent.value.category &&
-      storedKnowledge.content === initialContent.value.content &&
-      storedKnowledge.isEnabled === true
-    )
-  }
-
-  const initial = initialContent.value
-  if (storedPlaces.length !== 1 || storedKnowledgeEntries.length !== 0 || !stored) return false
-
-  return (
-    stored.name === initial.name &&
-    stored.type === initial.type &&
-    stored.itemType === null &&
-    stored.shortDescription === initial.shortDescription &&
-    stored.longDescription === (initial.longDescription ?? null) &&
-    stored.lat === (guideMode === 'location_aware' ? input.defaultCenterLat! : null) &&
-    stored.lng === (guideMode === 'location_aware' ? input.defaultCenterLng! : null) &&
-    JSON.stringify(stored.tags) === JSON.stringify(initial.tags) &&
-    stored.importanceScore === initial.importanceScore &&
-    stored.areaName === (initial.areaName ?? null) &&
-    stored.hours === (initial.hours ?? null) &&
-    stored.photoUrl === (initial.photoUrl ?? null)
-  )
-}
-
 function buildVenueDetailSelect(tenantId: string) {
   return {
     ...venueListSelect,
@@ -321,6 +159,7 @@ const venueAiConfigSelect = {
   tonePreset: true,
   tonePresetVersion: true,
   aiGuideName: true,
+  updatedAt: true,
 } as const
 
 // ---------------------------------------------------------------------------
@@ -441,115 +280,34 @@ export const venueRouter = router({
       const guideMode = input.guideMode ?? 'location_aware'
 
       try {
-        const created = await ctx.db.$transaction(async (tx) => {
-          await setContentVersionContext(tx, { actorId: ctx.session.userId })
-          if (input.slug) {
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(
-              hashtextextended(${`pathfinder:venue-create:${tenantId}:${baseSlug}`}, 0)
-            )`
-            const existing = await tx.venue.findFirst({
-              where: { tenantId, slug: baseSlug },
-              select: venueCreateSelect,
-            })
-            if (existing) {
-              if (!venueCreateMatches(existing, input, guideMode)) {
-                throw new TRPCError({
-                  code: 'CONFLICT',
-                  message: 'This venue slug is already used for different setup content.',
-                })
-              }
-              return { record: existing, shouldEnqueue: false }
-            }
-          }
-
-          const slug = input.slug ? baseSlug : await uniqueSlug(tx, tenantId, baseSlug)
-
-          const record = await tx.venue.create({
-            data: {
-              tenantId,
-              name: input.name,
-              slug,
-              ...(input.description !== undefined ? { description: input.description } : {}),
-              ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
-              ...(input.category !== undefined ? { category: input.category } : {}),
-              guideMode,
-              ...(input.defaultCenterLat !== undefined
-                ? { defaultCenterLat: input.defaultCenterLat }
-                : {}),
-              ...(input.defaultCenterLng !== undefined
-                ? { defaultCenterLng: input.defaultCenterLng }
-                : {}),
-              ...(initialContent?.kind === 'place'
-                ? {
-                    places: {
-                      create: {
-                        tenantId,
-                        name: initialContent.value.name,
-                        type: initialContent.value.type,
-                        shortDescription: initialContent.value.shortDescription,
-                        ...(initialContent.value.longDescription !== undefined
-                          ? { longDescription: initialContent.value.longDescription }
-                          : {}),
-                        ...(initialContent.value.areaName !== undefined
-                          ? { areaName: initialContent.value.areaName }
-                          : {}),
-                        ...(initialContent.value.hours !== undefined
-                          ? { hours: initialContent.value.hours }
-                          : {}),
-                        ...(initialContent.value.photoUrl !== undefined
-                          ? { photoUrl: initialContent.value.photoUrl }
-                          : {}),
-                        tags: initialContent.value.tags,
-                        importanceScore: initialContent.value.importanceScore,
-                        ...(guideMode === 'location_aware'
-                          ? {
-                              lat: input.defaultCenterLat!,
-                              lng: input.defaultCenterLng!,
-                            }
-                          : {}),
-                      },
-                    },
-                  }
-                : {}),
-              ...(initialContent?.kind === 'knowledge'
-                ? {
-                    knowledgeEntries: {
-                      create: {
-                        tenantId,
-                        title: initialContent.value.title,
-                        category: initialContent.value.category,
-                        content: initialContent.value.content,
-                        isEnabled: true,
-                      },
-                    },
-                  }
-                : {}),
-            },
-            select: venueCreateSelect,
-          })
-
-          const placeCount = record.places?.length ?? 0
-          const knowledgeCount = record.knowledgeEntries?.length ?? 0
-          if (
-            (initialContent?.kind === 'place' && (placeCount !== 1 || knowledgeCount !== 0)) ||
-            (initialContent?.kind === 'knowledge' && (knowledgeCount !== 1 || placeCount !== 0)) ||
-            (!initialContent && (placeCount !== 0 || knowledgeCount !== 0))
-          ) {
-            throw new Error('Initial content was not returned from the atomic venue create')
-          }
-
-          return { record, shouldEnqueue: true }
-        })
+        const created = await createVenueAction(
+          {
+            tenantId,
+            actor: venueActor(ctx.session),
+            name: input.name,
+            baseSlug,
+            callerSuppliedSlug: input.slug !== undefined,
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
+            ...(input.category !== undefined ? { category: input.category } : {}),
+            guideMode,
+            ...(input.defaultCenterLat !== undefined
+              ? { defaultCenterLat: input.defaultCenterLat }
+              : {}),
+            ...(input.defaultCenterLng !== undefined
+              ? { defaultCenterLng: input.defaultCenterLng }
+              : {}),
+            ...(initialContent !== undefined ? { initialContent } : {}),
+          },
+          ctx.db,
+        )
 
         const { places = [], knowledgeEntries = [], ...venue } = created.record
-        const initialPlace = places[0]
-        const initialKnowledgeEntry = knowledgeEntries[0]
-        if (created.shouldEnqueue && initialPlace) await embedPlace(initialPlace)
-        if (created.shouldEnqueue && initialKnowledgeEntry) {
-          await embedKnowledgeEntry(initialKnowledgeEntry)
-        }
+        void places
+        void knowledgeEntries
         return venue
       } catch (err: unknown) {
+        mapVenueActionError(err)
         const msg = err instanceof Error ? err.message : ''
         if (msg.includes('venues_tenant_id_slug_key')) {
           throw new TRPCError({
@@ -563,68 +321,23 @@ export const venueRouter = router({
 
   update: tenantProcedure
     .use(requireRole('MANAGER'))
-    .use(withContentVersionActor)
     .input(UpdateVenueRequestInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.id })
-
-      const existing = await ctx.db.venue.findFirst({
-        where: { id: input.id, tenantId },
-        select: { id: true, guideMode: true, updatedAt: true },
-      })
-
-      if (!existing) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
-      if (existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Venue changed in another session. Refresh and try again.',
-        })
-      }
-
       const { id, expectedUpdatedAt, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
-      const effectiveGuideMode = input.guideMode ?? existing.guideMode ?? 'location_aware'
-      if (
-        effectiveGuideMode === 'non_location' &&
-        (input.defaultCenterLat !== undefined || input.defaultCenterLng !== undefined)
-      ) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Non-location venues cannot define a default center.',
-        })
-      }
-
-      const data: Record<string, unknown> = Object.fromEntries(
-        Object.entries(raw).filter(([, v]) => v !== undefined),
+      const fields = Object.fromEntries(
+        Object.entries(raw).filter(([, value]) => value !== undefined),
       )
-      if (effectiveGuideMode === 'non_location') {
-        data.defaultCenterLat = null
-        data.defaultCenterLng = null
+      try {
+        return await updateVenueAction(
+          { tenantId, venueId: id, expectedUpdatedAt, actor: venueActor(ctx.session), fields },
+          ctx.db,
+        )
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
       }
-      data.updatedAt = new Date(Math.max(Date.now(), existing.updatedAt.getTime() + 1))
-
-      // updateMany accepts tenantId in where; update does not (Prisma unique-key constraint)
-      const changed = await ctx.db.venue.updateMany({
-        where: { id, tenantId, updatedAt: expectedUpdatedAt },
-        data,
-      })
-      if (changed.count !== 1) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Venue changed in another session. Refresh and try again.',
-        })
-      }
-
-      const updated = await ctx.db.venue.findFirst({
-        where: { id, tenantId },
-        select: venueListSelect,
-      })
-
-      return updated!
     }),
 
   setAvailability: tenantProcedure
@@ -811,85 +524,19 @@ export const venueRouter = router({
 
   updateAiConfig: tenantProcedure
     .use(requireRole('MANAGER'))
-    .input(
-      z
-        .object({
-          venueId: z.string().cuid(),
-          aiGuideNotes: z.string().max(2000).nullable().optional(),
-          aiFeaturedPlaceId: z.string().cuid().nullable().optional(),
-          aiTone: z.enum(['FRIENDLY', 'PROFESSIONAL', 'PLAYFUL']).optional(),
-          tonePreset: TonePresetId.optional(),
-          aiGuideName: z.string().max(80).nullable().optional(),
-        })
-        .strict(),
-    )
+    .input(UpdateVenueAiConfigInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-      const updated = await ctx.db.$transaction(async (tx) => {
-        await setContentVersionContext(tx, { actorId: ctx.session.userId })
-        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
-        const venue = await tx.venue.findFirst({
-          where: { id: input.venueId, tenantId },
-          select: { id: true, tenantId: true },
-        })
-
-        if (!venue || venue.tenantId !== tenantId) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-        }
-
-        if (input.aiFeaturedPlaceId) {
-          const place = await tx.place.findFirst({
-            where: { id: input.aiFeaturedPlaceId, venueId: input.venueId, tenantId },
-            select: { id: true },
-          })
-          if (!place) throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
-        }
-
-        const requestedPreset =
-          input.tonePreset ?? (input.aiTone ? LEGACY_AI_TONE_TO_PRESET[input.aiTone] : undefined)
-        const data = {
-          ...(input.aiGuideNotes !== undefined ? { aiGuideNotes: input.aiGuideNotes } : {}),
-          ...(input.aiFeaturedPlaceId !== undefined
-            ? { aiFeaturedPlaceId: input.aiFeaturedPlaceId }
-            : {}),
-          ...(input.aiGuideName !== undefined ? { aiGuideName: input.aiGuideName } : {}),
-          ...(requestedPreset
-            ? {
-                tonePreset: requestedPreset,
-                tonePresetVersion: TONE_PRESET_BEHAVIOR_VERSION,
-                aiTone: TONE_PRESET_TO_LEGACY_AI_TONE[requestedPreset],
-              }
-            : {}),
-        }
-        const changed = await tx.venue.updateMany({
-          where: { id: input.venueId, tenantId },
-          data,
-        })
-        if (changed.count !== 1) {
-          throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
-        }
-
-        const saved = await tx.venue.findFirst({
-          where: { id: input.venueId, tenantId },
-          select: venueAiConfigSelect,
-        })
-        if (!saved) throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
-        return saved
-      })
-
-      // Re-embed any places that are missing an embedding. Failures are logged and do not block the save.
-      const unembeddedIds = await ctx.db.$queryRaw<{ id: string; updatedAt: Date }[]>`
-        SELECT id, updated_at AS "updatedAt" FROM places
-        WHERE venue_id  = ${input.venueId}
-          AND tenant_id = ${tenantId}
-          AND is_active = true
-          AND embedding IS NULL
-      `
-
-      if (unembeddedIds.length > 0) {
-        await Promise.all(
-          unembeddedIds.map(({ id, updatedAt }) => embedPlace({ id, tenantId, updatedAt })),
+      const { venueId, expectedUpdatedAt, ...fields } = input
+      let updated
+      try {
+        updated = await updateVenueAiConfigAction(
+          { tenantId, venueId, expectedUpdatedAt, actor: venueActor(ctx.session), fields },
+          ctx.db,
         )
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
       }
 
       try {
@@ -908,59 +555,20 @@ export const venueRouter = router({
 
   updateChatDesign: tenantProcedure
     .use(requireRole('MANAGER'))
-    .input(
-      z
-        .object({
-          venueId: z.string().cuid(),
-          chatTheme: z.enum(['default', 'forest', 'sunset', 'midnight', 'rose', 'dark']).optional(),
-          chatAccentColor: z
-            .string()
-            .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a hex colour e.g. #3A7BD5')
-            .nullable()
-            .optional(),
-          chatFont: z
-            .enum(['jakarta', 'inter', 'poppins', 'spaceGrotesk', 'dmSans', 'playfair'])
-            .optional(),
-          chatLogoUrl: z.string().url().max(500).nullable().optional(),
-          chatBannerUrl: z.string().url().max(500).nullable().optional(),
-        })
-        .strict(),
-    )
+    .input(UpdateVenueChatDesignInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-      const updated = await ctx.db.$transaction(async (tx) => {
-        await setContentVersionContext(tx, { actorId: ctx.session.userId })
-        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
-        const venue = await tx.venue.findFirst({
-          where: { id: input.venueId, tenantId },
-          select: { id: true },
-        })
-        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-
-        const data = Object.fromEntries(
-          Object.entries(input).filter(([key, value]) => key !== 'venueId' && value !== undefined),
+      const { venueId, expectedUpdatedAt, ...fields } = input
+      let updated
+      try {
+        updated = await updateVenueChatDesignAction(
+          { tenantId, venueId, expectedUpdatedAt, actor: venueActor(ctx.session), fields },
+          ctx.db,
         )
-        const changed = await tx.venue.updateMany({
-          where: { id: input.venueId, tenantId },
-          data,
-        })
-        if (changed.count !== 1) {
-          throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
-        }
-
-        const saved = await tx.venue.findFirst({
-          where: { id: input.venueId, tenantId },
-          select: {
-            chatTheme: true,
-            chatAccentColor: true,
-            chatFont: true,
-            chatLogoUrl: true,
-            chatBannerUrl: true,
-          },
-        })
-        if (!saved) throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during save' })
-        return saved
-      })
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
+      }
 
       try {
         await emitEvent({
@@ -978,36 +586,21 @@ export const venueRouter = router({
 
   delete: tenantProcedure
     .use(requireRole('OWNER'))
-    .use(withContentVersionActor)
-    .input(z.object({ id: z.string().cuid() }))
+    .input(DeleteVenueInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.id })
-
-      const venue = await ctx.db.venue.findFirst({
-        where: { id: input.id, tenantId },
-        select: { id: true, _count: { select: { places: true } } },
-      })
-
-      if (!venue) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      }
-
-      if (venue._count.places > 0) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Remove all POIs before deleting a venue',
-        })
-      }
-
-      // deleteMany accepts tenantId in where; delete does not (Prisma unique-key constraint)
       try {
-        const deleted = await ctx.db.venue.deleteMany({ where: { id: input.id, tenantId } })
-        if (deleted.count !== 1) {
-          throw new TRPCError({ code: 'CONFLICT', message: 'Venue changed during deletion' })
-        }
+        return await deleteVenueAction(
+          {
+            tenantId,
+            venueId: input.id,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+            actor: venueActor(ctx.session),
+          },
+          ctx.db,
+        )
       } catch (error: unknown) {
+        mapVenueActionError(error)
         if (
           typeof error === 'object' &&
           error !== null &&
@@ -1022,7 +615,5 @@ export const venueRouter = router({
         }
         throw error
       }
-
-      return { id: input.id }
     }),
 })

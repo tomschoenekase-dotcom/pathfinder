@@ -19,6 +19,7 @@ type AiConfig = {
   tonePreset?: string | null
   tonePresetVersion?: number | null
   aiGuideName: string | null
+  updatedAt: string | Date
 }
 
 type AiControlsFormProps = {
@@ -43,6 +44,7 @@ export function AiControlsForm({ initialVenueId, initialConfig }: AiControlsForm
   const [formError, setFormError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const mutationInFlight = useRef(false)
+  const expectedUpdatedAt = useRef(new Date(initialConfig.updatedAt))
 
   useEffect(() => {
     if (!successMessage) return
@@ -68,7 +70,12 @@ export function AiControlsForm({ initialVenueId, initialConfig }: AiControlsForm
     try {
       // Only the client-owned preference is written. Hidden operator guidance,
       // featured content, and guide identity remain untouched on the server.
-      await client.venue.updateAiConfig.mutate({ venueId: initialVenueId, tonePreset })
+      const saved = await client.venue.updateAiConfig.mutate({
+        venueId: initialVenueId,
+        expectedUpdatedAt: expectedUpdatedAt.current,
+        tonePreset,
+      })
+      expectedUpdatedAt.current = saved.updatedAt
       setSuccessMessage('Tone saved. New conversations will use this voice.')
     } catch (error) {
       setFormError(errorMessage(error))

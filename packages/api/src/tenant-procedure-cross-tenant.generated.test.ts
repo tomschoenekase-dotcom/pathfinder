@@ -52,6 +52,37 @@ type LegacyHarnessClient = {
 vi.mock('@pathfinder/db', async () => {
   const { z } = await import('zod')
   return {
+    VenueActionError: class VenueActionError extends Error {},
+    createVenueAction: vi.fn(
+      (input: { tenantId: string; baseSlug: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { tenantId: input.tenantId, slug: input.baseSlug } }),
+        ),
+    ),
+    updateVenueAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    updateVenueAiConfigAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    updateVenueChatDesignAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    deleteVenueAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
     LegacyContentActionError: class LegacyContentActionError extends Error {},
     createLegacyPlaceAction: vi.fn(
       (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>

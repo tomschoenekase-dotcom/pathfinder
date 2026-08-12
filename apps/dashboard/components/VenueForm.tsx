@@ -225,8 +225,15 @@ export function VenueForm({ mode, venueId, initialValues }: VenueFormProps) {
     if (!startMutation('delete')) return
     setFormError(null)
 
+    const expectedUpdatedAt = expectedUpdatedAtRef.current
+    if (!expectedUpdatedAt) {
+      setFormError('Refresh this venue before deleting it.')
+      finishMutation()
+      return
+    }
+
     try {
-      await client.venue.delete.mutate({ id: venueId })
+      await client.venue.delete.mutate({ id: venueId, expectedUpdatedAt })
       if (isMountedRef.current) {
         router.push('/venues')
         router.refresh()

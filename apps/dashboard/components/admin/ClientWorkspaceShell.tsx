@@ -115,6 +115,11 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
           description: 'Typed modules and provenance',
         },
         {
+          href: `${venueRoot}/compatibility-content`,
+          label: 'Legacy compatibility',
+          description: 'Internal Place and Knowledge upkeep',
+        },
+        {
           href: `${venueRoot}/intake`,
           label: 'Guided intake',
           description: 'Website and staff draft proposals',

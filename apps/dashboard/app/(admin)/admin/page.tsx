@@ -32,9 +32,10 @@ const attentionTone = {
 
 export default async function AdminOverviewPage() {
   const caller = await createAdminCaller()
-  const [overview, globalAiControl] = await Promise.all([
+  const [overview, globalAiControl, operations] = await Promise.all([
     caller.admin.overview(),
     caller.admin.getGlobalAiControl(),
+    caller.admin.attentionConsole({ limit: 6 }),
   ])
 
   const attention: AttentionItem[] = []
@@ -58,6 +59,33 @@ export default async function AdminOverviewPage() {
       tone: 'critical',
     })
   }
+  if (operations.evaluations.items.length > 0) {
+    attention.push({
+      id: 'evaluation-attention',
+      label: `${operations.evaluations.items.length}${operations.evaluations.nextCursor ? '+' : ''} evaluation runs need review`,
+      detail: 'Includes failed, staged, retry-scheduled, and expired-lease runs.',
+      href: '/admin/operations#evaluation-attention-heading',
+      tone: 'critical',
+    })
+  }
+  if (operations.approvals.items.length > 0) {
+    attention.push({
+      id: 'approval-attention',
+      label: `${operations.approvals.items.length}${operations.approvals.nextCursor ? '+' : ''} approval requests are undecided`,
+      detail: 'Review pending and expired approval windows in exact client scope.',
+      href: '/admin/operations#approval-attention-heading',
+      tone: 'warning',
+    })
+  }
+  if (operations.support.items.length > 0) {
+    attention.push({
+      id: 'support-attention',
+      label: `${operations.support.items.length}${operations.support.nextCursor ? '+' : ''} support requests need workflow attention`,
+      detail: 'Waiting-for-client, validation, and approval states are represented.',
+      href: '/admin/operations#support-attention-heading',
+      tone: 'warning',
+    })
+  }
   if (overview.tenants.byStatus.SUSPENDED > 0) {
     attention.push({
       id: 'suspended-clients',
@@ -78,7 +106,7 @@ export default async function AdminOverviewPage() {
   }
 
   const recentClients = overview.tenants.recent
-  const activeJobs = overview.jobs.recent.filter((job) => job.status === 'RUNNING')
+  const recentAgentRuns = operations.agents.items
 
   return (
     <div className="space-y-8">
@@ -155,12 +183,11 @@ export default async function AdminOverviewPage() {
             <p className="mt-1 text-xs text-slate-400">Live work and approval state</p>
           </div>
           <div className="p-5">
-            {activeJobs.length === 0 ? (
+            {recentAgentRuns.length === 0 ? (
               <div className="min-h-40 rounded-xl border border-dashed border-slate-700 p-5">
-                <p className="font-medium text-slate-100">No active runs</p>
+                <p className="font-medium text-slate-100">No recent runs</p>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
-                  Agent identity and approval records are being connected to this surface. Current
-                  background work remains visible in Operations.
+                  No agent lifecycle records are available in the current bounded snapshot.
                 </p>
                 <Link
                   href="/admin/operations"
@@ -171,10 +198,22 @@ export default async function AdminOverviewPage() {
               </div>
             ) : (
               <ul className="space-y-3">
-                {activeJobs.slice(0, 4).map((job) => (
-                  <li key={job.id} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-                    <p className="truncate text-sm font-semibold text-slate-100">{job.jobName}</p>
-                    <p className="mt-1 text-xs text-slate-400">{job.queue}</p>
+                {recentAgentRuns.slice(0, 4).map((run) => (
+                  <li key={run.id} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+                    <p className="truncate text-sm font-semibold text-slate-100">
+                      {run.requestedOperation}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {run.agentIdentity.name} · {run.status.replaceAll('_', ' ')}
+                    </p>
+                    {run.venueId ? (
+                      <Link
+                        href={`/admin/clients/${run.tenantId}/venues/${run.venueId}/agents/runs/${run.id}`}
+                        className="mt-2 inline-block text-xs font-semibold text-sky-300"
+                      >
+                        Open run evidence
+                      </Link>
+                    ) : null}
                   </li>
                 ))}
               </ul>

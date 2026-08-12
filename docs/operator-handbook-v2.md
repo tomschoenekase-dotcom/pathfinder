@@ -17,6 +17,10 @@ Workspace. It does not authorize live database or production work. The active bo
 Use **PathFinder OS → New client**. Confirm the canonical organization name and whether the client
 has one or multiple venues. A single venue should remain invisible as hierarchy in the portal.
 Creation is not publication; verify membership and venue readiness in the Internal Client Workspace.
+Venue identity/configuration edits require the displayed revision. Automatic slugs are allocated
+under a tenant lock and must remain nonempty and addressable. Initial Place/Knowledge embeddings are
+dispatched only through the durable database outbox. Venue deletion is owner-only and should remain
+a last resort; use availability/offboarding controls for ordinary deactivation.
 
 ## Onboarding and intake
 
@@ -37,6 +41,11 @@ The portal lifecycle is a read model derived from current scoped evidence, not a
 advance manually. When a client asks why they see a milestone, inspect the venue, intake, package,
 availability and offboarding evidence in the Internal Client Workspace. Correct the authoritative
 workflow evidence through its approved action; do not edit or promise a lifecycle label directly.
+
+Use the Internal Workspace compatibility-content view only for existing Place and Knowledge records.
+It is an operator migration bridge, not the generalized content model and not a client-facing tool.
+Create, edit, and soft-retire operations retain drafts on conflict and require an authoritative
+refresh before retry.
 
 ## Review, preview, and publish
 
