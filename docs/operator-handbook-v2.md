@@ -287,8 +287,9 @@ operator and resolver tests are not live guest evidence.
 
 MCP v0 has concrete bounded read bindings for its 12 resource types. They use verified scope,
 resource-bound cursors, explicit safe selects, and output leakage filtering. There is still no MCP
-listener, credential issuance/verification, OAuth, or live authentication path; do not describe the
-bindings as an externally reachable service.
+listener, credential verification/use, enablement, OAuth, or live authentication path. Disabled
+credential issuance/rotation/revocation in the administration console does not make these bindings
+an externally reachable service.
 
 ## Guest chat retry and reconciliation
 
@@ -367,11 +368,23 @@ secrets. Preview creates no artifact and performs no export, storage, revocation
 
 ## External credentials
 
-The credential console is a dark, read-only inventory of disabled credential metadata. It may show
-tenant/client/optional venue scope, capabilities, prefix, expiry, revocation, and last-used evidence.
-PathFinder stores only a strong hash and non-secret prefix; no operator should expect plaintext
-recovery. No issue, verify, enable, rotate, revoke, listener, or transport-auth lifecycle is live in
-this foundation, even when rotation or revocation audit records are visible.
+The credential console manages only disabled MCP and Partner Read API credential records. A true
+platform administrator may issue, rotate or revoke within an exact tenant/client/optional-venue
+scope and the displayed capability allowlist. Fresh issue or rotation returns a one-time secret;
+copy it during that response if it is needed for an owner-approved future workflow, then dismiss it.
+The console does not persist, download or reveal that plaintext again. Retrying the same completed
+operation reconciles its immutable evidence and returns no secret. If an issuance response is
+ambiguous, reconcile that operation first; when evidence confirms creation but the one-time secret
+was not received, revoke or rotate through a fresh confirmed operation rather than assuming the
+credential is recoverable.
+
+Rotation atomically revokes the selected credential and creates a disabled replacement. Revocation
+is terminal. Confirm the exact credential label, scope and non-secret prefix before either action;
+changed state is reported as a conflict and must be reloaded. These controls do not enable a
+credential or make it usable: global transport, authentication, verification, request admission,
+`lastUsedAt` tracking and live rollout remain absent and owner-only. Migration
+`20260812001300_add_external_credential_operations` is unapplied, performs no backfill and has no
+live database evidence.
 
 ## Quarantined intake files
 

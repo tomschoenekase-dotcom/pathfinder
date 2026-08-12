@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 
+import { ExternalCredentialLifecycleWorkspace } from '../../../../../../components/admin/ExternalCredentialLifecycleWorkspace'
 import { createAdminCaller } from '../../../../../../lib/admin-caller'
 
 type Props = {
@@ -12,7 +13,46 @@ type Props = {
 function state(credential: { enabled: boolean; revokedAt: Date | null; expiresAt: Date | null }) {
   if (credential.revokedAt) return 'Revoked'
   if (credential.expiresAt && credential.expiresAt <= new Date()) return 'Expired'
-  return credential.enabled ? 'Enabled' : 'Disabled'
+  return credential.enabled ? 'Marked enabled (external access disabled)' : 'Disabled'
+}
+
+function kindLabel(kind: string) {
+  if (kind === 'MCP') return 'MCP'
+  if (kind === 'PARTNER_READ_API') return 'Partner Read API'
+  return 'Credential kind unavailable'
+}
+
+const SAFE_CAPABILITIES = new Set([
+  'resources:read',
+  'clients:read',
+  'venues:read',
+  'configuration:read',
+  'content:read',
+  'history:read',
+  'packages:read',
+  'support:read',
+  'updates:read',
+  'ai-usage:read',
+  'jobs:read',
+  'evaluations:read',
+  'readiness:read',
+  'packages:draft',
+  'support:draft',
+  'updates:draft',
+  'evaluations:request',
+  'approved-content:read',
+])
+
+function capabilityLabel(capability: string) {
+  return SAFE_CAPABILITIES.has(capability) ? capability : 'Capability unavailable'
+}
+
+function revocationReasonLabel(code: string) {
+  if (code === 'ROTATED') return 'Rotated'
+  if (code === 'ADMIN_REVOKED') return 'Administrative revocation'
+  if (code === 'NO_LONGER_NEEDED') return 'No longer needed'
+  if (code === 'POSSIBLE_COMPROMISE') return 'Possible compromise'
+  return 'Reason unavailable'
 }
 
 export default async function ExternalCredentialsPage({ params, searchParams }: Props) {
@@ -20,6 +60,7 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
   const query = await searchParams
   const caller = await createAdminCaller()
   try {
+    const client = await caller.admin.getClient({ tenantId })
     const cursor =
       query.credentialCursorCreatedAt && query.credentialCursorId
         ? { createdAt: query.credentialCursorCreatedAt, id: query.credentialCursorId }
@@ -32,7 +73,7 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
     })
     const selectedId = query.credentialId ?? page.items[0]?.id ?? null
     const selectedRow = page.items.find((item) => item.id === selectedId) ?? null
-    const detail =
+    const loadedDetail =
       selectedId && selectedRow
         ? await caller.admin.getExternalCredential({
             tenantId,
@@ -41,6 +82,21 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
             venueId: selectedRow.venueId,
           })
         : null
+    const detail = loadedDetail
+      ? {
+          ...loadedDetail,
+          revocation: loadedDetail.revocation
+            ? {
+                ...loadedDetail.revocation,
+                reasonCode: revocationReasonLabel(loadedDetail.revocation.reasonCode),
+              }
+            : null,
+        }
+      : null
+    const cursorSuffix =
+      query.credentialCursorCreatedAt && query.credentialCursorId
+        ? `&credentialCursorCreatedAt=${encodeURIComponent(query.credentialCursorCreatedAt)}&credentialCursorId=${encodeURIComponent(query.credentialCursorId)}`
+        : ''
     const base = `/admin/clients/${tenantId}/credentials`
     return (
       <div className="space-y-8">
@@ -50,17 +106,15 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
           </p>
           <h2 className="mt-1 text-2xl font-semibold text-pf-deep">External credentials</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-            Read-only metadata for future MCP and Partner Read API credentials. Issuance and
-            lifecycle operations are dark: this console cannot create, reveal, enable, rotate,
-            revoke, or authenticate a credential.
+            Record and manage disabled metadata for future MCP and Partner Read API credentials.
+            Nothing on this page enables or authenticates external access.
           </p>
         </header>
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <h3 className="font-semibold text-amber-950">
-            No plaintext secret is stored or displayed
-          </h3>
+          <h3 className="font-semibold text-amber-950">No plaintext secret is stored</h3>
           <p className="mt-1 text-sm text-amber-950">
-            Only a non-sensitive prefix and hash algorithm are visible. Stored one-way hashes are
+            A newly issued or rotated secret may appear once in the action response. After it is
+            dismissed, only a non-sensitive prefix remains visible. Stored one-way hashes are
             deliberately omitted from every response.
           </p>
         </section>
@@ -74,13 +128,13 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
               {page.items.map((item) => (
                 <Link
                   key={item.id}
-                  href={`${base}?credentialId=${encodeURIComponent(item.id)}`}
+                  href={`${base}?credentialId=${encodeURIComponent(item.id)}${cursorSuffix}`}
                   aria-current={detail?.id === item.id ? 'page' : undefined}
                   className={`block rounded-2xl border p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2 ${detail?.id === item.id ? 'border-pf-primary bg-pf-surface' : 'border-pf-light bg-white'}`}
                 >
                   <div className="flex justify-between gap-3">
                     <span className="text-xs font-bold text-pf-primary">
-                      {item.kind.replace(/_/g, ' ')}
+                      {kindLabel(item.kind)}
                     </span>
                     <span className="text-xs text-pf-deep/75">{state(item)}</span>
                   </div>
@@ -112,7 +166,7 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
                     </span>
                   </div>
                   <dl className="mt-5 grid gap-4 sm:grid-cols-2">
-                    <Field label="Kind" value={detail.kind.replace(/_/g, ' ')} />
+                    <Field label="Kind" value={kindLabel(detail.kind)} />
                     <Field
                       label="Scope"
                       value={
@@ -138,7 +192,7 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
                           key={capability}
                           className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-800"
                         >
-                          {capability}
+                          {capabilityLabel(capability)}
                         </li>
                       ))}
                     </ul>
@@ -181,6 +235,12 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
             ) : null}
           </div>
         )}
+        <ExternalCredentialLifecycleWorkspace
+          tenantId={tenantId}
+          clientName={client.tenant.name}
+          venues={client.venues.map((venue) => ({ id: venue.id, name: venue.name }))}
+          credential={detail}
+        />
       </div>
     )
   } catch {

@@ -135,6 +135,7 @@ describe('tenantIsolationMiddleware', () => {
       'SupportPreviewFeedback',
       'SupportAgentRunLineage',
       'ExternalAccessCredential',
+      'ExternalCredentialOperationReceipt',
       'ExternalCredentialRotation',
       'ExternalCredentialRevocation',
       'OffboardingPlan',

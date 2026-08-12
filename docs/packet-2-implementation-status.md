@@ -287,10 +287,14 @@ Section-level evidence and blockers are indexed in
   event and location blocks in addition to text, callouts, actions, citations and places. Unknown
   blocks and credential-bearing media/map URLs fail validation; legacy text/place replies remain.
 - Dark shared credential persistence now models tenant/client/optional-venue and capability scope
-  for future MCP and Partner Read API authentication. Credentials default disabled and persist only
-  an Argon2id verifier plus non-sensitive prefix; admin APIs/UI expose safe paginated metadata only.
-  Append-only rotation/revocation evidence exists structurally, but issuance, verification,
-  enablement, rotation, revocation, transport and `lastUsedAt` updates are not implemented.
+  for future MCP and Partner Read API authentication. Canonical `HUMAN` `PLATFORM_ADMIN` actions
+  issue, rotate and revoke disabled credentials with UUID/hash replay evidence, exact-scope CAS and
+  strict transactional audit. Fresh issue/rotation returns one plaintext secret while persisting
+  only an Argon2id verifier and non-sensitive prefix; replay returns `plaintextSecret: null`.
+  Rotation atomically revokes the old record, creates its disabled replacement and appends immutable
+  lineage. The UI keeps the fresh secret only in ephemeral state with explicit copy/dismiss and no
+  download or recovery path. Verification, enablement, transport/authentication, request use and
+  `lastUsedAt` updates remain absent.
 
 ### PathFinder OS
 
@@ -403,13 +407,15 @@ Section-level evidence and blockers are indexed in
   2026-07-28: 12 scoped resources, read/draft/bounded-evaluation tools, strict structured results,
   verified credential context, default-off writes, and exact approval/scope/capability checks. All
   12 read resources now have bounded exact-scope safe-select bindings with resource-bound cursors and
-  output-layer leakage filtering. Disabled hashed credential metadata has a persistence/read
-  foundation, but issuance, verification, transport, OAuth, rate limiting and live authentication
-  remain intentionally unimplemented and dark.
+  output-layer leakage filtering. Disabled hashed credential metadata now has guarded
+  platform-admin issue/rotate/revoke lifecycle evidence, but verification, enablement, transport,
+  OAuth, rate limiting, request use and live authentication remain intentionally unimplemented and
+  dark.
 - Dark Partner Read API v1 contracts and registry for six bounded operations. Availability requires
   the exact default-off flag plus injected revocation, expiry, rate-limit, audit, scope, and canonical
-  read dependencies; shared disabled hash/prefix metadata persistence does not supply authentication.
-  There is no listener, issuance/verification lifecycle, live binding, SDK, or public launch.
+  read dependencies; shared disabled hash/prefix persistence and administrative lifecycle actions
+  do not supply authentication. There is no listener, secret verification, enablement, request use,
+  live binding, SDK, or public launch.
 - Unified internal search is tenant-authorized and server-filtered across bounded result groups for
   clients, venues, content, support, agents, jobs, packages and evaluations. The command palette is
   navigation-only; production-scale relevance and latency remain live-unverified.
@@ -467,6 +473,9 @@ Section-level evidence and blockers are indexed in
   rehearsed against a database. Intake verification receipt migration
   `20260812001200_add_intake_upload_verification_receipts` is likewise unapplied and unrehearsed; it
   intentionally performs no legacy safety-evidence backfill.
+  Disabled external credential operation migration
+  `20260812001300_add_external_credential_operations` is also unapplied and unrehearsed, performs no
+  legacy operation-evidence backfill, and is not proof of a live credential or authentication path.
 
 ## Required program work not yet proven complete
 
@@ -482,8 +491,9 @@ Section-level evidence and blockers are indexed in
   any later automated approval, apply or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration
   does not activate an agent.
-- MCP transport/authentication, credential issuance/verification/lifecycle, write bindings, and any
-  staging-justified thin SDK.
+- MCP transport/authentication, credential verification/use/enablement, write bindings, and any
+  staging-justified thin SDK. The local disabled-only issue/rotate/revoke administration lifecycle
+  does not satisfy this runtime work.
 - Live evaluation gate activation/provider execution and report-quality evidence, live Reports
   lifecycle/delivery evidence, and authorized offboarding execution.
 - Remaining table pagination/batching/virtualization work and measured browser performance

@@ -1,5 +1,16 @@
 export { db } from './client'
 export {
+  ExternalCredentialActionError,
+  issueExternalCredentialAction,
+  revokeExternalCredentialAction,
+  rotateExternalCredentialAction,
+} from './helpers/external-credential-actions'
+export type {
+  ExternalCredentialActionClient,
+  ExternalCredentialActor,
+} from './helpers/external-credential-actions'
+
+export {
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
   finalizeGuestChatTurnAction,

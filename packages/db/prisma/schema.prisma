@@ -2691,34 +2691,64 @@ enum ExternalCredentialHashAlgorithm {
 /// Dark credential record. `secretHash` is a one-way verifier; plaintext
 /// credential material must never enter this database.
 model ExternalAccessCredential {
-  id            String                          @id @default(cuid())
-  tenantId      String                          @map("tenant_id")
-  clientId      String                          @map("client_id")
-  venueId       String?                         @map("venue_id")
-  scopeKey      String                          @map("scope_key") @db.VarChar(191)
-  kind          ExternalCredentialKind
-  label         String                          @db.VarChar(200)
-  capabilities  String[]
-  secretPrefix  String                          @map("secret_prefix") @db.VarChar(24)
-  secretHash    String                          @map("secret_hash") @db.VarChar(255)
-  hashAlgorithm ExternalCredentialHashAlgorithm @default(ARGON2ID) @map("hash_algorithm")
-  enabled       Boolean                         @default(false)
-  expiresAt     DateTime?                       @map("expires_at")
-  revokedAt     DateTime?                       @map("revoked_at")
-  lastUsedAt    DateTime?                       @map("last_used_at")
-  createdBy     String                          @map("created_by") @db.VarChar(191)
-  createdAt     DateTime                        @default(now()) @map("created_at")
-  updatedAt     DateTime                        @updatedAt @map("updated_at")
-  tenant        Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue         Venue?                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  rotationsFrom ExternalCredentialRotation[]    @relation("rotation_from")
-  rotationsTo   ExternalCredentialRotation[]    @relation("rotation_to")
-  revocation    ExternalCredentialRevocation?
+  id                     String                               @id @default(cuid())
+  tenantId               String                               @map("tenant_id")
+  clientId               String                               @map("client_id")
+  venueId                String?                              @map("venue_id")
+  scopeKey               String                               @map("scope_key") @db.VarChar(191)
+  kind                   ExternalCredentialKind
+  label                  String                               @db.VarChar(200)
+  capabilities           String[]
+  secretPrefix           String                               @map("secret_prefix") @db.VarChar(24)
+  secretHash             String                               @map("secret_hash") @db.VarChar(255)
+  hashAlgorithm          ExternalCredentialHashAlgorithm      @default(ARGON2ID) @map("hash_algorithm")
+  enabled                Boolean                              @default(false)
+  expiresAt              DateTime?                            @map("expires_at")
+  revokedAt              DateTime?                            @map("revoked_at")
+  lastUsedAt             DateTime?                            @map("last_used_at")
+  createdBy              String                               @map("created_by") @db.VarChar(191)
+  createdAt              DateTime                             @default(now()) @map("created_at")
+  updatedAt              DateTime                             @updatedAt @map("updated_at")
+  tenant                 Tenant                               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue?                               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  rotationsFrom          ExternalCredentialRotation[]         @relation("rotation_from")
+  rotationsTo            ExternalCredentialRotation[]         @relation("rotation_to")
+  revocation             ExternalCredentialRevocation?
+  operationReceipts      ExternalCredentialOperationReceipt[] @relation("credential_operation_result")
+  priorOperationReceipts ExternalCredentialOperationReceipt[] @relation("credential_operation_previous")
 
   @@unique([id, tenantId, clientId, scopeKey], map: "external_credentials_exact_scope_key")
   @@unique([tenantId, kind, secretPrefix], map: "external_credentials_prefix_key")
   @@index([tenantId, clientId, venueId, kind, createdAt, id], map: "external_credentials_scope_created_idx")
   @@map("external_access_credentials")
+}
+
+enum ExternalCredentialOperationKind {
+  ISSUE
+  ROTATE
+  REVOKE
+}
+
+/// Immutable replay evidence. It deliberately contains no plaintext secret or
+/// recoverable secret material.
+model ExternalCredentialOperationReceipt {
+  operationId          String                          @id @map("operation_id") @db.Uuid
+  operationHash        String                          @map("operation_hash") @db.Char(64)
+  operationKind        ExternalCredentialOperationKind @map("operation_kind")
+  tenantId             String                          @map("tenant_id")
+  clientId             String                          @map("client_id")
+  venueId              String?                         @map("venue_id")
+  scopeKey             String                          @map("scope_key") @db.VarChar(191)
+  credentialId         String                          @map("credential_id")
+  previousCredentialId String?                         @map("previous_credential_id")
+  actorId              String                          @map("actor_id") @db.VarChar(191)
+  createdAt            DateTime                        @default(now()) @map("created_at")
+  credential           ExternalAccessCredential        @relation("credential_operation_result", fields: [credentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+  previousCredential   ExternalAccessCredential?       @relation("credential_operation_previous", fields: [previousCredentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([credentialId, operationKind], map: "external_credential_operations_result_kind_key")
+  @@index([tenantId, clientId, venueId, createdAt], map: "external_credential_operations_scope_idx")
+  @@map("external_credential_operation_receipts")
 }
 
 /// Append-only lineage between an old credential and its replacement.
@@ -2738,6 +2768,7 @@ model ExternalCredentialRotation {
   newCredential        ExternalAccessCredential @relation("rotation_to", fields: [newCredentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([previousCredentialId, newCredentialId, tenantId, clientId, scopeKey], map: "external_rotations_pair_scope_key")
+  @@unique([previousCredentialId], map: "external_rotations_previous_once_key")
   @@unique([newCredentialId, tenantId, clientId, scopeKey], map: "external_rotations_new_scope_key")
   @@index([tenantId, clientId, venueId, rotatedAt, id], map: "external_rotations_scope_created_idx")
   @@map("external_credential_rotations")

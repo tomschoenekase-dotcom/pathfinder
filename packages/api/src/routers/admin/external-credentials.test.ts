@@ -39,6 +39,39 @@ describe('admin external credential metadata', () => {
     expect(findMany).not.toHaveBeenCalled()
   })
 
+  it('protects every credential lifecycle mutation with platform-admin authorization', async () => {
+    const actionScope = {
+      tenantId: 'tenant_1',
+      clientId: 'tenant_1',
+      venueId: null,
+      operationId: '11111111-1111-4111-8111-111111111111',
+    }
+    await expect(
+      app.createCaller(context(false)).admin.issueExternalCredential({
+        ...actionScope,
+        kind: 'PARTNER_READ_API',
+        label: 'Read API',
+        capabilities: ['clients:read'],
+        expiresAt: null,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
+      app.createCaller(context(false)).admin.rotateExternalCredential({
+        ...actionScope,
+        credentialId: 'credential_1',
+        expectedUpdatedAt: new Date(0).toISOString(),
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
+      app.createCaller(context(false)).admin.revokeExternalCredential({
+        ...actionScope,
+        credentialId: 'credential_1',
+        expectedUpdatedAt: new Date(0).toISOString(),
+        reasonCode: 'ADMIN_REVOKED',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
   it('rejects a client identifier that differs from tenant authority', async () => {
     await expect(
       app.createCaller(context()).admin.listExternalCredentials({

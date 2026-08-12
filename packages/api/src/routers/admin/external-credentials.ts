@@ -1,6 +1,13 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import {
+  ExternalCredentialActionError,
+  issueExternalCredentialAction,
+  revokeExternalCredentialAction,
+  rotateExternalCredentialAction,
+} from '@pathfinder/db'
+
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 
@@ -39,7 +46,101 @@ function assertClientScope(input: { tenantId: string; clientId: string }) {
   }
 }
 
+function mapActionError(error: unknown): never {
+  if (error instanceof ExternalCredentialActionError) {
+    throw new TRPCError({
+      code:
+        error.code === 'INVALID_INPUT'
+          ? 'BAD_REQUEST'
+          : error.code === 'NOT_FOUND'
+            ? 'NOT_FOUND'
+            : 'CONFLICT',
+      message: error.message,
+    })
+  }
+  throw error
+}
+
+const actionScope = scope.extend({
+  venueId: z.string().trim().min(1).max(191).nullable(),
+  operationId: z.string().uuid(),
+})
+
 export const adminExternalCredentialsRouter = router({
+  issueExternalCredential: adminProcedure
+    .input(
+      actionScope.extend({
+        kind: z.enum(['MCP', 'PARTNER_READ_API']),
+        label: z.string().trim().min(1).max(200),
+        capabilities: z.array(z.string().trim().min(1)).min(1).max(50),
+        expiresAt: z.string().datetime({ offset: true }).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await issueExternalCredentialAction(
+          {
+            ...input,
+            expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  rotateExternalCredential: adminProcedure
+    .input(
+      actionScope.extend({
+        credentialId: z.string().trim().min(1).max(191),
+        expectedUpdatedAt: z.string().datetime({ offset: true }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await rotateExternalCredentialAction(
+          {
+            ...input,
+            expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  revokeExternalCredential: adminProcedure
+    .input(
+      actionScope.extend({
+        credentialId: z.string().trim().min(1).max(191),
+        expectedUpdatedAt: z.string().datetime({ offset: true }),
+        reasonCode: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .regex(/^[A-Z][A-Z0-9_]*$/u),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await revokeExternalCredentialAction(
+          {
+            ...input,
+            expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
   listExternalCredentials: adminProcedure
     .input(
       scope.extend({

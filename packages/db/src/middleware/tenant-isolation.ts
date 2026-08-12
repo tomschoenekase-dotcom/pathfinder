@@ -33,6 +33,7 @@ const APPEND_ONLY_MODELS = [
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',
   'ExternalCredentialRotation',
+  'ExternalCredentialOperationReceipt',
   'ExternalCredentialRevocation',
   'OffboardingVenueTarget',
   'OffboardingRevocationEvidence',
