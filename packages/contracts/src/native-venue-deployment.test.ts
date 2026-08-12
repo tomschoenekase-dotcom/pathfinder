@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { GeneralizedContentRevisionDraft } from './universal-content-actions'
+
 import {
   canonicalNativeCoreFullManifest,
   NativeCoreFullManifest,
@@ -97,6 +99,23 @@ describe('NATIVE_CORE_V1 FULL manifest', () => {
           venue: { ...envelope.venue, chatLogoUrl },
         }).success,
       ).toBe(false)
+  })
+
+  it('keeps universal ITEM authoring separate from the unchanged native empty-items profile', () => {
+    expect(
+      GeneralizedContentRevisionDraft.safeParse({
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: {
+          kind: 'ITEM',
+          name: 'Apollo guidance computer',
+          itemType: 'artifact',
+        },
+      }).success,
+    ).toBe(true)
+    expect(
+      NativeCoreFullManifest.safeParse({ ...envelope, items: [{ id: 'item-1' }] }).success,
+    ).toBe(false)
   })
 
   it('rejects secret-like evidence locators and unbounded manifest scalars', () => {

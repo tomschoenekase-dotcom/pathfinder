@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { ContentAudience, ContentEvidenceReference } from './content-model'
 
 export const GeneralizedContentKind = z.enum([
+  'ITEM',
   'SERVICE',
   'POLICY',
   'EVENT',
@@ -13,6 +14,16 @@ export type GeneralizedContentKind = z.infer<typeof GeneralizedContentKind>
 
 const optionalText = (maximum: number) =>
   z.string().trim().min(1).max(maximum).nullable().optional()
+
+export const ItemContentDraft = z
+  .object({
+    kind: z.literal('ITEM'),
+    name: z.string().trim().min(1).max(200),
+    description: optionalText(10_000),
+    placeId: z.string().trim().min(1).nullable().optional(),
+    itemType: z.string().trim().min(1).max(100),
+  })
+  .strict()
 
 export const ServiceContentDraft = z
   .object({
@@ -77,6 +88,7 @@ export const RelationshipContentDraft = z
   })
 
 export const GeneralizedContentPayload = z.union([
+  ItemContentDraft,
   ServiceContentDraft,
   PolicyContentDraft,
   EventContentDraft,

@@ -12,7 +12,7 @@ type ContentPageProps = {
   searchParams: Promise<{ kind?: string; cursorAt?: string; cursorId?: string }>
 }
 
-const kinds = ['SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'] as const
+const kinds = ['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'] as const
 type Kind = (typeof kinds)[number]
 
 function label(value: string): string {
@@ -61,6 +61,7 @@ export default async function UniversalContentPage({ params, searchParams }: Con
     const revision = contentRecord.revisions[0]
     if (!revision) return []
     let payload: Record<string, unknown> | null = null
+    if (revision.item) payload = { kind: 'ITEM', ...revision.item }
     if (revision.service) payload = { kind: 'SERVICE', ...revision.service }
     if (revision.policy) payload = { kind: 'POLICY', ...revision.policy }
     if (revision.event) {
@@ -122,6 +123,22 @@ export default async function UniversalContentPage({ params, searchParams }: Con
         modules={editableModules}
       />
 
+      <section
+        aria-labelledby="item-boundary-title"
+        className="rounded-xl border border-pf-light bg-pf-surface px-4 py-3 text-sm text-pf-deep/75"
+      >
+        <h3 id="item-boundary-title" className="font-semibold text-pf-deep">
+          Generalized ITEM boundary
+        </h3>
+        <p className="mt-1">
+          Generalized ITEM itemType is separate from legacy compatibility Place.itemType. Guest use
+          is {label(result.itemDisposition.guestPublication)} and requires an exact PUBLIC revision
+          to be explicitly published while the generalized-content capability is enabled. Published
+          ITEM modules must be withdrawn before creating a NATIVE_CORE_V1 release because native
+          materialization is {label(result.itemDisposition.nativeCoreV1Materialization)}.
+        </p>
+      </section>
+
       <nav aria-label="Filter content type" className="flex flex-wrap gap-2">
         <Link
           href={base}
@@ -162,12 +179,14 @@ export default async function UniversalContentPage({ params, searchParams }: Con
                 {grouped.get(groupKind)!.map((contentRecord) => {
                   const revision = contentRecord.revisions[0]
                   const payload =
+                    revision?.item ??
                     revision?.service ??
                     revision?.policy ??
                     revision?.event ??
                     revision?.operationalFact ??
                     revision?.relationship
                   const title =
+                    revision?.item?.name ??
                     revision?.service?.name ??
                     revision?.policy?.title ??
                     revision?.event?.name ??
@@ -199,7 +218,9 @@ export default async function UniversalContentPage({ params, searchParams }: Con
                             {revision.createdAt.toLocaleDateString()}
                           </p>
                           <p className="mt-3 break-words text-sm leading-6 text-pf-deep/75">
-                            {revision.service?.description ??
+                            {revision.item?.description ??
+                              revision.item?.itemType ??
+                              revision.service?.description ??
                               revision.service?.availability ??
                               revision.policy?.rule ??
                               revision.event?.description ??

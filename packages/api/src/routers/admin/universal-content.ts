@@ -22,7 +22,14 @@ import {
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 
-const moduleKind = z.enum(['SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'])
+const moduleKind = z.enum([
+  'ITEM',
+  'SERVICE',
+  'POLICY',
+  'EVENT',
+  'OPERATIONAL_FACT',
+  'RELATIONSHIP',
+])
 
 function assertCapabilityEnabled(): void {
   if (!isFeatureEnabled('generalizedContentCapabilities')) {
@@ -60,7 +67,10 @@ async function validateDraftReferences(
   })
   if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
   const payload = input.draft.payload
-  if ((payload.kind === 'SERVICE' || payload.kind === 'EVENT') && payload.placeId) {
+  if (
+    (payload.kind === 'ITEM' || payload.kind === 'SERVICE' || payload.kind === 'EVENT') &&
+    payload.placeId
+  ) {
     const place = await db.place.findFirst({
       where: { id: payload.placeId, tenantId: input.tenantId, venueId: input.venueId },
       select: { id: true },
@@ -149,6 +159,9 @@ export const adminUniversalContentRouter = router({
               effectiveFrom: true,
               effectiveUntil: true,
               createdAt: true,
+              item: {
+                select: { name: true, description: true, placeId: true, itemType: true },
+              },
               service: {
                 select: { name: true, description: true, availability: true, placeId: true },
               },
@@ -189,9 +202,16 @@ export const adminUniversalContentRouter = router({
       })
       const items = rows.slice(0, input.limit)
       const last = items.at(-1)
+      const generalizedContentEnabled = isFeatureEnabled('generalizedContentCapabilities')
       return {
         items,
-        authoringEnabled: isFeatureEnabled('generalizedContentCapabilities'),
+        authoringEnabled: generalizedContentEnabled,
+        itemDisposition: {
+          guestPublication: generalizedContentEnabled
+            ? ('SUPPORTED_ONLY_AFTER_EXPLICIT_PUBLICATION' as const)
+            : ('DISABLED_BY_CAPABILITY' as const),
+          nativeCoreV1Materialization: 'UNSUPPORTED_REQUIRES_WITHDRAWAL' as const,
+        },
         nextCursor:
           rows.length > input.limit && last
             ? { createdAt: last.createdAt.toISOString(), id: last.id }

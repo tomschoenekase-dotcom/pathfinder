@@ -462,8 +462,10 @@ Section-level evidence and blockers are indexed in
   staff interviews are consent-gated and text-only. Other source adapters report
   `NOT_CONFIGURED` instead of pretending to ingest.
 - Universal normalized content persistence is additive and typed: payload-free identities,
-  immutable revision envelopes, separate Service, Policy, Event, Operational Fact, and
-  Relationship payloads, and append-only evidence. Exact tenant/venue/kind constraints prevent a
+  immutable revision envelopes, separate Service, Policy, Event, Operational Fact, Relationship,
+  and Item payloads, and append-only evidence. Item revisions carry an exact optional same-venue
+  Place reference; their generalized `itemType` is separate from legacy `Place.itemType`. Exact
+  tenant/venue/kind constraints prevent a
   generic lowest-common-denominator content table. Default-off operator actions create identities,
   append CAS-protected typed revisions, or append retirement boundaries with strict audit evidence.
   A separate append-only publication ledger makes guest publication explicit: only the exact latest
@@ -478,6 +480,10 @@ Section-level evidence and blockers are indexed in
   ambiguous retry identity, locks stale siblings, bounds errors and uses an accessible retirement
   confirmation. Authoring a `PUBLIC` revision alone is still not publication. Its forward migration
   remains unapplied and no live guest/provider/operator path was run.
+  Guest Item use additionally requires the server-derived generalized-content capability and an
+  explicit current `PUBLIC` publication. `NATIVE_CORE_V1` remains Item-empty, and native planning
+  fails closed until every published Item is withdrawn. Forward-only migration
+  `20260812001600_add_universal_item_content` performs no backfill and remains unapplied.
 - Venue Deployment Manifest v2 contracts support complete and granular patch manifests with
   stable-ID operations, effective configuration provenance, immutable asset references,
   evaluation/readiness evidence, canonical hashing, and deterministic diffing. The existing
@@ -522,15 +528,18 @@ Section-level evidence and blockers are indexed in
   Native advisory evaluation migration
   `20260812001500_add_native_deployment_evaluation_evidence` is also unapplied and unrehearsed; it
   preserves legacy run identity and provides no live database, provider or admission evidence.
+  Universal Item migration `20260812001600_add_universal_item_content` is likewise unapplied and
+  unrehearsed, performs no backfill, and is not live publication or guest evidence.
 
 ## Required program work not yet proven complete
 
 - Remaining Internal Client Workspace deep capability views and domain-action adapters.
 - Intake adapters beyond website and text-only staff interviews, plus live extraction and
   end-to-end reviewed onboarding beyond the bounded reviewed-DRAFT handoff boundary.
-- Native materialization beyond the bounded `NATIVE_CORE_V1` visible profile, including ITEM,
-  assets, capability/model references, evaluation gates or thresholds, and any provider/live
-  deployment work. Current native evaluation evidence is advisory only.
+- Native materialization beyond the bounded `NATIVE_CORE_V1` visible profile, including the now
+  generalized-content-supported but still native-unsupported Item kind, assets, capability/model
+  references, evaluation gates or thresholds, and any provider/live deployment work. Current native
+  evaluation evidence is advisory only.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
 - Support workflow beyond verified participant management, manual prompting/response/completion,
@@ -590,6 +599,8 @@ mode and assistive-technology evidence remain unverified.
   5 and the expanded onboarding dashboard set 49 tests; affected AI/DB/worker suites reported 1,177
   passing with 78 configured skips. The reviewed-DRAFT focused set passed 63 tests, the generated
   tenant boundary passed 78, and focused Guest design plus analytics/helper/worker contracts passed.
+  The accepted Item slice passed contracts 16, DB 895 with 77 configured skips, API 12 and dashboard
+  17 focused tests, plus affected type, lint, Prisma, registry and static gates.
   Relevant typechecks, lints and static boundaries passed. These focused results do not replace a
   new final merged repository gate; no current full-suite or build totals are claimed.
 

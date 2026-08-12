@@ -17,6 +17,7 @@ const tx = {
   contentModuleIdentity: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
   contentModuleRevision: { create: vi.fn() },
   contentModuleEvidence: { createMany: vi.fn() },
+  itemContent: { create: vi.fn() },
   serviceContent: { create: vi.fn() },
   policyContent: { create: vi.fn() },
   eventContent: { create: vi.fn() },
@@ -43,6 +44,7 @@ describe('universal content domain actions', () => {
     tx.contentModuleRevision.create.mockResolvedValue({ id: 'revision-1' })
     tx.contentModuleEvidence.createMany.mockResolvedValue({ count: 1 })
     tx.serviceContent.create.mockResolvedValue({ revisionId: 'revision-1' })
+    tx.itemContent.create.mockResolvedValue({ revisionId: 'revision-1' })
     audit.mockResolvedValue(undefined)
   })
 
@@ -206,6 +208,71 @@ describe('universal content domain actions', () => {
     expect(tx.relationshipContent.create).toHaveBeenCalledOnce()
   })
 
+  it('creates a typed ITEM revision only after exact-scoped optional Place validation', async () => {
+    tx.place.findFirst.mockResolvedValue({ id: 'place-1' })
+    const result = await createUniversalContentAction({
+      db: client as never,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      moduleId: '46be4d80-c74d-4f31-83b5-f5ffdf470748',
+      actor,
+      draft: {
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: {
+          kind: 'ITEM',
+          name: 'Apollo guidance computer',
+          description: 'A preserved flight computer.',
+          placeId: 'place-1',
+          itemType: 'artifact',
+        },
+      },
+    })
+
+    expect(tx.place.findFirst).toHaveBeenCalledWith({
+      where: { id: 'place-1', tenantId: 'tenant-1', venueId: 'venue-1' },
+      select: { id: true },
+    })
+    expect(tx.itemContent.create).toHaveBeenCalledWith({
+      data: {
+        revisionId: 'revision-1',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        name: 'Apollo guidance computer',
+        description: 'A preserved flight computer.',
+        placeId: 'place-1',
+        itemType: 'artifact',
+      },
+    })
+    expect(result.kind).toBe('ITEM')
+  })
+
+  it('rejects an ITEM Place outside exact scope before revision or audit writes', async () => {
+    tx.place.findFirst.mockResolvedValue(null)
+    await expect(
+      createUniversalContentAction({
+        db: client as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        moduleId: '46be4d80-c74d-4f31-83b5-f5ffdf470748',
+        actor,
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'ITEM',
+            name: 'Apollo guidance computer',
+            placeId: 'foreign-place',
+            itemType: 'artifact',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.contentModuleRevision.create).not.toHaveBeenCalled()
+    expect(tx.itemContent.create).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
+
   it('rejects relationship endpoints unless both belong to the exact tenant and venue', async () => {
     tx.contentModuleIdentity.findMany.mockResolvedValue([{ id: 'module-a' }])
     await expect(
@@ -284,6 +351,52 @@ describe('universal content domain actions', () => {
       expect.objectContaining({ action: 'universal_content.retired' }),
       tx,
     )
+  })
+
+  it('retires ITEM by copying its exact typed payload into a new immutable revision', async () => {
+    tx.place.findFirst.mockResolvedValue({ id: 'place-1' })
+    tx.contentModuleIdentity.findFirst.mockResolvedValue({
+      id: 'item-1',
+      kind: 'ITEM',
+      revisions: [
+        {
+          version: 4,
+          audience: 'PUBLIC',
+          effectiveFrom: null,
+          item: {
+            name: 'Apollo guidance computer',
+            description: 'A preserved flight computer.',
+            placeId: 'place-1',
+            itemType: 'artifact',
+          },
+          service: null,
+          policy: null,
+          event: null,
+          operationalFact: null,
+          relationship: null,
+        },
+      ],
+    })
+
+    await retireUniversalContentAction({
+      db: client as never,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      moduleId: 'item-1',
+      expectedLatestVersion: 4,
+      effectiveUntil: '2026-12-01T00:00:00.000Z',
+      evidence: [],
+      actor,
+    })
+
+    expect(tx.itemContent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: 'Apollo guidance computer',
+        description: 'A preserved flight computer.',
+        placeId: 'place-1',
+        itemType: 'artifact',
+      }),
+    })
   })
 
   it('previews lifecycle while keeping every audience unpublished', () => {

@@ -5,10 +5,11 @@ import { router } from '../../core'
 import { adminUniversalContentRouter } from './universal-content'
 
 const venueFindFirst = vi.fn()
+const placeFindFirst = vi.fn()
 const identityFindMany = vi.fn()
 const db = {
   venue: { findFirst: venueFindFirst },
-  place: { findFirst: vi.fn() },
+  place: { findFirst: placeFindFirst },
   contentModuleIdentity: { findMany: identityFindMany },
 } as unknown as TRPCContext['db']
 
@@ -76,11 +77,41 @@ describe('admin universal content reads', () => {
     expect(identityFindMany.mock.calls[0]?.[0]?.select).not.toHaveProperty('tenant')
   })
 
+  it('accepts ITEM as a bounded filter and selects only its safe typed fields', async () => {
+    const result = await testRouter
+      .createCaller(context())
+      .content.listUniversalContent({ tenantId: 't1', venueId: 'v1', kind: 'ITEM' })
+    const query = identityFindMany.mock.calls[0]?.[0]
+    expect(query.where).toEqual({ tenantId: 't1', venueId: 'v1', kind: 'ITEM' })
+    expect(query.select.revisions.select.item).toEqual({
+      select: { name: true, description: true, placeId: true, itemType: true },
+    })
+    expect(JSON.stringify(query.select)).not.toContain('internalNotes')
+    expect(result.itemDisposition).toEqual({
+      guestPublication: 'DISABLED_BY_CAPABILITY',
+      nativeCoreV1Materialization: 'UNSUPPORTED_REQUIRES_WITHDRAWAL',
+    })
+  })
+
+  it('derives ITEM guest support from the server capability and keeps explicit publication', async () => {
+    process.env.GENERALIZED_CONTENT_CAPABILITIES_ENABLED = 'true'
+    const result = await testRouter
+      .createCaller(context())
+      .content.listUniversalContent({ tenantId: 't1', venueId: 'v1', kind: 'ITEM' })
+    expect(result.authoringEnabled).toBe(true)
+    expect(result.itemDisposition).toEqual({
+      guestPublication: 'SUPPORTED_ONLY_AFTER_EXPLICIT_PUBLICATION',
+      nativeCoreV1Materialization: 'UNSUPPORTED_REQUIRES_WITHDRAWAL',
+    })
+  })
+
   it('rejects unknown module kinds before database access', async () => {
     await expect(
-      testRouter
-        .createCaller(context())
-        .content.listUniversalContent({ tenantId: 't1', venueId: 'v1', kind: 'ITEM' as 'SERVICE' }),
+      testRouter.createCaller(context()).content.listUniversalContent({
+        tenantId: 't1',
+        venueId: 'v1',
+        kind: 'PLACE' as 'SERVICE',
+      }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(venueFindFirst).not.toHaveBeenCalled()
   })
@@ -104,6 +135,52 @@ describe('admin universal content reads', () => {
         clientVisible: false,
         requiresExplicitPublication: true,
       },
+    })
+  })
+
+  it('validates ITEM authoring while keeping guest publication explicit', async () => {
+    placeFindFirst.mockResolvedValue({ id: 'place-1' })
+    const result = await testRouter.createCaller(context()).content.previewUniversalContent({
+      tenantId: 't1',
+      venueId: 'v1',
+      draft: {
+        audience: 'PUBLIC',
+        evidence: [],
+        payload: {
+          kind: 'ITEM',
+          name: 'Apollo guidance computer',
+          placeId: 'place-1',
+          itemType: 'artifact',
+        },
+      },
+    })
+    expect(result).toMatchObject({
+      valid: true,
+      preview: { guestVisible: false, requiresExplicitPublication: true },
+    })
+  })
+
+  it('rejects a cross-scope ITEM Place before presenting a valid preview', async () => {
+    placeFindFirst.mockResolvedValue(null)
+    await expect(
+      testRouter.createCaller(context()).content.previewUniversalContent({
+        tenantId: 't1',
+        venueId: 'v1',
+        draft: {
+          audience: 'PUBLIC',
+          evidence: [],
+          payload: {
+            kind: 'ITEM',
+            name: 'Apollo guidance computer',
+            placeId: 'foreign-place',
+            itemType: 'artifact',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(placeFindFirst).toHaveBeenCalledWith({
+      where: { id: 'foreign-place', tenantId: 't1', venueId: 'v1' },
+      select: { id: true },
     })
   })
 

@@ -99,9 +99,10 @@ database.
 For a native FULL deployment, use the separate `NATIVE_CORE_V1` panel. Confirm all seven coverage
 rows, bounded issues and impact counts, then use only the server-enabled action for the exact release
 version. This profile can replace the complete visible Venue configuration, active Places, enabled
-Knowledge and published PUBLIC generalized modules that it captures. ITEM, assets, capabilities,
+Knowledge and its supported published PUBLIC generalized modules. Item, assets, capabilities,
 model references and evaluation are outside the profile and must remain explicitly empty/not
-required; do not interpret the native result as support for them.
+required; withdraw every published generalized Item before planning a native release, and do not
+interpret the native result as support for Item materialization.
 
 Approval records the reviewed native plan. Apply records exact ordered effects, publication lineage
 and the current native head. Revert is available only while that release is the exact current head;
@@ -308,7 +309,7 @@ leave the native lifecycle gates unchanged.
 
 ## Universal content and MCP reads
 
-Generalized Service, Policy, Event, Operational Fact, and Relationship modules are independently
+Generalized Service, Policy, Event, Operational Fact, Relationship, and Item modules are independently
 versioned. Create, revise, and retire only through the default-off typed workbench; authoring a
 `PUBLIC` revision does not publish it. Explicit publish requires the displayed latest revision and a
 fresh request UUID; withdrawal requires the displayed published revision. Conflicts require refresh,
@@ -316,12 +317,20 @@ not blind retry. The workbench hides stale scope immediately, locks sibling acti
 retains an ambiguous publication request identity, bounds errors, and requires an accessible in-panel
 retirement confirmation.
 
+For Item, the displayed `itemType` belongs to the generalized immutable Item revision; it does not
+edit or reinterpret the legacy compatibility `Place.itemType`. An optional Place association must
+resolve within the exact venue. Guest support is available only when the server reports the
+generalized-content capability and the Item has an explicit current `PUBLIC` publication. Withdraw
+published Items before creating a `NATIVE_CORE_V1` release because that profile remains Item-empty.
+
 Guest chat resolves only effective latest publication-ledger state while the generalized capability
 flag is enabled. The exact scoped resolver takes the latest event per module across publish and
 withdraw history before bounding current published heads, so a noisy or withdrawn history cannot
 hide another published module. Missing, cross-scoped or inconsistent typed revision evidence fails
 closed and chat continues without generalized content using sanitized diagnostics. The publication
 migration remains unapplied, so local operator and resolver tests are not live guest evidence.
+The additive `20260812001600_add_universal_item_content` migration is also unapplied and performs no
+legacy backfill.
 
 MCP v0 has concrete bounded read bindings for its 12 resource types. They use verified scope,
 resource-bound cursors, explicit safe selects, and output leakage filtering. There is still no MCP

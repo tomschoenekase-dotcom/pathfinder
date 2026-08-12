@@ -220,6 +220,11 @@ async function projectLocked(tx: NativeVenueDeploymentClient, scope: Scope) {
     .filter((item: any): item is NonNullable<typeof item> => item !== null)
     .filter((item: any) => item.action === 'PUBLISH')
     .sort((a: any, b: any) => a.moduleId.localeCompare(b.moduleId))
+  if (published.some((item: any) => item.moduleKind === 'ITEM'))
+    throw new NativeVenueDeploymentError(
+      'PRECONDITION_FAILED',
+      'Published ITEM content is outside NATIVE_CORE_V1.',
+    )
   if (published.length > 1_000)
     throw new NativeVenueDeploymentError(
       'PRECONDITION_FAILED',

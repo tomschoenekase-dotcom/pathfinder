@@ -10,6 +10,13 @@ const envelope = { audience: 'OPERATOR' as const, evidence: [] }
 
 describe('generalized content action contracts', () => {
   it.each([
+    {
+      kind: 'ITEM',
+      name: 'Apollo guidance computer',
+      description: 'A preserved flight computer.',
+      placeId: 'place-1',
+      itemType: 'artifact',
+    },
     { kind: 'SERVICE', name: 'Coat check' },
     { kind: 'POLICY', title: 'Bags', rule: 'Small bags only.', appliesTo: [] },
     {
@@ -29,6 +36,26 @@ describe('generalized content action contracts', () => {
     expect(GeneralizedContentRevisionDraft.parse({ ...envelope, payload })).toMatchObject({
       payload,
     })
+  })
+
+  it('bounds ITEM fields and rejects unknown payload data', () => {
+    expect(() =>
+      GeneralizedContentRevisionDraft.parse({
+        ...envelope,
+        payload: { kind: 'ITEM', name: 'x'.repeat(201), itemType: 'artifact' },
+      }),
+    ).toThrow()
+    expect(() =>
+      GeneralizedContentRevisionDraft.parse({
+        ...envelope,
+        payload: {
+          kind: 'ITEM',
+          name: 'Apollo guidance computer',
+          itemType: 'artifact',
+          internalNotes: 'never accepted',
+        },
+      }),
+    ).toThrow()
   })
 
   it('requires a client-generated UUID creation key', () => {

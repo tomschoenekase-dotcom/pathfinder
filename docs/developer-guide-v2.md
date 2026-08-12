@@ -347,7 +347,7 @@ identity, keep strict audit in the same transaction, and treat collisions or cha
 conflicts.
 
 The guest resolver consumes only the latest effective published Service, Policy, Event, Operational
-Fact, and Relationship revisions. Its exact tenant/venue query selects the latest event for every
+Fact, Relationship, and Item revisions. Its exact tenant/venue query selects the latest event for every
 module across both publish and withdraw actions, then bounds the remaining published heads with a
 maximum-plus-one read in stable module order. Publication history for one noisy or withdrawn module
 must not crowd out another current head. Resolve those heads only through exact scoped immutable
@@ -355,6 +355,13 @@ revisions and typed payloads; missing, duplicated, cross-scoped or inconsistent 
 closed. Preserve `PUBLIC` audience and effective-time filters. It remains behind
 `generalizedContentCapabilities`; resolver failure returns no generalized modules rather than
 exposing draft/internal content.
+
+Item is a typed generalized module, not an extension of the legacy compatibility
+`Place.itemType` field. Its immutable revision sidecar carries bounded name/description/item type
+and an optional Place reference guarded by exact tenant/venue scope. Guest use still requires the
+server-derived generalized-content capability and an explicit current `PUBLIC` publication; merely
+authoring an Item is insufficient. `NATIVE_CORE_V1` deliberately remains Item-empty, so every
+published Item must be withdrawn before native release planning can succeed.
 
 The default-off workbench uses one render-synchronous scope/generation fence across preview, save,
 retire and publish. Revision, audience and publication conflicts require an authoritative refresh;
@@ -406,6 +413,11 @@ evaluation content discriminator and append-only exact release/artifact/run evid
 bind verified v3 native run identity, complete terminal results, derived bounded facts, HUMAN
 `PLATFORM_ADMIN` operation/audit evidence and late-result sealing without changing legacy v2 run
 identity or native lifecycle gates. It remains unapplied and has no provider or live evidence.
+
+Forward-only migration `20260812001600_add_universal_item_content` adds the immutable typed Item
+revision sidecar, exact optional Place reference and database guards without backfilling historical
+content. It does not change legacy `Place.itemType` or the Item-empty `NATIVE_CORE_V1` hash domain.
+It remains unapplied and has no live publication or guest evidence.
 
 Guest chat turns use a client `operationId` UUID and a versioned canonical request hash bound to the
 exact tenant, venue, anonymous session actor, normalized message, language, visitor identity,

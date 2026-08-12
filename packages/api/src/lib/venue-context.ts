@@ -68,7 +68,7 @@ type EngagementQuestionContext = {
 
 type PublishedUniversalContent = {
   moduleId: string
-  kind: 'SERVICE' | 'POLICY' | 'EVENT' | 'OPERATIONAL_FACT' | 'RELATIONSHIP'
+  kind: 'ITEM' | 'SERVICE' | 'POLICY' | 'EVENT' | 'OPERATIONAL_FACT' | 'RELATIONSHIP'
   payload: Record<string, unknown>
 }
 
@@ -83,6 +83,8 @@ function publishedContentSection(items: PublishedUniversalContent[]): string {
     const payload = item.payload
     const line = (() => {
       switch (item.kind) {
+        case 'ITEM':
+          return `[ITEM] ${String(payload.name)} (${String(payload.itemType)})${payload.description ? `: ${String(payload.description)}` : ''}`
         case 'SERVICE':
           return `[SERVICE] ${String(payload.name)}${payload.description ? `: ${String(payload.description)}` : ''}${payload.availability ? ` Availability: ${String(payload.availability)}` : ''}`
         case 'POLICY':

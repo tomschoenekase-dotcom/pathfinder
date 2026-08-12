@@ -19,4 +19,14 @@ describe('universal content route states', () => {
     expect(source).toContain('cursorAt: result.nextCursor.createdAt')
     expect(source).toContain('cursorId: result.nextCursor.id')
   })
+
+  it('renders server-derived ITEM guest/native support instead of inferring it in the browser', () => {
+    expect(source).toContain('result.itemDisposition.guestPublication')
+    expect(source).toContain('result.itemDisposition.nativeCoreV1Materialization')
+    expect(source).toContain("const kinds = ['ITEM'")
+    expect(source).toContain('Generalized ITEM itemType is separate from legacy compatibility')
+    expect(source).toContain('requires an exact PUBLIC revision')
+    expect(source).toContain('while the generalized-content capability is enabled')
+    expect(source).toContain('must be withdrawn before creating a NATIVE_CORE_V1 release')
+  })
 })

@@ -40,6 +40,7 @@ const APPEND_ONLY_MODELS = [
   'OffboardingExportArtifact',
   'ContentModuleIdentity',
   'ContentModuleRevision',
+  'ItemContent',
   'ServiceContent',
   'PolicyContent',
   'EventContent',

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
 
-const kinds = ['SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'] as const
+const kinds = ['ITEM', 'SERVICE', 'POLICY', 'EVENT', 'OPERATIONAL_FACT', 'RELATIONSHIP'] as const
 type Kind = (typeof kinds)[number]
 
 type EditableModule = {
@@ -29,6 +29,7 @@ type WorkbenchProps = {
 }
 
 const templates: Record<Kind, Record<string, unknown>> = {
+  ITEM: { kind: 'ITEM', name: '', description: null, placeId: null, itemType: '' },
   SERVICE: { kind: 'SERVICE', name: '', description: null, availability: null, placeId: null },
   POLICY: { kind: 'POLICY', title: '', rule: '', appliesTo: [] },
   EVENT: {

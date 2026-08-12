@@ -426,6 +426,7 @@ model Place {
   dailyRollups       DailyRollup[]
   sourcePackage      VenuePackage?       @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   services           ServiceContent[]
+  itemContents       ItemContent[]
   events             EventContent[]
 
   @@unique([id, tenantId])
@@ -504,6 +505,7 @@ model ContentModuleRevision {
   evidence        ContentModuleEvidence[]
   publications    ContentModulePublication[]
   service         ServiceContent?
+  item            ItemContent?
   policy          PolicyContent?
   event           EventContent?
   operationalFact OperationalFactContent?
@@ -531,6 +533,23 @@ model ServiceContent {
   @@unique([revisionId, tenantId, venueId, kind])
   @@index([tenantId, venueId, name])
   @@map("service_content")
+}
+
+model ItemContent {
+  revisionId  String                      @id @map("revision_id")
+  tenantId    String                      @map("tenant_id")
+  venueId     String                      @map("venue_id")
+  kind        NormalizedContentModuleKind @default(ITEM)
+  name        String                      @db.VarChar(200)
+  description String?                     @db.VarChar(10000)
+  placeId     String?                     @map("place_id")
+  itemType    String                      @map("item_type") @db.VarChar(100)
+  revision    ContentModuleRevision       @relation(fields: [revisionId, tenantId, venueId, kind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
+  place       Place?                      @relation(fields: [placeId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([revisionId, tenantId, venueId, kind])
+  @@index([tenantId, venueId, name])
+  @@map("item_content")
 }
 
 model PolicyContent {
@@ -649,6 +668,7 @@ model ContentModulePublication {
 }
 
 enum NormalizedContentModuleKind {
+  ITEM
   SERVICE
   POLICY
   EVENT

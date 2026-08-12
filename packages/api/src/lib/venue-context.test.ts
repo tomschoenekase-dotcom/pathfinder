@@ -376,6 +376,29 @@ describe('buildVenueSystemPrompt', () => {
     expect(section).not.toContain('Policy 1')
   })
 
+  it('renders published ITEM truth inside the existing global module and byte bounds', () => {
+    const { staticPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces: [],
+      userLat: null,
+      userLng: null,
+      publishedUniversalContent: [
+        {
+          moduleId: 'item-1',
+          kind: 'ITEM',
+          payload: {
+            name: 'Apollo guidance computer',
+            itemType: 'artifact',
+            description: 'A preserved flight computer.',
+          },
+        },
+      ],
+    })
+    expect(staticPart).toContain(
+      '[ITEM] Apollo guidance computer (artifact): A preserved flight computer.',
+    )
+  })
+
   it('uses the versioned preset before legacy aiTone without exposing raw client instructions', () => {
     const prompt = buildVenueSystemPrompt({
       venue: {

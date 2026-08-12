@@ -92,6 +92,30 @@ describe('native venue deployment actions', () => {
     } satisfies Partial<NativeVenueDeploymentError>)
   })
 
+  it('fails closed when universal ITEM is published because NATIVE_CORE_V1 stays empty-items', async () => {
+    const { db } = client({
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'publication-item-1' }]),
+      contentModulePublication: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'publication-item-1',
+            moduleId: 'item-1',
+            moduleKind: 'ITEM',
+            revisionId: 'item-r1',
+            action: 'PUBLISH',
+            revision: { version: 1, audience: 'PUBLIC', evidence: [], item: {} },
+          },
+        ]),
+      },
+    })
+    await expect(
+      projectNativeVenueStateAction(db, { tenantId: 'tenant-1', venueId: 'venue-1' }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Published ITEM content is outside NATIVE_CORE_V1.',
+    } satisfies Partial<NativeVenueDeploymentError>)
+  })
+
   it('approves with exact CAS and a durable produced snapshot', async () => {
     const now = new Date('2026-08-12T12:00:00.000Z')
     vi.useFakeTimers()

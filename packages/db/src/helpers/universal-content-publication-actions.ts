@@ -391,6 +391,12 @@ type ResolverRevision = {
   audience: string
   effectiveFrom: Date | null
   effectiveUntil: Date | null
+  item: null | {
+    name: string
+    description: string | null
+    placeId: string | null
+    itemType: string
+  }
   service: null | {
     name: string
     description: string | null
@@ -494,6 +500,7 @@ export async function resolveEffectivePublishedUniversalContent(params: {
       audience: true,
       effectiveFrom: true,
       effectiveUntil: true,
+      item: true,
       service: true,
       policy: true,
       event: true,
@@ -516,6 +523,16 @@ export async function resolveEffectivePublishedUniversalContent(params: {
     }
     const payload = (() => {
       switch (revision.kind) {
+        case 'ITEM':
+          return revision.item
+            ? {
+                kind: 'ITEM' as const,
+                name: revision.item.name,
+                description: revision.item.description,
+                placeId: revision.item.placeId,
+                itemType: revision.item.itemType,
+              }
+            : null
         case 'SERVICE':
           return revision.service
             ? {

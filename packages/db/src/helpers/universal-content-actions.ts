@@ -98,7 +98,10 @@ async function assertPayloadReferences(
   scope: { tenantId: string; venueId: string; moduleId?: string },
   payload: GeneralizedContentPayload,
 ): Promise<void> {
-  if ((payload.kind === 'SERVICE' || payload.kind === 'EVENT') && payload.placeId) {
+  if (
+    (payload.kind === 'ITEM' || payload.kind === 'SERVICE' || payload.kind === 'EVENT') &&
+    payload.placeId
+  ) {
     const place = await tx.place.findFirst({
       where: { id: payload.placeId, tenantId: scope.tenantId, venueId: scope.venueId },
       select: { id: true },
@@ -144,6 +147,17 @@ async function insertPayload(
 ): Promise<void> {
   const common = { revisionId: scope.revisionId, tenantId: scope.tenantId, venueId: scope.venueId }
   switch (payload.kind) {
+    case 'ITEM':
+      await tx.itemContent.create({
+        data: {
+          ...common,
+          name: payload.name,
+          description: payload.description ?? null,
+          placeId: payload.placeId ?? null,
+          itemType: payload.itemType,
+        },
+      })
+      return
     case 'SERVICE':
       await tx.serviceContent.create({
         data: {
@@ -375,6 +389,12 @@ type LatestRevision = {
   version: number
   audience: 'PUBLIC' | 'CLIENT' | 'OPERATOR'
   effectiveFrom: Date | null
+  item: {
+    name: string
+    description: string | null
+    placeId: string | null
+    itemType: string
+  } | null
   service: {
     name: string
     description: string | null
@@ -402,6 +422,7 @@ function payloadFromLatest(
   kind: GeneralizedContentPayload['kind'],
   latest: LatestRevision,
 ): GeneralizedContentPayload {
+  if (kind === 'ITEM' && latest.item) return { kind, ...latest.item }
   if (kind === 'SERVICE' && latest.service) return { kind, ...latest.service }
   if (kind === 'POLICY' && latest.policy) return { kind, ...latest.policy }
   if (kind === 'EVENT' && latest.event) {
@@ -452,6 +473,7 @@ export async function retireUniversalContentAction(input: {
               version: true,
               audience: true,
               effectiveFrom: true,
+              item: true,
               service: true,
               policy: true,
               event: true,

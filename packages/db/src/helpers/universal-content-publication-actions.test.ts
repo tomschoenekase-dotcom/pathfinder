@@ -67,6 +67,37 @@ describe('universal content publication actions', () => {
     expect(tx.auditLog.create).toHaveBeenCalledOnce()
   })
 
+  it('publishes an exact latest PUBLIC ITEM revision through the same append-only ledger', async () => {
+    const tx = transactionClient({
+      contentModuleRevision: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            id: 'item-r1',
+            moduleId: 'item-1',
+            kind: 'ITEM',
+            version: 1,
+            audience: 'PUBLIC',
+          })
+          .mockResolvedValueOnce({ id: 'item-r1', version: 1 }),
+      },
+    })
+    await publishUniversalContentAction({
+      db: actionClient(tx) as never,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      moduleId: 'item-1',
+      revisionId: 'item-r1',
+      expectedLatestVersion: 1,
+      requestId: 'ef2c5852-c18c-4908-a17b-f289b826ad43',
+      actor,
+    })
+    expect(tx.contentModulePublication.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ moduleKind: 'ITEM', action: 'PUBLISH' }),
+      select: { id: true },
+    })
+  })
+
   it('rejects malformed direct-boundary scope and request IDs before a transaction', async () => {
     const tx = transactionClient()
     const client = actionClient(tx)
@@ -228,6 +259,7 @@ describe('effective published universal content resolver', () => {
       audience: 'PUBLIC',
       effectiveFrom: new Date('2026-08-11T17:00:00.000Z'),
       effectiveUntil: new Date('2026-08-11T19:00:00.000Z'),
+      item: null,
       service: null,
       policy: null,
       event: null,
@@ -290,6 +322,61 @@ describe('effective published universal content resolver', () => {
         },
       }),
     )
+  })
+
+  it('resolves only the exact typed ITEM sidecar for a current PUBLIC head', async () => {
+    const revision = {
+      ...operationalRevision('item-r3', 'item-module'),
+      kind: 'ITEM',
+      item: {
+        name: 'Apollo guidance computer',
+        description: 'A preserved flight computer.',
+        placeId: 'place-1',
+        itemType: 'artifact',
+      },
+      operationalFact: null,
+    }
+    const db = resolverDb([{ moduleId: 'item-module', revisionId: 'item-r3' }], [revision])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        asOf: new Date('2026-08-11T18:00:00.000Z'),
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        moduleId: 'item-module',
+        revisionId: 'item-r3',
+        kind: 'ITEM',
+        payload: {
+          kind: 'ITEM',
+          name: 'Apollo guidance computer',
+          description: 'A preserved flight computer.',
+          placeId: 'place-1',
+          itemType: 'artifact',
+        },
+      }),
+    ])
+    expect(db.contentModuleRevision.findMany.mock.calls[0]?.[0]?.select.item).toBe(true)
+  })
+
+  it('fails closed when a published ITEM has no exact typed sidecar', async () => {
+    const revision = {
+      ...operationalRevision('item-r3', 'item-module'),
+      kind: 'ITEM',
+      item: null,
+      operationalFact: null,
+    }
+    const db = resolverDb([{ moduleId: 'item-module', revisionId: 'item-r3' }], [revision])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        asOf: new Date('2026-08-11T18:00:00.000Z'),
+      }),
+    ).rejects.toThrow('A published revision has no typed payload.')
   })
 
   it('keeps resolving one current head after more than 500 events for that module', async () => {

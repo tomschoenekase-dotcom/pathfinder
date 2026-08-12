@@ -70,6 +70,7 @@ export const TENANTED_TABLES = [
   'OffboardingExportArtifact',
   'ContentModuleIdentity',
   'ContentModuleRevision',
+  'ItemContent',
   'ServiceContent',
   'PolicyContent',
   'EventContent',

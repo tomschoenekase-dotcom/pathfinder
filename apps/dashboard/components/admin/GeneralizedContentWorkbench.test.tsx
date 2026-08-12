@@ -54,6 +54,23 @@ describe('GeneralizedContentWorkbench', () => {
     payload: { kind: 'POLICY', title: 'Bags', rule: 'Small bags only.', appliesTo: [] },
     publishedRevisionId: null,
   }
+  const itemModule = {
+    id: 'item-1',
+    revisionId: 'item-revision-3',
+    kind: 'ITEM' as const,
+    version: 3,
+    audience: 'PUBLIC' as const,
+    effectiveFrom: null,
+    effectiveUntil: null,
+    payload: {
+      kind: 'ITEM',
+      name: 'Apollo guidance computer',
+      description: 'A preserved flight computer.',
+      placeId: 'place-1',
+      itemType: 'artifact',
+    },
+    publishedRevisionId: null,
+  }
 
   function deferred<T>() {
     let resolve!: (value: T) => void
@@ -100,6 +117,117 @@ describe('GeneralizedContentWorkbench', () => {
     )
     expect(screen.getByRole('status').textContent).toMatch(
       /guest and client publication remain off/i,
+    )
+  })
+
+  it('offers ITEM authoring with a strict typed template', () => {
+    render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'ITEM' } })
+    expect((screen.getByLabelText('Typed payload JSON') as HTMLTextAreaElement).value).toContain(
+      '"kind": "ITEM"',
+    )
+    expect((screen.getByLabelText('Typed payload JSON') as HTMLTextAreaElement).value).toContain(
+      '"itemType": ""',
+    )
+  })
+
+  it('creates a strict generalized ITEM with the frozen creation key', async () => {
+    mocks.create.mockResolvedValue({ version: 1 })
+    render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'ITEM' } })
+    fireEvent.change(screen.getByLabelText('Audience'), { target: { value: 'PUBLIC' } })
+    fireEvent.change(screen.getByLabelText('Typed payload JSON'), {
+      target: { value: JSON.stringify(itemModule.payload) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create module' }))
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce())
+    expect(mocks.create).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      moduleId: '137c3504-8e5a-4f43-9271-dc51e4e47dad',
+      draft: expect.objectContaining({ audience: 'PUBLIC', payload: itemModule.payload }),
+    })
+  })
+
+  it('binds existing PUBLIC ITEM revise, retire, publish, and withdraw actions exactly', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('35a7173c-b42b-485b-8885-81355585489e')
+    mocks.revise.mockResolvedValue({ version: 4 })
+    mocks.retire.mockResolvedValue({ version: 4 })
+    mocks.publish.mockResolvedValue({ action: 'PUBLISH' })
+    mocks.withdraw.mockResolvedValue({ action: 'WITHDRAW' })
+    const props = {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      authoringEnabled: true,
+      initialCreationKey: '137c3504-8e5a-4f43-9271-dc51e4e47dad',
+    }
+
+    render(<GeneralizedContentWorkbench {...props} modules={[itemModule]} />)
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'item-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Append revision' }))
+    await waitFor(() => expect(mocks.revise).toHaveBeenCalledOnce())
+    expect(mocks.revise).toHaveBeenCalledWith(
+      expect.objectContaining({ moduleId: 'item-1', expectedLatestVersion: 3 }),
+    )
+
+    cleanup()
+    render(<GeneralizedContentWorkbench {...props} modules={[itemModule]} />)
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'item-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Append retirement revision' }))
+    fireEvent.change(screen.getByLabelText('Retirement effective at'), {
+      target: { value: '2026-08-12T18:00' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm retirement revision' }))
+    await waitFor(() => expect(mocks.retire).toHaveBeenCalledOnce())
+    expect(mocks.retire).toHaveBeenCalledWith(
+      expect.objectContaining({ moduleId: 'item-1', expectedLatestVersion: 3 }),
+    )
+
+    cleanup()
+    render(<GeneralizedContentWorkbench {...props} modules={[itemModule]} />)
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'item-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Publish this version to guests' }))
+    await waitFor(() => expect(mocks.publish).toHaveBeenCalledOnce())
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        moduleId: 'item-1',
+        revisionId: 'item-revision-3',
+        expectedLatestVersion: 3,
+      }),
+    )
+
+    cleanup()
+    render(
+      <GeneralizedContentWorkbench
+        {...props}
+        modules={[{ ...itemModule, publishedRevisionId: 'item-revision-3' }]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'item-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw from guest guide' }))
+    await waitFor(() => expect(mocks.withdraw).toHaveBeenCalledOnce())
+    expect(mocks.withdraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        moduleId: 'item-1',
+        expectedPublishedRevisionId: 'item-revision-3',
+      }),
     )
   })
 
@@ -347,6 +475,23 @@ describe('GeneralizedContentWorkbench', () => {
         modules={[contentModule]}
       />,
     )
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
+  })
+
+  it('has no automated accessibility violations with a PUBLIC ITEM selected', async () => {
+    const { container } = render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[itemModule]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'item-1' } })
+    expect(screen.getByRole('button', { name: 'Publish this version to guests' })).toBeTruthy()
     expect(
       (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
     ).toEqual([])
