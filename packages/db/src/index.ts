@@ -504,7 +504,7 @@ export type {
   VenuePackageLifecycleClient,
   VenuePackageLifecycleRecord,
   VenuePackageLifecycleStatus,
-  VenuePackageOwnerActor,
+  VenuePackageLifecycleActor,
 } from './helpers/venue-package-lifecycle-actions'
 export {
   createEngagementQuestionAction,

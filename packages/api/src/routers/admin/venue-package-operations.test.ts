@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -7,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   detail: vi.fn(),
   orchestrate: vi.fn(),
+  approve: vi.fn(),
+  apply: vi.fn(),
+  revert: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -14,11 +18,18 @@ vi.mock('@pathfinder/db', () => ({
     venue: { findFirst: mocks.venue },
     venuePackage: { findMany: mocks.list, findFirst: mocks.detail },
   },
+  setContentVersionContext: vi.fn(async () => undefined),
   withTenantIsolationBypass: mocks.bypass,
 }))
 
 vi.mock('../../lib/admin-reviewed-draft-orchestration', () => ({
   runAdminReviewedDraftOrchestration: mocks.orchestrate,
+}))
+
+vi.mock('../../lib/venue-package-core', () => ({
+  approveVenuePackageLifecycle: mocks.approve,
+  applyVenuePackageLifecycle: mocks.apply,
+  revertVenuePackageLifecycle: mocks.revert,
 }))
 
 import type { TRPCContext } from '../../context'
@@ -28,7 +39,9 @@ import { adminVenuePackageOperationsRouter } from './venue-package-operations'
 
 const call = (isPlatformAdmin = true) =>
   router({ admin: adminVenuePackageOperationsRouter }).createCaller({
-    db: {} as TRPCContext['db'],
+    db: {
+      $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({}),
+    } as TRPCContext['db'],
     headers: new Headers(),
     session: { userId: 'operator-1', activeTenantId: null, role: 'STAFF', isPlatformAdmin },
   })
@@ -73,6 +86,55 @@ const summary = {
 }
 
 describe('admin venue-package operations reads', () => {
+  it('keeps lifecycle services stateless and free of fabricated resolver contexts', () => {
+    const source = readFileSync(new URL('../../lib/venue-package-core.ts', import.meta.url), 'utf8')
+    expect(source).not.toMatch(/let\s+(apply|revert)VenuePackageResolver/)
+    expect(source).not.toContain('lifecycleResolverContext')
+    expect(source).not.toContain('configureVenuePackageLifecycleService')
+    expect(source).not.toMatch(/session:\s*\{[\s\S]{0,200}activeTenantId/)
+  })
+
+  it.each([
+    ['approveVenuePackage', mocks.approve, true],
+    ['applyVenuePackage', mocks.apply, false],
+    ['revertVenuePackage', mocks.revert, false],
+  ] as const)(
+    '%s is an authenticated exact-scope PLATFORM_ADMIN adapter',
+    async (procedure, action, approval) => {
+      action.mockResolvedValue({
+        id: 'package-1',
+        status: 'APPROVED',
+        updatedAt: summary.updatedAt,
+      })
+      const input = {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        id: 'package-1',
+        expectedUpdatedAt: summary.updatedAt,
+        commandKey: '11111111-1111-4111-8111-111111111111',
+        ...(approval
+          ? {
+              acknowledgedWarningDigest: 'a'.repeat(64),
+              acknowledgedPayloadHash: 'b'.repeat(64),
+            }
+          : {}),
+      }
+      await (call().admin[procedure] as (value: typeof input) => Promise<unknown>)(input)
+      expect(action).toHaveBeenCalledWith({
+        db: expect.anything(),
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
+        command: expect.objectContaining(input),
+      })
+      action.mockClear()
+      await expect(
+        (call(false).admin[procedure] as (value: typeof input) => Promise<unknown>)(input),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      expect(action).not.toHaveBeenCalled()
+    },
+  )
+
   it('adapts reviewed DRAFT creation through server-owned platform-admin orchestration', async () => {
     mocks.orchestrate.mockResolvedValue({ value: { id: 'package-1' }, attachment: {} })
     const payload = {

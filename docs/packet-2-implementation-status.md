@@ -71,10 +71,11 @@ Section-level evidence and blockers are indexed in
   locking, optimistic `updatedAt` CAS, bounded overlapping published updates, valid time windows,
   transactional strict audit, and a truthful guest-visibility preview. These local actions do not
   prove that production schedulers or expiry behavior are running.
-- VenuePackage approve/apply/revert lifecycle authority now lives in one neutral OWNER-only action
-  with exact tenant/venue/package scope, venue locking, command-key replay and collision handling,
-  status/`updatedAt` CAS, content-version context, and strict sanitized transactional audit. Existing
-  V1/V2/V3 effect and rollback orchestration remains unchanged in the compatibility router.
+- VenuePackage approve/apply/revert lifecycle authority is shared through one stateless core. Tenant
+  adapters retain HUMAN `OWNER` authorization; exact-scoped Internal Workspace adapters use the real
+  HUMAN `PLATFORM_ADMIN` identity and role. Both preserve tenant/venue/package scope, venue locks,
+  actor-bound command replay/collision handling, status/`updatedAt` CAS, content-version context and
+  strict sanitized transactional audit. Existing V1/V2/V3 effect and rollback behavior is unchanged.
 - Weekly-report configuration, draft edit, and publish now use neutral HUMAN platform-admin actions
   with exact scope, locks, CAS, legal DRAFT transitions, default-off configuration, and strict audit.
   Generation rejects inverted week ranges before durable work and retains existing post-commit
@@ -156,10 +157,14 @@ Section-level evidence and blockers are indexed in
   The projection is not an immutable publication snapshot and is always `NOT_READY`: generalized
   content, immutable assets, capability truth, model references and readiness evidence remain
   explicitly omitted. It creates no package or database row and exposes no apply action.
-- Internal Workspace now also has a bounded read-only Venue Package history/detail surface. It
-  revalidates the stored payload schema and venue-bound canonical hash, plus preview schema,
-  payload/base/warning digests and validation-report identity, before displaying evidence. It does
-  not create, approve, apply, revert or link a package.
+- Internal Workspace now also has a bounded Venue Package history/detail and deliberate lifecycle
+  surface. It revalidates the stored payload schema and venue-bound canonical hash, plus preview
+  schema, payload/base/warning digests and validation-report identity before displaying evidence. A
+  HUMAN platform administrator can review every warning and the exact immutable payload,
+  acknowledge that evidence, then deliberately advance `DRAFT` → `APPROVED` → `APPLIED` or confirm
+  `APPLIED` → `REVERTED`. Stable command identities survive ambiguous responses, synchronous fences
+  prevent duplicate submits, conflicts require authoritative readback and strict audit remains
+  atomic. This local surface adds no publish action, provider call or live deployment evidence.
 - The authenticated Client Portal has an exact package-bound static preview for an eligible
   `APPROVED` Venue Package. A shared `RepeatableRead` predicate distinguishes exact base drift
   (`SUPERSEDED`) from missing, corrupt, incomplete or safely unrepresentable evidence

@@ -14,8 +14,23 @@ import {
   VenuePackageValidationReport,
 } from '../../schemas/venue-package'
 import { adminProcedure } from '../../trpc'
+import { withContentVersionActor } from '../../middleware/content-version-actor'
+import {
+  applyVenuePackageLifecycle,
+  approveVenuePackageLifecycle,
+  revertVenuePackageLifecycle,
+} from '../../lib/venue-package-core'
 
 const scope = z.object({ tenantId: z.string().min(1), venueId: z.string().min(1) }).strict()
+const lifecycleInput = scope.extend({
+  id: z.string().min(1).max(191),
+  expectedUpdatedAt: z.coerce.date(),
+  commandKey: z.string().uuid(),
+})
+
+function platformAdminActor(userId: string) {
+  return { type: 'HUMAN', id: userId, role: 'PLATFORM_ADMIN' } as const
+}
 
 const summarySelect = {
   id: true,
@@ -71,6 +86,49 @@ function parseSummary(row: SummaryRow) {
 }
 
 export const adminVenuePackageOperationsRouter = router({
+  approveVenuePackage: adminProcedure
+    .input(
+      lifecycleInput.extend({
+        acknowledgedWarningDigest: z.string().regex(/^[a-f0-9]{64}$/),
+        acknowledgedPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      approveVenuePackageLifecycle({
+        db: ctx.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        actor: platformAdminActor(ctx.session.userId),
+        command: input,
+      }),
+    ),
+
+  applyVenuePackage: adminProcedure
+    .use(withContentVersionActor)
+    .input(lifecycleInput)
+    .mutation(({ ctx, input }) =>
+      applyVenuePackageLifecycle({
+        db: ctx.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        actor: platformAdminActor(ctx.session.userId),
+        command: input,
+      }),
+    ),
+
+  revertVenuePackage: adminProcedure
+    .use(withContentVersionActor)
+    .input(lifecycleInput)
+    .mutation(({ ctx, input }) =>
+      revertVenuePackageLifecycle({
+        db: ctx.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        actor: platformAdminActor(ctx.session.userId),
+        command: input,
+      }),
+    ),
+
   createReviewedVenuePackageDraft: adminProcedure
     .input(scope.extend({ draftKey: z.string().uuid(), payload: VenuePackagePayload }))
     .mutation(({ ctx, input }) =>

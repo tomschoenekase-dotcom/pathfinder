@@ -134,10 +134,15 @@ workflow state. Triage requires the displayed request version, retains selection
 and records one audited revision. It does not message the client, change status, create a package,
 or apply content; communicate deliberately through the separate message composer.
 
-Package approval, apply, and revert require an owner, the displayed package revision, exact reviewed
-evidence, and a unique command key. A repeated matching command is a replay; a command key already
-used by another package is a conflict. Existing V1/V2/V3 rollback behavior remains distinct—do not
-assume the richer V3 lineage rules apply to legacy packages.
+The Internal Workspace package page exposes deliberate `DRAFT` → `APPROVED` → `APPLIED` →
+`REVERTED` controls to a platform administrator. Review the exact stored payload and every warning,
+acknowledge the displayed payload/warning evidence before approval, confirm apply or revert, and
+wait for the authoritative readback before taking the next action. Tenant-side lifecycle authority
+remains HUMAN `OWNER`; the Internal Workspace records the real HUMAN `PLATFORM_ADMIN` instead of
+impersonating that owner. A repeated matching command by the same actor is a replay; a changed
+revision, actor or reused command key is a conflict. Existing V1/V2/V3 rollback behavior remains
+distinct—do not assume the richer V3 lineage rules apply to legacy packages. These controls do not
+publish, invoke a provider or prove a live deployment.
 
 ## AI configuration and budgets
 

@@ -8,25 +8,15 @@ import {
   TONE_PRESET_TO_LEGACY_AI_TONE,
 } from '@pathfinder/contracts/tone-presets'
 import {
-  approveVenuePackageAction,
-  applyVenuePackageAction,
   getVenuePackageSemanticCoverage,
   assertVenueAiAvailable,
   lockVenueContentMutation,
-  setContentVersionContext,
-  revertVenuePackageAction,
-  type ContentVersionSourceProvenance,
-  VenuePackageLifecycleError,
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
 import {
   canonicalVenuePackagePayload,
   VenuePackageApprovalInput,
-  VenuePackageAppliedEntities,
-  VenuePackageAppliedEntitiesV1,
-  VenuePackageAppliedEntitiesV2,
-  VenuePackageAppliedEntitiesV3,
   VenuePackageByIdInput,
   VenuePackageDraftInput,
   VenuePackageLifecycleInput,
@@ -41,29 +31,14 @@ import {
   VenuePackageVenueChange,
   VenuePackageVenueSnapshot,
   type VenuePackageIssue,
-  type VenuePackagePayloadV3,
-  type VenuePackageSourceProvenance,
 } from '../schemas/venue-package'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
-import { canonicalVenuePackageWarningCodes } from '../lib/client-package-preview'
-import { applyVenuePackageV3ContentEffects } from '../lib/venue-package-v3-content-effects'
 import {
   runVenuePackageDraftFinalizer,
   VenuePackageDraftFinalizerError,
 } from '../lib/venue-package-draft-finalizer'
-import {
-  parseVenuePackageContentVersionProvenance,
-  venuePackageRollbackCasWhere,
-  venuePackageRollbackMutationData,
-} from '../lib/venue-package-v3-rollback-state'
-import {
-  planVenuePackageRollback,
-  venuePackageSnapshotsEqual,
-  type JsonSnapshot,
-  type VenuePackageInversePlan,
-} from '../lib/venue-package-rollback'
 import {
   analyzeVenuePackageSemanticDuplicates,
   buildIncompleteSemanticScan,
@@ -74,14 +49,17 @@ import {
   VENUE_PACKAGE_SEMANTIC_PROFILES,
   VENUE_PACKAGE_SEMANTIC_SIMILARITY_THRESHOLD,
 } from '../lib/venue-package-semantic-analysis'
+import {
+  applyVenuePackageLifecycle,
+  approveVenuePackageLifecycle,
+  revertVenuePackageLifecycle,
+} from '../lib/venue-package-core'
 import { withContentVersionActor } from '../middleware/content-version-actor'
 import { requireGlobalAi } from '../middleware/require-global-ai'
 import { requireRole } from '../middleware/require-role'
 import { tenantProcedure } from '../trpc'
 
 type DbClient = TRPCContext['db']
-type PlaceCreateData = Parameters<DbClient['place']['create']>[0]['data']
-type KnowledgeCreateData = Parameters<DbClient['venueKnowledgeEntry']['create']>[0]['data']
 type PackagePayload = VenuePackagePayload
 
 const venuePackageVenueSelect = {
@@ -137,68 +115,8 @@ function conflict(message = 'Venue package changed; refresh and review it again'
   throw new TRPCError({ code: 'CONFLICT', message })
 }
 
-function mapLifecycleError(error: unknown): never {
-  if (!(error instanceof VenuePackageLifecycleError)) throw error
-  throw new TRPCError({
-    code:
-      error.code === 'NOT_FOUND'
-        ? 'NOT_FOUND'
-        : error.code === 'CONFLICT'
-          ? 'CONFLICT'
-          : 'BAD_REQUEST',
-    message: error.message,
-    cause: error,
-  })
-}
-
 function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
-}
-
-function deterministicUuid(namespace: string): string {
-  const hex = createHash('sha256').update(namespace).digest('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
-}
-
-function venuePackageItemKey(packageId: string): string {
-  return deterministicUuid(`pathfinder:venue-package:${packageId}:venue`)
-}
-
-function sourceProvenance(
-  provenance: VenuePackageSourceProvenance,
-  importedAt: Date,
-  humanConfirmedAt: Date,
-) {
-  return {
-    sourceType: provenance.sourceType,
-    ...(provenance.sourceName !== undefined ? { sourceName: provenance.sourceName } : {}),
-    ...(provenance.sourceUrl !== undefined ? { sourceUrl: provenance.sourceUrl } : {}),
-    contentOrigin: provenance.contentOrigin,
-    importedAt: importedAt.toISOString(),
-    humanConfirmedAt: humanConfirmedAt.toISOString(),
-    lastReviewedAt: humanConfirmedAt.toISOString(),
-  }
-}
-
-function directProvenanceData(input: {
-  provenance: VenuePackageSourceProvenance
-  packageId: string
-  importedAt: Date
-  humanConfirmedAt: Date
-  humanConfirmedBy: string
-}) {
-  return {
-    sourceType: input.provenance.sourceType,
-    authorship: input.provenance.contentOrigin,
-    sourceName: input.provenance.sourceName ?? null,
-    sourceUrl: input.provenance.sourceUrl ?? null,
-    importedAt: input.importedAt,
-    humanConfirmedAt: input.humanConfirmedAt,
-    humanConfirmedBy: input.humanConfirmedBy,
-    lastReviewedAt: input.humanConfirmedAt,
-    lastReviewedBy: input.humanConfirmedBy,
-    sourcePackageId: input.packageId,
-  }
 }
 
 function jsonValue(value: unknown): object {
@@ -304,25 +222,6 @@ function venueChanges(payload: PackagePayload, current: VenuePackageVenueSnapsho
     if (before === after) return []
     return [VenuePackageVenueChange.parse({ path: venueChangePaths[key], before, after })]
   })
-}
-
-function changedVenuePatchData(
-  payload: PackagePayload,
-  current: VenuePackageVenueSnapshot,
-): Parameters<DbClient['venue']['updateMany']>[0]['data'] {
-  return Object.fromEntries(
-    Object.entries(venuePatchData(payload)).filter(
-      ([field, after]) => current[field as keyof VenuePackageVenueSnapshot] !== after,
-    ),
-  ) as Parameters<DbClient['venue']['updateMany']>[0]['data']
-}
-
-function venueRestoreData(
-  snapshot: VenuePackageVenueSnapshot,
-): Parameters<DbClient['venue']['updateMany']>[0]['data'] {
-  return Object.fromEntries(
-    Object.entries(snapshot).filter(([, value]) => value !== undefined),
-  ) as Parameters<DbClient['venue']['updateMany']>[0]['data']
 }
 
 function venueFieldCount(payload: PackagePayload, current: VenuePackageVenueSnapshot): number {
@@ -551,7 +450,7 @@ function duplicateWarnings(
       warnings.push({
         code: 'DUPLICATE_IN_PACKAGE',
         path: place.path,
-        message: `Another package place has the normalized name “${normalized}”.`,
+        message: `Another package place has the normalized name �${normalized}�.`,
       })
     } else if (
       existingPlaceNames.has(normalized) &&
@@ -560,7 +459,7 @@ function duplicateWarnings(
       warnings.push({
         code: 'DUPLICATE_EXISTING_CONTENT',
         path: place.path,
-        message: `An active venue place already has the normalized name “${normalized}”.`,
+        message: `An active venue place already has the normalized name �${normalized}�.`,
       })
     }
     seenPlaces.add(normalized)
@@ -573,7 +472,7 @@ function duplicateWarnings(
       warnings.push({
         code: 'DUPLICATE_IN_PACKAGE',
         path: entry.path,
-        message: `Another package knowledge entry has the normalized title “${normalized}”.`,
+        message: `Another package knowledge entry has the normalized title �${normalized}�.`,
       })
     } else if (
       existingKnowledgeTitles.has(normalized) &&
@@ -582,7 +481,7 @@ function duplicateWarnings(
       warnings.push({
         code: 'DUPLICATE_EXISTING_CONTENT',
         path: entry.path,
-        message: `Venue knowledge already has the normalized title “${normalized}”.`,
+        message: `Venue knowledge already has the normalized title �${normalized}�.`,
       })
     }
     seenKnowledge.add(normalized)
@@ -1124,573 +1023,6 @@ export function venuePackageDraftAuditRole(session: {
   return session.isPlatformAdmin ? 'PLATFORM_ADMIN' : (session.role ?? 'MANAGER')
 }
 
-async function finalizePackageApply(input: {
-  db: DbClient
-  tenantId: string
-  id: string
-  expectedUpdatedAt: Date
-  commandKey: string
-  actorId: string
-  appliedEntities: object
-}) {
-  try {
-    return await applyVenuePackageAction(
-      {
-        tenantId: input.tenantId,
-        id: input.id,
-        expectedUpdatedAt: input.expectedUpdatedAt,
-        commandKey: input.commandKey,
-        actor: { type: 'HUMAN', id: input.actorId, role: 'OWNER' },
-        load: (tx, scope) => findPackage(tx as DbClient, scope.tenantId, scope.id),
-        validate: async () => undefined,
-        execute: async () => ({ appliedEntities: jsonValue(input.appliedEntities) }),
-        auditState,
-      },
-      input.db,
-    )
-  } catch (error) {
-    mapLifecycleError(error)
-  }
-}
-
-async function finalizePackageRevert(input: {
-  db: DbClient
-  tenantId: string
-  id: string
-  expectedUpdatedAt: Date
-  commandKey: string
-  actorId: string
-}) {
-  try {
-    return await revertVenuePackageAction(
-      {
-        tenantId: input.tenantId,
-        id: input.id,
-        expectedUpdatedAt: input.expectedUpdatedAt,
-        commandKey: input.commandKey,
-        actor: { type: 'HUMAN', id: input.actorId, role: 'OWNER' },
-        load: (tx, scope) => findPackage(tx as DbClient, scope.tenantId, scope.id),
-        validate: async () => undefined,
-        auditState,
-      },
-      input.db,
-    )
-  } catch (error) {
-    mapLifecycleError(error)
-  }
-}
-
-function parsePayload(value: unknown, expectedSchemaVersion?: number): PackagePayload {
-  const result = VenuePackagePayload.safeParse(value)
-  if (!result.success) conflict('Stored venue package payload is invalid')
-  if (expectedSchemaVersion !== undefined && result.data.schemaVersion !== expectedSchemaVersion) {
-    conflict('Stored venue package payload version is inconsistent')
-  }
-  return result.data
-}
-
-async function readPackageEffectVersion(input: {
-  db: DbClient
-  tenantId: string
-  venueId: string
-  packageId: string
-  itemKey: string
-  action: 'APPLY' | 'REVERT'
-  entityType: 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY'
-  entityId: string
-  operation: 'CREATE' | 'UPDATE' | 'DELETE'
-}) {
-  const version = await input.db.contentVersion.findFirst({
-    where: {
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      venuePackageId: input.packageId,
-      venuePackageItemKey: input.itemKey,
-      venuePackageAction: input.action,
-    },
-    select: {
-      id: true,
-      entityType: true,
-      entityId: true,
-      operation: true,
-      beforeState: true,
-      afterState: true,
-      snapshotSchemaVersion: true,
-    },
-  })
-  if (
-    !version ||
-    version.entityType !== input.entityType ||
-    version.entityId !== input.entityId ||
-    version.operation !== input.operation
-  ) {
-    conflict('Package mutation did not produce the expected immutable history record')
-  }
-  return version
-}
-
-async function applyVersionThreePackage(input: {
-  db: DbClient
-  tenantId: string
-  actorId: string
-  packageId: string
-  venueId: string
-  approvedAt: Date
-  approvedBy: string
-  payload: VenuePackagePayloadV3
-}) {
-  const importedAt = new Date()
-  const effects: VenuePackageAppliedEntitiesV3['effects'] = []
-  const establishContext = async (itemKey: string, provenance: VenuePackageSourceProvenance) => {
-    await setContentVersionContext(input.db, {
-      actorId: input.actorId,
-      venuePackage: {
-        venuePackageId: input.packageId,
-        itemKey,
-        action: 'APPLY',
-        sourceProvenance: sourceProvenance(provenance, importedAt, input.approvedAt),
-      },
-    })
-  }
-  const record = async (effect: {
-    itemKey: string
-    entityType: 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY'
-    entityId: string
-    operation: 'CREATE' | 'UPDATE' | 'DELETE'
-  }) => {
-    const version = await readPackageEffectVersion({
-      db: input.db,
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      packageId: input.packageId,
-      action: 'APPLY',
-      ...effect,
-    })
-    effects.push({
-      ...effect,
-      applyVersionId: version.id,
-      snapshotSchemaVersion: version.snapshotSchemaVersion,
-      beforeState: version.beforeState as Record<string, unknown> | null,
-      afterState: version.afterState as Record<string, unknown> | null,
-    })
-  }
-
-  const currentVenue = venueSnapshot(await assertVenue(input.db, input.tenantId, input.venueId))
-  const venueData = changedVenuePatchData(input.payload, currentVenue)
-  if (Object.keys(venueData).length > 0) {
-    const itemKey = venuePackageItemKey(input.packageId)
-    const provenance: VenuePackageSourceProvenance = {
-      sourceType: 'PATHFINDER_VENUE_PACKAGE',
-      sourceName: `Venue package ${input.packageId}`,
-      contentOrigin: 'HUMAN_AUTHORED',
-    }
-    await establishContext(itemKey, provenance)
-    const changed = await input.db.venue.updateMany({
-      where: { id: input.venueId, tenantId: input.tenantId },
-      data: venueData,
-    })
-    if (changed.count !== 1) conflict('Venue changed during package application')
-    await record({ itemKey, entityType: 'VENUE', entityId: input.venueId, operation: 'UPDATE' })
-  }
-
-  await applyVenuePackageV3ContentEffects({
-    db: input.db,
-    tenantId: input.tenantId,
-    venueId: input.venueId,
-    packageId: input.packageId,
-    approvedAt: input.approvedAt,
-    approvedBy: input.approvedBy,
-    importedAt,
-    payload: input.payload,
-    establishContext,
-    provenanceData: directProvenanceData,
-    record,
-    conflict,
-  })
-  return effects
-}
-
-async function currentEntitySnapshot(input: {
-  db: DbClient
-  tenantId: string
-  venueId: string
-  entityType: 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY'
-  entityId: string
-}): Promise<JsonSnapshot | null> {
-  if (input.entityType === 'VENUE') {
-    const row = await input.db.venue.findFirst({
-      where: { id: input.entityId, tenantId: input.tenantId },
-      select: {
-        id: true,
-        tenantId: true,
-        name: true,
-        slug: true,
-        description: true,
-        guideNotes: true,
-        aiGuideNotes: true,
-        aiFeaturedPlaceId: true,
-        aiTone: true,
-        tonePreset: true,
-        tonePresetVersion: true,
-        aiGuideName: true,
-        chatTheme: true,
-        chatAccentColor: true,
-        chatFont: true,
-        chatLogoUrl: true,
-        chatBannerUrl: true,
-        category: true,
-        guideMode: true,
-        defaultCenterLat: true,
-        defaultCenterLng: true,
-        geoBoundary: true,
-        isActive: true,
-      },
-    })
-    return row ? (jsonValue({ ...row, venueId: row.id }) as JsonSnapshot) : null
-  }
-  if (input.entityType === 'PLACE') {
-    const row = await input.db.place.findFirst({
-      where: { id: input.entityId, tenantId: input.tenantId, venueId: input.venueId },
-      select: {
-        id: true,
-        tenantId: true,
-        venueId: true,
-        name: true,
-        type: true,
-        itemType: true,
-        shortDescription: true,
-        longDescription: true,
-        lat: true,
-        lng: true,
-        tags: true,
-        importanceScore: true,
-        areaName: true,
-        hours: true,
-        photoUrl: true,
-        isActive: true,
-        sourceType: true,
-        authorship: true,
-        sourceName: true,
-        sourceUrl: true,
-        importedAt: true,
-        humanConfirmedAt: true,
-        humanConfirmedBy: true,
-        lastReviewedAt: true,
-        lastReviewedBy: true,
-        sourcePackageId: true,
-      },
-    })
-    return row ? (jsonValue(row) as JsonSnapshot) : null
-  }
-  const row = await input.db.venueKnowledgeEntry.findFirst({
-    where: { id: input.entityId, tenantId: input.tenantId, venueId: input.venueId },
-    select: {
-      id: true,
-      tenantId: true,
-      venueId: true,
-      title: true,
-      category: true,
-      content: true,
-      isEnabled: true,
-      sourceType: true,
-      authorship: true,
-      sourceName: true,
-      sourceUrl: true,
-      importedAt: true,
-      humanConfirmedAt: true,
-      humanConfirmedBy: true,
-      lastReviewedAt: true,
-      lastReviewedBy: true,
-      sourcePackageId: true,
-    },
-  })
-  return row ? (jsonValue(row) as JsonSnapshot) : null
-}
-
-type PlannedVersionThreeRollback = {
-  effect: VenuePackageAppliedEntitiesV3['effects'][number]
-  plan: VenuePackageInversePlan
-  provenance: ContentVersionSourceProvenance
-}
-
-async function planVersionThreeRollback(input: {
-  db: DbClient
-  tenantId: string
-  venueId: string
-  packageId: string
-  manifest: VenuePackageAppliedEntitiesV3
-}): Promise<PlannedVersionThreeRollback[]> {
-  const versionIds = new Set<string>()
-  const itemKeys = new Set<string>()
-  const entityKeys = new Set<string>()
-  const plans: PlannedVersionThreeRollback[] = []
-  for (const effect of input.manifest.effects) {
-    const entityKey = `${effect.entityType}:${effect.entityId}`
-    if (
-      versionIds.has(effect.applyVersionId) ||
-      itemKeys.has(effect.itemKey) ||
-      entityKeys.has(entityKey)
-    ) {
-      conflict('Venue package rollback manifest contains duplicate effects')
-    }
-    versionIds.add(effect.applyVersionId)
-    itemKeys.add(effect.itemKey)
-    entityKeys.add(entityKey)
-
-    const applied = await input.db.contentVersion.findFirst({
-      where: {
-        id: effect.applyVersionId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        entityType: effect.entityType,
-        entityId: effect.entityId,
-        operation: effect.operation,
-        venuePackageId: input.packageId,
-        venuePackageItemKey: effect.itemKey,
-        venuePackageAction: 'APPLY',
-      },
-      select: {
-        id: true,
-        sequence: true,
-        beforeState: true,
-        afterState: true,
-        snapshotSchemaVersion: true,
-        sourceProvenance: true,
-      },
-    })
-    if (
-      !applied ||
-      applied.snapshotSchemaVersion !== effect.snapshotSchemaVersion ||
-      !venuePackageSnapshotsEqual(applied.beforeState, effect.beforeState) ||
-      !venuePackageSnapshotsEqual(applied.afterState, effect.afterState)
-    ) {
-      conflict('Venue package rollback manifest does not match immutable history')
-    }
-    const later = await input.db.contentVersion.findMany({
-      where: {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        entityType: effect.entityType,
-        entityId: effect.entityId,
-        sequence: { gt: applied.sequence },
-      },
-      select: {
-        id: true,
-        entityType: true,
-        entityId: true,
-        operation: true,
-        beforeState: true,
-        afterState: true,
-        revertedFromId: true,
-      },
-      orderBy: { sequence: 'asc' },
-    })
-    const laterVersionIds = new Set(later.map((version) => version.id))
-    const externalAncestorIds = [
-      ...new Set(
-        later
-          .map((version) => version.revertedFromId)
-          .filter(
-            (id): id is string =>
-              id != null && id !== effect.applyVersionId && !laterVersionIds.has(id),
-          ),
-      ),
-    ]
-    const verifiedAncestors =
-      externalAncestorIds.length === 0
-        ? []
-        : await input.db.contentVersion.findMany({
-            where: {
-              id: { in: externalAncestorIds },
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-              entityType: effect.entityType,
-              entityId: effect.entityId,
-              sequence: { lt: applied.sequence },
-            },
-            select: { id: true },
-          })
-    const currentState = await currentEntitySnapshot({
-      db: input.db,
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      entityType: effect.entityType,
-      entityId: effect.entityId,
-    })
-    const planned = planVenuePackageRollback({
-      effect,
-      laterVersions: later.map((version) => ({
-        id: version.id,
-        entityType: version.entityType as 'VENUE' | 'PLACE' | 'KNOWLEDGE_ENTRY',
-        entityId: version.entityId,
-        operation: version.operation as 'CREATE' | 'UPDATE' | 'DELETE',
-        beforeState: version.beforeState as JsonSnapshot | null,
-        afterState: version.afterState as JsonSnapshot | null,
-        revertedFromId: version.revertedFromId,
-      })),
-      knownAncestorVersionIds: verifiedAncestors.map((version) => version.id),
-      currentState,
-    })
-    if (!planned.ok) {
-      conflict(`Venue package rollback conflicts with later content: ${planned.message}`)
-    }
-    plans.push({
-      effect,
-      plan: planned.plan,
-      provenance: parseVenuePackageContentVersionProvenance(applied.sourceProvenance, conflict),
-    })
-  }
-  const createdPlaceDeletes = plans
-    .filter((item) => item.effect.entityType === 'PLACE' && item.plan.operation === 'DELETE')
-    .map((item) => item.effect.entityId)
-  if (createdPlaceDeletes.length > 0) {
-    const venue = await assertVenue(input.db, input.tenantId, input.venueId)
-    const dependencies = await placeDeleteDependencies(
-      input.db,
-      input.tenantId,
-      input.venueId,
-      createdPlaceDeletes,
-      venue.aiFeaturedPlaceId,
-    )
-    const blocked = createdPlaceDeletes.find((id) => (dependencies.get(id) ?? []).length > 0)
-    if (blocked) {
-      const blockers = dependencies.get(blocked) ?? []
-      conflict(
-        `Created package place has retained dependencies: ${blockers
-          .map((item) => `${item.type} (${item.count})`)
-          .join(', ')}`,
-      )
-    }
-  }
-  return plans
-}
-
-async function executeVersionThreeRollback(input: {
-  db: DbClient
-  tenantId: string
-  venueId: string
-  packageId: string
-  actorId: string
-  plans: PlannedVersionThreeRollback[]
-}) {
-  for (const item of [...input.plans].reverse()) {
-    await setContentVersionContext(input.db, {
-      actorId: input.actorId,
-      revertedFromId: item.effect.applyVersionId,
-      venuePackage: {
-        venuePackageId: input.packageId,
-        itemKey: item.effect.itemKey,
-        action: 'REVERT',
-        sourceProvenance: item.provenance,
-      },
-    })
-    const scope = { id: item.effect.entityId, tenantId: input.tenantId }
-    let inverseOperation: 'CREATE' | 'UPDATE' | 'DELETE'
-    if (item.plan.operation === 'DELETE') {
-      inverseOperation = 'DELETE'
-      const where = {
-        ...scope,
-        ...(item.effect.entityType === 'VENUE' ? {} : { venueId: input.venueId }),
-        ...venuePackageRollbackCasWhere(item.effect.entityType, item.plan.expectedState),
-      }
-      const removed =
-        item.effect.entityType === 'PLACE'
-          ? await input.db.place.deleteMany({ where })
-          : item.effect.entityType === 'KNOWLEDGE_ENTRY'
-            ? await input.db.venueKnowledgeEntry.deleteMany({ where })
-            : { count: 0 }
-      if (removed.count !== 1) conflict('Created package content changed during rollback')
-    } else if (item.plan.operation === 'CREATE') {
-      inverseOperation = 'CREATE'
-      const state = item.plan.state
-      if (
-        state.id !== item.effect.entityId ||
-        state.tenantId !== input.tenantId ||
-        state.venueId !== input.venueId
-      ) {
-        conflict('Package rollback create snapshot has invalid scope')
-      }
-      const data = {
-        id: item.effect.entityId,
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        ...venuePackageRollbackMutationData(item.effect.entityType, state),
-      }
-      if (item.effect.entityType === 'PLACE') {
-        await input.db.place.create({ data: data as PlaceCreateData })
-      } else if (item.effect.entityType === 'KNOWLEDGE_ENTRY') {
-        await input.db.venueKnowledgeEntry.create({
-          data: data as KnowledgeCreateData,
-        })
-      } else conflict('Venue package rollback cannot recreate a venue')
-    } else {
-      inverseOperation = 'UPDATE'
-      if (item.plan.unsetFields.length > 0 || item.plan.expectedUnsetFields.length > 0) {
-        conflict('Package rollback patch contains unsupported sparse snapshots')
-      }
-      const where = {
-        ...scope,
-        ...(item.effect.entityType === 'VENUE' ? {} : { venueId: input.venueId }),
-        ...venuePackageRollbackCasWhere(item.effect.entityType, item.plan.expectedFields),
-      }
-      const data = venuePackageRollbackMutationData(item.effect.entityType, item.plan.fields)
-      const changed =
-        item.effect.entityType === 'VENUE'
-          ? await input.db.venue.updateMany({ where, data })
-          : item.effect.entityType === 'PLACE'
-            ? await input.db.place.updateMany({ where, data })
-            : await input.db.venueKnowledgeEntry.updateMany({ where, data })
-      if (changed.count !== 1) conflict('Package content changed during rollback')
-    }
-    await readPackageEffectVersion({
-      db: input.db,
-      tenantId: input.tenantId,
-      venueId: input.venueId,
-      packageId: input.packageId,
-      itemKey: item.effect.itemKey,
-      action: 'REVERT',
-      entityType: item.effect.entityType,
-      entityId: item.effect.entityId,
-      operation: inverseOperation,
-    })
-  }
-}
-
-function matchesPlace(
-  current: Awaited<ReturnType<typeof contentState>>['places'][number],
-  expected: VenuePackageAppliedEntitiesV1['places'][number],
-) {
-  return (
-    current.id === expected.id &&
-    current.name === expected.name &&
-    current.type === expected.type &&
-    current.itemType === (expected.itemType ?? null) &&
-    current.shortDescription === (expected.shortDescription ?? null) &&
-    current.longDescription === (expected.longDescription ?? null) &&
-    current.lat === (expected.lat ?? null) &&
-    current.lng === (expected.lng ?? null) &&
-    JSON.stringify(current.tags) === JSON.stringify(expected.tags) &&
-    current.importanceScore === expected.importanceScore &&
-    current.areaName === (expected.areaName ?? null) &&
-    current.hours === (expected.hours ?? null) &&
-    current.photoUrl === (expected.photoUrl ?? null) &&
-    current.isActive
-  )
-}
-
-function matchesKnowledge(
-  current: Awaited<ReturnType<typeof contentState>>['knowledgeEntries'][number],
-  expected: VenuePackageAppliedEntitiesV1['knowledgeEntries'][number],
-) {
-  return (
-    current.id === expected.id &&
-    current.title === expected.title &&
-    current.category === expected.category &&
-    current.content === expected.content &&
-    current.isEnabled === expected.isEnabled
-  )
-}
-
 export const venuePackageRouter = router({
   preview: tenantProcedure
     .use(requireRole('MANAGER'))
@@ -2135,385 +1467,38 @@ export const venuePackageRouter = router({
   approve: tenantProcedure
     .use(requireRole('OWNER'))
     .input(VenuePackageApprovalInput)
-    .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.session.activeTenantId
-      let evidence: ReturnType<typeof parseStoredVenuePackagePreview> | undefined
-      try {
-        return await approveVenuePackageAction(
-          {
-            tenantId,
-            id: input.id,
-            expectedUpdatedAt: input.expectedUpdatedAt,
-            commandKey: input.commandKey,
-            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'OWNER' },
-            load: (tx, scope) => findPackage(tx as DbClient, scope.tenantId, scope.id),
-            auditState,
-            validate: async (tx, existing) => {
-              const payload = parsePayload(existing.payload, existing.schemaVersion)
-              const deterministic = await buildVenuePackagePreview(
-                tx as DbClient,
-                tenantId,
-                existing.venueId,
-                payload,
-              )
-              evidence = parseStoredVenuePackagePreview(existing)
-              assertStoredVenuePackageEvidenceCurrent({ stored: evidence, deterministic })
-              if (
-                evidence.report.errors.length > 0 ||
-                evidence.report.semanticDuplicateScan.status !== 'COMPLETE'
-              ) {
-                throw new TRPCError({
-                  code: 'PRECONDITION_FAILED',
-                  message:
-                    'This draft does not contain a complete semantic scan; save a new draft.',
-                })
-              }
-              if (evidence.payloadHash !== input.acknowledgedPayloadHash) {
-                throw new TRPCError({
-                  code: 'BAD_REQUEST',
-                  message:
-                    'The acknowledged venue-package payload does not match this immutable draft',
-                })
-              }
-              if (evidence.warningDigest !== input.acknowledgedWarningDigest) {
-                throw new TRPCError({
-                  code: 'BAD_REQUEST',
-                  message:
-                    'Review and acknowledge the current venue-package warnings before approval',
-                })
-              }
-            },
-            execute: async () => {
-              if (!evidence) conflict('Venue-package approval evidence was not retained')
-              return {
-                approvalWarningDigest: evidence.warningDigest,
-                approvedWarningCodes: jsonValue(
-                  canonicalVenuePackageWarningCodes(evidence.report.warnings),
-                ),
-              }
-            },
-          },
-          ctx.db,
-        )
-      } catch (error) {
-        mapLifecycleError(error)
-      }
-    }),
+    .mutation(({ ctx, input }) =>
+      approveVenuePackageLifecycle({
+        db: ctx.db,
+        tenantId: ctx.session.activeTenantId,
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'OWNER' },
+        command: input,
+      }),
+    ),
 
   applyPackage: tenantProcedure
     .use(requireRole('OWNER'))
     .use(withContentVersionActor)
     .input(VenuePackageLifecycleInput)
-    .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.session.activeTenantId
-      let existing = await findPackage(ctx.db, tenantId, input.id)
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: existing.venueId })
-      existing = await findPackage(ctx.db, tenantId, input.id)
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
-      if (existing.status !== 'APPROVED') {
-        if (existing.appliedCommandKey === input.commandKey) return existing
-        conflict('Only an approved venue package can be applied')
-      }
-      const payload = parsePayload(existing.payload, existing.schemaVersion)
-      const deterministic = await buildVenuePackagePreview(
-        ctx.db,
-        tenantId,
-        existing.venueId,
-        payload,
-      )
-      const stored = parseStoredVenuePackagePreview(existing)
-      assertStoredVenuePackageEvidenceCurrent({ stored, deterministic })
-      if (
-        stored.report.errors.length > 0 ||
-        stored.report.semanticDuplicateScan.status !== 'COMPLETE'
-      ) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This package does not contain a complete semantic scan.',
-        })
-      }
-
-      try {
-        if (payload.schemaVersion === 3) {
-          if (!existing.approvedAt || !existing.approvedBy) {
-            conflict('Approved venue package is missing reviewer evidence')
-          }
-          const effects = await applyVersionThreePackage({
-            db: ctx.db,
-            tenantId,
-            actorId: ctx.session.userId,
-            packageId: existing.id,
-            venueId: existing.venueId,
-            approvedAt: existing.approvedAt,
-            approvedBy: existing.approvedBy,
-            payload,
-          })
-          const postApplyDigest = await packageStateDigest(
-            ctx.db,
-            tenantId,
-            existing.venueId,
-            payload.schemaVersion,
-          )
-          const appliedEntities = VenuePackageAppliedEntitiesV3.parse({
-            schemaVersion: 3,
-            rollbackContractVersion: 2,
-            postApplyDigest,
-            effects,
-          })
-          return finalizePackageApply({
-            db: ctx.db,
-            tenantId,
-            id: input.id,
-            expectedUpdatedAt: input.expectedUpdatedAt,
-            commandKey: input.commandKey,
-            actorId: ctx.session.userId,
-            appliedEntities,
-          })
-        }
-        let appliedVenue: VenuePackageAppliedEntitiesV2['venue'] = null
-        if (payload.schemaVersion === 2) {
-          const before = venueSnapshot(await assertVenue(ctx.db, tenantId, existing.venueId))
-          const venueData = changedVenuePatchData(payload, before)
-          if (Object.keys(venueData).length > 0) {
-            const changedVenue = await ctx.db.venue.updateMany({
-              where: { id: existing.venueId, tenantId },
-              data: venueData,
-            })
-            if (changedVenue.count !== 1) conflict('Venue changed during package application')
-            const after = venueSnapshot(await assertVenue(ctx.db, tenantId, existing.venueId))
-            appliedVenue = { before, after }
-          }
-        }
-        const places =
-          payload.places.length === 0
-            ? []
-            : await ctx.db.place.createManyAndReturn({
-                data: payload.places.map((place) => ({
-                  tenantId,
-                  venueId: existing.venueId,
-                  name: place.name,
-                  type: place.type,
-                  ...(place.itemType !== undefined ? { itemType: place.itemType } : {}),
-                  ...(place.shortDescription !== undefined
-                    ? { shortDescription: place.shortDescription }
-                    : {}),
-                  ...(place.longDescription !== undefined
-                    ? { longDescription: place.longDescription }
-                    : {}),
-                  ...(place.lat !== undefined ? { lat: place.lat } : {}),
-                  ...(place.lng !== undefined ? { lng: place.lng } : {}),
-                  tags: place.tags,
-                  importanceScore: place.importanceScore,
-                  ...(place.areaName !== undefined ? { areaName: place.areaName } : {}),
-                  ...(place.hours !== undefined ? { hours: place.hours } : {}),
-                  ...(place.photoUrl !== undefined ? { photoUrl: place.photoUrl } : {}),
-                })),
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
-                  itemType: true,
-                  shortDescription: true,
-                  longDescription: true,
-                  lat: true,
-                  lng: true,
-                  tags: true,
-                  importanceScore: true,
-                  areaName: true,
-                  hours: true,
-                  photoUrl: true,
-                },
-              })
-        const knowledgeEntries =
-          payload.knowledgeEntries.length === 0
-            ? []
-            : await ctx.db.venueKnowledgeEntry.createManyAndReturn({
-                data: payload.knowledgeEntries.map((entry) => ({
-                  tenantId,
-                  venueId: existing.venueId,
-                  title: entry.title,
-                  category: entry.category,
-                  content: entry.content,
-                  isEnabled: entry.isEnabled,
-                })),
-                select: { id: true, title: true, category: true, content: true, isEnabled: true },
-              })
-        const postApplyDigest = await packageStateDigest(
-          ctx.db,
-          tenantId,
-          existing.venueId,
-          payload.schemaVersion,
-        )
-        const appliedEntities =
-          payload.schemaVersion === 1
-            ? VenuePackageAppliedEntitiesV1.parse({
-                postApplyDigest,
-                places,
-                knowledgeEntries,
-              })
-            : VenuePackageAppliedEntitiesV2.parse({
-                schemaVersion: 2,
-                postApplyDigest,
-                venue: appliedVenue,
-                places,
-                knowledgeEntries,
-              })
-        return finalizePackageApply({
-          db: ctx.db,
-          tenantId,
-          id: input.id,
-          expectedUpdatedAt: input.expectedUpdatedAt,
-          commandKey: input.commandKey,
-          actorId: ctx.session.userId,
-          appliedEntities,
-        })
-      } catch (error) {
-        if (
-          error instanceof TRPCError ||
-          (typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            (error.code === 'P2002' || error.code === 'P2003'))
-        ) {
-          if (error instanceof TRPCError) throw error
-          if (error.code === 'P2003') {
-            conflict('Package deletion acquired a retained dependency; refresh and review it again')
-          }
-          conflict('Venue-package command key was already used')
-        }
-        throw error
-      }
-    }),
+    .mutation(({ ctx, input }) =>
+      applyVenuePackageLifecycle({
+        db: ctx.db,
+        tenantId: ctx.session.activeTenantId,
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'OWNER' },
+        command: input,
+      }),
+    ),
 
   revertPackage: tenantProcedure
     .use(requireRole('OWNER'))
     .use(withContentVersionActor)
     .input(VenuePackageLifecycleInput)
-    .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.session.activeTenantId
-      let existing = await findPackage(ctx.db, tenantId, input.id)
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: existing.venueId })
-      existing = await findPackage(ctx.db, tenantId, input.id)
-      if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
-      if (existing.status !== 'APPLIED') {
-        if (existing.revertedCommandKey === input.commandKey) return existing
-        conflict('Only an applied venue package can be reverted')
-      }
-      const manifestResult = VenuePackageAppliedEntities.safeParse(existing.appliedEntities)
-      if (!manifestResult.success) conflict('Venue package rollback manifest is invalid')
-      const manifest = manifestResult.data
-      const payload = parsePayload(existing.payload, existing.schemaVersion)
-      if (payload.schemaVersion === 3) {
-        if (!('rollbackContractVersion' in manifest) || manifest.schemaVersion !== 3) {
-          conflict('Venue package rollback manifest version is inconsistent')
-        }
-        const plans = await planVersionThreeRollback({
-          db: ctx.db,
-          tenantId,
-          venueId: existing.venueId,
-          packageId: existing.id,
-          manifest,
-        })
-        try {
-          await executeVersionThreeRollback({
-            db: ctx.db,
-            tenantId,
-            venueId: existing.venueId,
-            packageId: existing.id,
-            actorId: ctx.session.userId,
-            plans,
-          })
-        } catch (error) {
-          if (
-            typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            error.code === 'P2003'
-          ) {
-            conflict('Package rollback acquired a retained dependency; refresh and review it again')
-          }
-          throw error
-        }
-        return finalizePackageRevert({
-          db: ctx.db,
-          tenantId,
-          id: input.id,
-          expectedUpdatedAt: input.expectedUpdatedAt,
-          commandKey: input.commandKey,
-          actorId: ctx.session.userId,
-        })
-      }
-      if ('rollbackContractVersion' in manifest) {
-        conflict('Venue package rollback manifest version is inconsistent')
-      }
-      const current = await contentState(ctx.db, tenantId, existing.venueId)
-      if (
-        (payload.schemaVersion === 1 && 'schemaVersion' in manifest) ||
-        (payload.schemaVersion === 2 && !('schemaVersion' in manifest))
-      ) {
-        conflict('Venue package rollback manifest version is inconsistent')
-      }
-      if (
-        (await packageStateDigest(ctx.db, tenantId, existing.venueId, payload.schemaVersion)) !==
-        manifest.postApplyDigest
-      ) {
-        conflict('Venue content changed after apply; automatic package rollback is unsafe')
-      }
-
-      const currentPlaces = new Map(current.places.map((place) => [place.id, place]))
-      const currentKnowledge = new Map(current.knowledgeEntries.map((entry) => [entry.id, entry]))
-      if (
-        manifest.places.some((place) => {
-          const row = currentPlaces.get(place.id)
-          return !row || !matchesPlace(row, place)
-        }) ||
-        manifest.knowledgeEntries.some((entry) => {
-          const row = currentKnowledge.get(entry.id)
-          return !row || !matchesKnowledge(row, entry)
-        })
-      ) {
-        conflict('Applied package content changed; automatic rollback is unsafe')
-      }
-
-      const removedKnowledge = await ctx.db.venueKnowledgeEntry.deleteMany({
-        where: {
-          tenantId,
-          venueId: existing.venueId,
-          id: { in: manifest.knowledgeEntries.map((entry) => entry.id) },
-        },
-      })
-      if (removedKnowledge.count !== manifest.knowledgeEntries.length) conflict()
-      const removedPlaces = await ctx.db.place.deleteMany({
-        where: {
-          tenantId,
-          venueId: existing.venueId,
-          id: { in: manifest.places.map((place) => place.id) },
-        },
-      })
-      if (removedPlaces.count !== manifest.places.length) conflict()
-      if ('schemaVersion' in manifest && manifest.venue) {
-        const restoredVenue = await ctx.db.venue.updateMany({
-          where: { id: existing.venueId, tenantId },
-          data: venueRestoreData(manifest.venue.before),
-        })
-        if (restoredVenue.count !== 1) conflict('Venue changed during package rollback')
-      }
-      if (
-        (await packageStateDigest(ctx.db, tenantId, existing.venueId, payload.schemaVersion)) !==
-        existing.baseDigest
-      ) {
-        conflict('Venue package rollback did not restore the approved base state')
-      }
-
-      return finalizePackageRevert({
+    .mutation(({ ctx, input }) =>
+      revertVenuePackageLifecycle({
         db: ctx.db,
-        tenantId,
-        id: input.id,
-        expectedUpdatedAt: input.expectedUpdatedAt,
-        commandKey: input.commandKey,
-        actorId: ctx.session.userId,
-      })
-    }),
+        tenantId: ctx.session.activeTenantId,
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'OWNER' },
+        command: input,
+      }),
+    ),
 })

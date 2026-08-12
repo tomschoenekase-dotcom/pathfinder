@@ -95,10 +95,13 @@ evidence in the same transaction. Venue restoration/deletion remains HUMAN `OWNE
 snapshot compatibility parsing isolated from orchestration, and never accept unknown snapshot
 fields or bypass trigger-backed history when adding a schema version.
 
-VenuePackage lifecycle transition authority is neutral and shared: HUMAN `OWNER`, exact
-tenant/venue/package, venue lock, command replay/collision, CAS, content-version context, and strict
-audit. The compatibility router still owns V1/V2/V3 effect orchestration inside the same outer
-transaction; do not split effects from final transition or replace legacy rollback with V3 rules.
+VenuePackage lifecycle transition authority is neutral and shared. Tenant adapters require a HUMAN
+`OWNER`; exact-scoped Internal Workspace adapters require a HUMAN `PLATFORM_ADMIN` and retain that
+truthful audit role. Both call the same stateless core with exact tenant/venue/package scope, venue
+locking, actor-bound command replay/collision, revision CAS, content-version context and strict
+transactional audit. Approval binds the acknowledged payload and warning digests; apply and revert
+retain the V1/V2/V3 effect and rollback rules inside the same outer transaction. Never impersonate a
+tenant owner, split effects from final transition, or replace legacy rollback with V3 rules.
 Weekly-report configuration/edit/publish actions are similarly neutral, but generation dispatch is
 an orchestration concern and must reject an inverted range before any transaction. Client creation
 uses a durable pre-provider intent: commit `PROVIDER_STARTED` before Clerk I/O, block ambiguous retry,

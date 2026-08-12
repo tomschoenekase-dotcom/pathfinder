@@ -17,8 +17,11 @@ function record(status: string): {
   status: string
   updatedAt: Date
   approvedCommandKey: string | null
+  approvedBy: string | null
   appliedCommandKey: string | null
+  appliedBy: string | null
   revertedCommandKey: string | null
+  revertedBy: string | null
 } {
   return {
     id: 'package-1',
@@ -27,8 +30,11 @@ function record(status: string): {
     status,
     updatedAt: revision,
     approvedCommandKey: null,
+    approvedBy: null,
     appliedCommandKey: null,
+    appliedBy: null,
     revertedCommandKey: null,
+    revertedBy: null,
   }
 }
 
@@ -95,7 +101,11 @@ describe('venue package lifecycle actions', () => {
   )
 
   it('replays only the matching command key without effects, transition, or duplicate audit', async () => {
-    const replay = { ...record('APPROVED'), approvedCommandKey: 'command-1' }
+    const replay = {
+      ...record('APPROVED'),
+      approvedCommandKey: 'command-1',
+      approvedBy: actor.id,
+    }
     const { tx, load, client } = fixture([replay, replay])
     const execute = vi.fn(async () => ({}))
     await expect(
@@ -117,6 +127,58 @@ describe('venue package lifecycle actions', () => {
     expect(execute).not.toHaveBeenCalled()
     expect(tx.venuePackage.updateMany).not.toHaveBeenCalled()
     expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a matching command key owned by another actor', async () => {
+    const replay = {
+      ...record('APPROVED'),
+      approvedCommandKey: 'command-1',
+      approvedBy: 'owner-2',
+    }
+    const { tx, load, client } = fixture([replay, replay])
+    await expect(
+      approveVenuePackageAction(
+        {
+          tenantId: 'tenant-1',
+          id: 'package-1',
+          expectedUpdatedAt: revision,
+          commandKey: 'command-1',
+          actor,
+          load,
+          validate,
+          auditState,
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' } satisfies Partial<VenuePackageLifecycleError>)
+    expect(tx.venuePackage.updateMany).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
+  it('permits an explicit HUMAN platform administrator and audits that exact role', async () => {
+    const before = record('DRAFT')
+    const after = {
+      ...record('APPROVED'),
+      approvedBy: 'operator-1',
+      updatedAt: new Date(revision.getTime() + 1),
+    }
+    const { tx, load, client } = fixture([before, before, after])
+    await approveVenuePackageAction(
+      {
+        tenantId: 'tenant-1',
+        id: 'package-1',
+        expectedUpdatedAt: revision,
+        commandKey: 'command-1',
+        actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
+        load,
+        validate,
+        auditState,
+      },
+      client as never,
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ actorRole: 'PLATFORM_ADMIN' }) }),
+    )
   })
 
   it('fails closed for cross-tenant records before lock or validation', async () => {
@@ -238,4 +300,45 @@ describe('venue package lifecycle actions', () => {
       expect(tx.auditLog.create).not.toHaveBeenCalled()
     },
   )
+
+  it('converges a P2002 to an exact actor-bound replay on a fresh transaction', async () => {
+    const before = record('DRAFT')
+    const replay = {
+      ...record('APPROVED'),
+      approvedCommandKey: 'command-1',
+      approvedBy: actor.id,
+    }
+    const first = fixture([before, before])
+    first.tx.venuePackage.updateMany.mockRejectedValueOnce({ code: 'P2002' })
+    const secondTx = fixture([replay]).tx
+    const client = {
+      $transaction: vi
+        .fn()
+        .mockImplementationOnce(async (callback) => callback(first.tx))
+        .mockImplementationOnce(async (callback) => callback(secondTx)),
+    }
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(replay)
+    await expect(
+      approveVenuePackageAction(
+        {
+          tenantId: 'tenant-1',
+          id: 'package-1',
+          expectedUpdatedAt: revision,
+          commandKey: 'command-1',
+          actor,
+          load,
+          validate,
+          auditState,
+        },
+        client as never,
+      ),
+    ).resolves.toEqual(replay)
+    expect(client.$transaction).toHaveBeenCalledTimes(2)
+    expect(first.tx.auditLog.create).not.toHaveBeenCalled()
+    expect(secondTx.auditLog.create).not.toHaveBeenCalled()
+  })
 })

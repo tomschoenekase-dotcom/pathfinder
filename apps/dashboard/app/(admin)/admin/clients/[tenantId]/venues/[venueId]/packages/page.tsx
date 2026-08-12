@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 import { ReviewedVenuePackageDraftForm } from '../../../../../../../../components/admin/ReviewedVenuePackageDraftForm'
+import { VenuePackageLifecycleControls } from '../../../../../../../../components/admin/VenuePackageLifecycleControls'
 
 type PackageOperationsPageProps = {
   params: Promise<{ tenantId: string; venueId: string }>
@@ -45,8 +46,8 @@ export default async function PackageOperationsPage({
           Review immutable deployment drafts
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Inspect exact stored evidence or create a reviewed DRAFT. Approval, apply, revert, and
-          support handoff remain in their separately authorized workflows.
+          Inspect exact stored evidence, create a reviewed DRAFT, and run separately authorized
+          approval, apply, or revert actions against the selected immutable revision.
         </p>
       </header>
 
@@ -169,6 +170,11 @@ export default async function PackageOperationsPage({
                   {selected.validationReport.semanticDuplicateScan.status.toLowerCase()}
                 </p>
               </div>
+              <VenuePackageLifecycleControls
+                tenantId={tenantId}
+                venueId={venueId}
+                initialPackage={selected}
+              />
             </>
           )}
         </section>

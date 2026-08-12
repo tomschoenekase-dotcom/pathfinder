@@ -3,7 +3,11 @@ import { writeAuditLogStrict } from './audit'
 import { setContentVersionContext } from './content-version-context'
 import { lockVenueContentMutation } from './venue-content-lock'
 
-export type VenuePackageOwnerActor = { type: 'HUMAN'; id: string; role: 'OWNER' }
+export type VenuePackageLifecycleActor = {
+  type: 'HUMAN'
+  id: string
+  role: 'OWNER' | 'PLATFORM_ADMIN'
+}
 export type VenuePackageLifecycleClient = Pick<typeof db, '$transaction'>
 export type VenuePackageLifecycleStatus = 'DRAFT' | 'APPROVED' | 'APPLIED' | 'REVERTED'
 
@@ -24,8 +28,11 @@ export type VenuePackageLifecycleRecord = {
   status: string
   updatedAt: Date
   approvedCommandKey: string | null
+  approvedBy: string | null
   appliedCommandKey: string | null
+  appliedBy: string | null
   revertedCommandKey: string | null
+  revertedBy: string | null
 }
 
 type Transaction = typeof db
@@ -37,7 +44,7 @@ type LifecycleSpec<T extends VenuePackageLifecycleRecord> = {
   id: string
   expectedUpdatedAt: Date
   commandKey: string
-  actor: VenuePackageOwnerActor
+  actor: VenuePackageLifecycleActor
   load: (tx: Transaction, scope: { tenantId: string; id: string }) => Promise<T | null>
   validate: (tx: Transaction, current: T) => Promise<void>
   execute?: (tx: Transaction, current: T) => Promise<Record<string, unknown>>
@@ -74,9 +81,16 @@ const lifecycle = {
   },
 } as const
 
-function requireOwner(actor: VenuePackageOwnerActor): void {
-  if (actor.type !== 'HUMAN' || actor.role !== 'OWNER' || !actor.id) {
-    throw new VenuePackageLifecycleError('INVALID_INPUT', 'A human venue owner is required')
+function requireLifecycleActor(actor: VenuePackageLifecycleActor): void {
+  if (
+    actor.type !== 'HUMAN' ||
+    (actor.role !== 'OWNER' && actor.role !== 'PLATFORM_ADMIN') ||
+    !actor.id.trim()
+  ) {
+    throw new VenuePackageLifecycleError(
+      'INVALID_INPUT',
+      'A human venue owner or platform administrator is required',
+    )
   }
 }
 
@@ -97,8 +111,12 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
   input: LifecycleSpec<T>,
   client: VenuePackageLifecycleClient,
 ): Promise<T> {
-  requireOwner(input.actor)
+  requireLifecycleActor(input.actor)
   const rule = lifecycle[input.kind]
+  const isExactReplay = (current: T) =>
+    current.status === rule.to &&
+    current[rule.commandField] === input.commandKey &&
+    current[rule.actorField] === input.actor.id
   const operation = async (rawTx: unknown) => {
     const tx = rawTx as unknown as Transaction
     await setContentVersionContext(tx, { actorId: input.actor.id })
@@ -119,36 +137,28 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
       throw new VenuePackageLifecycleError('NOT_FOUND', 'Venue package not found')
     }
     if (current.status !== rule.from) {
-      if (current[rule.commandField] === input.commandKey) return current
+      if (isExactReplay(current)) return current
       conflict(rule.invalid)
     }
     await input.validate(tx, current)
     const effects = input.execute ? await input.execute(tx, current) : {}
     const now = new Date()
-    let changed: { count: number }
-    try {
-      changed = await tx.venuePackage.updateMany({
-        where: {
-          id: input.id,
-          tenantId: input.tenantId,
-          venueId,
-          status: rule.from,
-          updatedAt: input.expectedUpdatedAt,
-        },
-        data: {
-          ...effects,
-          status: rule.to,
-          [rule.actorField]: input.actor.id,
-          [rule.atField]: now,
-          [rule.commandField]: input.commandKey,
-        },
-      })
-    } catch (error) {
-      if (isUniqueConstraintError(error)) {
-        conflict('Venue-package command key was already used')
-      }
-      throw error
-    }
+    const changed = await tx.venuePackage.updateMany({
+      where: {
+        id: input.id,
+        tenantId: input.tenantId,
+        venueId,
+        status: rule.from,
+        updatedAt: input.expectedUpdatedAt,
+      },
+      data: {
+        ...effects,
+        status: rule.to,
+        [rule.actorField]: input.actor.id,
+        [rule.atField]: now,
+        [rule.commandField]: input.commandKey,
+      },
+    })
     if (changed.count !== 1) conflict()
     const saved = await input.load(tx, { tenantId: input.tenantId, id: input.id })
     if (
@@ -177,9 +187,20 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
   const candidate = client as VenuePackageLifecycleClient & {
     $transaction?: (callback: (tx: unknown) => Promise<T>) => Promise<T>
   }
-  return typeof candidate.$transaction === 'function'
-    ? candidate.$transaction(operation)
-    : operation(client as unknown as Transaction)
+  if (typeof candidate.$transaction !== 'function') {
+    return operation(client as unknown as Transaction)
+  }
+  try {
+    return await candidate.$transaction(operation)
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error
+    return candidate.$transaction(async (rawTx) => {
+      const tx = rawTx as unknown as Transaction
+      const current = await input.load(tx, { tenantId: input.tenantId, id: input.id })
+      if (current && isExactReplay(current)) return current
+      conflict('Venue-package command key was already used')
+    })
+  }
 }
 
 type PublicSpec<T extends VenuePackageLifecycleRecord> = Omit<LifecycleSpec<T>, 'kind'>
