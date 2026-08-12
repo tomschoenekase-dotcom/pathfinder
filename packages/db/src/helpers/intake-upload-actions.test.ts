@@ -2,10 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   claimIntakeUploadVerificationAction,
-  finalizeVerifiedIntakeUploadAction,
+  recordIntakeUploadPrecheckAction,
   IntakeUploadActionError,
   intakeUploadRequestHash,
   releaseIntakeUploadVerificationAction,
+  renewIntakeUploadVerificationLeaseAction,
   reserveIntakeUploadAction,
 } from './intake-upload-actions'
 
@@ -187,6 +188,31 @@ describe('quarantined intake upload actions', () => {
     )
   })
 
+  it('renews only the exact live verification claim with CAS', async () => {
+    const current = upload({
+      status: 'VERIFYING',
+      verificationClaimId: claimId,
+      verificationLeaseUntil: new Date(Date.now() + 60_000),
+    })
+    const tx = {
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(current),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    }
+    await renewIntakeUploadVerificationLeaseAction({
+      ...scope,
+      actor,
+      claimId,
+      client: transactionClient(tx) as never,
+    })
+    expect(tx.intakeUpload.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: 'VERIFYING', verificationClaimId: claimId }),
+      }),
+    )
+  })
+
   it('does not create a run when verified transport differs from the reservation', async () => {
     const tx = {
       intakeUpload: {
@@ -201,7 +227,7 @@ describe('quarantined intake upload actions', () => {
       intakeRun: { create: vi.fn() },
     }
     await expect(
-      finalizeVerifiedIntakeUploadAction({
+      recordIntakeUploadPrecheckAction({
         ...scope,
         actor,
         claimId,
@@ -212,13 +238,20 @@ describe('quarantined intake upload actions', () => {
           byteSize: 42,
           sha256: 'c'.repeat(64),
         },
+        evidence: {
+          engine: 'pathfinder-magic-bytes',
+          engineVersion: '1',
+          verdictHash: 'd'.repeat(64),
+          computedByteSize: 42,
+          computedSha256: 'c'.repeat(64),
+        },
         client: transactionClient(tx) as never,
       }),
     ).rejects.toBeInstanceOf(IntakeUploadActionError)
     expect(tx.intakeRun.create).not.toHaveBeenCalled()
   })
 
-  it('creates only a review proposal/evidence/events after exact verification and uses CAS', async () => {
+  it('records only immutable local precheck evidence and remains quarantined without a scanner', async () => {
     const current = upload({
       status: 'VERIFYING',
       verificationClaimId: claimId,
@@ -229,19 +262,10 @@ describe('quarantined intake upload actions', () => {
         findFirst: vi.fn().mockResolvedValue(current),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      intakeRun: {
-        create: vi.fn().mockResolvedValue({
-          id: 'run-1',
-          status: 'AWAITING_REVIEW',
-          sourceKind: 'FILE_UPLOAD',
-          createdAt: new Date(),
-        }),
-      },
-      intakeEvidenceRecord: { create: vi.fn() },
-      intakeRunEvent: { create: vi.fn() },
+      intakeUploadVerificationReceipt: { create: vi.fn() },
       auditLog: { create: vi.fn() },
     }
-    const result = await finalizeVerifiedIntakeUploadAction({
+    const result = await recordIntakeUploadPrecheckAction({
       ...scope,
       actor,
       claimId,
@@ -252,11 +276,18 @@ describe('quarantined intake upload actions', () => {
         byteSize: 42,
         sha256: request.sha256,
       },
+      evidence: {
+        engine: 'pathfinder-magic-bytes',
+        engineVersion: '1',
+        verdictHash: 'd'.repeat(64),
+        computedByteSize: 42,
+        computedSha256: request.sha256,
+      },
       client: transactionClient(tx) as never,
     })
-    expect(tx.intakeRun.create).toHaveBeenCalledWith(
+    expect(tx.intakeUploadVerificationReceipt.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ sourceKind: 'FILE_UPLOAD', status: 'AWAITING_REVIEW' }),
+        data: expect.objectContaining({ kind: 'PRECHECK', verdict: 'PASSED', claimId }),
       }),
     )
     expect(tx.intakeUpload.updateMany).toHaveBeenCalledWith(
@@ -269,19 +300,54 @@ describe('quarantined intake upload actions', () => {
         }),
       }),
     )
-    expect(result).toMatchObject({
-      nextAction: 'PATHFINDER_REVIEW',
-      autoApprove: false,
-      autoApply: false,
-      published: false,
-    })
-    expect(tx.intakeRunEvent.create).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          metadata: expect.objectContaining({ formatVerified: false, malwareScanned: false }),
-        }),
-      }),
+    expect(result).toMatchObject({ nextAction: 'MALWARE_SCAN_PENDING' })
+    expect(tx.intakeUpload.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PRECHECK_PASSED' }) }),
     )
+  })
+
+  it('converges a concurrent same-claim precheck receipt from a fresh read', async () => {
+    const evidence = {
+      engine: 'pathfinder-magic-bytes',
+      engineVersion: '1',
+      verdictHash: 'd'.repeat(64),
+      computedByteSize: 42,
+      computedSha256: request.sha256,
+    }
+    const client = {
+      $transaction: vi.fn().mockRejectedValue({ code: 'P2002' }),
+      intakeUpload: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue(upload({ status: 'PRECHECK_PASSED', storageVersionId: 'version-1' })),
+      },
+      intakeUploadVerificationReceipt: {
+        findFirst: vi.fn().mockResolvedValue({
+          claimId,
+          verdictHash: evidence.verdictHash,
+          storageVersionId: 'version-1',
+          computedByteSize: 42,
+          computedSha256: request.sha256,
+        }),
+      },
+      venue: { findFirst: vi.fn() },
+    }
+    await expect(
+      recordIntakeUploadPrecheckAction({
+        ...scope,
+        actor,
+        claimId,
+        verified: {
+          objectGeneration: objectIdentity.objectGeneration,
+          storageVersionId: 'version-1',
+          mimeType: request.mimeType,
+          byteSize: 42,
+          sha256: request.sha256,
+        },
+        evidence,
+        client: client as never,
+      }),
+    ).resolves.toMatchObject({ replayed: true, nextAction: 'MALWARE_SCAN_PENDING' })
   })
 
   it('recovers an expired claim with exact CAS and omits claim identity from audit', async () => {

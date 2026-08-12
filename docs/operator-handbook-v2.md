@@ -376,11 +376,18 @@ this foundation, even when rotation or revocation audit records are visible.
 ## Quarantined intake files
 
 The client intake page may show private document/image submissions. `AWAITING REVIEW` confirms only
-the exact private upload transport identity. It does not confirm that the file was parsed,
-malware-scanned, safe to open, approved, applied, or published. The operator view deliberately has
-no preview or download control.
+that a legacy or future fully gated row reached review; it is not itself a claim that an operator may
+open the file. New local submissions stop after an exact-version bounded precheck at
+`PRECHECK_PASSED`, then show that the security check is still in progress. The precheck is neither complete
+format validation nor malware clearance. The repository has no configured authoritative
+resource-safety or malware engine, so local work cannot create a file-backed intake run, reach
+`AWAITING REVIEW`, or make the file available as a Support attachment. The operator view
+deliberately has no preview or download control and does not expose engine names, versions, hashes,
+storage identities, or raw scanner output.
 
 If verification is temporarily unavailable, retry the unchanged file/claim. If the row is rejected,
 ask the client to select the file again with a new request. Do not obtain the private object key or
 open storage directly. Escalate any request to preview, download, retain, or delete raw bytes until
-the owner approves the required privacy, retention, malware, and access policy.
+the owner approves the required privacy, retention, malware, resource-safety, and access policy.
+Migration `20260812001200_add_intake_upload_verification_receipts` remains unapplied and does not
+backfill legacy safety evidence; local checks are not live operational proof.

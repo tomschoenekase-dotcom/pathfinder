@@ -4,12 +4,16 @@ const mocks = vi.hoisted(() => ({
   reserve: vi.fn(),
   claim: vi.fn(),
   release: vi.fn(),
+  renew: vi.fn(),
   reject: vi.fn(),
   finalize: vi.fn(),
+  rejectPrecheck: vi.fn(),
   list: vi.fn(),
   sign: vi.fn(),
   inspect: vi.fn(),
   remove: vi.fn(),
+  read: vi.fn(),
+  verifyBytes: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -17,8 +21,10 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   reserveIntakeUploadAction: mocks.reserve,
   claimIntakeUploadVerificationAction: mocks.claim,
   releaseIntakeUploadVerificationAction: mocks.release,
+  renewIntakeUploadVerificationLeaseAction: mocks.renew,
   rejectIntakeUploadAction: mocks.reject,
-  finalizeVerifiedIntakeUploadAction: mocks.finalize,
+  recordIntakeUploadPrecheckAction: mocks.finalize,
+  recordRejectedIntakeUploadPrecheckAction: mocks.rejectPrecheck,
   listIntakeUploadsAction: mocks.list,
 }))
 
@@ -27,11 +33,18 @@ vi.mock('../lib/intake-upload-storage', async (importOriginal) => ({
   signIntakeUploadPut: mocks.sign,
   inspectIntakeUpload: mocks.inspect,
   deleteInvalidIntakeUploadVersion: mocks.remove,
+  readIntakeUploadVersion: mocks.read,
   createIntakeUploadObjectKey: () =>
     'staging/intake-quarantine/44444444-4444-4444-8444-444444444444',
 }))
 
+vi.mock('../lib/intake-upload-byte-verifier', () => ({
+  verifyIntakeUploadBytes: mocks.verifyBytes,
+  configuredIntakeUploadMalwareScanner: () => null,
+}))
+
 import type { TRPCContext } from '../context'
+import { IntakeUploadActionError } from '@pathfinder/db'
 import { router } from '../core'
 import { intakeUploadRouter } from './intake-upload'
 
@@ -104,7 +117,12 @@ describe('client-safe quarantined intake upload', () => {
       uploadTarget,
       retryable: true,
     })
+    mocks.renew.mockResolvedValue({ leaseUntil: new Date(Date.now() + 600_000) })
     mocks.reject.mockResolvedValue({ upload: { ...upload, status: 'REJECTED' }, retryable: false })
+    mocks.rejectPrecheck.mockResolvedValue({
+      upload: { ...upload, status: 'REJECTED' },
+      retryable: false,
+    })
     mocks.finalize.mockResolvedValue({
       upload: { ...upload, status: 'AWAITING_REVIEW', intakeRunId: 'run-1' },
       nextAction: 'PATHFINDER_REVIEW',
@@ -119,6 +137,20 @@ describe('client-safe quarantined intake upload', () => {
       requiredHeaders: { 'if-none-match': '*' },
     })
     mocks.inspect.mockResolvedValue({ state: 'verified', versionId: 'version-1' })
+    mocks.read.mockResolvedValue(
+      (async function* () {
+        yield new Uint8Array([1])
+      })(),
+    )
+    mocks.verifyBytes.mockResolvedValue({
+      passed: true,
+      reason: 'PASSED',
+      engine: 'pathfinder-magic-bytes',
+      engineVersion: '1',
+      verdictHash: 'd'.repeat(64),
+      computedByteSize: uploadTarget.byteSize,
+      computedSha256: uploadTarget.sha256,
+    })
   })
 
   it('authenticates before reservation or storage access', async () => {
@@ -191,11 +223,8 @@ describe('client-safe quarantined intake upload', () => {
     mocks.finalize.mockImplementation(async () => {
       order.push('finalize')
       return {
-        upload: { ...upload, status: 'AWAITING_REVIEW' },
-        nextAction: 'PATHFINDER_REVIEW',
-        autoApprove: false,
-        autoApply: false,
-        published: false,
+        upload: { ...upload, status: 'PRECHECK_PASSED' },
+        nextAction: 'MALWARE_SCAN_PENDING',
       }
     })
     const result = await caller
@@ -208,6 +237,7 @@ describe('client-safe quarantined intake upload', () => {
       contentType: uploadTarget.mimeType,
       bytes: uploadTarget.byteSize,
       checksumSha256: uploadTarget.sha256,
+      signal: expect.any(AbortSignal),
     })
     expect(mocks.finalize).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -215,7 +245,8 @@ describe('client-safe quarantined intake upload', () => {
       }),
     )
     expect(result).toMatchObject({
-      nextAction: 'PATHFINDER_REVIEW',
+      nextAction: 'MALWARE_SCAN_PENDING',
+      processingState: 'MALWARE_SCAN_PENDING',
       autoApprove: false,
       autoApply: false,
       published: false,
@@ -256,6 +287,39 @@ describe('client-safe quarantined intake upload', () => {
     expect(mocks.finalize).not.toHaveBeenCalled()
   })
 
+  it('aborts on lease ownership loss without releasing the replacement claim', async () => {
+    mocks.renew.mockRejectedValueOnce(new IntakeUploadActionError('CONFLICT', 'claim lost'))
+    await expect(
+      caller
+        .createCaller(context())
+        .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.release).not.toHaveBeenCalled()
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it('persists rejected precheck evidence with a coarse reason', async () => {
+    mocks.verifyBytes.mockResolvedValueOnce({
+      passed: false,
+      reason: 'HASH_MISMATCH',
+      engine: 'pathfinder-magic-bytes',
+      engineVersion: '1',
+      verdictHash: 'e'.repeat(64),
+      computedByteSize: 123,
+      computedSha256: 'f'.repeat(64),
+    })
+    const result = await caller
+      .createCaller(context())
+      .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
+    expect(mocks.rejectPrecheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasonCode: 'HASH_MISMATCH',
+        evidence: expect.objectContaining({ computedSha256: 'f'.repeat(64) }),
+      }),
+    )
+    expect(result).toMatchObject({ retryable: false, nextAction: 'RESELECT_FILE' })
+  })
+
   it('deletes only the HEAD-confirmed immutable invalid version before rejection', async () => {
     mocks.inspect.mockResolvedValue({
       state: 'invalid',
@@ -268,6 +332,7 @@ describe('client-safe quarantined intake upload', () => {
     expect(mocks.remove).toHaveBeenCalledWith({
       key: uploadTarget.objectKey,
       versionId: 'immutable-v1',
+      signal: expect.any(AbortSignal),
     })
     expect(mocks.reject).toHaveBeenCalledWith(
       expect.objectContaining({ reasonCode: 'HASH_MISMATCH' }),

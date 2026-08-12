@@ -155,6 +155,7 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeRunEvent',
       'IntakePackageHandoff',
       'IntakeUpload',
+      'IntakeUploadVerificationReceipt',
       'AiScopedWorkloadConfigurationOverride',
       'AiScopedWorkloadConfigurationHistory',
     ])
@@ -214,6 +215,7 @@ describe('tenantIsolationMiddleware', () => {
       'ContentModulePublication',
       'IntakeRun',
       'IntakeEvidenceRecord',
+      'IntakeUploadVerificationReceipt',
       'IntakeRunEvent',
       'IntakePackageHandoff',
       'AiScopedWorkloadConfigurationHistory',

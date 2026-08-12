@@ -6,9 +6,11 @@ import {
   IntakeUploadRejectionCode,
   IntakeUploadReserveRequest,
   IntakeUploadRetryReason,
+  IntakeUploadVerificationEvidence,
   IntakeUploadVerifiedTransport,
   type IntakeUploadReserveRequest as IntakeUploadReserveRequestType,
   type IntakeUploadVerifiedTransport as IntakeUploadVerifiedTransportType,
+  type IntakeUploadVerificationEvidence as IntakeUploadVerificationEvidenceType,
 } from '@pathfinder/contracts/intake-upload'
 
 import { db } from '../client'
@@ -20,7 +22,10 @@ export type IntakeUploadActor = {
   role: 'STAFF' | 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN'
 }
 
-export type IntakeUploadActionClient = Pick<typeof db, '$transaction' | 'intakeUpload' | 'venue'>
+export type IntakeUploadActionClient = Pick<
+  typeof db,
+  '$transaction' | 'intakeUpload' | 'intakeUploadVerificationReceipt' | 'venue'
+>
 
 export type IntakeUploadActionErrorCode =
   | 'INVALID_INPUT'
@@ -378,6 +383,13 @@ export async function claimIntakeUploadVerificationAction(input: {
         replayed: true as const,
       }
     }
+    if (current.status === 'PRECHECK_PASSED') {
+      return {
+        state: 'PRECHECK_PASSED' as const,
+        upload: safeUpload(current),
+        replayed: true as const,
+      }
+    }
     const now = new Date()
     if (
       current.status === 'VERIFYING' &&
@@ -502,6 +514,42 @@ export async function releaseIntakeUploadVerificationAction(input: {
   })
 }
 
+export async function renewIntakeUploadVerificationLeaseAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  actor: IntakeUploadActor
+  claimId: string
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const claim = claimIdInput.safeParse(input.claimId)
+  if (!claim.success)
+    throw new IntakeUploadActionError('INVALID_INPUT', 'Invalid verification claim')
+  const now = new Date()
+  const leaseUntil = new Date(now.getTime() + INTAKE_UPLOAD_VERIFICATION_LEASE_MS)
+  const client = input.client ?? db
+  return client.$transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db
+    const current = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireUploadOwner(current, actor)
+    const changed = await tx.intakeUpload.updateMany({
+      where: {
+        ...scope,
+        status: 'VERIFYING',
+        verificationClaimId: claim.data,
+        verificationLeaseUntil: { gt: now },
+      },
+      data: { verificationLeaseUntil: leaseUntil },
+    })
+    if (changed.count !== 1)
+      throw new IntakeUploadActionError('CONFLICT', 'Verification claim no longer owns this upload')
+    return { leaseUntil }
+  })
+}
+
 export async function rejectIntakeUploadAction(input: {
   tenantId: string
   venueId: string
@@ -584,13 +632,14 @@ async function settleRejectedClaim(input: {
   })
 }
 
-export async function finalizeVerifiedIntakeUploadAction(input: {
+export async function recordIntakeUploadPrecheckAction(input: {
   tenantId: string
   venueId: string
   uploadId: string
   actor: IntakeUploadActor
   claimId: string
   verified: IntakeUploadVerifiedTransportType
+  evidence: IntakeUploadVerificationEvidenceType
   client?: IntakeUploadActionClient
 }) {
   if (!input || typeof input !== 'object')
@@ -599,163 +648,281 @@ export async function finalizeVerifiedIntakeUploadAction(input: {
   const actor = parseActor(input.actor)
   const claim = claimIdInput.safeParse(input.claimId)
   const verified = IntakeUploadVerifiedTransport.safeParse(input.verified)
-  if (!claim.success || !verified.success)
+  const evidence = IntakeUploadVerificationEvidence.safeParse(input.evidence)
+  if (!claim.success || !verified.success || !evidence.success)
     throw new IntakeUploadActionError('INVALID_INPUT', 'Invalid verified upload settlement')
   const client = input.client ?? db
-  return client.$transaction(async (rawTx) => {
-    const tx = rawTx as unknown as typeof db
-    const upload = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
-    if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
-    requireUploadOwner(upload, actor)
-    const transportMismatch =
-      upload.objectGeneration !== verified.data.objectGeneration ||
-      upload.mimeType !== verified.data.mimeType ||
-      upload.byteSize !== verified.data.byteSize ||
-      upload.sha256 !== verified.data.sha256
-    if (transportMismatch) {
-      throw new IntakeUploadActionError(
-        'VERIFICATION_MISMATCH',
-        'Verified transport metadata does not match the reservation',
-      )
-    }
-    if (upload.status === 'AWAITING_REVIEW' && upload.intakeRunId) {
-      const replayedRun = await tx.intakeRun.findFirst({
-        where: {
-          id: upload.intakeRunId,
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          sourceKind: 'FILE_UPLOAD',
-          status: 'AWAITING_REVIEW',
-        },
-        select: { id: true, status: true, sourceKind: true, createdAt: true },
-      })
-      if (!replayedRun)
+  try {
+    return await client.$transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db
+      const upload = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+      if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+      requireUploadOwner(upload, actor)
+      const transportMismatch =
+        upload.objectGeneration !== verified.data.objectGeneration ||
+        upload.mimeType !== verified.data.mimeType ||
+        upload.byteSize !== verified.data.byteSize ||
+        upload.sha256 !== verified.data.sha256
+      if (transportMismatch) {
+        throw new IntakeUploadActionError(
+          'VERIFICATION_MISMATCH',
+          'Verified transport metadata does not match the reservation',
+        )
+      }
+      if (upload.status === 'PRECHECK_PASSED') {
+        const receipt = await tx.intakeUploadVerificationReceipt.findFirst({
+          where: { ...scope, kind: 'PRECHECK', verdict: 'PASSED' },
+          select: { claimId: true, verdictHash: true, storageVersionId: true },
+        })
+        if (
+          receipt?.claimId !== claim.data ||
+          receipt.verdictHash !== evidence.data.verdictHash ||
+          receipt.storageVersionId !== verified.data.storageVersionId
+        )
+          throw new IntakeUploadActionError('CONFLICT', 'Stored precheck evidence is inconsistent')
+        return {
+          upload: safeUpload(upload),
+          replayed: true as const,
+          nextAction: 'MALWARE_SCAN_PENDING' as const,
+        }
+      }
+      if (upload.status !== 'VERIFYING' || upload.verificationClaimId !== claim.data)
         throw new IntakeUploadActionError(
           'CONFLICT',
-          'Verified upload review proposal is inconsistent',
+          'Verification claim no longer owns this upload',
+        )
+      const now = new Date()
+      if (!upload.verificationLeaseUntil || upload.verificationLeaseUntil <= now)
+        throw new IntakeUploadActionError('CONFLICT', 'Verification claim lease expired')
+      await tx.intakeUpload.updateMany({
+        where: {
+          ...scope,
+          status: 'VERIFYING',
+          verificationClaimId: claim.data,
+          verificationLeaseUntil: { gt: now },
+          intakeRunId: null,
+        },
+        data: {
+          storageVersionId: verified.data.storageVersionId,
+        },
+      })
+      await tx.intakeUploadVerificationReceipt.create({
+        data: {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          uploadId: upload.id,
+          kind: 'PRECHECK',
+          verdict: 'PASSED',
+          engine: evidence.data.engine,
+          engineVersion: evidence.data.engineVersion,
+          verdictHash: evidence.data.verdictHash,
+          objectGeneration: upload.objectGeneration,
+          storageVersionId: verified.data.storageVersionId,
+          computedByteSize: evidence.data.computedByteSize,
+          computedSha256: evidence.data.computedSha256,
+          claimId: claim.data,
+        },
+      })
+      const changed = await tx.intakeUpload.updateMany({
+        where: {
+          ...scope,
+          status: 'VERIFYING',
+          verificationClaimId: claim.data,
+          verificationLeaseUntil: { gt: now },
+          intakeRunId: null,
+        },
+        data: {
+          status: 'PRECHECK_PASSED',
+          verificationClaimId: null,
+          verificationClaimedAt: null,
+          verificationLeaseUntil: null,
+          storageVersionId: verified.data.storageVersionId,
+        },
+      })
+      if (changed.count !== 1)
+        throw new IntakeUploadActionError(
+          'CONFLICT',
+          'Verification claim no longer owns this upload',
+        )
+      await writeAuditLogStrict(
+        {
+          tenantId: scope.tenantId,
+          actorId: actor.id,
+          actorRole: actor.role,
+          action: 'intake-upload.precheck-passed',
+          targetType: 'IntakeUpload',
+          targetId: upload.id,
+          beforeState: { status: 'VERIFYING' },
+          afterState: {
+            venueId: scope.venueId,
+            status: 'PRECHECK_PASSED',
+            mimeType: upload.mimeType,
+            byteSize: upload.byteSize,
+            malwareScanned: false,
+          },
+        },
+        tx,
+      )
+      return {
+        upload: {
+          ...safeUpload(upload),
+          status: 'PRECHECK_PASSED',
+          updatedAt: now,
+        },
+        replayed: false as const,
+        nextAction: 'MALWARE_SCAN_PENDING' as const,
+      }
+    })
+  } catch (error) {
+    if (!isUniqueConflict(error)) throw error
+    const upload = await client.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireUploadOwner(upload, actor)
+    const receipt = await client.intakeUploadVerificationReceipt.findFirst({
+      where: { ...scope, kind: 'PRECHECK', verdict: 'PASSED' },
+      select: {
+        claimId: true,
+        verdictHash: true,
+        storageVersionId: true,
+        computedByteSize: true,
+        computedSha256: true,
+      },
+    })
+    if (
+      upload.status !== 'PRECHECK_PASSED' ||
+      receipt?.claimId !== claim.data ||
+      receipt.verdictHash !== evidence.data.verdictHash ||
+      receipt.storageVersionId !== verified.data.storageVersionId ||
+      receipt.computedByteSize !== evidence.data.computedByteSize ||
+      receipt.computedSha256 !== evidence.data.computedSha256
+    )
+      throw new IntakeUploadActionError('CONFLICT', 'Stored precheck evidence is inconsistent')
+    return {
+      upload: safeUpload(upload),
+      replayed: true as const,
+      nextAction: 'MALWARE_SCAN_PENDING' as const,
+    }
+  }
+}
+
+export async function recordRejectedIntakeUploadPrecheckAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  actor: IntakeUploadActor
+  claimId: string
+  verified: IntakeUploadVerifiedTransportType
+  evidence: IntakeUploadVerificationEvidenceType
+  reasonCode: 'SIZE_MISMATCH' | 'HASH_MISMATCH' | 'MIME_MISMATCH' | 'UNSAFE_FILE'
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const claim = claimIdInput.parse(input.claimId)
+  const verified = IntakeUploadVerifiedTransport.parse(input.verified)
+  const evidence = IntakeUploadVerificationEvidence.parse(input.evidence)
+  const client = input.client ?? db
+  try {
+    return await client.$transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db
+      const upload = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+      if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+      requireUploadOwner(upload, actor)
+      const now = new Date()
+      if (
+        upload.status !== 'VERIFYING' ||
+        upload.verificationClaimId !== claim ||
+        !upload.verificationLeaseUntil ||
+        upload.verificationLeaseUntil <= now ||
+        upload.objectGeneration !== verified.objectGeneration ||
+        upload.mimeType !== verified.mimeType
+      )
+        throw new IntakeUploadActionError(
+          'CONFLICT',
+          'Verification claim no longer owns this upload',
+        )
+      await tx.intakeUpload.updateMany({
+        where: { ...scope, status: 'VERIFYING', verificationClaimId: claim },
+        data: { storageVersionId: verified.storageVersionId },
+      })
+      await tx.intakeUploadVerificationReceipt.create({
+        data: {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          uploadId: upload.id,
+          kind: 'PRECHECK',
+          verdict: 'REJECTED',
+          engine: evidence.engine,
+          engineVersion: evidence.engineVersion,
+          verdictHash: evidence.verdictHash,
+          objectGeneration: upload.objectGeneration,
+          storageVersionId: verified.storageVersionId,
+          computedByteSize: evidence.computedByteSize,
+          computedSha256: evidence.computedSha256,
+          claimId: claim,
+        },
+      })
+      const changed = await tx.intakeUpload.updateMany({
+        where: {
+          ...scope,
+          status: 'VERIFYING',
+          verificationClaimId: claim,
+          verificationLeaseUntil: { gt: now },
+        },
+        data: {
+          status: 'REJECTED',
+          verificationClaimId: null,
+          verificationClaimedAt: null,
+          verificationLeaseUntil: null,
+          rejectedAt: now,
+          rejectionCode: input.reasonCode,
+        },
+      })
+      if (changed.count !== 1)
+        throw new IntakeUploadActionError(
+          'CONFLICT',
+          'Verification claim no longer owns this upload',
         )
       return {
-        upload: safeUpload(upload),
-        intakeRun: replayedRun,
-        replayed: true as const,
-        nextAction: 'PATHFINDER_REVIEW' as const,
-        autoApprove: false as const,
-        autoApply: false as const,
-        published: false as const,
+        upload: safeUpload({
+          ...upload,
+          status: 'REJECTED',
+          rejectionCode: input.reasonCode,
+          updatedAt: now,
+        }),
+        retryable: false as const,
       }
-    }
-    if (upload.status !== 'VERIFYING' || upload.verificationClaimId !== claim.data)
-      throw new IntakeUploadActionError('CONFLICT', 'Verification claim no longer owns this upload')
-    const now = new Date()
-    if (!upload.verificationLeaseUntil || upload.verificationLeaseUntil <= now)
-      throw new IntakeUploadActionError('CONFLICT', 'Verification claim lease expired')
-    const run = await tx.intakeRun.create({
-      data: {
-        tenantId: scope.tenantId,
-        venueId: scope.venueId,
-        sourceKind: 'FILE_UPLOAD',
-        status: 'AWAITING_REVIEW',
-        displayName: upload.displayName,
-        requestedBy: actor.id,
-      },
-      select: { id: true, status: true, sourceKind: true, createdAt: true },
     })
-    await tx.intakeEvidenceRecord.create({
-      data: {
-        tenantId: scope.tenantId,
-        venueId: scope.venueId,
-        runId: run.id,
-        sourceKind: 'FILE_UPLOAD',
-        locator: `intake-upload:${upload.id}`,
-        normalizedHash: upload.sha256,
-        confidence: 1,
-        capturedAt: now,
+  } catch (error) {
+    if (!isUniqueConflict(error)) throw error
+    const upload = await client.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireUploadOwner(upload, actor)
+    const receipt = await client.intakeUploadVerificationReceipt.findFirst({
+      where: { ...scope, kind: 'PRECHECK', verdict: 'REJECTED' },
+      select: {
+        claimId: true,
+        verdictHash: true,
+        storageVersionId: true,
+        computedByteSize: true,
+        computedSha256: true,
       },
     })
-    await tx.intakeRunEvent.create({
-      data: {
-        tenantId: scope.tenantId,
-        venueId: scope.venueId,
-        runId: run.id,
-        kind: 'PROPOSAL_CREATED',
-        actorId: actor.id,
-        metadata: { sourceKind: 'FILE_UPLOAD', autoApprove: false, autoApply: false },
-      },
-    })
-    await tx.intakeRunEvent.create({
-      data: {
-        tenantId: scope.tenantId,
-        venueId: scope.venueId,
-        runId: run.id,
-        kind: 'EVIDENCE_RECORDED',
-        actorId: actor.id,
-        metadata: {
-          evidenceKind: 'VERIFIED_QUARANTINED_FILE_HASH',
-          mimeType: upload.mimeType,
-          byteSize: upload.byteSize,
-          transportVerified: true,
-          formatVerified: false,
-          malwareScanned: false,
-        },
-      },
-    })
-    const changed = await tx.intakeUpload.updateMany({
-      where: {
-        ...scope,
-        status: 'VERIFYING',
-        verificationClaimId: claim.data,
-        verificationLeaseUntil: { gt: now },
-        intakeRunId: null,
-      },
-      data: {
-        status: 'AWAITING_REVIEW',
-        verificationClaimId: null,
-        verificationClaimedAt: null,
-        verificationLeaseUntil: null,
-        storageVersionId: verified.data.storageVersionId,
-        verifiedAt: now,
-        intakeRunId: run.id,
-      },
-    })
-    if (changed.count !== 1)
-      throw new IntakeUploadActionError('CONFLICT', 'Verification claim no longer owns this upload')
-    await writeAuditLogStrict(
-      {
-        tenantId: scope.tenantId,
-        actorId: actor.id,
-        actorRole: actor.role,
-        action: 'intake-upload.verified-for-review',
-        targetType: 'IntakeUpload',
-        targetId: upload.id,
-        beforeState: { status: 'VERIFYING' },
-        afterState: {
-          venueId: scope.venueId,
-          status: 'AWAITING_REVIEW',
-          sourceKind: 'FILE_UPLOAD',
-          mimeType: upload.mimeType,
-          byteSize: upload.byteSize,
-          autoApprove: false,
-          autoApply: false,
-          published: false,
-        },
-      },
-      tx,
+    if (
+      upload.status !== 'REJECTED' ||
+      upload.rejectionCode !== input.reasonCode ||
+      receipt?.claimId !== claim ||
+      receipt.verdictHash !== evidence.verdictHash ||
+      receipt.storageVersionId !== verified.storageVersionId ||
+      receipt.computedByteSize !== evidence.computedByteSize ||
+      receipt.computedSha256 !== evidence.computedSha256
     )
-    return {
-      upload: {
-        ...safeUpload(upload),
-        status: 'AWAITING_REVIEW',
-        intakeRunId: run.id,
-        updatedAt: now,
-      },
-      intakeRun: run,
-      replayed: false as const,
-      nextAction: 'PATHFINDER_REVIEW' as const,
-      autoApprove: false as const,
-      autoApply: false as const,
-      published: false as const,
-    }
-  })
+      throw new IntakeUploadActionError(
+        'CONFLICT',
+        'Stored rejected precheck evidence is inconsistent',
+      )
+    return { upload: safeUpload(upload), retryable: false as const }
+  }
 }
 
 export async function listIntakeUploadsAction(input: {

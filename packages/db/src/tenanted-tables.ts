@@ -74,6 +74,7 @@ export const TENANTED_TABLES = [
   'IntakeRunEvent',
   'IntakePackageHandoff',
   'IntakeUpload',
+  'IntakeUploadVerificationReceipt',
   'AiScopedWorkloadConfigurationOverride',
   'AiScopedWorkloadConfigurationHistory',
 ] as const

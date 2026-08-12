@@ -205,12 +205,23 @@ database evidence.
 
 For client files, use the quarantined intake-upload contracts and actions rather than Media Lab.
 Reserve the durable actor-bound request before storage signing; never accept an object key or
-generation from the browser. A verification claim must remain live and exact through HEAD and
-settlement, and the exact storage version belongs only in private durable evidence. Treat
-`AWAITING_REVIEW` as transport verification, not format or malware verification. Do not add GET
-signing, inline preview, extraction, AI dispatch, package creation, approval, apply, or publication
-without the corresponding owner-approved policy and action boundary. See
-`docs/quarantined-intake-uploads.md`.
+generation from the browser. A verification claim must remain live and exact through HEAD, bounded
+exact-version streaming, and any version-specific rejection cleanup; lease loss aborts byte work
+without releasing or settling a replacement claim. Local verification records only an immutable
+`PRECHECK` receipt bound to the actual streamed byte count/hash, generation, storage version, MIME,
+engine/version and verdict hash. A passed precheck moves the upload only to `PRECHECK_PASSED`; it is
+not format validation or a safety claim. A rejected precheck retains its exact receipt and exposes
+only a coarse rejection reason.
+
+New `AWAITING_REVIEW` transitions are database-gated on three exact receipts: `PRECHECK/PASSED`,
+`RESOURCE_SAFETY/PASSED`, and `MALWARE/CLEAN`. The repository configures neither authoritative
+resource-safety nor malware engine, so local execution never creates an `IntakeRun`, reaches
+`AWAITING_REVIEW`, or makes the upload eligible for Support attachments. Those two engines,
+credentials, retention policy, and live operation remain owner work. Forward-only migration
+`20260812001200_add_intake_upload_verification_receipts` is unapplied, performs no backfill, and does
+not reconstruct safety evidence for legacy rows. Do not add preview, extraction, AI dispatch,
+package creation, approval, apply, or publication without the corresponding owner-approved policy
+and action boundary. See `docs/quarantined-intake-uploads.md`.
 
 ## Guest structured blocks
 
@@ -418,6 +429,12 @@ immutable grant/revoke produced-version and action-time evidence with exact audi
 It does not guess or backfill legacy values. New grants and new revocations require complete paired
 evidence, while previously revoked legacy rows cannot be upgraded after the fact. It is intentionally
 unapplied; focused migration/domain/API/UI tests are local evidence only.
+
+The forward-only `20260812001200_add_intake_upload_verification_receipts` migration adds
+`PRECHECK_PASSED` plus immutable exact-object `PRECHECK`, `RESOURCE_SAFETY`, and `MALWARE` receipts.
+It permits only pristine `RESERVED` inserts after cutover and database-gates new derived/review
+transitions on the required receipts. It performs no legacy backfill and is intentionally unapplied;
+local schema, migration, byte-stream, lease, API, and UI checks are not live safety evidence.
 
 Client Weekly Reports routes are capability projections, not an enablement surface. Resolve exact
 authorized report availability on the server; show navigation only when at least one authorized

@@ -651,13 +651,15 @@ export type {
 } from './helpers/onboarding-bootstrap-actions'
 export {
   claimIntakeUploadVerificationAction,
-  finalizeVerifiedIntakeUploadAction,
+  recordIntakeUploadPrecheckAction,
+  recordRejectedIntakeUploadPrecheckAction,
   getIntakeUploadDetailAction,
   intakeUploadRequestHash,
   INTAKE_UPLOAD_VERIFICATION_LEASE_MS,
   IntakeUploadActionError,
   listIntakeUploadsAction,
   rejectIntakeUploadAction,
+  renewIntakeUploadVerificationLeaseAction,
   releaseIntakeUploadVerificationAction,
   reserveIntakeUploadAction,
 } from './helpers/intake-upload-actions'

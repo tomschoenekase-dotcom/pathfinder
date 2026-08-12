@@ -369,6 +369,11 @@ async function resolveAttachments(
       storageVersionId: { not: null },
       intakeRunId: { not: null },
       intakeRun: { sourceKind: 'FILE_UPLOAD', status: 'AWAITING_REVIEW' },
+      AND: [
+        { verificationReceipts: { some: { kind: 'PRECHECK', verdict: 'PASSED' } } },
+        { verificationReceipts: { some: { kind: 'RESOURCE_SAFETY', verdict: 'PASSED' } } },
+        { verificationReceipts: { some: { kind: 'MALWARE', verdict: 'CLEAN' } } },
+      ],
       ...(scope.actor.participantKind === 'CLIENT' ? { requestedBy: scope.actor.actorId } : {}),
     },
     select: {

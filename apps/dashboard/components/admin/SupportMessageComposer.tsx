@@ -235,9 +235,9 @@ export function SupportMessageComposer({
             Files for PathFinder review (optional)
           </legend>
           <p id="admin-support-file-help" className="mt-1 text-xs leading-5 text-pf-deep/70">
-            Files stay in quarantine for PathFinder review. Upload verification confirms the stored
-            object version, declared media type, size, and checksum only. It does not confirm that a
-            file is safe, readable, or malware-free. Files cannot be previewed or downloaded here.
+            Files stay in quarantine for PathFinder review. Only files whose required checks are
+            complete can be selected here. A completed scanner result is not a guarantee that a file
+            is safe, readable, or malware-free. Files cannot be previewed or downloaded here.
           </p>
           {eligibleAttachments.length ? (
             <label className="mt-3 block text-sm font-medium text-pf-deep">
@@ -264,7 +264,7 @@ export function SupportMessageComposer({
             </label>
           ) : (
             <p className="mt-3 text-sm text-pf-deep/70">
-              No recent files are available for review.
+              No recent files have completed the required checks.
             </p>
           )}
           {attachments.length ? (

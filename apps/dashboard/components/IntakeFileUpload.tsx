@@ -59,7 +59,15 @@ type ReserveResult = {
 type QueueItem = {
   localId: string
   file: File
-  phase: 'selected' | 'hashing' | 'uploading' | 'verifying' | 'awaiting-review' | 'error'
+  phase:
+    | 'selected'
+    | 'hashing'
+    | 'uploading'
+    | 'checking-format'
+    | 'security-pending'
+    | 'awaiting-review'
+    | 'rejected'
+    | 'error'
   error: string | null
 }
 
@@ -67,9 +75,30 @@ const CLIENT_PHASE_LABELS: Record<QueueItem['phase'], string> = {
   selected: 'Ready to send',
   hashing: 'Preparing file',
   uploading: 'Sending file',
-  verifying: 'Confirming arrival',
-  'awaiting-review': 'Received',
+  'checking-format': 'Checking file format',
+  'security-pending': 'Security check pending',
+  'awaiting-review': 'Checks complete — awaiting PathFinder review',
+  rejected: 'Could not be accepted',
   error: 'Needs attention',
+}
+
+const BUSY_PHASES: QueueItem['phase'][] = ['hashing', 'uploading', 'checking-format']
+
+function clientUploadStatus(status: string): string {
+  switch (status) {
+    case 'RESERVED':
+      return 'Waiting to be sent'
+    case 'VERIFYING':
+      return 'Checking file format'
+    case 'PRECHECK_PASSED':
+      return 'Security check pending'
+    case 'AWAITING_REVIEW':
+      return 'Checks complete — awaiting review'
+    case 'REJECTED':
+      return 'Could not be accepted'
+    default:
+      return 'Status unavailable'
+  }
 }
 
 class ClientIntakeFileError extends Error {}
@@ -99,17 +128,42 @@ export function IntakeFileUpload({
   }>
   onCommitted?: () => void
 }) {
-  const [queue, setQueue] = useState<QueueItem[]>([])
+  const [queueState, setQueueState] = useState<{ venueId: string; items: QueueItem[] }>({
+    venueId,
+    items: [],
+  })
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const identitiesRef = useRef(
     new Map<string, { fingerprint: string; requestId: string; claimId: string }>(),
   )
   const inFlightRef = useRef(new Set<string>())
+  const scopeRef = useRef(venueId)
+  const generationRef = useRef(0)
 
-  function update(localId: string, patch: Partial<QueueItem>) {
-    setQueue((current) =>
-      current.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
-    )
+  if (scopeRef.current !== venueId) {
+    scopeRef.current = venueId
+    generationRef.current += 1
+    identitiesRef.current.clear()
+    inFlightRef.current.clear()
+  }
+
+  const queue = queueState.venueId === venueId ? queueState.items : []
+  const visibleSelectionError = queueState.venueId === venueId ? selectionError : null
+
+  function update(
+    localId: string,
+    patch: Partial<QueueItem>,
+    scope = venueId,
+    generation = generationRef.current,
+  ) {
+    if (scopeRef.current !== scope || generationRef.current !== generation) return
+    setQueueState((current) => ({
+      venueId: scope,
+      items:
+        current.venueId === scope
+          ? current.items.map((item) => (item.localId === localId ? { ...item, ...patch } : item))
+          : [],
+    }))
   }
 
   function selectFiles(files: FileList | null) {
@@ -130,15 +184,23 @@ export function IntakeFileUpload({
       })
     }
     setSelectionError(null)
-    setQueue((current) => [...current, ...next])
+    setQueueState((current) => ({
+      venueId,
+      items: current.venueId === venueId ? [...current.items, ...next] : next,
+    }))
   }
 
   async function upload(item: QueueItem) {
     if (inFlightRef.current.has(item.localId)) return
     inFlightRef.current.add(item.localId)
+    const submittedScope = venueId
+    const generation = generationRef.current
+    const isCurrent = () =>
+      scopeRef.current === submittedScope && generationRef.current === generation
     try {
-      update(item.localId, { phase: 'hashing', error: null })
+      update(item.localId, { phase: 'hashing', error: null }, submittedScope, generation)
       const identity = await identifyIntakeFile(item.file)
+      if (!isCurrent()) return
       const fingerprint = intakeFileFingerprint(item.file, identity)
       const prior = identitiesRef.current.get(item.localId)
       const attempt =
@@ -147,7 +209,7 @@ export function IntakeFileUpload({
           : { fingerprint, requestId: crypto.randomUUID(), claimId: crypto.randomUUID() }
       identitiesRef.current.set(item.localId, attempt)
       const reserved = await reserve({
-        venueId,
+        venueId: submittedScope,
         requestId: attempt.requestId,
         displayName: item.file.name,
         fileName: item.file.name,
@@ -155,18 +217,27 @@ export function IntakeFileUpload({
         byteSize: item.file.size,
         sha256: identity.sha256Hex,
       })
+      if (!isCurrent()) return
       if (reserved.upload.status === 'AWAITING_REVIEW') {
-        update(item.localId, { phase: 'awaiting-review' })
+        update(item.localId, { phase: 'awaiting-review' }, submittedScope, generation)
         onCommitted?.()
         return
       }
       if (reserved.upload.status === 'REJECTED') {
-        throw new ClientIntakeFileError(
-          'This file could not be accepted. Remove it and select the file again.',
+        identitiesRef.current.delete(item.localId)
+        update(
+          item.localId,
+          {
+            phase: 'rejected',
+            error: 'This file could not be accepted. Remove it and select the file again.',
+          },
+          submittedScope,
+          generation,
         )
+        return
       }
       if (reserved.uploadRequest) {
-        update(item.localId, { phase: 'uploading' })
+        update(item.localId, { phase: 'uploading' }, submittedScope, generation)
         const response = await fetch(reserved.uploadRequest.url, {
           method: 'PUT',
           headers: reserved.uploadRequest.requiredHeaders,
@@ -178,30 +249,57 @@ export function IntakeFileUpload({
         if (!response.ok && response.status !== 412) {
           throw new ClientIntakeFileError('The file could not be sent. Please try again.')
         }
+        if (!isCurrent()) return
       }
-      update(item.localId, { phase: 'verifying' })
+      update(item.localId, { phase: 'checking-format' }, submittedScope, generation)
       const verified = await verify({
-        venueId,
+        venueId: submittedScope,
         uploadId: reserved.upload.id,
         claimId: attempt.claimId,
       })
-      if (verified.upload.status !== 'AWAITING_REVIEW') {
-        throw new ClientIntakeFileError(
-          verified.upload.rejectionCode
-            ? 'PathFinder could not accept this file. Remove it and select the file again.'
-            : 'PathFinder could not confirm that the file arrived. Please try again.',
+      if (!isCurrent()) return
+      if (verified.upload.status === 'AWAITING_REVIEW') {
+        update(item.localId, { phase: 'awaiting-review' }, submittedScope, generation)
+        onCommitted?.()
+        return
+      }
+      if (verified.upload.status === 'PRECHECK_PASSED') {
+        update(item.localId, { phase: 'security-pending', error: null }, submittedScope, generation)
+        onCommitted?.()
+        return
+      }
+      if (verified.upload.status === 'REJECTED' || verified.nextAction === 'RESELECT_FILE') {
+        identitiesRef.current.delete(item.localId)
+        update(
+          item.localId,
+          {
+            phase: 'rejected',
+            error: 'PathFinder could not accept this file. Remove it and select the file again.',
+          },
+          submittedScope,
+          generation,
+        )
+        onCommitted?.()
+        return
+      }
+      throw new ClientIntakeFileError(
+        'PathFinder could not confirm the latest check. Please try again.',
+      )
+    } catch (error) {
+      if (isCurrent()) {
+        update(
+          item.localId,
+          {
+            phase: 'error',
+            error:
+              error instanceof ClientIntakeFileError
+                ? error.message
+                : 'PathFinder could not confirm this file. Please try again.',
+          },
+          submittedScope,
+          generation,
         )
       }
-      update(item.localId, { phase: 'awaiting-review' })
-      onCommitted?.()
-    } catch (error) {
-      update(item.localId, {
-        phase: 'error',
-        error:
-          error instanceof ClientIntakeFileError
-            ? error.message
-            : 'PathFinder could not confirm this file. Please try again.',
-      })
     } finally {
       inFlightRef.current.delete(item.localId)
     }
@@ -236,9 +334,9 @@ export function IntakeFileUpload({
       <p className="mt-1 text-xs text-pf-deep/65">
         PDF, JPEG, PNG, WebP, HEIC, HEIF, or TIFF. 25 MiB per file; up to 20 files.
       </p>
-      {selectionError ? (
+      {visibleSelectionError ? (
         <p className="mt-2 text-sm text-rose-700" role="alert">
-          {selectionError}
+          {visibleSelectionError}
         </p>
       ) : null}
       {queue.length > 0 ? (
@@ -255,27 +353,36 @@ export function IntakeFileUpload({
                 </p>
               ) : null}
               <div className="mt-2 flex gap-2">
-                {item.phase !== 'awaiting-review' ? (
+                {!['awaiting-review', 'rejected'].includes(item.phase) ? (
                   <button
                     className="rounded-full bg-pf-deep px-3 py-2 text-xs text-white disabled:opacity-60"
                     type="button"
                     disabled={
-                      inFlightRef.current.has(item.localId) ||
-                      ['hashing', 'uploading', 'verifying'].includes(item.phase)
+                      inFlightRef.current.has(item.localId) || BUSY_PHASES.includes(item.phase)
                     }
                     onClick={() => void upload(item)}
                   >
-                    {item.phase === 'error' ? 'Retry' : 'Upload'}
+                    {item.phase === 'error'
+                      ? 'Retry'
+                      : item.phase === 'security-pending'
+                        ? 'Check status'
+                        : 'Upload'}
                   </button>
                 ) : null}
-                {!['hashing', 'uploading', 'verifying'].includes(item.phase) ? (
+                {!BUSY_PHASES.includes(item.phase) ? (
                   <button
                     className="rounded-full border border-pf-light px-3 py-2 text-xs text-pf-deep"
                     type="button"
                     onClick={() =>
-                      setQueue((current) =>
-                        current.filter((candidate) => candidate.localId !== item.localId),
-                      )
+                      setQueueState((current) => ({
+                        venueId,
+                        items:
+                          current.venueId === venueId
+                            ? current.items.filter(
+                                (candidate) => candidate.localId !== item.localId,
+                              )
+                            : [],
+                      }))
                     }
                   >
                     Remove {item.file.name}
@@ -295,11 +402,7 @@ export function IntakeFileUpload({
             <li key={upload.id} className="rounded-xl bg-slate-50 p-3 text-sm">
               <span className="font-medium">{upload.displayName}</span>
               <span className="ml-2 text-xs uppercase text-pf-deep/60">
-                {upload.status === 'AWAITING_REVIEW'
-                  ? 'Received'
-                  : upload.status === 'REJECTED'
-                    ? 'Could not be accepted'
-                    : 'Sending'}
+                {clientUploadStatus(upload.status)}
               </span>
             </li>
           ))}

@@ -4,9 +4,11 @@ import { z } from 'zod'
 import {
   IntakeUploadActionError,
   claimIntakeUploadVerificationAction,
-  finalizeVerifiedIntakeUploadAction,
+  recordIntakeUploadPrecheckAction,
+  recordRejectedIntakeUploadPrecheckAction,
   listIntakeUploadsAction,
   rejectIntakeUploadAction,
+  renewIntakeUploadVerificationLeaseAction,
   releaseIntakeUploadVerificationAction,
   reserveIntakeUploadAction,
   type IntakeUploadActor,
@@ -22,8 +24,13 @@ import {
   createIntakeUploadObjectKey,
   deleteInvalidIntakeUploadVersion,
   inspectIntakeUpload,
+  readIntakeUploadVersion,
   signIntakeUploadPut,
 } from '../lib/intake-upload-storage'
+import {
+  configuredIntakeUploadMalwareScanner,
+  verifyIntakeUploadBytes,
+} from '../lib/intake-upload-byte-verifier'
 import { tenantProcedure } from '../trpc'
 
 const venueId = z.string().trim().min(1).max(191)
@@ -163,6 +170,40 @@ export const intakeUploadRouter = router({
           published: false as const,
         }
       }
+      if (claimed.state === 'PRECHECK_PASSED') {
+        return {
+          upload: safeUpload(claimed.upload),
+          retryable: true,
+          nextAction: 'MALWARE_SCAN_PENDING' as const,
+          processingState: 'MALWARE_SCAN_PENDING' as const,
+          autoApprove: false as const,
+          autoApply: false as const,
+          published: false as const,
+        }
+      }
+
+      const controller = new AbortController()
+      let ownershipLost = false
+      let renewal: Promise<void> = Promise.resolve()
+      const renew = () => {
+        renewal = renewal.then(async () => {
+          try {
+            await renewIntakeUploadVerificationLeaseAction(scope)
+          } catch (error) {
+            ownershipLost = true
+            controller.abort()
+            throw error
+          }
+        })
+        return renewal
+      }
+      const heartbeat = setInterval(() => void renew().catch(() => undefined), 60_000)
+      try {
+        await renew()
+      } catch (error) {
+        clearInterval(heartbeat)
+        mapActionError(error)
+      }
 
       let inspection: Awaited<ReturnType<typeof inspectIntakeUpload>>
       try {
@@ -172,15 +213,19 @@ export const intakeUploadRouter = router({
           contentType: claimed.uploadTarget.mimeType,
           bytes: claimed.uploadTarget.byteSize,
           checksumSha256: claimed.uploadTarget.sha256,
+          signal: controller.signal,
         })
       } catch (cause) {
-        try {
-          await releaseIntakeUploadVerificationAction({
-            ...scope,
-            reasonCode: 'TRANSPORT_UNAVAILABLE',
-          })
-        } catch (error) {
-          mapActionError(error)
+        clearInterval(heartbeat)
+        if (!ownershipLost) {
+          try {
+            await releaseIntakeUploadVerificationAction({
+              ...scope,
+              reasonCode: 'TRANSPORT_UNAVAILABLE',
+            })
+          } catch (error) {
+            mapActionError(error)
+          }
         }
         throw publicTRPCError({
           code: 'SERVICE_UNAVAILABLE',
@@ -190,6 +235,7 @@ export const intakeUploadRouter = router({
       }
 
       if (inspection.state === 'missing') {
+        clearInterval(heartbeat)
         try {
           const result = await rejectIntakeUploadAction({
             ...scope,
@@ -207,6 +253,7 @@ export const intakeUploadRouter = router({
 
       if (inspection.state === 'invalid') {
         if (!inspection.versionId || inspection.reason === 'version') {
+          clearInterval(heartbeat)
           try {
             await releaseIntakeUploadVerificationAction({
               ...scope,
@@ -226,8 +273,10 @@ export const intakeUploadRouter = router({
           await deleteInvalidIntakeUploadVersion({
             key: claimed.uploadTarget.objectKey,
             versionId: inspection.versionId,
+            signal: controller.signal,
           })
         } catch (cause) {
+          clearInterval(heartbeat)
           try {
             await releaseIntakeUploadVerificationAction({
               ...scope,
@@ -248,6 +297,7 @@ export const intakeUploadRouter = router({
             ...scope,
             reasonCode: rejectionCodeByInspection[inspection.reason],
           })
+          clearInterval(heartbeat)
           return {
             upload: safeUpload(result.upload),
             retryable: false,
@@ -259,7 +309,79 @@ export const intakeUploadRouter = router({
       }
 
       try {
-        const result = await finalizeVerifiedIntakeUploadAction({
+        let format: Awaited<ReturnType<typeof verifyIntakeUploadBytes>>
+        try {
+          await renew()
+          const bytes = await readIntakeUploadVersion({
+            key: claimed.uploadTarget.objectKey,
+            versionId: inspection.versionId,
+            signal: controller.signal,
+          })
+          let renewedAtBytes = 0
+          format = await verifyIntakeUploadBytes({
+            bytes,
+            mimeType: IntakeUploadMimeType.parse(claimed.uploadTarget.mimeType),
+            expectedBytes: claimed.uploadTarget.byteSize,
+            expectedSha256: claimed.uploadTarget.sha256,
+            storageVersionId: inspection.versionId,
+            objectGeneration: claimed.uploadTarget.objectGeneration,
+            signal: controller.signal,
+            onProgress: async (byteSize) => {
+              if (byteSize - renewedAtBytes < 1024 * 1024) return
+              await renew()
+              renewedAtBytes = byteSize
+            },
+          })
+          await renewal
+        } catch (cause) {
+          if (!ownershipLost) {
+            await releaseIntakeUploadVerificationAction({
+              ...scope,
+              reasonCode: 'VERIFICATION_UNAVAILABLE',
+            })
+          }
+          throw publicTRPCError({
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'File verification is temporarily unavailable. Retry with the same claim.',
+            cause,
+          })
+        } finally {
+          clearInterval(heartbeat)
+        }
+        if (!format.passed) {
+          const reasonCode =
+            format.reason === 'SIZE_MISMATCH'
+              ? ('SIZE_MISMATCH' as const)
+              : format.reason === 'HASH_MISMATCH'
+                ? ('HASH_MISMATCH' as const)
+                : format.reason === 'FORMAT_MISMATCH'
+                  ? ('MIME_MISMATCH' as const)
+                  : ('UNSAFE_FILE' as const)
+          const result = await recordRejectedIntakeUploadPrecheckAction({
+            ...scope,
+            reasonCode,
+            verified: {
+              objectGeneration: claimed.uploadTarget.objectGeneration,
+              storageVersionId: inspection.versionId,
+              mimeType: IntakeUploadMimeType.parse(claimed.uploadTarget.mimeType),
+              byteSize: claimed.uploadTarget.byteSize,
+              sha256: claimed.uploadTarget.sha256,
+            },
+            evidence: {
+              engine: format.engine,
+              engineVersion: format.engineVersion,
+              verdictHash: format.verdictHash,
+              computedByteSize: format.computedByteSize,
+              computedSha256: format.computedSha256,
+            },
+          })
+          return {
+            upload: safeUpload(result.upload),
+            retryable: false,
+            nextAction: 'RESELECT_FILE' as const,
+          }
+        }
+        const result = await recordIntakeUploadPrecheckAction({
           ...scope,
           verified: {
             objectGeneration: claimed.uploadTarget.objectGeneration,
@@ -268,14 +390,23 @@ export const intakeUploadRouter = router({
             byteSize: claimed.uploadTarget.byteSize,
             sha256: claimed.uploadTarget.sha256,
           },
+          evidence: {
+            engine: format.engine,
+            engineVersion: format.engineVersion,
+            verdictHash: format.verdictHash,
+            computedByteSize: format.computedByteSize,
+            computedSha256: format.computedSha256,
+          },
         })
+        const scanner = configuredIntakeUploadMalwareScanner()
         return {
           upload: safeUpload(result.upload),
-          retryable: false,
+          retryable: scanner === null,
           nextAction: result.nextAction,
-          autoApprove: result.autoApprove,
-          autoApply: result.autoApply,
-          published: result.published,
+          processingState: 'MALWARE_SCAN_PENDING' as const,
+          autoApprove: false as const,
+          autoApply: false as const,
+          published: false as const,
         }
       } catch (error) {
         mapActionError(error)

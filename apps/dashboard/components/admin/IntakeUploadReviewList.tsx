@@ -14,6 +14,39 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 }
 
+function uploadStatusLabel(status: string): string {
+  switch (status) {
+    case 'RESERVED':
+      return 'Waiting for upload'
+    case 'VERIFYING':
+      return 'Checking file format'
+    case 'PRECHECK_PASSED':
+      return 'Security check pending'
+    case 'AWAITING_REVIEW':
+      return 'Checks complete — awaiting review'
+    case 'REJECTED':
+      return 'Could not be accepted'
+    default:
+      return 'Status unavailable'
+  }
+}
+
+function rejectionReason(code: string): string {
+  switch (code) {
+    case 'OBJECT_MISSING':
+      return 'The uploaded file could not be found.'
+    case 'GENERATION_MISMATCH':
+    case 'MIME_MISMATCH':
+    case 'SIZE_MISMATCH':
+    case 'HASH_MISMATCH':
+      return 'The uploaded file did not match its submission.'
+    case 'UNSAFE_FILE':
+      return 'The file did not pass the required checks.'
+    default:
+      return 'The file could not be accepted.'
+  }
+}
+
 export function IntakeUploadReviewList({ uploads }: { uploads: IntakeUploadReviewItem[] }) {
   return (
     <section
@@ -24,9 +57,9 @@ export function IntakeUploadReviewList({ uploads }: { uploads: IntakeUploadRevie
         Quarantined document and image evidence
       </h3>
       <p className="mt-1 text-sm leading-6 text-pf-deep/75">
-        Safe metadata only. Awaiting review confirms transport size, declared MIME type, and
-        checksum; it does not confirm format validity or malware inspection. This view cannot
-        preview, download, approve, apply, or publish files.
+        Safe metadata only. File-format and security checks are separate. A completed security check
+        records one scanner result for the exact stored file; it is not a guarantee that a file is
+        malware-free. This view cannot preview, download, approve, apply, or publish files.
       </p>
       {uploads.length === 0 ? (
         <p className="mt-4 text-sm text-pf-deep/65">No quarantined file submissions.</p>
@@ -40,7 +73,7 @@ export function IntakeUploadReviewList({ uploads }: { uploads: IntakeUploadRevie
                   <p className="mt-1 break-all text-xs text-pf-deep/65">{upload.fileName}</p>
                 </div>
                 <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-slate-700">
-                  {upload.status.replaceAll('_', ' ')}
+                  {uploadStatusLabel(upload.status)}
                 </span>
               </div>
               <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
@@ -59,7 +92,7 @@ export function IntakeUploadReviewList({ uploads }: { uploads: IntakeUploadRevie
               </dl>
               {upload.rejectionCode ? (
                 <p className="mt-3 text-sm text-rose-700" role="status">
-                  Quarantine rejected: {upload.rejectionCode.replaceAll('_', ' ').toLowerCase()}.
+                  {rejectionReason(upload.rejectionCode)}
                 </p>
               ) : null}
             </li>

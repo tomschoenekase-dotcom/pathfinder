@@ -151,8 +151,9 @@ function AttachmentPicker({
     <fieldset className="rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
       <legend className="px-1 text-sm font-semibold text-pf-deep">{label}</legend>
       <p id={`${id}-help`} className="mt-1 text-xs leading-5 text-pf-deep/70">
-        Choose a file you already shared. PathFinder reviews every file before using it; attaching a
-        file here never publishes it. Files cannot be previewed or downloaded from Support.
+        Choose a file you already shared after its required checks are complete. PathFinder still
+        reviews every file before using it; attaching a file here never publishes it. Files cannot
+        be previewed or downloaded from Support.
       </p>
       {available.length ? (
         <label className="mt-3 block text-sm font-medium text-pf-deep">
@@ -178,7 +179,9 @@ function AttachmentPicker({
           </select>
         </label>
       ) : (
-        <p className="mt-3 text-sm text-pf-deep/70">No recent files are available for review.</p>
+        <p className="mt-3 text-sm text-pf-deep/70">
+          No recent files have completed the required checks.
+        </p>
       )}
       {selectedRows.length ? (
         <ul className="mt-3 space-y-2" aria-label="Selected files">

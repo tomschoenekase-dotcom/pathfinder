@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -13,10 +14,17 @@ import { currentDeploymentStorageKey } from './deployment-storage-key'
 export const INTAKE_UPLOAD_URL_EXPIRES_SECONDS = 15 * 60
 export const INTAKE_UPLOAD_GENERATION_METADATA_KEY = 'pf-intake-upload-generation'
 
-type IntakeUploadStorageCommand = PutObjectCommand | HeadObjectCommand | DeleteObjectCommand
+type IntakeUploadStorageCommand =
+  | PutObjectCommand
+  | HeadObjectCommand
+  | GetObjectCommand
+  | DeleteObjectCommand
 
 export type IntakeUploadStorageTransport = {
-  send(command: IntakeUploadStorageCommand): Promise<unknown>
+  send(
+    command: IntakeUploadStorageCommand,
+    options?: { abortSignal?: AbortSignal },
+  ): Promise<unknown>
 }
 
 export type IntakeUploadSigner = (
@@ -155,6 +163,7 @@ export async function inspectIntakeUpload(input: {
   bytes: number
   checksumSha256: string
   storage?: IntakeUploadStorageTransport
+  signal?: AbortSignal
 }): Promise<IntakeUploadInspection> {
   const config = storageConfig()
   const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
@@ -169,6 +178,7 @@ export async function inspectIntakeUpload(input: {
   try {
     result = (await storage.send(
       new HeadObjectCommand({ Bucket: config.bucket, Key: input.key, ChecksumMode: 'ENABLED' }),
+      input.signal ? { abortSignal: input.signal } : undefined,
     )) as typeof result
   } catch (error) {
     if (isMissingObject(error)) return { state: 'missing' }
@@ -194,6 +204,7 @@ export async function deleteInvalidIntakeUploadVersion(input: {
   key: string
   versionId: string
   storage?: IntakeUploadStorageTransport
+  signal?: AbortSignal
 }): Promise<void> {
   if (!input.versionId) {
     throw new Error('A confirmed immutable object version is required for intake upload deletion.')
@@ -202,5 +213,25 @@ export async function deleteInvalidIntakeUploadVersion(input: {
   const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
   await storage.send(
     new DeleteObjectCommand({ Bucket: config.bucket, Key: input.key, VersionId: input.versionId }),
+    input.signal ? { abortSignal: input.signal } : undefined,
   )
+}
+
+export async function readIntakeUploadVersion(input: {
+  key: string
+  versionId: string
+  storage?: IntakeUploadStorageTransport
+  signal?: AbortSignal
+}): Promise<AsyncIterable<Uint8Array>> {
+  if (!input.versionId) throw new Error('An immutable intake upload version is required.')
+  const config = storageConfig()
+  const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
+  const result = (await storage.send(
+    new GetObjectCommand({ Bucket: config.bucket, Key: input.key, VersionId: input.versionId }),
+    input.signal ? { abortSignal: input.signal } : undefined,
+  )) as { Body?: AsyncIterable<Uint8Array> }
+  if (!result.Body || !(Symbol.asyncIterator in result.Body)) {
+    throw new Error('The immutable intake upload bytes are unavailable.')
+  }
+  return result.Body
 }

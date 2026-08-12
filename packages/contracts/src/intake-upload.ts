@@ -14,7 +14,13 @@ export const IntakeUploadMimeType = z.enum([
 ])
 export type IntakeUploadMimeType = z.infer<typeof IntakeUploadMimeType>
 
-export const IntakeUploadStatus = z.enum(['RESERVED', 'VERIFYING', 'AWAITING_REVIEW', 'REJECTED'])
+export const IntakeUploadStatus = z.enum([
+  'RESERVED',
+  'VERIFYING',
+  'PRECHECK_PASSED',
+  'AWAITING_REVIEW',
+  'REJECTED',
+])
 export type IntakeUploadStatus = z.infer<typeof IntakeUploadStatus>
 
 export const IntakeUploadRejectionCode = z.enum([
@@ -29,6 +35,20 @@ export type IntakeUploadRejectionCode = z.infer<typeof IntakeUploadRejectionCode
 
 export const IntakeUploadRetryReason = z.enum(['TRANSPORT_UNAVAILABLE', 'VERIFICATION_UNAVAILABLE'])
 export type IntakeUploadRetryReason = z.infer<typeof IntakeUploadRetryReason>
+
+export const IntakeUploadVerificationStatus = z.enum(['PENDING', 'CLEAN', 'REJECTED'])
+export type IntakeUploadVerificationStatus = z.infer<typeof IntakeUploadVerificationStatus>
+
+export const IntakeUploadVerificationEvidence = z
+  .object({
+    engine: z.string().trim().min(1).max(64),
+    engineVersion: z.string().trim().min(1).max(64),
+    verdictHash: z.string().regex(/^[a-f0-9]{64}$/u),
+    computedByteSize: z.number().int().min(1).max(2_147_483_647),
+    computedSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict()
+export type IntakeUploadVerificationEvidence = z.infer<typeof IntakeUploadVerificationEvidence>
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u)
 function containsControlCharacter(value: string): boolean {

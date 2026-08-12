@@ -185,10 +185,17 @@ Section-level evidence and blockers are indexed in
   migration remains unapplied.
 - A separate quarantined file-intake seam accepts bounded PDFs and safe raster-image MIME types.
   It persists an actor-bound request before signing a create-only private PUT, uses a fenced
-  verification lease, and creates a `FILE_UPLOAD` intake run only after exact generation, byte,
-  MIME, checksum and storage-version verification. Client and operator surfaces expose safe
-  metadata without preview or download. Format parsing, malware scanning, extraction, package
-  creation, approval, apply and publication remain deliberately unavailable.
+  verification lease across HEAD, bounded exact-version streaming and version-specific rejection
+  cleanup. Local code records immutable exact-object `PRECHECK` receipts with actual streamed byte
+  count/hash and retains rejected evidence with a coarse public reason. Passing moves only to
+  `PRECHECK_PASSED`; it is not format or malware clearance. Database guards require separate exact
+  `PRECHECK/PASSED`, `RESOURCE_SAFETY/PASSED`, and `MALWARE/CLEAN` receipts before a new
+  `AWAITING_REVIEW` transition. No authoritative resource-safety or malware engine is configured,
+  so local execution creates no `FILE_UPLOAD` intake run and no Support-eligible attachment. Client
+  and operator surfaces use coarse processing states without safety claims, preview, download,
+  engine/hash/storage details, extraction, package creation, approval, apply or publication.
+  Forward-only migration `20260812001200_add_intake_upload_verification_receipts` is unapplied and
+  performs no legacy backfill.
 - Reachable tenant and platform-admin text-only staff-interview capture/review uses five
   role-specific question sets, exact consent, required answer/skip/redact representation,
   uncertainty/confidence controls, monotonic privacy, and public-only candidate text. Durable
@@ -457,7 +464,9 @@ Section-level evidence and blockers are indexed in
   review `20260812000600`, analytics attribution `20260812000700`, immutable manifest artifacts
   `20260812000800`, Support message version evidence `20260812000900`, terminal AgentRun lineage
   `20260812001000`, or participant produced-version evidence `20260812001100`, was applied or
-  rehearsed against a database.
+  rehearsed against a database. Intake verification receipt migration
+  `20260812001200_add_intake_upload_verification_receipts` is likewise unapplied and unrehearsed; it
+  intentionally performs no legacy safety-evidence backfill.
 
 ## Required program work not yet proven complete
 
@@ -485,7 +494,7 @@ Section-level evidence and blockers are indexed in
 
 ## Local browser-surface foundation
 
-`pnpm test:browser-foundation` now runs 158 deterministic DOM and route-adapter contracts (98
+`pnpm test:browser-foundation` now runs 164 deterministic DOM and route-adapter contracts (104
 dashboard and 60 web) across the Admin OS, Internal Client Workspace, ultra-simple Client Portal,
 and Guest experience. The gate is
 wired into CI and performs no authentication, network, provider, or database access. It is an inner
