@@ -1,8 +1,6 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@pathfinder/db', () => ({ writeAuditLogStrict: vi.fn().mockResolvedValue(undefined) }))
-
 import type { TRPCContext } from '../../context'
 import { router } from '../../core'
 import { adminOffboardingPlansRouter } from './offboarding-plans'
@@ -11,11 +9,12 @@ const venueFindMany = vi.fn()
 const planFindMany = vi.fn()
 const planFindFirst = vi.fn()
 const planCreate = vi.fn()
+const auditCreate = vi.fn()
 const mockDb = {
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   venue: { findMany: venueFindMany },
   offboardingPlan: { findMany: planFindMany, findFirst: planFindFirst, create: planCreate },
-  auditLog: { create: vi.fn() },
+  auditLog: { create: auditCreate },
 } as unknown as TRPCContext['db']
 
 function context(isPlatformAdmin = true): TRPCContext {
@@ -49,6 +48,7 @@ describe('admin offboarding plan foundation', () => {
       exportKinds: [],
       _count: { venueTargets: 1 },
     })
+    auditCreate.mockResolvedValue({ id: 'audit-1' })
   })
 
   it('rejects non-admin callers before any tenant data access', async () => {
@@ -107,6 +107,7 @@ describe('admin offboarding plan foundation', () => {
       }),
     )
     expect(planCreate.mock.calls[0]?.[0]?.data).not.toHaveProperty('deletionRequested')
+    expect(auditCreate).toHaveBeenCalledTimes(1)
   })
 
   it('does not create a plan when any requested venue is outside the tenant', async () => {
@@ -119,6 +120,20 @@ describe('admin offboarding plan foundation', () => {
       }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(planCreate).not.toHaveBeenCalled()
+    expect(auditCreate).not.toHaveBeenCalled()
+  })
+
+  it('rolls an action error into the API boundary without exposing partial success', async () => {
+    venueFindMany.mockResolvedValue([])
+    await expect(
+      testRouter.createCaller(context()).offboarding.createOffboardingDraft({
+        tenantId: 'tenant-1',
+        venueIds: ['missing-venue'],
+        revocationTargets: ['CLIENT_ACCESS'],
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(planCreate).not.toHaveBeenCalled()
+    expect(auditCreate).not.toHaveBeenCalled()
   })
 
   it('rejects duplicate scope and does not expose an execution or completion procedure', async () => {

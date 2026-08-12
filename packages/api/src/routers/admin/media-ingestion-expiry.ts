@@ -2,14 +2,16 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { claimMediaUploadAbortAction, db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { settleClaimedMediaUploadAbort } from './media-ingestion-abort'
+import { isMediaIngestionActionError } from './media-ingestion-helpers'
 
 type ExpiryCandidate = {
   id: string
+  venueId: string
   stage: string
   uploadAttemptId: string
   uploadStartedAt: Date
@@ -19,6 +21,7 @@ type ExpiryCandidate = {
 
 function isExpiryCandidate(row: {
   id: string
+  venueId: string
   stage: string
   uploadAttemptId: string | null
   uploadStartedAt: Date | null
@@ -65,6 +68,7 @@ export const mediaIngestionExpiryRouter = router({
           },
           select: {
             id: true,
+            venueId: true,
             stage: true,
             uploadAttemptId: true,
             uploadStartedAt: true,
@@ -99,59 +103,32 @@ export const mediaIngestionExpiryRouter = router({
         outcome: 'cancelled' | 'state-changed' | 'unconfirmed'
       }> = []
       for (const candidate of selected) {
-        if (candidate.stage === 'upload') {
-          const claimed = await withTenantIsolationBypass(() =>
-            db.mediaIngestionProject.updateMany({
-              where: {
-                id: candidate.id,
-                tenantId: input.tenantId,
-                status: 'UPLOADING',
-                stage: 'upload',
-                uploadAttemptId: candidate.uploadAttemptId,
-                uploadStartedAt: candidate.uploadStartedAt,
-                sourceObjectKey: candidate.sourceObjectKey,
-                storageUploadId: candidate.storageUploadId,
-              },
-              data: { stage: 'aborting', error: null },
-            }),
-          )
-          if (claimed.count !== 1) {
-            results.push({
-              projectId: candidate.id,
-              uploadAttemptId: candidate.uploadAttemptId,
-              outcome: 'state-changed',
-            })
-            continue
-          }
-        } else {
-          const current = await withTenantIsolationBypass(() =>
-            db.mediaIngestionProject.findFirst({
-              where: {
-                id: candidate.id,
-                tenantId: input.tenantId,
-                status: 'UPLOADING',
-                stage: 'aborting',
-                uploadAttemptId: candidate.uploadAttemptId,
-                uploadStartedAt: candidate.uploadStartedAt,
-                sourceObjectKey: candidate.sourceObjectKey,
-                storageUploadId: candidate.storageUploadId,
-              },
-              select: { id: true },
-            }),
-          )
-          if (!current) {
-            results.push({
-              projectId: candidate.id,
-              uploadAttemptId: candidate.uploadAttemptId,
-              outcome: 'state-changed',
-            })
-            continue
-          }
+        try {
+          await claimMediaUploadAbortAction({
+            tenantId: input.tenantId,
+            venueId: candidate.venueId,
+            projectId: candidate.id,
+            uploadAttemptId: candidate.uploadAttemptId,
+            expectedUploadStartedAt: candidate.uploadStartedAt,
+            expectedStage: candidate.stage as 'upload' | 'aborting',
+            expectedSourceObjectKey: candidate.sourceObjectKey,
+            expectedStorageUploadId: candidate.storageUploadId,
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          })
+        } catch (error) {
+          if (!isMediaIngestionActionError(error)) throw error
+          results.push({
+            projectId: candidate.id,
+            uploadAttemptId: candidate.uploadAttemptId,
+            outcome: 'state-changed',
+          })
+          continue
         }
 
         try {
           await settleClaimedMediaUploadAbort({
             tenantId: input.tenantId,
+            venueId: candidate.venueId,
             projectId: candidate.id,
             uploadAttemptId: candidate.uploadAttemptId,
             sourceObjectKey: candidate.sourceObjectKey,

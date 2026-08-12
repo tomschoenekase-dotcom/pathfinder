@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
@@ -27,39 +26,13 @@ import { router } from '../../core'
 import { CreateVenueRequestInput } from '../../schemas/venue'
 import { adminProcedure } from '../../trpc'
 import { slugify } from '../venue'
+import {
+  clientCreateHash,
+  mapClientActionError,
+  mapClientCreateIntentError,
+  platformAdminActor,
+} from './client-management-helpers'
 import { uniqueTenantSlug } from './helpers'
-
-function platformAdminActor(userId: string) {
-  return { type: 'HUMAN', id: userId, role: 'PLATFORM_ADMIN' } as const
-}
-function clientCreateHash(input: {
-  clientName: string
-  clientSlug?: string | undefined
-  venue: z.infer<typeof CreateVenueRequestInput>
-}): string {
-  return createHash('sha256').update(JSON.stringify(input)).digest('hex')
-}
-function mapClientCreateIntentError(error: unknown): never {
-  if (error instanceof ClientCreateIntentError) {
-    throw new TRPCError({ code: 'CONFLICT', message: error.message })
-  }
-  throw error
-}
-
-function mapClientActionError(error: unknown): never {
-  if (error instanceof ClientAccountActionError) {
-    throw new TRPCError({
-      code:
-        error.code === 'NOT_FOUND'
-          ? 'NOT_FOUND'
-          : error.code === 'CONFLICT'
-            ? 'CONFLICT'
-            : 'BAD_REQUEST',
-      message: error.message,
-    })
-  }
-  throw error
-}
 
 export const adminClientManagementRouter = router({
   listClients: adminProcedure.query(async () => {
@@ -151,6 +124,7 @@ export const adminClientManagementRouter = router({
     }),
 
   /** Creates the Clerk organization and canonical local client/venue behind a durable fence. */
+
   createClientAndVenue: adminProcedure
     .input(
       z.object({

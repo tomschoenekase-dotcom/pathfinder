@@ -47,6 +47,12 @@ import {
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { applyVenuePackageV3ContentEffects } from '../lib/venue-package-v3-content-effects'
+import {
+  parseVenuePackageContentVersionProvenance,
+  venuePackageRollbackCasWhere,
+  venuePackageRollbackMutationData,
+} from '../lib/venue-package-v3-rollback-state'
 import {
   planVenuePackageRollback,
   venuePackageSnapshotsEqual,
@@ -1256,244 +1262,21 @@ async function applyVersionThreePackage(input: {
     await record({ itemKey, entityType: 'VENUE', entityId: input.venueId, operation: 'UPDATE' })
   }
 
-  for (const operation of input.payload.places.create) {
-    await establishContext(operation.itemKey, operation.provenance)
-    const place = await input.db.place.create({
-      data: {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        name: operation.value.name,
-        type: operation.value.type,
-        ...(operation.value.itemType !== undefined ? { itemType: operation.value.itemType } : {}),
-        ...(operation.value.shortDescription !== undefined
-          ? { shortDescription: operation.value.shortDescription }
-          : {}),
-        ...(operation.value.longDescription !== undefined
-          ? { longDescription: operation.value.longDescription }
-          : {}),
-        ...(operation.value.lat !== undefined ? { lat: operation.value.lat } : {}),
-        ...(operation.value.lng !== undefined ? { lng: operation.value.lng } : {}),
-        tags: operation.value.tags,
-        importanceScore: operation.value.importanceScore,
-        ...(operation.value.areaName !== undefined ? { areaName: operation.value.areaName } : {}),
-        ...(operation.value.hours !== undefined ? { hours: operation.value.hours } : {}),
-        ...(operation.value.photoUrl !== undefined ? { photoUrl: operation.value.photoUrl } : {}),
-        ...directProvenanceData({
-          provenance: operation.provenance,
-          packageId: input.packageId,
-          importedAt,
-          humanConfirmedAt: input.approvedAt,
-          humanConfirmedBy: input.approvedBy,
-        }),
-      },
-      select: { id: true },
-    })
-    await record({
-      itemKey: operation.itemKey,
-      entityType: 'PLACE',
-      entityId: place.id,
-      operation: 'CREATE',
-    })
-  }
-  for (const operation of input.payload.places.update) {
-    await establishContext(operation.itemKey, operation.provenance)
-    const changed = await input.db.place.updateMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
-      data: {
-        ...operation.value,
-        ...directProvenanceData({
-          provenance: operation.provenance,
-          packageId: input.packageId,
-          importedAt,
-          humanConfirmedAt: input.approvedAt,
-          humanConfirmedBy: input.approvedBy,
-        }),
-      },
-    })
-    if (changed.count !== 1) conflict('Place changed during package application')
-    await record({
-      itemKey: operation.itemKey,
-      entityType: 'PLACE',
-      entityId: operation.id,
-      operation: 'UPDATE',
-    })
-  }
-  for (const operation of input.payload.places.delete) {
-    await establishContext(operation.itemKey, operation.provenance)
-    const changed = await input.db.place.deleteMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
-    })
-    if (changed.count !== 1) conflict('Place changed during package application')
-    await record({
-      itemKey: operation.itemKey,
-      entityType: 'PLACE',
-      entityId: operation.id,
-      operation: 'DELETE',
-    })
-  }
-
-  for (const operation of input.payload.knowledgeEntries.create) {
-    await establishContext(operation.itemKey, operation.provenance)
-    const entry = await input.db.venueKnowledgeEntry.create({
-      data: {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        ...operation.value,
-        ...directProvenanceData({
-          provenance: operation.provenance,
-          packageId: input.packageId,
-          importedAt,
-          humanConfirmedAt: input.approvedAt,
-          humanConfirmedBy: input.approvedBy,
-        }),
-      },
-      select: { id: true },
-    })
-    await record({
-      itemKey: operation.itemKey,
-      entityType: 'KNOWLEDGE_ENTRY',
-      entityId: entry.id,
-      operation: 'CREATE',
-    })
-  }
-  for (const operation of input.payload.knowledgeEntries.update) {
-    await establishContext(operation.itemKey, operation.provenance)
-    const changed = await input.db.venueKnowledgeEntry.updateMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
-      data: {
-        ...operation.value,
-        ...directProvenanceData({
-          provenance: operation.provenance,
-          packageId: input.packageId,
-          importedAt,
-          humanConfirmedAt: input.approvedAt,
-          humanConfirmedBy: input.approvedBy,
-        }),
-      },
-    })
-    if (changed.count !== 1) conflict('Knowledge entry changed during package application')
-    await record({
-      itemKey: operation.itemKey,
-      entityType: 'KNOWLEDGE_ENTRY',
-      entityId: operation.id,
-      operation: 'UPDATE',
-    })
-  }
-  for (const operation of input.payload.knowledgeEntries.delete) {
-    await establishContext(operation.itemKey, operation.provenance)
-    const changed = await input.db.venueKnowledgeEntry.deleteMany({
-      where: { id: operation.id, tenantId: input.tenantId, venueId: input.venueId },
-    })
-    if (changed.count !== 1) conflict('Knowledge entry changed during package application')
-    await record({
-      itemKey: operation.itemKey,
-      entityType: 'KNOWLEDGE_ENTRY',
-      entityId: operation.id,
-      operation: 'DELETE',
-    })
-  }
+  await applyVenuePackageV3ContentEffects({
+    db: input.db,
+    tenantId: input.tenantId,
+    venueId: input.venueId,
+    packageId: input.packageId,
+    approvedAt: input.approvedAt,
+    approvedBy: input.approvedBy,
+    importedAt,
+    payload: input.payload,
+    establishContext,
+    provenanceData: directProvenanceData,
+    record,
+    conflict,
+  })
   return effects
-}
-
-const mutableEntityFields = {
-  VENUE: new Set([
-    'name',
-    'slug',
-    'description',
-    'guideNotes',
-    'aiGuideNotes',
-    'aiFeaturedPlaceId',
-    'aiTone',
-    'tonePreset',
-    'tonePresetVersion',
-    'aiGuideName',
-    'chatTheme',
-    'chatAccentColor',
-    'chatFont',
-    'chatLogoUrl',
-    'chatBannerUrl',
-    'category',
-    'guideMode',
-    'defaultCenterLat',
-    'defaultCenterLng',
-    'geoBoundary',
-    'isActive',
-  ]),
-  PLACE: new Set([
-    'name',
-    'type',
-    'itemType',
-    'shortDescription',
-    'longDescription',
-    'lat',
-    'lng',
-    'tags',
-    'importanceScore',
-    'areaName',
-    'hours',
-    'photoUrl',
-    'isActive',
-    'sourceType',
-    'authorship',
-    'sourceName',
-    'sourceUrl',
-    'importedAt',
-    'humanConfirmedAt',
-    'humanConfirmedBy',
-    'lastReviewedAt',
-    'lastReviewedBy',
-    'sourcePackageId',
-  ]),
-  KNOWLEDGE_ENTRY: new Set([
-    'title',
-    'category',
-    'content',
-    'isEnabled',
-    'sourceType',
-    'authorship',
-    'sourceName',
-    'sourceUrl',
-    'importedAt',
-    'humanConfirmedAt',
-    'humanConfirmedBy',
-    'lastReviewedAt',
-    'lastReviewedBy',
-    'sourcePackageId',
-  ]),
-} as const
-
-const provenanceDateFields = new Set(['importedAt', 'humanConfirmedAt', 'lastReviewedAt'])
-
-function mutationValue(
-  entityType: keyof typeof mutableEntityFields,
-  field: string,
-  value: unknown,
-) {
-  if (provenanceDateFields.has(field) && typeof value === 'string') return new Date(value)
-  return value
-}
-
-function mutationData(
-  entityType: keyof typeof mutableEntityFields,
-  snapshot: JsonSnapshot,
-): Record<string, unknown> {
-  const allowed = mutableEntityFields[entityType]
-  const data: Record<string, unknown> = {}
-  for (const [field, value] of Object.entries(snapshot)) {
-    if (allowed.has(field)) data[field] = mutationValue(entityType, field, value)
-  }
-  return data
-}
-
-function casWhere(
-  entityType: keyof typeof mutableEntityFields,
-  expected: JsonSnapshot,
-): Record<string, unknown> {
-  const where: Record<string, unknown> = {}
-  for (const [field, value] of Object.entries(mutationData(entityType, expected))) {
-    where[field] = field === 'tags' && Array.isArray(value) ? { equals: value } : value
-  }
-  return where
 }
 
 async function currentEntitySnapshot(input: {
@@ -1591,25 +1374,6 @@ async function currentEntitySnapshot(input: {
     },
   })
   return row ? (jsonValue(row) as JsonSnapshot) : null
-}
-
-function parseContentVersionSourceProvenance(value: unknown): ContentVersionSourceProvenance {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    conflict('Package history provenance is invalid')
-  }
-  const record = value as Record<string, unknown>
-  if (
-    typeof record.sourceType !== 'string' ||
-    (record.sourceName !== undefined && typeof record.sourceName !== 'string') ||
-    (record.sourceUrl !== undefined && typeof record.sourceUrl !== 'string') ||
-    (record.contentOrigin !== 'HUMAN_AUTHORED' && record.contentOrigin !== 'AI_GENERATED') ||
-    typeof record.importedAt !== 'string' ||
-    typeof record.humanConfirmedAt !== 'string' ||
-    typeof record.lastReviewedAt !== 'string'
-  ) {
-    conflict('Package history provenance is invalid')
-  }
-  return record as ContentVersionSourceProvenance
 }
 
 type PlannedVersionThreeRollback = {
@@ -1742,7 +1506,7 @@ async function planVersionThreeRollback(input: {
     plans.push({
       effect,
       plan: planned.plan,
-      provenance: parseContentVersionSourceProvenance(applied.sourceProvenance),
+      provenance: parseVenuePackageContentVersionProvenance(applied.sourceProvenance, conflict),
     })
   }
   const createdPlaceDeletes = plans
@@ -1796,7 +1560,7 @@ async function executeVersionThreeRollback(input: {
       const where = {
         ...scope,
         ...(item.effect.entityType === 'VENUE' ? {} : { venueId: input.venueId }),
-        ...casWhere(item.effect.entityType, item.plan.expectedState),
+        ...venuePackageRollbackCasWhere(item.effect.entityType, item.plan.expectedState),
       }
       const removed =
         item.effect.entityType === 'PLACE'
@@ -1819,7 +1583,7 @@ async function executeVersionThreeRollback(input: {
         id: item.effect.entityId,
         tenantId: input.tenantId,
         venueId: input.venueId,
-        ...mutationData(item.effect.entityType, state),
+        ...venuePackageRollbackMutationData(item.effect.entityType, state),
       }
       if (item.effect.entityType === 'PLACE') {
         await input.db.place.create({ data: data as PlaceCreateData })
@@ -1836,9 +1600,9 @@ async function executeVersionThreeRollback(input: {
       const where = {
         ...scope,
         ...(item.effect.entityType === 'VENUE' ? {} : { venueId: input.venueId }),
-        ...casWhere(item.effect.entityType, item.plan.expectedFields),
+        ...venuePackageRollbackCasWhere(item.effect.entityType, item.plan.expectedFields),
       }
-      const data = mutationData(item.effect.entityType, item.plan.fields)
+      const data = venuePackageRollbackMutationData(item.effect.entityType, item.plan.fields)
       const changed =
         item.effect.entityType === 'VENUE'
           ? await input.db.venue.updateMany({ where, data })

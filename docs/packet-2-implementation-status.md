@@ -114,7 +114,11 @@ Section-level evidence and blockers are indexed in
   authorize deletion while retention policy remains owner/legal gated.
 - Tenant-scoped offboarding plan, venue-target, revocation-evidence, and export-artifact persistence
   is defined in a forward-only migration with append-only and delete guards. Admin APIs may only
-  list/get/create a REQUESTED plan; no revocation, completion, retention, or deletion action exists.
+  list/get/create a REQUESTED plan through one neutral HUMAN PLATFORM_ADMIN action with exact
+  tenant/venue validation and strict same-transaction audit; no revocation, completion, retention,
+  or deletion action exists. The schema has no request key, so a lost response leaves draft-creation
+  retry ambiguous and can create another deliberate-looking REQUESTED plan; operators must reload
+  authoritative plan history rather than retry automatically.
 - Client-scoped internal Offboarding console displays venue targets, all required revocations,
   append-only evidence, and export metadata. Operators may only create a confirmed REQUESTED draft;
   the UI prominently states that retention is unresolved and exposes no execution/deletion control.
@@ -265,8 +269,10 @@ Section-level evidence and blockers are indexed in
   onboarding beyond the bounded existing-DRAFT lineage bridge.
 - Venue Deployment Manifest v2-native persistence/apply semantics beyond the bounded conversion into
   existing preview/draft inputs.
-- Broader canonical domain action coverage for remaining media and secondary account/workspace
+- Broader canonical domain action coverage for remaining secondary account/workspace
   mutations, so every UI, worker, API, MCP, and agent mutation shares the same services.
+- Durable request identity for offboarding draft creation; current schema cannot distinguish an
+  intentional second request from a retry after an ambiguous transaction outcome.
 - Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
   including any later automated validation/evaluation, approval, apply or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration
@@ -279,6 +285,15 @@ Section-level evidence and blockers are indexed in
   evidence. Admin client lookup/directory and portal eager analytics/report fetches are already
   corrected.
 - Full desktop/mobile visual QA, browser E2E, accessibility automation, and migration rehearsals.
+
+## Local browser-surface foundation
+
+`pnpm test:browser-foundation` now runs 68 deterministic DOM and route-adapter contracts across the
+Admin OS, Internal Client Workspace, ultra-simple Client Portal, and Guest experience. The gate is
+wired into CI and performs no authentication, network, provider, or database access. It is an inner
+loop foundation, not Playwright or deployed-browser evidence: browser-engine layout, Clerk flows,
+visual regression, and authenticated staging remain unverified.
+
 - Isolated live staging, alert delivery, promotion, restore, and production evidence where owner
   authorization is required.
 

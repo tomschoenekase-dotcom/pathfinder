@@ -1,4 +1,17 @@
 export const MAX_MEDIA_ARCHIVE_BYTES = 5 * 1024 * 1024 * 1024
+
+export function isMediaIngestionActionError(
+  error: unknown,
+): error is Error & { code: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_STATUS' | 'INVALID_INPUT' } {
+  return (
+    error instanceof Error &&
+    error.name === 'MediaIngestionActionError' &&
+    'code' in error &&
+    ['NOT_FOUND', 'CONFLICT', 'INVALID_STATUS', 'INVALID_INPUT'].includes(
+      String((error as { code?: unknown }).code),
+    )
+  )
+}
 export const mediaIngestionModes = ['ECONOMY', 'BALANCED', 'FORENSIC'] as const
 export const MEDIA_SOURCE_FINGERPRINT_ALGORITHM = 'pathfinder-sha256-part-manifest-v1' as const
 

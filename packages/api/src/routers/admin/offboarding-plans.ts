@@ -5,7 +5,11 @@ import {
   OffboardingExportKind,
   OffboardingRevocationTarget,
 } from '@pathfinder/contracts/offboarding'
-import { writeAuditLogStrict } from '@pathfinder/db'
+import {
+  createOffboardingDraftAction,
+  offboardingPlanSummarySelect,
+  OffboardingPlanActionError,
+} from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
@@ -15,19 +19,15 @@ const cursor = z
   .object({ requestedAt: z.string().datetime({ offset: true }), id: z.string().min(1) })
   .strict()
 
-const planSummarySelect = {
-  id: true,
-  tenantId: true,
-  status: true,
-  revocationTargets: true,
-  exportKinds: true,
-  effectiveAt: true,
-  requestedBy: true,
-  requestedAt: true,
-  createdAt: true,
-  updatedAt: true,
-  _count: { select: { venueTargets: true } },
-} as const
+function mapOffboardingPlanActionError(error: unknown): never {
+  if (error instanceof OffboardingPlanActionError) {
+    throw new TRPCError({
+      code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
+      message: error.message,
+    })
+  }
+  throw error
+}
 
 export const adminOffboardingPlansRouter = router({
   listOffboardingPlans: adminProcedure
@@ -53,7 +53,7 @@ export const adminOffboardingPlansRouter = router({
         },
         orderBy: [{ requestedAt: 'desc' }, { id: 'desc' }],
         take: input.limit + 1,
-        select: planSummarySelect,
+        select: offboardingPlanSummarySelect,
       })
       const items = rows.slice(0, input.limit)
       const last = items.at(-1)
@@ -72,7 +72,7 @@ export const adminOffboardingPlansRouter = router({
       const plan = await ctx.db.offboardingPlan.findFirst({
         where: { id: input.planId, tenantId: input.tenantId },
         select: {
-          ...planSummarySelect,
+          ...offboardingPlanSummarySelect,
           venueTargets: {
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             select: {
@@ -142,49 +142,22 @@ export const adminOffboardingPlansRouter = router({
         }),
     )
     .mutation(async ({ ctx, input }) => {
-      return ctx.db.$transaction(async (tx) => {
-        const venues = await tx.venue.findMany({
-          where: { tenantId: input.tenantId, id: { in: input.venueIds } },
-          select: { id: true },
-        })
-        if (venues.length !== input.venueIds.length) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'One or more venues were not found' })
-        }
-
-        const plan = await tx.offboardingPlan.create({
-          data: {
+      try {
+        return await createOffboardingDraftAction(
+          {
             tenantId: input.tenantId,
-            status: 'REQUESTED',
+            venueIds: input.venueIds,
             revocationTargets: input.revocationTargets,
             exportKinds: input.exportKinds,
             ...(input.effectiveAt !== undefined
               ? { effectiveAt: new Date(input.effectiveAt) }
               : {}),
-            requestedBy: ctx.session.userId,
-            venueTargets: {
-              create: input.venueIds.map((venueId) => ({ tenantId: input.tenantId, venueId })),
-            },
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
           },
-          select: planSummarySelect,
-        })
-        await writeAuditLogStrict(
-          {
-            tenantId: input.tenantId,
-            actorId: ctx.session.userId,
-            actorRole: 'PLATFORM_ADMIN',
-            action: 'offboarding-plan.draft-created',
-            targetType: 'OffboardingPlan',
-            targetId: plan.id,
-            afterState: {
-              status: 'REQUESTED',
-              venueCount: input.venueIds.length,
-              revocationTargets: input.revocationTargets,
-              exportKinds: input.exportKinds,
-            },
-          },
-          tx,
+          ctx.db,
         )
-        return plan
-      })
+      } catch (error) {
+        mapOffboardingPlanActionError(error)
+      }
     }),
 })

@@ -2,6 +2,14 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
+  createEngagementQuestionAction,
+  deleteEngagementQuestionAction,
+  engagementQuestionSelect,
+  EngagementQuestionActionError,
+  updateEngagementQuestionAction,
+} from '@pathfinder/db'
+
+import {
   CreateEngagementQuestionInput,
   UpdateEngagementQuestionInput,
 } from '../schemas/engagement-question'
@@ -15,31 +23,19 @@ export {
   UpdateEngagementQuestionInput,
 } from '../schemas/engagement-question'
 
-const engagementQuestionSelect = {
-  id: true,
-  tenantId: true,
-  questionType: true,
-  prompt: true,
-  choiceOptions: true,
-  intensity: true,
-  isActive: true,
-  createdAt: true,
-  updatedAt: true,
-} as const
-
-const MULTIPLE_CHOICE_MIN = 2
-const MULTIPLE_CHOICE_MAX = 4
-
-function assertValidChoiceOptions(questionType: string, choiceOptions: string[]): void {
-  if (
-    questionType === 'MULTIPLE_CHOICE' &&
-    (choiceOptions.length < MULTIPLE_CHOICE_MIN || choiceOptions.length > MULTIPLE_CHOICE_MAX)
-  ) {
+function mapActionError(error: unknown): never {
+  if (error instanceof EngagementQuestionActionError) {
     throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: `Multiple-choice questions need ${MULTIPLE_CHOICE_MIN} to ${MULTIPLE_CHOICE_MAX} choice options`,
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'BAD_REQUEST',
+      message: error.message,
     })
   }
+  throw error
 }
 
 export const engagementQuestionRouter = router({
@@ -55,110 +51,71 @@ export const engagementQuestionRouter = router({
     .use(requireRole('MANAGER'))
     .input(CreateEngagementQuestionInput)
     .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.session.activeTenantId
-
-      assertValidChoiceOptions(input.questionType, input.choiceOptions)
-
-      return ctx.db.engagementQuestion.create({
-        data: {
-          tenantId,
+      try {
+        return await createEngagementQuestionAction({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
           questionType: input.questionType,
           prompt: input.prompt,
-          choiceOptions: input.questionType === 'MULTIPLE_CHOICE' ? input.choiceOptions : [],
+          choiceOptions: input.choiceOptions,
           intensity: input.intensity,
-        },
-        select: engagementQuestionSelect,
-      })
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: ctx.session.role as 'OWNER' | 'MANAGER',
+          },
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
     }),
 
   update: tenantProcedure
     .use(requireRole('MANAGER'))
     .input(UpdateEngagementQuestionInput)
     .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.session.activeTenantId
-
-      const existing = await ctx.db.engagementQuestion.findFirst({
-        where: { id: input.id, tenantId },
-        select: engagementQuestionSelect,
-      })
-
-      if (!existing) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Engagement question not found' })
-      }
-      if (existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Engagement question changed in another session. Refresh and try again.',
+      try {
+        return await updateEngagementQuestionAction({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          questionId: input.id,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          patch: {
+            ...(input.questionType !== undefined ? { questionType: input.questionType } : {}),
+            ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+            ...(input.choiceOptions !== undefined ? { choiceOptions: input.choiceOptions } : {}),
+            ...(input.intensity !== undefined ? { intensity: input.intensity } : {}),
+            ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+          },
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: ctx.session.role as 'OWNER' | 'MANAGER',
+          },
         })
+      } catch (error) {
+        mapActionError(error)
       }
-
-      const effectiveType = input.questionType ?? existing.questionType
-      const effectiveOptions = input.choiceOptions ?? existing.choiceOptions
-      assertValidChoiceOptions(effectiveType, effectiveOptions)
-
-      const data = {
-        ...(input.questionType !== undefined ? { questionType: input.questionType } : {}),
-        ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
-        ...(input.choiceOptions !== undefined ? { choiceOptions: input.choiceOptions } : {}),
-        ...(input.intensity !== undefined ? { intensity: input.intensity } : {}),
-        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        updatedAt: new Date(Math.max(Date.now(), existing.updatedAt.getTime() + 1)),
-      }
-
-      const changed = await ctx.db.engagementQuestion.updateMany({
-        where: { id: input.id, tenantId, updatedAt: input.expectedUpdatedAt },
-        data,
-      })
-      if (changed.count !== 1) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Engagement question changed in another session. Refresh and try again.',
-        })
-      }
-
-      const updated = await ctx.db.engagementQuestion.findFirst({
-        where: { id: input.id, tenantId },
-        select: engagementQuestionSelect,
-      })
-
-      if (!updated) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Engagement question not found' })
-      }
-
-      return updated
     }),
 
   delete: tenantProcedure
     .use(requireRole('MANAGER'))
     .input(z.object({ id: z.string().cuid(), expectedUpdatedAt: z.coerce.date() }).strict())
     .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.session.activeTenantId
-
-      const existing = await ctx.db.engagementQuestion.findFirst({
-        where: { id: input.id, tenantId },
-        select: { id: true, updatedAt: true },
-      })
-
-      if (!existing) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Engagement question not found' })
-      }
-      if (existing.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Engagement question changed in another session. Refresh and try again.',
+      try {
+        return await deleteEngagementQuestionAction({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          questionId: input.id,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: ctx.session.role as 'OWNER' | 'MANAGER',
+          },
         })
+      } catch (error) {
+        mapActionError(error)
       }
-
-      const deleted = await ctx.db.engagementQuestion.deleteMany({
-        where: { id: input.id, tenantId, updatedAt: input.expectedUpdatedAt },
-      })
-      if (deleted.count !== 1) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Engagement question changed in another session. Refresh and try again.',
-        })
-      }
-
-      return { id: input.id }
     }),
 })

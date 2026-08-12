@@ -1,13 +1,20 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { assertVenueAvailable, db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import {
+  assertVenueAvailable,
+  claimMediaUploadAbortAction,
+  db,
+  saveMediaIngestionReviewAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 import { enqueueMediaIngestion } from '@pathfinder/jobs'
 import { VenuePackagePayloadV1 } from '@pathfinder/contracts'
 
 import { router } from '../../core'
 import { adminAiProcedure, adminProcedure } from '../../trpc'
 import { settleClaimedMediaUploadAbort } from './media-ingestion-abort'
+import { isMediaIngestionActionError } from './media-ingestion-helpers'
 import {
   mediaFindingCorrectionSchema,
   mediaFindingsSchema,
@@ -77,7 +84,7 @@ export const mediaIngestionLifecycleRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      let project = await withTenantIsolationBypass(() =>
+      let projectScope = await withTenantIsolationBypass(() =>
         db.mediaIngestionProject.findFirst({
           where: {
             id: input.projectId,
@@ -86,12 +93,18 @@ export const mediaIngestionLifecycleRouter = router({
             stage: 'upload',
             uploadAttemptId: input.uploadAttemptId,
           },
-          select: { id: true, sourceObjectKey: true, storageUploadId: true },
+          select: {
+            id: true,
+            venueId: true,
+            stage: true,
+            sourceObjectKey: true,
+            storageUploadId: true,
+          },
         }),
       )
       let resumedAbort = false
-      if (!project) {
-        project = await withTenantIsolationBypass(() =>
+      if (!projectScope) {
+        projectScope = await withTenantIsolationBypass(() =>
           db.mediaIngestionProject.findFirst({
             where: {
               id: input.projectId,
@@ -100,38 +113,57 @@ export const mediaIngestionLifecycleRouter = router({
               stage: 'aborting',
               uploadAttemptId: input.uploadAttemptId,
             },
-            select: { id: true, sourceObjectKey: true, storageUploadId: true },
+            select: {
+              id: true,
+              venueId: true,
+              stage: true,
+              sourceObjectKey: true,
+              storageUploadId: true,
+            },
           }),
         )
-        resumedAbort = project !== null
+        resumedAbort = projectScope !== null
       }
-      if (!project?.sourceObjectKey || !project.storageUploadId) {
+      if (!projectScope) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Active upload not found.' })
       }
-      if (!resumedAbort) {
-        const claimed = await withTenantIsolationBypass(() =>
-          db.mediaIngestionProject.updateMany({
-            where: {
-              id: project.id,
-              tenantId: input.tenantId,
-              status: 'UPLOADING',
-              stage: 'upload',
-              uploadAttemptId: input.uploadAttemptId,
-            },
-            data: { stage: 'aborting', error: null },
-          }),
-        )
-        if (claimed.count !== 1) {
-          throw new TRPCError({ code: 'CONFLICT', message: 'The upload state already changed.' })
+      let claim
+      try {
+        claim = await claimMediaUploadAbortAction({
+          tenantId: input.tenantId,
+          venueId: projectScope.venueId,
+          projectId: input.projectId,
+          uploadAttemptId: input.uploadAttemptId,
+          expectedStage: resumedAbort ? 'aborting' : 'upload',
+          ...(projectScope.sourceObjectKey
+            ? { expectedSourceObjectKey: projectScope.sourceObjectKey }
+            : {}),
+          ...(projectScope.storageUploadId
+            ? { expectedStorageUploadId: projectScope.storageUploadId }
+            : {}),
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        })
+      } catch (error) {
+        if (isMediaIngestionActionError(error)) {
+          throw new TRPCError({
+            code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'CONFLICT',
+            message:
+              error.code === 'NOT_FOUND'
+                ? 'Active upload not found.'
+                : 'The upload state already changed.',
+            cause: error,
+          })
         }
+        throw error
       }
       return settleClaimedMediaUploadAbort({
         tenantId: input.tenantId,
-        projectId: project.id,
+        venueId: projectScope.venueId,
+        projectId: input.projectId,
         uploadAttemptId: input.uploadAttemptId,
-        sourceObjectKey: project.sourceObjectKey,
-        storageUploadId: project.storageUploadId,
-        resumedAbort,
+        sourceObjectKey: claim.sourceObjectKey,
+        storageUploadId: claim.storageUploadId,
+        resumedAbort: claim.resumed,
         actorId: ctx.session.userId,
         auditAction: 'admin.media_ingestion.upload_aborted',
       })
@@ -211,41 +243,33 @@ export const mediaIngestionLifecycleRouter = router({
           },
         }
       })
-      const nextUpdatedAt = new Date(Math.max(Date.now(), input.expectedUpdatedAt.getTime() + 1))
-      const result = await withTenantIsolationBypass(() =>
-        db.mediaIngestionProject.updateMany({
-          where: {
-            id: input.projectId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            status: { in: ['NEEDS_INPUT', 'READY_FOR_REVIEW'] },
-            sourceObjectGeneration: input.reviewGeneration,
-            updatedAt: input.expectedUpdatedAt,
-          },
-          data: {
-            questions: reviewedQuestions,
-            draftJson: input.draftJson,
-            findings: reviewedFindings,
-            status: hasUnansweredQuestions ? 'NEEDS_INPUT' : 'READY_FOR_REVIEW',
-            stage: hasUnansweredQuestions ? 'questions' : 'review',
-            updatedAt: nextUpdatedAt,
-          },
-        }),
-      )
-      if (result.count === 0) {
+      let nextUpdatedAt: Date
+      try {
+        const saved = await saveMediaIngestionReviewAction({
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          projectId: input.projectId,
+          reviewGeneration: input.reviewGeneration,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          questions: reviewedQuestions,
+          draftJson: input.draftJson,
+          findings: reviewedFindings,
+          status: hasUnansweredQuestions ? 'NEEDS_INPUT' : 'READY_FOR_REVIEW',
+          stage: hasUnansweredQuestions ? 'questions' : 'review',
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        })
+        nextUpdatedAt = saved.updatedAt
+      } catch (error) {
+        if (!isMediaIngestionActionError(error)) throw error
         throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This review changed in another session. Reload before saving again.',
+          code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'CONFLICT',
+          message:
+            error.code === 'NOT_FOUND'
+              ? 'Reviewable media project not found.'
+              : 'This review changed in another session. Reload before saving again.',
+          cause: error,
         })
       }
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.media_ingestion.review_saved',
-        targetType: 'MediaIngestionProject',
-        targetId: input.projectId,
-      })
       return {
         ok: true,
         updatedAt: nextUpdatedAt,

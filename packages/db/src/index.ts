@@ -438,6 +438,20 @@ export type {
   WeeklyReportHumanActor,
 } from './helpers/weekly-report-actions'
 export {
+  claimMediaUploadAbortAction,
+  claimMediaUploadFinalizationAction,
+  completeMediaUploadAbortAction,
+  createMediaIngestionProjectAction,
+  MediaIngestionActionError,
+  queueVerifiedMediaUploadAction,
+  saveMediaIngestionReviewAction,
+} from './helpers/media-ingestion-actions'
+export type {
+  MediaIngestionActionClient,
+  MediaIngestionActionErrorCode,
+  MediaIngestionHumanActor,
+} from './helpers/media-ingestion-actions'
+export {
   approveVenuePackageAction,
   applyVenuePackageAction,
   revertVenuePackageAction,
@@ -449,3 +463,26 @@ export type {
   VenuePackageLifecycleStatus,
   VenuePackageOwnerActor,
 } from './helpers/venue-package-lifecycle-actions'
+export {
+  createEngagementQuestionAction,
+  deleteEngagementQuestionAction,
+  engagementQuestionSelect,
+  EngagementQuestionActionError,
+  updateEngagementQuestionAction,
+} from './helpers/engagement-question-actions'
+export type {
+  EngagementQuestionActionClient,
+  EngagementQuestionActionErrorCode,
+  EngagementQuestionActor,
+} from './helpers/engagement-question-actions'
+export {
+  createOffboardingDraftAction,
+  offboardingPlanSummarySelect,
+  OffboardingPlanActionError,
+} from './helpers/offboarding-plan-actions'
+export type {
+  CreateOffboardingDraftInput,
+  OffboardingPlanActionClient,
+  OffboardingPlanActionErrorCode,
+  OffboardingPlanHumanActor,
+} from './helpers/offboarding-plan-actions'

@@ -1,11 +1,12 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import { createMediaIngestionProjectAction, db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import {
+  isMediaIngestionActionError,
   mediaIngestionModes as modes,
   mediaIngestionProjectSelect as projectSelect,
   serializeMediaIngestionProject as serializeProject,
@@ -246,33 +247,20 @@ export const mediaIngestionProjectsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await withTenantIsolationBypass(async () => {
-        const venue = await db.venue.findFirst({
-          where: { id: input.venueId, tenantId: input.tenantId },
-          select: { id: true },
+      try {
+        return await createMediaIngestionProjectAction({
+          ...input,
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
         })
-        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found.' })
-        return db.mediaIngestionProject.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            name: input.name,
-            context: input.context,
-            mode: input.mode,
-            settings: input.settings,
-            createdBy: ctx.session.userId,
-          },
-          select: { id: true },
-        })
-      })
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.media_ingestion.created',
-        targetType: 'MediaIngestionProject',
-        targetId: project.id,
-      })
-      return project
+      } catch (error) {
+        if (isMediaIngestionActionError(error)) {
+          throw new TRPCError({
+            code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
+            message: error.message,
+            cause: error,
+          })
+        }
+        throw error
+      }
     }),
 })

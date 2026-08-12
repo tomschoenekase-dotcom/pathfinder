@@ -8,6 +8,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test && pnpm test:scripts",
+    "test:browser-foundation": "node scripts/run-packet-2-browser-foundation.mjs",
     "test:scripts": "node scripts/run-script-tests.mjs",
     "db:migrate:disposable": "node scripts/migrate-disposable-db.mjs",
     "test:redis:disposable": "node scripts/run-disposable-redis-integration.mjs",

@@ -1,8 +1,9 @@
 import { TRPCError } from '@trpc/server'
 
 import { logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import { db, queueVerifiedMediaUploadAction, withTenantIsolationBypass } from '@pathfinder/db'
 import { enqueueMediaIngestion } from '@pathfinder/jobs'
+import { isMediaIngestionActionError } from './media-ingestion-helpers'
 
 export async function queueVerifiedMediaUpload(input: {
   tenantId: string
@@ -12,34 +13,24 @@ export async function queueVerifiedMediaUpload(input: {
   verifiedBytes: number
   actorId: string
 }) {
-  let transitionedCount: number | null = null
-  let transitionError: unknown
   try {
-    const transitioned = await withTenantIsolationBypass(() =>
-      db.mediaIngestionProject.updateMany({
-        where: {
-          id: input.projectId,
-          tenantId: input.tenantId,
-          status: 'UPLOADING',
-          stage: 'finalizing',
-          uploadAttemptId: input.uploadAttemptId,
-        },
-        data: {
-          status: 'QUEUED',
-          stage: 'inventory',
-          progress: 1,
-          sourceBytes: BigInt(input.verifiedBytes),
-          uploadStartedAt: null,
-          storageUploadId: null,
-          sourceContentType: null,
-        },
-      }),
-    )
-    transitionedCount = transitioned.count
+    const transition = await queueVerifiedMediaUploadAction({
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      projectId: input.projectId,
+      uploadAttemptId: input.uploadAttemptId,
+      verifiedBytes: input.verifiedBytes,
+      actor: { type: 'HUMAN', id: input.actorId, role: 'PLATFORM_ADMIN' },
+    })
+    if (transition.replayed && transition.state !== 'QUEUED') return { ok: true }
   } catch (error) {
-    transitionError = error
-  }
-  if (transitionedCount !== 1) {
+    if (isMediaIngestionActionError(error)) {
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'The upload state changed before completion could be recorded.',
+        cause: error,
+      })
+    }
     let readback: { status: string; stage: string; sourceBytes: bigint | null } | null
     try {
       readback = await withTenantIsolationBypass(() =>
@@ -47,6 +38,7 @@ export async function queueVerifiedMediaUpload(input: {
           where: {
             id: input.projectId,
             tenantId: input.tenantId,
+            venueId: input.venueId,
             uploadAttemptId: input.uploadAttemptId,
           },
           select: { status: true, stage: true, sourceBytes: true },
@@ -60,34 +52,25 @@ export async function queueVerifiedMediaUpload(input: {
         error: 'Upload queue transition could not be confirmed.',
         errorType: readbackError instanceof Error ? readbackError.name : 'UnknownError',
       })
-      if (transitionError !== undefined) throw transitionError
-      throw new TRPCError({
-        code: 'CONFLICT',
-        message: 'The upload state changed before completion could be recorded.',
-      })
+      throw error
     }
-    const exactQueued =
-      readback?.status === 'QUEUED' &&
-      readback.stage === 'inventory' &&
-      readback.sourceBytes === BigInt(input.verifiedBytes)
-    const alreadyProcessing =
-      readback !== null && ['INVENTORYING', 'ANALYZING', 'SYNTHESIZING'].includes(readback.status)
-    if (alreadyProcessing) return { ok: true }
-    if (!exactQueued) {
-      if (transitionError !== undefined) {
-        logger.warn({
-          action: 'media-ingestion.upload-queue-transition.uncertain',
-          projectId: input.projectId,
-          uploadAttemptId: input.uploadAttemptId,
-          error: 'Upload queue transition could not be confirmed.',
-          errorType: transitionError instanceof Error ? transitionError.name : 'UnknownError',
-        })
-        throw transitionError
-      }
-      throw new TRPCError({
-        code: 'CONFLICT',
-        message: 'The upload state changed before completion could be recorded.',
+    const exactBytes = readback?.sourceBytes === BigInt(input.verifiedBytes)
+    if (
+      exactBytes &&
+      readback !== null &&
+      ['INVENTORYING', 'ANALYZING', 'SYNTHESIZING'].includes(readback.status)
+    ) {
+      return { ok: true }
+    }
+    if (!(exactBytes && readback?.status === 'QUEUED' && readback.stage === 'inventory')) {
+      logger.warn({
+        action: 'media-ingestion.upload-queue-transition.uncertain',
+        projectId: input.projectId,
+        uploadAttemptId: input.uploadAttemptId,
+        error: 'Upload queue transition could not be confirmed.',
+        errorType: error instanceof Error ? error.name : 'UnknownError',
       })
+      throw error
     }
   }
   try {
@@ -122,13 +105,5 @@ export async function queueVerifiedMediaUpload(input: {
     }
     throw error
   }
-  await writeAuditLog({
-    tenantId: input.tenantId,
-    actorId: input.actorId,
-    actorRole: 'PLATFORM_ADMIN',
-    action: 'admin.media_ingestion.upload_completed',
-    targetType: 'MediaIngestionProject',
-    targetId: input.projectId,
-  })
   return { ok: true }
 }

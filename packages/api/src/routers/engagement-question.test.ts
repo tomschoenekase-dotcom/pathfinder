@@ -10,6 +10,7 @@ const engagementQuestionFindFirst = vi.fn()
 const engagementQuestionCreate = vi.fn()
 const engagementQuestionUpdateMany = vi.fn()
 const engagementQuestionDeleteMany = vi.fn()
+const auditLogCreate = vi.fn().mockResolvedValue({ id: 'audit_1' })
 
 const mockDb = {
   engagementQuestion: {
@@ -19,7 +20,11 @@ const mockDb = {
     updateMany: engagementQuestionUpdateMany,
     deleteMany: engagementQuestionDeleteMany,
   },
+  auditLog: { create: auditLogCreate },
 } as unknown as TRPCContext['db']
+;(mockDb.$transaction as unknown as ReturnType<typeof vi.fn>) = vi.fn(
+  async (operation: (tx: TRPCContext['db']) => unknown) => operation(mockDb),
+)
 
 const baseCtx = { db: mockDb, headers: new Headers() }
 
@@ -67,6 +72,7 @@ const questionRow = {
 describe('engagementQuestion router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    auditLogCreate.mockResolvedValue({ id: 'audit_1' })
   })
 
   it('list scopes by tenantId', async () => {

@@ -1,13 +1,17 @@
 import { TRPCError } from '@trpc/server'
 
 import { logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import { completeMediaUploadAbortAction, db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { abortMediaUpload } from '../../lib/media-storage'
-import { isNoSuchMediaUpload as isNoSuchUpload } from './media-ingestion-helpers'
+import {
+  isMediaIngestionActionError,
+  isNoSuchMediaUpload as isNoSuchUpload,
+} from './media-ingestion-helpers'
 
 export async function settleClaimedMediaUploadAbort(input: {
   tenantId: string
+  venueId: string
   projectId: string
   uploadAttemptId: string
   sourceObjectKey: string
@@ -60,42 +64,17 @@ export async function settleClaimedMediaUploadAbort(input: {
     }
   }
 
-  const cancelled = await withTenantIsolationBypass(() =>
-    db.mediaIngestionProject.updateMany({
-      where: {
-        id: input.projectId,
-        tenantId: input.tenantId,
-        status: 'UPLOADING',
-        stage: 'aborting',
-        uploadAttemptId: input.uploadAttemptId,
-        sourceObjectKey: input.sourceObjectKey,
-        storageUploadId: input.storageUploadId,
-      },
-      data: {
-        status: 'CANCELLED',
-        stage: 'cancelled',
-        uploadAttemptId: null,
-        uploadStartedAt: null,
-        storageUploadId: null,
-        sourceObjectGeneration: null,
-        sourceContentType: null,
-        error: null,
-      },
-    }),
-  )
-  if (cancelled.count !== 1) {
+  try {
+    return await completeMediaUploadAbortAction({
+      ...input,
+      actor: { type: 'HUMAN', id: input.actorId, role: 'PLATFORM_ADMIN' },
+    })
+  } catch (error) {
+    if (!isMediaIngestionActionError(error)) throw error
     throw new TRPCError({
       code: 'CONFLICT',
       message: 'The abort result could not be recorded.',
+      cause: error,
     })
   }
-  await writeAuditLog({
-    tenantId: input.tenantId,
-    actorId: input.actorId,
-    actorRole: 'PLATFORM_ADMIN',
-    action: input.auditAction,
-    targetType: 'MediaIngestionProject',
-    targetId: input.projectId,
-  })
-  return { ok: true }
 }

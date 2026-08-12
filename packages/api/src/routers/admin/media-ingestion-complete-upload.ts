@@ -2,7 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import { logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { claimMediaUploadFinalizationAction, db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import {
@@ -16,7 +16,10 @@ import {
 } from '../../lib/media-storage'
 import { adminProcedure } from '../../trpc'
 import { queueVerifiedMediaUpload } from './media-ingestion-finalization'
-import { MAX_MEDIA_ARCHIVE_BYTES as MAX_ARCHIVE_BYTES } from './media-ingestion-helpers'
+import {
+  isMediaIngestionActionError,
+  MAX_MEDIA_ARCHIVE_BYTES as MAX_ARCHIVE_BYTES,
+} from './media-ingestion-helpers'
 
 export const mediaIngestionCompleteUploadRouter = router({
   signPart: adminProcedure
@@ -137,22 +140,23 @@ export const mediaIngestionCompleteUploadRouter = router({
         })
       }
       const parts = storageParts.map(({ partNumber, etag }) => ({ partNumber, etag }))
-      const claimed = await withTenantIsolationBypass(() =>
-        db.mediaIngestionProject.updateMany({
-          where: {
-            id: project.id,
-            tenantId: input.tenantId,
-            status: 'UPLOADING',
-            stage: 'upload',
-            uploadAttemptId: input.uploadAttemptId,
-          },
-          data: { stage: 'finalizing', error: null },
-        }),
-      )
-      if (claimed.count !== 1) {
+      try {
+        await claimMediaUploadFinalizationAction({
+          tenantId: input.tenantId,
+          venueId: project.venueId,
+          projectId: project.id,
+          uploadAttemptId: input.uploadAttemptId,
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        })
+      } catch (error) {
+        if (!isMediaIngestionActionError(error)) throw error
         throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'This upload is already being finalized.',
+          code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'CONFLICT',
+          message:
+            error.code === 'NOT_FOUND'
+              ? 'Active upload not found.'
+              : 'This upload is already being finalized.',
+          cause: error,
         })
       }
       let verifiedBytes: number

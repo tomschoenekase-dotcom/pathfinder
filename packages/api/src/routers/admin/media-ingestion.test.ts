@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   abortMediaUpload: vi.fn(),
+  claimMediaUploadAbortAction: vi.fn(),
+  claimMediaUploadFinalizationAction: vi.fn(),
+  completeMediaUploadAbortAction: vi.fn(),
+  createMediaIngestionProjectAction: vi.fn(),
   assertVenueAvailable: vi.fn(),
   assetFindFirst: vi.fn(),
   assetFindMany: vi.fn(),
@@ -16,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   projectFindMany: vi.fn(),
   projectUpdateMany: vi.fn(),
   signMediaUploadPart: vi.fn(),
+  queueVerifiedMediaUploadAction: vi.fn(),
+  saveMediaIngestionReviewAction: vi.fn(),
   writeAuditLog: vi.fn(),
 }))
 
@@ -23,23 +29,40 @@ vi.mock('@pathfinder/config', () => ({
   logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: mocks.loggerWarn },
 }))
 
-vi.mock('@pathfinder/db', () => ({
-  assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
-  assertVenueAvailable: mocks.assertVenueAvailable,
-  db: {
-    mediaIngestionProject: {
-      findFirst: mocks.projectFindFirst,
-      findMany: mocks.projectFindMany,
-      updateMany: mocks.projectUpdateMany,
+vi.mock('@pathfinder/db', () => {
+  class MediaIngestionActionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  }
+  return {
+    assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
+    assertVenueAvailable: mocks.assertVenueAvailable,
+    claimMediaUploadAbortAction: mocks.claimMediaUploadAbortAction,
+    claimMediaUploadFinalizationAction: mocks.claimMediaUploadFinalizationAction,
+    completeMediaUploadAbortAction: mocks.completeMediaUploadAbortAction,
+    createMediaIngestionProjectAction: mocks.createMediaIngestionProjectAction,
+    MediaIngestionActionError,
+    queueVerifiedMediaUploadAction: mocks.queueVerifiedMediaUploadAction,
+    saveMediaIngestionReviewAction: mocks.saveMediaIngestionReviewAction,
+    db: {
+      mediaIngestionProject: {
+        findFirst: mocks.projectFindFirst,
+        findMany: mocks.projectFindMany,
+        updateMany: mocks.projectUpdateMany,
+      },
+      mediaIngestionAsset: {
+        findFirst: mocks.assetFindFirst,
+        findMany: mocks.assetFindMany,
+      },
     },
-    mediaIngestionAsset: {
-      findFirst: mocks.assetFindFirst,
-      findMany: mocks.assetFindMany,
-    },
-  },
-  withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
-  writeAuditLog: mocks.writeAuditLog,
-}))
+    withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
+    writeAuditLog: mocks.writeAuditLog,
+  }
+})
 
 vi.mock('@pathfinder/jobs', () => ({
   enqueueMediaIngestion: mocks.enqueueMediaIngestion,
@@ -109,6 +132,152 @@ describe('media ingestion router', () => {
     mocks.enqueueMediaIngestion.mockResolvedValue(undefined)
     mocks.projectUpdateMany.mockResolvedValue({ count: 1 })
     mocks.writeAuditLog.mockResolvedValue(undefined)
+    mocks.claimMediaUploadFinalizationAction.mockImplementation(async (input) => {
+      const changed = await mocks.projectUpdateMany({
+        where: {
+          id: input.projectId,
+          tenantId: input.tenantId,
+          status: 'UPLOADING',
+          stage: 'upload',
+          uploadAttemptId: input.uploadAttemptId,
+        },
+        data: { stage: 'finalizing', error: null },
+      })
+      if (changed.count !== 1) {
+        throw Object.assign(new Error('claim lost'), {
+          name: 'MediaIngestionActionError',
+          code: 'CONFLICT',
+        })
+      }
+      return { ok: true }
+    })
+    mocks.queueVerifiedMediaUploadAction.mockImplementation(async (input) => {
+      const changed = await mocks.projectUpdateMany({
+        where: {
+          id: input.projectId,
+          tenantId: input.tenantId,
+          status: 'UPLOADING',
+          stage: 'finalizing',
+          uploadAttemptId: input.uploadAttemptId,
+        },
+        data: {
+          status: 'QUEUED',
+          stage: 'inventory',
+          progress: 1,
+          sourceBytes: BigInt(input.verifiedBytes),
+          uploadStartedAt: null,
+          storageUploadId: null,
+          sourceContentType: null,
+        },
+      })
+      if (changed.count !== 1) {
+        throw Object.assign(new Error('claim lost'), {
+          name: 'MediaIngestionActionError',
+          code: 'CONFLICT',
+        })
+      }
+      await mocks.writeAuditLog()
+      return { ok: true, replayed: false, state: 'QUEUED' }
+    })
+    mocks.saveMediaIngestionReviewAction.mockImplementation(async (input) => {
+      const nextUpdatedAt = new Date(Math.max(Date.now(), input.expectedUpdatedAt.getTime() + 1))
+      const changed = await mocks.projectUpdateMany({
+        where: {
+          id: input.projectId,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          status: { in: ['NEEDS_INPUT', 'READY_FOR_REVIEW'] },
+          sourceObjectGeneration: input.reviewGeneration,
+          updatedAt: input.expectedUpdatedAt,
+        },
+        data: {
+          questions: input.questions,
+          draftJson: input.draftJson,
+          findings: input.findings,
+          status: input.status,
+          stage: input.stage,
+          updatedAt: nextUpdatedAt,
+        },
+      })
+      if (changed.count !== 1)
+        throw Object.assign(new Error('stale'), {
+          name: 'MediaIngestionActionError',
+          code: 'CONFLICT',
+        })
+      await mocks.writeAuditLog()
+      return {
+        ok: true,
+        updatedAt: nextUpdatedAt,
+      }
+    })
+    mocks.claimMediaUploadAbortAction.mockImplementation(async (input) => {
+      if (input.expectedStage === 'aborting') {
+        return {
+          sourceObjectKey: input.expectedSourceObjectKey,
+          storageUploadId: input.expectedStorageUploadId,
+          resumed: true,
+        }
+      }
+      const changed = await mocks.projectUpdateMany({
+        where: {
+          id: input.projectId,
+          tenantId: input.tenantId,
+          status: 'UPLOADING',
+          stage: 'upload',
+          uploadAttemptId: input.uploadAttemptId,
+          ...(input.expectedUploadStartedAt
+            ? { uploadStartedAt: input.expectedUploadStartedAt }
+            : {}),
+          ...(input.expectedSourceObjectKey
+            ? { sourceObjectKey: input.expectedSourceObjectKey }
+            : {}),
+          ...(input.expectedStorageUploadId
+            ? { storageUploadId: input.expectedStorageUploadId }
+            : {}),
+        },
+        data: { stage: 'aborting', error: null },
+      })
+      if (changed.count !== 1)
+        throw Object.assign(new Error('claim lost'), {
+          name: 'MediaIngestionActionError',
+          code: 'CONFLICT',
+        })
+      return {
+        sourceObjectKey: input.expectedSourceObjectKey,
+        storageUploadId: input.expectedStorageUploadId,
+        resumed: false,
+      }
+    })
+    mocks.completeMediaUploadAbortAction.mockImplementation(async (input) => {
+      const changed = await mocks.projectUpdateMany({
+        where: {
+          id: input.projectId,
+          tenantId: input.tenantId,
+          status: 'UPLOADING',
+          stage: 'aborting',
+          uploadAttemptId: input.uploadAttemptId,
+          sourceObjectKey: input.sourceObjectKey,
+          storageUploadId: input.storageUploadId,
+        },
+        data: {
+          status: 'CANCELLED',
+          stage: 'cancelled',
+          uploadAttemptId: null,
+          uploadStartedAt: null,
+          storageUploadId: null,
+          sourceObjectGeneration: null,
+          sourceContentType: null,
+          error: null,
+        },
+      })
+      if (changed.count !== 1)
+        throw Object.assign(new Error('claim lost'), {
+          name: 'MediaIngestionActionError',
+          code: 'CONFLICT',
+        })
+      await mocks.writeAuditLog({ action: input.auditAction, targetId: input.projectId })
+      return { ok: true }
+    })
   })
 
   it('returns only current-generation source evidence without exposing storage identity', async () => {
@@ -1395,7 +1564,7 @@ describe('media ingestion router', () => {
       data: { error: 'Media ingestion enqueue could not be confirmed.' },
     })
     expect(serializeCalls(mocks.projectUpdateMany.mock.calls)).not.toContain('redis unavailable')
-    expect(mocks.writeAuditLog).not.toHaveBeenCalled()
+    expect(mocks.writeAuditLog).toHaveBeenCalledOnce()
   })
 
   it('does not touch storage when another caller wins the finalization claim', async () => {
@@ -1785,6 +1954,7 @@ describe('media ingestion router', () => {
       where: {
         id: 'project_1',
         tenantId: 'tenant_1',
+        venueId: 'venue_1',
         uploadAttemptId: ATTEMPT_ID,
       },
       select: { status: true, stage: true, sourceBytes: true },
@@ -2014,6 +2184,7 @@ describe('media ingestion router', () => {
       },
       select: {
         id: true,
+        venueId: true,
         stage: true,
         uploadAttemptId: true,
         uploadStartedAt: true,
@@ -2251,19 +2422,7 @@ describe('media ingestion router', () => {
       results: [{ projectId: 'project_1', uploadAttemptId: ATTEMPT_ID, outcome: 'cancelled' }],
     })
 
-    expect(mocks.projectFindFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'project_1',
-        tenantId: 'tenant_1',
-        status: 'UPLOADING',
-        stage: 'aborting',
-        uploadAttemptId: ATTEMPT_ID,
-        uploadStartedAt: ABANDONED_UPLOAD_STARTED_AT,
-        sourceObjectKey: 'staging/media/project/attempt/archive.zip',
-        storageUploadId: 'storage_upload_1',
-      },
-      select: { id: true },
-    })
+    expect(mocks.projectFindFirst).not.toHaveBeenCalled()
     expect(mocks.projectUpdateMany).toHaveBeenCalledOnce()
     expect(mocks.writeAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'admin.media_ingestion.upload_expired' }),
@@ -2308,7 +2467,13 @@ describe('media ingestion router', () => {
         stage: 'upload',
         uploadAttemptId: ATTEMPT_ID,
       },
-      select: { id: true, sourceObjectKey: true, storageUploadId: true },
+      select: {
+        id: true,
+        venueId: true,
+        stage: true,
+        sourceObjectKey: true,
+        storageUploadId: true,
+      },
     })
     expect(mocks.abortMediaUpload).toHaveBeenCalledWith(
       'staging/tenant/venue/project.zip',
@@ -2321,6 +2486,8 @@ describe('media ingestion router', () => {
         status: 'UPLOADING',
         stage: 'upload',
         uploadAttemptId: ATTEMPT_ID,
+        sourceObjectKey: 'staging/tenant/venue/project.zip',
+        storageUploadId: 'server_storage_upload',
       },
       data: { stage: 'aborting', error: null },
     })
@@ -2381,7 +2548,13 @@ describe('media ingestion router', () => {
         stage: 'upload',
         uploadAttemptId: ATTEMPT_ID,
       },
-      select: { id: true, sourceObjectKey: true, storageUploadId: true },
+      select: {
+        id: true,
+        venueId: true,
+        stage: true,
+        sourceObjectKey: true,
+        storageUploadId: true,
+      },
     })
     expect(mocks.projectFindFirst).toHaveBeenNthCalledWith(2, {
       where: {
@@ -2391,7 +2564,13 @@ describe('media ingestion router', () => {
         stage: 'aborting',
         uploadAttemptId: ATTEMPT_ID,
       },
-      select: { id: true, sourceObjectKey: true, storageUploadId: true },
+      select: {
+        id: true,
+        venueId: true,
+        stage: true,
+        sourceObjectKey: true,
+        storageUploadId: true,
+      },
     })
     expect(mocks.projectUpdateMany).toHaveBeenCalledOnce()
     expect(mocks.projectUpdateMany).toHaveBeenCalledWith({

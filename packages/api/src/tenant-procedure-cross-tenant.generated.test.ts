@@ -44,6 +44,10 @@ type LegacyHarnessTx = {
   venuePackage: { findFirst: (args: unknown) => unknown }
   place: { findFirst: (args: unknown) => unknown }
   venueKnowledgeEntry: { findFirst: (args: unknown) => unknown }
+  engagementQuestion: {
+    findFirst: (args: unknown) => unknown
+    create: (args: unknown) => unknown
+  }
 }
 
 type LegacyHarnessClient = {
@@ -53,6 +57,29 @@ type LegacyHarnessClient = {
 vi.mock('@pathfinder/db', async () => {
   const { z } = await import('zod')
   return {
+    engagementQuestionSelect: { id: true, tenantId: true },
+    EngagementQuestionActionError: class EngagementQuestionActionError extends Error {},
+    createEngagementQuestionAction: vi.fn((input: { tenantId: string; db: LegacyHarnessClient }) =>
+      input.db.$transaction((tx) =>
+        tx.engagementQuestion.create({ data: { tenantId: input.tenantId } }),
+      ),
+    ),
+    updateEngagementQuestionAction: vi.fn(
+      (input: { tenantId: string; questionId: string; db: LegacyHarnessClient }) =>
+        input.db.$transaction((tx) =>
+          tx.engagementQuestion.findFirst({
+            where: { id: input.questionId, tenantId: input.tenantId },
+          }),
+        ),
+    ),
+    deleteEngagementQuestionAction: vi.fn(
+      (input: { tenantId: string; questionId: string; db: LegacyHarnessClient }) =>
+        input.db.$transaction((tx) =>
+          tx.engagementQuestion.findFirst({
+            where: { id: input.questionId, tenantId: input.tenantId },
+          }),
+        ),
+    ),
     VenuePackageLifecycleError: class VenuePackageLifecycleError extends Error {},
     approveVenuePackageAction: vi.fn(
       (input: { tenantId: string; packageId: string }, client: LegacyHarnessClient) =>
