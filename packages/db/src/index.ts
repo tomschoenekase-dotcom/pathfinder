@@ -123,9 +123,16 @@ export { featureEnabled } from './helpers/feature-flags'
 export {
   assertGlobalAiAvailable,
   GlobalAiAdmissionError,
+  GlobalAiControlActionError,
   readGlobalAiControl,
+  setGlobalAiControlAction,
 } from './helpers/incident-control'
-export type { GlobalAiControlState } from './helpers/incident-control'
+export type {
+  GlobalAiControlActionClient,
+  GlobalAiControlActionErrorCode,
+  GlobalAiControlActor,
+  GlobalAiControlState,
+} from './helpers/incident-control'
 export {
   assertVenueAiAvailable,
   assertVenueAvailable,
@@ -519,6 +526,14 @@ export type {
   ChatlogReviewActor,
 } from './helpers/chatlog-review-actions'
 export {
+  prepareWeeklyDigestIntentAction,
+  WeeklyDigestIntentActionError,
+} from './helpers/weekly-digest-intent-actions'
+export type {
+  WeeklyDigestIntentActor,
+  WeeklyDigestIntentClient,
+} from './helpers/weekly-digest-intent-actions'
+export {
   createOffboardingDraftAction,
   offboardingPlanSummarySelect,
   OffboardingPlanActionError,
@@ -529,3 +544,13 @@ export type {
   OffboardingPlanActionErrorCode,
   OffboardingPlanHumanActor,
 } from './helpers/offboarding-plan-actions'
+export {
+  publishUniversalContentAction,
+  resolveEffectivePublishedUniversalContent,
+  UniversalContentResolverError,
+  withdrawUniversalContentAction,
+} from './helpers/universal-content-publication-actions'
+export type {
+  EffectivePublishedUniversalContent,
+  UniversalContentPublicationResult,
+} from './helpers/universal-content-publication-actions'

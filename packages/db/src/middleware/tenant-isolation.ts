@@ -43,6 +43,7 @@ const APPEND_ONLY_MODELS = [
   'OperationalFactContent',
   'RelationshipContent',
   'ContentModuleEvidence',
+  'ContentModulePublication',
   'IntakeRun',
   'IntakeEvidenceRecord',
   'IntakeRunEvent',

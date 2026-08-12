@@ -66,6 +66,43 @@ type EngagementQuestionContext = {
   allowAiInvented: boolean
 }
 
+type PublishedUniversalContent = {
+  moduleId: string
+  kind: 'SERVICE' | 'POLICY' | 'EVENT' | 'OPERATIONAL_FACT' | 'RELATIONSHIP'
+  payload: Record<string, unknown>
+}
+
+const MAX_PUBLISHED_CONTENT_PROMPT_BYTES = 24_000
+const MAX_PUBLISHED_CONTENT_PROMPT_MODULES = 25
+
+function publishedContentSection(items: PublishedUniversalContent[]): string {
+  const header = '\n\nPUBLISHED VENUE CONTENT:\n'
+  const lines: string[] = []
+  let bytes = new TextEncoder().encode(header).byteLength
+  for (const item of items.slice(0, MAX_PUBLISHED_CONTENT_PROMPT_MODULES)) {
+    const payload = item.payload
+    const line = (() => {
+      switch (item.kind) {
+        case 'SERVICE':
+          return `[SERVICE] ${String(payload.name)}${payload.description ? `: ${String(payload.description)}` : ''}${payload.availability ? ` Availability: ${String(payload.availability)}` : ''}`
+        case 'POLICY':
+          return `[POLICY] ${String(payload.title)}: ${String(payload.rule)}`
+        case 'EVENT':
+          return `[EVENT] ${String(payload.name)} (${String(payload.startsAt)}${payload.endsAt ? ` to ${String(payload.endsAt)}` : ''})${payload.description ? `: ${String(payload.description)}` : ''}`
+        case 'OPERATIONAL_FACT':
+          return `[OPERATIONAL FACT] ${String(payload.label)}: ${String(payload.value)}`
+        case 'RELATIONSHIP':
+          return `[RELATIONSHIP] ${String(payload.relationshipType)}${payload.description ? `: ${String(payload.description)}` : ''}`
+      }
+    })()
+    const lineBytes = new TextEncoder().encode(`${line}\n`).byteLength
+    if (bytes + lineBytes > MAX_PUBLISHED_CONTENT_PROMPT_BYTES) break
+    lines.push(line)
+    bytes += lineBytes
+  }
+  return lines.length ? `${header}${lines.join('\n')}` : ''
+}
+
 const ENGAGEMENT_ASKED_INSTRUCTION =
   ' If - and only if - you actually asked this engagement question in your reply this turn, end your reply with the exact text [[ENGAGEMENT_ASKED]] on its own line after everything else. Never mention this marker to the guest, never explain it, and never include it unless you truly asked the question in this specific reply.'
 
@@ -90,12 +127,14 @@ export function buildVenueSystemPromptParts(params: {
   userLng: number | null
   featuredPlace?: FeaturedPlace | null
   engagementQuestion?: EngagementQuestionContext | null
+  publishedUniversalContent?: PublishedUniversalContent[]
   language?: string | null
   guideMode?: string | null
 }): { staticPart: string; dynamicPart: string } {
   const { venue, relevantPlaces, featuredPlace, language, engagementQuestion } = params
   const knowledgeEntries = params.knowledgeEntries ?? []
   const activeUpdates = params.activeUpdates ?? []
+  const universalContentSection = publishedContentSection(params.publishedUniversalContent ?? [])
   const guideMode = params.guideMode ?? venue.guideMode ?? 'location_aware'
   const hasLocationContext =
     guideMode === 'location_aware' && params.userLat != null && params.userLng != null
@@ -210,7 +249,7 @@ export function buildVenueSystemPromptParts(params: {
   const staticPart = `You are ${guideName}, ${roleDescription} for ${venue.name}.
 
 About this venue:
-${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}${alertsSection}
+${venueDescription}${guideNotesSection}${operatorGuidanceSection}${featuredPlaceSection}${alertsSection}${universalContentSection}
 
 Rules:
 - Ground every answer in the venue and place data provided in this prompt. Do not invent places or distances.

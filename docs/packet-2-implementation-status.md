@@ -97,6 +97,15 @@ Section-level evidence and blockers are indexed in
   tenant/venue/session scope, CAS or UUID replay, and strict transactional audit. General audit
   evidence records note length rather than private note text, and the form safely retains or rotates
   its request key across ambiguous retries.
+- Global AI incident-control mutation now uses a neutral HUMAN platform-admin action with validated
+  reason/revision input, exact configured-state CAS, same-state replay, malformed-state fail-closed
+  repair, first-create collision handling and strict same-transaction audit. The router remains a
+  transport adapter; changing the durable admission control does not call an AI provider.
+- Weekly-digest requests now create or reconcile the tenant/week durable intent before queue I/O.
+  HUMAN platform-admin and the identified system scheduler share the neutral action; `PENDING`
+  retries may enqueue, `PROCESSING`/`COMPLETE` do not, and `FAILED` is CAS-reset with strict audit.
+  Deterministic queue publication can redrive retained terminal failures and confirms concurrent
+  queue state, but no scheduler, Redis or provider behavior was exercised live.
 - Shared intake contracts for every packet source type, bounded draft-only website intake,
   evidence/discrepancy records, and the complete orchestration stage sequence.
 - Server-side website adapter with exact-host allowlists, credentialed-URL rejection, DNS/IP and
@@ -122,6 +131,11 @@ Section-level evidence and blockers are indexed in
   manifest and exposes exact inputs for the existing `venuePackage.preview` and `createDraft`
   lifecycle. It never persists, approves, applies, rolls back, or queues work; V2-native persistence
   and apply/rollback remain pending.
+- The same internal screen can project one exact tenant/venue's safe current configuration fields
+  into a caller-enveloped, FULL-contract-validated canonical preview and reviewed JSON download.
+  The projection is not an immutable publication snapshot and is always `NOT_READY`: generalized
+  content, immutable assets, capability truth, model references and readiness evidence remain
+  explicitly omitted. It creates no package or database row and exposes no apply action.
 - A central AI workload configuration registry/resolver and additive persisted control plane model
   provider/model identity, fallback, cost and budget bounds, and platform→workload→client→venue
   precedence with field-level source attribution. Global workload and exact tenant/venue overrides
@@ -258,13 +272,20 @@ Section-level evidence and blockers are indexed in
   immutable revision envelopes, separate Service, Policy, Event, Operational Fact, and
   Relationship payloads, and append-only evidence. Exact tenant/venue/kind constraints prevent a
   generic lowest-common-denominator content table. Default-off operator actions create identities,
-  append CAS-protected typed revisions, or append retirement boundaries with strict audit evidence;
-  even `PUBLIC` drafts remain explicitly unpublished.
+  append CAS-protected typed revisions, or append retirement boundaries with strict audit evidence.
+  A separate append-only publication ledger makes guest publication explicit: only the exact latest
+  `PUBLIC` revision may be published, withdrawal requires the expected published revision, UUID
+  replay/collision is bounded, and audit commits with the event. The feature-gated guest resolver
+  returns only latest effective published Service, Policy, Event, Operational Fact and Relationship
+  payloads in stable bounded order; authoring a `PUBLIC` revision alone is still not publication.
+  Its forward migration remains unapplied and no live guest/provider path was run.
 - Venue Deployment Manifest v2 contracts support complete and granular patch manifests with
   stable-ID operations, effective configuration provenance, immutable asset references,
   evaluation/readiness evidence, canonical hashing, and deterministic diffing. The existing
   package v1-v3 lifecycle remains the persisted compatibility path. The reviewed conversion seam
-  can produce exact preview/draft inputs but cannot mutate lifecycle state.
+  can produce exact preview/draft inputs but cannot mutate lifecycle state. The FULL projection is
+  a read-only canonical review artifact over safe current venue fields and remains `NOT_READY` with
+  generalized modules, immutable assets, capabilities, model references and readiness omitted.
 - Offboarding persistence and the operator console can create and inspect requested plans,
   revocation targets, evidence, and export metadata. Execution and deletion remain absent by
   design pending authorization and retention policy.

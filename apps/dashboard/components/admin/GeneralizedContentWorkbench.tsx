@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -10,12 +10,14 @@ type Kind = (typeof kinds)[number]
 
 type EditableModule = {
   id: string
+  revisionId: string
   kind: Kind
   version: number
   audience: 'PUBLIC' | 'CLIENT' | 'OPERATOR'
   effectiveFrom: string | null
   effectiveUntil: string | null
   payload: Record<string, unknown>
+  publishedRevisionId: string | null
 }
 
 type WorkbenchProps = {
@@ -79,6 +81,8 @@ export function GeneralizedContentWorkbench({
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const mutationInFlight = useRef(false)
+  const publicationRequestKeys = useRef(new Map<string, string>())
 
   function loadModule(module: EditableModule | null) {
     setSelectedId(module?.id ?? 'new')
@@ -128,6 +132,8 @@ export function GeneralizedContentWorkbench({
   }
 
   async function save() {
+    if (mutationInFlight.current) return
+    mutationInFlight.current = true
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -157,6 +163,7 @@ export function GeneralizedContentWorkbench({
       )
     } finally {
       setBusy(false)
+      mutationInFlight.current = false
     }
   }
 
@@ -186,6 +193,58 @@ export function GeneralizedContentWorkbench({
     }
   }
 
+  async function changePublication(module: EditableModule) {
+    if (mutationInFlight.current) return
+    const publishing = module.publishedRevisionId !== module.revisionId
+    const confirmed = window.confirm(
+      publishing
+        ? `Publish ${module.kind} version ${module.version} to the guest guide? This changes live guest context when the server capability flag is enabled.`
+        : `Withdraw ${module.kind} version ${module.version} from the guest guide?`,
+    )
+    if (!confirmed) return
+    mutationInFlight.current = true
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const actionIdentity = `${publishing ? 'PUBLISH' : 'WITHDRAW'}:${module.id}:${module.revisionId}`
+      const requestId = publicationRequestKeys.current.get(actionIdentity) ?? crypto.randomUUID()
+      publicationRequestKeys.current.set(actionIdentity, requestId)
+      const result = publishing
+        ? await client.admin.publishUniversalContent.mutate({
+            tenantId,
+            venueId,
+            moduleId: module.id,
+            revisionId: module.revisionId,
+            expectedLatestVersion: module.version,
+            requestId,
+          })
+        : await client.admin.withdrawUniversalContent.mutate({
+            tenantId,
+            venueId,
+            moduleId: module.id,
+            expectedPublishedRevisionId: module.revisionId,
+            requestId,
+          })
+      setNotice(
+        result.action === 'PUBLISH'
+          ? `Version ${module.version} is explicitly published for effective guest resolution.`
+          : `Version ${module.version} is withdrawn from guest resolution.`,
+      )
+      publicationRequestKeys.current.delete(actionIdentity)
+      router.refresh()
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'The publication result is unknown. Refresh before trying again.',
+      )
+    } finally {
+      setBusy(false)
+      mutationInFlight.current = false
+    }
+  }
+
   return (
     <section
       className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm"
@@ -200,8 +259,9 @@ export function GeneralizedContentWorkbench({
             Immutable revision editor
           </h3>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-pf-deep/75">
-            Validate a typed draft, then create a stable module or append its next revision. This
-            workspace never publishes to guest or client surfaces.
+            Validate a typed draft, then create a stable module or append its next revision. PUBLIC
+            revisions remain private drafts until a human explicitly publishes one exact version;
+            CLIENT and OPERATOR revisions are never guest-visible.
           </p>
         </div>
         <span
@@ -232,14 +292,26 @@ export function GeneralizedContentWorkbench({
             ))}
           </select>
           {selected ? (
-            <button
-              type="button"
-              onClick={() => retire(selected)}
-              disabled={!authoringEnabled || busy}
-              className="mt-3 min-h-10 w-full rounded-xl border border-rose-200 px-3 text-sm font-semibold text-rose-800 disabled:opacity-50"
-            >
-              Append retirement revision
-            </button>
+            <div className="mt-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => changePublication(selected)}
+                disabled={!authoringEnabled || busy || selected.audience !== 'PUBLIC'}
+                className="min-h-10 w-full rounded-xl border border-pf-primary px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
+              >
+                {selected.publishedRevisionId === selected.revisionId
+                  ? 'Withdraw from guest guide'
+                  : 'Publish this version to guests'}
+              </button>
+              <button
+                type="button"
+                onClick={() => retire(selected)}
+                disabled={!authoringEnabled || busy}
+                className="min-h-10 w-full rounded-xl border border-rose-200 px-3 text-sm font-semibold text-rose-800 disabled:opacity-50"
+              >
+                Append retirement revision
+              </button>
+            </div>
           ) : null}
         </div>
 

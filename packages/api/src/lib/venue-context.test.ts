@@ -356,6 +356,26 @@ describe('buildVenueSystemPrompt', () => {
     expect(dynamicPart).toContain('No specific points of interest have been configured yet.')
   })
 
+  it('bounds the complete published-content section by UTF-8 bytes', () => {
+    const { staticPart } = buildVenueSystemPromptParts({
+      venue,
+      relevantPlaces: [],
+      userLat: null,
+      userLng: null,
+      publishedUniversalContent: Array.from({ length: 25 }, (_, index) => ({
+        moduleId: `module-${index}`,
+        kind: 'POLICY' as const,
+        payload: { title: `Policy ${index}`, rule: 'é'.repeat(9_000) },
+      })),
+    })
+    const start = staticPart.indexOf('\n\nPUBLISHED VENUE CONTENT:\n')
+    const end = staticPart.indexOf('\n\nRules:', start)
+    const section = staticPart.slice(start, end)
+    expect(start).toBeGreaterThan(-1)
+    expect(new TextEncoder().encode(section).byteLength).toBeLessThanOrEqual(24_000)
+    expect(section).not.toContain('Policy 1')
+  })
+
   it('uses the versioned preset before legacy aiTone without exposing raw client instructions', () => {
     const prompt = buildVenueSystemPrompt({
       venue: {

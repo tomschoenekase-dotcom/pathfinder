@@ -39,6 +39,11 @@ export type {
   DeploymentManifestBridgePreview,
 } from './lib/venue-deployment-manifest'
 export {
+  FullManifestProjectionError,
+  projectFullVenueDeploymentManifest,
+} from './lib/full-venue-deployment-manifest'
+export type { FullManifestProjectionOmission } from './lib/full-venue-deployment-manifest'
+export {
   BulkCreateKnowledgeEntriesInput,
   CreateKnowledgeEntryInput,
   UpdateKnowledgeEntryInput,

@@ -8,11 +8,45 @@ import {
   deploymentManifestDraftInput,
   deploymentManifestPreviewInput,
 } from '../../lib/venue-deployment-manifest'
+import {
+  FullManifestProjectionError,
+  projectFullVenueDeploymentManifest,
+} from '../../lib/full-venue-deployment-manifest'
 import { adminProcedure } from '../../trpc'
 
 const MAX_MANIFEST_JSON_BYTES = 250_000
 
 export const adminDeploymentManifestReviewRouter = router({
+  previewFullVenueDeploymentManifest: adminProcedure
+    .input(
+      z
+        .object({
+          tenantId: z.string().min(1),
+          venueId: z.string().min(1),
+          manifestId: z.string().uuid(),
+          idempotencyKey: z.string().uuid(),
+        })
+        .strict(),
+    )
+    .query(async ({ input }) => {
+      try {
+        return await withTenantIsolationBypass(() => projectFullVenueDeploymentManifest(input, db))
+      } catch (error) {
+        if (error instanceof FullManifestProjectionError) {
+          throw new TRPCError({
+            code:
+              error.code === 'NOT_FOUND'
+                ? 'NOT_FOUND'
+                : error.code === 'INVALID_INPUT'
+                  ? 'BAD_REQUEST'
+                  : 'PRECONDITION_FAILED',
+            message: error.message,
+          })
+        }
+        throw error
+      }
+    }),
+
   reviewDeploymentManifest: adminProcedure
     .input(
       z

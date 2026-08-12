@@ -138,3 +138,23 @@ describe('admin universal content reads', () => {
     expect(venueFindFirst).not.toHaveBeenCalled()
   })
 })
+
+describe('admin universal content publication adapters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.GENERALIZED_CONTENT_CAPABILITIES_ENABLED = 'true'
+  })
+
+  it('keeps explicit publication behind admin auth and the server capability flag', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).content.publishUniversalContent({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        moduleId: 'module-1',
+        revisionId: 'revision-1',
+        expectedLatestVersion: 1,
+        requestId: '35a7173c-b42b-485b-8885-81355585489e',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+})

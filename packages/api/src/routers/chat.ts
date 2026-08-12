@@ -13,9 +13,11 @@ import {
   isAiAdmissionControlError,
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
+  resolveEffectivePublishedUniversalContent,
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
+import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
 import { router } from '../core'
@@ -568,11 +570,28 @@ export const chatRouter = router({
     const allowAiInventedQuestion = engagementGatePassed && engagementMode === 'CURIOUS'
 
     const promptAssemblyStartedAt = performance.now()
+    const publishedUniversalContent = isFeatureEnabled('generalizedContentCapabilities')
+      ? await resolveEffectivePublishedUniversalContent({
+          db: ctx.db,
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          maximumModules: 50,
+        }).catch((error: unknown) => {
+          logger.warn({
+            action: 'guest-chat.published-content-unavailable',
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            errorName: error instanceof Error ? error.name : 'UnknownError',
+          })
+          return []
+        })
+      : []
     const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
       venue,
       relevantPlaces,
       knowledgeEntries: relevantKnowledgeEntries,
       activeUpdates,
+      publishedUniversalContent,
       userLat: liveLocation?.lat ?? null,
       userLng: liveLocation?.lng ?? null,
       featuredPlace,

@@ -37,7 +37,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-reads.ts', 2],
   ['packages/api/src/routers/admin/cost-budget.ts', 3],
   ['packages/api/src/routers/admin/digest.ts', 1],
-  ['packages/api/src/routers/admin/deployment-manifest-review.ts', 1],
+  ['packages/api/src/routers/admin/deployment-manifest-review.ts', 2],
   ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 1],
   ['packages/api/src/routers/admin/evaluation-operations.ts', 2],
   ['packages/api/src/routers/admin/freshness-audit.ts', 1],

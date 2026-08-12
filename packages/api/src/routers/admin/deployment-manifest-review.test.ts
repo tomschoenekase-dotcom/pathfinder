@@ -20,6 +20,12 @@ const call = (admin = true) =>
     session: { userId: 'operator', activeTenantId: null, role: 'STAFF', isPlatformAdmin: admin },
   })
 const venueId = 'cm00000000000000000000009'
+const fullEnvelope = {
+  tenantId: 't1',
+  venueId,
+  manifestId: '11111111-1111-4111-8111-111111111111',
+  idempotencyKey: '22222222-2222-4222-8222-222222222222',
+}
 const manifest = {
   schemaVersion: 2,
   packageType: 'PATCH',
@@ -92,5 +98,64 @@ describe('deployment manifest review', () => {
     expect(JSON.stringify(result)).not.toContain(secret)
     expect(result.previewInput).toBeNull()
     expect(result.draftInput).toBeNull()
+  })
+
+  it('requires platform admin authorization before FULL projection access', async () => {
+    await expect(
+      call(false).admin.previewFullVenueDeploymentManifest(fullEnvelope),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.bypass).not.toHaveBeenCalled()
+    expect(mocks.venue).not.toHaveBeenCalled()
+  })
+
+  it('returns a validated canonical FULL preview without persistence or apply handoff', async () => {
+    mocks.venue.mockResolvedValue({
+      id: venueId,
+      name: 'Museum',
+      slug: 'museum',
+      description: 'Public description',
+      category: 'museum',
+      tonePreset: 'friendly',
+      tonePresetVersion: 1,
+      aiTone: 'FRIENDLY',
+      aiGuideName: 'Ari',
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      isActive: true,
+      updatedAt: new Date('2026-08-11T20:00:00.000Z'),
+    })
+
+    const result = await call().admin.previewFullVenueDeploymentManifest(fullEnvelope)
+
+    expect(result.manifest).toMatchObject({
+      packageType: 'FULL',
+      manifestId: fullEnvelope.manifestId,
+      idempotencyKey: fullEnvelope.idempotencyKey,
+      venueRef: venueId,
+      contentModules: [],
+      assets: [],
+      evaluation: { readiness: 'NOT_READY' },
+    })
+    expect(result.manifestHash).toMatch(/^[a-f0-9]{64}$/u)
+    expect(result.readiness).toMatchObject({ status: 'NOT_READY', readyForApply: false })
+    expect(result).not.toHaveProperty('draftInput')
+    expect(result).not.toHaveProperty('applyInput')
+    expect(mocks.venue).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: venueId, tenantId: 't1' } }),
+    )
+  })
+
+  it('rejects malformed FULL envelope input before bypass or database access', async () => {
+    await expect(
+      call().admin.previewFullVenueDeploymentManifest({
+        ...fullEnvelope,
+        idempotencyKey: 'not-a-uuid',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.bypass).not.toHaveBeenCalled()
+    expect(mocks.venue).not.toHaveBeenCalled()
   })
 })

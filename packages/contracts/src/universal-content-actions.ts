@@ -150,3 +150,24 @@ export const RetireGeneralizedContentInput = z
     evidence: z.array(ContentEvidenceReference).max(100).default([]),
   })
   .strict()
+
+export const PublishGeneralizedContentInput = z
+  .object({
+    tenantId: z.string().trim().min(1),
+    venueId: z.string().trim().min(1),
+    moduleId: z.string().trim().min(1),
+    revisionId: z.string().trim().min(1),
+    expectedLatestVersion: z.number().int().positive(),
+    requestId: z.string().uuid(),
+  })
+  .strict()
+
+export const WithdrawGeneralizedContentInput = z
+  .object({
+    tenantId: z.string().trim().min(1),
+    venueId: z.string().trim().min(1),
+    moduleId: z.string().trim().min(1),
+    expectedPublishedRevisionId: z.string().trim().min(1),
+    requestId: z.string().uuid(),
+  })
+  .strict()

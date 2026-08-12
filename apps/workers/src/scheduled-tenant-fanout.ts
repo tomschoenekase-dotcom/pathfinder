@@ -1,5 +1,5 @@
 import { logger } from '@pathfinder/config'
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import { db, prepareWeeklyDigestIntentAction, withTenantIsolationBypass } from '@pathfinder/db'
 import {
   enqueueAnalyticsEnrichment,
   enqueueDailyRollup,
@@ -164,52 +164,24 @@ async function runActiveTenantFanout(params: {
   return total
 }
 
-async function prepareWeeklyDigest(
-  tenantId: string,
-  weekStart: Date,
-  weekEnd: Date,
-): Promise<{ id: string; status: 'PENDING' | 'PROCESSING' | 'COMPLETE' | 'FAILED' }> {
-  return withTenantIsolationBypass(async () => {
-    let digest = await db.weeklyDigest.upsert({
-      where: { tenantId_weekStart: { tenantId, weekStart } },
-      create: { tenantId, weekStart, weekEnd, status: 'PENDING' },
-      update: {},
-      select: { id: true, status: true },
-    })
-
-    if (digest.status !== 'FAILED') return digest
-
-    const reset = await db.weeklyDigest.updateMany({
-      where: { id: digest.id, tenantId, status: 'FAILED' },
-      data: {
-        status: 'PENDING',
-        weekEnd,
-        sessionCount: 0,
-        messageCount: 0,
-        insights: [],
-        generatedAt: null,
-      },
-    })
-    if (reset.count === 1) return { id: digest.id, status: 'PENDING' }
-
-    const current = await db.weeklyDigest.findUnique({
-      where: { tenantId_weekStart: { tenantId, weekStart } },
-      select: { id: true, status: true },
-    })
-    if (!current) throw new Error('Weekly digest reconciliation could not be confirmed.')
-    digest = current
-    return digest
-  })
-}
-
 export async function enqueueScheduledWeeklyDigests(now = new Date()): Promise<void> {
   const weekStart = startOfUtcWeek(now)
   const weekEnd = endOfUtcWeek(now)
   const result = await runActiveTenantFanout({
     schedulerKind: 'weekly-digest',
     run: async (tenantId) => {
-      const digest = await prepareWeeklyDigest(tenantId, weekStart, weekEnd)
-      if (digest.status === 'COMPLETE' || digest.status === 'PROCESSING') return 'skipped'
+      const digest = await withTenantIsolationBypass(() =>
+        prepareWeeklyDigestIntentAction(
+          {
+            tenantId,
+            weekStart,
+            weekEnd,
+            actor: { type: 'SYSTEM', id: 'weekly-digest-scheduler', role: 'SYSTEM' },
+          },
+          db,
+        ),
+      )
+      if (!digest.enqueueAllowed) return 'skipped'
       await enqueueWeeklyDigest({
         tenantId,
         weekStart: weekStart.toISOString(),

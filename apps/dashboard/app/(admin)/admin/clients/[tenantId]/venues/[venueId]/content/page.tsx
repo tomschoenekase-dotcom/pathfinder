@@ -83,12 +83,17 @@ export default async function UniversalContentPage({ params, searchParams }: Con
     return [
       {
         id: contentRecord.id,
+        revisionId: revision.id,
         kind: contentRecord.kind,
         version: revision.version,
         audience: revision.audience,
         effectiveFrom: revision.effectiveFrom?.toISOString() ?? null,
         effectiveUntil: revision.effectiveUntil?.toISOString() ?? null,
         payload,
+        publishedRevisionId:
+          contentRecord.publications[0]?.action === 'PUBLISH'
+            ? contentRecord.publications[0].revisionId
+            : null,
       },
     ]
   })

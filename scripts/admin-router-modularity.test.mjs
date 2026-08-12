@@ -71,8 +71,10 @@ const expectedAdminProcedures = [
   'listWeeklyReports',
   'overview',
   'ping',
+  'previewFullVenueDeploymentManifest',
   'previewOffboardingExportManifest',
   'previewUniversalContent',
+  'publishUniversalContent',
   'publishWeeklyReport',
   'reconcileClientAndVenue',
   'recordApprovalDecision',
@@ -100,6 +102,7 @@ const expectedAdminProcedures = [
   'updateLegacyPlace',
   'updateVenueReportConfiguration',
   'updateWeeklyReportDraft',
+  'withdrawUniversalContent',
 ]
 
 const expectedMediaProcedures = [

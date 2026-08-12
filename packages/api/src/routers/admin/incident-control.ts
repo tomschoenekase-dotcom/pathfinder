@@ -2,14 +2,14 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
-  GLOBAL_AI_CONTROL_KEY,
-  globalAiControlValueSchema,
-} from '@pathfinder/config/incident-control'
-import { db, readGlobalAiControl, writeAuditLogStrict } from '@pathfinder/db'
+  db,
+  GlobalAiControlActionError,
+  readGlobalAiControl,
+  setGlobalAiControlAction,
+} from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
-import { isUniqueConstraintError } from './helpers'
 
 const updateInput = z
   .object({
@@ -26,83 +26,32 @@ function conflict(): never {
   })
 }
 
+function mapActionError(error: unknown): never {
+  if (error instanceof GlobalAiControlActionError) {
+    if (error.code === 'CONFLICT') conflict()
+    throw new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error })
+  }
+  throw error
+}
+
 export const adminIncidentControlRouter = router({
   getGlobalAiControl: adminProcedure.query(() => readGlobalAiControl(db)),
 
   setGlobalAiControl: adminProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
     try {
-      return await db.$transaction(async (transaction) => {
-        const before = await readGlobalAiControl(transaction)
-        if (!before.configured && input.expectedUpdatedAt !== null) conflict()
-        if (
-          before.configured &&
-          (input.expectedUpdatedAt === null ||
-            before.updatedAt?.getTime() !== input.expectedUpdatedAt.getTime())
-        ) {
-          conflict()
-        }
-
-        if (!before.malformed && before.paused === input.paused && before.reason === input.reason) {
-          return { ...before, replayed: true }
-        }
-
-        const value = globalAiControlValueSchema.parse({
-          schemaVersion: 1,
-          paused: input.paused,
-          reason: input.reason,
-        })
-        const nextUpdatedAt = new Date(
-          before.updatedAt ? Math.max(Date.now(), before.updatedAt.getTime() + 1) : Date.now(),
-        )
-
-        if (before.configured) {
-          if (!before.updatedAt) conflict()
-          const updated = await transaction.platformConfig.updateMany({
-            where: { key: GLOBAL_AI_CONTROL_KEY, updatedAt: before.updatedAt },
-            data: { value, updatedBy: ctx.session.userId, updatedAt: nextUpdatedAt },
-          })
-          if (updated.count !== 1) conflict()
-        } else {
-          await transaction.platformConfig.create({
-            data: {
-              key: GLOBAL_AI_CONTROL_KEY,
-              value,
-              updatedBy: ctx.session.userId,
-              updatedAt: nextUpdatedAt,
-            },
-          })
-        }
-
-        await writeAuditLogStrict(
-          {
-            actorId: ctx.session.userId,
-            actorRole: 'PLATFORM_ADMIN',
-            action: input.paused ? 'admin.global-ai.paused' : 'admin.global-ai.resumed',
-            targetType: 'PlatformConfig',
-            targetId: GLOBAL_AI_CONTROL_KEY,
-            beforeState: {
-              paused: before.paused,
-              reason: before.reason,
-              malformed: before.malformed,
-            },
-            afterState: { paused: value.paused, reason: value.reason, malformed: false },
+      return await setGlobalAiControlAction(
+        {
+          ...input,
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: 'PLATFORM_ADMIN',
           },
-          transaction,
-        )
-
-        return {
-          ...value,
-          configured: true,
-          malformed: false,
-          updatedAt: nextUpdatedAt,
-          updatedBy: ctx.session.userId,
-          replayed: false,
-        }
-      })
+        },
+        db,
+      )
     } catch (error) {
-      if (error instanceof TRPCError) throw error
-      if (isUniqueConstraintError(error)) conflict()
-      throw error
+      mapActionError(error)
     }
   }),
 })

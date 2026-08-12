@@ -5,14 +5,18 @@ import {
   AddGeneralizedContentRevisionInput,
   CreateGeneralizedContentInput,
   GeneralizedContentRevisionDraft,
+  PublishGeneralizedContentInput,
   RetireGeneralizedContentInput,
+  WithdrawGeneralizedContentInput,
 } from '@pathfinder/contracts/universal-content-actions'
 import {
   addUniversalContentRevisionAction,
   buildUniversalContentPreview,
   createUniversalContentAction,
+  publishUniversalContentAction,
   retireUniversalContentAction,
   UniversalContentActionError,
+  withdrawUniversalContentAction,
 } from '@pathfinder/db'
 
 import { router } from '../../core'
@@ -130,6 +134,11 @@ export const adminUniversalContentRouter = router({
           id: true,
           kind: true,
           createdAt: true,
+          publications: {
+            orderBy: { eventOrder: 'desc' },
+            take: 1,
+            select: { action: true, revisionId: true, createdAt: true },
+          },
           revisions: {
             orderBy: [{ version: 'desc' }, { createdAt: 'desc' }],
             take: 1,
@@ -241,6 +250,34 @@ export const adminUniversalContentRouter = router({
       assertCapabilityEnabled()
       try {
         return await retireUniversalContentAction({
+          db: ctx.db,
+          ...input,
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        })
+      } catch (error) {
+        actionError(error)
+      }
+    }),
+  publishUniversalContent: adminProcedure
+    .input(PublishGeneralizedContentInput)
+    .mutation(async ({ ctx, input }) => {
+      assertCapabilityEnabled()
+      try {
+        return await publishUniversalContentAction({
+          db: ctx.db,
+          ...input,
+          actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        })
+      } catch (error) {
+        actionError(error)
+      }
+    }),
+  withdrawUniversalContent: adminProcedure
+    .input(WithdrawGeneralizedContentInput)
+    .mutation(async ({ ctx, input }) => {
+      assertCapabilityEnabled()
+      try {
+        return await withdrawUniversalContentAction({
           db: ctx.db,
           ...input,
           actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },

@@ -17,7 +17,7 @@ type SnapshotClient = Pick<
   | 'place'
   | 'venueKnowledgeEntry'
   | 'operationalUpdate'
-  | 'contentModuleRevision'
+  | 'contentModulePublication'
   | 'contentVersion'
 >
 
@@ -185,31 +185,47 @@ export async function createVenueContentSnapshot(params: {
           isActive: true,
         },
       }),
-      params.db.contentModuleRevision.findMany({
+      params.db.contentModulePublication.findMany({
         where: {
           tenantId: params.tenantId,
           venueId: params.venueId,
-          audience: 'PUBLIC',
-          OR: [{ effectiveFrom: null }, { effectiveFrom: { lte: asOf } }],
-          AND: [{ OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: asOf } }] }],
         },
-        orderBy: [{ moduleId: 'asc' }, { version: 'desc' }],
+        orderBy: { eventOrder: 'desc' },
+        take: 501,
         select: {
-          id: true,
           moduleId: true,
-          kind: true,
-          version: true,
-          audience: true,
-          service: { select: { name: true, description: true, availability: true, placeId: true } },
-          policy: { select: { title: true, rule: true, appliesTo: true } },
-          event: { select: { name: true, description: true, placeId: true } },
-          operationalFact: { select: { label: true, value: true } },
-          relationship: {
+          action: true,
+          revision: {
             select: {
-              fromModuleId: true,
-              toModuleId: true,
-              relationshipType: true,
-              description: true,
+              id: true,
+              moduleId: true,
+              kind: true,
+              version: true,
+              audience: true,
+              effectiveFrom: true,
+              effectiveUntil: true,
+              service: {
+                select: { name: true, description: true, availability: true, placeId: true },
+              },
+              policy: { select: { title: true, rule: true, appliesTo: true } },
+              event: {
+                select: {
+                  name: true,
+                  description: true,
+                  placeId: true,
+                  startsAt: true,
+                  endsAt: true,
+                },
+              },
+              operationalFact: { select: { label: true, value: true, expiresAt: true } },
+              relationship: {
+                select: {
+                  fromModuleId: true,
+                  toModuleId: true,
+                  relationshipType: true,
+                  description: true,
+                },
+              },
             },
           },
         },
@@ -221,9 +237,51 @@ export async function createVenueContentSnapshot(params: {
     ])
   if (!venue)
     throw new VenueContentSnapshotError('Venue was not found in the requested tenant scope')
+  if (revisions.length === 501)
+    throw new VenueContentSnapshotError('Published content event history exceeds safe bounds')
   const latest = new Map<string, (typeof revisions)[number]>()
-  for (const revision of revisions)
-    if (!latest.has(revision.moduleId)) latest.set(revision.moduleId, revision)
+  for (const publication of revisions)
+    if (!latest.has(publication.moduleId)) latest.set(publication.moduleId, publication)
+  const effectivePublished = [...latest.values()].flatMap((publication) => {
+    const revision = publication.revision
+    if (
+      publication.action !== 'PUBLISH' ||
+      revision.audience !== 'PUBLIC' ||
+      (revision.effectiveFrom && revision.effectiveFrom > asOf) ||
+      (revision.effectiveUntil && revision.effectiveUntil <= asOf)
+    )
+      return []
+    return [
+      {
+        id: revision.id,
+        moduleId: revision.moduleId,
+        kind: revision.kind,
+        version: revision.version,
+        audience: revision.audience,
+        effectiveFrom: revision.effectiveFrom?.toISOString() ?? null,
+        effectiveUntil: revision.effectiveUntil?.toISOString() ?? null,
+        service: revision.service,
+        policy: revision.policy,
+        event: revision.event
+          ? {
+              name: revision.event.name,
+              description: revision.event.description,
+              placeId: revision.event.placeId,
+              startsAt: revision.event.startsAt.toISOString(),
+              endsAt: revision.event.endsAt?.toISOString() ?? null,
+            }
+          : null,
+        operationalFact: revision.operationalFact
+          ? {
+              label: revision.operationalFact.label,
+              value: revision.operationalFact.value,
+              expiresAt: revision.operationalFact.expiresAt?.toISOString() ?? null,
+            }
+          : null,
+        relationship: revision.relationship,
+      },
+    ]
+  })
   return buildVenueContentSnapshot(
     {
       tenantId: params.tenantId,
@@ -232,7 +290,7 @@ export async function createVenueContentSnapshot(params: {
       places,
       knowledgeEntries,
       operationalUpdates,
-      universalRevisions: [...latest.values()],
+      universalRevisions: effectivePublished,
     },
     version._max.sequence ?? 0n,
   )

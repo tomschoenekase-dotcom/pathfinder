@@ -56,6 +56,7 @@ const {
   startClientCreateProviderActionMock,
   setChatlogNotableActionMock,
   addChatlogNoteActionMock,
+  prepareWeeklyDigestIntentActionMock,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -111,6 +112,7 @@ const {
   startClientCreateProviderActionMock: vi.fn(),
   setChatlogNotableActionMock: vi.fn(),
   addChatlogNoteActionMock: vi.fn(),
+  prepareWeeklyDigestIntentActionMock: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config/logger', () => ({
@@ -212,6 +214,15 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
         super(message)
       }
     },
+    WeeklyDigestIntentActionError: class WeeklyDigestIntentActionError extends Error {
+      constructor(
+        readonly code: string,
+        message: string,
+      ) {
+        super(message)
+      }
+    },
+    prepareWeeklyDigestIntentAction: prepareWeeklyDigestIntentActionMock,
     setChatlogNotableAction: setChatlogNotableActionMock,
     addChatlogNoteAction: addChatlogNoteActionMock,
     beginClientCreateIntentAction: beginClientCreateIntentActionMock,
@@ -349,6 +360,12 @@ describe('admin router', () => {
     startClientCreateProviderActionMock.mockResolvedValue({ state: 'CALL_PROVIDER' })
     confirmClientCreateProviderActionMock.mockResolvedValue({})
     completeClientCreateIntentActionMock.mockResolvedValue({})
+    prepareWeeklyDigestIntentActionMock.mockResolvedValue({
+      id: 'digest_1',
+      status: 'PENDING',
+      enqueueAllowed: true,
+      outcome: 'CREATED',
+    })
     setChatlogNotableActionMock.mockResolvedValue({
       id: 'session_1',
       isNotable: true,
@@ -370,21 +387,16 @@ describe('admin router', () => {
   })
 
   it('admin.triggerDigest creates a digest for the current week and enqueues it', async () => {
-    tenantFindUnique.mockResolvedValueOnce({ id: 'tenant_1' })
-    weeklyDigestFindUnique.mockResolvedValueOnce(null)
-    weeklyDigestCreate.mockResolvedValueOnce({ id: 'digest_1' })
-
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.triggerDigest({ tenantId: 'tenant_1' })
 
     expect(result).toEqual({ digestId: 'digest_1' })
-    expect(weeklyDigestCreate).toHaveBeenCalledWith(
+    expect(prepareWeeklyDigestIntentActionMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          tenantId: 'tenant_1',
-          status: 'PENDING',
-        }),
+        tenantId: 'tenant_1',
+        actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
       }),
+      expect.anything(),
     )
     expect(enqueueWeeklyDigest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -392,24 +404,20 @@ describe('admin router', () => {
         digestId: 'digest_1',
       }),
     )
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'admin.digest.triggered',
-        actorId: 'admin_1',
-        targetId: 'digest_1',
-      }),
-    )
   })
 
   it('admin.triggerDigest reuses the current week digest when one already exists', async () => {
-    tenantFindUnique.mockResolvedValueOnce({ id: 'tenant_1' })
-    weeklyDigestFindUnique.mockResolvedValueOnce({ id: 'digest_existing' })
+    prepareWeeklyDigestIntentActionMock.mockResolvedValueOnce({
+      id: 'digest_existing',
+      status: 'PENDING',
+      enqueueAllowed: true,
+      outcome: 'REPLAYED',
+    })
 
     const caller = testRouter.createCaller(adminCtx())
     const result = await caller.admin.triggerDigest({ tenantId: 'tenant_1' })
 
     expect(result).toEqual({ digestId: 'digest_existing' })
-    expect(weeklyDigestCreate).not.toHaveBeenCalled()
     expect(enqueueWeeklyDigest).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant_1',
@@ -418,8 +426,26 @@ describe('admin router', () => {
     )
   })
 
+  it('admin.triggerDigest does not enqueue processing or complete work', async () => {
+    prepareWeeklyDigestIntentActionMock.mockResolvedValueOnce({
+      id: 'digest_processing',
+      status: 'PROCESSING',
+      enqueueAllowed: false,
+      outcome: 'REPLAYED',
+    })
+
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(caller.admin.triggerDigest({ tenantId: 'tenant_1' })).resolves.toEqual({
+      digestId: 'digest_processing',
+    })
+    expect(enqueueWeeklyDigest).not.toHaveBeenCalled()
+  })
+
   it('admin.triggerDigest throws NOT_FOUND when the tenant does not exist', async () => {
-    tenantFindUnique.mockResolvedValueOnce(null)
+    const { WeeklyDigestIntentActionError } = await import('@pathfinder/db')
+    prepareWeeklyDigestIntentActionMock.mockRejectedValueOnce(
+      new WeeklyDigestIntentActionError('NOT_FOUND', 'Client not found.'),
+    )
 
     const caller = testRouter.createCaller(adminCtx())
 

@@ -1,7 +1,12 @@
-import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
+import { z } from 'zod'
 
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import {
+  db,
+  prepareWeeklyDigestIntentAction,
+  WeeklyDigestIntentActionError,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 import { enqueueWeeklyDigest } from '@pathfinder/jobs'
 
 import { router } from '../../core'
@@ -20,61 +25,40 @@ export const adminDigestRouter = router({
       const weekStart = startOfCurrentUtcWeek(now)
       const weekEnd = endOfUtcWeek(weekStart)
 
-      const digest = await withTenantIsolationBypass(async () => {
-        const tenant = await db.tenant.findUnique({
-          where: { id: input.tenantId },
-          select: { id: true },
-        })
-
-        if (!tenant) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Client not found' })
-        }
-
-        const existing = await db.weeklyDigest.findUnique({
-          where: {
-            tenantId_weekStart: {
+      try {
+        const digest = await withTenantIsolationBypass(() =>
+          prepareWeeklyDigestIntentAction(
+            {
               tenantId: input.tenantId,
               weekStart,
+              weekEnd,
+              actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
             },
-          },
-          select: {
-            id: true,
-          },
-        })
-
-        if (existing) {
-          return existing
-        }
-
-        return db.weeklyDigest.create({
-          data: {
+            db,
+          ),
+        )
+        if (digest.enqueueAllowed) {
+          await enqueueWeeklyDigest({
             tenantId: input.tenantId,
-            weekStart,
-            weekEnd,
-            status: 'PENDING',
-          },
-          select: {
-            id: true,
-          },
-        })
-      })
-
-      await enqueueWeeklyDigest({
-        tenantId: input.tenantId,
-        weekStart: weekStart.toISOString(),
-        weekEnd: weekEnd.toISOString(),
-        digestId: digest.id,
-      })
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.digest.triggered',
-        targetType: 'WeeklyDigest',
-        targetId: digest.id,
-      })
-
-      return { digestId: digest.id }
+            weekStart: weekStart.toISOString(),
+            weekEnd: weekEnd.toISOString(),
+            digestId: digest.id,
+          })
+        }
+        return { digestId: digest.id }
+      } catch (error) {
+        if (error instanceof WeeklyDigestIntentActionError) {
+          throw new TRPCError({
+            code:
+              error.code === 'NOT_FOUND'
+                ? 'NOT_FOUND'
+                : error.code === 'CONFLICT'
+                  ? 'CONFLICT'
+                  : 'BAD_REQUEST',
+            message: error.message,
+          })
+        }
+        throw error
+      }
     }),
 })

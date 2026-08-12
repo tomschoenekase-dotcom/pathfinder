@@ -59,6 +59,13 @@ exact conversion into `venuePackage.preview` / `venuePackage.createDraft` inputs
 does not persist or execute anything. Treat base-hash and semantic compatibility warnings as review
 work, not permission to bypass the existing package lifecycle.
 
+The FULL projection on that screen is a different read-only review artifact. Supply fresh manifest
+and idempotency UUIDs, review the canonical hash and every omission, then download only the artifact
+bound to that envelope. Editing either UUID or a failed regeneration invalidates the prior download.
+The projection is always `NOT_READY`: it reads safe current venue configuration, not an immutable
+publication snapshot, and omits generalized modules, immutable assets, capabilities, model
+references, and readiness evidence. It cannot create or apply a package.
+
 Guest previews may include callouts, actions, citations, choices, images, galleries, events, and
 locations as well as legacy text and place cards. Reject unknown block types. Image and map links
 must be HTTPS and must not contain credential- or secret-like parameters. A safely rendered block
@@ -109,6 +116,11 @@ an audited tombstone. Spend-expanding or model-selection changes require the sep
 acknowledgement. Saving configuration never calls a provider and does not replace the runtime budget
 gate. Do not copy a displayed registry value into an ad hoc provider call.
 
+Changing Global AI requires an internal reason and the displayed revision. An identical submission
+is a replay; a stale revision or concurrent first write is a conflict and requires an authoritative
+refresh. A malformed stored control displays fail-closed and may only be repaired through an
+explicit pause. The audited control write itself performs no provider or queue operation.
+
 ## Search and help
 
 Use Cmd/Ctrl-K in PathFinder OS to search the bounded authorized groups for clients, venues, content,
@@ -145,8 +157,12 @@ CAS, but none of these local controls is provider or staging proof.
 ## Universal content and MCP reads
 
 Generalized Service, Policy, Event, Operational Fact, and Relationship modules are independently
-versioned. Create, revise, and retire only through the default-off typed workbench; every operation
-is exact-scope, audited, and previewed as unpublished even when its audience is `PUBLIC`.
+versioned. Create, revise, and retire only through the default-off typed workbench; authoring a
+`PUBLIC` revision does not publish it. Explicit publish requires the displayed latest revision and a
+fresh request UUID; withdrawal requires the displayed published revision. Conflicts require refresh,
+not blind retry. Guest chat resolves only effective latest publication-ledger state while the
+generalized capability flag is enabled. The publication migration remains unapplied, so local
+operator and resolver tests are not live guest evidence.
 
 MCP v0 has concrete bounded read bindings for its 12 resource types. They use verified scope,
 resource-bound cursors, explicit safe selects, and output leakage filtering. There is still no MCP
@@ -179,6 +195,13 @@ the exact authorizations documented in the incident runbook.
 Local query bounds, pagination and loading states improve perceived performance, but there is no
 production-like latency evidence in this continuation. Record observed slow paths with exact scope
 and route; do not infer database health from a locally passing component test.
+
+A weekly digest must have a durable tenant/week intent before queue publication. A `PENDING` intent
+may be queued again; `PROCESSING` and `COMPLETE` must not be re-enqueued. Retrying `FAILED` first
+performs the audited CAS reset to `PENDING`, then the queue layer redrives a retained failed job under
+the deterministic digest ID and confirms concurrent queue state. If durable preparation or queue
+confirmation fails, record the failure and do not manufacture success. No live scheduler, Redis,
+worker, delivery channel, or provider run is claimed by the local evidence.
 
 ## Offboarding
 

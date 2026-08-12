@@ -62,6 +62,7 @@ export const TENANTED_TABLES = [
   'OperationalFactContent',
   'RelationshipContent',
   'ContentModuleEvidence',
+  'ContentModulePublication',
   'IntakeRun',
   'IntakeEvidenceRecord',
   'IntakeRunEvent',

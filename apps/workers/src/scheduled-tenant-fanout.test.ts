@@ -8,9 +8,7 @@ const mocks = vi.hoisted(() => ({
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
   tenantFindMany: vi.fn(),
-  weeklyDigestFindUnique: vi.fn(),
-  weeklyDigestUpdateMany: vi.fn(),
-  weeklyDigestUpsert: vi.fn(),
+  prepareWeeklyDigestIntentAction: vi.fn(),
   withTenantIsolationBypass: vi.fn(),
 }))
 
@@ -25,12 +23,8 @@ vi.mock('@pathfinder/config', () => ({
 vi.mock('@pathfinder/db', () => ({
   db: {
     tenant: { findMany: mocks.tenantFindMany },
-    weeklyDigest: {
-      findUnique: mocks.weeklyDigestFindUnique,
-      updateMany: mocks.weeklyDigestUpdateMany,
-      upsert: mocks.weeklyDigestUpsert,
-    },
   },
+  prepareWeeklyDigestIntentAction: mocks.prepareWeeklyDigestIntentAction,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
 }))
 
@@ -55,7 +49,6 @@ describe('scheduled tenant fan-out', () => {
     mocks.enqueueAnalyticsEnrichment.mockResolvedValue(undefined)
     mocks.enqueueDailyRollup.mockResolvedValue(undefined)
     mocks.enqueueWeeklyDigest.mockResolvedValue(undefined)
-    mocks.weeklyDigestUpdateMany.mockResolvedValue({ count: 1 })
   })
 
   it('returns truthful empty-state counts without starting work', async () => {
@@ -200,16 +193,26 @@ describe('scheduled tenant fan-out', () => {
       { id: 'tenant_pending' },
       { id: 'tenant_failed' },
     ])
-    mocks.weeklyDigestUpsert.mockImplementation(async ({ where }) => {
-      const tenantId = where.tenantId_weekStart.tenantId as string
+    mocks.prepareWeeklyDigestIntentAction.mockImplementation(async ({ tenantId }) => {
       const status = tenantId.replace('tenant_', '').toUpperCase()
-      return { id: `digest_${tenantId}`, status }
+      return {
+        id: `digest_${tenantId}`,
+        status: status === 'FAILED' ? 'PENDING' : status,
+        enqueueAllowed: status === 'PENDING' || status === 'FAILED',
+        outcome: status === 'FAILED' ? 'RESET' : 'REPLAYED',
+      }
     })
 
     await enqueueScheduledWeeklyDigests(new Date('2026-08-08T12:00:00.000Z'))
 
-    expect(mocks.weeklyDigestUpsert).toHaveBeenCalledTimes(4)
-    expect(mocks.weeklyDigestUpdateMany).toHaveBeenCalledOnce()
+    expect(mocks.prepareWeeklyDigestIntentAction).toHaveBeenCalledTimes(4)
+    expect(mocks.prepareWeeklyDigestIntentAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant_failed',
+        actor: { type: 'SYSTEM', id: 'weekly-digest-scheduler', role: 'SYSTEM' },
+      }),
+      expect.anything(),
+    )
     expect(mocks.enqueueWeeklyDigest.mock.calls).toEqual([
       [
         {
@@ -235,9 +238,12 @@ describe('scheduled tenant fan-out', () => {
 
   it('does not reset or enqueue a digest that wins a concurrent FAILED transition', async () => {
     mocks.tenantFindMany.mockResolvedValue([{ id: 'tenant_a' }])
-    mocks.weeklyDigestUpsert.mockResolvedValue({ id: 'digest_a', status: 'FAILED' })
-    mocks.weeklyDigestUpdateMany.mockResolvedValue({ count: 0 })
-    mocks.weeklyDigestFindUnique.mockResolvedValue({ id: 'digest_a', status: 'PROCESSING' })
+    mocks.prepareWeeklyDigestIntentAction.mockResolvedValue({
+      id: 'digest_a',
+      status: 'PROCESSING',
+      enqueueAllowed: false,
+      outcome: 'RACED',
+    })
 
     await enqueueScheduledWeeklyDigests(new Date('2026-08-08T12:00:00.000Z'))
 

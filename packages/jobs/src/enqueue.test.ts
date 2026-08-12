@@ -2,14 +2,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   add: vi.fn(),
-  instances: new Map<string, { add: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }>(),
+  getJob: vi.fn(),
+  instances: new Map<
+    string,
+    {
+      add: ReturnType<typeof vi.fn>
+      getJob: ReturnType<typeof vi.fn>
+      close: ReturnType<typeof vi.fn>
+    }
+  >(),
   queue: vi.fn(),
   loggerInfo: vi.fn(),
 }))
 
 vi.mock('bullmq', () => ({
   Queue: mocks.queue.mockImplementation((name: string) => {
-    const instance = { add: mocks.add, close: vi.fn(async () => undefined) }
+    const instance = {
+      add: mocks.add,
+      getJob: mocks.getJob,
+      close: vi.fn(async () => undefined),
+    }
     mocks.instances.set(name, instance)
     return instance
   }),
@@ -30,6 +42,7 @@ import {
   enqueueMediaIngestion,
   enqueueGenerationDispatchKick,
   enqueueWelcomeEmail,
+  enqueueWeeklyDigest,
   enqueueWeeklyReport,
   enqueueWeeklyReportDispatch,
   enqueueWeeklyReportRecovery,
@@ -58,6 +71,7 @@ describe('job enqueues', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.add.mockResolvedValue({ id: 'generated' })
+    mocks.getJob.mockResolvedValue(null)
   })
 
   afterEach(async () => {
@@ -306,6 +320,94 @@ describe('job enqueues', () => {
         removeOnFail: 5000,
       }),
     )
+  })
+
+  it('redrives a retained terminal weekly digest failure instead of silently deduplicating it', async () => {
+    const retry = vi.fn().mockResolvedValue(undefined)
+    mocks.getJob.mockResolvedValue({
+      getState: vi.fn().mockResolvedValue('failed'),
+      retry,
+    })
+    const payload = {
+      tenantId: 'tenant_1',
+      digestId: 'digest_1',
+      weekStart: '2026-08-03T00:00:00.000Z',
+      weekEnd: '2026-08-09T23:59:59.999Z',
+    }
+
+    await enqueueWeeklyDigest(payload)
+
+    expect(retry).toHaveBeenCalledWith('failed')
+    expect(mocks.add).not.toHaveBeenCalled()
+    expect(mocks.loggerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'jobs.weekly-digest.redriven', digestId: 'digest_1' }),
+    )
+  })
+
+  it('normalizes a concurrent weekly digest redrive only after confirming queued state', async () => {
+    const retry = vi.fn().mockRejectedValue(new Error('job is no longer failed'))
+    mocks.getJob
+      .mockResolvedValueOnce({ getState: vi.fn().mockResolvedValue('failed'), retry })
+      .mockResolvedValueOnce({ getState: vi.fn().mockResolvedValue('waiting') })
+
+    await expect(
+      enqueueWeeklyDigest({
+        tenantId: 'tenant_1',
+        digestId: 'digest_1',
+        weekStart: '2026-08-03T00:00:00.000Z',
+        weekEnd: '2026-08-09T23:59:59.999Z',
+      }),
+    ).resolves.toBeUndefined()
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
+
+  it('redrives an active retained job that becomes terminal while add deduplicates it', async () => {
+    const retry = vi.fn().mockResolvedValue(undefined)
+    mocks.getJob
+      .mockResolvedValueOnce({ getState: vi.fn().mockResolvedValue('active') })
+      .mockResolvedValueOnce({ getState: vi.fn().mockResolvedValue('failed'), retry })
+
+    await enqueueWeeklyDigest({
+      tenantId: 'tenant_1',
+      digestId: 'digest_1',
+      weekStart: '2026-08-03T00:00:00.000Z',
+      weekEnd: '2026-08-09T23:59:59.999Z',
+    })
+
+    expect(mocks.add).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledWith('failed')
+  })
+
+  it('fails closed on a retained completed job instead of duplicating provider work', async () => {
+    mocks.getJob.mockResolvedValueOnce({
+      getState: vi.fn().mockResolvedValue('completed'),
+    })
+
+    await expect(
+      enqueueWeeklyDigest({
+        tenantId: 'tenant_1',
+        digestId: 'digest_1',
+        weekStart: '2026-08-03T00:00:00.000Z',
+        weekEnd: '2026-08-09T23:59:59.999Z',
+      }),
+    ).rejects.toThrow(/conflicts with the durable enqueue intent/u)
+    expect(mocks.add).not.toHaveBeenCalled()
+  })
+
+  it('treats active-to-completed during add as success without rerunning work', async () => {
+    mocks.getJob
+      .mockResolvedValueOnce({ getState: vi.fn().mockResolvedValue('active') })
+      .mockResolvedValueOnce({ getState: vi.fn().mockResolvedValue('completed') })
+
+    await expect(
+      enqueueWeeklyDigest({
+        tenantId: 'tenant_1',
+        digestId: 'digest_1',
+        weekStart: '2026-08-03T00:00:00.000Z',
+        weekEnd: '2026-08-09T23:59:59.999Z',
+      }),
+    ).resolves.toBeUndefined()
+    expect(mocks.add).toHaveBeenCalledOnce()
   })
 
   it('logs dispatch enqueue outcomes without dispatch or domain identity inputs', async () => {

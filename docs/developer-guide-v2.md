@@ -140,6 +140,31 @@ replacement. The current API bridge is a pure conversion/review seam that return
 VenuePackage preview/draft inputs. Calling preview or createDraft remains an explicit, separately
 authorized lifecycle action; review itself is non-mutating.
 
+`admin.previewFullVenueDeploymentManifest` is a separate read-only projection. It requires exact
+platform-admin tenant/venue scope and caller-supplied manifest/idempotency UUIDs, selects only safe
+current venue configuration fields, validates the FULL v2 contract, and returns canonical JSON plus
+its canonical hash. It is deliberately `NOT_READY`: current configuration is not an immutable
+publication snapshot, and generalized modules, immutable assets, capability truth, model references,
+and readiness evidence remain omitted. The browser download must use the returned canonical bytes
+and must be invalidated whenever its UUID envelope changes or a later request fails. Do not route the
+projection into `createDraft`, apply, persistence, or a queue.
+
+## Explicit generalized-content publication
+
+Authoring audience `PUBLIC` does not publish a generalized module. Publication and withdrawal append
+an event to the exact tenant/venue/module ledger under the venue content lock. Publish requires the
+selected revision to remain the latest expected version and have `PUBLIC` audience; withdrawal
+requires the exact currently published revision. Reuse a UUID only for the identical actor/action
+identity, keep strict audit in the same transaction, and treat collisions or changed revisions as
+conflicts.
+
+The guest resolver consumes only the latest effective published Service, Policy, Event, Operational
+Fact, and Relationship revisions. Keep its tenant/venue scope, 100-module maximum, 500-event history
+ceiling, effective-time filtering, explicit typed payload selects, and stable kind/module ordering.
+It remains behind `generalizedContentCapabilities`; resolver failure returns no generalized modules
+rather than exposing draft/internal content. The additive publication migration is unapplied, so
+local tests are not evidence of a live guest path.
+
 ## Search, retention and external surfaces
 
 Unified admin search must remain authorized, bounded, grouped and based on explicit safe selects.
@@ -164,6 +189,20 @@ operation-scoped by tenant, kind and UUID; snapshot, dispatch and sanitized audi
 then queue notification is best effort. Chatlog notes bind a UUID to exact tenant/venue/session,
 actor and normalized note content. General audit records only the note length; it never copies the
 private note body.
+
+Global AI control writes also belong to a neutral action. Require a HUMAN platform administrator,
+trim and bound the internal reason, validate the expected revision before opening durable work,
+compare/update by exact `updatedAt`, replay an identical state without a second audit, and repair a
+malformed row only through an explicit fail-closed write. The state change and strict audit share one
+transaction. The action never calls a provider; admission readers remain responsible for denying a
+paused, malformed, or unavailable control.
+
+Weekly-digest queue publication must follow durable intent. The neutral action accepts a HUMAN
+platform administrator or only the identified `weekly-digest-scheduler` SYSTEM actor, validates an
+ordered tenant/week range, creates/replays the natural-key row, and CAS-resets `FAILED` to `PENDING`
+with strict audit. Do not enqueue `PROCESSING` or `COMPLETE`. Queue publication uses the digest ID as
+deterministic identity, removes a retained failed job before redrive, and confirms concurrent queue
+state after add races. These contracts do not prove a live scheduler, Redis, worker, or provider.
 
 Offboarding draft creation uses a tenant-scoped UUID request identity and a lowercase SHA-256 hash of
 canonical planning input (sorted venue, revocation-target and export-kind arrays plus normalized

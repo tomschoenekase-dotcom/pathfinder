@@ -134,6 +134,7 @@ model Tenant {
   contentModuleIdentities       ContentModuleIdentity[]
   contentModuleRevisions        ContentModuleRevision[]
   contentModuleEvidence         ContentModuleEvidence[]
+  contentModulePublications     ContentModulePublication[]
   intakeRuns                    IntakeRun[]
   intakeEvidence                IntakeEvidenceRecord[]
   intakeEvents                  IntakeRunEvent[]
@@ -348,6 +349,7 @@ model Venue {
   contentModuleIdentities       ContentModuleIdentity[]
   contentModuleRevisions        ContentModuleRevision[]
   contentModuleEvidence         ContentModuleEvidence[]
+  contentModulePublications     ContentModulePublication[]
   intakeRuns                    IntakeRun[]
   intakeEvidence                IntakeEvidenceRecord[]
   intakeEvents                  IntakeRunEvent[]
@@ -447,6 +449,7 @@ model ContentModuleIdentity {
   tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue                 Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   revisions             ContentModuleRevision[]
+  publications          ContentModulePublication[]
   outboundRelationships RelationshipContent[]       @relation("relationship_from")
   inboundRelationships  RelationshipContent[]       @relation("relationship_to")
 
@@ -473,6 +476,7 @@ model ContentModuleRevision {
   venue           Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   module          ContentModuleIdentity       @relation(fields: [moduleId, tenantId, venueId, kind], references: [id, tenantId, venueId, kind], onDelete: Restrict, onUpdate: Restrict)
   evidence        ContentModuleEvidence[]
+  publications    ContentModulePublication[]
   service         ServiceContent?
   policy          PolicyContent?
   event           EventContent?
@@ -481,6 +485,7 @@ model ContentModuleRevision {
 
   @@unique([moduleId, tenantId, venueId, version])
   @@unique([id, tenantId, venueId, kind])
+  @@unique([id, tenantId, venueId, moduleId, kind])
   @@index([tenantId, venueId, kind, createdAt])
   @@map("content_module_revisions")
 }
@@ -590,6 +595,31 @@ model ContentModuleEvidence {
   @@map("content_module_evidence")
 }
 
+/// Append-only publication ledger. The latest event for a module is the
+/// authoritative guest-publication state; authoring a PUBLIC revision alone
+/// never publishes it.
+model ContentModulePublication {
+  id         String                         @id @default(cuid())
+  tenantId   String                         @map("tenant_id")
+  venueId    String                         @map("venue_id")
+  moduleId   String                         @map("module_id")
+  revisionId String                         @map("revision_id")
+  moduleKind NormalizedContentModuleKind    @map("module_kind")
+  action     ContentModulePublicationAction
+  eventOrder BigInt                         @unique @default(autoincrement()) @map("event_order")
+  requestId  String                         @map("request_id") @db.Uuid
+  actorId    String                         @map("actor_id") @db.VarChar(191)
+  createdAt  DateTime                       @default(now()) @map("created_at")
+  tenant     Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue      Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  module     ContentModuleIdentity          @relation(fields: [moduleId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  revision   ContentModuleRevision          @relation(fields: [revisionId, tenantId, venueId, moduleId, moduleKind], references: [id, tenantId, venueId, moduleId, kind], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId])
+  @@index([tenantId, venueId, moduleId, eventOrder])
+  @@map("content_module_publications")
+}
+
 enum NormalizedContentModuleKind {
   SERVICE
   POLICY
@@ -602,6 +632,11 @@ enum NormalizedContentAudience {
   PUBLIC
   CLIENT
   OPERATOR
+}
+
+enum ContentModulePublicationAction {
+  PUBLISH
+  WITHDRAW
 }
 
 /// Draft-only intake proposal. Extraction and publishing are external to this record.

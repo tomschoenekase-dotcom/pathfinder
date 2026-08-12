@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   revise: vi.fn(),
   retire: vi.fn(),
+  publish: vi.fn(),
+  withdraw: vi.fn(),
 }))
 
 vi.mock('../../lib/trpc', () => ({
@@ -18,6 +20,8 @@ vi.mock('../../lib/trpc', () => ({
       createUniversalContent: { mutate: mocks.create },
       addUniversalContentRevision: { mutate: mocks.revise },
       retireUniversalContent: { mutate: mocks.retire },
+      publishUniversalContent: { mutate: mocks.publish },
+      withdrawUniversalContent: { mutate: mocks.withdraw },
     },
   }),
 }))
@@ -51,7 +55,7 @@ describe('GeneralizedContentWorkbench', () => {
     expect(
       (screen.getByRole('button', { name: 'Create module' }) as HTMLButtonElement).disabled,
     ).toBe(true)
-    expect(screen.getByText(/never publishes to guest or client/i)).toBeTruthy()
+    expect(screen.getByText(/PUBLIC revisions remain private drafts/i)).toBeTruthy()
   })
 
   it('validates through the server contract and reports the no-publication preview', async () => {
@@ -88,12 +92,14 @@ describe('GeneralizedContentWorkbench', () => {
         modules={[
           {
             id: 'module-1',
+            revisionId: 'revision-3',
             kind: 'POLICY',
             version: 3,
             audience: 'OPERATOR',
             effectiveFrom: null,
             effectiveUntil: null,
             payload: { kind: 'POLICY', title: 'Bags', rule: 'Small bags only.', appliesTo: [] },
+            publishedRevisionId: null,
           },
         ]}
       />,
@@ -118,12 +124,14 @@ describe('GeneralizedContentWorkbench', () => {
         modules={[
           {
             id: 'module-1',
+            revisionId: 'revision-3',
             kind: 'POLICY',
             version: 3,
             audience: 'OPERATOR',
             effectiveFrom: null,
             effectiveUntil: null,
             payload: { kind: 'POLICY', title: 'Bags', rule: 'Small bags only.', appliesTo: [] },
+            publishedRevisionId: null,
           },
         ]}
       />,
@@ -134,5 +142,43 @@ describe('GeneralizedContentWorkbench', () => {
     await waitFor(() => expect(mocks.retire).toHaveBeenCalledOnce())
     await waitFor(() => expect((retireButton as HTMLButtonElement).disabled).toBe(false))
     expect(screen.getByRole('status').textContent).toMatch(/retirement boundary recorded/i)
+  })
+
+  it('retains the exact publication request key across an ambiguous unchanged retry', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('35a7173c-b42b-485b-8885-81355585489e')
+    mocks.publish
+      .mockRejectedValueOnce(new Error('Unknown result'))
+      .mockResolvedValueOnce({ action: 'PUBLISH' })
+    render(
+      <GeneralizedContentWorkbench
+        tenantId="tenant-1"
+        venueId="venue-1"
+        authoringEnabled
+        initialCreationKey="137c3504-8e5a-4f43-9271-dc51e4e47dad"
+        modules={[
+          {
+            id: 'module-1',
+            revisionId: 'revision-3',
+            kind: 'POLICY',
+            version: 3,
+            audience: 'PUBLIC',
+            effectiveFrom: null,
+            effectiveUntil: null,
+            payload: { kind: 'POLICY', title: 'Bags', rule: 'Small bags only.', appliesTo: [] },
+            publishedRevisionId: null,
+          },
+        ]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Action target'), { target: { value: 'module-1' } })
+    const button = screen.getByRole('button', { name: 'Publish this version to guests' })
+    fireEvent.click(button)
+    await waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1))
+    fireEvent.click(button)
+    await waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(2))
+    expect(mocks.publish.mock.calls[0]?.[0].requestId).toBe(
+      mocks.publish.mock.calls[1]?.[0].requestId,
+    )
   })
 })

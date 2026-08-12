@@ -44,7 +44,9 @@ test('global AI control is typed, fail-closed, and available to the admin contro
   assert.match(admin, /getGlobalAiControl: adminProcedure/u)
   assert.match(admin, /setGlobalAiControl: adminProcedure/u)
   assert.doesNotMatch(admin, /adminAiProcedure/u)
-  assert.match(admin, /writeAuditLogStrict/u)
+  assert.match(admin, /setGlobalAiControlAction/u)
+  assert.match(db, /writeAuditLogStrict/u)
+  assert.match(db, /GlobalAiControlActionError/u)
   assert.match(admin, /expectedUpdatedAt/u)
 })
 

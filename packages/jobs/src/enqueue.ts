@@ -256,10 +256,59 @@ export async function enqueueMediaIngestion(payload: MediaIngestionJobPayload): 
 }
 
 export async function enqueueWeeklyDigest(payload: WeeklyDigestJobPayload): Promise<void> {
-  await getQueue(WEEKLY_DIGEST_QUEUE).add(WEEKLY_DIGEST_PROCESS_JOB, payload, {
+  const queue = getQueue(WEEKLY_DIGEST_QUEUE)
+  const jobId = `weekly-digest-${payload.digestId}`
+  const retained = await queue.getJob(jobId)
+  const queuedStates = ['waiting', 'active', 'delayed', 'prioritized']
+
+  const redriveFailed = async (job: NonNullable<typeof retained>): Promise<void> => {
+    try {
+      await job.retry('failed')
+    } catch (error) {
+      // Two exact retries can observe the same retained failure. The loser is
+      // successful only if the winner really moved this same job back to work.
+      const reconciled = await queue.getJob(jobId)
+      const state = reconciled ? await reconciled.getState() : null
+      if (!state || !queuedStates.includes(state)) throw error
+    }
+  }
+
+  const retainedState = retained ? await retained.getState() : null
+  if (retained && retainedState === 'failed') {
+    await redriveFailed(retained)
+
+    logger.info({
+      action: 'jobs.weekly-digest.redriven',
+      tenantId: payload.tenantId,
+      digestId: payload.digestId,
+      weekStart: payload.weekStart,
+      weekEnd: payload.weekEnd,
+    })
+    return
+  }
+  if (retained && retainedState === 'completed') {
+    throw new Error(
+      'A completed weekly digest job conflicts with the durable enqueue intent; reconcile status before retrying.',
+    )
+  }
+
+  await queue.add(WEEKLY_DIGEST_PROCESS_JOB, payload, {
     ...weeklyDigestJobOptions,
-    jobId: `weekly-digest-${payload.digestId}`,
+    jobId,
   })
+
+  // A retained active job can become terminal while deterministic add is
+  // deduplicating it. Re-read after add and repair that exact transition.
+  const afterAdd = await queue.getJob(jobId)
+  const afterAddState = afterAdd ? await afterAdd.getState() : null
+  if (afterAdd && afterAddState === 'failed') {
+    await redriveFailed(afterAdd)
+  } else if (afterAddState === 'completed') {
+    // This exact work finished between add/deduplication and confirmation.
+    // Completion is success; rerunning would duplicate provider work.
+  } else if (afterAddState && !queuedStates.includes(afterAddState)) {
+    throw new Error(`Weekly digest queue state ${afterAddState} cannot confirm publication.`)
+  }
 
   logger.info({
     action: 'jobs.weekly-digest.enqueued',
