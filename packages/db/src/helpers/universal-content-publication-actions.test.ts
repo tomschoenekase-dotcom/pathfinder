@@ -209,16 +209,50 @@ describe('universal content publication actions', () => {
 })
 
 describe('effective published universal content resolver', () => {
+  function resolverDb(
+    heads: Array<{ moduleId: string; revisionId: string }>,
+    revisions: Array<Record<string, unknown>>,
+  ) {
+    return {
+      $queryRaw: vi.fn().mockResolvedValue(heads),
+      contentModuleRevision: { findMany: vi.fn().mockResolvedValue(revisions) },
+    }
+  }
+
+  function operationalRevision(id: string, moduleId: string) {
+    return {
+      id,
+      moduleId,
+      kind: 'OPERATIONAL_FACT',
+      version: 2,
+      audience: 'PUBLIC',
+      effectiveFrom: new Date('2026-08-11T17:00:00.000Z'),
+      effectiveUntil: new Date('2026-08-11T19:00:00.000Z'),
+      service: null,
+      policy: null,
+      event: null,
+      operationalFact: {
+        label: 'Entry',
+        value: 'North door',
+        expiresAt: new Date('2026-08-11T19:00:00.000Z'),
+      },
+      relationship: null,
+    }
+  }
+
   it.each([
     ['missing input', undefined],
     [
       'missing tenant scope',
-      { db: { contentModulePublication: { findMany: vi.fn() } }, venueId: 'venue-1' },
+      {
+        db: { $queryRaw: vi.fn(), contentModuleRevision: { findMany: vi.fn() } },
+        venueId: 'venue-1',
+      },
     ],
     [
       'invalid date',
       {
-        db: { contentModulePublication: { findMany: vi.fn() } },
+        db: { $queryRaw: vi.fn(), contentModuleRevision: { findMany: vi.fn() } },
         tenantId: 'tenant-1',
         venueId: 'venue-1',
         asOf: new Date('invalid'),
@@ -232,41 +266,12 @@ describe('effective published universal content resolver', () => {
     ).rejects.toBeInstanceOf(UniversalContentResolverError)
   })
 
-  it('uses only the latest publication event and filters future/expired revisions', async () => {
+  it('resolves exact latest published heads without scanning publication history', async () => {
     const now = new Date('2026-08-11T18:00:00.000Z')
-    const db = {
-      contentModulePublication: {
-        findMany: vi.fn().mockResolvedValue([
-          {
-            moduleId: 'withdrawn',
-            revisionId: 'withdrawn-r1',
-            action: 'WITHDRAW',
-            revision: { audience: 'PUBLIC' },
-          },
-          {
-            moduleId: 'active',
-            revisionId: 'active-r2',
-            action: 'PUBLISH',
-            revision: {
-              kind: 'OPERATIONAL_FACT',
-              version: 2,
-              audience: 'PUBLIC',
-              effectiveFrom: new Date('2026-08-11T17:00:00.000Z'),
-              effectiveUntil: new Date('2026-08-11T19:00:00.000Z'),
-              service: null,
-              policy: null,
-              event: null,
-              operationalFact: {
-                label: 'Entry',
-                value: 'North door',
-                expiresAt: new Date('2026-08-11T19:00:00.000Z'),
-              },
-              relationship: null,
-            },
-          },
-        ]),
-      },
-    }
+    const db = resolverDb(
+      [{ moduleId: 'active', revisionId: 'active-r2' }],
+      [operationalRevision('active-r2', 'active')],
+    )
     const result = await resolveEffectivePublishedUniversalContent({
       db: db as never,
       tenantId: 'tenant-1',
@@ -276,12 +281,143 @@ describe('effective published universal content resolver', () => {
     expect(result).toEqual([
       expect.objectContaining({ moduleId: 'active', revisionId: 'active-r2', version: 2 }),
     ])
-    expect(db.contentModulePublication.findMany).toHaveBeenCalledWith(
+    expect(db.contentModuleRevision.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { tenantId: 'tenant-1', venueId: 'venue-1' },
-        orderBy: { eventOrder: 'desc' },
-        take: 501,
+        where: {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          id: { in: ['active-r2'] },
+        },
       }),
     )
+  })
+
+  it('keeps resolving one current head after more than 500 events for that module', async () => {
+    const db = resolverDb(
+      [{ moduleId: 'noisy', revisionId: 'noisy-r501' }],
+      [operationalRevision('noisy-r501', 'noisy')],
+    )
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        asOf: new Date('2026-08-11T18:00:00.000Z'),
+      }),
+    ).resolves.toHaveLength(1)
+    expect(db.$queryRaw).toHaveBeenCalledOnce()
+    const sql = (db.$queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')
+    expect(sql).toContain('SELECT DISTINCT ON (publication."module_id")')
+    expect(sql).toContain('ORDER BY publication."module_id" ASC, publication."event_order" DESC')
+    expect(sql).toContain('WHERE latest."action" = \'PUBLISH\'')
+    expect(sql).toContain('ORDER BY latest."module_id" ASC')
+    expect(sql).toContain('LIMIT ?')
+    expect(db.$queryRaw.mock.calls[0]?.slice(1)).toEqual(['tenant-1', 'venue-1', 101])
+  })
+
+  it('does not load revisions for latest WITHDRAW heads or noisy withdrawn history', async () => {
+    const db = resolverDb([], [])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      }),
+    ).resolves.toEqual([])
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when current published heads exceed the requested bound', async () => {
+    const db = resolverDb(
+      Array.from({ length: 51 }, (_, index) => ({
+        moduleId: `module-${index}`,
+        revisionId: `revision-${index}`,
+      })),
+      [],
+    )
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        maximumModules: 50,
+      }),
+    ).rejects.toThrow('Published content module count exceeds safe bounds.')
+    expect(db.contentModuleRevision.findMany).not.toHaveBeenCalled()
+  })
+
+  it('fails closed for a missing or cross-scope typed revision', async () => {
+    const db = resolverDb([{ moduleId: 'module-1', revisionId: 'revision-1' }], [])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      }),
+    ).rejects.toThrow('A published revision is missing or out of scope.')
+  })
+
+  it('fails closed when the exact published revision has no payload for its declared kind', async () => {
+    const revision = {
+      ...operationalRevision('revision-1', 'module-1'),
+      operationalFact: null,
+    }
+    const db = resolverDb([{ moduleId: 'module-1', revisionId: 'revision-1' }], [revision])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        asOf: new Date('2026-08-11T18:00:00.000Z'),
+      }),
+    ).rejects.toThrow('A published revision has no typed payload.')
+  })
+
+  it('includes an exact effective start and excludes an exact effective end', async () => {
+    const boundary = new Date('2026-08-11T18:00:00.000Z')
+    const starting = { ...operationalRevision('start-r1', 'starting'), effectiveFrom: boundary }
+    const ending = { ...operationalRevision('end-r1', 'ending'), effectiveUntil: boundary }
+    const db = resolverDb(
+      [
+        { moduleId: 'ending', revisionId: 'end-r1' },
+        { moduleId: 'starting', revisionId: 'start-r1' },
+      ],
+      [ending, starting],
+    )
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        asOf: boundary,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ moduleId: 'starting' })])
+  })
+
+  it.each([
+    [
+      'duplicate module heads',
+      [
+        { moduleId: 'module-1', revisionId: 'revision-1' },
+        { moduleId: 'module-1', revisionId: 'revision-2' },
+      ],
+    ],
+    [
+      'one revision attached to two modules',
+      [
+        { moduleId: 'module-1', revisionId: 'revision-1' },
+        { moduleId: 'module-2', revisionId: 'revision-1' },
+      ],
+    ],
+    ['blank head identity', [{ moduleId: '', revisionId: 'revision-1' }]],
+  ])('fails closed for %s returned by the head query', async (_label, heads) => {
+    const db = resolverDb(heads, [])
+    await expect(
+      resolveEffectivePublishedUniversalContent({
+        db: db as never,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      }),
+    ).rejects.toThrow('Published content heads are inconsistent.')
   })
 })

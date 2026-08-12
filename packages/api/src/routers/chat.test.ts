@@ -44,6 +44,7 @@ const guestTurnActions = vi.hoisted(() => ({
   fail: vi.fn(),
   finalize: vi.fn(),
 }))
+const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
   searchPlacesByEmbedding: semanticSearch.places,
@@ -54,6 +55,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   observeGuestChatProviderOperationAction: guestTurnActions.observe,
   failGuestChatTurnAction: guestTurnActions.fail,
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
+  resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
 }))
 
 import { router } from '../core'
@@ -193,6 +195,7 @@ describe('chat router', () => {
     semanticSearch.places.mockResolvedValue(placeRows)
     semanticSearch.knowledge.mockResolvedValue([])
     operationalUpdateFindMany.mockResolvedValue([])
+    resolvePublishedUniversalContent.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
     sessionUpdateMany.mockResolvedValue({ count: 1 })
@@ -250,6 +253,7 @@ describe('chat router', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     _setAnthropicClientForTesting(null)
     setOpenAiEmbeddingsClientForTesting(null)
   })
@@ -747,6 +751,32 @@ describe('chat router', () => {
 
       return systemBlocks.map((block) => block.text).join('')
     }
+
+    it('continues chat without generalized content when bounded head resolution fails', async () => {
+      setupHappyPath('The core venue context is still available.')
+      vi.stubEnv('GENERALIZED_CONTENT_CAPABILITIES_ENABLED', 'true')
+      resolvePublishedUniversalContent.mockRejectedValueOnce(
+        new Error('private publication resolver detail'),
+      )
+
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'The core venue context is still available.',
+      })
+
+      expect(resolvePublishedUniversalContent).toHaveBeenCalledWith({
+        db: mockDb,
+        tenantId: TENANT_ID,
+        venueId: VENUE_ID,
+        maximumModules: 50,
+      })
+      expect(getConcatenatedSystemPrompt()).not.toContain('private publication resolver detail')
+      expect(configLogger.warn).toHaveBeenCalledWith({
+        action: 'guest-chat.published-content-unavailable',
+        tenantId: TENANT_ID,
+        venueId: VENUE_ID,
+        errorName: 'Error',
+      })
+    })
 
     it('links retried embedding and generation receipts to their terminal successful usage events', async () => {
       setupHappyPath('Recovered response.')

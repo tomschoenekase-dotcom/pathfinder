@@ -469,9 +469,15 @@ Section-level evidence and blockers are indexed in
   A separate append-only publication ledger makes guest publication explicit: only the exact latest
   `PUBLIC` revision may be published, withdrawal requires the expected published revision, UUID
   replay/collision is bounded, and audit commits with the event. The feature-gated guest resolver
-  returns only latest effective published Service, Policy, Event, Operational Fact and Relationship
-  payloads in stable bounded order; authoring a `PUBLIC` revision alone is still not publication.
-  Its forward migration remains unapplied and no live guest/provider path was run.
+  now selects the exact latest event per module across all publication actions before applying its
+  maximum-plus-one published-head bound. Noisy or withdrawn history therefore cannot crowd out a
+  current head. Exact scoped immutable revision/payload resolution preserves `PUBLIC` and effective
+  time filters; malformed, duplicated, missing or cross-scope evidence fails closed, and guest chat
+  falls back without generalized content or raw errors. The default-off workbench shares a
+  render-synchronous scope/generation fence across preview, save, retire and publish, retains exact
+  ambiguous retry identity, locks stale siblings, bounds errors and uses an accessible retirement
+  confirmation. Authoring a `PUBLIC` revision alone is still not publication. Its forward migration
+  remains unapplied and no live guest/provider/operator path was run.
 - Venue Deployment Manifest v2 contracts support complete and granular patch manifests with
   stable-ID operations, effective configuration provenance, immutable asset references,
   evaluation/readiness evidence, canonical hashing, and deterministic diffing. The existing

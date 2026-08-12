@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -57,6 +57,21 @@ function toIso(value: string): string | null {
   return value ? new Date(value).toISOString() : null
 }
 
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('data' in error)) return null
+  const data = error.data
+  if (!data || typeof data !== 'object' || !('code' in data)) return null
+  return typeof data.code === 'string' ? data.code : null
+}
+
+function safeError(action: 'preview' | 'save' | 'retire' | 'publication'): string {
+  if (action === 'preview') return 'The draft could not be validated. Review the entered JSON.'
+  if (action === 'retire') return 'The retirement revision could not be confirmed.'
+  if (action === 'publication')
+    return 'The publication outcome is unknown. Retry only if this exact revision is unchanged.'
+  return 'The revision outcome is unknown. Refresh this exact module before retrying.'
+}
+
 export function GeneralizedContentWorkbench({
   tenantId,
   venueId,
@@ -81,10 +96,81 @@ export function GeneralizedContentWorkbench({
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const mutationInFlight = useRef(false)
+  const [readyScope, setReadyScope] = useState('')
+  const [requiresReview, setRequiresReview] = useState(false)
+  const [retirementTargetId, setRetirementTargetId] = useState<string | null>(null)
+  const [retirementBoundary, setRetirementBoundary] = useState('')
+  const panelInFlight = useRef(false)
   const publicationRequestKeys = useRef(new Map<string, string>())
+  const generation = useRef(0)
+  const feedbackHeading = useRef<HTMLHeadingElement>(null)
+  const propScope = `${tenantId}:${venueId}:${initialCreationKey}:${modules
+    .map(
+      (module) =>
+        `${module.id}:${module.revisionId}:${module.version}:${module.audience}:${module.publishedRevisionId ?? ''}`,
+    )
+    .join('|')}`
+  const renderedScope = useRef(propScope)
+  if (renderedScope.current !== propScope) {
+    renderedScope.current = propScope
+    generation.current += 1
+    panelInFlight.current = false
+    publicationRequestKeys.current.clear()
+  }
+  const scopeReady = readyScope === propScope
+
+  useEffect(() => {
+    setReadyScope(propScope)
+    setSelectedId('new')
+    setCreationKey(initialCreationKey)
+    setKind('SERVICE')
+    setAudience('OPERATOR')
+    setEffectiveFrom('')
+    setEffectiveUntil('')
+    setPayloadJson(JSON.stringify(templates.SERVICE, null, 2))
+    setEvidenceJson('[]')
+    setNotice(null)
+    setError(null)
+    setBusy(false)
+    setRequiresReview(false)
+    setRetirementTargetId(null)
+    setRetirementBoundary('')
+    panelInFlight.current = false
+    publicationRequestKeys.current.clear()
+  }, [initialCreationKey, propScope])
+
+  useEffect(() => {
+    if (error || notice) feedbackHeading.current?.focus()
+  }, [error, notice])
+
+  function isCurrent(startedGeneration: number, startedScope: string) {
+    return generation.current === startedGeneration && renderedScope.current === startedScope
+  }
+
+  function begin() {
+    if (!scopeReady || requiresReview || panelInFlight.current) return null
+    panelInFlight.current = true
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    return { generation: generation.current, scope: propScope }
+  }
+
+  function finish(started: { generation: number; scope: string }) {
+    if (!isCurrent(started.generation, started.scope)) return
+    panelInFlight.current = false
+    setBusy(false)
+  }
+
+  function conflict(actionIdentity?: string) {
+    if (actionIdentity) publicationRequestKeys.current.delete(actionIdentity)
+    setRequiresReview(true)
+    setError('This module changed. Reload and review the authoritative revision before continuing.')
+    router.refresh()
+  }
 
   function loadModule(module: EditableModule | null) {
+    if (!scopeReady || panelInFlight.current) return
     setSelectedId(module?.id ?? 'new')
     const nextKind = module?.kind ?? kind
     setKind(nextKind)
@@ -95,6 +181,10 @@ export function GeneralizedContentWorkbench({
     setEvidenceJson('[]')
     setNotice(null)
     setError(null)
+    setRequiresReview(false)
+    setRetirementTargetId(null)
+    setRetirementBoundary('')
+    publicationRequestKeys.current.clear()
     if (!module) setCreationKey(crypto.randomUUID())
   }
 
@@ -111,9 +201,8 @@ export function GeneralizedContentWorkbench({
   }
 
   async function preview() {
-    setBusy(true)
-    setError(null)
-    setNotice(null)
+    const started = begin()
+    if (!started) return
     try {
       const result = await client.admin.previewUniversalContent.query({
         tenantId,
@@ -121,30 +210,42 @@ export function GeneralizedContentWorkbench({
         // The server contract is the authoritative JSON validator.
         draft: parsedDraft() as never,
       })
+      if (!isCurrent(started.generation, started.scope)) return
       setNotice(
         `${result.preview.lifecycle}. Stored for ${result.preview.audience}; guest and client publication remain off.`,
       )
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The draft could not be validated.')
+    } catch {
+      if (isCurrent(started.generation, started.scope)) setError(safeError('preview'))
     } finally {
-      setBusy(false)
+      finish(started)
     }
   }
 
   async function save() {
-    if (mutationInFlight.current) return
-    mutationInFlight.current = true
-    setBusy(true)
-    setError(null)
-    setNotice(null)
+    if (!authoringEnabled) return
+    const started = begin()
+    if (!started) return
+    const target = selected
+    if (
+      target &&
+      !modules.some(
+        (module) =>
+          module.id === target.id &&
+          module.revisionId === target.revisionId &&
+          module.version === target.version,
+      )
+    ) {
+      finish(started)
+      return
+    }
     try {
       const draft = parsedDraft() as never
-      const result = selected
+      const result = target
         ? await client.admin.addUniversalContentRevision.mutate({
             tenantId,
             venueId,
-            moduleId: selected.id,
-            expectedLatestVersion: selected.version,
+            moduleId: target.id,
+            expectedLatestVersion: target.version,
             draft,
           })
         : await client.admin.createUniversalContent.mutate({
@@ -153,48 +254,67 @@ export function GeneralizedContentWorkbench({
             moduleId: creationKey,
             draft,
           })
+      if (!isCurrent(started.generation, started.scope)) return
       setNotice(`Version ${result.version} recorded. Nothing was published.`)
+      setRequiresReview(true)
       router.refresh()
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : `The result is unknown. Refresh and look for request ${creationKey} before retrying.`,
-      )
+      if (!isCurrent(started.generation, started.scope)) return
+      const code = errorCode(cause)
+      if (code === 'CONFLICT' || code === 'PRECONDITION_FAILED' || code === 'NOT_FOUND') conflict()
+      else setError(safeError('save'))
     } finally {
-      setBusy(false)
-      mutationInFlight.current = false
+      finish(started)
     }
   }
 
   async function retire(module: EditableModule) {
-    const boundary = window.prompt(
-      'Retire at an ISO date/time. This appends a revision; it does not delete history.',
-      new Date().toISOString(),
+    if (
+      !authoringEnabled ||
+      module.id !== selected?.id ||
+      module.revisionId !== selected.revisionId ||
+      module.version !== selected.version ||
+      retirementTargetId !== module.id ||
+      !retirementBoundary
     )
-    if (!boundary) return
-    setBusy(true)
-    setError(null)
+      return
+    const started = begin()
+    if (!started) return
     try {
       const result = await client.admin.retireUniversalContent.mutate({
         tenantId,
         venueId,
         moduleId: module.id,
         expectedLatestVersion: module.version,
-        effectiveUntil: new Date(boundary).toISOString(),
+        effectiveUntil: new Date(retirementBoundary).toISOString(),
         evidence: [],
       })
+      if (!isCurrent(started.generation, started.scope)) return
       setNotice(`Retirement boundary recorded as version ${result.version}.`)
+      setRequiresReview(true)
       router.refresh()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Retirement was not recorded.')
+      if (!isCurrent(started.generation, started.scope)) return
+      const code = errorCode(cause)
+      if (code === 'CONFLICT' || code === 'PRECONDITION_FAILED' || code === 'NOT_FOUND') conflict()
+      else setError(safeError('retire'))
     } finally {
-      setBusy(false)
+      finish(started)
     }
   }
 
   async function changePublication(module: EditableModule) {
-    if (mutationInFlight.current) return
+    if (
+      !authoringEnabled ||
+      module.audience !== 'PUBLIC' ||
+      module.id !== selected?.id ||
+      module.revisionId !== selected.revisionId ||
+      module.version !== selected.version ||
+      !scopeReady ||
+      requiresReview ||
+      panelInFlight.current
+    )
+      return
     const publishing = module.publishedRevisionId !== module.revisionId
     const confirmed = window.confirm(
       publishing
@@ -202,12 +322,10 @@ export function GeneralizedContentWorkbench({
         : `Withdraw ${module.kind} version ${module.version} from the guest guide?`,
     )
     if (!confirmed) return
-    mutationInFlight.current = true
-    setBusy(true)
-    setError(null)
-    setNotice(null)
+    const started = begin()
+    if (!started) return
+    const actionIdentity = `${publishing ? 'PUBLISH' : 'WITHDRAW'}:${module.id}:${module.revisionId}:${module.version}`
     try {
-      const actionIdentity = `${publishing ? 'PUBLISH' : 'WITHDRAW'}:${module.id}:${module.revisionId}`
       const requestId = publicationRequestKeys.current.get(actionIdentity) ?? crypto.randomUUID()
       publicationRequestKeys.current.set(actionIdentity, requestId)
       const result = publishing
@@ -226,22 +344,23 @@ export function GeneralizedContentWorkbench({
             expectedPublishedRevisionId: module.revisionId,
             requestId,
           })
+      if (!isCurrent(started.generation, started.scope)) return
       setNotice(
         result.action === 'PUBLISH'
           ? `Version ${module.version} is explicitly published for effective guest resolution.`
           : `Version ${module.version} is withdrawn from guest resolution.`,
       )
       publicationRequestKeys.current.delete(actionIdentity)
+      setRequiresReview(true)
       router.refresh()
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : 'The publication result is unknown. Refresh before trying again.',
-      )
+      if (!isCurrent(started.generation, started.scope)) return
+      const code = errorCode(cause)
+      if (code === 'CONFLICT' || code === 'PRECONDITION_FAILED' || code === 'NOT_FOUND')
+        conflict(actionIdentity)
+      else setError(safeError('publication'))
     } finally {
-      setBusy(false)
-      mutationInFlight.current = false
+      finish(started)
     }
   }
 
@@ -249,6 +368,7 @@ export function GeneralizedContentWorkbench({
     <section
       className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm"
       aria-labelledby="content-editor-title"
+      aria-busy={busy}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -278,7 +398,8 @@ export function GeneralizedContentWorkbench({
           </label>
           <select
             id="content-module"
-            value={selectedId}
+            value={scopeReady ? selectedId : 'new'}
+            disabled={!scopeReady || busy || requiresReview}
             onChange={(event) =>
               loadModule(modules.find((item) => item.id === event.target.value) ?? null)
             }
@@ -296,7 +417,13 @@ export function GeneralizedContentWorkbench({
               <button
                 type="button"
                 onClick={() => changePublication(selected)}
-                disabled={!authoringEnabled || busy || selected.audience !== 'PUBLIC'}
+                disabled={
+                  !scopeReady ||
+                  !authoringEnabled ||
+                  busy ||
+                  requiresReview ||
+                  selected.audience !== 'PUBLIC'
+                }
                 className="min-h-10 w-full rounded-xl border border-pf-primary px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
               >
                 {selected.publishedRevisionId === selected.revisionId
@@ -305,12 +432,55 @@ export function GeneralizedContentWorkbench({
               </button>
               <button
                 type="button"
-                onClick={() => retire(selected)}
-                disabled={!authoringEnabled || busy}
+                onClick={() => {
+                  setRetirementTargetId(selected.id)
+                  setRetirementBoundary(new Date().toISOString().slice(0, 16))
+                  setError(null)
+                  setNotice(null)
+                }}
+                disabled={!scopeReady || !authoringEnabled || busy || requiresReview}
                 className="min-h-10 w-full rounded-xl border border-rose-200 px-3 text-sm font-semibold text-rose-800 disabled:opacity-50"
               >
                 Append retirement revision
               </button>
+              {retirementTargetId === selected.id ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
+                  <label className="text-sm font-semibold text-rose-950">
+                    Retirement effective at
+                    <input
+                      type="datetime-local"
+                      value={retirementBoundary}
+                      disabled={busy || requiresReview}
+                      onChange={(event) => setRetirementBoundary(event.target.value)}
+                      className="mt-1 min-h-11 w-full rounded-lg border border-rose-200 bg-white px-2"
+                    />
+                  </label>
+                  <p className="mt-2 text-xs text-rose-900">
+                    This appends a revision. It does not delete history.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || requiresReview || !retirementBoundary}
+                      onClick={() => void retire(selected)}
+                      className="min-h-10 rounded-lg bg-rose-800 px-3 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      Confirm retirement revision
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setRetirementTargetId(null)
+                        setRetirementBoundary('')
+                      }}
+                      className="min-h-10 rounded-lg border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-900"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -320,7 +490,7 @@ export function GeneralizedContentWorkbench({
             Type
             <select
               value={kind}
-              disabled={Boolean(selected)}
+              disabled={!scopeReady || busy || requiresReview || Boolean(selected)}
               onChange={(event) => {
                 const next = event.target.value as Kind
                 setKind(next)
@@ -337,6 +507,7 @@ export function GeneralizedContentWorkbench({
             Audience
             <select
               value={audience}
+              disabled={!scopeReady || busy || requiresReview}
               onChange={(event) => setAudience(event.target.value as typeof audience)}
               className="mt-1 min-h-11 w-full rounded-xl border border-pf-light bg-white px-3 text-sm"
             >
@@ -346,14 +517,15 @@ export function GeneralizedContentWorkbench({
             </select>
           </label>
           <div className="rounded-xl bg-pf-surface p-3 text-xs leading-5 text-pf-deep/75">
-            Audience is metadata only here. Publication requires a separate, explicit future
-            workflow.
+            Audience is metadata only here. PUBLIC guest publication requires the separate, explicit
+            action for the selected stored revision.
           </div>
           <label className="text-sm font-semibold text-pf-deep">
             Effective from
             <input
               type="datetime-local"
               value={effectiveFrom}
+              disabled={!scopeReady || busy || requiresReview}
               onChange={(event) => setEffectiveFrom(event.target.value)}
               className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3 text-sm"
             />
@@ -363,6 +535,7 @@ export function GeneralizedContentWorkbench({
             <input
               type="datetime-local"
               value={effectiveUntil}
+              disabled={!scopeReady || busy || requiresReview}
               onChange={(event) => setEffectiveUntil(event.target.value)}
               className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3 text-sm"
             />
@@ -375,6 +548,7 @@ export function GeneralizedContentWorkbench({
           Typed payload JSON
           <textarea
             value={payloadJson}
+            disabled={!scopeReady || busy || requiresReview}
             onChange={(event) => setPayloadJson(event.target.value)}
             spellCheck={false}
             rows={12}
@@ -385,6 +559,7 @@ export function GeneralizedContentWorkbench({
           Evidence references JSON
           <textarea
             value={evidenceJson}
+            disabled={!scopeReady || busy || requiresReview}
             onChange={(event) => setEvidenceJson(event.target.value)}
             spellCheck={false}
             rows={12}
@@ -397,21 +572,22 @@ export function GeneralizedContentWorkbench({
         </label>
       </div>
 
-      {error ? (
-        <p className="mt-4 rounded-xl bg-rose-50 p-3 text-sm text-rose-900" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {notice ? (
-        <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900" role="status">
-          {notice}
-        </p>
+      {error || notice ? (
+        <div
+          className={`mt-4 rounded-xl p-3 ${error ? 'bg-rose-50 text-rose-900' : 'bg-emerald-50 text-emerald-900'}`}
+          role={error ? 'alert' : 'status'}
+        >
+          <h4 ref={feedbackHeading} tabIndex={-1} className="text-sm font-semibold">
+            {error ? 'Content action needs attention' : 'Content action recorded'}
+          </h4>
+          <p className="mt-1 text-sm">{error ?? notice}</p>
+        </div>
       ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={preview}
-          disabled={busy}
+          disabled={!scopeReady || busy || requiresReview}
           className="min-h-11 rounded-xl border border-pf-light px-5 text-sm font-semibold text-pf-deep disabled:opacity-50"
         >
           Validate and preview
@@ -419,7 +595,7 @@ export function GeneralizedContentWorkbench({
         <button
           type="button"
           onClick={save}
-          disabled={!authoringEnabled || busy}
+          disabled={!scopeReady || !authoringEnabled || busy || requiresReview}
           className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
         >
           {selected ? 'Append revision' : 'Create module'}

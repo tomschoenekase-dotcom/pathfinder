@@ -53,6 +53,12 @@ const approvedPolicies = new Set([
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
   {
+    file: 'packages/db/src/helpers/universal-content-publication-actions.ts',
+    method: '$queryRaw',
+    hash: '6ca3fda67d8916a7bb39fcb8dce89f5e51ea5b3c8010980ef9dfde622b0f8206',
+    policy: 'tenant-and-venue',
+  },
+  {
     file: 'packages/db/src/helpers/venue-package-semantic-duplicates.ts',
     method: '$queryRaw',
     hash: 'ec62a926017b4a92b557826492c23c69ca0dca7939eb44c81c54eb3cb29b4336',

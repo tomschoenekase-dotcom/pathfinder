@@ -347,11 +347,21 @@ identity, keep strict audit in the same transaction, and treat collisions or cha
 conflicts.
 
 The guest resolver consumes only the latest effective published Service, Policy, Event, Operational
-Fact, and Relationship revisions. Keep its tenant/venue scope, 100-module maximum, 500-event history
-ceiling, effective-time filtering, explicit typed payload selects, and stable kind/module ordering.
-It remains behind `generalizedContentCapabilities`; resolver failure returns no generalized modules
-rather than exposing draft/internal content. The additive publication migration is unapplied, so
-local tests are not evidence of a live guest path.
+Fact, and Relationship revisions. Its exact tenant/venue query selects the latest event for every
+module across both publish and withdraw actions, then bounds the remaining published heads with a
+maximum-plus-one read in stable module order. Publication history for one noisy or withdrawn module
+must not crowd out another current head. Resolve those heads only through exact scoped immutable
+revisions and typed payloads; missing, duplicated, cross-scoped or inconsistent evidence fails
+closed. Preserve `PUBLIC` audience and effective-time filters. It remains behind
+`generalizedContentCapabilities`; resolver failure returns no generalized modules rather than
+exposing draft/internal content.
+
+The default-off workbench uses one render-synchronous scope/generation fence across preview, save,
+retire and publish. Revision, audience and publication conflicts require an authoritative refresh;
+an ambiguous publication retry retains its exact request identity. Errors are bounded and
+allowlisted, sibling controls remain locked while state is stale, and retirement uses an accessible
+in-panel confirmation. The additive publication migration is unapplied, so local tests are not
+evidence of a live guest or operator path.
 
 ## Search, retention and external surfaces
 

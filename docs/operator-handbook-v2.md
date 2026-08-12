@@ -312,9 +312,16 @@ Generalized Service, Policy, Event, Operational Fact, and Relationship modules a
 versioned. Create, revise, and retire only through the default-off typed workbench; authoring a
 `PUBLIC` revision does not publish it. Explicit publish requires the displayed latest revision and a
 fresh request UUID; withdrawal requires the displayed published revision. Conflicts require refresh,
-not blind retry. Guest chat resolves only effective latest publication-ledger state while the
-generalized capability flag is enabled. The publication migration remains unapplied, so local
-operator and resolver tests are not live guest evidence.
+not blind retry. The workbench hides stale scope immediately, locks sibling actions during a request,
+retains an ambiguous publication request identity, bounds errors, and requires an accessible in-panel
+retirement confirmation.
+
+Guest chat resolves only effective latest publication-ledger state while the generalized capability
+flag is enabled. The exact scoped resolver takes the latest event per module across publish and
+withdraw history before bounding current published heads, so a noisy or withdrawn history cannot
+hide another published module. Missing, cross-scoped or inconsistent typed revision evidence fails
+closed and chat continues without generalized content using sanitized diagnostics. The publication
+migration remains unapplied, so local operator and resolver tests are not live guest evidence.
 
 MCP v0 has concrete bounded read bindings for its 12 resource types. They use verified scope,
 resource-bound cursors, explicit safe selects, and output leakage filtering. There is still no MCP

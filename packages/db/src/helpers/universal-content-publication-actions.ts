@@ -379,6 +379,41 @@ export type EffectivePublishedUniversalContent = {
   payload: GeneralizedContentPayload
 }
 
+// Prisma's extended transaction client does not expose a stable public raw-query type.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type UniversalContentResolverClient = any
+type PublishedHead = { moduleId: string; revisionId: string }
+type ResolverRevision = {
+  id: string
+  moduleId: string
+  kind: GeneralizedContentPayload['kind']
+  version: number
+  audience: string
+  effectiveFrom: Date | null
+  effectiveUntil: Date | null
+  service: null | {
+    name: string
+    description: string | null
+    availability: string | null
+    placeId: string | null
+  }
+  policy: null | { title: string; rule: string; appliesTo: string[] }
+  event: null | {
+    name: string
+    description: string | null
+    startsAt: Date
+    endsAt: Date | null
+    placeId: string | null
+  }
+  operationalFact: null | { label: string; value: string; expiresAt: Date | null }
+  relationship: null | {
+    fromModuleId: string
+    toModuleId: string
+    relationshipType: string
+    description: string | null
+  }
+}
+
 export class UniversalContentResolverError extends Error {
   constructor(message: string) {
     super(message)
@@ -387,7 +422,7 @@ export class UniversalContentResolverError extends Error {
 }
 
 export async function resolveEffectivePublishedUniversalContent(params: {
-  db: Pick<typeof db, 'contentModulePublication'>
+  db: UniversalContentResolverClient
   tenantId: string
   venueId: string
   asOf?: Date
@@ -401,8 +436,7 @@ export async function resolveEffectivePublishedUniversalContent(params: {
     typeof params.venueId !== 'string' ||
     !params.venueId.trim() ||
     typeof params.db !== 'object' ||
-    params.db === null ||
-    typeof params.db.contentModulePublication?.findMany !== 'function'
+    params.db === null
   ) {
     throw new UniversalContentResolverError('Exact tenant and venue scope is required.')
   }
@@ -417,43 +451,63 @@ export async function resolveEffectivePublishedUniversalContent(params: {
   ) {
     throw new UniversalContentResolverError('Maximum published modules must be between 1 and 100.')
   }
-  const events = await params.db.contentModulePublication.findMany({
-    where: { tenantId: params.tenantId, venueId: params.venueId },
-    orderBy: { eventOrder: 'desc' },
-    take: 501,
-    select: {
-      moduleId: true,
-      revisionId: true,
-      action: true,
-      revision: {
-        select: {
-          kind: true,
-          version: true,
-          audience: true,
-          effectiveFrom: true,
-          effectiveUntil: true,
-          service: true,
-          policy: true,
-          event: true,
-          operationalFact: true,
-          relationship: true,
-        },
-      },
-    },
-  })
-  if (events.length === 501) {
-    throw new UniversalContentResolverError('Published content event history exceeds safe bounds.')
-  }
-  const latest = new Map<string, (typeof events)[number]>()
-  for (const event of events) if (!latest.has(event.moduleId)) latest.set(event.moduleId, event)
-  if (latest.size > maximumModules) {
+  const client = params.db
+  const heads = (await client.$queryRaw`
+    SELECT latest."module_id" AS "moduleId", latest."revision_id" AS "revisionId"
+    FROM (
+      SELECT DISTINCT ON (publication."module_id")
+        publication."module_id",
+        publication."revision_id",
+        publication."action",
+        publication."event_order"
+      FROM "content_module_publications" AS publication
+      WHERE publication."tenant_id" = ${params.tenantId}
+        AND publication."venue_id" = ${params.venueId}
+      ORDER BY publication."module_id" ASC, publication."event_order" DESC
+    ) AS latest
+    WHERE latest."action" = 'PUBLISH'::"ContentModulePublicationAction"
+    ORDER BY latest."module_id" ASC
+    LIMIT ${maximumModules + 1}
+  `) as PublishedHead[]
+  if (heads.length > maximumModules) {
     throw new UniversalContentResolverError('Published content module count exceeds safe bounds.')
   }
+  if (heads.length === 0) return []
+  if (
+    new Set(heads.map((head) => head.moduleId)).size !== heads.length ||
+    new Set(heads.map((head) => head.revisionId)).size !== heads.length ||
+    heads.some((head) => !head.moduleId || !head.revisionId)
+  ) {
+    throw new UniversalContentResolverError('Published content heads are inconsistent.')
+  }
+  const revisions = (await client.contentModuleRevision.findMany({
+    where: {
+      tenantId: params.tenantId,
+      venueId: params.venueId,
+      id: { in: heads.map((head) => head.revisionId) },
+    },
+    select: {
+      moduleId: true,
+      id: true,
+      kind: true,
+      version: true,
+      audience: true,
+      effectiveFrom: true,
+      effectiveUntil: true,
+      service: true,
+      policy: true,
+      event: true,
+      operationalFact: true,
+      relationship: true,
+    },
+  })) as ResolverRevision[]
+  const revisionsById = new Map(revisions.map((revision) => [revision.id, revision]))
   const result: EffectivePublishedUniversalContent[] = []
-  for (const event of latest.values()) {
-    const revision = event.revision
+  for (const head of heads) {
+    const revision = revisionsById.get(head.revisionId)
+    if (!revision || revision.moduleId !== head.moduleId)
+      throw new UniversalContentResolverError('A published revision is missing or out of scope.')
     if (
-      event.action !== 'PUBLISH' ||
       revision.audience !== 'PUBLIC' ||
       (revision.effectiveFrom && revision.effectiveFrom > asOf) ||
       (revision.effectiveUntil && revision.effectiveUntil <= asOf)
@@ -516,8 +570,8 @@ export async function resolveEffectivePublishedUniversalContent(params: {
     if (!payload)
       throw new UniversalContentResolverError('A published revision has no typed payload.')
     result.push({
-      moduleId: event.moduleId,
-      revisionId: event.revisionId,
+      moduleId: head.moduleId,
+      revisionId: head.revisionId,
       kind: revision.kind,
       version: revision.version,
       payload,
