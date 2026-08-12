@@ -71,4 +71,36 @@ describe('AdminSectionShell browser foundation', () => {
     expect(document.body.style.overflow).toBe('')
     expect(screen.getAllByRole('navigation', { name: 'PathFinder OS navigation' })).toHaveLength(1)
   })
+
+  it('keeps keyboard focus inside responsive navigation in both directions', () => {
+    render(<AdminSectionShell>Command center</AdminSectionShell>)
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+
+    const panel = document.getElementById('admin-mobile-navigation')
+    const focusable = panel?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')
+    expect(focusable?.length).toBeGreaterThan(2)
+    const first = focusable?.[0]
+    const last = focusable?.[(focusable?.length ?? 1) - 1]
+
+    last?.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(first)
+
+    first?.focus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(last)
+  })
+
+  it('treats nested operational routes as active without marking the platform root active', () => {
+    pathname = '/admin/operations/incidents/incident-1'
+    render(<AdminSectionShell>Incident detail</AdminSectionShell>)
+
+    expect(screen.getByRole('link', { name: 'Operations' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
+    expect(screen.getByRole('link', { name: 'Command center' }).getAttribute('aria-current')).toBe(
+      null,
+    )
+    expect(screen.getByRole('main').textContent).toContain('Incident detail')
+  })
 })

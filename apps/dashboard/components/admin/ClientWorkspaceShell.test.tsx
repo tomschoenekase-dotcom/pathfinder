@@ -83,5 +83,61 @@ describe('ClientWorkspaceShell', () => {
     expect(screen.getByRole('link', { name: /Legacy compatibility/ }).getAttribute('href')).toBe(
       '/admin/clients/client-1/venues/venue-1/compatibility-content',
     )
+    expect(screen.getByRole('link', { name: /Open guest preview/ }).getAttribute('rel')).toBe(
+      'noreferrer',
+    )
+    expect(screen.getByRole('link', { name: /Open guest preview/ }).getAttribute('target')).toBe(
+      '_blank',
+    )
+  })
+
+  it('renders a graceful client-scoped empty venue state', () => {
+    pathname = '/admin/clients/client-1'
+    render(
+      <ClientWorkspaceShell client={client} venues={[]}>
+        Empty account
+      </ClientWorkspaceShell>,
+    )
+
+    expect(screen.getByLabelText('Workspace navigation').textContent).toContain('No venues yet')
+    expect(screen.getByRole('main').textContent).toContain('Empty account')
+    expect(screen.queryByText('Build & manage')).toBeNull()
+    expect(screen.queryByText('Observe & improve')).toBeNull()
+  })
+
+  it('selects venue scope only on an exact path segment boundary', () => {
+    pathname = '/admin/clients/client-1/venues/venue-10/content'
+    render(
+      <ClientWorkspaceShell
+        client={client}
+        venues={[venues[0]!, { ...venues[1]!, id: 'venue-10', name: 'Venue Ten' }]}
+      >
+        Exact venue body
+      </ClientWorkspaceShell>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Venue Ten' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Venue Ten' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
+    expect(screen.getByRole('link', { name: 'Harbor Museum' }).getAttribute('aria-current')).toBe(
+      null,
+    )
+    expect(
+      screen.getByRole('link', { name: /Universal content/ }).getAttribute('aria-current'),
+    ).toBe('page')
+  })
+
+  it('does not mark a workflow active when its href is only a text prefix', () => {
+    pathname = '/admin/clients/client-1/venues/venue-1/content-archive'
+    render(
+      <ClientWorkspaceShell client={client} venues={venues}>
+        Archive body
+      </ClientWorkspaceShell>,
+    )
+
+    expect(
+      screen.getByRole('link', { name: /Universal content/ }).getAttribute('aria-current'),
+    ).toBe(null)
   })
 })

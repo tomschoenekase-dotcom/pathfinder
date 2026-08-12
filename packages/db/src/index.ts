@@ -21,6 +21,17 @@ export type {
   ContentVersionPackageContext,
   ContentVersionSourceProvenance,
 } from './helpers/content-version-context'
+export {
+  ContentHistoryActionError,
+  contentHistoryVersionSelect,
+  revertContentHistoryAction,
+} from './helpers/content-history-actions'
+export type {
+  ContentHistoryActionClient,
+  ContentHistoryActionErrorCode,
+  ContentHistoryEntityType,
+  ContentHistoryHumanActor,
+} from './helpers/content-history-actions'
 export { lockVenueContentMutation, lockVenueReportMutation } from './helpers/venue-content-lock'
 export {
   findTerminalJobRecordEvidence,
@@ -414,6 +425,7 @@ export type {
 } from './helpers/venue-create-action'
 export {
   deleteVenueAction,
+  setVenueAvailabilityAction,
   updateVenueAction,
   updateVenueAiConfigAction,
   updateVenueChatDesignAction,
@@ -475,6 +487,17 @@ export type {
   EngagementQuestionActionErrorCode,
   EngagementQuestionActor,
 } from './helpers/engagement-question-actions'
+export {
+  setTenantEngagementModeAction,
+  tenantEngagementSettingsSelect,
+  TenantSettingsActionError,
+} from './helpers/tenant-settings-actions'
+export type {
+  TenantEngagementMode,
+  TenantSettingsActionClient,
+  TenantSettingsActionErrorCode,
+  TenantSettingsHumanActor,
+} from './helpers/tenant-settings-actions'
 export {
   createOffboardingDraftAction,
   offboardingPlanSummarySelect,

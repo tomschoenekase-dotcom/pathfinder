@@ -63,6 +63,13 @@ content relies exclusively on the durable embedding-dispatch trigger/outbox; nev
 direct queue enqueue. The destructive venue-delete helper requires a HUMAN `OWNER` before opening a
 transaction, even when its current transport adapter already enforces the same role.
 
+Content-history recovery is also a neutral action rather than router-owned persistence. It locks
+the exact tenant/venue/entity, compares the latest content-version ID, installs trigger attribution,
+strictly validates the selected versioned snapshot and parent scope, then requires sanitized audit
+evidence in the same transaction. Venue restoration/deletion remains HUMAN `OWNER` only. Keep
+snapshot compatibility parsing isolated from orchestration, and never accept unknown snapshot
+fields or bypass trigger-backed history when adding a schema version.
+
 VenuePackage lifecycle transition authority is neutral and shared: HUMAN `OWNER`, exact
 tenant/venue/package, venue lock, command replay/collision, CAS, content-version context, and strict
 audit. The compatibility router still owns V1/V2/V3 effect orchestration inside the same outer
@@ -72,6 +79,15 @@ an orchestration concern and must reject an inverted range before any transactio
 uses a durable pre-provider intent: commit `PROVIDER_STARTED` before Clerk I/O, block ambiguous retry,
 and reconcile only after revalidating the exact organization, owner-equivalent membership, and email.
 The intent/event migration enforces its state machine and append-only evidence; it remains unapplied.
+
+Tenant engagement policy is also a canonical DB action. Pass the server-resolved tenant, HUMAN
+`OWNER`/`MANAGER`, and the tenant revision loaded with settings; propagate the returned `updatedAt`
+before the next edit. A matching revision/mode is an idempotent no-op, while stale revisions fail
+with `CONFLICT`. Clerk invitations are deliberately different: Clerk remains the external source of
+truth and verified webhook synchronization owns local membership persistence. Do not pre-create a
+membership or claim provider/local atomicity in the invitation route. The existing
+`EngagementQuestionsManager` demonstrates revision propagation only; its legacy portal route remains
+redirect-only. Do not cite that dormant component test as evidence of a reachable client control.
 
 ## Adding an intake adapter
 

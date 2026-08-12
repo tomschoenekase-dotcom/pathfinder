@@ -65,18 +65,40 @@ describe('EngagementQuestionsManager', () => {
   })
 
   it('changes mode only after the server confirms and retains mode on failure', async () => {
-    mocks.setMode.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('Mode conflict'))
-    render(<EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[]} />)
+    mocks.setMode
+      .mockResolvedValueOnce({
+        id: 'tenant-1',
+        engagementMode: 'CURIOUS',
+        updatedAt: new Date('2026-08-11T15:00:01.000Z'),
+        replayed: false,
+      })
+      .mockRejectedValueOnce(new Error('Mode conflict'))
+    render(
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[]}
+      />,
+    )
 
     const balanced = screen.getByRole('button', { name: /^Balanced\b/ })
     const curious = screen.getByRole('button', { name: /^Curious\b/ })
     expect(balanced.className).toContain('border-pf-accent')
     fireEvent.click(curious)
-    await waitFor(() => expect(mocks.setMode).toHaveBeenCalledWith({ mode: 'CURIOUS' }))
+    await waitFor(() =>
+      expect(mocks.setMode).toHaveBeenCalledWith({
+        mode: 'CURIOUS',
+        expectedUpdatedAt: new Date('2026-08-11T15:00:00.000Z'),
+      }),
+    )
     expect(curious.className).toContain('border-pf-accent')
 
     fireEvent.click(screen.getByRole('button', { name: /^Stoic\b/ }))
     expect(await screen.findByText('Mode conflict')).toBeTruthy()
+    expect(mocks.setMode).toHaveBeenLastCalledWith({
+      mode: 'STOIC',
+      expectedUpdatedAt: new Date('2026-08-11T15:00:01.000Z'),
+    })
     expect(curious.className).toContain('border-pf-accent')
   })
 
@@ -91,7 +113,13 @@ describe('EngagementQuestionsManager', () => {
       createdAt: new Date('2026-08-09T01:00:00.000Z'),
       updatedAt: new Date('2026-08-09T01:00:00.000Z'),
     })
-    render(<EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[]} />)
+    render(
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[]}
+      />,
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Soft multiple-choice' }))
     fireEvent.change(
@@ -127,7 +155,13 @@ describe('EngagementQuestionsManager', () => {
   })
 
   it('blocks a multiple-choice question after normalization leaves fewer than two options', () => {
-    render(<EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[]} />)
+    render(
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[]}
+      />,
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Soft multiple-choice' }))
     fireEvent.change(
@@ -148,7 +182,11 @@ describe('EngagementQuestionsManager', () => {
   it('requires confirmation before deleting a question', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(
-      <EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[existingQuestion]} />,
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[existingQuestion]}
+      />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -162,7 +200,11 @@ describe('EngagementQuestionsManager', () => {
     const pending = deferred<typeof updatedQuestion>()
     mocks.update.mockReturnValueOnce(pending.promise)
     render(
-      <EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[existingQuestion]} />,
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[existingQuestion]}
+      />,
     )
 
     const prompt = screen.getByDisplayValue('What stood out?')
@@ -198,7 +240,11 @@ describe('EngagementQuestionsManager', () => {
   it('retains a stale update draft after conflict and gives safe refresh guidance', async () => {
     mocks.update.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
     render(
-      <EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[existingQuestion]} />,
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[existingQuestion]}
+      />,
     )
 
     const prompt = screen.getByDisplayValue('What stood out?')
@@ -218,7 +264,11 @@ describe('EngagementQuestionsManager', () => {
       .mockRejectedValueOnce(new Error('Transport failed'))
       .mockResolvedValueOnce(updatedQuestion)
     render(
-      <EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[existingQuestion]} />,
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[existingQuestion]}
+      />,
     )
 
     const prompt = screen.getByDisplayValue('What stood out?')
@@ -236,7 +286,11 @@ describe('EngagementQuestionsManager', () => {
     mocks.update.mockReturnValueOnce(pending.promise)
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(
-      <EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[existingQuestion]} />,
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[existingQuestion]}
+      />,
     )
 
     const save = screen.getByRole('button', { name: 'Save' })
@@ -255,7 +309,11 @@ describe('EngagementQuestionsManager', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.remove.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
     render(
-      <EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[existingQuestion]} />,
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[existingQuestion]}
+      />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -282,7 +340,13 @@ describe('EngagementQuestionsManager', () => {
       updatedAt: Date
     }>()
     mocks.create.mockReturnValueOnce(pending.promise)
-    render(<EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[]} />)
+    render(
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[]}
+      />,
+    )
 
     const prompt = screen.getByPlaceholderText(
       "e.g. Ask what the guest's favorite part of the visit was, so we can learn what resonates most.",
@@ -323,9 +387,20 @@ describe('EngagementQuestionsManager', () => {
   })
 
   it('synchronously fences mode changes and suppresses late state after unmount', async () => {
-    const pending = deferred<undefined>()
+    const pending = deferred<{
+      id: string
+      engagementMode: 'CURIOUS'
+      updatedAt: Date
+      replayed: false
+    }>()
     mocks.setMode.mockReturnValueOnce(pending.promise)
-    const view = render(<EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[]} />)
+    const view = render(
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[]}
+      />,
+    )
 
     const curious = screen.getByRole('button', { name: /^Curious\b/ })
     const stoic = screen.getByRole('button', { name: /^Stoic\b/ })
@@ -334,7 +409,10 @@ describe('EngagementQuestionsManager', () => {
       stoic.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(mocks.setMode).toHaveBeenCalledOnce()
-    expect(mocks.setMode).toHaveBeenCalledWith({ mode: 'CURIOUS' })
+    expect(mocks.setMode).toHaveBeenCalledWith({
+      mode: 'CURIOUS',
+      expectedUpdatedAt: new Date('2026-08-11T15:00:00.000Z'),
+    })
     expect(
       screen
         .getAllByRole('button', { name: /^(Stoic|Balanced|Curious)\b/ })
@@ -342,7 +420,12 @@ describe('EngagementQuestionsManager', () => {
     ).toBe(true)
 
     view.unmount()
-    pending.resolve(undefined)
+    pending.resolve({
+      id: 'tenant-1',
+      engagementMode: 'CURIOUS',
+      updatedAt: new Date('2026-08-11T15:00:01.000Z'),
+      replayed: false,
+    })
     await act(async () => pending.promise)
   })
 
@@ -350,7 +433,11 @@ describe('EngagementQuestionsManager', () => {
     const pending = deferred<typeof updatedQuestion>()
     mocks.update.mockReturnValueOnce(pending.promise)
     const view = render(
-      <EngagementQuestionsManager initialMode="BALANCED" initialQuestions={[existingQuestion]} />,
+      <EngagementQuestionsManager
+        initialMode="BALANCED"
+        initialTenantUpdatedAt="2026-08-11T15:00:00.000Z"
+        initialQuestions={[existingQuestion]}
+      />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))

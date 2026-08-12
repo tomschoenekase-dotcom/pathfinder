@@ -29,6 +29,20 @@ const lifecycle = (state: 'LIVE' | 'PROCESSING' | 'SETUP_REQUESTED' = 'LIVE') =>
   return resolveClientPortalLifecycle(base)
 }
 
+const lifecycleFrom = (overrides: Partial<Parameters<typeof resolveClientPortalLifecycle>[0]>) =>
+  resolveClientPortalLifecycle({
+    isActive: false,
+    publicContentCount: 0,
+    wasLive: false,
+    collectingSourceCount: 0,
+    processingSourceCount: 0,
+    reviewSourceCount: 0,
+    intakeProposalCount: 0,
+    packageCounts: { draft: 0, approved: 0, applied: 0, reverted: 0 },
+    hasActiveOffboarding: false,
+    ...overrides,
+  })
+
 describe('DashboardOverview client portal', () => {
   afterEach(cleanup)
 
@@ -95,5 +109,54 @@ describe('DashboardOverview client portal', () => {
     )
     expect(document.body.textContent).not.toMatch(/package|worker|queue|analytics|agent/iu)
     expect(screen.queryByRole('navigation', { name: 'Choose venue' })).toBeNull()
+  })
+
+  it('shows exactly one client task for preview and withholds live management tools', () => {
+    render(
+      <DashboardOverview
+        venue={{
+          id: 'riverside',
+          name: 'Riverside',
+          lifecycle: lifecycleFrom({
+            packageCounts: { draft: 0, approved: 1, applied: 0, reverted: 0 },
+          }),
+        }}
+        venues={[{ id: 'riverside', name: 'Riverside' }]}
+        activeUpdates={3}
+        chatUrl="https://guest.example/riverside"
+      />,
+    )
+
+    expect(screen.getAllByText('Your next step')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Open preview' }).getAttribute('href')).toBe(
+      'https://guest.example/riverside',
+    )
+    expect(screen.queryByText('The essentials')).toBeNull()
+    expect(screen.queryByText(/visitor updates live/i)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)
+  })
+
+  it('shows one support task for a paused venue and never exposes the visitor link', () => {
+    render(
+      <DashboardOverview
+        venue={{
+          id: 'riverside',
+          name: 'Riverside',
+          lifecycle: lifecycleFrom({ wasLive: true }),
+        }}
+        venues={[{ id: 'riverside', name: 'Riverside' }]}
+        activeUpdates={0}
+        chatUrl="https://guest.example/riverside"
+        impersonatedTenantName="Owner-authorized preview"
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Owner-authorized preview' })).toBeTruthy()
+    expect(screen.getAllByText('Your next step')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Contact Support' }).getAttribute('href')).toBe(
+      '/support',
+    )
+    expect(screen.queryByRole('link', { name: /Open PathFinder|Open preview/ })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)
   })
 })

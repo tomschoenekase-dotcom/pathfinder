@@ -6,6 +6,7 @@ import { z } from 'zod'
 import {
   createVenueAction,
   deleteVenueAction,
+  setVenueAvailabilityAction,
   lockVenueContentMutation,
   setContentVersionContext,
   updateVenueAction,
@@ -30,7 +31,6 @@ import {
 
 import { router } from '../core'
 import { checkRateLimit } from '../lib/rate-limit'
-import { withContentVersionActor } from '../middleware/content-version-actor'
 import { requireRole } from '../middleware/require-role'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
@@ -342,7 +342,6 @@ export const venueRouter = router({
 
   setAvailability: tenantProcedure
     .use(requireRole('MANAGER'))
-    .use(withContentVersionActor)
     .input(
       z
         .object({
@@ -354,57 +353,21 @@ export const venueRouter = router({
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.session.activeTenantId
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.venueId })
-
-      const before = await ctx.db.venue.findFirst({
-        where: { id: input.venueId, tenantId },
-        select: { id: true, isActive: true, updatedAt: true },
-      })
-      if (!before) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
-      if (before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Venue availability changed; refresh and try again.',
-        })
-      }
-      if (before.isActive === input.enabled) return { ...before, replayed: true }
-
-      const updatedAt = new Date(Math.max(Date.now(), before.updatedAt.getTime() + 1))
-      const changed = await ctx.db.venue.updateMany({
-        where: {
-          id: input.venueId,
-          tenantId,
-          isActive: before.isActive,
-          updatedAt: before.updatedAt,
-        },
-        data: { isActive: input.enabled, updatedAt },
-      })
-      if (changed.count !== 1) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Venue availability changed; refresh and try again.',
-        })
-      }
-
-      await ctx.db.auditLog.create({
-        data: {
-          tenantId,
-          actorId: ctx.session.userId,
-          actorRole: ctx.session.role,
-          action: input.enabled ? 'venue.availability.enabled' : 'venue.availability.disabled',
-          targetType: 'Venue',
-          targetId: input.venueId,
-          beforeState: { enabled: before.isActive },
-          afterState: { enabled: input.enabled, reason: input.reason },
-        },
-      })
-
-      return {
-        id: before.id,
-        isActive: input.enabled,
-        updatedAt,
-        replayed: false,
+      try {
+        return await setVenueAvailabilityAction(
+          {
+            tenantId: ctx.session.activeTenantId,
+            venueId: input.venueId,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+            enabled: input.enabled,
+            reason: input.reason,
+            actor: venueActor(ctx.session),
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
       }
     }),
 

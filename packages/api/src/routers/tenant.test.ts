@@ -4,26 +4,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   tenantFindUnique,
   tenantMembershipFindMany,
-  tenantUpdate,
+  setTenantEngagementModeActionMock,
   inviteOrganizationMemberMock,
   listPendingOrganizationInvitationsMock,
 } = vi.hoisted(() => ({
   tenantFindUnique: vi.fn(),
   tenantMembershipFindMany: vi.fn(),
-  tenantUpdate: vi.fn(),
+  setTenantEngagementModeActionMock: vi.fn(),
   inviteOrganizationMemberMock: vi.fn(),
   listPendingOrganizationInvitationsMock: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
-  db: {
-    tenant: {
-      findUnique: tenantFindUnique,
-      update: tenantUpdate,
-    },
-    tenantMembership: {
-      findMany: tenantMembershipFindMany,
-    },
+  setTenantEngagementModeAction: setTenantEngagementModeActionMock,
+  TenantSettingsActionError: class TenantSettingsActionError extends Error {
+    constructor(
+      readonly code: 'NOT_FOUND' | 'CONFLICT' | 'INVALID_INPUT',
+      message: string,
+    ) {
+      super(message)
+    }
   },
 }))
 
@@ -41,7 +41,10 @@ import type { TRPCContext } from '../context'
 import { tenantRouter } from './tenant'
 
 const baseCtx = {
-  db: {} as TRPCContext['db'],
+  db: {
+    tenant: { findUnique: tenantFindUnique },
+    tenantMembership: { findMany: tenantMembershipFindMany },
+  } as unknown as TRPCContext['db'],
   headers: new Headers(),
 }
 
@@ -225,16 +228,57 @@ describe('tenant router', () => {
     expect(listPendingOrganizationInvitationsMock).toHaveBeenCalledWith('tenant_1')
   })
 
+  it('tenant.listPendingInvitations hides team invitations from members below OWNER', async () => {
+    const caller = testRouter.createCaller(staffCtx())
+
+    await expect(caller.tenant.listPendingInvitations()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(listPendingOrganizationInvitationsMock).not.toHaveBeenCalled()
+  })
+
   it('tenant.setEngagementMode updates the current tenant mode', async () => {
-    tenantUpdate.mockResolvedValueOnce({})
+    const updatedAt = new Date('2026-08-11T15:00:01.000Z')
+    setTenantEngagementModeActionMock.mockResolvedValueOnce({
+      id: 'tenant_1',
+      engagementMode: 'CURIOUS',
+      updatedAt,
+      replayed: false,
+    })
 
     const caller = testRouter.createCaller(tenantCtx())
-    const result = await caller.tenant.setEngagementMode({ mode: 'CURIOUS' })
-
-    expect(result).toEqual({ ok: true })
-    expect(tenantUpdate).toHaveBeenCalledWith({
-      where: { id: 'tenant_1' },
-      data: { engagementMode: 'CURIOUS' },
+    const result = await caller.tenant.setEngagementMode({
+      mode: 'CURIOUS',
+      expectedUpdatedAt: new Date('2026-08-11T15:00:00.000Z'),
     })
+
+    expect(result).toEqual({
+      id: 'tenant_1',
+      engagementMode: 'CURIOUS',
+      updatedAt,
+      replayed: false,
+    })
+    expect(setTenantEngagementModeActionMock).toHaveBeenCalledWith({
+      db: baseCtx.db,
+      tenantId: 'tenant_1',
+      mode: 'CURIOUS',
+      expectedUpdatedAt: new Date('2026-08-11T15:00:00.000Z'),
+      actor: { type: 'HUMAN', id: 'user_1', role: 'OWNER' },
+    })
+  })
+
+  it('tenant.setEngagementMode maps a stale canonical action to CONFLICT', async () => {
+    const { TenantSettingsActionError } = await import('@pathfinder/db')
+    setTenantEngagementModeActionMock.mockRejectedValueOnce(
+      new TenantSettingsActionError('CONFLICT', 'Tenant settings changed; refresh and try again.'),
+    )
+
+    const caller = testRouter.createCaller(tenantCtx())
+    await expect(
+      caller.tenant.setEngagementMode({
+        mode: 'CURIOUS',
+        expectedUpdatedAt: new Date('2026-08-11T15:00:00.000Z'),
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 })

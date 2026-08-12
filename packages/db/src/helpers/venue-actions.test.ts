@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   deleteVenueAction,
+  setVenueAvailabilityAction,
   updateVenueAction,
   updateVenueAiConfigAction,
   updateVenueChatDesignAction,
@@ -54,6 +55,68 @@ function fixture() {
 }
 
 describe('canonical venue actions', () => {
+  it('changes availability with exact CAS and strict same-transaction audit', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst.mockResolvedValueOnce({
+      id: 'venue-1',
+      isActive: true,
+      updatedAt: revision,
+    })
+    await expect(
+      setVenueAvailabilityAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          enabled: false,
+          reason: '  Planned pause  ',
+          actor,
+        },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ isActive: false, replayed: false })
+    expect(tx.venue.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'venue-1',
+          tenantId: 'tenant-1',
+          isActive: true,
+          updatedAt: revision,
+        },
+      }),
+    )
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'venue.availability.disabled',
+        afterState: { enabled: false, reason: 'Planned pause' },
+      }),
+    })
+  })
+
+  it('replays exact availability without a write or duplicate audit', async () => {
+    const { tx, client } = fixture()
+    tx.venue.findFirst.mockResolvedValueOnce({
+      id: 'venue-1',
+      isActive: false,
+      updatedAt: revision,
+    })
+    await expect(
+      setVenueAvailabilityAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          enabled: false,
+          reason: 'Still paused',
+          actor,
+        },
+        client as never,
+      ),
+    ).resolves.toMatchObject({ isActive: false, replayed: true })
+    expect(tx.venue.updateMany).not.toHaveBeenCalled()
+    expect(tx.auditLog.create).not.toHaveBeenCalled()
+  })
+
   it('updates with exact tenant/revision CAS and audits sanitized state in the transaction', async () => {
     const { tx, client } = fixture()
     tx.venue.findFirst

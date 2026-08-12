@@ -196,6 +196,33 @@ describe('venue router', () => {
     })
   })
 
+  it('venue.setAvailability owns one root transaction instead of nesting a Prisma transaction', async () => {
+    const updatedAt = new Date('2026-08-08T12:00:00.000Z')
+    const transactionClient = {
+      ...mockDb,
+      $transaction: undefined,
+    }
+    dbTransaction.mockImplementationOnce(async (callback: (tx: typeof mockDb) => unknown) =>
+      callback(transactionClient as unknown as typeof mockDb),
+    )
+    venueFindFirst.mockResolvedValueOnce({
+      id: 'cuid1234567890abcdef',
+      isActive: true,
+      updatedAt,
+    })
+    venueUpdateMany.mockResolvedValueOnce({ count: 1 })
+
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.setAvailability({
+        venueId: 'cuid1234567890abcdef',
+        enabled: false,
+        expectedUpdatedAt: updatedAt,
+        reason: 'Provider incident',
+      }),
+    ).resolves.toMatchObject({ replayed: false })
+    expect(dbTransaction).toHaveBeenCalledOnce()
+  })
+
   it('venue.setAvailability rejects a stale revision without mutation or audit', async () => {
     venueFindFirst.mockResolvedValueOnce({
       id: 'cuid1234567890abcdef',

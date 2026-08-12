@@ -34,7 +34,9 @@ type NavigationItem = {
 
 function WorkspaceLink({ item }: { item: NavigationItem }) {
   const pathname = usePathname()
-  const active = item.exact ? pathname === item.href : pathname.startsWith(item.href)
+  const active = item.exact
+    ? pathname === item.href
+    : pathname === item.href || pathname.startsWith(`${item.href}/`)
 
   return (
     <Link
@@ -73,7 +75,11 @@ function NavigationGroup({ label, items }: { label: string; items: NavigationIte
 
 export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspaceShellProps) {
   const pathname = usePathname()
-  const selectedVenue = venues.find((venue) => pathname.includes(`/venues/${venue.id}`)) ?? null
+  const selectedVenue =
+    venues.find((venue) => {
+      const venuePath = `/venues/${venue.id}`
+      return pathname.includes(`${venuePath}/`) || pathname.endsWith(venuePath)
+    }) ?? null
   const clientRoot = `/admin/clients/${client.id}`
   const venueRoot = selectedVenue ? `${clientRoot}/venues/${selectedVenue.id}` : null
 

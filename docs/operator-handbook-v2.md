@@ -164,6 +164,11 @@ valid time windows, the bounded overlap limit, and transactional audit evidence.
 reload authoritative state before retrying. A locally computed `SCHEDULED`, `LIVE`, `EXPIRED`, or
 `INACTIVE` preview is lifecycle evidence only; it is not proof that a live scheduler ran.
 
+Content-history revert uses the version ID visible when the review opened as a concurrency fence.
+If it reports a conflict, reload history and review the newer state; do not retry the stale command.
+Managers may revert content within an existing venue, while restoring or removing a venue requires
+an owner. Invalid or cross-scoped legacy snapshots fail closed rather than being partially applied.
+
 ## Failures and incidents
 
 Start in **PathFinder OS → Operations**. Determine whether the issue is AI admission, a durable job,

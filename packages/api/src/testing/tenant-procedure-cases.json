@@ -335,7 +335,7 @@
   {
     "path": "tenant.listPendingInvitations",
     "kind": "query",
-    "minimumRole": "STAFF",
+    "minimumRole": "OWNER",
     "firstTouch": "external.listPendingOrganizationInvitations",
     "input": null
   },
@@ -343,8 +343,8 @@
     "path": "tenant.setEngagementMode",
     "kind": "mutation",
     "minimumRole": "MANAGER",
-    "firstTouch": "tenant.update",
-    "input": { "mode": "STOIC" }
+    "firstTouch": "tenant.findUnique",
+    "input": { "mode": "STOIC", "expectedUpdatedAt": "2026-08-11T15:00:00.000Z" }
   },
 
   {

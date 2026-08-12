@@ -77,6 +77,17 @@ Section-level evidence and blockers are indexed in
   fenced by a durable pre-Clerk request intent and append-only lifecycle evidence; ambiguous outcomes
   cannot auto-retry and require verified organization/owner/email reconciliation. Client status,
   plan, and local payment-due metadata use exact CAS and never charge a payment method.
+- Content-history recovery now uses a neutral HUMAN manager/owner action with exact
+  tenant/venue/entity locks, latest-version CAS, trigger attribution, strict versioned snapshot and
+  parent-scope validation, P2002/P2003 conflict mapping, and sanitized same-transaction audit.
+  Venue restoration/deletion remains owner-only; transport response contracts are unchanged.
+- Tenant engagement-mode changes now use a neutral HUMAN owner/manager action with server-resolved
+  tenant scope, exact `updatedAt` CAS, monotonic revision propagation, idempotent same-revision
+  no-op behavior, and strict sanitized audit in the mutation transaction. Pending Clerk invitation
+  reads are OWNER-only; invitations remain provider-first and do not manufacture a local membership
+  before the existing verified webhook synchronization observes one. The revision-aware manager
+  component is type-compatible and locally tested, but `/engagement-questions` still redirects home;
+  there is no reachable production control, so this is not end-to-end UI evidence.
 - Shared intake contracts for every packet source type, bounded draft-only website intake,
   evidence/discrepancy records, and the complete orchestration stage sequence.
 - Server-side website adapter with exact-host allowlists, credentialed-URL rejection, DNS/IP and
@@ -269,8 +280,8 @@ Section-level evidence and blockers are indexed in
   onboarding beyond the bounded existing-DRAFT lineage bridge.
 - Venue Deployment Manifest v2-native persistence/apply semantics beyond the bounded conversion into
   existing preview/draft inputs.
-- Broader canonical domain action coverage for remaining secondary account/workspace
-  mutations, so every UI, worker, API, MCP, and agent mutation shares the same services.
+- New account/workspace mutation surfaces must continue to use the canonical actions; the current
+  production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
 - Durable request identity for offboarding draft creation; current schema cannot distinguish an
   intentional second request from a retry after an ambiguous transaction outcome.
 - Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
@@ -288,7 +299,7 @@ Section-level evidence and blockers are indexed in
 
 ## Local browser-surface foundation
 
-`pnpm test:browser-foundation` now runs 68 deterministic DOM and route-adapter contracts across the
+`pnpm test:browser-foundation` now runs 79 deterministic DOM and route-adapter contracts across the
 Admin OS, Internal Client Workspace, ultra-simple Client Portal, and Guest experience. The gate is
 wired into CI and performs no authentication, network, provider, or database access. It is an inner
 loop foundation, not Playwright or deployed-browser evidence: browser-engine layout, Clerk flows,

@@ -96,6 +96,55 @@ export type UpdateVenueFields = {
   defaultCenterLng?: number | undefined
 }
 
+export async function setVenueAvailabilityAction(
+  input: BaseAction & { enabled: boolean; reason: string },
+  client: VenueActionClient = db,
+) {
+  requireActor(input.actor)
+  const reason = input.reason.trim()
+  if (!reason || reason.length > 500) {
+    throw new VenueActionError('INVALID_INPUT', 'An availability reason is required')
+  }
+  return client.$transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db
+    await prepare(tx, input)
+    const before = await tx.venue.findFirst({
+      where: { id: input.venueId, tenantId: input.tenantId },
+      select: { id: true, isActive: true, updatedAt: true },
+    })
+    if (!before) throw new VenueActionError('NOT_FOUND', 'Venue not found')
+    if (before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+      conflict('Venue availability changed; refresh and try again.')
+    }
+    if (before.isActive === input.enabled) return { ...before, replayed: true as const }
+    const updatedAt = nextUpdatedAt(before.updatedAt)
+    const changed = await tx.venue.updateMany({
+      where: {
+        id: input.venueId,
+        tenantId: input.tenantId,
+        isActive: before.isActive,
+        updatedAt: input.expectedUpdatedAt,
+      },
+      data: { isActive: input.enabled, updatedAt },
+    })
+    if (changed.count !== 1) conflict('Venue availability changed; refresh and try again.')
+    await writeAuditLogStrict(
+      {
+        tenantId: input.tenantId,
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: input.enabled ? 'venue.availability.enabled' : 'venue.availability.disabled',
+        targetType: 'Venue',
+        targetId: input.venueId,
+        beforeState: { enabled: before.isActive },
+        afterState: { enabled: input.enabled, reason },
+      },
+      tx,
+    )
+    return { id: before.id, isActive: input.enabled, updatedAt, replayed: false as const }
+  })
+}
+
 export async function updateVenueAction(
   input: BaseAction & { fields: UpdateVenueFields },
   client: VenueActionClient = db,

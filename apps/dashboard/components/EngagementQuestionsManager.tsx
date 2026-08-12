@@ -21,6 +21,7 @@ type EngagementQuestion = {
 
 type EngagementQuestionsManagerProps = {
   initialMode: TenantEngagementMode
+  initialTenantUpdatedAt: string
   initialQuestions: EngagementQuestion[]
 }
 
@@ -497,11 +498,13 @@ function NewQuestionForm({
 
 export function EngagementQuestionsManager({
   initialMode,
+  initialTenantUpdatedAt,
   initialQuestions,
 }: EngagementQuestionsManagerProps) {
   const client = useTRPCClient()
 
   const [mode, setMode] = useState<TenantEngagementMode>(initialMode)
+  const [tenantUpdatedAt, setTenantUpdatedAt] = useState(initialTenantUpdatedAt)
   const [questions, setQuestions] = useState<EngagementQuestion[]>(initialQuestions)
   const [modeError, setModeError] = useState<string | null>(null)
   const modeMutation = useMutationLifecycle<'mode'>()
@@ -511,8 +514,14 @@ export function EngagementQuestionsManager({
 
     setModeError(null)
     try {
-      await client.tenant.setEngagementMode.mutate({ mode: next })
-      if (modeMutation.isMounted()) setMode(next)
+      const updated = await client.tenant.setEngagementMode.mutate({
+        mode: next,
+        expectedUpdatedAt: new Date(tenantUpdatedAt),
+      })
+      if (modeMutation.isMounted()) {
+        setMode(updated.engagementMode)
+        setTenantUpdatedAt(updated.updatedAt.toISOString())
+      }
     } catch (err) {
       if (modeMutation.isMounted()) setModeError(getErrorMessage(err))
     } finally {

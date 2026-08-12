@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db } from '@pathfinder/db'
+import { setTenantEngagementModeAction, TenantSettingsActionError } from '@pathfinder/db'
 import {
   inviteOrganizationMember,
   listPendingOrganizationInvitations,
@@ -21,6 +21,21 @@ function assertCanManageTeam(session: SessionContext & { activeTenantId: string 
   requireTenantRole(session, 'OWNER')
 }
 
+function mapTenantSettingsActionError(error: unknown): never {
+  if (error instanceof TenantSettingsActionError) {
+    throw new TRPCError({
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'BAD_REQUEST',
+      message: error.message,
+    })
+  }
+  throw error
+}
+
 export const tenantRouter = router({
   /**
    * Returns the current tenant's settings and full non-removed member list.
@@ -30,7 +45,7 @@ export const tenantRouter = router({
     const tenantId = ctx.session.activeTenantId
 
     const [tenant, members] = await Promise.all([
-      db.tenant.findUnique({
+      ctx.db.tenant.findUnique({
         where: { id: tenantId },
         select: {
           id: true,
@@ -43,7 +58,7 @@ export const tenantRouter = router({
           updatedAt: true,
         },
       }),
-      db.tenantMembership.findMany({
+      ctx.db.tenantMembership.findMany({
         where: { tenantId, status: { not: 'REMOVED' } },
         select: {
           id: true,
@@ -93,18 +108,35 @@ export const tenantRouter = router({
     }),
 
   listPendingInvitations: tenantProcedure.query(async ({ ctx }) => {
+    assertCanManageTeam(ctx.session)
     return listPendingOrganizationInvitations(ctx.session.activeTenantId)
   }),
 
   setEngagementMode: tenantProcedure
     .use(requireRole('MANAGER'))
-    .input(z.object({ mode: z.enum(['STOIC', 'BALANCED', 'CURIOUS']) }).strict())
+    .input(
+      z
+        .object({
+          mode: z.enum(['STOIC', 'BALANCED', 'CURIOUS']),
+          expectedUpdatedAt: z.coerce.date(),
+        })
+        .strict(),
+    )
     .mutation(async ({ ctx, input }) => {
-      await db.tenant.update({
-        where: { id: ctx.session.activeTenantId },
-        data: { engagementMode: input.mode },
-      })
-
-      return { ok: true }
+      try {
+        return await setTenantEngagementModeAction({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          mode: input.mode,
+          expectedUpdatedAt: input.expectedUpdatedAt,
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: ctx.session.role as 'OWNER' | 'MANAGER',
+          },
+        })
+      } catch (error) {
+        mapTenantSettingsActionError(error)
+      }
     }),
 })
