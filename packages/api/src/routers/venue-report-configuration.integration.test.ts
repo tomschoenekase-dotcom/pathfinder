@@ -159,9 +159,15 @@ integrationDescribe('venue report configuration integration', () => {
         },
       }),
     )
-    await expect(tenant.analytics.listPublishedWeeklyReports({ venueId })).resolves.toEqual([
+    await expect(tenant.analytics.listPublishedWeeklyReports({ venueId })).resolves.toEqual({
+      items: [expect.objectContaining({ id: publishedId })],
+      nextCursor: null,
+    })
+    await expect(
+      tenant.analytics.getPublishedWeeklyReport({ venueId, reportId: publishedId }),
+    ).resolves.toEqual(
       expect.objectContaining({ id: publishedId, content: 'Published report body' }),
-    ])
+    )
 
     const disabled = await admin.updateVenueReportConfiguration({
       tenantId,

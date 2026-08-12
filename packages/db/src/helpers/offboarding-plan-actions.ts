@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { OffboardingExportKind, OffboardingRevocationTarget } from '@prisma/client'
 
 import { db } from '../client'
@@ -9,7 +11,7 @@ export type OffboardingPlanHumanActor = {
   role: 'PLATFORM_ADMIN'
 }
 export type OffboardingPlanActionClient = Pick<typeof db, '$transaction'>
-export type OffboardingPlanActionErrorCode = 'NOT_FOUND' | 'INVALID_INPUT'
+export type OffboardingPlanActionErrorCode = 'NOT_FOUND' | 'INVALID_INPUT' | 'CONFLICT'
 
 export class OffboardingPlanActionError extends Error {
   constructor(
@@ -24,6 +26,7 @@ export class OffboardingPlanActionError extends Error {
 export const offboardingPlanSummarySelect = {
   id: true,
   tenantId: true,
+  requestId: true,
   status: true,
   revocationTargets: true,
   exportKinds: true,
@@ -37,6 +40,7 @@ export const offboardingPlanSummarySelect = {
 
 export type CreateOffboardingDraftInput = {
   tenantId: string
+  requestId: string
   venueIds: string[]
   revocationTargets: OffboardingRevocationTarget[]
   exportKinds: OffboardingExportKind[]
@@ -92,6 +96,13 @@ function requireInput(input: CreateOffboardingDraftInput): void {
     invalid('A human platform administrator is required')
   }
   if (typeof input.tenantId !== 'string' || !input.tenantId) invalid('Tenant is required')
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+      input.requestId,
+    )
+  ) {
+    invalid('A valid offboarding draft request ID is required')
+  }
   requireDistinctBoundedValues('venueIds', input.venueIds, 1, 100)
   requireDistinctBoundedValues(
     'revocationTargets',
@@ -109,29 +120,78 @@ function requireInput(input: CreateOffboardingDraftInput): void {
   }
 }
 
+function sorted(values: readonly string[]): string[] {
+  return [...values].sort((left, right) => left.localeCompare(right))
+}
+
+/** Hashes only normalized planning intent. It never includes content, secrets, or retention policy. */
+export function offboardingDraftRequestHash(
+  input: Pick<
+    CreateOffboardingDraftInput,
+    'tenantId' | 'venueIds' | 'revocationTargets' | 'exportKinds' | 'effectiveAt'
+  >,
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        tenantId: input.tenantId,
+        venueIds: sorted(input.venueIds),
+        revocationTargets: sorted(input.revocationTargets),
+        exportKinds: sorted(input.exportKinds),
+        effectiveAt: input.effectiveAt?.toISOString() ?? null,
+      }),
+    )
+    .digest('hex')
+}
+
+async function lockRequest(tx: typeof db, tenantId: string, requestId: string): Promise<void> {
+  const key = `offboarding-draft:${tenantId}:${requestId.toLowerCase()}`
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`
+}
+
 /**
  * Records reviewable offboarding intent only. It does not execute or schedule
  * revocation, produce exports, delete data, or apply retention policy.
  *
- * The current schema has no request key, so callers cannot safely retry after
- * an ambiguous transaction outcome. Adding inferred replay semantics based on
- * plan contents would risk collapsing two deliberate requests.
+ * A caller-generated request UUID distinguishes an exact retry from a second
+ * deliberate request. The normalized payload hash prevents key reuse for
+ * different planning intent.
  */
 export async function createOffboardingDraftAction(
   input: CreateOffboardingDraftInput,
   client: OffboardingPlanActionClient = db,
 ) {
   requireInput(input)
+  const requestHash = offboardingDraftRequestHash(input)
+  const venueIds = sorted(input.venueIds)
+  const revocationTargets = sorted(input.revocationTargets) as OffboardingRevocationTarget[]
+  const exportKinds = sorted(input.exportKinds) as OffboardingExportKind[]
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
+    await lockRequest(tx, input.tenantId, input.requestId)
+    const existing = await tx.offboardingPlan.findFirst({
+      where: { tenantId: input.tenantId, requestId: input.requestId },
+      select: { ...offboardingPlanSummarySelect, requestHash: true },
+    })
+    if (existing) {
+      if (existing.requestHash !== requestHash || existing.requestedBy !== input.actor.id) {
+        throw new OffboardingPlanActionError(
+          'CONFLICT',
+          'This offboarding request ID is already bound to different planning input or actor',
+        )
+      }
+      const { requestHash: _requestHash, ...plan } = existing
+      void _requestHash
+      return { ...plan, replayed: true as const }
+    }
     const venues = await tx.venue.findMany({
-      where: { tenantId: input.tenantId, id: { in: input.venueIds } },
+      where: { tenantId: input.tenantId, id: { in: venueIds } },
       select: { id: true },
     })
     const returnedVenueIds = new Set(venues.map(({ id }) => id))
     if (
-      returnedVenueIds.size !== input.venueIds.length ||
-      input.venueIds.some((venueId) => !returnedVenueIds.has(venueId))
+      returnedVenueIds.size !== venueIds.length ||
+      venueIds.some((venueId) => !returnedVenueIds.has(venueId))
     ) {
       throw new OffboardingPlanActionError(
         'NOT_FOUND',
@@ -142,13 +202,15 @@ export async function createOffboardingDraftAction(
     const plan = await tx.offboardingPlan.create({
       data: {
         tenantId: input.tenantId,
+        requestId: input.requestId,
+        requestHash,
         status: 'REQUESTED',
-        revocationTargets: input.revocationTargets,
-        exportKinds: input.exportKinds,
+        revocationTargets,
+        exportKinds,
         ...(input.effectiveAt !== undefined ? { effectiveAt: input.effectiveAt } : {}),
         requestedBy: input.actor.id,
         venueTargets: {
-          create: input.venueIds.map((venueId) => ({ tenantId: input.tenantId, venueId })),
+          create: venueIds.map((venueId) => ({ tenantId: input.tenantId, venueId })),
         },
       },
       select: offboardingPlanSummarySelect,
@@ -163,13 +225,14 @@ export async function createOffboardingDraftAction(
         targetId: plan.id,
         afterState: {
           status: 'REQUESTED',
-          venueCount: input.venueIds.length,
-          revocationTargets: input.revocationTargets,
-          exportKinds: input.exportKinds,
+          requestId: input.requestId,
+          venueCount: venueIds.length,
+          revocationTargets,
+          exportKinds,
         },
       },
       tx,
     )
-    return plan
+    return { ...plan, replayed: false as const }
   })
 }

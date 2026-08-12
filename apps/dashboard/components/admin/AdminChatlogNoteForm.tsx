@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useRef, useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 
@@ -30,27 +30,46 @@ export function AdminChatlogNoteForm({
   const [note, setNote] = useState('')
   const [pending, setPending] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const requestIdRef = useRef<string | null>(null)
+  const requestNoteRef = useRef<string | null>(null)
+  const inFlightRef = useRef(false)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = note.trim()
-    if (!trimmed) return
+    if (!trimmed || inFlightRef.current) return
 
+    inFlightRef.current = true
     setPending(true)
     setErrorMessage(null)
+    if (requestNoteRef.current !== trimmed) {
+      requestIdRef.current = crypto.randomUUID()
+      requestNoteRef.current = trimmed
+    }
+    const requestId = requestIdRef.current
+    if (!requestId) {
+      inFlightRef.current = false
+      setPending(false)
+      setErrorMessage('Failed to prepare note request.')
+      return
+    }
 
     try {
       const created = await client.admin.addChatlogNote.mutate({
         tenantId,
         venueId,
         sessionId,
+        requestId,
         note: trimmed,
       })
       setNotes((current) => [created, ...current])
       setNote('')
+      requestIdRef.current = null
+      requestNoteRef.current = null
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to add note.')
     } finally {
+      inFlightRef.current = false
       setPending(false)
     }
   }

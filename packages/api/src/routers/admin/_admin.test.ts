@@ -54,6 +54,8 @@ const {
   confirmClientCreateProviderActionMock,
   completeClientCreateIntentActionMock,
   startClientCreateProviderActionMock,
+  setChatlogNotableActionMock,
+  addChatlogNoteActionMock,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -107,6 +109,8 @@ const {
   confirmClientCreateProviderActionMock: vi.fn(),
   completeClientCreateIntentActionMock: vi.fn(),
   startClientCreateProviderActionMock: vi.fn(),
+  setChatlogNotableActionMock: vi.fn(),
+  addChatlogNoteActionMock: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config/logger', () => ({
@@ -200,6 +204,16 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
         super(message)
       }
     },
+    ChatlogReviewActionError: class ChatlogReviewActionError extends Error {
+      constructor(
+        readonly code: string,
+        message: string,
+      ) {
+        super(message)
+      }
+    },
+    setChatlogNotableAction: setChatlogNotableActionMock,
+    addChatlogNoteAction: addChatlogNoteActionMock,
     beginClientCreateIntentAction: beginClientCreateIntentActionMock,
     confirmClientCreateProviderAction: confirmClientCreateProviderActionMock,
     completeClientCreateIntentAction: completeClientCreateIntentActionMock,
@@ -244,6 +258,8 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
       weeklyReportActions.updateWeeklyReportConfigurationAction,
     updateWeeklyReportDraftAction: weeklyReportActions.updateWeeklyReportDraftAction,
     publishWeeklyReportAction: weeklyReportActions.publishWeeklyReportAction,
+    AnswerAnalysisRequestActionError: weeklyReportActions.AnswerAnalysisRequestActionError,
+    requestAnswerAnalysisAction: weeklyReportActions.requestAnswerAnalysisAction,
     setContentVersionContext: vi.fn().mockResolvedValue(undefined),
     withTenantIsolationBypass: async <T>(fn: () => Promise<T>) => fn(),
   }
@@ -333,6 +349,18 @@ describe('admin router', () => {
     startClientCreateProviderActionMock.mockResolvedValue({ state: 'CALL_PROVIDER' })
     confirmClientCreateProviderActionMock.mockResolvedValue({})
     completeClientCreateIntentActionMock.mockResolvedValue({})
+    setChatlogNotableActionMock.mockResolvedValue({
+      id: 'session_1',
+      isNotable: true,
+      replayed: false,
+    })
+    addChatlogNoteActionMock.mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+      note: 'Guest was confused about wait times.',
+      authorId: 'admin_1',
+      createdAt: new Date('2026-08-11T20:00:00.000Z'),
+      replayed: false,
+    })
     generationRequestDispatchCreate.mockImplementation(async ({ data }) => ({
       id: data.id,
       recordId: data.recordId,
@@ -648,104 +676,86 @@ describe('admin router', () => {
     )
   })
 
-  it('admin.setSessionNotable writes an audit log with the correct action for true/false', async () => {
+  it('admin.setSessionNotable delegates exact scope and platform actor to the canonical action', async () => {
     const caller = testRouter.createCaller(adminCtx())
 
-    await caller.admin.setSessionNotable({
+    const result = await caller.admin.setSessionNotable({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       sessionId: 'session_1',
       isNotable: true,
     })
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'admin.chatlog.marked_notable', targetId: 'session_1' }),
-    )
-
-    await caller.admin.setSessionNotable({
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-      sessionId: 'session_1',
-      isNotable: false,
-    })
-    expect(writeAuditLogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'admin.chatlog.unmarked_notable', targetId: 'session_1' }),
+    expect(result).toEqual({ ok: true })
+    expect(setChatlogNotableActionMock).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        sessionId: 'session_1',
+        isNotable: true,
+        actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+      },
+      expect.anything(),
     )
   })
 
-  it('admin.setSessionNotable rejects a tenant/session mismatch without auditing', async () => {
-    visitorSessionUpdateMany.mockResolvedValueOnce({ count: 0 })
+  it('admin.setSessionNotable maps canonical scope failure to NOT_FOUND', async () => {
+    const { ChatlogReviewActionError } = await import('@pathfinder/db')
+    setChatlogNotableActionMock.mockRejectedValueOnce(
+      new ChatlogReviewActionError('NOT_FOUND', 'Session not found.'),
+    )
 
-    const caller = testRouter.createCaller(adminCtx())
     await expect(
-      caller.admin.setSessionNotable({
+      testRouter.createCaller(adminCtx()).admin.setSessionNotable({
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         sessionId: 'other_tenant_session',
         isNotable: true,
       }),
-    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
-    expect(visitorSessionUpdateMany).toHaveBeenCalledWith({
-      where: {
-        id: 'other_tenant_session',
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-      },
-      data: { isNotable: true },
-    })
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
-  it('admin.addChatlogNote sources authorId from the admin session, not client input', async () => {
-    visitorSessionFindFirst.mockResolvedValueOnce({ id: 'session_1' })
-    adminChatlogNoteCreate.mockResolvedValueOnce({
-      id: 'note_1',
-      note: 'Guest was confused about wait times.',
-      authorId: 'admin_1',
-      createdAt: new Date(),
-    })
-
+  it('admin.addChatlogNote passes stable request identity and session-derived actor', async () => {
     const caller = testRouter.createCaller(adminCtx())
-    await caller.admin.addChatlogNote({
+    const result = await caller.admin.addChatlogNote({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       sessionId: 'session_1',
+      requestId: '11111111-1111-4111-8111-111111111111',
       note: 'Guest was confused about wait times.',
     })
-
-    expect(adminChatlogNoteCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ authorId: 'admin_1' }),
-      }),
-    )
-    expect(visitorSessionFindFirst).toHaveBeenCalledWith({
-      where: { id: 'session_1', tenantId: 'tenant_1', venueId: 'venue_1' },
-      select: { id: true },
+    expect(result).toEqual({
+      id: '11111111-1111-4111-8111-111111111111',
+      note: 'Guest was confused about wait times.',
+      authorId: 'admin_1',
+      createdAt: new Date('2026-08-11T20:00:00.000Z'),
     })
+    expect(addChatlogNoteActionMock).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        sessionId: 'session_1',
+        requestId: '11111111-1111-4111-8111-111111111111',
+        note: 'Guest was confused about wait times.',
+        actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+      },
+      expect.anything(),
+    )
   })
 
-  it('admin.addChatlogNote rejects a composite session mismatch before create or audit', async () => {
-    visitorSessionFindFirst.mockResolvedValueOnce(null)
-
-    const caller = testRouter.createCaller(adminCtx())
+  it('admin.addChatlogNote maps request collisions to CONFLICT', async () => {
+    const { ChatlogReviewActionError } = await import('@pathfinder/db')
+    addChatlogNoteActionMock.mockRejectedValueOnce(
+      new ChatlogReviewActionError('CONFLICT', 'Request ID collision.'),
+    )
     await expect(
-      caller.admin.addChatlogNote({
+      testRouter.createCaller(adminCtx()).admin.addChatlogNote({
         tenantId: 'tenant_1',
         venueId: 'venue_1',
-        sessionId: 'other_tenant_session',
-        note: 'Must not cross the ownership boundary.',
+        sessionId: 'session_1',
+        requestId: '11111111-1111-4111-8111-111111111111',
+        note: 'Private detail.',
       }),
-    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
-
-    expect(visitorSessionFindFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'other_tenant_session',
-        tenantId: 'tenant_1',
-        venueId: 'venue_1',
-      },
-      select: { id: true },
-    })
-    expect(adminChatlogNoteCreate).not.toHaveBeenCalled()
-    expect(writeAuditLogMock).not.toHaveBeenCalled()
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
   })
 
   it('admin.generateAnswerAnalysis atomically creates domain, dispatch, and audit', async () => {
@@ -800,6 +810,26 @@ describe('admin router', () => {
       dispatchState: 'PENDING',
       replayed: false,
     })
+  })
+
+  it('admin.generateAnswerAnalysis rejects an inverted range before transaction or enqueue', async () => {
+    const caller = testRouter.createCaller(adminCtx())
+    await expect(
+      caller.admin.generateAnswerAnalysis({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        rangeStart: '2026-08-01T00:00:00.000Z',
+        rangeEnd: '2026-07-31T23:59:59.999Z',
+        requestId: '11111111-1111-4111-8111-111111111112',
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'Analysis range start must be before or equal to range end',
+    })
+
+    expect(dbTransaction).not.toHaveBeenCalled()
+    expect(venueFindFirst).not.toHaveBeenCalled()
+    expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
   })
 
   it('admin.generateAnswerAnalysis preserves durable success when the best-effort kick fails', async () => {

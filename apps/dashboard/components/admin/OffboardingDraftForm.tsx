@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { OffboardingRevocationTarget } from '@pathfinder/contracts/offboarding'
 
@@ -37,6 +37,8 @@ export function OffboardingDraftForm({ tenantId, venues }: OffboardingDraftFormP
   const [selectedVenueIds, setSelectedVenueIds] = useState<string[]>([])
   const [confirmed, setConfirmed] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const requestIdRef = useRef(crypto.randomUUID())
+  const inFlightRef = useRef(false)
   const [outcome, setOutcome] = useState<{ kind: 'success' | 'error'; message: string } | null>(
     null,
   )
@@ -44,12 +46,14 @@ export function OffboardingDraftForm({ tenantId, venues }: OffboardingDraftFormP
   const canSubmit = selectedVenueIds.length > 0 && confirmed && !submitting
 
   async function createDraft() {
-    if (!canSubmit) return
+    if (!canSubmit || inFlightRef.current) return
+    inFlightRef.current = true
     setSubmitting(true)
     setOutcome(null)
     try {
       const result = await client.admin.createOffboardingDraft.mutate({
         tenantId,
+        requestId: requestIdRef.current,
         venueIds: selectedVenueIds,
         revocationTargets: [...OffboardingRevocationTarget.options],
         exportKinds: [],
@@ -60,10 +64,12 @@ export function OffboardingDraftForm({ tenantId, venues }: OffboardingDraftFormP
       })
       setSelectedVenueIds([])
       setConfirmed(false)
+      requestIdRef.current = crypto.randomUUID()
       router.refresh()
     } catch (error) {
       setOutcome({ kind: 'error', message: errorMessage(error) })
     } finally {
+      inFlightRef.current = false
       setSubmitting(false)
     }
   }
@@ -91,6 +97,7 @@ export function OffboardingDraftForm({ tenantId, venues }: OffboardingDraftFormP
                 type="checkbox"
                 checked={selectedVenueIds.includes(venue.id)}
                 onChange={(event) => {
+                  requestIdRef.current = crypto.randomUUID()
                   setSelectedVenueIds((current) =>
                     event.target.checked
                       ? [...current, venue.id]

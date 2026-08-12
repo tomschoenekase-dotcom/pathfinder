@@ -2,6 +2,16 @@ export { db } from './client'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
+  AnswerAnalysisRequestActionError,
+  answerAnalysisRequestHash,
+  requestAnswerAnalysisAction,
+} from './helpers/answer-analysis-request-actions'
+export type {
+  AnswerAnalysisRequestActionClient,
+  AnswerAnalysisRequestActionErrorCode,
+  AnswerAnalysisRequestActor,
+} from './helpers/answer-analysis-request-actions'
+export {
   AgentIdentityConfigurationError,
   createDisabledAgentIdentity,
   disableAgentIdentity,
@@ -498,6 +508,16 @@ export type {
   TenantSettingsActionErrorCode,
   TenantSettingsHumanActor,
 } from './helpers/tenant-settings-actions'
+export {
+  addChatlogNoteAction,
+  ChatlogReviewActionError,
+  setChatlogNotableAction,
+} from './helpers/chatlog-review-actions'
+export type {
+  ChatlogReviewActionClient,
+  ChatlogReviewActionErrorCode,
+  ChatlogReviewActor,
+} from './helpers/chatlog-review-actions'
 export {
   createOffboardingDraftAction,
   offboardingPlanSummarySelect,

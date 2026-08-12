@@ -396,7 +396,18 @@ export const analyticsRouter = router({
   }),
 
   listPublishedWeeklyReports: tenantProcedure
-    .input(z.object({ venueId: z.string() }).strict())
+    .input(
+      z
+        .object({
+          venueId: z.string(),
+          limit: z.number().int().min(1).max(25).default(10),
+          cursor: z
+            .object({ weekStart: z.coerce.date(), id: z.string().min(1).max(191) })
+            .strict()
+            .optional(),
+        })
+        .strict(),
+    )
     .query(async ({ ctx, input }) => {
       const venue = await ctx.db.venue.findFirst({
         where: { id: input.venueId, tenantId: ctx.session.activeTenantId, isActive: true },
@@ -409,13 +420,56 @@ export const analyticsRouter = router({
 
       await requireVenueReportsEnabled(ctx.db, ctx.session.activeTenantId, input.venueId)
 
-      return ctx.db.weeklyReport.findMany({
+      const reports = await ctx.db.weeklyReport.findMany({
         where: {
           tenantId: ctx.session.activeTenantId,
           venueId: input.venueId,
           status: 'PUBLISHED',
+          ...(input.cursor
+            ? {
+                OR: [
+                  { weekStart: { lt: input.cursor.weekStart } },
+                  { weekStart: input.cursor.weekStart, id: { lt: input.cursor.id } },
+                ],
+              }
+            : {}),
         },
-        orderBy: { weekStart: 'desc' },
+        orderBy: [{ weekStart: 'desc' }, { id: 'desc' }],
+        take: input.limit + 1,
+        select: {
+          id: true,
+          title: true,
+          weekStart: true,
+          weekEnd: true,
+          publishedAt: true,
+        },
+      })
+      const hasMore = reports.length > input.limit
+      const items = hasMore ? reports.slice(0, input.limit) : reports
+      const last = items.at(-1)
+      return {
+        items,
+        nextCursor: hasMore && last ? { weekStart: last.weekStart, id: last.id } : null,
+      }
+    }),
+
+  getPublishedWeeklyReport: tenantProcedure
+    .input(z.object({ venueId: z.string(), reportId: z.string() }).strict())
+    .query(async ({ ctx, input }) => {
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId: ctx.session.activeTenantId, isActive: true },
+        select: { id: true },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      await requireVenueReportsEnabled(ctx.db, ctx.session.activeTenantId, input.venueId)
+
+      const report = await ctx.db.weeklyReport.findFirst({
+        where: {
+          id: input.reportId,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          status: 'PUBLISHED',
+        },
         select: {
           id: true,
           title: true,
@@ -425,6 +479,8 @@ export const analyticsRouter = router({
           publishedAt: true,
         },
       })
+      if (!report) throw new TRPCError({ code: 'NOT_FOUND', message: 'Report not found' })
+      return report
     }),
 
   getDailyStats: tenantProcedure.input(getDailyStatsInput).query(async ({ ctx, input }) => {

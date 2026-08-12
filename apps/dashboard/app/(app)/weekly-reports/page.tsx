@@ -5,11 +5,15 @@ import Link from 'next/link'
 import { createDashboardCaller } from '../../../lib/server-caller'
 
 type WeeklyReportsPageProps = {
-  searchParams: Promise<{ venue?: string | string[] }>
+  searchParams: Promise<{
+    venue?: string | string[]
+    cursorDate?: string | string[]
+    cursorId?: string | string[]
+  }>
 }
 
 export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsPageProps) {
-  const { venue: requestedVenue } = await searchParams
+  const { venue: requestedVenue, cursorDate, cursorId } = await searchParams
   const caller = await createDashboardCaller('/weekly-reports')
   const [venues, availability] = await Promise.all([
     caller.venue.list(),
@@ -58,7 +62,23 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
     )
   }
   const selectedVenueId = venueQuery ?? enabledVenues[0]!.id
-  const reports = await caller.analytics.listPublishedWeeklyReports({ venueId: selectedVenueId })
+  const cursorDateValue = Array.isArray(cursorDate) ? cursorDate[0] : cursorDate
+  const cursorIdValue = Array.isArray(cursorId) ? cursorId[0] : cursorId
+  const cursorPartsPresent = Boolean(cursorDateValue || cursorIdValue)
+  const cursorIsValid = Boolean(
+    cursorDateValue &&
+    cursorIdValue &&
+    cursorIdValue.length <= 191 &&
+    !Number.isNaN(new Date(cursorDateValue).getTime()),
+  )
+  const cursor =
+    cursorIsValid && cursorDateValue && cursorIdValue
+      ? { weekStart: new Date(cursorDateValue), id: cursorIdValue }
+      : undefined
+  const reports = await caller.analytics.listPublishedWeeklyReports({
+    venueId: selectedVenueId,
+    ...(cursor ? { cursor } : {}),
+  })
 
   return (
     <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
@@ -93,13 +113,22 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
           </button>
         </form>
 
-        {reports.length === 0 ? (
+        {cursorPartsPresent && !cursorIsValid ? (
+          <p
+            role="status"
+            className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+          >
+            That older-reports link was incomplete or invalid, so the newest reports are shown.
+          </p>
+        ) : null}
+
+        {reports.items.length === 0 ? (
           <section className="rounded-[2rem] border border-dashed border-pf-light bg-pf-white p-10 text-center shadow-sm">
             <p className="text-lg font-semibold text-pf-deep">No weekly reports published yet.</p>
           </section>
         ) : (
           <section className="space-y-5">
-            {reports.map((report) => (
+            {reports.items.map((report) => (
               <article
                 key={report.id}
                 className="rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm"
@@ -120,11 +149,22 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
                     </span>
                   ) : null}
                 </div>
-                <pre className="mt-5 whitespace-pre-wrap rounded-[1.5rem] bg-pf-surface p-5 font-sans text-sm leading-6 text-pf-deep/75">
-                  {report.content}
-                </pre>
+                <Link
+                  href={`/weekly-reports/${report.id}?venue=${encodeURIComponent(selectedVenueId)}`}
+                  className="mt-5 inline-flex min-h-11 items-center rounded-full border border-pf-primary px-5 text-sm font-semibold text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+                >
+                  Read report
+                </Link>
               </article>
             ))}
+            {reports.nextCursor ? (
+              <Link
+                href={`/weekly-reports?venue=${encodeURIComponent(selectedVenueId)}&cursorDate=${encodeURIComponent(reports.nextCursor.weekStart.toISOString())}&cursorId=${encodeURIComponent(reports.nextCursor.id)}`}
+                className="inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+              >
+                Older reports
+              </Link>
+            ) : null}
           </section>
         )}
       </div>

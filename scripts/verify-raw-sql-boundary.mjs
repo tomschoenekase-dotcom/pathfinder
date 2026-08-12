@@ -36,6 +36,7 @@ const approvedPolicies = new Set([
   'tenant-venue-create-slug-lock',
   'platform-client-create-id-lock',
   'platform-client-create-request-lock',
+  'tenant-offboarding-request-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -238,6 +239,12 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: 'd318aa1b435d868e28ec324666fd4d5b38d72f2e0a3f05345ef16668b40bdb8c',
     policy: 'platform-client-create-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/offboarding-plan-actions.ts',
+    method: '$executeRaw',
+    hash: '211bb4b0b718d6cecab4a4c0a7268098075d7fa68cb01b3d19b5207dfa5a915d',
+    policy: 'tenant-offboarding-request-lock',
   },
   {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',

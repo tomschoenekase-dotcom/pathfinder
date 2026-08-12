@@ -72,7 +72,9 @@ Section-level evidence and blockers are indexed in
 - Weekly-report configuration, draft edit, and publish now use neutral HUMAN platform-admin actions
   with exact scope, locks, CAS, legal DRAFT transitions, default-off configuration, and strict audit.
   Generation rejects inverted week ranges before durable work and retains existing post-commit
-  dispatch behavior.
+  dispatch behavior. The client surface loads bounded cursor-paginated published summaries and an
+  exact tenant/venue/report detail with semantic text rendering and honest route states; it adds no
+  notification or delivery behavior.
 - Client/account create and metadata changes use canonical actions. Provider-backed creation is
   fenced by a durable pre-Clerk request intent and append-only lifecycle evidence; ambiguous outcomes
   cannot auto-retry and require verified organization/owner/email reconciliation. Client status,
@@ -88,6 +90,13 @@ Section-level evidence and blockers are indexed in
   before the existing verified webhook synchronization observes one. The revision-aware manager
   component is type-compatible and locally tested, but `/engagement-questions` still redirects home;
   there is no reachable production control, so this is not end-to-end UI evidence.
+- Answer-analysis requests now use a neutral HUMAN platform-admin action for exact tenant/venue,
+  active-venue, range, UUID replay, snapshot/dispatch and sanitized transactional audit; inverted
+  ranges fail before durable work and enqueue remains a post-commit best-effort kick.
+- Internal chatlog notable and note review use neutral HUMAN platform-admin actions with exact
+  tenant/venue/session scope, CAS or UUID replay, and strict transactional audit. General audit
+  evidence records note length rather than private note text, and the form safely retains or rotates
+  its request key across ambiguous retries.
 - Shared intake contracts for every packet source type, bounded draft-only website intake,
   evidence/discrepancy records, and the complete orchestration stage sequence.
 - Server-side website adapter with exact-host allowlists, credentialed-URL rejection, DNS/IP and
@@ -127,9 +136,9 @@ Section-level evidence and blockers are indexed in
   is defined in a forward-only migration with append-only and delete guards. Admin APIs may only
   list/get/create a REQUESTED plan through one neutral HUMAN PLATFORM_ADMIN action with exact
   tenant/venue validation and strict same-transaction audit; no revocation, completion, retention,
-  or deletion action exists. The schema has no request key, so a lost response leaves draft-creation
-  retry ambiguous and can create another deliberate-looking REQUESTED plan; operators must reload
-  authoritative plan history rather than retry automatically.
+  or deletion action exists. Draft creation now binds a caller-generated UUID to a canonical SHA-256
+  hash of normalized planning input under an exact tenant/request lock. An unchanged retry returns
+  the existing plan without duplicate audit; key reuse for different input or actor conflicts.
 - Client-scoped internal Offboarding console displays venue targets, all required revocations,
   append-only evidence, and export metadata. Operators may only create a confirmed REQUESTED draft;
   the UI prominently states that retention is unresolved and exposes no execution/deletion control.
@@ -282,8 +291,6 @@ Section-level evidence and blockers are indexed in
   existing preview/draft inputs.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
-- Durable request identity for offboarding draft creation; current schema cannot distinguish an
-  intentional second request from a retry after an ambiguous transaction outcome.
 - Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
   including any later automated validation/evaluation, approval, apply or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration
@@ -299,7 +306,7 @@ Section-level evidence and blockers are indexed in
 
 ## Local browser-surface foundation
 
-`pnpm test:browser-foundation` now runs 79 deterministic DOM and route-adapter contracts across the
+`pnpm test:browser-foundation` now runs 80 deterministic DOM and route-adapter contracts across the
 Admin OS, Internal Client Workspace, ultra-simple Client Portal, and Guest experience. The gate is
 wired into CI and performs no authentication, network, provider, or database access. It is an inner
 loop foundation, not Playwright or deployed-browser evidence: browser-engine layout, Clerk flows,

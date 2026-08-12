@@ -25,6 +25,7 @@ const placeFindFirst = vi.fn()
 const operationalUpdateFindFirst = vi.fn()
 const venueFindFirst = vi.fn()
 const weeklyReportFindMany = vi.fn()
+const weeklyReportFindFirst = vi.fn()
 const venueReportConfigurationFindMany = vi.fn()
 const venueReportConfigurationFindFirst = vi.fn()
 const dbQueryRaw = vi.fn()
@@ -36,6 +37,7 @@ const mockDb = {
   },
   weeklyReport: {
     findMany: weeklyReportFindMany,
+    findFirst: weeklyReportFindFirst,
   },
   venueReportConfiguration: {
     findMany: venueReportConfigurationFindMany,
@@ -888,7 +890,8 @@ describe('analytics router', () => {
     const caller = testRouter.createCaller(tenantCtx())
     const result = await caller.analytics.listPublishedWeeklyReports({ venueId: 'venue_1' })
 
-    expect(result).toHaveLength(1)
+    expect(result.items).toHaveLength(1)
+    expect(result.nextCursor).toBeNull()
     expect(weeklyReportFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -896,6 +899,66 @@ describe('analytics router', () => {
           venueId: 'venue_1',
           status: 'PUBLISHED',
         }),
+        orderBy: [{ weekStart: 'desc' }, { id: 'desc' }],
+        take: 11,
+      }),
+    )
+  })
+
+  it('analytics.listPublishedWeeklyReports returns a stable bounded cursor without report bodies', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce({ enabled: true })
+    const older = new Date('2026-07-01T00:00:00.000Z')
+    weeklyReportFindMany.mockResolvedValueOnce([
+      {
+        id: 'r3',
+        title: 'Three',
+        weekStart: new Date(),
+        weekEnd: new Date(),
+        publishedAt: new Date(),
+      },
+      { id: 'r2', title: 'Two', weekStart: older, weekEnd: new Date(), publishedAt: new Date() },
+    ])
+
+    const result = await testRouter
+      .createCaller(tenantCtx())
+      .analytics.listPublishedWeeklyReports({ venueId: 'venue_1', limit: 1 })
+
+    expect(result.items.map(({ id }) => id)).toEqual(['r3'])
+    expect(result.nextCursor).toEqual({ id: 'r3', weekStart: expect.any(Date) })
+    expect(weeklyReportFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 2,
+        select: expect.not.objectContaining({ content: true }),
+      }),
+    )
+  })
+
+  it('analytics.getPublishedWeeklyReport is exactly tenant, venue, status, and id scoped', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: 'venue_1' })
+    venueReportConfigurationFindFirst.mockResolvedValueOnce({ enabled: true })
+    weeklyReportFindFirst.mockResolvedValueOnce({
+      id: 'report_1',
+      title: 'Report',
+      weekStart: new Date(),
+      weekEnd: new Date(),
+      content: 'Safe published copy',
+      publishedAt: new Date(),
+    })
+
+    await testRouter.createCaller(tenantCtx()).analytics.getPublishedWeeklyReport({
+      venueId: 'venue_1',
+      reportId: 'report_1',
+    })
+
+    expect(weeklyReportFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'report_1',
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          status: 'PUBLISHED',
+        },
       }),
     )
   })

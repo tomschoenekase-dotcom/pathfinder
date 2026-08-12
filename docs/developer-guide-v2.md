@@ -159,6 +159,19 @@ messages, snapshots, errors, signed asset/source URLs, redirects, and secrets re
 
 ## Schema and migrations
 
+Admin answer-analysis and chatlog-review adapters are transport-thin. Durable analysis identity is
+operation-scoped by tenant, kind and UUID; snapshot, dispatch and sanitized audit commit together,
+then queue notification is best effort. Chatlog notes bind a UUID to exact tenant/venue/session,
+actor and normalized note content. General audit records only the note length; it never copies the
+private note body.
+
+Offboarding draft creation uses a tenant-scoped UUID request identity and a lowercase SHA-256 hash of
+canonical planning input (sorted venue, revocation-target and export-kind arrays plus normalized
+effective time). The canonical action serializes the tenant/request pair, replays only the same hash
+and requesting actor, and writes no second audit event. The additive migration refuses to invent
+identity for unexpected historical plans; the original foundation is still unapplied under the
+database incident stop.
+
 Use additive, forward-only migrations with exact tenant/venue composite keys, lifecycle checks, and
 append-only guards where evidence is immutable. Add static migration-contract tests. During the
 active incident stop, do not inspect, apply, rollback, seed, or rehearse against an external database.

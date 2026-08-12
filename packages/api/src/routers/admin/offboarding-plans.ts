@@ -22,7 +22,12 @@ const cursor = z
 function mapOffboardingPlanActionError(error: unknown): never {
   if (error instanceof OffboardingPlanActionError) {
     throw new TRPCError({
-      code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'BAD_REQUEST',
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'BAD_REQUEST',
       message: error.message,
     })
   }
@@ -114,6 +119,7 @@ export const adminOffboardingPlansRouter = router({
     .input(
       tenantScope
         .extend({
+          requestId: z.string().uuid(),
           venueIds: z.array(z.string().min(1)).min(1).max(100),
           revocationTargets: z
             .array(OffboardingRevocationTarget)
@@ -146,6 +152,7 @@ export const adminOffboardingPlansRouter = router({
         return await createOffboardingDraftAction(
           {
             tenantId: input.tenantId,
+            requestId: input.requestId,
             venueIds: input.venueIds,
             revocationTargets: input.revocationTargets,
             exportKinds: input.exportKinds,

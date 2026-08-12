@@ -11,6 +11,7 @@ const planFindFirst = vi.fn()
 const planCreate = vi.fn()
 const auditCreate = vi.fn()
 const mockDb = {
+  $executeRaw: vi.fn().mockResolvedValue(0),
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   venue: { findMany: venueFindMany },
   offboardingPlan: { findMany: planFindMany, findFirst: planFindFirst, create: planCreate },
@@ -32,6 +33,7 @@ function context(isPlatformAdmin = true): TRPCContext {
 
 const testRouter = router({ offboarding: adminOffboardingPlansRouter })
 const requestedAt = new Date('2030-01-01T00:00:00.000Z')
+const requestId = '11111111-1111-4111-8111-111111111111'
 
 describe('admin offboarding plan foundation', () => {
   beforeEach(() => {
@@ -42,6 +44,7 @@ describe('admin offboarding plan foundation', () => {
     planCreate.mockResolvedValue({
       id: 'plan-1',
       tenantId: 'tenant-1',
+      requestId,
       status: 'REQUESTED',
       requestedAt,
       revocationTargets: ['GUEST_LINKS'],
@@ -88,6 +91,7 @@ describe('admin offboarding plan foundation', () => {
   it('creates only a requested draft after every venue passes exact tenant scope', async () => {
     await testRouter.createCaller(context()).offboarding.createOffboardingDraft({
       tenantId: 'tenant-1',
+      requestId,
       venueIds: ['venue-1'],
       revocationTargets: ['GUEST_LINKS'],
       exportKinds: ['APPROVED_CONTENT'],
@@ -100,6 +104,8 @@ describe('admin offboarding plan foundation', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           tenantId: 'tenant-1',
+          requestId,
+          requestHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
           status: 'REQUESTED',
           requestedBy: 'platform-admin',
           venueTargets: { create: [{ tenantId: 'tenant-1', venueId: 'venue-1' }] },
@@ -115,6 +121,7 @@ describe('admin offboarding plan foundation', () => {
     await expect(
       testRouter.createCaller(context()).offboarding.createOffboardingDraft({
         tenantId: 'tenant-1',
+        requestId,
         venueIds: ['venue-from-tenant-2'],
         revocationTargets: ['CLIENT_ACCESS'],
       }),
@@ -128,6 +135,7 @@ describe('admin offboarding plan foundation', () => {
     await expect(
       testRouter.createCaller(context()).offboarding.createOffboardingDraft({
         tenantId: 'tenant-1',
+        requestId,
         venueIds: ['missing-venue'],
         revocationTargets: ['CLIENT_ACCESS'],
       }),
@@ -136,10 +144,34 @@ describe('admin offboarding plan foundation', () => {
     expect(auditCreate).not.toHaveBeenCalled()
   })
 
+  it('maps request identity collisions to a stable API conflict', async () => {
+    planFindFirst.mockResolvedValue({
+      id: 'plan-1',
+      tenantId: 'tenant-1',
+      requestId,
+      requestHash: 'a'.repeat(64),
+      requestedBy: 'another-admin',
+      status: 'REQUESTED',
+      requestedAt,
+      _count: { venueTargets: 1 },
+    })
+    await expect(
+      testRouter.createCaller(context()).offboarding.createOffboardingDraft({
+        tenantId: 'tenant-1',
+        requestId,
+        venueIds: ['venue-1'],
+        revocationTargets: ['CLIENT_ACCESS'],
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(planCreate).not.toHaveBeenCalled()
+    expect(auditCreate).not.toHaveBeenCalled()
+  })
+
   it('rejects duplicate scope and does not expose an execution or completion procedure', async () => {
     await expect(
       testRouter.createCaller(context()).offboarding.createOffboardingDraft({
         tenantId: 'tenant-1',
+        requestId,
         venueIds: ['venue-1', 'venue-1'],
         revocationTargets: ['GUEST_LINKS'],
       }),

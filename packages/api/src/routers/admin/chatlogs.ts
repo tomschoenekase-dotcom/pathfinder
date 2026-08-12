@@ -1,10 +1,31 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 
-import { db, withTenantIsolationBypass, writeAuditLog } from '@pathfinder/db'
+import {
+  addChatlogNoteAction,
+  ChatlogReviewActionError,
+  db,
+  setChatlogNotableAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+
+function mapActionError(error: unknown): never {
+  if (error instanceof ChatlogReviewActionError) {
+    throw new TRPCError({
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'NOT_FOUND'
+          : error.code === 'CONFLICT'
+            ? 'CONFLICT'
+            : 'BAD_REQUEST',
+      message: error.message,
+    })
+  }
+  throw error
+}
 
 export const adminChatlogsRouter = router({
   listVenueSessions: adminProcedure
@@ -125,30 +146,24 @@ export const adminChatlogsRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const updated = await withTenantIsolationBypass(async () => {
-        return db.visitorSession.updateMany({
-          where: {
-            id: input.sessionId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-          },
-          data: { isNotable: input.isNotable },
-        })
-      })
-      if (updated.count !== 1) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' })
+      try {
+        await withTenantIsolationBypass(() =>
+          setChatlogNotableAction(
+            {
+              ...input,
+              actor: {
+                type: 'HUMAN',
+                id: ctx.session.userId,
+                role: 'PLATFORM_ADMIN',
+              },
+            },
+            db,
+          ),
+        )
+        return { ok: true }
+      } catch (error) {
+        mapActionError(error)
       }
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: input.isNotable ? 'admin.chatlog.marked_notable' : 'admin.chatlog.unmarked_notable',
-        targetType: 'VisitorSession',
-        targetId: input.sessionId,
-      })
-
-      return { ok: true }
     }),
 
   addChatlogNote: adminProcedure
@@ -157,44 +172,33 @@ export const adminChatlogsRouter = router({
         tenantId: z.string(),
         venueId: z.string(),
         sessionId: z.string(),
-        note: z.string().min(1).max(2000),
+        requestId: z.string().uuid(),
+        note: z.string().trim().min(1).max(2000),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const created = await withTenantIsolationBypass(async () => {
-        const session = await db.visitorSession.findFirst({
-          where: {
-            id: input.sessionId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-          },
-          select: { id: true },
-        })
-        if (!session) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Session not found' })
+      try {
+        const created = await withTenantIsolationBypass(() =>
+          addChatlogNoteAction(
+            {
+              ...input,
+              actor: {
+                type: 'HUMAN',
+                id: ctx.session.userId,
+                role: 'PLATFORM_ADMIN',
+              },
+            },
+            db,
+          ),
+        )
+        return {
+          id: created.id,
+          note: created.note,
+          authorId: created.authorId,
+          createdAt: created.createdAt,
         }
-        return db.adminChatlogNote.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            sessionId: input.sessionId,
-            authorId: ctx.session.userId,
-            note: input.note,
-          },
-          select: { id: true, note: true, authorId: true, createdAt: true },
-        })
-      })
-
-      await writeAuditLog({
-        tenantId: input.tenantId,
-        actorId: ctx.session.userId,
-        actorRole: 'PLATFORM_ADMIN',
-        action: 'admin.chatlog.note_added',
-        targetType: 'VisitorSession',
-        targetId: input.sessionId,
-        afterState: { note: input.note },
-      })
-
-      return created
+      } catch (error) {
+        mapActionError(error)
+      }
     }),
 })

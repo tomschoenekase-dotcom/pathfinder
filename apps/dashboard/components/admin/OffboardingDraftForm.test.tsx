@@ -48,6 +48,9 @@ describe('OffboardingDraftForm', () => {
     expect(mocks.mutate).toHaveBeenCalledTimes(1)
     expect(mocks.mutate).toHaveBeenCalledWith({
       tenantId: 'tenant-1',
+      requestId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+      ),
       venueIds: ['venue-1'],
       revocationTargets: [
         'GUEST_LINKS',
@@ -66,6 +69,25 @@ describe('OffboardingDraftForm', () => {
       expect(screen.getByText(/No access was revoked and no data was deleted/)).toBeTruthy(),
     )
     expect(mocks.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains the same request identity when an uncertain attempt is retried unchanged', async () => {
+    mocks.mutate.mockRejectedValueOnce(new Error('Transport uncertain')).mockResolvedValueOnce({
+      id: 'plan-1',
+      replayed: true,
+    })
+    render(
+      <OffboardingDraftForm tenantId="tenant-1" venues={[{ id: 'venue-1', name: 'Museum' }]} />,
+    )
+    fireEvent.click(screen.getByLabelText('Museum'))
+    fireEvent.click(screen.getByLabelText(/I confirm this creates only/))
+    fireEvent.click(screen.getByRole('button', { name: 'Create requested draft' }))
+    await screen.findByText('Transport uncertain')
+    const firstRequestId = mocks.mutate.mock.calls[0]?.[0]?.requestId
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create requested draft' }))
+    await screen.findByText(/No access was revoked and no data was deleted/)
+    expect(mocks.mutate.mock.calls[1]?.[0]?.requestId).toBe(firstRequestId)
   })
 
   it('reports a failed draft truthfully without claiming any action occurred', async () => {

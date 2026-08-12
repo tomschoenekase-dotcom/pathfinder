@@ -10,6 +10,13 @@ const migrationPath = fileURLToPath(
   ),
 )
 const sql = readFileSync(migrationPath, 'utf8')
+const identityMigrationPath = fileURLToPath(
+  new URL(
+    '../../prisma/migrations/20260811235930_add_offboarding_request_identity/migration.sql',
+    import.meta.url,
+  ),
+)
+const identitySql = readFileSync(identityMigrationPath, 'utf8')
 
 describe('offboarding plan migration contract', () => {
   it('creates only planning, target, revocation evidence, and export metadata tables', () => {
@@ -55,5 +62,17 @@ describe('offboarding plan migration contract', () => {
     expect(sql).not.toMatch(/UPDATE\s+"offboarding_/iu)
     expect(sql).not.toMatch(/DELETE\s+FROM\s+"/iu)
     expect(sql).not.toMatch(/retention|expires_at|purge_at/iu)
+  })
+
+  it('adds atomic, exact-tenant immutable request identity without inventing a backfill', () => {
+    expect(identitySql.trimStart().startsWith('BEGIN;')).toBe(true)
+    expect(identitySql.trimEnd().endsWith('COMMIT;')).toBe(true)
+    expect(identitySql).toContain('ADD COLUMN "request_id" UUID')
+    expect(identitySql).toContain('ADD COLUMN "request_hash" CHAR(64)')
+    expect(identitySql).toContain('CHECK ("request_hash" ~ \'^[0-9a-f]{64}$\')')
+    expect(identitySql).toContain('ON "offboarding_plans"("tenant_id", "request_id")')
+    expect(identitySql).toContain('offboarding plan request identity is immutable')
+    expect(identitySql).toContain('IF EXISTS (SELECT 1 FROM "offboarding_plans")')
+    expect(identitySql).not.toMatch(/UPDATE\s+"offboarding_plans"|DELETE\s+FROM/iu)
   })
 })

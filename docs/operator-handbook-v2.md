@@ -186,6 +186,11 @@ Create a requested plan only after confirming venues and required revocation tar
 code records plans, targets, evidence, and export metadata but intentionally does not execute
 revocation or deletion. Retention and support-history handling require owner/legal policy.
 
+The draft form keeps one request UUID when an unchanged submission must be retried after an uncertain
+response. The server returns the same plan for the same normalized intent and rejects reuse of that
+UUID for different input or a different actor. A deliberate second plan therefore requires a new
+request UUID; changing the selected venues in the form creates one automatically.
+
 The export-manifest preview is metadata-only and bounded to 20 selected venues. Review its explicit
 caps and truncation evidence. It enumerates approved/current identity and content references,
 version/history identifiers, package IDs/hashes/status, and normalized module/evidence references;
