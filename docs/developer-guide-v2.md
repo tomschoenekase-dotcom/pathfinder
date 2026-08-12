@@ -314,7 +314,19 @@ coverage, issues, impact/effect counts, lifecycle milestones, and server-derived
 do not expose manifests, raw plans/effect states, actors, digests, or internal publication lineage.
 Revert is offered only for the exact current venue head. Forward-only migration
 `20260812001400_add_native_venue_deployments` is intentionally unapplied and has no live database,
-browser, publication, provider, asset, capability, model, or evaluation evidence.
+browser, publication, provider, asset, capability or model evidence.
+
+Native desired-state evaluation is a separate advisory evidence path. A native-only admin adapter
+requires the exact release `updatedAt`, an operation UUID, 1-50 unique scoped cases and the bounded
+budget, then derives the frozen `NATIVE_CORE_V1` content and run identity on the server. Browser DTOs
+contain only safe run status/replay facts, coarse admission requirements and bounds, and stable
+keyset-paged derived evidence; they omit content, package, identity, model and provider digests. A
+completed exact run may append immutable PASS, quality-failure or operational-failure facts with
+strict audit, but no disposition approves, blocks, applies or reverts a release. Legacy evaluation
+identity bytes and replay semantics remain unchanged. Forward-only migration
+`20260812001500_add_native_deployment_evaluation_evidence` is unapplied, and default-off process,
+durable-global and tenant admission requirements are not claims that execution is enabled. No live
+database, provider or deployment evaluation occurred.
 
 `admin.previewFullVenueDeploymentManifest` is a separate read-only projection. It requires exact
 platform-admin tenant/venue scope and caller-supplied manifest/idempotency UUIDs, selects only safe
@@ -378,6 +390,12 @@ ordered planned effects, publication actors/rows, command-produced snapshots, an
 restored heads. It performs no legacy backfill, does not weaken the generic FULL artifact guards,
 and remains unapplied and unrehearsed; local contracts, migration-source tests, Prisma validation,
 actions, API, UI, and browser-foundation checks are not live database or deployment evidence.
+
+Forward-only migration `20260812001500_add_native_deployment_evaluation_evidence` adds the native
+evaluation content discriminator and append-only exact release/artifact/run evidence. Its guards
+bind verified v3 native run identity, complete terminal results, derived bounded facts, HUMAN
+`PLATFORM_ADMIN` operation/audit evidence and late-result sealing without changing legacy v2 run
+identity or native lifecycle gates. It remains unapplied and has no provider or live evidence.
 
 Guest chat turns use a client `operationId` UUID and a versioned canonical request hash bound to the
 exact tenant, venue, anonymous session actor, normalized message, language, visitor identity,

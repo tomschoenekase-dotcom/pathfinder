@@ -100,6 +100,7 @@ describe('tenantIsolationMiddleware', () => {
       'NativeVenueDeploymentHead',
       'NativeVenueDeploymentCommand',
       'NativeVenueDeploymentPublicationLineage',
+      'NativeVenueDeploymentEvaluationEvidence',
       'VenuePackageDuplicateAnalysis',
       'VisitorSession',
       'GuestChatTurn',

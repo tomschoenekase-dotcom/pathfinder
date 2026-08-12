@@ -20,11 +20,12 @@ export { canonicalEvaluationJson } from '@pathfinder/contracts/evaluation'
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const RUN_IDENTITY_VERSION = 'pathfinder-eval-run-identity-v2'
+const LEGACY_RUN_IDENTITY_VERSION = 'pathfinder-eval-run-identity-v2'
+const NATIVE_RUN_IDENTITY_VERSION = 'pathfinder-eval-run-identity-v3'
 
 type EvaluationRunClient = Pick<typeof db, 'evalRun'>
 
-export type EvaluationRunIdentity = {
+type EvaluationRunIdentityBase = {
   tenantId: string
   venueId: string
   idempotencyKey: string
@@ -33,7 +34,6 @@ export type EvaluationRunIdentity = {
   promptContractHash: string
   packageSnapshotRef: string | null
   packageSnapshotHash: string | null
-  contentSnapshotVersion: bigint
   contentSnapshotHash: string
   modelProvider: string
   modelName: string
@@ -43,6 +43,19 @@ export type EvaluationRunIdentity = {
   createdBy: string
   triggerType: string
 }
+export type EvaluationRunIdentity = EvaluationRunIdentityBase &
+  (
+    | {
+        contentSnapshotKind?: 'LEGACY_VENUE_CONTENT_V1'
+        contentSnapshotRef?: null
+        contentSnapshotVersion: bigint
+      }
+    | {
+        contentSnapshotKind: 'NATIVE_CORE_V1'
+        contentSnapshotRef: string
+        contentSnapshotVersion: bigint
+      }
+  )
 
 type CanonicalObject = { [key: string]: CanonicalJsonValue }
 
@@ -116,6 +129,12 @@ function validateIdentity(identity: EvaluationRunIdentity): void {
   if (identity.contentSnapshotVersion < 0n) {
     throw new EvaluationRunIdentityError('contentSnapshotVersion must be nonnegative')
   }
+  if (identity.contentSnapshotKind === 'NATIVE_CORE_V1') {
+    if (!UUID_PATTERN.test(identity.contentSnapshotRef) || identity.contentSnapshotVersion < 1n)
+      throw new EvaluationRunIdentityError('Native content snapshot identity is invalid')
+  } else if (identity.contentSnapshotRef !== undefined && identity.contentSnapshotRef !== null) {
+    throw new EvaluationRunIdentityError('Legacy content snapshots cannot have a reference')
+  }
   if (identity.declaredBudgetCeilingE8Usd < 0n) {
     throw new EvaluationRunIdentityError('declaredBudgetCeilingE8Usd must be nonnegative')
   }
@@ -129,8 +148,7 @@ function identitySnapshot(identity: EvaluationRunIdentity): CanonicalObject {
     'pathfinder-eval-model-snapshot-v1',
     identity.modelSnapshot,
   )
-  return {
-    version: RUN_IDENTITY_VERSION,
+  const common = {
     tenantId: identity.tenantId,
     venueId: identity.venueId,
     idempotencyKey: identity.idempotencyKey,
@@ -151,6 +169,14 @@ function identitySnapshot(identity: EvaluationRunIdentity): CanonicalObject {
     createdBy: identity.createdBy,
     triggerType: identity.triggerType,
   }
+  return identity.contentSnapshotKind === 'NATIVE_CORE_V1'
+    ? {
+        version: NATIVE_RUN_IDENTITY_VERSION,
+        ...common,
+        contentSnapshotKind: 'NATIVE_CORE_V1',
+        contentSnapshotRef: identity.contentSnapshotRef,
+      }
+    : { version: LEGACY_RUN_IDENTITY_VERSION, ...common }
 }
 
 export function evaluationRunIdentityHash(identity: EvaluationRunIdentity): string {
@@ -173,6 +199,12 @@ function isMatchingReplay(run: EvalRun, identityHash: string, snapshot: Canonica
     run.promptContractHash === expected.promptContractHash &&
     run.packageSnapshotRef === expected.packageSnapshotRef &&
     run.packageSnapshotHash === expected.packageSnapshotHash &&
+    run.contentSnapshotKind ===
+      (expected.version === NATIVE_RUN_IDENTITY_VERSION
+        ? 'NATIVE_CORE_V1'
+        : 'LEGACY_VENUE_CONTENT_V1') &&
+    run.contentSnapshotRef ===
+      (expected.version === NATIVE_RUN_IDENTITY_VERSION ? expected.contentSnapshotRef : null) &&
     run.contentSnapshotVersion.toString() === expected.contentSnapshotVersion &&
     run.contentSnapshotHash === expected.contentSnapshotHash &&
     run.modelProvider === expected.modelProvider &&
@@ -252,6 +284,14 @@ export async function createOrReplayEvaluationRun(params: {
         promptContractHash: params.identity.promptContractHash,
         packageSnapshotRef: params.identity.packageSnapshotRef,
         packageSnapshotHash: params.identity.packageSnapshotHash,
+        contentSnapshotKind:
+          params.identity.contentSnapshotKind === 'NATIVE_CORE_V1'
+            ? 'NATIVE_CORE_V1'
+            : 'LEGACY_VENUE_CONTENT_V1',
+        contentSnapshotRef:
+          params.identity.contentSnapshotKind === 'NATIVE_CORE_V1'
+            ? params.identity.contentSnapshotRef
+            : null,
         contentSnapshotVersion: params.identity.contentSnapshotVersion,
         contentSnapshotHash: params.identity.contentSnapshotHash,
         modelProvider: params.identity.modelProvider,

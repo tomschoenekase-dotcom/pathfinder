@@ -35,6 +35,8 @@ const runSelect = {
   promptContractHash: true,
   packageSnapshotRef: true,
   packageSnapshotHash: true,
+  contentSnapshotKind: true,
+  contentSnapshotRef: true,
   contentSnapshotVersion: true,
   contentSnapshotHash: true,
   modelProvider: true,
@@ -84,6 +86,8 @@ function runSummary(
     createdAt: run.createdAt,
     modelProvider: run.modelProvider,
     modelName: run.modelName,
+    contentSnapshotKind: run.contentSnapshotKind,
+    contentSnapshotRef: run.contentSnapshotRef,
     contentSnapshotVersion: run.contentSnapshotVersion.toString(),
   }
 }
@@ -119,6 +123,8 @@ export async function compareEvaluationRuns(
   const mismatchReasons = new Set<EvaluationComparisonMismatch>()
   if (baseline.corpusHash !== candidate.corpusHash) mismatchReasons.add('CORPUS')
   if (
+    baseline.contentSnapshotKind !== candidate.contentSnapshotKind ||
+    baseline.contentSnapshotRef !== candidate.contentSnapshotRef ||
     baseline.contentSnapshotVersion !== candidate.contentSnapshotVersion ||
     baseline.contentSnapshotHash !== candidate.contentSnapshotHash ||
     baseline.packageSnapshotRef !== candidate.packageSnapshotRef ||

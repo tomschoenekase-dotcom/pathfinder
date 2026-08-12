@@ -6,6 +6,7 @@ import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
   GUEST_CHAT_PROMPT_VERSION,
 } from '@pathfinder/contracts/prompt-contract'
+import { NativeCoreVisibleState } from '@pathfinder/contracts/native-venue-deployment'
 import {
   appendEvaluationReviewAction,
   createOrReplayEvaluationRun,
@@ -95,6 +96,7 @@ export const adminEvaluationOperationActionsRouter = router({
           .max(MAX_RUN_CASES)
           .refine((ids) => new Set(ids).size === ids.length, 'Evaluation cases must be unique'),
         budgetCeilingE8Usd: z.string().regex(/^\d+$/u),
+        nativeReleaseId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -111,28 +113,47 @@ export const adminEvaluationOperationActionsRouter = router({
         })
       const frozen = await withTenantIsolationBypass(() =>
         db.$transaction(async (tx) => {
-          const [snapshot, cases, flag, durableGlobalEnabled] = await Promise.all([
-            createVenueContentSnapshot({
-              db: tx,
-              tenantId: input.tenantId,
-              venueId: input.venueId,
-            }),
-            tx.evalCase.findMany({
-              where: {
-                tenantId: input.tenantId,
-                venueId: input.venueId,
-                id: { in: input.caseIds },
-              },
-              select: { id: true, revision: true, caseHash: true },
-            }),
-            tx.tenantFeatureFlag.findUnique({
-              where: {
-                tenantId_flagKey: { tenantId: input.tenantId, flagKey: EVALUATION_RUNNER_FLAG },
-              },
-              select: { enabled: true },
-            }),
-            isEvaluationRuntimeDurablyEnabled(tx),
-          ])
+          const [legacySnapshot, nativeRelease, cases, flag, durableGlobalEnabled] =
+            await Promise.all([
+              input.nativeReleaseId
+                ? Promise.resolve(null)
+                : createVenueContentSnapshot({
+                    db: tx,
+                    tenantId: input.tenantId,
+                    venueId: input.venueId,
+                  }),
+              input.nativeReleaseId
+                ? tx.nativeVenueDeploymentRelease.findFirst({
+                    where: {
+                      id: input.nativeReleaseId,
+                      tenantId: input.tenantId,
+                      venueId: input.venueId,
+                      status: { in: ['DRAFT', 'APPROVED'] },
+                    },
+                    select: {
+                      id: true,
+                      manifestHash: true,
+                      desiredStateHash: true,
+                      plan: true,
+                    },
+                  })
+                : Promise.resolve(null),
+              tx.evalCase.findMany({
+                where: {
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  id: { in: input.caseIds },
+                },
+                select: { id: true, revision: true, caseHash: true },
+              }),
+              tx.tenantFeatureFlag.findUnique({
+                where: {
+                  tenantId_flagKey: { tenantId: input.tenantId, flagKey: EVALUATION_RUNNER_FLAG },
+                },
+                select: { enabled: true },
+              }),
+              isEvaluationRuntimeDurablyEnabled(tx),
+            ])
           if (!durableGlobalEnabled || flag?.enabled !== true)
             throw new TRPCError({
               code: 'PRECONDITION_FAILED',
@@ -143,12 +164,56 @@ export const adminEvaluationOperationActionsRouter = router({
               code: 'NOT_FOUND',
               message: 'One or more evaluation cases were not found in the requested venue',
             })
+          if (input.nativeReleaseId && !nativeRelease)
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: 'Reviewable native deployment release was not found',
+            })
           const byId = new Map(cases.map((item) => [item.id, item]))
           const manifest = input.caseIds.map((caseId) => {
             const item = byId.get(caseId)!
             return { caseId: item.id, revision: item.revision, caseHash: item.caseHash }
           })
           const model = getAiModelSpec(AI_MODEL_KEYS.GUEST_CHAT)
+          const nativePlan = nativeRelease
+            ? (nativeRelease.plan as {
+                desired?: unknown
+                priorHead?: { revision?: unknown } | null
+              })
+            : null
+          const nativeState = nativePlan ? NativeCoreVisibleState.parse(nativePlan.desired) : null
+          const priorRevision = nativePlan?.priorHead?.revision
+          const nativeRevision = nativePlan
+            ? nativePlan.priorHead === null
+              ? 1n
+              : typeof priorRevision === 'number'
+                ? BigInt(priorRevision + 1)
+                : null
+            : null
+          if (nativeRelease && (!nativeState || nativeRevision === null))
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'Native deployment release snapshot evidence is invalid',
+            })
+          const snapshot = nativeRelease
+            ? {
+                schemaVersion: 'pathfinder-native-evaluation-content-v1',
+                hash: nativeRelease.desiredStateHash,
+                contentVersion: nativeRevision!,
+                componentCounts: {
+                  places: nativeState!.places.length,
+                  knowledgeEntries: nativeState!.knowledgeEntries.length,
+                  generalizedModules: nativeState!.generalizedModules.length,
+                },
+                manifest: {
+                  version: 'pathfinder-native-evaluation-content-v1',
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  releaseId: nativeRelease.id,
+                  state: JSON.parse(JSON.stringify(nativeState)) as never,
+                },
+              }
+            : legacySnapshot!
           const created = await createOrReplayEvaluationRun({
             db: tx,
             runId: randomUUID(),
@@ -159,15 +224,23 @@ export const adminEvaluationOperationActionsRouter = router({
               caseManifest: manifest,
               promptContractVersion: GUEST_CHAT_PROMPT_VERSION,
               promptContractHash: GUEST_CHAT_PROMPT_CONTRACT_HASH,
-              packageSnapshotRef: null,
-              packageSnapshotHash: null,
+              packageSnapshotRef: nativeRelease ? `native-core-v1:${nativeRelease.id}` : null,
+              packageSnapshotHash: nativeRelease?.manifestHash ?? null,
+              ...(nativeRelease
+                ? {
+                    contentSnapshotKind: 'NATIVE_CORE_V1' as const,
+                    contentSnapshotRef: nativeRelease.id,
+                  }
+                : {}),
               contentSnapshotVersion: snapshot.contentVersion,
               contentSnapshotHash: snapshot.hash,
               modelProvider: model.provider,
               modelName: model.model,
               modelSnapshot: model,
               runConfigSnapshot: {
-                version: 'pathfinder-evaluation-run-config-v1',
+                version: nativeRelease
+                  ? 'pathfinder-native-evaluation-run-config-v1'
+                  : 'pathfinder-evaluation-run-config-v1',
                 maximumCases: MAX_RUN_CASES,
                 requestedCases: manifest.length,
                 contentSnapshotSchemaVersion: snapshot.schemaVersion,
@@ -176,7 +249,7 @@ export const adminEvaluationOperationActionsRouter = router({
               },
               declaredBudgetCeilingE8Usd: budget,
               createdBy: ctx.session.userId,
-              triggerType: 'ADMIN_REQUEST',
+              triggerType: nativeRelease ? 'ADMIN_NATIVE_RELEASE_REQUEST' : 'ADMIN_REQUEST',
             },
           })
           return { created, snapshot }

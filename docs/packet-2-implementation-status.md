@@ -239,7 +239,19 @@ Section-level evidence and blockers are indexed in
   Revert is enabled only for the exact current head. Raw manifests, plans, effect states, actors,
   hashes and publication lineage are excluded from the UI DTO. Forward-only migration
   `20260812001400_add_native_venue_deployments` remains unapplied and unrehearsed; no live database,
-  browser, asset, provider, capability, model or evaluation evidence is claimed.
+  browser, asset, provider, capability or model evidence is claimed.
+- Native releases now have separate advisory desired-state evaluation evidence. The native-only
+  platform-admin adapter binds an exact release version, operation UUID, 1-50 unique scoped cases
+  and the bounded budget; it derives the frozen desired snapshot and verified v3 run identity on the
+  server. Safe UI DTOs expose only coarse admission requirements/bounds, run status/replay facts and
+  stable keyset-paged derived PASS/quality-failure/operational-failure summaries. They expose no
+  content/package/identity/model/provider digests and do not use the generic run-list projection.
+  Evidence is append-only, strictly audited and late-results-sealed, while legacy v2 identity bytes
+  remain unchanged. It is advisory only: no evidence, PASS, quality failure and operational failure
+  all leave approve/apply/revert gates unchanged and establish no threshold. Forward-only migration
+  `20260812001500_add_native_deployment_evaluation_evidence` is unapplied; process, durable-global
+  and tenant admission remain requirements rather than enabled-state claims, and no live provider or
+  database execution is claimed.
 - Internal Workspace now also has a bounded Venue Package history/detail and deliberate lifecycle
   surface. It revalidates the stored payload schema and venue-bound canonical hash, plus preview
   schema, payload/base/warning digests and validation-report identity before displaying evidence. A
@@ -406,6 +418,10 @@ Section-level evidence and blockers are indexed in
   platform administrators may append replay-safe revision-CAS conclusions only to `COMPLETED`
   evidence with atomic sanitized audit. Conclusions never approve/block a package or call a provider;
   forward migration `20260812000600_evaluation_review_commands` remains unapplied.
+- Native desired-state evaluation uses the same default-off execution foundation through a separate
+  hash-free browser adapter and persists only immutable bounded advisory facts. It neither changes
+  provider flags nor adds package approval, quality thresholds or lifecycle gates. Migration
+  `20260812001500_add_native_deployment_evaluation_evidence` remains unapplied.
 - Answer-analysis, weekly-report and evaluation provider waits renew exact live leases before,
   during and after provider work. The heartbeat passes an `AbortSignal`; ownership loss aborts,
   settles dispatched reservations as ambiguous, suppresses redispatch and prevents stale worker
@@ -497,6 +513,9 @@ Section-level evidence and blockers are indexed in
   Native deployment migration `20260812001400_add_native_venue_deployments` is likewise unapplied
   and unrehearsed, performs no backfill, and is not proof that native releases or effects exist in a
   live database.
+  Native advisory evaluation migration
+  `20260812001500_add_native_deployment_evaluation_evidence` is also unapplied and unrehearsed; it
+  preserves legacy run identity and provides no live database, provider or admission evidence.
 
 ## Required program work not yet proven complete
 
@@ -504,7 +523,8 @@ Section-level evidence and blockers are indexed in
 - Intake adapters beyond website and text-only staff interviews, plus live extraction and
   end-to-end reviewed onboarding beyond the bounded reviewed-DRAFT handoff boundary.
 - Native materialization beyond the bounded `NATIVE_CORE_V1` visible profile, including ITEM,
-  assets, capability/model references, evaluation gates, and any provider/live deployment work.
+  assets, capability/model references, evaluation gates or thresholds, and any provider/live
+  deployment work. Current native evaluation evidence is advisory only.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
 - Support workflow beyond verified participant management, manual prompting/response/completion,
@@ -559,7 +579,8 @@ mode and assistive-technology evidence remain unverified.
 - At that historical commit, Prisma format, validation, and client generation for three then-new forward-only migrations used
   dummy loopback URLs only. The migrations remain unapplied and have no live-schema evidence.
 - No database, Redis, provider, migration-apply, staging, or production operation was executed.
-- Current focused evidence passed: evaluation DB 18, API 11 and dashboard 19 tests; tenant intake API
+- Current native advisory evaluation evidence passed DB 248, API 27 and worker 19 focused tests;
+  the canonical browser-foundation runner passed 164 (dashboard 104 + web 60). Tenant intake API
   5 and the expanded onboarding dashboard set 49 tests; affected AI/DB/worker suites reported 1,177
   passing with 78 configured skips. The reviewed-DRAFT focused set passed 63 tests, the generated
   tenant boundary passed 78, and focused Guest design plus analytics/helper/worker contracts passed.

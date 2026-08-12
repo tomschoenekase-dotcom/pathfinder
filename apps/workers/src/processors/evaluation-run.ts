@@ -22,6 +22,10 @@ import {
   type EvalResult,
 } from '@pathfinder/contracts/evaluation'
 import {
+  NativeCoreVisibleState,
+  nativeCoreVisibleStateHash,
+} from '@pathfinder/contracts/native-venue-deployment'
+import {
   assertVenueAiAvailable,
   claimEvaluationRunAttempt,
   db,
@@ -73,6 +77,8 @@ export type FrozenEvaluationRun = {
   caseManifestSnapshot: unknown
   promptContractVersion: string
   promptContractHash: string
+  contentSnapshotKind?: 'LEGACY_VENUE_CONTENT_V1' | 'NATIVE_CORE_V1'
+  contentSnapshotRef?: string | null
   contentSnapshotVersion: bigint
   contentSnapshotHash: string
   modelProvider: string
@@ -204,11 +210,30 @@ function resultFor(evalCase: EvalCase, observation: EvalObservation, caseHash: s
   }
 }
 
-function frozenContent(run: FrozenEvaluationRun): CanonicalJsonValue {
+export function frozenContent(run: FrozenEvaluationRun): CanonicalJsonValue {
   if (typeof run.runConfigSnapshot !== 'object' || run.runConfigSnapshot === null) {
     throw new Error('EVALUATION_RUN_CONFIG_INVALID')
   }
   const config = run.runConfigSnapshot as Record<string, unknown>
+  if (run.contentSnapshotKind === 'NATIVE_CORE_V1') {
+    if (
+      config.version !== 'pathfinder-native-evaluation-run-config-v1' ||
+      config.contentSnapshot === undefined
+    )
+      throw new Error('EVALUATION_CONTENT_SNAPSHOT_MISSING')
+    const content = config.contentSnapshot as Record<string, unknown>
+    const state = NativeCoreVisibleState.safeParse(content.state)
+    if (
+      content.version !== 'pathfinder-native-evaluation-content-v1' ||
+      content.tenantId !== run.tenantId ||
+      content.venueId !== run.venueId ||
+      content.releaseId !== run.contentSnapshotRef ||
+      !state.success ||
+      nativeCoreVisibleStateHash(state.data) !== run.contentSnapshotHash
+    )
+      throw new Error('EVALUATION_CONTENT_IDENTITY_MISMATCH')
+    return content as CanonicalJsonValue
+  }
   if (
     config.version !== 'pathfinder-evaluation-run-config-v1' ||
     config.contentSnapshot === undefined

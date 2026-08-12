@@ -13,6 +13,7 @@ export type WriteAuditLogParams = {
   afterState?: Record<string, unknown>
   ipAddress?: string
   userAgent?: string
+  createdAt?: Date
 }
 
 function auditLogData(params: WriteAuditLogParams) {
@@ -29,6 +30,7 @@ function auditLogData(params: WriteAuditLogParams) {
   if (params.afterState !== undefined) Object.assign(data, { afterState: params.afterState })
   if (params.ipAddress !== undefined) Object.assign(data, { ipAddress: params.ipAddress })
   if (params.userAgent !== undefined) Object.assign(data, { userAgent: params.userAgent })
+  if (params.createdAt !== undefined) Object.assign(data, { createdAt: params.createdAt })
   return data
 }
 

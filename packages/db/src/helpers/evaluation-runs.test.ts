@@ -56,6 +56,49 @@ function storedRun(data: Record<string, unknown>): EvalRun {
 describe('evaluation run identity', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('preserves the exact legacy v2 identity hash and omits additive discriminator fields', async () => {
+    expect(evaluationRunIdentityHash(identity())).toBe(
+      '9565e9f3b5df0c5a962454d70e27f5468fc7540e23c202761371f67d5958b880',
+    )
+    const client = mockClient()
+    client.evalRun.findFirst.mockResolvedValueOnce(null)
+    client.evalRun.create.mockImplementationOnce(async ({ data }) => storedRun(data))
+    const { run } = await createOrReplayEvaluationRun({
+      db: client as never,
+      runId: RUN_ID,
+      identity: identity(),
+    })
+    expect(run.identitySnapshot).toMatchObject({ version: 'pathfinder-eval-run-identity-v2' })
+    expect(run.identitySnapshot).not.toHaveProperty('contentSnapshotKind')
+    expect(run.identitySnapshot).not.toHaveProperty('contentSnapshotRef')
+    expect(run).toMatchObject({
+      contentSnapshotKind: 'LEGACY_VENUE_CONTENT_V1',
+      contentSnapshotRef: null,
+    })
+  })
+
+  it('uses a distinct v3 hash domain for an exact native release snapshot', async () => {
+    const native = identity({
+      contentSnapshotKind: 'NATIVE_CORE_V1',
+      contentSnapshotRef: RUN_ID,
+      packageSnapshotRef: `native-core-v1:${RUN_ID}`,
+    } as Partial<EvaluationRunIdentity>)
+    expect(evaluationRunIdentityHash(native)).not.toBe(evaluationRunIdentityHash(identity()))
+    const client = mockClient()
+    client.evalRun.findFirst.mockResolvedValueOnce(null)
+    client.evalRun.create.mockImplementationOnce(async ({ data }) => storedRun(data))
+    const { run } = await createOrReplayEvaluationRun({
+      db: client as never,
+      runId: RUN_ID,
+      identity: native,
+    })
+    expect(run.identitySnapshot).toMatchObject({
+      version: 'pathfinder-eval-run-identity-v3',
+      contentSnapshotKind: 'NATIVE_CORE_V1',
+      contentSnapshotRef: RUN_ID,
+    })
+  })
+
   it('is canonical across JSON key order and Unicode NFC', () => {
     const first = evaluationRunIdentityHash(identity())
     const reordered = evaluationRunIdentityHash(

@@ -112,6 +112,16 @@ digests. Migration `20260812001400_add_native_venue_deployments` is unapplied, s
 tests are not evidence of a live deployment, publication, asset pipeline, provider call, capability,
 model or evaluation gate.
 
+The native panel may also show **Advisory evaluation**. A request is bound to the displayed release
+version, a stable operation ID, 1-50 selected venue cases and the displayed budget ceiling. The
+screen reports the process, durable-global and tenant admission requirements; it must not describe
+any requirement as enabled unless the authoritative response says so. A staged request is not proof
+of dispatch or provider work. Evidence pages show only bounded PASS, quality-failure or operational-
+failure summaries. These findings are review aids only: they never enable, disable or substitute for
+Approve, Apply or Revert, and there is no quality threshold. Refresh after a release-version conflict.
+Migration `20260812001500_add_native_deployment_evaluation_evidence` is unapplied, so local UI and
+tests are not live database or provider evidence.
+
 Guest previews may include callouts, actions, citations, choices, images, galleries, events, and
 locations as well as legacy text and place cards. Reject unknown block types. Image and map links
 must be HTTPS and must not contain credential- or secret-like parameters. A safely rendered block
@@ -290,6 +300,11 @@ manifest, case hash/revision, or result evidence did not match. Per-case classif
 are evidence, not a release gate. A human platform administrator may append a replay-safe conclusion
 only after the candidate run is `COMPLETED`; refresh on conflict. A conclusion neither approves nor
 blocks a package and cannot enable a gate, queue work, or call a provider.
+
+For a native release, use only its dedicated advisory request and evidence controls. They resolve
+the frozen run identity on the server and expose neither generic run-list model/provider/hash fields
+nor browser-supplied identity hashes. PASS, quality failure, operational failure and no evidence all
+leave the native lifecycle gates unchanged.
 
 ## Universal content and MCP reads
 

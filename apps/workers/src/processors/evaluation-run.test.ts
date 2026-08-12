@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import { AI_MODEL_KEYS, getAiModelSpec } from '@pathfinder/ai'
 import { canonicalEvaluationJson, type CanonicalJsonValue } from '@pathfinder/contracts/evaluation'
+import { nativeCoreVisibleStateHash } from '@pathfinder/contracts/native-venue-deployment'
 import {
   GUEST_CHAT_PROMPT_CONTRACT_HASH,
   GUEST_CHAT_PROMPT_VERSION,
@@ -41,6 +42,7 @@ import {
   assertFinalEvaluationProviderAdmission,
   executeFrozenEvaluationRun,
   evaluationPromptCostCeiling,
+  frozenContent,
   processEvaluationRunJob,
   type EvaluationRunnerDependencies,
 } from './evaluation-run'
@@ -86,6 +88,34 @@ const contentSnapshotHash = createHash('sha256')
   .update(`pathfinder-venue-content-snapshot-v1\n${canonicalEvaluationJson(contentSnapshot)}`)
   .digest('hex')
 const payload = { tenantId: 't1', venueId: 'v1', runId: id, runIdentityHash: identityHash }
+const nativeState = {
+  venue: {
+    name: 'Venue',
+    slug: 'venue',
+    description: null,
+    guideNotes: null,
+    aiGuideNotes: null,
+    aiFeaturedPlaceId: null,
+    aiTone: 'FRIENDLY',
+    tonePreset: 'friendly',
+    tonePresetVersion: 1,
+    aiGuideName: null,
+    chatTheme: 'default',
+    chatAccentColor: null,
+    chatFont: 'jakarta',
+    chatLogoUrl: null,
+    chatBannerUrl: null,
+    category: null,
+    guideMode: 'location_aware',
+    defaultCenterLat: null,
+    defaultCenterLng: null,
+    geoBoundary: null,
+    isActive: true,
+  },
+  places: [],
+  knowledgeEntries: [],
+  generalizedModules: [],
+} as const
 
 function frozenRun() {
   return {
@@ -132,6 +162,36 @@ function deps(overrides: Partial<EvaluationRunnerDependencies> = {}): Evaluation
 }
 
 describe('executeFrozenEvaluationRun', () => {
+  it('parses and re-hashes only the frozen native desired-state snapshot', () => {
+    const nativeContent = {
+      version: 'pathfinder-native-evaluation-content-v1',
+      tenantId: 't1',
+      venueId: 'v1',
+      releaseId: id,
+      state: nativeState,
+    }
+    const run = {
+      ...frozenRun(),
+      contentSnapshotKind: 'NATIVE_CORE_V1' as const,
+      contentSnapshotRef: id,
+      contentSnapshotHash: nativeCoreVisibleStateHash(nativeState),
+      runConfigSnapshot: {
+        version: 'pathfinder-native-evaluation-run-config-v1',
+        contentSnapshot: nativeContent,
+      },
+    }
+    expect(frozenContent(run)).toEqual(nativeContent)
+    expect(() =>
+      frozenContent({
+        ...run,
+        runConfigSnapshot: {
+          ...run.runConfigSnapshot,
+          contentSnapshot: { ...nativeContent, state: { ...nativeState, places: [{}] } },
+        },
+      }),
+    ).toThrow('EVALUATION_CONTENT_IDENTITY_MISMATCH')
+  })
+
   it('scores quality separately and records bounded cost', async () => {
     const subject = deps()
     const result = await executeFrozenEvaluationRun(payload, subject, { finalAttempt: true })

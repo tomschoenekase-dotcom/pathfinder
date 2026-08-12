@@ -12,9 +12,14 @@ const actions = vi.hoisted(() => ({
 }))
 const releaseReads = vi.hoisted(() => ({ findMany: vi.fn(), findFirst: vi.fn() }))
 const headReads = vi.hoisted(() => ({ findFirst: vi.fn() }))
+const evaluationReads = vi.hoisted(() => ({ findFirst: vi.fn() }))
 vi.mock('@pathfinder/db', async (original) => ({
   ...(await original<typeof import('@pathfinder/db')>()),
-  db: { nativeVenueDeploymentRelease: releaseReads, nativeVenueDeploymentHead: headReads },
+  db: {
+    nativeVenueDeploymentRelease: releaseReads,
+    nativeVenueDeploymentHead: headReads,
+    nativeVenueDeploymentEvaluationEvidence: evaluationReads,
+  },
   withTenantIsolationBypass: (fn: () => unknown) => fn(),
   createNativeVenueDeploymentAction: actions.create,
   projectNativeVenueStateAction: actions.project,
@@ -36,6 +41,7 @@ describe('admin native venue deployments', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     headReads.findFirst.mockResolvedValue(null)
+    evaluationReads.findFirst.mockResolvedValue(null)
   })
 
   it('returns only bounded allowlisted release metadata', async () => {
@@ -145,11 +151,12 @@ describe('admin native venue deployments', () => {
       appliedAt: null,
       revertedAt: null,
       expectedEffectCount: 3,
+      evaluationEvidence: [],
       plan: {
         secret: 'must-not-leak',
         effects: [{ kind: 'PLACE' }, { kind: 'PLACE' }, { kind: 'VENUE' }],
       },
-      _count: { effects: 0, commands: 1 },
+      _count: { effects: 0, commands: 1, evaluationEvidence: 0 },
     })
     const result = await app.createCaller(context()).admin.getNativeVenueDeployment({
       tenantId: 'tenant-1',
@@ -234,8 +241,9 @@ describe('admin native venue deployments', () => {
       appliedAt: new Date(0),
       revertedAt: null,
       expectedEffectCount: 0,
+      evaluationEvidence: [],
       plan: { effects: [] },
-      _count: { effects: 0, commands: 2 },
+      _count: { effects: 0, commands: 2, evaluationEvidence: 0 },
     })
     headReads.findFirst.mockResolvedValue({
       releaseId: '33333333-3333-4333-8333-333333333333',
@@ -253,6 +261,133 @@ describe('admin native venue deployments', () => {
       where: { tenantId: 'tenant-1', venueId: 'venue-1' },
       select: { releaseId: true },
     })
+  })
+
+  it('returns bounded evaluation evidence with explicit pagination and latest disposition', async () => {
+    const evidence = Array.from({ length: 21 }, (_, index) => ({
+      id: `evidence-${index}`,
+      runId: `run-${index}`,
+      disposition: index === 0 ? 'QUALITY_FAILURE' : 'PASS',
+      manifestCaseCount: 1,
+      scoredCaseCount: 1,
+      passedCaseCount: index === 0 ? 0 : 1,
+      failedCaseCount: index === 0 ? 1 : 0,
+      operationalFailureCount: 0,
+      totalLatencyMs: 1,
+      totalCostE8Usd: 1n,
+      runCompletedAt: new Date(0),
+      createdAt: new Date(index),
+    }))
+    releaseReads.findFirst.mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      profile: 'NATIVE_CORE_V1',
+      status: 'APPROVED',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      approvedAt: new Date(0),
+      appliedAt: null,
+      revertedAt: null,
+      expectedEffectCount: 0,
+      plan: { effects: [] },
+      evaluationEvidence: evidence,
+      _count: { effects: 0, commands: 1, evaluationEvidence: 25 },
+    })
+    evaluationReads.findFirst.mockResolvedValue({
+      disposition: 'QUALITY_FAILURE',
+      createdAt: new Date(20),
+    })
+    const result = await app.createCaller(context()).admin.getNativeVenueDeployment({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      releaseId: '11111111-1111-4111-8111-111111111111',
+      evaluationLimit: 20,
+    })
+    expect(result.evaluationEvidence).toMatchObject({
+      totalCount: 25,
+      hasMore: true,
+      nextCursor: { id: 'evidence-19', createdAt: new Date(19) },
+      latest: { disposition: 'QUALITY_FAILURE' },
+    })
+    expect(result.evaluationEvidence.items).toHaveLength(20)
+    expect(JSON.stringify(result.evaluationEvidence)).not.toContain('runIdentityHash')
+    expect(result.allowedActions.apply).toEqual({ allowed: true, reason: null })
+  })
+
+  it.each(['PASS', 'OPERATIONAL_FAILURE'] as const)(
+    'keeps advisory %s evidence independent from the apply gate',
+    async (disposition) => {
+      releaseReads.findFirst.mockResolvedValue({
+        id: '11111111-1111-4111-8111-111111111111',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        profile: 'NATIVE_CORE_V1',
+        status: 'APPROVED',
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+        approvedAt: new Date(0),
+        appliedAt: null,
+        revertedAt: null,
+        expectedEffectCount: 0,
+        plan: { effects: [] },
+        evaluationEvidence: [],
+        _count: { effects: 0, commands: 1, evaluationEvidence: 1 },
+      })
+      evaluationReads.findFirst.mockResolvedValue({ disposition, createdAt: new Date(0) })
+      const result = await app.createCaller(context()).admin.getNativeVenueDeployment({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        releaseId: '11111111-1111-4111-8111-111111111111',
+      })
+      expect(result.evaluationEvidence.latest?.disposition).toBe(disposition)
+      expect(result.allowedActions.apply).toEqual({ allowed: true, reason: null })
+    },
+  )
+
+  it('uses a stable evidence keyset when newer evidence arrives between pages', async () => {
+    const cursor = {
+      createdAt: new Date('2026-08-12T12:00:00.000Z'),
+      id: '22222222-2222-4222-8222-222222222222',
+    }
+    releaseReads.findFirst.mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      profile: 'NATIVE_CORE_V1',
+      status: 'DRAFT',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      approvedAt: null,
+      appliedAt: null,
+      revertedAt: null,
+      expectedEffectCount: 0,
+      plan: { effects: [] },
+      evaluationEvidence: [],
+      _count: { effects: 0, commands: 0, evaluationEvidence: 21 },
+    })
+    await app.createCaller(context()).admin.getNativeVenueDeployment({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      releaseId: '11111111-1111-4111-8111-111111111111',
+      evaluationCursor: cursor,
+      evaluationLimit: 10,
+    })
+    expect(releaseReads.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          evaluationEvidence: expect.objectContaining({
+            where: {
+              OR: [
+                { createdAt: { lt: cursor.createdAt } },
+                { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+              ],
+            },
+            take: 11,
+          }),
+        }),
+      }),
+    )
   })
 
   it('maps invalid JSON to a bounded typed error without calling the service', async () => {

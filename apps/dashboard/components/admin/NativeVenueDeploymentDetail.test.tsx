@@ -9,6 +9,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./NativeVenueDeploymentLifecycleControls', () => ({
   NativeVenueDeploymentLifecycleControls: () => <p>Native lifecycle controls</p>,
 }))
+vi.mock('./NativeReleaseEvaluationPanel', () => ({
+  NativeReleaseEvaluationPanel: () => <p>Advisory evaluation evidence</p>,
+}))
 
 import { NativeVenueDeploymentDetail } from './NativeVenueDeploymentDetail'
 
@@ -48,6 +51,8 @@ describe('NativeVenueDeploymentDetail', () => {
     expect(screen.getAllByText(/Supported/)).toHaveLength(7)
     expect(screen.getByText('3 expected effects · 0 recorded effects')).toBeTruthy()
     expect(screen.getByText('Place').parentElement?.textContent).toContain('2')
+    expect(screen.getByText('Advisory evaluation evidence')).toBeTruthy()
+    expect(screen.getByText('Native lifecycle controls')).toBeTruthy()
   })
 
   it('has no automated accessibility violations', async () => {

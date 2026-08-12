@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   markQueued: vi.fn(),
   compareRuns: vi.fn(),
   appendReview: vi.fn(),
+  nativeReleaseFind: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({ env: { EVALUATION_RUNNER_ENABLED: true } }))
@@ -57,6 +58,7 @@ vi.mock('@pathfinder/db', () => ({
       operation({
         evalCase: { findMany: mocks.caseFindMany },
         tenantFeatureFlag: { findUnique: mocks.featureEnabled },
+        nativeVenueDeploymentRelease: { findFirst: mocks.nativeReleaseFind },
       }),
     ),
     evalRun: { findMany: mocks.runFindMany },
@@ -180,6 +182,81 @@ describe('admin evaluation operations router', () => {
       dispatchPending: false,
       status: 'COMPLETED',
     })
+  })
+
+  it('freezes an exact prospective native release snapshot without reading current venue content', async () => {
+    const caseId = '11111111-1111-4111-8111-111111111111'
+    const releaseId = '22222222-2222-4222-8222-222222222222'
+    mocks.caseFindMany.mockResolvedValue([{ id: caseId, revision: 1, caseHash: 'b'.repeat(64) }])
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+    mocks.durableEnabled.mockResolvedValue(true)
+    mocks.nativeReleaseFind.mockResolvedValue({
+      id: releaseId,
+      manifestHash: 'c'.repeat(64),
+      desiredStateHash: 'd'.repeat(64),
+      plan: {
+        priorHead: null,
+        desired: {
+          venue: {
+            name: 'Venue',
+            slug: 'venue',
+            description: null,
+            guideNotes: null,
+            aiGuideNotes: null,
+            aiFeaturedPlaceId: null,
+            aiTone: 'FRIENDLY',
+            tonePreset: 'friendly',
+            tonePresetVersion: 1,
+            aiGuideName: null,
+            chatTheme: 'default',
+            chatAccentColor: null,
+            chatFont: 'jakarta',
+            chatLogoUrl: null,
+            chatBannerUrl: null,
+            category: null,
+            guideMode: 'location_aware',
+            defaultCenterLat: null,
+            defaultCenterLng: null,
+            geoBoundary: null,
+            isActive: true,
+          },
+          places: [],
+          knowledgeEntries: [],
+          generalizedModules: [],
+        },
+      },
+    })
+    mocks.createRun.mockImplementation(async ({ identity }) => ({
+      run: { id: caseId, identityHash: 'e'.repeat(64), status: 'STAGED' },
+      replayed: false,
+      identity,
+    }))
+    await testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      idempotencyKey: 'native-1',
+      caseIds: [caseId],
+      budgetCeilingE8Usd: '1000',
+      nativeReleaseId: releaseId,
+    })
+    expect(mocks.createSnapshot).not.toHaveBeenCalled()
+    expect(mocks.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          contentSnapshotKind: 'NATIVE_CORE_V1',
+          contentSnapshotRef: releaseId,
+          contentSnapshotVersion: 1n,
+          contentSnapshotHash: 'd'.repeat(64),
+          packageSnapshotRef: `native-core-v1:${releaseId}`,
+          packageSnapshotHash: 'c'.repeat(64),
+          triggerType: 'ADMIN_NATIVE_RELEASE_REQUEST',
+          runConfigSnapshot: expect.objectContaining({
+            version: 'pathfinder-native-evaluation-run-config-v1',
+            contentSnapshot: expect.objectContaining({ releaseId }),
+          }),
+        }),
+      }),
+    )
   })
 
   it('rejects dark admission before creating a run identity', async () => {

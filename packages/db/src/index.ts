@@ -682,6 +682,11 @@ export {
   projectNativeVenueStateAction,
   revertNativeVenueDeploymentAction,
 } from './helpers/native-venue-deployment-actions'
+export {
+  NativeDeploymentEvaluationEvidenceError,
+  recordNativeDeploymentEvaluationEvidenceAction,
+} from './helpers/native-deployment-evaluation-evidence'
+export type { NativeDeploymentEvaluationActor } from './helpers/native-deployment-evaluation-evidence'
 export type {
   NativeVenueDeploymentActor,
   NativeVenueDeploymentClient,

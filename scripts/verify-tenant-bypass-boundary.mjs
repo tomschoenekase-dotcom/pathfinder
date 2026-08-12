@@ -42,6 +42,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/deployment-manifest-review.ts', 3],
   // Platform-admin-only exact tenant+venue native projection and lifecycle adapters.
   ['packages/api/src/routers/admin/native-venue-deployments.ts', 7],
+  // Native advisory evidence resolves an exact scoped run and pages an exact scoped release.
+  ['packages/api/src/routers/admin/native-deployment-evaluations.ts', 2],
+  // Native advisory requests freeze one exact tenant+venue release and case set transactionally.
+  ['packages/api/src/routers/admin/native-deployment-evaluation-request.ts', 1],
   // Review append uses one exact tenant-scoped bypass for durable conclusion evidence.
   ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 2],
   // Evaluation comparison uses one additional exact tenant-scoped read.

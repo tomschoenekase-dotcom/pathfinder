@@ -19,6 +19,7 @@ export const TENANTED_TABLES = [
   'NativeVenueDeploymentHead',
   'NativeVenueDeploymentCommand',
   'NativeVenueDeploymentPublicationLineage',
+  'NativeVenueDeploymentEvaluationEvidence',
   'VenuePackageDuplicateAnalysis',
   'VisitorSession',
   'GuestChatTurn',

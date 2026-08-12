@@ -487,3 +487,23 @@ export function canonicalEvaluationJson(value: CanonicalJsonValue): string {
     .map((key) => `${JSON.stringify(key.normalize('NFC'))}:${canonicalEvaluationJson(value[key]!)}`)
     .join(',')}}`
 }
+
+export const EvalContentSnapshotKindSchema = z.enum(['LEGACY_VENUE_CONTENT_V1', 'NATIVE_CORE_V1'])
+export const NativeDeploymentEvaluationDispositionSchema = z.enum([
+  'PASS',
+  'QUALITY_FAILURE',
+  'OPERATIONAL_FAILURE',
+])
+export const RecordNativeDeploymentEvaluationEvidenceInputSchema = z
+  .object({
+    tenantId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191),
+    releaseId: z.string().uuid(),
+    runId: z.string().uuid(),
+    expectedRunIdentityHash: z.string().regex(/^[0-9a-f]{64}$/u),
+    operationId: z.string().uuid(),
+  })
+  .strict()
+export type RecordNativeDeploymentEvaluationEvidenceInput = z.infer<
+  typeof RecordNativeDeploymentEvaluationEvidenceInputSchema
+>

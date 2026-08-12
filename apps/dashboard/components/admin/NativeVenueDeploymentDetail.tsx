@@ -2,6 +2,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
 
+import { NativeReleaseEvaluationPanel } from './NativeReleaseEvaluationPanel'
 import { NativeVenueDeploymentLifecycleControls } from './NativeVenueDeploymentLifecycleControls'
 
 type NativeRelease = inferRouterOutputs<AppRouter>['admin']['getNativeVenueDeployment']
@@ -113,6 +114,16 @@ export function NativeVenueDeploymentDetail({
             : `${release.issueCount} bounded review issue${release.issueCount === 1 ? '' : 's'} recorded.`}
         </p>
       </section>
+
+      <NativeReleaseEvaluationPanel
+        tenantId={tenantId}
+        venueId={venueId}
+        releaseId={release.id}
+        releaseVersion={release.version}
+        releaseStatus={release.status}
+        runner={release.evaluationRunner}
+        initialEvidence={release.evaluationEvidence}
+      />
 
       {!release.materializable || release.unsupported ? (
         <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5">

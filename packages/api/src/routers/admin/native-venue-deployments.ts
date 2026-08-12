@@ -6,7 +6,6 @@ import {
   approveNativeVenueDeploymentAction,
   createNativeVenueDeploymentAction,
   db,
-  NativeVenueDeploymentError,
   projectNativeVenueStateAction,
   revertNativeVenueDeploymentAction,
   withTenantIsolationBypass,
@@ -14,6 +13,16 @@ import {
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import {
+  actionGates,
+  coverage,
+  impactSummary,
+  mapError,
+  type NativeStatus,
+  releaseSummary,
+  safeLifecycleResult,
+} from './native-venue-deployment-projections'
+import { nativeEvaluationAvailability } from './native-deployment-evaluation-request'
 
 const scope = z.object({ tenantId: z.string().min(1), venueId: z.string().min(1) }).strict()
 const lifecycle = scope
@@ -23,140 +32,8 @@ const lifecycle = scope
     expectedUpdatedAt: z.string().datetime(),
   })
   .strict()
-const lifecycleSnapshot = z
-  .object({
-    releaseId: z.string(),
-    status: z.enum(['APPROVED', 'APPLIED', 'REVERTED']),
-    updatedAt: z.string().datetime(),
-    effectCount: z.number().int().nonnegative().optional(),
-    head: z.object({ revision: z.number().int().positive() }).nullable().optional(),
-  })
-  .passthrough()
-type NativeStatus = 'DRAFT' | 'APPROVED' | 'APPLIED' | 'REVERTED'
-const coverage = [
-  { section: 'VENUE_CONFIGURATION', disposition: 'SUPPORTED' },
-  { section: 'PLACES', disposition: 'SUPPORTED' },
-  { section: 'KNOWLEDGE', disposition: 'SUPPORTED' },
-  { section: 'GENERALIZED_MODULES', disposition: 'SUPPORTED' },
-  { section: 'ITEMS', disposition: 'SUPPORTED_EMPTY_ONLY' },
-  { section: 'ASSETS', disposition: 'SUPPORTED_EMPTY_ONLY' },
-  { section: 'CAPABILITY_MODEL_REFERENCES', disposition: 'SUPPORTED_EMPTY_ONLY' },
-] as const
 function actor(userId: string) {
   return { type: 'HUMAN' as const, role: 'PLATFORM_ADMIN' as const, id: userId }
-}
-function actionGates(
-  status: NativeStatus,
-  updatedAt: Date | string,
-  releaseId?: unknown,
-  currentHeadReleaseId?: string | null,
-) {
-  const expectedUpdatedAt =
-    updatedAt instanceof Date ? updatedAt.toISOString() : new Date(updatedAt).toISOString()
-  return {
-    approve: {
-      allowed: status === 'DRAFT',
-      reason: status === 'DRAFT' ? null : 'Only a draft release can be approved.',
-    },
-    apply: {
-      allowed: status === 'APPROVED',
-      reason: status === 'APPROVED' ? null : 'Only an approved release can be applied.',
-    },
-    revert: {
-      allowed:
-        status === 'APPLIED' &&
-        (currentHeadReleaseId === undefined || currentHeadReleaseId === releaseId),
-      reason:
-        status !== 'APPLIED'
-          ? 'Only an applied release can be reverted.'
-          : currentHeadReleaseId !== undefined && currentHeadReleaseId !== releaseId
-            ? 'A later release is the current venue deployment.'
-            : null,
-    },
-    expectedUpdatedAt,
-  }
-}
-function releaseSummary(value: Record<string, unknown>, currentHeadReleaseId?: string | null) {
-  const status = value.status as NativeStatus
-  return {
-    id: value.id,
-    tenantId: value.tenantId,
-    venueId: value.venueId,
-    profile: value.profile,
-    status,
-    createdAt: value.createdAt,
-    updatedAt: value.updatedAt,
-    allowedActions: actionGates(
-      status,
-      value.updatedAt as Date | string,
-      value.id,
-      currentHeadReleaseId,
-    ),
-  }
-}
-function safeLifecycleResult(value: unknown, actionScope: z.infer<typeof lifecycle>) {
-  const parsed = lifecycleSnapshot.parse(value)
-  return {
-    releaseId: parsed.releaseId,
-    tenantId: actionScope.tenantId,
-    venueId: actionScope.venueId,
-    profile: 'NATIVE_CORE_V1' as const,
-    status: parsed.status,
-    updatedAt: parsed.updatedAt,
-    version: parsed.updatedAt,
-    effectCount: parsed.effectCount ?? null,
-    head: parsed.head
-      ? { present: true as const, revision: parsed.head.revision }
-      : { present: false as const, revision: null },
-    allowedActions: actionGates(parsed.status, parsed.updatedAt),
-  }
-}
-function impactSummary(plan: unknown) {
-  const effects = z
-    .object({
-      effects: z
-        .array(
-          z
-            .object({
-              kind: z.enum([
-                'VENUE',
-                'PLACE',
-                'KNOWLEDGE',
-                'GENERALIZED_MODULE',
-                'GENERALIZED_PUBLICATION',
-              ]),
-            })
-            .passthrough(),
-        )
-        .max(5_001),
-    })
-    .passthrough()
-    .parse(plan).effects
-  const byKind: Record<string, number> = {}
-  for (const effect of effects) byKind[effect.kind] = (byKind[effect.kind] ?? 0) + 1
-  return Object.entries(byKind)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([kind, count]) => ({ kind, count }))
-}
-function mapError(error: unknown): never {
-  if (error instanceof NativeVenueDeploymentError)
-    throw new TRPCError({
-      code:
-        error.code === 'NOT_FOUND'
-          ? 'NOT_FOUND'
-          : error.code === 'INVALID_INPUT'
-            ? 'BAD_REQUEST'
-            : error.code === 'CONFLICT'
-              ? 'CONFLICT'
-              : 'PRECONDITION_FAILED',
-      message: error.message,
-    })
-  if (error instanceof z.ZodError)
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'Native deployment manifest validation failed.',
-    })
-  throw error
 }
 
 export const adminNativeVenueDeploymentsRouter = router({
@@ -207,12 +84,18 @@ export const adminNativeVenueDeploymentsRouter = router({
           releaseId: z.string().uuid(),
           issueCursor: z.number().int().nonnegative().default(0),
           issueLimit: z.number().int().min(1).max(50).default(20),
+          evaluationCursor: z
+            .object({ createdAt: z.coerce.date(), id: z.string().uuid() })
+            .strict()
+            .nullable()
+            .default(null),
+          evaluationLimit: z.number().int().min(1).max(20).default(10),
         })
         .strict(),
     )
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {
-        const [row, head] = await Promise.all([
+        const [row, head, latestEvaluation] = await Promise.all([
           db.nativeVenueDeploymentRelease.findFirst({
             where: { id: input.releaseId, tenantId: input.tenantId, venueId: input.venueId },
             select: {
@@ -228,12 +111,48 @@ export const adminNativeVenueDeploymentsRouter = router({
               revertedAt: true,
               expectedEffectCount: true,
               plan: true,
-              _count: { select: { effects: true, commands: true } },
+              evaluationEvidence: {
+                ...(input.evaluationCursor
+                  ? {
+                      where: {
+                        OR: [
+                          { createdAt: { lt: input.evaluationCursor.createdAt } },
+                          {
+                            createdAt: input.evaluationCursor.createdAt,
+                            id: { lt: input.evaluationCursor.id },
+                          },
+                        ],
+                      },
+                    }
+                  : {}),
+                orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+                take: input.evaluationLimit + 1,
+                select: {
+                  id: true,
+                  runId: true,
+                  disposition: true,
+                  manifestCaseCount: true,
+                  scoredCaseCount: true,
+                  passedCaseCount: true,
+                  failedCaseCount: true,
+                  operationalFailureCount: true,
+                  totalLatencyMs: true,
+                  totalCostE8Usd: true,
+                  runCompletedAt: true,
+                  createdAt: true,
+                },
+              },
+              _count: { select: { effects: true, commands: true, evaluationEvidence: true } },
             },
           }),
           db.nativeVenueDeploymentHead.findFirst({
             where: { tenantId: input.tenantId, venueId: input.venueId },
             select: { releaseId: true },
+          }),
+          db.nativeVenueDeploymentEvaluationEvidence.findFirst({
+            where: { tenantId: input.tenantId, venueId: input.venueId, releaseId: input.releaseId },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            select: { disposition: true, createdAt: true },
           }),
         ])
         if (!row)
@@ -265,6 +184,22 @@ export const adminNativeVenueDeploymentsRouter = router({
             byKind: impacts,
           },
           commandCount: row._count.commands,
+          evaluationEvidence: {
+            items: row.evaluationEvidence.slice(0, input.evaluationLimit).map((item) => ({
+              ...item,
+              totalCostE8Usd: item.totalCostE8Usd.toString(),
+              advisoryOnly: true as const,
+            })),
+            totalCount: row._count.evaluationEvidence,
+            hasMore: row.evaluationEvidence.length > input.evaluationLimit,
+            nextCursor: (() => {
+              if (row.evaluationEvidence.length <= input.evaluationLimit) return null
+              const last = row.evaluationEvidence[input.evaluationLimit - 1]
+              return last ? { createdAt: last.createdAt, id: last.id } : null
+            })(),
+            latest: latestEvaluation,
+          },
+          evaluationRunner: nativeEvaluationAvailability(),
           allowedActions: actionGates(status, row.updatedAt, row.id, head?.releaseId ?? null),
         }
       }),
