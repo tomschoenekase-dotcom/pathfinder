@@ -2482,6 +2482,7 @@ model SupportMessage {
   submissionRequestId String?                    @map("submission_request_id") @db.Uuid
   submissionInputHash String?                    @map("submission_input_hash") @db.Char(64)
   clientVersion       Int?                       @map("client_version")
+  requestVersion      Int?                       @map("request_version")
   createdAt           DateTime                   @default(now()) @map("created_at")
   tenant              Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue               Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)

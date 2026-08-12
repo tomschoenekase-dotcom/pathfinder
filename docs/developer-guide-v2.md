@@ -71,6 +71,18 @@ access does not transfer upload ownership: each client actor may attach only tha
 quarantined upload. Platform-admin Support reads and mutations remain a separate admin procedure with
 exact tenant/venue/request scope, not a path through the tenant ACL.
 
+The manual Support conversation loop uses three dedicated canonical actions rather than the generic
+status graph. A HUMAN platform operator may request a bounded missing-information checklist from an
+`OPEN` or `IN_REVIEW` request, atomically recording the client-visible prompt and moving it to
+`WAITING_FOR_CLIENT`. The immutable requester or an active participant may answer only from
+`WAITING_FOR_CLIENT`; the action resolves that actor's eligible attachments, clears the checklist,
+records the client-visible response and returns the request to `IN_REVIEW`. A HUMAN platform
+operator may manually complete only an `OPEN` or `IN_REVIEW` request whose checklist is empty, with
+an explicit client-visible completion message. Each action advances global and client versions,
+records append-only request evidence plus strict sanitized audit, and binds replay to actor, scope,
+content and immutable produced-version evidence. These actions never create, approve or apply a
+package and never dispatch execution. Operator prompt/completion actions accept no attachments.
+
 The client portal task projection must reuse that same ACL, first verify exact tenant/venue scope,
 and return only bounded client evidence. Missing-information tasks expose at most three requests and
 five items per request with explicit remaining counts. Tenant intake review is a positive allowlist:
@@ -376,6 +388,18 @@ database evidence.
 The forward-only `20260812000700_add_analytics_user_message_attribution` migration adds the exact
 session-scoped user-message relationship and role guard while leaving historical events nullable.
 It is intentionally unapplied; focused schema/helper/analytics/worker checks are local evidence.
+
+The forward-only `20260812000900_add_support_message_request_version` migration adds nullable
+immutable produced-request-version evidence to Support messages. Legacy messages are not guessed or
+backfilled; manual-loop replay requires the evidence and fails closed when it is absent. It is
+intentionally unapplied, so local schema, migration and replay tests are not live database evidence.
+
+Client Weekly Reports routes are capability projections, not an enablement surface. Resolve exact
+authorized report availability on the server; show navigation only when at least one authorized
+venue is enabled, and hide it when the availability read fails. List/detail routes read published
+safe projections only, preserve exact venue scope, reject disabled venues before report reads, map
+scoped missing detail to not-found, and recover malformed bounded cursors to the newest page with a
+plain status. This does not prove a scheduler, provider, delivery channel or live report lifecycle.
 
 ## Required verification
 

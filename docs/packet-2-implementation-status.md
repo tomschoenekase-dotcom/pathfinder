@@ -78,6 +78,16 @@ Section-level evidence and blockers are indexed in
 - Human support triage can set a validated category and bounded missing-information checklist with
   exact request-version CAS, one version increment, append-only `TRIAGE_UPDATED` evidence, and
   redacted strict audit. It never changes status, sends a message, or touches package lifecycle.
+- The manual Support loop now has dedicated atomic HUMAN actions: a platform operator can prompt
+  with bounded missing items from `OPEN`/`IN_REVIEW` and move to `WAITING_FOR_CLIENT`; the immutable
+  requester or active participant can respond with uploader-owned trusted attachments, clear the
+  checklist and return to `IN_REVIEW`; and a platform operator can complete an `OPEN`/`IN_REVIEW`
+  request only when no items remain, with an explicit client-visible completion message. Each action
+  records global/client versions, immutable message evidence, append-only request evidence and
+  strict sanitized audit with replay/P2002 convergence. Operator prompt/completion accepts no
+  attachments, and none of the three actions creates/applies a package or triggers execution.
+  Forward-only migration `20260812000900_add_support_message_request_version` preserves exact
+  produced global-version replay evidence without guessing legacy rows; it remains unapplied.
 - Operational-update create, edit, schedule and deactivate mutations now route through canonical
   HUMAN manager/owner domain actions. They enforce exact tenant/venue/place scope, content-version
   locking, optimistic `updatedAt` CAS, bounded overlapping published updates, valid time windows,
@@ -272,6 +282,12 @@ Section-level evidence and blockers are indexed in
   across pages, and recover malformed bookmarked filters/cursors to an accessible newest-page
   state. A failed report remains immutable evidence; its retry is namespaced to that terminal report
   so the first retry is a fresh durable request and an ambiguous retry reuses only that new identity.
+- Client Weekly Reports navigation is conditional on an authorized server-side availability read
+  finding at least one enabled venue and fails closed to hidden when that read fails. The list route
+  exposes published projections only, rejects disabled venues before reading reports, preserves the
+  venue across bounded pagination and resets malformed cursors visibly; detail reads require exact
+  venue scope and map missing evidence to not-found. These local routes do not enable reports or
+  prove scheduler, provider, delivery or notification behavior.
 - Recent work, operational status, compact recent operations, a separate client directory, and a
   dedicated operations view. The directory now uses server search and stable cursor pagination;
   the legacy all-client procedure is compatibility-bounded.
@@ -423,8 +439,9 @@ Section-level evidence and blockers are indexed in
   use restrictive exact-scope foreign keys. Offline format/validate/generate and the DB suite passed,
   but none of these forward migrations, including durable guest chat turn migration
   `20260812000400_add_durable_guest_chat_turns`, requester isolation `20260812000500`, evaluation
-  review `20260812000600`, analytics attribution `20260812000700`, or immutable manifest artifacts
-  `20260812000800`, was applied or rehearsed against a database.
+  review `20260812000600`, analytics attribution `20260812000700`, immutable manifest artifacts
+  `20260812000800`, or Support produced-version evidence `20260812000900`, was applied or rehearsed
+  against a database.
 
 ## Required program work not yet proven complete
 
@@ -435,15 +452,15 @@ Section-level evidence and blockers are indexed in
   immutable review artifact and supported PATCH-to-compatibility-DRAFT bridge.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
-- Support workflow beyond verified status transitions and reviewed-DRAFT creation/linkage,
-  including a client participant-management UI and any later automated approval, apply, completion
-  or agent orchestration.
+- Support workflow beyond verified manual prompting/response/completion, status transitions and
+  reviewed-DRAFT creation/linkage, including a client participant-management UI and any later
+  automated approval, apply or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration
   does not activate an agent.
 - MCP transport/authentication, credential issuance/verification/lifecycle, write bindings, and any
   staging-justified thin SDK.
-- Live evaluation gate activation/provider execution and report-quality evidence, reports lifecycle redesign, and
-  authorized offboarding execution.
+- Live evaluation gate activation/provider execution and report-quality evidence, live Reports
+  lifecycle/delivery evidence, and authorized offboarding execution.
 - Remaining table pagination/batching/virtualization work and measured browser performance
   evidence. Admin client lookup/directory and portal eager analytics/report fetches are already
   corrected.
@@ -452,9 +469,9 @@ Section-level evidence and blockers are indexed in
 
 ## Local browser-surface foundation
 
-`pnpm test:browser-foundation` now runs 104 deterministic DOM and route-adapter contracts (44
-dashboard and 60 web) across the
-Admin OS, Internal Client Workspace, ultra-simple Client Portal, and Guest experience. The gate is
+`pnpm test:browser-foundation` now runs 155 deterministic DOM and route-adapter contracts (95
+dashboard and 60 web) across the Admin OS, Internal Client Workspace, ultra-simple Client Portal,
+and Guest experience. The gate is
 wired into CI and performs no authentication, network, provider, or database access. It is an inner
 loop foundation, not Playwright or deployed-browser evidence: browser-engine layout, Clerk flows,
 visual regression, and authenticated staging remain unverified.

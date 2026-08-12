@@ -5,6 +5,7 @@ import type { TRPCContext } from '../../context'
 import { mergeRouters, router } from '../../core'
 import { adminSupportAttachmentsRouter } from './support-attachments'
 import { adminSupportOperationsRouter } from './support-operations'
+import { adminSupportManualLoopRouter } from './support-manual-loop'
 
 const requestFindFirst = vi.fn()
 const messageFindMany = vi.fn()
@@ -53,7 +54,11 @@ function context(isPlatformAdmin: boolean): TRPCContext {
 }
 
 const testRouter = router({
-  admin: mergeRouters(adminSupportOperationsRouter, adminSupportAttachmentsRouter),
+  admin: mergeRouters(
+    adminSupportOperationsRouter,
+    adminSupportManualLoopRouter,
+    adminSupportAttachmentsRouter,
+  ),
 })
 const tenantId = 'tenant_target'
 const venueId = 'venue_target'
@@ -66,8 +71,13 @@ describe('admin support operations', () => {
     requestFindFirst.mockResolvedValue({
       id: requestId,
       status: 'OPEN',
+      missingInformation: [],
       version: 1,
       clientVersion: 3,
+      createdByKind: 'CLIENT',
+      requesterUserId: 'client_1',
+      requesterMembership: { status: 'ACTIVE' },
+      participants: [],
     })
     messageFindMany.mockResolvedValue([])
     requestUpdateMany.mockResolvedValue({ count: 1 })
@@ -100,6 +110,74 @@ describe('admin support operations', () => {
       createdAt: now,
     })
     uploadFindMany.mockResolvedValue([])
+  })
+
+  it('atomically exposes the manual information-request DTO', async () => {
+    messageCreate.mockResolvedValueOnce({
+      id: 'message_prompt',
+      tenantId,
+      venueId,
+      supportRequestId: requestId,
+      authorKind: 'OPERATOR',
+      authorId: 'platform_admin',
+      visibility: 'CLIENT_VISIBLE',
+      body: 'Please send the effective date.',
+      clientVersion: 4,
+      createdAt: now,
+      attachments: [],
+    })
+    const result = await testRouter.createCaller(context(true)).admin.requestSupportInformation({
+      operationId,
+      tenantId,
+      venueId,
+      requestId,
+      expectedVersion: 1,
+      body: 'Please send the effective date.',
+      missingInformation: ['Effective date'],
+    })
+    expect(result).toMatchObject({
+      status: 'WAITING_FOR_CLIENT',
+      missingInformation: ['Effective date'],
+      requestVersion: 2,
+      clientVersion: 4,
+      message: { visibility: 'CLIENT_VISIBLE' },
+      replayed: false,
+    })
+  })
+
+  it('completes manually with an explicit client-visible message and no package effect', async () => {
+    messageCreate.mockResolvedValueOnce({
+      id: 'message_complete',
+      tenantId,
+      venueId,
+      supportRequestId: requestId,
+      authorKind: 'OPERATOR',
+      authorId: 'platform_admin',
+      visibility: 'CLIENT_VISIBLE',
+      body: 'This request is complete.',
+      clientVersion: 4,
+      createdAt: now,
+      attachments: [],
+    })
+    const result = await testRouter.createCaller(context(true)).admin.completeSupportRequest({
+      operationId,
+      tenantId,
+      venueId,
+      requestId,
+      expectedVersion: 1,
+      body: 'This request is complete.',
+    })
+    expect(result).toMatchObject({ status: 'COMPLETED', missingInformation: [] })
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          afterState: expect.objectContaining({
+            packageLifecycleChanged: false,
+            executionTriggered: false,
+          }),
+        }),
+      }),
+    )
   })
 
   it('lists safe exact-scope verified attachment choices for operators', async () => {

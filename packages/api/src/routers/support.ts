@@ -6,6 +6,7 @@ import {
   createSupportRequestAction,
   grantSupportRequestParticipantAction,
   revokeSupportRequestParticipantAction,
+  respondToSupportInformationAction,
   SupportActionError,
   tenantSupportRequestAccessWhere,
   type TenantSupportRole,
@@ -19,6 +20,7 @@ import {
   EligibleSupportAttachmentsInput,
   GetSupportRequestInput,
   ManageSupportParticipantInput,
+  RespondToSupportInformationInput,
   SupportPageInput,
 } from '../schemas/support'
 import { tenantProcedure } from '../trpc'
@@ -439,6 +441,33 @@ export const supportRouter = router({
           message: serializeClientMessage(result.message, actor.actorId),
           clientVersion: result.clientVersion,
           replayed: result.replayed,
+        }
+      } catch (error) {
+        return supportActionError(error)
+      }
+    }),
+
+  respondToInformation: tenantProcedure
+    .input(RespondToSupportInformationInput)
+    .mutation(async ({ ctx, input }) => {
+      const actor = tenantActor(ctx.session)
+      try {
+        const result = await respondToSupportInformationAction(
+          {
+            ...input,
+            tenantId: ctx.session.activeTenantId,
+            actor: {
+              actorType: 'HUMAN',
+              participantKind: 'CLIENT',
+              actorId: actor.actorId,
+              auditRole: actor.role,
+            },
+          },
+          ctx.db,
+        )
+        return {
+          ...result,
+          message: serializeClientMessage(result.message, actor.actorId),
         }
       } catch (error) {
         return supportActionError(error)

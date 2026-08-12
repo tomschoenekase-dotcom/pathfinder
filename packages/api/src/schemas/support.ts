@@ -63,6 +63,13 @@ export const AddClientSupportMessageInput = SupportRequestRefInput.extend({
   attachments: SupportAttachmentReferences.default([]),
 }).strict()
 
+export const RespondToSupportInformationInput = SupportRequestRefInput.extend({
+  operationId: z.string().uuid(),
+  expectedClientVersion: z.number().int().positive(),
+  body: z.string().trim().min(1).max(20_000),
+  attachments: SupportAttachmentReferences.default([]),
+}).strict()
+
 export const ManageSupportParticipantInput = SupportRequestRefInput.extend({
   operationId: z.string().uuid(),
   userId: z.string().trim().min(1).max(191),

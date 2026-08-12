@@ -165,6 +165,16 @@ workflow state. Triage requires the displayed request version, retains selection
 and records one audited revision. It does not message the client, change status, create a package,
 or apply content; communicate deliberately through the separate message composer.
 
+To request information, use the dedicated prompt action only while the request is `OPEN` or
+`IN_REVIEW`. Review the displayed version, write the client-visible prompt, and list the exact
+missing items; success moves the request to `WAITING_FOR_CLIENT`. An authorized requester or active
+participant can respond from that state, optionally with only their own eligible quarantined
+attachments; the response clears the checklist and returns the request to `IN_REVIEW`. Manual
+completion is separate: it is available only for an `OPEN` or `IN_REVIEW` request with no missing
+items and always records an explicit client-visible completion message. These actions record
+versions and audits only. They do not create or apply a package, run an agent, or call a provider.
+After an ambiguous result, retry the unchanged operation identity; after a conflict, refresh.
+
 The portal task checklist is bounded and uses the same requester/participant ACL. It shows at most
 five missing details for a request plus a remaining count. Staff-answer review shows only safe
 sharing choices and retained/public text; confidence, discrepancies, readiness, timelines and
@@ -184,6 +194,13 @@ Use Guest design only from the exact venue's Internal Workspace. It records the 
 administrator and requires the displayed revision. You may keep an already reviewed logo/banner or
 clear it, but cannot enter or upload a new reference. The style card is illustrative, not a literal
 guest transcript; clients retain only their simple tone control.
+
+Weekly Reports appears in client navigation only when at least one venue in the authorized workspace
+has reports enabled. If availability cannot be checked, navigation remains hidden. The Reports page
+shows published summaries for enabled venues only; a disabled venue fails closed without reading
+its reports, and a missing or cross-scoped detail is not found. An invalid older-reports link resets
+to the newest page with a visible explanation. Do not interpret the route or navigation as evidence
+that scheduling, provider generation, delivery or notifications ran live.
 
 ## AI configuration and budgets
 

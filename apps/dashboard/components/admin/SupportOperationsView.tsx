@@ -10,6 +10,7 @@ import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
 import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
 import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
+import { SupportVersionBoundActions } from './SupportVersionBoundActions'
 
 type Cursor = Record<string, string | number> | null
 type RequestItem = {
@@ -112,9 +113,9 @@ export function SupportOperationsView({
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-pf-deep">Client request workspace</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Review request history and add a bounded client-visible message or internal note. Status
-          Package lifecycle controls are intentionally unavailable here; operators may record
-          lineage to an existing draft.
+          Review request history and add a bounded client-visible message or internal note. Package
+          lifecycle controls are intentionally unavailable here; operators may record lineage to an
+          existing draft.
         </p>
       </header>
       {requests.items.length === 0 ? (
@@ -172,46 +173,55 @@ export function SupportOperationsView({
                   This request is closed. New messages, notes, and files cannot be added.
                 </section>
               ) : (
-                <SupportMessageComposer
-                  key={`${selected.id}:composer`}
+                <SupportVersionBoundActions
+                  key={`${tenantId}:${venueId}:${selected.id}:${selected.version}:version-actions`}
                   tenantId={tenantId}
                   venueId={venueId}
                   requestId={selected.id}
                   expectedVersion={selected.version}
-                  initialEligibleAttachments={eligibleAttachments}
-                  initialEligibleAttachmentsNextCursor={eligibleAttachmentsNextCursor}
-                />
+                  currentStatus={selected.status}
+                  missingInformation={selected.missingInformation}
+                >
+                  <SupportMessageComposer
+                    key={`${selected.id}:composer`}
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    expectedVersion={selected.version}
+                    initialEligibleAttachments={eligibleAttachments}
+                    initialEligibleAttachmentsNextCursor={eligibleAttachmentsNextCursor}
+                  />
+                  <SupportTriageForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    expectedVersion={selected.version}
+                    initialCategory={selected.category}
+                    initialMissingInformation={selected.missingInformation}
+                    closed={false}
+                  />
+                  <SupportStatusTransitionForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    currentStatus={selected.status}
+                    expectedVersion={selected.version}
+                  />
+                  <SupportPackageHandoffForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    requestId={selected.id}
+                    expectedVersion={selected.version}
+                    packages={draftPackages}
+                    closed={false}
+                  />
+                  <ReviewedVenuePackageDraftForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    support={{ requestId: selected.id, expectedVersion: selected.version }}
+                  />
+                </SupportVersionBoundActions>
               )}
-              <SupportTriageForm
-                key={`${selected.id}:${selected.version}:triage`}
-                tenantId={tenantId}
-                venueId={venueId}
-                requestId={selected.id}
-                expectedVersion={selected.version}
-                initialCategory={selected.category}
-                initialMissingInformation={selected.missingInformation}
-                closed={selected.status === 'COMPLETED' || selected.status === 'CANCELLED'}
-              />
-              <SupportStatusTransitionForm
-                tenantId={tenantId}
-                venueId={venueId}
-                requestId={selected.id}
-                currentStatus={selected.status}
-                expectedVersion={selected.version}
-              />
-              <SupportPackageHandoffForm
-                tenantId={tenantId}
-                venueId={venueId}
-                requestId={selected.id}
-                expectedVersion={selected.version}
-                packages={draftPackages}
-                closed={selected.status === 'COMPLETED' || selected.status === 'CANCELLED'}
-              />
-              <ReviewedVenuePackageDraftForm
-                tenantId={tenantId}
-                venueId={venueId}
-                support={{ requestId: selected.id, expectedVersion: selected.version }}
-              />
               <section className="space-y-3" aria-labelledby="support-handoffs-heading">
                 <h3 id="support-handoffs-heading" className="text-xl font-semibold text-pf-deep">
                   Package lineage

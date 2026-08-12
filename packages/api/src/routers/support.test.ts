@@ -83,6 +83,34 @@ describe('client support router', () => {
     expect(supportRouter._def.procedures).not.toHaveProperty('transitionSupportRequestStatus')
   })
 
+  it('responds to requested information through the exact client ACL and DTO', async () => {
+    requestFindFirst.mockResolvedValue({
+      ...requestRow,
+      status: 'WAITING_FOR_CLIENT',
+      missingInformation: ['Effective date'],
+    })
+    messageCreate.mockResolvedValue({
+      ...messageRow,
+      body: 'It takes effect tomorrow.',
+      clientVersion: 2,
+    })
+    const result = await testRouter.createCaller(tenantCtx).support.respondToInformation({
+      operationId,
+      venueId,
+      requestId,
+      expectedClientVersion: 1,
+      body: 'It takes effect tomorrow.',
+      attachments: [],
+    })
+    expect(result).toMatchObject({
+      status: 'IN_REVIEW',
+      missingInformation: [],
+      requestVersion: 2,
+      clientVersion: 2,
+      replayed: false,
+    })
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     venueFindFirst.mockResolvedValue({ id: venueId })

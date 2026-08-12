@@ -38,7 +38,9 @@ export function SupportStatusTransitionForm({
 }) {
   const client = useTRPCClient()
   const router = useRouter()
-  const allowed = supportRequestTransitionsFrom(currentStatus)
+  const allowed = supportRequestTransitionsFrom(currentStatus).filter(
+    (status) => status !== 'WAITING_FOR_CLIENT' && status !== 'COMPLETED',
+  )
   const [toStatus, setToStatus] = useState<SupportRequestStatus | ''>(allowed[0] ?? '')
   const [confirmed, setConfirmed] = useState(false)
   const [pending, setPending] = useState(false)

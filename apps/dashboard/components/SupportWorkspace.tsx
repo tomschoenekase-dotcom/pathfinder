@@ -95,21 +95,18 @@ function dateLabel(value: Date | string) {
 }
 
 function errorText(error: unknown) {
-  return error instanceof Error && error.message
-    ? error.message
-    : 'Something went wrong. Your draft is still here.'
+  if (isConflict(error)) return 'This conversation changed. Refresh it before trying again.'
+  return 'We could not load that support information. Please try again.'
 }
 
-function writeErrorText(error: unknown) {
-  const message = error instanceof Error && error.message ? error.message : 'Something went wrong.'
-  return `${message} Your draft is still here.`
+function writeErrorText() {
+  return 'We could not confirm that your message was sent. Your draft is still here.'
 }
 
 function isConflict(error: unknown) {
   return (
     (error as { data?: { code?: unknown } } | null)?.data?.code === 'CONFLICT' ||
-    (error as { shape?: { data?: { code?: unknown } } } | null)?.shape?.data?.code === 'CONFLICT' ||
-    (error instanceof Error && /changed|conflict/i.test(error.message))
+    (error as { shape?: { data?: { code?: unknown } } } | null)?.shape?.data?.code === 'CONFLICT'
   )
 }
 
@@ -546,9 +543,9 @@ export function SupportWorkspace({
       createOperationId.current = crypto.randomUUID()
       setView('conversation')
       setNotice('Your message and selected files were submitted for review. Nothing was published.')
-    } catch (createError) {
+    } catch {
       if (scopeRef.current === submittedScope && writeGeneration.current === generation)
-        setError(writeErrorText(createError))
+        setError(writeErrorText())
     } finally {
       if (scopeRef.current === submittedScope && writeGeneration.current === generation) {
         writeInFlight.current = false
@@ -567,20 +564,39 @@ export function SupportWorkspace({
     const busyOwner = startBusy('reply')
     const submittedRequestId = detail.id
     try {
-      const result = await client.support.addMessage.mutate({
-        operationId: replyOperationId.current,
-        venueId: activeVenue.id,
-        requestId: submittedRequestId,
-        expectedClientVersion: detail.clientVersion,
-        body: replyBody,
-        attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
-      })
+      const respondingToInformation =
+        detail.status === 'WAITING_FOR_CLIENT' && detail.missingInformation.length > 0
+      const result: {
+        message: ClientMessage
+        clientVersion: number
+        status?: string
+        missingInformation?: string[]
+      } = await (respondingToInformation
+        ? client.support.respondToInformation.mutate({
+            operationId: replyOperationId.current,
+            venueId: activeVenue.id,
+            requestId: submittedRequestId,
+            expectedClientVersion: detail.clientVersion,
+            body: replyBody,
+            attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
+          })
+        : client.support.addMessage.mutate({
+            operationId: replyOperationId.current,
+            venueId: activeVenue.id,
+            requestId: submittedRequestId,
+            expectedClientVersion: detail.clientVersion,
+            body: replyBody,
+            attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
+          }))
       if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       setDetail((current) =>
         current?.id === submittedRequestId
           ? {
               ...current,
               clientVersion: result.clientVersion,
+              ...(result.status && result.missingInformation
+                ? { status: result.status, missingInformation: result.missingInformation }
+                : {}),
               messages: [...current.messages, result.message as ClientMessage],
             }
           : current,
@@ -588,7 +604,13 @@ export function SupportWorkspace({
       setRequests((current) =>
         current.map((request) =>
           request.id === submittedRequestId
-            ? { ...request, clientVersion: result.clientVersion }
+            ? {
+                ...request,
+                clientVersion: result.clientVersion,
+                ...(result.status && result.missingInformation
+                  ? { status: result.status, missingInformation: result.missingInformation }
+                  : {}),
+              }
             : request,
         ),
       )
@@ -606,7 +628,7 @@ export function SupportWorkspace({
       setError(
         isConflict(replyError)
           ? 'Your reply was not sent because this conversation changed. Refresh it and try again; your draft is still here.'
-          : writeErrorText(replyError),
+          : writeErrorText(),
       )
     } finally {
       if (scopeRef.current === submittedScope && writeGeneration.current === generation) {

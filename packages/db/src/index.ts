@@ -193,8 +193,11 @@ export {
 export { isAiAdmissionControlError } from './helpers/ai-admission-control'
 export {
   appendSupportMessageAction,
+  completeSupportRequestAction,
   createPreviewFeedbackRequestAction,
   createSupportRequestAction,
+  requestSupportInformationAction,
+  respondToSupportInformationAction,
   SupportActionError,
 } from './helpers/support-actions'
 export type {

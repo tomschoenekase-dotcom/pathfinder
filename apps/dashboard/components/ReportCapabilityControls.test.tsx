@@ -6,6 +6,7 @@ import React from 'react'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const mocks = vi.hoisted(() => ({
+  pathname: '/',
   refresh: vi.fn(),
   push: vi.fn(),
   updateConfiguration: vi.fn(),
@@ -19,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/',
+  usePathname: () => mocks.pathname,
   useRouter: () => ({ refresh: mocks.refresh, push: mocks.push }),
 }))
 
@@ -74,6 +75,7 @@ const requestAttempt = {
 describe('weekly report capability controls', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.pathname = '/'
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.getAttempt.mockResolvedValue(requestAttempt)
   })
@@ -92,6 +94,21 @@ describe('weekly report capability controls', () => {
     expect(screen.queryByText('Weekly Reports')).toBeNull()
     expect(screen.queryByText('Analytics')).toBeNull()
     expect(screen.getByText('Visitor updates')).toBeTruthy()
+  })
+
+  it('shows reports only when enabled and marks report descendants active in responsive navigation', () => {
+    mocks.pathname = '/weekly-reports/report-1'
+    render(
+      <DashboardShell weeklyReportsAvailable>
+        <div>content</div>
+      </DashboardShell>,
+    )
+
+    const reportLinks = screen.getAllByRole('link', { name: 'Weekly Reports' })
+    expect(reportLinks).toHaveLength(1)
+    expect(reportLinks.every((link) => link.getAttribute('href') === '/weekly-reports')).toBe(true)
+    expect(reportLinks.every((link) => link.getAttribute('aria-current') === 'page')).toBe(true)
+    expect(screen.queryByText('Analytics')).toBeNull()
   })
 
   it('sends an exact configuration revision and refreshes after enabling', async () => {

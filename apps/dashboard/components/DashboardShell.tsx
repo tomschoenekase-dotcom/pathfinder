@@ -7,6 +7,7 @@ import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   Headphones,
   Home,
+  NotebookText,
   LogOut,
   Menu,
   Megaphone,
@@ -18,11 +19,16 @@ import {
 
 import { PathFinderBrand } from '@pathfinder/ui'
 
-type DashboardShellProps = { children: ReactNode; impersonatedTenantName?: string }
+type DashboardShellProps = {
+  children: ReactNode
+  impersonatedTenantName?: string
+  weeklyReportsAvailable?: boolean
+}
 
 const navigationItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/operational-updates', label: 'Visitor updates', icon: Megaphone },
+  { href: '/weekly-reports', label: 'Weekly Reports', icon: NotebookText, reportsOnly: true },
   { href: '/ai-controls', label: 'Tone', icon: Sparkles },
   { href: '/support', label: 'Support', icon: Headphones },
   { href: '/settings', label: 'Account', icon: Settings },
@@ -32,7 +38,11 @@ function isActivePath(pathname: string, href: string) {
   return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`)
 }
 
-export function DashboardShell({ children, impersonatedTenantName }: DashboardShellProps) {
+export function DashboardShell({
+  children,
+  impersonatedTenantName,
+  weeklyReportsAvailable = false,
+}: DashboardShellProps) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
@@ -92,26 +102,28 @@ export function DashboardShell({ children, impersonatedTenantName }: DashboardSh
   const navigation = (
     <>
       <nav className="mt-7 flex-1 space-y-1" aria-label="Client portal navigation">
-        {navigationItems.map((item) => {
-          const Icon = item.icon
-          const active = isActivePath(pathname, item.href)
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? 'page' : undefined}
-              className={[
-                'flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent',
-                active
-                  ? 'bg-white/12 text-white'
-                  : 'text-pf-light/90 hover:bg-white/7 hover:text-white',
-              ].join(' ')}
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              <span>{item.label}</span>
-            </Link>
-          )
-        })}
+        {navigationItems
+          .filter((item) => !('reportsOnly' in item) || weeklyReportsAvailable)
+          .map((item) => {
+            const Icon = item.icon
+            const active = isActivePath(pathname, item.href)
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={[
+                  'flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent',
+                  active
+                    ? 'bg-white/12 text-white'
+                    : 'text-pf-light/90 hover:bg-white/7 hover:text-white',
+                ].join(' ')}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                <span>{item.label}</span>
+              </Link>
+            )
+          })}
         {isPlatformAdmin ? (
           <Link
             href="/admin"

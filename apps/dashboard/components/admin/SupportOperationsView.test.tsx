@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import axe from 'axe-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   link: vi.fn(),
   transition: vi.fn(),
   triage: vi.fn(),
+  requestInformation: vi.fn(),
+  completeRequest: vi.fn(),
   query: vi.fn(),
   listEligibleAttachments: vi.fn(),
   refresh: vi.fn(),
@@ -21,6 +24,8 @@ vi.mock('../../lib/trpc', () => ({
       linkSupportDraftPackage: { mutate: mocks.link },
       transitionSupportRequestStatus: { mutate: mocks.transition },
       triageSupportRequest: { mutate: mocks.triage },
+      requestSupportInformation: { mutate: mocks.requestInformation },
+      completeSupportRequest: { mutate: mocks.completeRequest },
     },
   }),
 }))
@@ -34,10 +39,12 @@ vi.mock('next/link', () => ({
 }))
 
 import { SupportMessageComposer } from './SupportMessageComposer'
+import { SupportManualLoopActions } from './SupportManualLoopActions'
 import { SupportOperationsView } from './SupportOperationsView'
 import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
 import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
+import { SupportVersionBoundActions } from './SupportVersionBoundActions'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 describe('support operations UI', () => {
@@ -419,6 +426,8 @@ describe('support operations UI', () => {
     )
     const submit = screen.getByRole('button', { name: 'Record status change' }) as HTMLButtonElement
     expect(submit.disabled).toBe(true)
+    expect(screen.queryByRole('option', { name: 'Waiting for client' })).toBeNull()
+    expect(screen.queryByRole('option', { name: 'Completed' })).toBeNull()
     fireEvent.click(screen.getByLabelText(/I confirm/))
     fireEvent.click(submit)
     await waitFor(() =>
@@ -427,10 +436,213 @@ describe('support operations UI', () => {
         venueId: 'venue_1',
         requestId: 'req_1',
         expectedVersion: 3,
-        toStatus: 'WAITING_FOR_CLIENT',
+        toStatus: 'PATCH_DRAFTED',
       }),
     )
     expect(screen.getByText(/No package action was run/)).toBeTruthy()
+  })
+
+  it('atomically requests exact client information with CAS, replay identity, and same-tick fencing', async () => {
+    let resolve!: (value: unknown) => void
+    mocks.requestInformation.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done
+      }),
+    )
+    render(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        currentStatus="OPEN"
+        missingInformation={[]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Message to client'), {
+      target: { value: 'Please send these details.' },
+    })
+    fireEvent.change(screen.getByLabelText('Details needed'), {
+      target: { value: ' Effective date \nCurrent admission price' },
+    })
+    const submit = screen.getByRole('button', { name: 'Send questions' })
+    fireEvent.click(submit)
+    fireEvent.submit(submit.closest('form')!)
+
+    expect(mocks.requestInformation).toHaveBeenCalledOnce()
+    expect(mocks.requestInformation).toHaveBeenCalledWith({
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'req_1',
+      expectedVersion: 4,
+      body: 'Please send these details.',
+      missingInformation: ['Effective date', 'Current admission price'],
+    })
+    const sent = mocks.requestInformation.mock.calls[0]![0]
+    expect(sent).not.toHaveProperty('attachments')
+    expect(sent).not.toHaveProperty('packageId')
+    expect(screen.queryByText(/now waiting for the client/i)).toBeNull()
+
+    await act(async () => resolve({ status: 'WAITING_FOR_CLIENT', replayed: false }))
+    expect(await screen.findByText(/now waiting for the client/i)).toBeTruthy()
+    expect(screen.getByText(/No package work was run/i)).toBeTruthy()
+  })
+
+  it('requires confirmation for manual completion and does not claim execution', async () => {
+    mocks.completeRequest.mockResolvedValueOnce({ status: 'COMPLETED', replayed: false })
+    const { container } = render(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={6}
+        currentStatus="IN_REVIEW"
+        missingInformation={[]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Completion message to client'), {
+      target: { value: 'We have answered your question.' },
+    })
+    const submit = screen.getByRole('button', {
+      name: 'Complete support request',
+    }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText(/I confirm this conversation is complete/))
+    fireEvent.click(submit)
+
+    await waitFor(() =>
+      expect(mocks.completeRequest).toHaveBeenCalledWith({
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'req_1',
+        expectedVersion: 6,
+        body: 'We have answered your question.',
+      }),
+    )
+    expect(screen.getByRole('status').textContent).toMatch(
+      /No package was approved, applied, or published/i,
+    )
+    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    expect(result.violations).toEqual([])
+  })
+
+  it('drops late manual-action outcomes after a render-synchronous scope change', async () => {
+    let resolve!: (value: unknown) => void
+    mocks.requestInformation.mockReturnValueOnce(new Promise((done) => (resolve = done)))
+    const rendered = render(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={2}
+        currentStatus="OPEN"
+        missingInformation={[]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Message to client'), {
+      target: { value: 'Old scope body' },
+    })
+    fireEvent.change(screen.getByLabelText('Details needed'), {
+      target: { value: 'Old scope detail' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send questions' }))
+
+    rendered.rerender(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_2"
+        requestId="req_2"
+        expectedVersion={1}
+        currentStatus="OPEN"
+        missingInformation={[]}
+      />,
+    )
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Message to client').value).toBe('')
+    await act(async () => resolve({ status: 'WAITING_FOR_CLIENT', replayed: false }))
+    expect(screen.queryByText(/now waiting for the client/i)).toBeNull()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it('renders the exact manual-action eligibility matrix and truthful reasons', () => {
+    const rendered = render(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={2}
+        currentStatus="WAITING_FOR_CLIENT"
+        missingInformation={['Effective date']}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Send questions' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Complete support request' })).toBeNull()
+    expect(
+      screen.getAllByText(/only while this conversation is received or in review/i),
+    ).toHaveLength(2)
+
+    rendered.rerender(
+      <SupportManualLoopActions
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={3}
+        currentStatus="IN_REVIEW"
+        missingInformation={['Effective date']}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Send questions' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Complete support request' })).toBeNull()
+    expect(screen.getByText(/Resolve the recorded information checklist/i)).toBeTruthy()
+  })
+
+  it('locks every sibling action synchronously after confirmation until a new version renders', async () => {
+    let resolve!: (value: unknown) => void
+    mocks.completeRequest.mockReturnValueOnce(new Promise((done) => (resolve = done)))
+    const sibling = vi.fn()
+    const rendered = render(
+      <SupportVersionBoundActions
+        key="req_1:4"
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        currentStatus="OPEN"
+        missingInformation={[]}
+      >
+        <button type="button" onClick={sibling}>
+          Sibling version-bound action
+        </button>
+      </SupportVersionBoundActions>,
+    )
+    fireEvent.change(screen.getByLabelText('Completion message to client'), {
+      target: { value: 'This is resolved.' },
+    })
+    fireEvent.click(screen.getByLabelText(/I confirm this conversation is complete/))
+    fireEvent.click(screen.getByRole('button', { name: 'Complete support request' }))
+    await act(async () => resolve({ status: 'COMPLETED', replayed: false }))
+
+    expect(screen.queryByRole('button', { name: 'Sibling version-bound action' })).toBeNull()
+    expect(sibling).not.toHaveBeenCalled()
+    expect(screen.getByText(/latest version loads/i)).toBeTruthy()
+
+    rendered.rerender(
+      <SupportVersionBoundActions
+        key="req_1:5"
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={5}
+        currentStatus="IN_REVIEW"
+        missingInformation={[]}
+      >
+        <button type="button" onClick={sibling}>
+          Sibling version-bound action
+        </button>
+      </SupportVersionBoundActions>,
+    )
+    expect(screen.getByRole('button', { name: 'Sibling version-bound action' })).toBeTruthy()
   })
 
   it('offers no transition control for terminal client-visible status', () => {

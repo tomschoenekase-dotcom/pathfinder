@@ -127,6 +127,51 @@ const createPreviewFeedbackRequestActionInput = z
   })
   .strict()
 
+const operatorConversationInput = z
+  .object({
+    operationId: z.string().uuid(),
+    tenantId: scopedId,
+    venueId: scopedId,
+    requestId: scopedId,
+    expectedVersion: z.number().int().positive(),
+    body: z.string().trim().min(1).max(20_000),
+    actor: z
+      .object({
+        actorType: z.literal('HUMAN'),
+        participantKind: z.literal('OPERATOR'),
+        actorId: scopedId,
+        auditRole: z.literal('PLATFORM_ADMIN'),
+      })
+      .strict(),
+  })
+  .strict()
+const requestInformationInput = operatorConversationInput.extend({
+  missingInformation: z
+    .array(z.string().trim().min(1).max(500))
+    .min(1)
+    .max(30)
+    .refine((items) => new Set(items).size === items.length, 'Items must be unique'),
+})
+const respondInformationInput = z
+  .object({
+    operationId: z.string().uuid(),
+    tenantId: scopedId,
+    venueId: scopedId,
+    requestId: scopedId,
+    expectedClientVersion: z.number().int().positive(),
+    body: z.string().trim().min(1).max(20_000),
+    attachments: SupportAttachmentReferences,
+    actor: z
+      .object({
+        actorType: z.literal('HUMAN'),
+        participantKind: z.literal('CLIENT'),
+        actorId: scopedId,
+        auditRole: z.enum(['STAFF', 'MANAGER', 'OWNER']),
+      })
+      .strict(),
+  })
+  .strict()
+
 export class SupportActionError extends Error {
   constructor(
     readonly code: 'INVALID_INPUT' | 'NOT_FOUND' | 'CONFLICT' | 'FORBIDDEN',
@@ -242,6 +287,7 @@ const replayMessageSelect = {
   ...messageSelect,
   submissionRequestId: true,
   submissionInputHash: true,
+  requestVersion: true,
   attachments: {
     select: {
       id: true,
@@ -1005,4 +1051,291 @@ export async function appendSupportMessageAction(
       throw replayError
     }
   }
+}
+
+type ManualLoopKind = 'REQUEST_INFORMATION' | 'RESPOND_INFORMATION' | 'COMPLETE_REQUEST'
+type ManualLoopParsed = {
+  operationId: string
+  tenantId: string
+  venueId: string
+  requestId: string
+  expectedVersion?: number
+  expectedClientVersion?: number
+  body: string
+  missingInformation?: string[]
+  attachments?: SupportAttachmentDraft[]
+  actor: Extract<SupportActionActor, { actorType: 'HUMAN' }>
+}
+
+async function manualSupportLoopActionOnce(
+  kind: ManualLoopKind,
+  input: unknown,
+  client: SupportActionClient,
+) {
+  const parsed = (
+    kind === 'REQUEST_INFORMATION'
+      ? parseActionInput(requestInformationInput, input)
+      : kind === 'RESPOND_INFORMATION'
+        ? parseActionInput(respondInformationInput, input)
+        : parseActionInput(operatorConversationInput, input)
+  ) as ManualLoopParsed
+  const isClient = kind === 'RESPOND_INFORMATION'
+  const attachments: SupportAttachmentDraft[] = isClient ? (parsed.attachments ?? []) : []
+  const requestedItems = kind === 'REQUEST_INFORMATION' ? (parsed.missingInformation ?? []) : []
+  const expectedVersion = 'expectedVersion' in parsed ? parsed.expectedVersion : undefined
+  const expectedClientVersion =
+    'expectedClientVersion' in parsed ? parsed.expectedClientVersion : undefined
+  const targetStatus =
+    kind === 'REQUEST_INFORMATION'
+      ? 'WAITING_FOR_CLIENT'
+      : kind === 'RESPOND_INFORMATION'
+        ? 'IN_REVIEW'
+        : 'COMPLETED'
+  const operationHash = supportSubmissionHash({
+    kind,
+    actorKind: parsed.actor.participantKind,
+    actorId: parsed.actor.actorId,
+    tenantId: parsed.tenantId,
+    venueId: parsed.venueId,
+    requestId: parsed.requestId,
+    expectedVersion: expectedVersion ?? expectedClientVersion,
+    body: parsed.body,
+    missingInformation: requestedItems,
+    intakeUploadIds: attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
+  })
+
+  return client.$transaction(async (tx) => {
+    await lockSupportOperation(tx, parsed.tenantId, parsed.operationId)
+    await lockSupportRequest(tx, parsed.tenantId, parsed.requestId)
+    const request = await tx.supportRequest.findFirst({
+      where: { id: parsed.requestId, tenantId: parsed.tenantId, venueId: parsed.venueId },
+      select: {
+        id: true,
+        status: true,
+        missingInformation: true,
+        version: true,
+        clientVersion: true,
+        createdByKind: true,
+        requesterUserId: true,
+        requesterMembership: { select: { status: true } },
+        participants: {
+          where: { userId: parsed.actor.actorId },
+          select: {
+            userId: true,
+            revokedAt: true,
+            membership: { select: { status: true } },
+          },
+        },
+      },
+    })
+    if (!request) throw new SupportActionError('NOT_FOUND', 'Support request not found')
+    if (
+      isClient &&
+      !canTenantActorAccessSupportRequest(
+        {
+          actorId: parsed.actor.actorId,
+          role: parsed.actor.auditRole as 'STAFF' | 'MANAGER' | 'OWNER',
+        },
+        request,
+      )
+    )
+      throw new SupportActionError('NOT_FOUND', 'Support request not found')
+
+    const replay = await tx.supportMessage.findFirst({
+      where: { tenantId: parsed.tenantId, submissionRequestId: parsed.operationId },
+      select: replayMessageSelect,
+    })
+    if (replay) {
+      if (
+        replay.venueId !== parsed.venueId ||
+        replay.supportRequestId !== parsed.requestId ||
+        replay.submissionInputHash !== operationHash ||
+        replay.authorKind !== parsed.actor.participantKind ||
+        replay.authorId !== parsed.actor.actorId ||
+        replay.visibility !== 'CLIENT_VISIBLE' ||
+        !sameAttachmentReferences(attachments, replay.attachments)
+      )
+        throw new SupportActionError('CONFLICT', 'Support operation ID was already used')
+      if (replay.requestVersion === null || replay.clientVersion === null)
+        throw new SupportActionError('CONFLICT', 'Support operation evidence is incomplete')
+      return {
+        message: safeReplayMessage(replay),
+        status: targetStatus,
+        missingInformation: requestedItems,
+        requestVersion: replay.requestVersion,
+        clientVersion: replay.clientVersion,
+        replayed: true as const,
+      }
+    }
+
+    if (kind === 'REQUEST_INFORMATION') {
+      if (request.status !== 'OPEN' && request.status !== 'IN_REVIEW')
+        throw new SupportActionError('CONFLICT', 'Request is not ready for an information prompt')
+      if (request.version !== expectedVersion)
+        throw new SupportActionError('CONFLICT', 'Support request changed; refresh it')
+    } else if (kind === 'RESPOND_INFORMATION') {
+      if (request.status !== 'WAITING_FOR_CLIENT')
+        throw new SupportActionError('CONFLICT', 'Request is not waiting for client information')
+      if (request.missingInformation.length === 0)
+        throw new SupportActionError('CONFLICT', 'No requested information remains to answer')
+      if (request.clientVersion !== expectedClientVersion)
+        throw new SupportActionError('CONFLICT', 'Support request changed; refresh it')
+    } else {
+      if (request.status !== 'OPEN' && request.status !== 'IN_REVIEW')
+        throw new SupportActionError('CONFLICT', 'Request is not ready for manual completion')
+      if (request.missingInformation.length > 0)
+        throw new SupportActionError('CONFLICT', 'Requested information must be resolved first')
+      if (request.version !== expectedVersion)
+        throw new SupportActionError('CONFLICT', 'Support request changed; refresh it')
+    }
+
+    const resolvedAttachments = await resolveAttachments(tx, parsed, attachments)
+    const now = new Date()
+    const nextVersion = request.version + 1
+    const nextClientVersion = request.clientVersion + 1
+    const changed = await tx.supportRequest.updateMany({
+      where: {
+        id: request.id,
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+        version: request.version,
+        status: request.status,
+        ...(isClient ? { clientVersion: expectedClientVersion! } : {}),
+      },
+      data: {
+        status: targetStatus,
+        missingInformation: requestedItems,
+        statusChangedAt: now,
+        version: nextVersion,
+        clientVersion: nextClientVersion,
+        clientActivityAt: now,
+        updatedByKind: parsed.actor.participantKind,
+        updatedById: parsed.actor.actorId,
+      },
+    })
+    if (changed.count !== 1)
+      throw new SupportActionError('CONFLICT', 'Support request changed; refresh it')
+    const message = await tx.supportMessage.create({
+      data: {
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+        supportRequestId: request.id,
+        authorKind: parsed.actor.participantKind,
+        authorId: parsed.actor.actorId,
+        visibility: 'CLIENT_VISIBLE',
+        body: parsed.body,
+        submissionRequestId: parsed.operationId,
+        submissionInputHash: operationHash,
+        clientVersion: nextClientVersion,
+        requestVersion: nextVersion,
+        createdAt: now,
+        attachments: {
+          create: attachmentCreates(resolvedAttachments, {
+            tenantId: parsed.tenantId,
+            venueId: parsed.venueId,
+            requestId: request.id,
+          }),
+        },
+      },
+      select: messageSelect,
+    })
+    const evidence =
+      kind === 'REQUEST_INFORMATION'
+        ? {
+            eventType: 'INFORMATION_REQUESTED',
+            action: 'support-request.information-requested',
+          }
+        : kind === 'RESPOND_INFORMATION'
+          ? {
+              eventType: 'REQUESTED_INFORMATION_RESPONDED',
+              action: 'support-request.information-responded',
+            }
+          : { eventType: 'MANUALLY_COMPLETED', action: 'support-request.manually-completed' }
+    await tx.supportRequestAuditEvent.create({
+      data: {
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+        supportRequestId: request.id,
+        requestVersion: nextVersion,
+        eventType: evidence.eventType,
+        actorKind: parsed.actor.participantKind,
+        actorId: parsed.actor.actorId,
+        fromStatus: request.status,
+        toStatus: targetStatus,
+      },
+      select: { id: true },
+    })
+    await writeAuditLogStrict(
+      {
+        tenantId: parsed.tenantId,
+        actorId: parsed.actor.actorId,
+        actorRole: parsed.actor.auditRole,
+        action: evidence.action,
+        targetType: 'SupportRequest',
+        targetId: request.id,
+        beforeState: {
+          status: request.status,
+          version: request.version,
+          missingInformationCount: request.missingInformation.length,
+        },
+        afterState: {
+          status: targetStatus,
+          version: nextVersion,
+          missingInformationCount: requestedItems.length,
+          attachmentCount: resolvedAttachments.length,
+          packageLifecycleChanged: false,
+          executionTriggered: false,
+        },
+      },
+      tx,
+    )
+    return {
+      message,
+      status: targetStatus,
+      missingInformation: requestedItems,
+      requestVersion: nextVersion,
+      clientVersion: nextClientVersion,
+      replayed: false as const,
+    }
+  })
+}
+
+async function replaySafeManualSupportLoop(
+  kind: ManualLoopKind,
+  input: unknown,
+  client: SupportActionClient,
+) {
+  try {
+    return await manualSupportLoopActionOnce(kind, input, client)
+  } catch (error) {
+    if (!isUniqueConflict(error)) throw error
+    try {
+      return await manualSupportLoopActionOnce(kind, input, client)
+    } catch (replayError) {
+      if (isUniqueConflict(replayError))
+        throw new SupportActionError('CONFLICT', 'Support operation could not be reconciled')
+      throw replayError
+    }
+  }
+}
+
+export function requestSupportInformationAction(
+  input: z.input<typeof requestInformationInput>,
+  client: SupportActionClient = db,
+) {
+  return replaySafeManualSupportLoop('REQUEST_INFORMATION', input, client)
+}
+
+export function respondToSupportInformationAction(
+  input: z.input<typeof respondInformationInput>,
+  client: SupportActionClient = db,
+) {
+  return replaySafeManualSupportLoop('RESPOND_INFORMATION', input, client)
+}
+
+export function completeSupportRequestAction(
+  input: z.input<typeof operatorConversationInput>,
+  client: SupportActionClient = db,
+) {
+  return replaySafeManualSupportLoop('COMPLETE_REQUEST', input, client)
 }

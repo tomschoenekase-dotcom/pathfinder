@@ -423,6 +423,24 @@ vi.mock('@pathfinder/db', async () => {
           }),
         ),
     ),
+    respondToSupportInformationAction: vi.fn(
+      (
+        input: { requestId: string; tenantId: string; venueId: string },
+        client: {
+          $transaction: (
+            callback: (tx: {
+              supportRequest: { findFirst: (args: unknown) => unknown }
+            }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.supportRequest.findFirst({
+            where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
+            select: { id: true, status: true, version: true },
+          }),
+        ),
+    ),
     assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
     createSupportRequestAction: vi.fn(
       (

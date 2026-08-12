@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getRequest: vi.fn(),
   createRequest: vi.fn(),
   addMessage: vi.fn(),
+  respondToInformation: vi.fn(),
   listEligibleAttachments: vi.fn(),
 }))
 
@@ -23,6 +24,7 @@ vi.mock('../lib/trpc', () => ({
       getRequest: { query: mocks.getRequest },
       createRequest: { mutate: mocks.createRequest },
       addMessage: { mutate: mocks.addMessage },
+      respondToInformation: { mutate: mocks.respondToInformation },
       listEligibleAttachments: { query: mocks.listEligibleAttachments },
     },
   }),
@@ -216,12 +218,12 @@ describe('SupportWorkspace', () => {
       body: 'Please show our summer schedule.',
       attachments: [],
     })
-    expect(screen.queryByText(/message was sent/i)).toBeNull()
+    expect(screen.queryByText(/submitted for review/i)).toBeNull()
 
     await act(async () => pending.reject(new Error('Connection lost.')))
 
     expect((await screen.findByRole('alert')).textContent).toContain('draft is still here')
-    expect(screen.queryByText(/message was sent/i)).toBeNull()
+    expect(screen.queryByText(/submitted for review/i)).toBeNull()
     expect(screen.getByLabelText<HTMLInputElement>('Subject').value).toBe('New visitor hours')
     expect(screen.getByLabelText<HTMLTextAreaElement>('Message').value).toBe(
       'Please show our summer schedule.',
@@ -229,7 +231,7 @@ describe('SupportWorkspace', () => {
   })
 
   it('sends replies with the displayed version and handles CAS conflicts without losing or falsely sending the draft', async () => {
-    mocks.addMessage.mockRejectedValueOnce(new Error('Support request changed; refresh it'))
+    mocks.addMessage.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
     renderWorkspace()
 
     fireEvent.change(screen.getByLabelText('Reply'), {
@@ -291,6 +293,74 @@ describe('SupportWorkspace', () => {
       ),
     ).toBeTruthy()
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('')
+  })
+
+  it('answers a missing-information request through the dedicated action and resolves its checklist', async () => {
+    const requested = {
+      ...detail,
+      status: 'WAITING_FOR_CLIENT',
+      missingInformation: ['Effective date'],
+    }
+    const pending = deferred<{
+      message: typeof clientMessage
+      status: string
+      missingInformation: string[]
+      requestVersion: number
+      clientVersion: number
+      replayed: boolean
+    }>()
+    mocks.respondToInformation.mockReturnValueOnce(pending.promise)
+    const response = {
+      message: { ...clientMessage, id: 'response-1', body: 'Effective September 1.' },
+      status: 'IN_REVIEW',
+      missingInformation: [],
+      requestVersion: 8,
+      clientVersion: 5,
+      replayed: false,
+    }
+    renderWorkspace({ initialRequests: [requested], initialDetail: requested })
+    fireEvent.change(screen.getByLabelText('Reply'), {
+      target: { value: 'Effective September 1.' },
+    })
+    const submit = screen.getByRole('button', { name: 'Send reply' })
+    fireEvent.click(submit)
+    fireEvent.submit(submit.closest('form')!)
+
+    await waitFor(() =>
+      expect(mocks.respondToInformation).toHaveBeenCalledWith({
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        venueId: venue.id,
+        requestId: request.id,
+        expectedClientVersion: 4,
+        body: 'Effective September 1.',
+        attachments: [],
+      }),
+    )
+    expect(mocks.respondToInformation).toHaveBeenCalledOnce()
+    expect(mocks.addMessage).not.toHaveBeenCalled()
+    await act(async () => pending.resolve(response))
+    expect(await screen.findByText('Effective September 1.')).toBeTruthy()
+    expect(screen.queryByText('Effective date')).toBeNull()
+    expect(screen.getByText('In review')).toBeTruthy()
+  })
+
+  it('never renders raw support failures and retains the exact retry identity', async () => {
+    const sentinel = 'signed-object-path=/private/claim-secret provider=warehouse'
+    mocks.addMessage
+      .mockRejectedValueOnce(new Error(sentinel))
+      .mockRejectedValueOnce(new Error(sentinel))
+    renderWorkspace()
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Keep this reply.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledOnce())
+    const operationId = mocks.addMessage.mock.calls[0]![0].operationId
+    expect(screen.getByRole('alert').textContent).toContain('could not confirm')
+    expect(document.body.textContent).not.toContain(sentinel)
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('Keep this reply.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
+    expect(mocks.addMessage.mock.calls[1]![0].operationId).toBe(operationId)
   })
 
   it('ignores a late create result after a render-synchronous venue scope change', async () => {

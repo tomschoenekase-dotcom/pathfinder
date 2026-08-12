@@ -109,7 +109,7 @@ describe('Packet 2 authenticated surface automated accessibility', () => {
     })
     pathname = '/'
     const { container } = render(
-      <DashboardShell>
+      <DashboardShell weeklyReportsAvailable>
         <DashboardOverview
           venue={{ id: 'east-museum', name: 'East Museum', lifecycle }}
           venues={[{ id: 'east-museum', name: 'East Museum' }]}
