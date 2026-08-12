@@ -139,6 +139,7 @@ model Tenant {
   intakeEvidence                IntakeEvidenceRecord[]
   intakeEvents                  IntakeRunEvent[]
   intakePackageHandoffs         IntakePackageHandoff[]
+  intakeUploads                 IntakeUpload[]
   externalCredentials           ExternalAccessCredential[]
   credentialRotations           ExternalCredentialRotation[]
   credentialRevocations         ExternalCredentialRevocation[]
@@ -354,6 +355,7 @@ model Venue {
   intakeEvidence                IntakeEvidenceRecord[]
   intakeEvents                  IntakeRunEvent[]
   intakePackageHandoffs         IntakePackageHandoff[]
+  intakeUploads                 IntakeUpload[]
   externalCredentials           ExternalAccessCredential[]
   credentialRotations           ExternalCredentialRotation[]
   credentialRevocations         ExternalCredentialRevocation[]
@@ -664,6 +666,7 @@ model IntakeRun {
   evidence                 IntakeEvidenceRecord[]
   events                   IntakeRunEvent[]
   packageHandoff           IntakePackageHandoff?
+  upload                   IntakeUpload?
 
   @@unique([id, tenantId, venueId], map: "intake_runs_scope_key")
   @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
@@ -732,6 +735,7 @@ enum IntakeSourceKind {
   WEBSITE
   INTERVIEW
   STRUCTURED_BOOTSTRAP
+  FILE_UPLOAD
 }
 
 enum IntakeRunStatus {
@@ -742,6 +746,52 @@ enum IntakeEventKind {
   PROPOSAL_CREATED
   EVIDENCE_RECORDED
   PACKAGE_DRAFT_LINKED
+}
+
+enum IntakeUploadStatus {
+  RESERVED
+  VERIFYING
+  AWAITING_REVIEW
+  REJECTED
+}
+
+/// Quarantined transport metadata only. Object bytes remain outside the database
+/// and cannot become an IntakeRun until their generation, MIME, size, and hash are verified.
+model IntakeUpload {
+  id                    String             @id @default(cuid())
+  tenantId              String             @map("tenant_id")
+  venueId               String             @map("venue_id")
+  requestId             String             @map("request_id") @db.Uuid
+  requestHash           String             @map("request_hash") @db.Char(64)
+  displayName           String             @map("display_name") @db.VarChar(255)
+  fileName              String             @map("file_name") @db.VarChar(255)
+  mimeType              String             @map("mime_type") @db.VarChar(64)
+  byteSize              Int                @map("byte_size")
+  sha256                String             @db.Char(64)
+  objectKey             String             @unique(map: "intake_uploads_object_key_key") @map("object_key") @db.VarChar(255)
+  objectGeneration      String             @map("object_generation") @db.Uuid
+  storageVersionId      String?            @map("storage_version_id") @db.VarChar(1024)
+  status                IntakeUploadStatus @default(RESERVED)
+  verificationClaimId   String?            @map("verification_claim_id") @db.Uuid
+  verificationClaimedAt DateTime?          @map("verification_claimed_at")
+  verificationLeaseUntil DateTime?         @map("verification_lease_until")
+  verifiedAt            DateTime?          @map("verified_at")
+  rejectedAt            DateTime?          @map("rejected_at")
+  rejectionCode         String?            @map("rejection_code") @db.VarChar(64)
+  intakeRunId           String?            @map("intake_run_id")
+  requestedBy           String             @map("requested_by") @db.VarChar(191)
+  requestedByRole       String             @map("requested_by_role") @db.VarChar(32)
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  intakeRun             IntakeRun?         @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, requestId], map: "intake_uploads_tenant_request_key")
+  @@unique([intakeRunId, tenantId, venueId], map: "intake_uploads_run_scope_key")
+  @@unique([id, tenantId, venueId], map: "intake_uploads_scope_key")
+  @@index([tenantId, venueId, createdAt], map: "intake_uploads_scope_created_idx")
+  @@map("intake_uploads")
 }
 
 /// Append-only, database-triggered history for venue, place, knowledge, and

@@ -24,6 +24,7 @@ import { adminOffboardingPlansRouter } from './offboarding-plans'
 import { adminOffboardingExportPreviewRouter } from './offboarding-export-preview'
 import { adminIncidentControlRouter } from './incident-control'
 import { adminIntakeOperationsRouter } from './intake-operations'
+import { adminIntakeUploadReviewRouter } from './intake-upload-review'
 import { adminLegacyContentRouter } from './legacy-content'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminSupportOperationsRouter } from './support-operations'
@@ -31,6 +32,7 @@ import { adminUniversalContentRouter } from './universal-content'
 import { adminWeeklyReportsRouter } from './weekly-reports'
 import { adminWeeklyReportLifecycleRouter } from './weekly-report-lifecycle'
 import { adminVenueAvailabilityRouter } from './venue-availability'
+import { adminVenuePackageOperationsRouter } from './venue-package-operations'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -43,6 +45,7 @@ export const adminRouter = mergeRouters(
   adminAgentRunCancellationRouter,
   adminIncidentControlRouter,
   adminIntakeOperationsRouter,
+  adminIntakeUploadReviewRouter,
   adminLegacyContentRouter,
   adminCostBudgetRouter,
   adminEvaluationOperationsRouter,
@@ -60,6 +63,7 @@ export const adminRouter = mergeRouters(
   adminAiWorkloadConfigurationRouter,
   adminReportConfigurationRouter,
   adminVenueAvailabilityRouter,
+  adminVenuePackageOperationsRouter,
   adminWeeklyReportsRouter,
   adminWeeklyReportLifecycleRouter,
   adminDigestRouter,

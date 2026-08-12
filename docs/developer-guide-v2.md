@@ -106,6 +106,15 @@ content must contain only material authorized for that audience; keep withheld i
 hash evidence. Package linkage is exact-scope, append-only, and existing-`DRAFT` only, and has no
 create, approve, apply, or publish side effect.
 
+For client files, use the quarantined intake-upload contracts and actions rather than Media Lab.
+Reserve the durable actor-bound request before storage signing; never accept an object key or
+generation from the browser. A verification claim must remain live and exact through HEAD and
+settlement, and the exact storage version belongs only in private durable evidence. Treat
+`AWAITING_REVIEW` as transport verification, not format or malware verification. Do not add GET
+signing, inline preview, extraction, AI dispatch, package creation, approval, apply, or publication
+without the corresponding owner-approved policy and action boundary. See
+`docs/quarantined-intake-uploads.md`.
+
 ## Guest structured blocks
 
 Extend guest responses through the strict browser-safe discriminated union. Preserve legacy text and

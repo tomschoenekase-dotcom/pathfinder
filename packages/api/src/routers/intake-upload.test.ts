@@ -1,0 +1,328 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  reserve: vi.fn(),
+  claim: vi.fn(),
+  release: vi.fn(),
+  reject: vi.fn(),
+  finalize: vi.fn(),
+  list: vi.fn(),
+  sign: vi.fn(),
+  inspect: vi.fn(),
+  remove: vi.fn(),
+}))
+
+vi.mock('@pathfinder/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/db')>()),
+  reserveIntakeUploadAction: mocks.reserve,
+  claimIntakeUploadVerificationAction: mocks.claim,
+  releaseIntakeUploadVerificationAction: mocks.release,
+  rejectIntakeUploadAction: mocks.reject,
+  finalizeVerifiedIntakeUploadAction: mocks.finalize,
+  listIntakeUploadsAction: mocks.list,
+}))
+
+vi.mock('../lib/intake-upload-storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/intake-upload-storage')>()),
+  signIntakeUploadPut: mocks.sign,
+  inspectIntakeUpload: mocks.inspect,
+  deleteInvalidIntakeUploadVersion: mocks.remove,
+  createIntakeUploadObjectKey: () =>
+    'staging/intake-quarantine/44444444-4444-4444-8444-444444444444',
+}))
+
+import type { TRPCContext } from '../context'
+import { router } from '../core'
+import { intakeUploadRouter } from './intake-upload'
+
+const checksum = 'ab'.repeat(32)
+const requestId = '11111111-1111-4111-8111-111111111111'
+const claimId = '22222222-2222-4222-8222-222222222222'
+const now = new Date('2026-08-11T12:00:00.000Z')
+const upload = {
+  id: 'upload-1',
+  status: 'RESERVED',
+  displayName: 'Visitor guide',
+  fileName: 'guide.pdf',
+  mimeType: 'application/pdf',
+  byteSize: 123,
+  rejectionCode: null,
+  intakeRunId: null,
+  createdAt: now,
+  updatedAt: now,
+}
+const uploadTarget = {
+  objectKey: 'intake-quarantine/opaque/opaque',
+  objectGeneration: '33333333-3333-4333-8333-333333333333',
+  mimeType: 'application/pdf',
+  byteSize: 123,
+  sha256: checksum,
+}
+
+function context(overrides: Partial<TRPCContext['session']> = {}): TRPCContext {
+  return {
+    db: {} as TRPCContext['db'],
+    headers: new Headers(),
+    session: {
+      userId: 'user-1',
+      activeTenantId: 'tenant-a',
+      role: 'MANAGER',
+      isPlatformAdmin: false,
+      ...overrides,
+    } as TRPCContext['session'],
+  }
+}
+
+const caller = router({ intakeUpload: intakeUploadRouter })
+const reserveInput = {
+  venueId: 'venue-a',
+  requestId,
+  displayName: 'Visitor guide',
+  fileName: 'guide.pdf',
+  mimeType: 'application/pdf' as const,
+  byteSize: 123,
+  sha256: checksum,
+}
+
+describe('client-safe quarantined intake upload', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.reserve.mockResolvedValue({
+      upload,
+      uploadTarget,
+      replayed: false,
+      nextAction: 'UPLOAD_BYTES',
+    })
+    mocks.claim.mockResolvedValue({
+      state: 'VERIFYING',
+      upload: { ...upload, status: 'VERIFYING' },
+      uploadTarget,
+      replayed: false,
+    })
+    mocks.release.mockResolvedValue({
+      upload: { ...upload, status: 'VERIFYING' },
+      uploadTarget,
+      retryable: true,
+    })
+    mocks.reject.mockResolvedValue({ upload: { ...upload, status: 'REJECTED' }, retryable: false })
+    mocks.finalize.mockResolvedValue({
+      upload: { ...upload, status: 'AWAITING_REVIEW', intakeRunId: 'run-1' },
+      nextAction: 'PATHFINDER_REVIEW',
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
+    mocks.list.mockResolvedValue({ items: [], nextCursor: null })
+    mocks.sign.mockResolvedValue({
+      url: 'https://signed.invalid/opaque',
+      expiresInSeconds: 900,
+      requiredHeaders: { 'if-none-match': '*' },
+    })
+    mocks.inspect.mockResolvedValue({ state: 'verified', versionId: 'version-1' })
+  })
+
+  it('authenticates before reservation or storage access', async () => {
+    await expect(
+      caller
+        .createCaller(context({ userId: null, activeTenantId: null, role: null }))
+        .intakeUpload.reserve(reserveInput),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(mocks.reserve).not.toHaveBeenCalled()
+    expect(mocks.sign).not.toHaveBeenCalled()
+  })
+
+  it('derives tenant and actor from the session, reserves before signing, and hides storage identity', async () => {
+    const order: string[] = []
+    mocks.reserve.mockImplementation(async () => {
+      order.push('reserve')
+      return { upload, uploadTarget, replayed: false, nextAction: 'UPLOAD_BYTES' }
+    })
+    mocks.sign.mockImplementation(async () => {
+      order.push('sign')
+      return { url: 'https://signed.invalid/opaque', expiresInSeconds: 900, requiredHeaders: {} }
+    })
+    const result = await caller.createCaller(context()).intakeUpload.reserve(reserveInput)
+    expect(order).toEqual(['reserve', 'sign'])
+    expect(mocks.reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        actor: { type: 'HUMAN', id: 'user-1', role: 'MANAGER' },
+        trustedObjectIdentity: {
+          objectKey: 'staging/intake-quarantine/44444444-4444-4444-8444-444444444444',
+          objectGeneration: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+        },
+      }),
+    )
+    expect(mocks.sign).toHaveBeenCalledWith({
+      key: uploadTarget.objectKey,
+      generation: uploadTarget.objectGeneration,
+      contentType: uploadTarget.mimeType,
+      bytes: uploadTarget.byteSize,
+      checksumSha256: uploadTarget.sha256,
+    })
+    expect(JSON.stringify(result)).not.toContain(uploadTarget.objectKey)
+    expect(JSON.stringify(result)).not.toContain(uploadTarget.objectGeneration)
+    expect(JSON.stringify(result)).not.toContain(checksum)
+  })
+
+  it('does not mint another URL after a reservation reaches review status', async () => {
+    mocks.reserve.mockResolvedValue({
+      upload: { ...upload, status: 'AWAITING_REVIEW' },
+      uploadTarget,
+      replayed: true,
+      nextAction: 'REVIEW_STATUS',
+    })
+    const result = await caller.createCaller(context()).intakeUpload.reserve(reserveInput)
+    expect(result.uploadRequest).toBeNull()
+    expect(mocks.sign).not.toHaveBeenCalled()
+  })
+
+  it('claims VERIFYING before HEAD and finalizes only through the neutral action', async () => {
+    const order: string[] = []
+    mocks.claim.mockImplementation(async () => {
+      order.push('claim')
+      return { state: 'VERIFYING', upload, uploadTarget, replayed: false }
+    })
+    mocks.inspect.mockImplementation(async () => {
+      order.push('head')
+      return { state: 'verified', versionId: 'v1' }
+    })
+    mocks.finalize.mockImplementation(async () => {
+      order.push('finalize')
+      return {
+        upload: { ...upload, status: 'AWAITING_REVIEW' },
+        nextAction: 'PATHFINDER_REVIEW',
+        autoApprove: false,
+        autoApply: false,
+        published: false,
+      }
+    })
+    const result = await caller
+      .createCaller(context())
+      .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
+    expect(order).toEqual(['claim', 'head', 'finalize'])
+    expect(mocks.inspect).toHaveBeenCalledWith({
+      key: uploadTarget.objectKey,
+      generation: uploadTarget.objectGeneration,
+      contentType: uploadTarget.mimeType,
+      bytes: uploadTarget.byteSize,
+      checksumSha256: uploadTarget.sha256,
+    })
+    expect(mocks.finalize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verified: expect.objectContaining({ storageVersionId: 'v1' }),
+      }),
+    )
+    expect(result).toMatchObject({
+      nextAction: 'PATHFINDER_REVIEW',
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
+  })
+
+  it('reconciles a terminal response replay without touching storage again', async () => {
+    mocks.claim.mockResolvedValue({
+      state: 'AWAITING_REVIEW',
+      upload: { ...upload, status: 'AWAITING_REVIEW', intakeRunId: 'run-1' },
+      replayed: true,
+    })
+    const result = await caller
+      .createCaller(context())
+      .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
+    expect(result).toMatchObject({ nextAction: 'PATHFINDER_REVIEW', published: false })
+    expect(mocks.inspect).not.toHaveBeenCalled()
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it('leaves an unavailable verification claimed and retryable', async () => {
+    mocks.inspect.mockRejectedValue(new Error('private storage detail'))
+    await expect(
+      caller
+        .createCaller(context())
+        .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+    expect(mocks.release).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        uploadId: 'upload-1',
+        claimId,
+        reasonCode: 'TRANSPORT_UNAVAILABLE',
+      }),
+    )
+    expect(mocks.reject).not.toHaveBeenCalled()
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it('deletes only the HEAD-confirmed immutable invalid version before rejection', async () => {
+    mocks.inspect.mockResolvedValue({
+      state: 'invalid',
+      versionId: 'immutable-v1',
+      reason: 'checksum',
+    })
+    const result = await caller
+      .createCaller(context())
+      .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
+    expect(mocks.remove).toHaveBeenCalledWith({
+      key: uploadTarget.objectKey,
+      versionId: 'immutable-v1',
+    })
+    expect(mocks.reject).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: 'HASH_MISMATCH' }),
+    )
+    expect(result).toMatchObject({ retryable: false, nextAction: 'RESELECT_FILE' })
+  })
+
+  it('does not delete or reject when immutable version identity is unavailable', async () => {
+    mocks.inspect.mockResolvedValue({ state: 'invalid', versionId: null, reason: 'version' })
+    await expect(
+      caller
+        .createCaller(context())
+        .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+    expect(mocks.remove).not.toHaveBeenCalled()
+    expect(mocks.reject).not.toHaveBeenCalled()
+    expect(mocks.release).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: 'VERIFICATION_UNAVAILABLE' }),
+    )
+  })
+
+  it('rejects a confirmed missing object without issuing an unversioned delete', async () => {
+    mocks.inspect.mockResolvedValue({ state: 'missing' })
+    await caller
+      .createCaller(context())
+      .intakeUpload.verify({ venueId: 'venue-a', uploadId: 'upload-1', claimId })
+    expect(mocks.remove).not.toHaveBeenCalled()
+    expect(mocks.reject).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonCode: 'OBJECT_MISSING' }),
+    )
+  })
+
+  it('returns a bounded safe list without transport identities', async () => {
+    mocks.list.mockResolvedValue({
+      items: [
+        {
+          ...upload,
+          objectKey: 'secret-key',
+          objectGeneration: 'secret-generation',
+          sha256: checksum,
+          rawError: 'secret',
+        },
+      ],
+      nextCursor: { createdAt: now.toISOString(), id: 'upload-1' },
+    })
+    const result = await caller
+      .createCaller(context())
+      .intakeUpload.list({ venueId: 'venue-a', limit: 25 })
+    expect(mocks.list).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-a', venueId: 'venue-a', limit: 25 }),
+    )
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain('secret-key')
+    expect(serialized).not.toContain('secret-generation')
+    expect(serialized).not.toContain(checksum)
+    expect(serialized).not.toContain('rawError')
+  })
+})

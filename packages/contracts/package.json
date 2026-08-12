@@ -12,6 +12,7 @@
     "./support-workflow": "./src/support-workflow.ts",
     "./content-model": "./src/content-model.ts",
     "./intake-engine": "./src/intake-engine.ts",
+    "./intake-upload": "./src/intake-upload.ts",
     "./staff-interview": "./src/staff-interview.ts",
     "./venue-deployment-manifest": "./src/venue-deployment-manifest.ts",
     "./mcp-v0": "./src/mcp-v0.ts",

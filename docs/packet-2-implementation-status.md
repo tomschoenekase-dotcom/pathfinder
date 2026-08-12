@@ -120,6 +120,12 @@ Section-level evidence and blockers are indexed in
   privacy-preserving interview evidence, append-only events, and one existing-`DRAFT` package
   lineage link. Tenant and platform-admin routers are adapters over the same service. It cannot
   create, approve, apply or publish a package, and its migration remains unapplied.
+- A separate quarantined file-intake seam accepts bounded PDFs and safe raster-image MIME types.
+  It persists an actor-bound request before signing a create-only private PUT, uses a fenced
+  verification lease, and creates a `FILE_UPLOAD` intake run only after exact generation, byte,
+  MIME, checksum and storage-version verification. Client and operator surfaces expose safe
+  metadata without preview or download. Format parsing, malware scanning, extraction, package
+  creation, approval, apply and publication remain deliberately unavailable.
 - Text-only staff-interview adapter supplies five role-specific question sets, consent, privacy
   classification, skip/redact/uncertainty handling, deterministic evidence, and monotonic audience
   protection. Recording/audio/video fields are structurally rejected pending owner privacy policy.
@@ -136,6 +142,10 @@ Section-level evidence and blockers are indexed in
   The projection is not an immutable publication snapshot and is always `NOT_READY`: generalized
   content, immutable assets, capability truth, model references and readiness evidence remain
   explicitly omitted. It creates no package or database row and exposes no apply action.
+- Internal Workspace now also has a bounded read-only Venue Package history/detail surface. It
+  revalidates the stored payload schema and venue-bound canonical hash, plus preview schema,
+  payload/base/warning digests and validation-report identity, before displaying evidence. It does
+  not create, approve, apply, revert or link a package; the support-to-new-DRAFT seam remains work.
 - A central AI workload configuration registry/resolver and additive persisted control plane model
   provider/model identity, fallback, cost and budget bounds, and platform→workload→client→venue
   precedence with field-level source attribution. Global workload and exact tenant/venue overrides

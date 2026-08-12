@@ -233,3 +233,15 @@ tenant/client/optional venue scope, capabilities, prefix, expiry, revocation, an
 PathFinder stores only a strong hash and non-secret prefix; no operator should expect plaintext
 recovery. No issue, verify, enable, rotate, revoke, listener, or transport-auth lifecycle is live in
 this foundation, even when rotation or revocation audit records are visible.
+
+## Quarantined intake files
+
+The client intake page may show private document/image submissions. `AWAITING REVIEW` confirms only
+the exact private upload transport identity. It does not confirm that the file was parsed,
+malware-scanned, safe to open, approved, applied, or published. The operator view deliberately has
+no preview or download control.
+
+If verification is temporarily unavailable, retry the unchanged file/claim. If the row is rejected,
+ask the client to select the file again with a new request. Do not obtain the private object key or
+open storage directly. Escalate any request to preview, download, retain, or delete raw bytes until
+the owner approves the required privacy, retention, malware, and access policy.

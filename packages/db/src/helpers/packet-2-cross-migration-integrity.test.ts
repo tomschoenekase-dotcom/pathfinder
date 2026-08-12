@@ -70,6 +70,7 @@ describe('Packet 2 continuation cross-migration integrity', () => {
       'IntakeEvidenceRecord',
       'IntakeRunEvent',
       'IntakePackageHandoff',
+      'IntakeUpload',
       'SupportPackageHandoff',
       'ExternalAccessCredential',
       'ExternalCredentialRotation',

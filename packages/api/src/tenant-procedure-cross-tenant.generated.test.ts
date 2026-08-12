@@ -56,7 +56,47 @@ type LegacyHarnessClient = {
 
 vi.mock('@pathfinder/db', async () => {
   const { z } = await import('zod')
+  const intakeTouch = async (client: LegacyHarnessClient, args: unknown) => {
+    try {
+      return await (
+        client as unknown as {
+          intakeUpload: { findFirst: (args: unknown) => Promise<unknown> }
+        }
+      ).intakeUpload.findFirst(args)
+    } catch (touch) {
+      throw Object.assign(
+        new Error('Recorded intake-upload database touch', { cause: touch }),
+        touch,
+      )
+    }
+  }
   return {
+    IntakeUploadActionError: class IntakeUploadActionError extends Error {},
+    reserveIntakeUploadAction: vi.fn(
+      (input: { tenantId: string; venueId: string; client: LegacyHarnessClient }) =>
+        intakeTouch(input.client, {
+          where: { tenantId: input.tenantId, venueId: input.venueId },
+        }),
+    ),
+    claimIntakeUploadVerificationAction: vi.fn(
+      (input: {
+        tenantId: string
+        venueId: string
+        uploadId: string
+        client: LegacyHarnessClient
+      }) =>
+        intakeTouch(input.client, {
+          where: { id: input.uploadId, tenantId: input.tenantId, venueId: input.venueId },
+        }),
+    ),
+    listIntakeUploadsAction: vi.fn(
+      (input: { tenantId: string; venueId: string; client: LegacyHarnessClient }) =>
+        (
+          input.client as unknown as {
+            venue: { findFirst: (args: unknown) => unknown }
+          }
+        ).venue.findFirst({ where: { tenantId: input.tenantId, id: input.venueId } }),
+    ),
     onboardingBootstrapSubmissionInput: z
       .object({
         requestId: z.string().uuid(),
@@ -436,6 +476,7 @@ import { analyticsRouter } from './routers/analytics'
 import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { intakeRouter } from './routers/intake'
+import { intakeUploadRouter } from './routers/intake-upload'
 import { knowledgeRouter } from './routers/knowledge'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
@@ -453,6 +494,7 @@ const testRouter = router({
   contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
   intake: intakeRouter,
+  intakeUpload: intakeUploadRouter,
   knowledge: knowledgeRouter,
   operationalUpdate: operationalUpdateRouter,
   place: placeRouter,

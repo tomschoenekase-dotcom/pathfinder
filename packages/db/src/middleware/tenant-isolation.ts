@@ -58,6 +58,7 @@ const AUDIT_LIFECYCLE_MODELS = [
   'EvalRunCostReservation',
   'SupportRequest',
   'OffboardingPlan',
+  'IntakeUpload',
 ] as const
 const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']
 const DESTRUCTIVE_ACTIONS = ['delete', 'deleteMany']

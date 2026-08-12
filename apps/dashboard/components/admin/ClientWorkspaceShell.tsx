@@ -136,6 +136,11 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
           description: 'Validate v2 package handoff',
         },
         {
+          href: `${venueRoot}/packages`,
+          label: 'Venue packages',
+          description: 'Review immutable package evidence',
+        },
+        {
           href: `${venueRoot}/media`,
           label: 'Media intake',
           description: 'Process and review source media',

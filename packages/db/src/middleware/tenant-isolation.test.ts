@@ -148,6 +148,7 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeEvidenceRecord',
       'IntakeRunEvent',
       'IntakePackageHandoff',
+      'IntakeUpload',
       'AiScopedWorkloadConfigurationOverride',
       'AiScopedWorkloadConfigurationHistory',
     ])
@@ -234,7 +235,7 @@ describe('tenantIsolationMiddleware', () => {
   })
 
   it.each(
-    ['AgentRun', 'EvalRun', 'SupportRequest', 'OffboardingPlan'].flatMap((model) =>
+    ['AgentRun', 'EvalRun', 'SupportRequest', 'OffboardingPlan', 'IntakeUpload'].flatMap((model) =>
       ['delete', 'deleteMany'].map((action) => [model, action]),
     ),
   )('rejects %s %s while preserving lifecycle updates', async (model, action) => {

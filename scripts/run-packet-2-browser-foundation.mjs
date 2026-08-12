@@ -18,6 +18,8 @@ const suites = [
       'components/admin/ClientWorkspaceShell.test.tsx',
       'components/DashboardOverview.test.tsx',
       'components/PacketSurfaceStates.test.tsx',
+      'components/IntakeFileUpload.test.tsx',
+      'components/admin/IntakeUploadReviewList.test.tsx',
       'components/WeeklyReportContent.test.tsx',
       'app/(app)/analytics/page.test.tsx',
       'app/(app)/legacy-route-boundary.test.ts',

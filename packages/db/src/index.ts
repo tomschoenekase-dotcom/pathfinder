@@ -575,3 +575,21 @@ export type {
   OnboardingBootstrapClient,
   OnboardingBootstrapSubmission,
 } from './helpers/onboarding-bootstrap-actions'
+export {
+  claimIntakeUploadVerificationAction,
+  finalizeVerifiedIntakeUploadAction,
+  getIntakeUploadDetailAction,
+  intakeUploadRequestHash,
+  INTAKE_UPLOAD_VERIFICATION_LEASE_MS,
+  IntakeUploadActionError,
+  listIntakeUploadsAction,
+  rejectIntakeUploadAction,
+  releaseIntakeUploadVerificationAction,
+  reserveIntakeUploadAction,
+} from './helpers/intake-upload-actions'
+export type {
+  IntakeUploadActionClient,
+  IntakeUploadActionErrorCode,
+  IntakeUploadActor,
+  TrustedIntakeUploadObjectIdentity,
+} from './helpers/intake-upload-actions'

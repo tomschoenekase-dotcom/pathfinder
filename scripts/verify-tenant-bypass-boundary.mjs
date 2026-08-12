@@ -43,6 +43,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/evaluation-operations.ts', 2],
   ['packages/api/src/routers/admin/freshness-audit.ts', 1],
   ['packages/api/src/routers/admin/legacy-content.ts', 7],
+  ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
   ['packages/api/src/routers/admin/weekly-report-lifecycle.ts', 1],
   ['packages/db/src/helpers/evaluation-run-lifecycle.ts', 7],
   ['packages/api/src/routers/admin/media-ingestion-begin-upload.ts', 6],

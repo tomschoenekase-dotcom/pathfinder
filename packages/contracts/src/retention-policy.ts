@@ -186,6 +186,16 @@ export const RETENTION_DATA_INVENTORY: readonly RetentionInventoryEntry[] = [
     notes: 'Source material may contain private interview or document content.',
   },
   {
+    model: 'IntakeUpload',
+    decisionKey: 'intake-sources-and-evidence',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'EXTERNAL_REFERENCE',
+    deletionBoundary: 'RESTRICTED_EVIDENCE',
+    notes:
+      'Quarantined object locators and verification metadata require an explicit source-retention decision.',
+  },
+  {
     model: 'OffboardingPlan',
     decisionKey: 'offboarding-evidence-and-exports',
     containsPersonalData: true,

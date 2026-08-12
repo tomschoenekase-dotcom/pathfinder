@@ -1,21 +1,37 @@
 export const dynamic = 'force-dynamic'
 
 import { IntakeProposalWorkspace } from '../../../../../../../../components/IntakeProposalWorkspace'
+import { IntakeUploadReviewList } from '../../../../../../../../components/admin/IntakeUploadReviewList'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 
-type PageProps = { params: Promise<{ tenantId: string; venueId: string }> }
+type PageProps = {
+  params: Promise<{ tenantId: string; venueId: string }>
+  searchParams: Promise<{ uploadCreatedAt?: string; uploadId?: string }>
+}
 
-export default async function AdminIntakePage({ params }: PageProps) {
+export default async function AdminIntakePage({ params, searchParams }: PageProps) {
   const { tenantId, venueId } = await params
+  const query = await searchParams
+  const uploadCursor =
+    query.uploadCreatedAt && query.uploadId
+      ? { createdAt: query.uploadCreatedAt, id: query.uploadId }
+      : undefined
   const caller = await createAdminCaller()
   let proposals
   let onboardingDetails
+  let intakeUploads
   try {
     proposals = await caller.admin.listIntakeProposals({ tenantId, venueId, limit: 50 })
     onboardingDetails = await caller.admin.listOnboardingBootstrapDetails({
       tenantId,
       venueId,
       limit: 50,
+    })
+    intakeUploads = await caller.admin.listIntakeUploads({
+      tenantId,
+      venueId,
+      limit: 50,
+      ...(uploadCursor ? { cursor: uploadCursor } : {}),
     })
   } catch {
     return (
@@ -44,6 +60,15 @@ export default async function AdminIntakePage({ params }: PageProps) {
         </p>
       </header>
       <IntakeProposalWorkspace adminTenantId={tenantId} venueId={venueId} proposals={proposals} />
+      <IntakeUploadReviewList uploads={intakeUploads.items} />
+      {intakeUploads.nextCursor ? (
+        <a
+          className="inline-flex min-h-11 items-center rounded-full border border-pf-light bg-white px-4 py-2 text-sm font-medium text-pf-deep"
+          href={`?uploadCreatedAt=${encodeURIComponent(intakeUploads.nextCursor.createdAt)}&uploadId=${encodeURIComponent(intakeUploads.nextCursor.id)}`}
+        >
+          View older quarantined submissions
+        </a>
+      ) : null}
       {onboardingDetails.length > 0 ? (
         <section
           className="rounded-2xl border border-pf-light bg-white p-5"

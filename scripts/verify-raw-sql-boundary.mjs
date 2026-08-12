@@ -39,6 +39,7 @@ const approvedPolicies = new Set([
   'tenant-offboarding-request-lock',
   'tenant-onboarding-request-lock',
   'tenant-onboarding-venue-slug-lock',
+  'tenant-intake-upload-request-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -259,6 +260,12 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '9ec9ca659853101e04b88da0b648f6244f3ebb97dbfd3d110ef695db80c408db',
     policy: 'tenant-onboarding-venue-slug-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-upload-actions.ts',
+    method: '$executeRaw',
+    hash: '38c3506f295d7ee11b73d6bc224e1cdabb77d34e0edd4d6479fb573d1ee78b1d',
+    policy: 'tenant-intake-upload-request-lock',
   },
   {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',

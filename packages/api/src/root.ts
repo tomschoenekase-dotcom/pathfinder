@@ -8,6 +8,7 @@ import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { knowledgeRouter } from './routers/knowledge'
 import { intakeRouter } from './routers/intake'
+import { intakeUploadRouter } from './routers/intake-upload'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { placeRouter } from './routers/place'
 import { portalRouter } from './routers/portal'
@@ -25,6 +26,7 @@ export const appRouter = router({
   engagementQuestion: engagementQuestionRouter,
   knowledge: knowledgeRouter,
   intake: intakeRouter,
+  intakeUpload: intakeUploadRouter,
   operationalUpdate: operationalUpdateRouter,
   support: supportRouter,
   tenant: tenantRouter,
