@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
+import { standaloneReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
+import { runAdminReviewedDraftOrchestration } from '../../lib/admin-reviewed-draft-orchestration'
 import {
   canonicalVenuePackagePayload,
   VenuePackagePayload,
@@ -69,6 +71,17 @@ function parseSummary(row: SummaryRow) {
 }
 
 export const adminVenuePackageOperationsRouter = router({
+  createReviewedVenuePackageDraft: adminProcedure
+    .input(scope.extend({ draftKey: z.string().uuid(), payload: VenuePackagePayload }))
+    .mutation(({ ctx, input }) =>
+      runAdminReviewedDraftOrchestration({
+        ctx,
+        tenantId: input.tenantId,
+        draft: { venueId: input.venueId, draftKey: input.draftKey, payload: input.payload },
+        finalizer: standaloneReviewedDraftFinalizer(ctx.session.userId),
+      }),
+    ),
+
   listVenuePackagesForReview: adminProcedure
     .input(
       scope

@@ -184,11 +184,25 @@ export const StaffInterviewAnswer = z
   })
   .strict()
   .superRefine((answer, context) => {
+    if (answer.skipped && answer.redacted) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['redacted'],
+        message: 'Choose either skipped or redacted, not both.',
+      })
+    }
     if (answer.skipped && answer.text !== undefined) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['text'],
         message: 'Skipped answers cannot include text.',
+      })
+    }
+    if (answer.redacted && answer.text !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['text'],
+        message: 'Redacted answers cannot include text.',
       })
     }
     if (!answer.skipped && !answer.redacted && answer.text === undefined) {
@@ -234,5 +248,15 @@ export const StaffInterviewSubmission = z
       }
       seen.add(answer.questionId)
     })
+    const questions = STAFF_INTERVIEW_QUESTION_SETS[submission.role]
+    for (const question of questions) {
+      if (!seen.has(question.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['answers'],
+          message: `Record an answer, explicit skip, or redaction for ${question.id}.`,
+        })
+      }
+    }
   })
 export type StaffInterviewSubmission = z.infer<typeof StaffInterviewSubmission>

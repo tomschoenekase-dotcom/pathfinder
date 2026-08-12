@@ -219,8 +219,8 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
         ) : null}
       </nav>
 
-      <section className="overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm">
-        <div className="border-b border-pf-light bg-[linear-gradient(120deg,rgba(18,74,78,0.06),rgba(255,255,255,0)_65%)] px-5 py-5 sm:px-7">
+      <div className="overflow-hidden rounded-3xl border border-pf-light bg-pf-white shadow-sm">
+        <header className="border-b border-pf-light bg-[linear-gradient(120deg,rgba(18,74,78,0.06),rgba(255,255,255,0)_65%)] px-5 py-5 sm:px-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -231,7 +231,10 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
                   Internal workspace
                 </span>
               </div>
-              <h1 className="mt-2 truncate text-2xl font-semibold tracking-tight text-pf-deep sm:text-3xl">
+              <h1
+                id="workspace-title"
+                className="mt-2 truncate text-2xl font-semibold tracking-tight text-pf-deep sm:text-3xl"
+              >
                 {selectedVenue?.name ?? client.name}
               </h1>
               <p className="mt-1 text-sm text-pf-deep/75">
@@ -261,7 +264,7 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
               ) : null}
             </div>
           </div>
-        </div>
+        </header>
 
         <div className="grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
           <aside
@@ -314,7 +317,7 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
 
           <main className="min-w-0 p-5 sm:p-7 lg:p-8">{children}</main>
         </div>
-      </section>
+      </div>
     </div>
   )
 }

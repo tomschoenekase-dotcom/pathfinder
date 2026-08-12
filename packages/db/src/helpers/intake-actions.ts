@@ -9,6 +9,8 @@ import {
 } from '@pathfinder/contracts/staff-interview'
 
 import { db } from '../client'
+import { writeAuditLogStrict } from './audit'
+import { lockVenueContentMutation } from './venue-content-lock'
 
 export type IntakeActionClient = Pick<
   typeof db,
@@ -18,6 +20,7 @@ export type IntakeActionClient = Pick<
   | 'intakeRunEvent'
   | 'venuePackage'
   | 'intakePackageHandoff'
+  | 'auditLog'
   | '$transaction'
 >
 
@@ -82,6 +85,11 @@ export const intakeProposalInput = z.discriminatedUnion('kind', [
   interviewProposalInput,
 ])
 export type IntakeProposalInput = z.infer<typeof intakeProposalInput>
+export type IntakeProposalActor = {
+  type: 'HUMAN'
+  id: string
+  role: 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN'
+}
 
 export type IntakeActionErrorCode = 'NOT_FOUND' | 'INVALID_INPUT' | 'CONFLICT'
 
@@ -104,90 +112,200 @@ export async function createIntakeProposal(input: {
   db: IntakeActionClient
   tenantId: string
   venueId: string
-  actorId: string
+  actor: IntakeProposalActor
+  requestId: string
   proposal: IntakeProposalInput
 }) {
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    typeof input.tenantId !== 'string' ||
+    !input.tenantId.trim() ||
+    typeof input.venueId !== 'string' ||
+    !input.venueId.trim() ||
+    !input.actor ||
+    input.actor.type !== 'HUMAN' ||
+    typeof input.actor.id !== 'string' ||
+    !input.actor.id.trim() ||
+    !['MANAGER', 'OWNER', 'PLATFORM_ADMIN'].includes(input.actor.role) ||
+    !z.string().uuid().safeParse(input.requestId).success
+  ) {
+    throw new IntakeActionError('INVALID_INPUT', 'Invalid intake proposal scope')
+  }
   const parsed = intakeProposalInput.safeParse(input.proposal)
   if (!parsed.success) throw new IntakeActionError('INVALID_INPUT', 'Invalid intake proposal')
   const proposal = parsed.data
+  const inputHash = createHash('sha256')
+    .update(
+      canonicalJson({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        actorId: input.actor.id,
+        proposal,
+      }),
+    )
+    .digest('hex')
   await requireVenue(input.db, input.tenantId, input.venueId)
-  return input.db.$transaction(async (tx) => {
-    const interview = proposal.kind === 'INTERVIEW' ? prepareInterview(proposal.submission) : null
-    const run = await tx.intakeRun.create({
-      data: {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        sourceKind: proposal.kind,
-        status: 'AWAITING_REVIEW',
-        displayName: proposal.displayName,
-        requestedBy: input.actorId,
-        ...(proposal.kind === 'WEBSITE'
-          ? { websiteUri: proposal.websiteUri }
-          : {
-              interviewRole: proposal.submission.role,
-              interviewPublicAnswers: interview?.publicAnswers ?? [],
-              interviewAnswerManifest: interview?.manifest ?? [],
-              interviewConsentTextHash: createHash('sha256')
-                .update(STAFF_INTERVIEW_CONSENT_TEXT)
-                .digest('hex'),
-            }),
-      },
-      select: {
-        id: true,
-        venueId: true,
-        sourceKind: true,
-        status: true,
-        displayName: true,
-        createdAt: true,
-      },
-    })
-    if (proposal.kind === 'INTERVIEW' && interview) {
-      for (const evidence of interview.evidence) {
-        await tx.intakeEvidenceRecord.create({
-          data: {
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            runId: run.id,
-            sourceKind: 'INTERVIEW',
-            ...evidence,
-            capturedAt: new Date(),
-          },
-        })
+  const replaySelect = {
+    id: true,
+    venueId: true,
+    sourceKind: true,
+    status: true,
+    displayName: true,
+    requestedBy: true,
+    submissionInputHash: true,
+    createdAt: true,
+  } as const
+  const safeResult = (
+    run: {
+      id: string
+      venueId: string
+      sourceKind: string
+      status: string
+      displayName: string
+      createdAt: Date
+    },
+    replayed: boolean,
+  ) => ({
+    id: run.id,
+    venueId: run.venueId,
+    sourceKind: run.sourceKind,
+    status: run.status,
+    displayName: run.displayName,
+    createdAt: run.createdAt,
+    autoApprove: false as const,
+    autoApply: false as const,
+    nextAction: 'REVIEW_PROPOSAL' as const,
+    replayed,
+  })
+  try {
+    return await input.db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-proposal:${input.tenantId}:${input.requestId}`}, 0))`
+      const replay = await tx.intakeRun.findFirst({
+        where: { tenantId: input.tenantId, submissionRequestId: input.requestId },
+        select: replaySelect,
+      })
+      if (replay) {
+        if (
+          replay.submissionInputHash !== inputHash ||
+          replay.requestedBy !== input.actor.id ||
+          replay.venueId !== input.venueId ||
+          replay.sourceKind !== proposal.kind
+        ) {
+          throw new IntakeActionError(
+            'CONFLICT',
+            'This request key is already bound to a different intake proposal.',
+          )
+        }
+        return safeResult(replay, true)
       }
-    }
-    await tx.intakeRunEvent.create({
-      data: {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-        runId: run.id,
-        kind: 'PROPOSAL_CREATED',
-        actorId: input.actorId,
-        metadata: { sourceKind: proposal.kind, autoApprove: false, autoApply: false },
-      },
-    })
-    if (proposal.kind === 'INTERVIEW') {
+      const interview = proposal.kind === 'INTERVIEW' ? prepareInterview(proposal.submission) : null
+      const run = await tx.intakeRun.create({
+        data: {
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          sourceKind: proposal.kind,
+          status: 'AWAITING_REVIEW',
+          displayName: proposal.displayName,
+          requestedBy: input.actor.id,
+          submissionRequestId: input.requestId,
+          submissionInputHash: inputHash,
+          ...(proposal.kind === 'WEBSITE'
+            ? { websiteUri: proposal.websiteUri }
+            : {
+                interviewRole: proposal.submission.role,
+                interviewPublicAnswers: interview?.publicAnswers ?? [],
+                interviewAnswerManifest: interview?.manifest ?? [],
+                interviewConsentTextHash: createHash('sha256')
+                  .update(STAFF_INTERVIEW_CONSENT_TEXT)
+                  .digest('hex'),
+              }),
+        },
+        select: replaySelect,
+      })
+      if (proposal.kind === 'INTERVIEW' && interview) {
+        for (const evidence of interview.evidence) {
+          await tx.intakeEvidenceRecord.create({
+            data: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              runId: run.id,
+              sourceKind: 'INTERVIEW',
+              ...evidence,
+              capturedAt: new Date(),
+            },
+          })
+        }
+      }
       await tx.intakeRunEvent.create({
         data: {
           tenantId: input.tenantId,
           venueId: input.venueId,
           runId: run.id,
-          kind: 'EVIDENCE_RECORDED',
-          actorId: input.actorId,
-          metadata: {
-            evidenceKind: 'CLASSIFIED_ANSWER_HASH',
+          kind: 'PROPOSAL_CREATED',
+          actorId: input.actor.id,
+          metadata: { sourceKind: proposal.kind, autoApprove: false, autoApply: false },
+        },
+      })
+      if (proposal.kind === 'INTERVIEW') {
+        await tx.intakeRunEvent.create({
+          data: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: run.id,
+            kind: 'EVIDENCE_RECORDED',
+            actorId: input.actor.id,
+            metadata: {
+              evidenceKind: 'CLASSIFIED_ANSWER_HASH',
+              publicAnswerCount: interview?.publicAnswers.length ?? 0,
+              withheldAnswerCount: interview?.withheldCount ?? 0,
+            },
+          },
+        })
+      }
+      await writeAuditLogStrict(
+        {
+          tenantId: input.tenantId,
+          actorId: input.actor.id,
+          actorRole: input.actor.role,
+          action: 'intake.proposal-created',
+          targetType: 'IntakeRun',
+          targetId: run.id,
+          afterState: {
+            sourceKind: proposal.kind,
+            status: 'AWAITING_REVIEW',
+            requestHash: inputHash,
+            evidenceCount: interview?.evidence.length ?? 0,
             publicAnswerCount: interview?.publicAnswers.length ?? 0,
             withheldAnswerCount: interview?.withheldCount ?? 0,
           },
         },
+        tx,
+      )
+      return safeResult(run, false)
+    })
+  } catch (error) {
+    if (error instanceof IntakeActionError) throw error
+    if (isUniqueConflict(error)) {
+      const replay = await input.db.intakeRun.findFirst({
+        where: { tenantId: input.tenantId, submissionRequestId: input.requestId },
+        select: replaySelect,
       })
+      if (
+        replay?.submissionInputHash === inputHash &&
+        replay.requestedBy === input.actor.id &&
+        replay.venueId === input.venueId &&
+        replay.sourceKind === proposal.kind
+      ) {
+        return safeResult(replay, true)
+      }
+      throw new IntakeActionError(
+        'CONFLICT',
+        'This request key is already bound to a different intake proposal.',
+      )
     }
-    return {
-      ...run,
-      autoApprove: false as const,
-      autoApply: false as const,
-      nextAction: 'REVIEW_PROPOSAL' as const,
-    }
-  })
+    throw error
+  }
 }
 
 export async function listIntakeProposals(input: {
@@ -207,11 +325,247 @@ export async function listIntakeProposals(input: {
       status: true,
       displayName: true,
       websiteUri: true,
+      interviewRole: true,
       createdAt: true,
       _count: { select: { evidence: true, events: true } },
       packageHandoff: { select: { packageDraftId: true, createdAt: true } },
     },
   })
+}
+
+const reviewManifestEntry = z
+  .object({
+    questionId: z.string().min(1),
+    privacy: z.enum(['PUBLIC_CANDIDATE', 'INTERNAL_CONTEXT', 'PRIVATE']),
+    skipped: z.boolean(),
+    redacted: z.boolean(),
+    uncertain: z.boolean(),
+    confidence: z.number().min(0).max(1),
+    normalizedHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .nullable(),
+  })
+  .strict()
+
+const reviewPublicAnswer = z
+  .object({
+    questionId: z.string().min(1),
+    text: z.string().trim().min(1).max(20_000),
+    privacy: z.literal('PUBLIC_CANDIDATE'),
+    confidence: z.number().min(0).max(1),
+  })
+  .strict()
+
+export async function getIntakeProposalReview(input: {
+  db: IntakeActionClient
+  tenantId: string
+  venueId: string
+  runId: string
+}) {
+  if (
+    !input ||
+    typeof input !== 'object' ||
+    typeof input.tenantId !== 'string' ||
+    !input.tenantId.trim() ||
+    typeof input.venueId !== 'string' ||
+    !input.venueId.trim() ||
+    typeof input.runId !== 'string' ||
+    !input.runId.trim()
+  ) {
+    throw new IntakeActionError('INVALID_INPUT', 'Invalid intake review scope')
+  }
+  await requireVenue(input.db, input.tenantId, input.venueId)
+  const run = await input.db.intakeRun.findFirst({
+    where: {
+      id: input.runId,
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      sourceKind: 'INTERVIEW',
+    },
+    select: {
+      id: true,
+      sourceKind: true,
+      status: true,
+      displayName: true,
+      interviewRole: true,
+      interviewPublicAnswers: true,
+      interviewAnswerManifest: true,
+      interviewConsentTextHash: true,
+      createdAt: true,
+      evidence: {
+        orderBy: [{ capturedAt: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          sourceKind: true,
+          locator: true,
+          normalizedHash: true,
+          confidence: true,
+          capturedAt: true,
+        },
+      },
+      events: {
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, kind: true, createdAt: true },
+      },
+    },
+  })
+  if (!run || !run.interviewRole) {
+    throw new IntakeActionError('NOT_FOUND', 'Interview proposal not found')
+  }
+  const role = z
+    .enum(['EXECUTIVE', 'VISITOR_SERVICES', 'OPERATIONS', 'ACCESSIBILITY', 'CONTENT'])
+    .safeParse(run.interviewRole)
+  const manifest = z.array(reviewManifestEntry).max(100).safeParse(run.interviewAnswerManifest)
+  const publicAnswers = z.array(reviewPublicAnswer).max(100).safeParse(run.interviewPublicAnswers)
+  if (!role.success || !manifest.success || !publicAnswers.success) {
+    throw new IntakeActionError('CONFLICT', 'Stored interview review evidence is invalid')
+  }
+  const questions = new Map(
+    STAFF_INTERVIEW_QUESTION_SETS[role.data].map((question) => [question.id, question]),
+  )
+  const manifestIds = new Set(manifest.data.map((answer) => answer.questionId))
+  const publicIds = new Set(publicAnswers.data.map((answer) => answer.questionId))
+  if (
+    manifestIds.size !== manifest.data.length ||
+    publicIds.size !== publicAnswers.data.length ||
+    manifestIds.size !== questions.size ||
+    [...questions.keys()].some((questionId) => !manifestIds.has(questionId)) ||
+    [...publicIds].some((questionId) => !manifestIds.has(questionId))
+  ) {
+    throw new IntakeActionError('CONFLICT', 'Stored interview answer set is inconsistent')
+  }
+  const publicByQuestion = new Map(publicAnswers.data.map((answer) => [answer.questionId, answer]))
+  const consentHash = createHash('sha256').update(STAFF_INTERVIEW_CONSENT_TEXT).digest('hex')
+  const evidenceByLocator = new Map(run.evidence.map((evidence) => [evidence.locator, evidence]))
+  const hashedAnswers = manifest.data.filter((answer) => answer.normalizedHash !== null)
+  if (
+    run.interviewConsentTextHash !== consentHash ||
+    evidenceByLocator.size !== run.evidence.length ||
+    hashedAnswers.length !== run.evidence.length
+  ) {
+    throw new IntakeActionError('CONFLICT', 'Stored interview evidence is inconsistent')
+  }
+  const answers = manifest.data.map((answer) => {
+    const question = questions.get(answer.questionId)
+    if (!question) throw new IntakeActionError('CONFLICT', 'Stored interview question is invalid')
+    const publicAnswer = publicByQuestion.get(answer.questionId)
+    const evidence = evidenceByLocator.get(
+      `interview:question:${answer.questionId}:${answer.privacy}`,
+    )
+    if (
+      (answer.privacy === 'PUBLIC_CANDIDATE' &&
+        !answer.skipped &&
+        !answer.redacted &&
+        !publicAnswer) ||
+      (answer.privacy !== 'PUBLIC_CANDIDATE' && publicAnswer) ||
+      (publicAnswer && publicAnswer.confidence !== answer.confidence) ||
+      ((answer.skipped || answer.redacted) && answer.normalizedHash !== null) ||
+      (!answer.skipped && !answer.redacted && answer.normalizedHash === null) ||
+      (answer.normalizedHash !== null &&
+        (!evidence ||
+          evidence.sourceKind !== 'INTERVIEW' ||
+          evidence.normalizedHash !== answer.normalizedHash ||
+          Number(evidence.confidence) !== answer.confidence)) ||
+      (publicAnswer &&
+        createHash('sha256')
+          .update(
+            `${answer.questionId}:${answer.privacy}:${publicAnswer.text.trim().replace(/\s+/gu, ' ')}`,
+          )
+          .digest('hex') !== answer.normalizedHash) ||
+      (answer.redacted && answer.skipped)
+    ) {
+      throw new IntakeActionError('CONFLICT', 'Stored interview privacy evidence is inconsistent')
+    }
+    const discrepancies = [
+      ...(question.required && (answer.skipped || answer.redacted)
+        ? (['MISSING_CONTEXT'] as const)
+        : []),
+      ...(answer.uncertain || answer.confidence < 0.6 ? (['LOW_CONFIDENCE'] as const) : []),
+    ]
+    return {
+      questionId: answer.questionId,
+      prompt: question.prompt,
+      fieldPath: question.fieldPath,
+      required: question.required,
+      privacy: answer.privacy,
+      skipped: answer.skipped,
+      redacted: answer.redacted,
+      uncertain: answer.uncertain,
+      confidence: answer.confidence,
+      hasEvidence: answer.normalizedHash !== null,
+      publicText: publicAnswer?.text ?? null,
+      discrepancies,
+    }
+  })
+  const consentVerified = true
+  const discrepancyCount = answers.reduce((count, answer) => count + answer.discrepancies.length, 0)
+  return {
+    id: run.id,
+    sourceKind: run.sourceKind,
+    status: run.status,
+    displayName: run.displayName,
+    role: role.data,
+    consentVerified,
+    answers,
+    structuredSummary: {
+      candidateFields: answers
+        .filter((answer) => answer.publicText !== null)
+        .map((answer) => ({
+          fieldPath: answer.fieldPath,
+          publicText: answer.publicText!,
+          confidence: answer.confidence,
+          discrepancies: answer.discrepancies,
+        })),
+      flaggedFields: answers
+        .filter((answer) => answer.discrepancies.length > 0)
+        .map((answer) => ({
+          fieldPath: answer.fieldPath,
+          discrepancies: answer.discrepancies,
+          publicText: answer.publicText,
+        })),
+      withheldFields: answers
+        .filter((answer) => answer.publicText === null)
+        .map((answer) => ({
+          fieldPath: answer.fieldPath,
+          privacy: answer.privacy,
+          reason: answer.skipped
+            ? ('SKIPPED' as const)
+            : answer.redacted
+              ? ('REDACTED' as const)
+              : answer.hasEvidence
+                ? ('WITHHELD' as const)
+                : ('NO_TEXT' as const),
+        })),
+      handoffReady:
+        consentVerified &&
+        run.status === 'AWAITING_REVIEW' &&
+        discrepancyCount === 0 &&
+        answers.some((answer) => answer.publicText !== null),
+    },
+    summary: {
+      answerCount: answers.length,
+      publicAnswerCount: answers.filter((answer) => answer.publicText !== null).length,
+      withheldAnswerCount: answers.filter(
+        (answer) => answer.hasEvidence && answer.publicText === null,
+      ).length,
+      skippedCount: answers.filter((answer) => answer.skipped).length,
+      redactedCount: answers.filter((answer) => answer.redacted).length,
+      uncertainCount: answers.filter((answer) => answer.uncertain).length,
+      discrepancyCount,
+      evidenceCount: run.evidence.length,
+    },
+    evidence: run.evidence.map((evidence) => ({
+      id: evidence.id,
+      confidence: Number(evidence.confidence),
+      capturedAt: evidence.capturedAt,
+    })),
+    timeline: run.events,
+    createdAt: run.createdAt,
+    autoApprove: false as const,
+    autoApply: false as const,
+    published: false as const,
+  }
 }
 
 export async function linkIntakePackageDraft(input: {
@@ -224,6 +578,10 @@ export async function linkIntakePackageDraft(input: {
 }) {
   try {
     return await input.db.$transaction(async (tx) => {
+      await lockVenueContentMutation(tx, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+      })
       const [run, draft] = await Promise.all([
         tx.intakeRun.findFirst({
           where: { id: input.runId, tenantId: input.tenantId, venueId: input.venueId },
@@ -275,6 +633,18 @@ export async function linkIntakePackageDraft(input: {
 
 function isUniqueConflict(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, child]) => child !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
 }
 
 function prepareInterview(submission: z.infer<typeof interviewSubmissionInput>) {

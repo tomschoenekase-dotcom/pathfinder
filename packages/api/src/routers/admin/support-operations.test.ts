@@ -17,6 +17,7 @@ const handoffFindFirst = vi.fn()
 const handoffCreate = vi.fn()
 
 const mockDb = {
+  $executeRaw: vi.fn(),
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   supportRequest: { findFirst: requestFindFirst, findMany: vi.fn(), updateMany: requestUpdateMany },
   supportMessage: { findMany: messageFindMany, create: messageCreate },

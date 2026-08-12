@@ -504,6 +504,7 @@
     "firstTouch": "venue.findFirst",
     "input": {
       "venueId": "cvenueabc123456789012",
+      "requestId": "56d3ed81-d294-4051-abd2-0e1a77f61ec7",
       "kind": "WEBSITE",
       "displayName": "Website proposal",
       "websiteUri": "https://example.com"
@@ -544,6 +545,16 @@
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
     "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "intake.getProposalReview",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "runId": "crunabc123456789012345"
+    }
   },
   {
     "path": "intake.linkPackageDraft",

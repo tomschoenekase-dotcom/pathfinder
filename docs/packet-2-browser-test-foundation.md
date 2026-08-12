@@ -27,3 +27,15 @@ engine layout, visual regression, real Clerk redirects, a deployed origin, or a 
 When a browser dependency and runtime are deliberately approved, this gate should remain the fast
 inner loop. A later Playwright layer can then exercise the same four surfaces against an explicitly
 authorized disposable environment with synthetic identities and seeded tenant data.
+
+## Automated accessibility inner loop
+
+`pnpm test:accessibility` is a second CI-wired, credential-free gate. It runs axe-core against
+representative Admin OS, Internal Workspace, client portal, and structured guest-answer states in
+the same jsdom environment. The command fails on any violation axe can establish from the rendered
+DOM and includes rule IDs plus affected-node counts in its assertion output.
+
+The local scan deliberately disables only axe's `color-contrast` rule because jsdom has no layout or
+computed pixel colors. It does not replace keyboard contracts in the browser-foundation suite, a
+real browser-engine scan, zoom/reflow and high-contrast review, screen-reader testing, or a visual
+contrast audit. Those remain required before a production accessibility claim.

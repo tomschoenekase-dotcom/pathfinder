@@ -392,6 +392,13 @@ vi.mock('@pathfinder/db', async () => {
           select: { id: true },
         }),
     ),
+    getIntakeProposalReview: vi.fn(
+      (input: { db: typeof harness.db; tenantId: string; venueId: string }) =>
+        (input.db as { venue: { findFirst: (args: unknown) => unknown } }).venue.findFirst({
+          where: { id: input.venueId, tenantId: input.tenantId },
+          select: { id: true },
+        }),
+    ),
     linkIntakePackageDraft: vi.fn(
       (input: { db: typeof harness.db; tenantId: string; venueId: string; runId: string }) =>
         (

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
+import { ReviewedVenuePackageDraftForm } from '../../../../../../../../components/admin/ReviewedVenuePackageDraftForm'
 
 type PackageOperationsPageProps = {
   params: Promise<{ tenantId: string; venueId: string }>
@@ -44,11 +45,12 @@ export default async function PackageOperationsPage({
           Review immutable deployment drafts
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Inspect the exact stored payload, validation report, and lifecycle evidence. This surface
-          is read-only: approval, apply, revert, package creation, and support handoff remain in
-          their separately authorized workflows.
+          Inspect exact stored evidence or create a reviewed DRAFT. Approval, apply, revert, and
+          support handoff remain in their separately authorized workflows.
         </p>
       </header>
+
+      <ReviewedVenuePackageDraftForm tenantId={tenantId} venueId={venueId} />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(16rem,0.7fr)_minmax(0,1.3fr)]">
         <section aria-labelledby="package-list-heading" className="space-y-3">

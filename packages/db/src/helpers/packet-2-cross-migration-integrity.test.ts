@@ -19,17 +19,32 @@ const migrations = {
     resolve(root, 'prisma/migrations/20260811230000_add_dark_external_credentials/migration.sql'),
     'utf8',
   ),
+  proposalIdentity: readFileSync(
+    resolve(
+      root,
+      'prisma/migrations/20260812000000_allow_proposal_submission_identity/migration.sql',
+    ),
+    'utf8',
+  ),
 }
 
 describe('Packet 2 continuation cross-migration integrity', () => {
   it('keeps migration ordering and each migration atomic', () => {
-    expect(Object.keys(migrations)).toEqual(['intake', 'support', 'credentials'])
+    expect(Object.keys(migrations)).toEqual([
+      'intake',
+      'support',
+      'credentials',
+      'proposalIdentity',
+    ])
     for (const sql of Object.values(migrations)) {
       expect(sql.trimStart().startsWith('BEGIN;')).toBe(true)
       expect(sql.trimEnd().endsWith('COMMIT;')).toBe(true)
     }
     expect(migrations.intake).toContain('REFERENCES "venue_packages"')
     expect(migrations.support).toContain('REFERENCES "support_requests"')
+    expect(migrations.proposalIdentity).toContain(
+      'DROP CONSTRAINT "intake_runs_source_shape_check"',
+    )
   })
 
   it('maps every custom intake index name in the final Prisma schema', () => {
@@ -62,6 +77,7 @@ describe('Packet 2 continuation cross-migration integrity', () => {
     expect(migrations.credentials).toContain(
       'FOREIGN KEY ("previous_credential_id", "tenant_id", "client_id", "scope_key")',
     )
+    expect(migrations.proposalIdentity).not.toMatch(/FOREIGN KEY|ON DELETE|ON UPDATE/i)
   })
 
   it('registers all models and guards only immutable evidence as append-only', () => {

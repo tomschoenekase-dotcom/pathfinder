@@ -354,6 +354,7 @@ export type {
 } from './helpers/operational-update-actions'
 export {
   createIntakeProposal,
+  getIntakeProposalReview,
   IntakeActionError,
   intakeProposalInput,
   interviewProposalInput,

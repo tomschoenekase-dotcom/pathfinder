@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   venue: vi.fn(),
   list: vi.fn(),
   detail: vi.fn(),
+  orchestrate: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -14,6 +15,10 @@ vi.mock('@pathfinder/db', () => ({
     venuePackage: { findMany: mocks.list, findFirst: mocks.detail },
   },
   withTenantIsolationBypass: mocks.bypass,
+}))
+
+vi.mock('../../lib/admin-reviewed-draft-orchestration', () => ({
+  runAdminReviewedDraftOrchestration: mocks.orchestrate,
 }))
 
 import type { TRPCContext } from '../../context'
@@ -68,6 +73,40 @@ const summary = {
 }
 
 describe('admin venue-package operations reads', () => {
+  it('adapts reviewed DRAFT creation through server-owned platform-admin orchestration', async () => {
+    mocks.orchestrate.mockResolvedValue({ value: { id: 'package-1' }, attachment: {} })
+    const payload = {
+      schemaVersion: 1 as const,
+      places: [],
+      knowledgeEntries: [
+        { title: 'Hours', category: 'FAQ', content: 'Check current hours.', isEnabled: true },
+      ],
+    }
+    await call().admin.createReviewedVenuePackageDraft({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      draftKey: '11111111-1111-4111-8111-111111111111',
+      payload,
+    })
+    expect(mocks.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        draft: expect.objectContaining({ venueId: 'venue-1', payload }),
+        finalizer: expect.any(Function),
+      }),
+    )
+    mocks.orchestrate.mockClear()
+    await expect(
+      call(false).admin.createReviewedVenuePackageDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        draftKey: '11111111-1111-4111-8111-111111111111',
+        payload,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.orchestrate).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.venue.mockResolvedValue({ id: 'venue-1' })

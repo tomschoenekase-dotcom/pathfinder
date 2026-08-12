@@ -5,6 +5,7 @@ import {
   IntakeActionError,
   OnboardingBootstrapError,
   createIntakeProposal,
+  getIntakeProposalReview,
   getOnboardingBootstrapSubmission,
   interviewProposalInput,
   linkIntakePackageDraft,
@@ -20,8 +21,12 @@ import { tenantProcedure } from '../trpc'
 
 const scope = z.object({ venueId: z.string().min(1) }).strict()
 const createInput = z.discriminatedUnion('kind', [
-  websiteProposalInput.extend({ venueId: z.string().min(1) }).strict(),
-  interviewProposalInput.extend({ venueId: z.string().min(1) }).strict(),
+  websiteProposalInput
+    .extend({ venueId: z.string().min(1), requestId: z.string().uuid() })
+    .strict(),
+  interviewProposalInput
+    .extend({ venueId: z.string().min(1), requestId: z.string().uuid() })
+    .strict(),
 ])
 
 function mapActionError(error: unknown): never {
@@ -78,13 +83,18 @@ export const intakeRouter = router({
     .use(requireRole('MANAGER'))
     .input(createInput)
     .mutation(async ({ ctx, input }) => {
-      const { venueId, ...proposal } = input
+      const { venueId, requestId, ...proposal } = input
       try {
         return await createIntakeProposal({
           db: ctx.db,
           tenantId: ctx.session.activeTenantId,
           venueId,
-          actorId: ctx.session.userId,
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: ctx.session.role as 'MANAGER' | 'OWNER',
+          },
+          requestId,
           proposal,
         })
       } catch (error) {
@@ -101,6 +111,21 @@ export const intakeRouter = router({
           tenantId: ctx.session.activeTenantId,
           venueId: input.venueId,
           limit: input.limit,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  getProposalReview: tenantProcedure
+    .input(scope.extend({ runId: z.string().trim().min(1).max(191) }))
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getIntakeProposalReview({
+          db: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          runId: input.runId,
         })
       } catch (error) {
         mapActionError(error)

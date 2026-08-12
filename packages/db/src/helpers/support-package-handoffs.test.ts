@@ -19,6 +19,7 @@ const input = {
 
 function harness() {
   const tx = {
+    $executeRaw: vi.fn().mockResolvedValue(1),
     supportRequest: {
       findFirst: vi.fn().mockResolvedValue({ id: 'request_1', status: 'OPEN', version: 3 }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -26,19 +27,17 @@ function harness() {
     venuePackage: { findFirst: vi.fn().mockResolvedValue({ id: 'package_1', status: 'DRAFT' }) },
     supportPackageHandoff: {
       findFirst: vi.fn().mockResolvedValue(null),
-      create: vi
-        .fn()
-        .mockResolvedValue({
-          id: 'handoff_1',
-          tenantId: 'tenant_1',
-          venueId: 'venue_1',
-          supportRequestId: 'request_1',
-          venuePackageId: 'package_1',
-          requestVersion: 4,
-          linkedByKind: 'OPERATOR',
-          linkedById: 'admin_1',
-          createdAt: new Date(),
-        }),
+      create: vi.fn().mockResolvedValue({
+        id: 'handoff_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        supportRequestId: 'request_1',
+        venuePackageId: 'package_1',
+        requestVersion: 4,
+        linkedByKind: 'OPERATOR',
+        linkedById: 'admin_1',
+        createdAt: new Date(),
+      }),
     },
     supportRequestAuditEvent: { create: vi.fn().mockResolvedValue({ id: 'event_1' }) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
@@ -58,6 +57,7 @@ describe('support request draft-package handoff', () => {
         where: { id: 'request_1', tenantId: 'tenant_1', venueId: 'venue_1' },
       }),
     )
+    expect(tx.$executeRaw).toHaveBeenCalledOnce()
     expect(tx.venuePackage.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'package_1', tenantId: 'tenant_1', venueId: 'venue_1' },

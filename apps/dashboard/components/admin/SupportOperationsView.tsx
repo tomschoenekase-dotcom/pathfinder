@@ -7,6 +7,7 @@ import type {
 
 import { SupportMessageComposer } from './SupportMessageComposer'
 import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
+import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
 import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
 
@@ -185,6 +186,11 @@ export function SupportOperationsView({
                 expectedVersion={selected.version}
                 packages={draftPackages}
                 closed={selected.status === 'COMPLETED' || selected.status === 'CANCELLED'}
+              />
+              <ReviewedVenuePackageDraftForm
+                tenantId={tenantId}
+                venueId={venueId}
+                support={{ requestId: selected.id, expectedVersion: selected.version }}
               />
               <section className="space-y-3" aria-labelledby="support-handoffs-heading">
                 <h3 id="support-handoffs-heading" className="text-xl font-semibold text-pf-deep">

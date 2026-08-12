@@ -35,6 +35,16 @@ evidence, and may link only an existing same-scope `DRAFT` package through appen
 Withheld source material remains evidence, not client-visible candidate copy. The service does not
 create, approve, apply, or publish a package.
 
+For a staff interview, select the participant's role and record written answers only. Every prompt
+must be answered, explicitly skipped, or redacted; mark uncertainty and confidence deliberately and
+obtain the displayed consent before submission. Do not paste private or internal text into a public
+candidate answer. The review shows each typed candidate field, safe withheld/redacted status,
+confidence flags, consent evidence, and an event timeline. “Handoff-ready” means only that public
+candidate fields and local review checks are present; an operator must still use the separate
+reviewed-DRAFT workflow. It is not approval, apply, publication, format validation, or malware
+verification. If a submission response is ambiguous, retry the unchanged form so its durable request
+identity can converge; edit the form only when intentionally creating a new canonical submission.
+
 ## Read the client lifecycle
 
 The portal lifecycle is a read model derived from current scoped evidence, not a status operators

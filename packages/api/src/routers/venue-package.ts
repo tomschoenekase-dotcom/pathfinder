@@ -49,6 +49,10 @@ import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { applyVenuePackageV3ContentEffects } from '../lib/venue-package-v3-content-effects'
 import {
+  runVenuePackageDraftFinalizer,
+  VenuePackageDraftFinalizerError,
+} from '../lib/venue-package-draft-finalizer'
+import {
   parseVenuePackageContentVersionProvenance,
   venuePackageRollbackCasWhere,
   venuePackageRollbackMutationData,
@@ -1093,6 +1097,13 @@ function auditState(pkg: NonNullable<Awaited<ReturnType<typeof findPackage>>>) {
   }
 }
 
+export function venuePackageDraftAuditRole(session: {
+  isPlatformAdmin: boolean
+  role: string | null
+}): string {
+  return session.isPlatformAdmin ? 'PLATFORM_ADMIN' : (session.role ?? 'MANAGER')
+}
+
 async function finalizePackageApply(input: {
   db: DbClient
   tenantId: string
@@ -1721,10 +1732,21 @@ export const venuePackageRouter = router({
           if (existingPackage.payloadHash !== requestedPayloadHash) {
             conflict('Draft key was already used for different venue-package content')
           }
+          const existingPreview = parseStoredPreview(existingPackage)
+          await runVenuePackageDraftFinalizer({
+            tx: transaction as DbClient,
+            packageId: existingPackage.id,
+            tenantId,
+            venueId: input.venueId,
+            status: existingPackage.status,
+            createdBy: existingPackage.createdBy,
+            preview: existingPreview,
+            replayed: true,
+          })
           return {
             kind: 'complete' as const,
             pkg: existingPackage,
-            preview: parseStoredPreview(existingPackage),
+            preview: existingPreview,
             replayed: true,
           }
         }
@@ -1780,6 +1802,16 @@ export const venuePackageRouter = router({
             },
             select: venuePackageSelect,
           })
+          await runVenuePackageDraftFinalizer({
+            tx: transaction as DbClient,
+            packageId: pkg.id,
+            tenantId,
+            venueId: input.venueId,
+            status: pkg.status,
+            createdBy: pkg.createdBy,
+            preview: finalPreview,
+            replayed: false,
+          })
           await transaction.venuePackageDuplicateAnalysis.create({
             data: {
               ...key,
@@ -1800,7 +1832,7 @@ export const venuePackageRouter = router({
             {
               tenantId,
               actorId: ctx.session.userId,
-              actorRole: ctx.session.role ?? 'MANAGER',
+              actorRole: venuePackageDraftAuditRole(ctx.session),
               action: 'venue-package.created-draft',
               targetType: 'VenuePackage',
               targetId: pkg.id,
@@ -2020,11 +2052,21 @@ export const venuePackageRouter = router({
             },
           })
           if (completed.count !== 1) conflict('Duplicate-analysis completion lost ownership')
+          await runVenuePackageDraftFinalizer({
+            tx: transaction as DbClient,
+            packageId: pkg.id,
+            tenantId,
+            venueId: input.venueId,
+            status: pkg.status,
+            createdBy: pkg.createdBy,
+            preview: finalPreview,
+            replayed: false,
+          })
           await writeAuditLogStrict(
             {
               tenantId,
               actorId: ctx.session.userId,
-              actorRole: ctx.session.role ?? 'MANAGER',
+              actorRole: venuePackageDraftAuditRole(ctx.session),
               action: 'venue-package.created-draft',
               targetType: 'VenuePackage',
               targetId: pkg.id,
@@ -2042,6 +2084,11 @@ export const venuePackageRouter = router({
         }
         return { ...finalized.pkg, preview: finalized.preview, replayed: false }
       } catch (error) {
+        if (error instanceof VenuePackageDraftFinalizerError) {
+          await settleFailure('FAILED', 'attachment-finalization-failed')
+          if (error.cause instanceof TRPCError) throw error.cause
+          throw error.cause
+        }
         if (error instanceof TRPCError && error.code === 'CONFLICT') {
           throw error
         }

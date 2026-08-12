@@ -26,11 +26,16 @@ describe('staff interview contracts', () => {
   })
 
   it('requires the exact consent text when consent is granted', () => {
+    const answers = STAFF_INTERVIEW_QUESTION_SETS.CONTENT.map((question) => ({
+      questionId: question.id,
+      privacy: question.defaultPrivacy,
+      skipped: true,
+    }))
     expect(
       StaffInterviewSubmission.safeParse({
         role: 'CONTENT',
         consentToUse: true,
-        answers: [],
+        answers,
       }).success,
     ).toBe(false)
     expect(
@@ -38,7 +43,7 @@ describe('staff interview contracts', () => {
         role: 'CONTENT',
         consentToUse: true,
         acceptedConsentText: STAFF_INTERVIEW_CONSENT_TEXT,
-        answers: [],
+        answers,
       }).success,
     ).toBe(true)
   })
@@ -50,10 +55,56 @@ describe('staff interview contracts', () => {
         StaffInterviewSubmission.safeParse({
           role: 'OPERATIONS',
           consentToUse: false,
-          answers: [],
+          answers: STAFF_INTERVIEW_QUESTION_SETS.OPERATIONS.map((question) => ({
+            questionId: question.id,
+            privacy: question.defaultPrivacy,
+            skipped: true,
+          })),
           [field]: field.endsWith('Enabled') ? true : 'capture',
         }).success,
       ).toBe(false)
     },
   )
+
+  it('requires every role question to be explicitly answered, skipped, or redacted', () => {
+    expect(
+      StaffInterviewSubmission.safeParse({
+        role: 'EXECUTIVE',
+        consentToUse: true,
+        acceptedConsentText: STAFF_INTERVIEW_CONSENT_TEXT,
+        answers: [],
+      }).success,
+    ).toBe(false)
+    expect(
+      StaffInterviewSubmission.safeParse({
+        role: 'EXECUTIVE',
+        consentToUse: true,
+        acceptedConsentText: STAFF_INTERVIEW_CONSENT_TEXT,
+        answers: STAFF_INTERVIEW_QUESTION_SETS.EXECUTIVE.map((question) => ({
+          questionId: question.id,
+          privacy: question.defaultPrivacy,
+          skipped: true,
+        })),
+      }).success,
+    ).toBe(true)
+  })
+
+  it('never accepts text on skipped or redacted answers', () => {
+    for (const mode of ['skipped', 'redacted'] as const) {
+      expect(
+        StaffInterviewSubmission.safeParse({
+          role: 'OPERATIONS',
+          consentToUse: true,
+          acceptedConsentText: STAFF_INTERVIEW_CONSENT_TEXT,
+          answers: STAFF_INTERVIEW_QUESTION_SETS.OPERATIONS.map((question) => ({
+            questionId: question.id,
+            privacy: question.defaultPrivacy,
+            ...(question.id === 'operations.hours'
+              ? { [mode]: true, text: 'must not cross the boundary' }
+              : { skipped: true }),
+          })),
+        }).success,
+      ).toBe(false)
+    }
+  })
 })

@@ -183,6 +183,8 @@ jobs:
         run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts
         run: pnpm test:browser-foundation
+      - name: Verify Packet 2 automated accessibility contracts
+        run: pnpm test:accessibility
       - run: pnpm turbo run typecheck
       - run: pnpm turbo run lint
       - run: pnpm turbo run test

@@ -126,9 +126,15 @@ Section-level evidence and blockers are indexed in
   MIME, checksum and storage-version verification. Client and operator surfaces expose safe
   metadata without preview or download. Format parsing, malware scanning, extraction, package
   creation, approval, apply and publication remain deliberately unavailable.
-- Text-only staff-interview adapter supplies five role-specific question sets, consent, privacy
-  classification, skip/redact/uncertainty handling, deterministic evidence, and monotonic audience
-  protection. Recording/audio/video fields are structurally rejected pending owner privacy policy.
+- Reachable tenant and platform-admin text-only staff-interview capture/review uses five
+  role-specific question sets, exact consent, required answer/skip/redact representation,
+  uncertainty/confidence controls, monotonic privacy, and public-only candidate text. Durable
+  actor/tenant/venue/payload-bound UUID replay and synchronous submit fences prevent duplicate runs;
+  review exposes typed field paths, structured public candidate/discrepancy summaries, safe evidence
+  and timeline metadata, and truthful handoff readiness. Recording/audio/video fields are
+  structurally rejected; no interview action approves, applies, publishes, fetches, or records media.
+  The forward-only source-shape correction that permits proposal request identity is locally
+  contract-tested and intentionally unapplied.
 - Browser-safe Venue Deployment Manifest v2 contracts support FULL and granular PATCH packages with
   identity, branding/assets, versioned AI/tone/model references, effective configuration provenance,
   typed content/evidence, readiness/evaluation, immutable hashes, base hash, and idempotency. Patch
@@ -145,7 +151,13 @@ Section-level evidence and blockers are indexed in
 - Internal Workspace now also has a bounded read-only Venue Package history/detail surface. It
   revalidates the stored payload schema and venue-bound canonical hash, plus preview schema,
   payload/base/warning digests and validation-report identity, before displaying evidence. It does
-  not create, approve, apply, revert or link a package; the support-to-new-DRAFT seam remains work.
+  not create, approve, apply, revert or link a package.
+- Deliberate platform-admin controls can create a reviewed Venue Package DRAFT through the existing
+  globally and venue-gated, budgeted semantic-analysis pipeline. Standalone, support-request and
+  intake-review variants require complete semantic evidence; support/intake linkage, strict audit,
+  and the DRAFT are finalized atomically. Actor-bound replay and UI request-key fencing handle
+  ambiguous retries. These controls never approve, apply, publish or revert content, and no live
+  provider execution was performed for local verification.
 - A central AI workload configuration registry/resolver and additive persisted control plane model
   provider/model identity, fallback, cost and budget bounds, and platform→workload→client→venue
   precedence with field-level source attribution. Global workload and exact tenant/venue overrides
@@ -313,23 +325,24 @@ Section-level evidence and blockers are indexed in
   disabled from the Internal Workspace. Closed capability/action contracts and strict transactional
   audit evidence are present; there is intentionally no enable, run, provider, model, credential, or
   autonomous-execution control.
-- Cross-migration integrity checks cover the ordered intake, support-package-handoff and dark
-  credential migrations against the final Prisma schema, tenant registry and append-only guards.
-  Custom intake index names are explicitly mapped in Prisma; all three migrations are atomic and
+- Cross-migration integrity checks cover the ordered intake, support-package-handoff, dark
+  credential, and proposal-identity correction migrations against the final Prisma schema, tenant
+  registry and append-only guards. Custom intake index names are explicitly mapped in Prisma; the
+  checked migrations are atomic and
   use restrictive exact-scope foreign keys. Offline format/validate/generate and the DB suite passed,
   but none of these forward migrations was applied or rehearsed against a database.
 
 ## Required program work not yet proven complete
 
 - Remaining Internal Client Workspace deep capability views and domain-action adapters.
-- Intake adapters beyond website and text-only staff interviews, plus end-to-end reviewed
-  onboarding beyond the bounded existing-DRAFT lineage bridge.
+- Intake adapters beyond website and text-only staff interviews, plus live extraction and
+  end-to-end reviewed onboarding beyond the bounded reviewed-DRAFT handoff boundary.
 - Venue Deployment Manifest v2-native persistence/apply semantics beyond the bounded conversion into
   existing preview/draft inputs.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
-- Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
-  including any later automated validation/evaluation, approval, apply or agent orchestration.
+- Support workflow beyond verified status transitions and reviewed-DRAFT creation/linkage,
+  including any later automated approval, apply, completion or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration
   does not activate an agent.
 - MCP transport/authentication, credential issuance/verification/lifecycle, write bindings, and any
@@ -339,15 +352,23 @@ Section-level evidence and blockers are indexed in
 - Remaining table pagination/batching/virtualization work and measured browser performance
   evidence. Admin client lookup/directory and portal eager analytics/report fetches are already
   corrected.
-- Full desktop/mobile visual QA, browser E2E, accessibility automation, and migration rehearsals.
+- Full desktop/mobile visual QA, real-browser E2E and assistive-technology review, and migration
+  rehearsals.
 
 ## Local browser-surface foundation
 
-`pnpm test:browser-foundation` now runs 80 deterministic DOM and route-adapter contracts across the
+`pnpm test:browser-foundation` now runs 88 deterministic DOM and route-adapter contracts across the
 Admin OS, Internal Client Workspace, ultra-simple Client Portal, and Guest experience. The gate is
 wired into CI and performs no authentication, network, provider, or database access. It is an inner
 loop foundation, not Playwright or deployed-browser evidence: browser-engine layout, Clerk flows,
 visual regression, and authenticated staging remain unverified.
+
+`pnpm test:accessibility` adds a second CI-wired local gate. Six axe-core contracts scan the mounted
+document for representative Admin OS, exact-scoped Internal Workspace, real client-portal shell,
+real standalone guest-chat shell and structured-response states. The scan found and corrected
+landmark defects in both workspace and guest production shells. Only color contrast is disabled in
+jsdom because it cannot compute layout or pixels; real-browser contrast, zoom/reflow, high-contrast
+mode and assistive-technology evidence remain unverified.
 
 - Isolated live staging, alert delivery, promotion, restore, and production evidence where owner
   authorization is required.

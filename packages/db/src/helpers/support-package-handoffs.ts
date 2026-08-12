@@ -1,5 +1,6 @@
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { lockVenueContentMutation } from './venue-content-lock'
 
 type SupportPackageHandoffClient = Pick<typeof db, '$transaction'>
 
@@ -51,6 +52,10 @@ export async function linkSupportRequestDraftPackageAction(
   assertOperator(input.actor)
   try {
     return await client.$transaction(async (tx) => {
+      await lockVenueContentMutation(tx, {
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+      })
       const request = await tx.supportRequest.findFirst({
         where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
         select: { id: true, status: true, version: true },

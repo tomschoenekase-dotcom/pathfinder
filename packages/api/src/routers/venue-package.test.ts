@@ -3,6 +3,8 @@ import { TRPCError } from '@trpc/server'
 import { generateEmbeddings } from '@pathfinder/ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { withVenuePackageDraftFinalizer } from '../lib/venue-package-draft-finalizer'
+
 vi.mock('@pathfinder/config', () => ({
   logger: { error: vi.fn() },
 }))
@@ -72,7 +74,7 @@ import {
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { canonicalVenuePackagePayload } from '../schemas/venue-package'
-import { venuePackageRouter } from './venue-package'
+import { venuePackageDraftAuditRole, venuePackageRouter } from './venue-package'
 
 const venueFindFirst = vi.fn()
 const venueUpdateMany = vi.fn()
@@ -333,6 +335,13 @@ function context(role: 'STAFF' | 'MANAGER' | 'OWNER'): TRPCContext {
 }
 
 describe('venue package router', () => {
+  it('attributes synthetic tenant authorization to the real platform-admin audit role', () => {
+    expect(venuePackageDraftAuditRole({ isPlatformAdmin: true, role: 'MANAGER' })).toBe(
+      'PLATFORM_ADMIN',
+    )
+    expect(venuePackageDraftAuditRole({ isPlatformAdmin: false, role: 'MANAGER' })).toBe('MANAGER')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     venueFindFirst.mockResolvedValue(venueState)
@@ -483,11 +492,28 @@ describe('venue package router', () => {
     })
     packageCreate.mockResolvedValueOnce(basePackage)
 
-    const result = await testRouter
-      .createCaller(context('MANAGER'))
-      .venuePackage.createDraft({ venueId, payload, draftKey })
+    const finalizer = vi.fn().mockResolvedValue({ attached: true })
+    const orchestration = await withVenuePackageDraftFinalizer(finalizer, () =>
+      testRouter
+        .createCaller(context('MANAGER'))
+        .venuePackage.createDraft({ venueId, payload, draftKey }),
+    )
+    const result = orchestration.value
 
     expect(result).toMatchObject({ id: packageId, status: 'DRAFT', replayed: false })
+    expect(orchestration.attachment).toEqual({ attached: true })
+    expect(finalizer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packageId,
+        status: 'DRAFT',
+        replayed: false,
+        preview: expect.objectContaining({
+          report: expect.objectContaining({
+            semanticDuplicateScan: expect.objectContaining({ status: 'COMPLETE' }),
+          }),
+        }),
+      }),
+    )
     expect(packageCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -506,6 +532,34 @@ describe('venue package router', () => {
     expect(writeAuditLogStrict).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'venue-package.created-draft', targetId: packageId }),
       mockDb,
+    )
+  })
+
+  it('terminally settles the semantic claim when an atomic attachment finalizer conflicts', async () => {
+    analysisFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'analysis-1',
+      payloadHash: basePackage.payloadHash,
+      baseDigest: basePackage.baseDigest,
+    })
+    packageCreate.mockResolvedValueOnce(basePackage)
+    const finalizer = vi
+      .fn()
+      .mockRejectedValue(new TRPCError({ code: 'CONFLICT', message: 'Support request changed' }))
+
+    await expect(
+      withVenuePackageDraftFinalizer(finalizer, () =>
+        testRouter
+          .createCaller(context('MANAGER'))
+          .venuePackage.createDraft({ venueId, payload, draftKey }),
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(analysisUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'FAILED',
+          errorCode: 'attachment-finalization-failed',
+        }),
+      }),
     )
   })
 

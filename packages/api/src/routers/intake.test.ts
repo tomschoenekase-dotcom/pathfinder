@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interview'
@@ -5,6 +6,10 @@ import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interv
 import type { TRPCContext } from '../context'
 import { router } from '../core'
 import { intakeRouter } from './intake'
+
+const publicReviewHash = createHash('sha256')
+  .update('operations.hours:PUBLIC_CANDIDATE:Open daily.')
+  .digest('hex')
 
 const mocks = vi.hoisted(() => ({
   venue: vi.fn(),
@@ -44,6 +49,7 @@ describe('intake draft proposals', () => {
     vi.clearAllMocks()
     mocks.venue.mockResolvedValue({ id: 'venue-a' })
     mocks.executeRaw.mockResolvedValue(1)
+    mocks.runFind.mockResolvedValue(null)
     mocks.runCreate.mockResolvedValue({
       id: 'run-1',
       venueId: 'venue-a',
@@ -99,6 +105,7 @@ describe('intake draft proposals', () => {
   it('persists public text but only hashes classified internal answers', async () => {
     await caller.createCaller(context()).intake.createProposal({
       venueId: 'venue-a',
+      requestId: '56d3ed81-d294-4051-abd2-0e1a77f61ec7',
       kind: 'INTERVIEW',
       displayName: 'Interview',
       submission: {
@@ -110,6 +117,11 @@ describe('intake draft proposals', () => {
             questionId: 'operations.hours',
             text: 'Opening hours are nine to five.',
             privacy: 'PUBLIC_CANDIDATE',
+          },
+          {
+            questionId: 'operations.closures',
+            privacy: 'PUBLIC_CANDIDATE',
+            skipped: true,
           },
           {
             questionId: 'operations.internal-procedures',
@@ -166,6 +178,7 @@ describe('intake draft proposals', () => {
     await expect(
       caller.createCaller(context()).intake.createProposal({
         venueId: 'venue-a',
+        requestId: '56d3ed81-d294-4051-abd2-0e1a77f61ec7',
         kind: 'INTERVIEW',
         displayName: 'Unsafe interview',
         submission: {
@@ -185,11 +198,96 @@ describe('intake draft proposals', () => {
     expect(mocks.runCreate).not.toHaveBeenCalled()
   })
 
+  it('returns a privacy-safe exact-scope interview detail and timeline', async () => {
+    mocks.runFind.mockResolvedValue({
+      id: 'run-1',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Operations interview',
+      interviewRole: 'OPERATIONS',
+      interviewConsentTextHash: 'a5cf3db6904cd5191ac3cad19554ca19357c660da36636b0dd11a0dd37dabab6',
+      interviewPublicAnswers: [
+        {
+          questionId: 'operations.hours',
+          text: 'Open daily.',
+          privacy: 'PUBLIC_CANDIDATE',
+          confidence: 0.8,
+        },
+      ],
+      interviewAnswerManifest: [
+        {
+          questionId: 'operations.hours',
+          privacy: 'PUBLIC_CANDIDATE',
+          skipped: false,
+          redacted: false,
+          uncertain: false,
+          confidence: 0.8,
+          normalizedHash: publicReviewHash,
+        },
+        {
+          questionId: 'operations.closures',
+          privacy: 'PUBLIC_CANDIDATE',
+          skipped: true,
+          redacted: false,
+          uncertain: true,
+          confidence: 0.5,
+          normalizedHash: null,
+        },
+        {
+          questionId: 'operations.internal-procedures',
+          privacy: 'PRIVATE',
+          skipped: false,
+          redacted: false,
+          uncertain: false,
+          confidence: 0.8,
+          normalizedHash: 'b'.repeat(64),
+        },
+      ],
+      evidence: [
+        {
+          id: 'e-1',
+          sourceKind: 'INTERVIEW',
+          locator: 'interview:question:operations.hours:PUBLIC_CANDIDATE',
+          normalizedHash: publicReviewHash,
+          confidence: 0.8,
+          capturedAt: new Date(),
+        },
+        {
+          id: 'e-2',
+          sourceKind: 'INTERVIEW',
+          locator: 'interview:question:operations.internal-procedures:PRIVATE',
+          normalizedHash: 'b'.repeat(64),
+          confidence: 0.8,
+          capturedAt: new Date(),
+        },
+      ],
+      events: [{ id: 'event-1', kind: 'PROPOSAL_CREATED', createdAt: new Date() }],
+      createdAt: new Date(),
+    })
+    const result = await caller.createCaller(context()).intake.getProposalReview({
+      venueId: 'venue-a',
+      runId: 'run-1',
+    })
+    expect(mocks.runFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'run-1',
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          sourceKind: 'INTERVIEW',
+        },
+      }),
+    )
+    expect(result.summary).toMatchObject({ evidenceCount: 2, discrepancyCount: 2 })
+    expect(JSON.stringify(result)).not.toContain('b'.repeat(64))
+  })
+
   it('rejects a cross-tenant venue before writing', async () => {
     mocks.venue.mockResolvedValue(null)
     await expect(
       caller.createCaller(context('tenant-a')).intake.createProposal({
         venueId: 'venue-b',
+        requestId: '56d3ed81-d294-4051-abd2-0e1a77f61ec7',
         kind: 'WEBSITE',
         displayName: 'Site',
         websiteUri: 'https://example.com',

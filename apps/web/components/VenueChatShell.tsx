@@ -122,54 +122,56 @@ export function VenueChatShell(props: {
           </div>
         </div>
       </header>
-      <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
-        <LocationBanner
-          permission={location.permission}
-          onRefresh={location.refresh}
-          show={venue.guideMode !== 'non_location'}
-        />
-      </div>
-      <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
-        <ChatWindow
-          messages={messages}
-          onSend={onSend}
-          isLoading={isSending}
-          errorMessage={sendError}
-          accentColor={palette.accent}
-          accentContrastColor={palette.accentContrast}
-          placeholder={LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'}
-          initialDraft={initialDraft}
-          emptyState={
-            <div lang={languagePresentation.code} dir={languagePresentation.direction}>
-              <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
-                <h2 className="text-xl font-semibold text-[var(--chat-text)]">
-                  {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS.English}
-                </h2>
-                <p
-                  className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]"
-                  lang={venue.description ? '' : languagePresentation.code}
-                  dir={venue.description ? 'auto' : languagePresentation.direction}
-                >
-                  {venue.description ??
-                    LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
-                    LANGUAGE_FALLBACK_DESCRIPTIONS.English}
-                </p>
+      <main className="flex min-h-0 flex-1 flex-col">
+        <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
+          <LocationBanner
+            permission={location.permission}
+            onRefresh={location.refresh}
+            show={venue.guideMode !== 'non_location'}
+          />
+        </div>
+        <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
+          <ChatWindow
+            messages={messages}
+            onSend={onSend}
+            isLoading={isSending}
+            errorMessage={sendError}
+            accentColor={palette.accent}
+            accentContrastColor={palette.accentContrast}
+            placeholder={LANGUAGE_PLACEHOLDERS[language] ?? 'Ask anything about this place...'}
+            initialDraft={initialDraft}
+            emptyState={
+              <div lang={languagePresentation.code} dir={languagePresentation.direction}>
+                <div className="mb-4 rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] p-6 shadow-sm">
+                  <h2 className="text-xl font-semibold text-[var(--chat-text)]">
+                    {LANGUAGE_HEADINGS[language] ?? LANGUAGE_HEADINGS.English}
+                  </h2>
+                  <p
+                    className="mt-2 text-sm leading-6 text-[var(--chat-text-muted)]"
+                    lang={venue.description ? '' : languagePresentation.code}
+                    dir={venue.description ? 'auto' : languagePresentation.direction}
+                  >
+                    {venue.description ??
+                      LANGUAGE_FALLBACK_DESCRIPTIONS[language] ??
+                      LANGUAGE_FALLBACK_DESCRIPTIONS.English}
+                  </p>
+                </div>
+                <QuickPromptChips
+                  language={language}
+                  venueName={venue.name}
+                  venueCategory={venue.category ?? undefined}
+                  guideMode={venue.guideMode}
+                  locationAvailable={hasLocation}
+                  onSend={onSend}
+                />
               </div>
-              <QuickPromptChips
-                language={language}
-                venueName={venue.name}
-                venueCategory={venue.category ?? undefined}
-                guideMode={venue.guideMode}
-                locationAvailable={hasLocation}
-                onSend={onSend}
-              />
-            </div>
-          }
-          onPlaceCardView={onPlaceView}
-          onPlaceCardClick={onPlaceClick}
-          onDirectionsClick={onDirections}
-        />
-      </div>
+            }
+            onPlaceCardView={onPlaceView}
+            onPlaceCardClick={onPlaceClick}
+            onDirectionsClick={onDirections}
+          />
+        </div>
+      </main>
       <footer className="pb-[env(safe-area-inset-bottom,1rem)] pt-2 text-center">
         <p
           className="mx-auto max-w-2xl px-4 text-[11px] leading-4 text-[var(--chat-text-muted)] sm:px-6"

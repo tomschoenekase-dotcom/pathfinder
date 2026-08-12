@@ -23,22 +23,50 @@ const interviewSource = {
 }
 
 function submission(overrides: Partial<StaffInterviewSubmission> = {}): StaffInterviewSubmission {
+  const suppliedAnswers = overrides.answers ?? [
+    {
+      questionId: 'operations.hours',
+      text: 'Open 9am to 5pm.',
+      privacy: 'PUBLIC_CANDIDATE' as const,
+      skipped: false,
+      redacted: false,
+      uncertain: false,
+      confidence: 0.9,
+    },
+  ]
+  const suppliedIds = new Set(suppliedAnswers.map((answer) => answer.questionId))
   return {
     role: 'OPERATIONS',
     consentToUse: true,
     acceptedConsentText: STAFF_INTERVIEW_CONSENT_TEXT,
-    answers: [
-      {
-        questionId: 'operations.hours',
-        text: 'Open 9am to 5pm.',
-        privacy: 'PUBLIC_CANDIDATE',
-        skipped: false,
-        redacted: false,
-        uncertain: false,
-        confidence: 0.9,
-      },
-    ],
     ...overrides,
+    answers: [
+      ...suppliedAnswers,
+      ...(!suppliedIds.has('operations.closures')
+        ? ([
+            {
+              questionId: 'operations.closures',
+              privacy: 'PUBLIC_CANDIDATE' as const,
+              skipped: true,
+              redacted: false,
+              uncertain: false,
+              confidence: 0.8,
+            },
+          ] as const)
+        : []),
+      ...(!suppliedIds.has('operations.internal-procedures')
+        ? ([
+            {
+              questionId: 'operations.internal-procedures',
+              privacy: 'PRIVATE' as const,
+              skipped: false,
+              redacted: true,
+              uncertain: false,
+              confidence: 0.8,
+            },
+          ] as const)
+        : []),
+    ],
   }
 }
 
@@ -124,14 +152,12 @@ describe('staff interview intake adapter', () => {
   })
 
   it('removes redacted text and reports the resulting missing information', async () => {
-    const redactedText = 'Do not retain this answer.'
     const adapter = createStaffInterviewSourceAdapter({
       loadSubmission: () =>
         submission({
           answers: [
             {
               questionId: 'operations.hours',
-              text: redactedText,
               privacy: 'PUBLIC_CANDIDATE',
               skipped: false,
               redacted: true,
@@ -151,7 +177,7 @@ describe('staff interview intake adapter', () => {
       questionId: 'operations.hours',
       reason: 'REDACTED',
     })
-    expect(JSON.stringify(result)).not.toContain(redactedText)
+    expect(JSON.stringify(result)).not.toContain('text')
   })
 
   it('blocks absent consent before using any answers or creating a draft proposal', async () => {

@@ -106,6 +106,22 @@ content must contain only material authorized for that audience; keep withheld i
 hash evidence. Package linkage is exact-scope, append-only, and existing-`DRAFT` only, and has no
 create, approve, apply, or publish side effect.
 
+Website and text-interview proposal mutations require a browser-generated UUID. The neutral action
+binds that request identity to the exact tenant, venue, actor, source kind, and canonical validated
+payload under a transaction advisory lock; exact retries replay the prior run and collisions fail.
+Keep the UUID stable across an ambiguous response, rotate it whenever the form payload changes, and
+rotate it after confirmed success. Staff-interview answers must cover every role-specific question
+with text, an explicit skip, or redaction. Only `PUBLIC_CANDIDATE` text may be retained as candidate
+copy; internal/private answers are hash evidence and redacted/skipped answers retain neither text nor
+a text hash. Review projections expose the typed `fieldPath`, public-only structured candidate
+summary, discrepancy groups, safe timeline, and truthful handoff readiness. They remain review data,
+not an approval or package mutation.
+
+The proposal request identity is permitted by the forward-only
+`20260812000000_allow_proposal_submission_identity` source-shape correction. It remains unapplied
+under the database incident stop; local schema validation and migration-contract tests are not live
+database evidence.
+
 For client files, use the quarantined intake-upload contracts and actions rather than Media Lab.
 Reserve the durable actor-bound request before storage signing; never accept an object key or
 generation from the browser. A verification claim must remain live and exact through HEAD and
