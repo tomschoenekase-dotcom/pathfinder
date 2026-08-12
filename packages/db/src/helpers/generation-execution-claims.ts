@@ -9,7 +9,7 @@ import { withTenantIsolationBypass } from '../middleware/tenant-isolation'
 type RawExecutor = any
 
 // Generation calls may legitimately take tens of seconds. Five minutes gives a worker
-// ample headroom while keeping crash recovery bounded without requiring lease renewal.
+// ample headroom while periodic renewal keeps live work fenced from crash recovery.
 export const GENERATION_EXECUTION_LEASE_MS = 5 * 60 * 1_000
 
 export type GenerationExecutionAcquisition =
@@ -45,6 +45,14 @@ export type DeferAnswerAnalysisExecutionParams = AcquireAnswerAnalysisExecutionP
 }
 
 export type DeferWeeklyReportExecutionParams = AcquireWeeklyReportExecutionParams & {
+  leaseToken: string
+}
+
+export type RenewAnswerAnalysisExecutionParams = AcquireAnswerAnalysisExecutionParams & {
+  leaseToken: string
+}
+
+export type RenewWeeklyReportExecutionParams = AcquireWeeklyReportExecutionParams & {
   leaseToken: string
 }
 
@@ -210,6 +218,46 @@ export async function acquireWeeklyReportExecution(
       return { state: 'terminal' }
     }),
   )
+}
+
+export async function renewAnswerAnalysisExecution(
+  params: RenewAnswerAnalysisExecutionParams,
+): Promise<boolean> {
+  return withTenantIsolationBypass(async () => {
+    const updated = await db.$executeRaw`
+      UPDATE answer_analysis_snapshots
+      SET execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond'
+      WHERE id = ${params.snapshotId}
+        AND tenant_id = ${params.tenantId}
+        AND venue_id = ${params.venueId}
+        AND range_start = ${params.rangeStart}
+        AND range_end = ${params.rangeEnd}
+        AND status = 'GENERATING'
+        AND execution_lease_token = ${params.leaseToken}::uuid
+        AND execution_lease_expires_at > clock_timestamp()
+    `
+    return updated === 1
+  })
+}
+
+export async function renewWeeklyReportExecution(
+  params: RenewWeeklyReportExecutionParams,
+): Promise<boolean> {
+  return withTenantIsolationBypass(async () => {
+    const updated = await db.$executeRaw`
+      UPDATE weekly_reports
+      SET execution_lease_expires_at = clock_timestamp() + ${GENERATION_EXECUTION_LEASE_MS} * INTERVAL '1 millisecond'
+      WHERE id = ${params.reportId}
+        AND tenant_id = ${params.tenantId}
+        AND venue_id = ${params.venueId}
+        AND week_start = ${params.weekStart}
+        AND week_end = ${params.weekEnd}
+        AND status = 'GENERATING'
+        AND execution_lease_token = ${params.leaseToken}::uuid
+        AND execution_lease_expires_at > clock_timestamp()
+    `
+    return updated === 1
+  })
 }
 
 export async function deferAnswerAnalysisExecution(

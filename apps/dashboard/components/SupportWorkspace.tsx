@@ -153,9 +153,8 @@ function AttachmentPicker({
     <fieldset className="rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
       <legend className="px-1 text-sm font-semibold text-pf-deep">{label}</legend>
       <p id={`${id}-help`} className="mt-1 text-xs leading-5 text-pf-deep/70">
-        Files stay in quarantine for PathFinder review. Upload verification confirms the stored
-        object version, declared media type, size, and checksum only. It does not confirm that a
-        file is safe, readable, or malware-free. Files cannot be previewed or downloaded here.
+        Choose a file you already shared. PathFinder reviews every file before using it; attaching a
+        file here never publishes it. Files cannot be previewed or downloaded from Support.
       </p>
       {available.length ? (
         <label className="mt-3 block text-sm font-medium text-pf-deep">
@@ -193,7 +192,7 @@ function AttachmentPicker({
               <span>
                 <strong className="block text-pf-deep">{row.fileName}</strong>
                 <span className="text-xs text-pf-deep/65">
-                  {row.mimeType} · {fileSize(row.byteSize)} · Awaiting PathFinder review
+                  {row.mimeType} · {fileSize(row.byteSize)} · Shared for review
                 </span>
               </span>
               <button
@@ -248,6 +247,8 @@ export function SupportWorkspace({
   const [conflict, setConflict] = useState(false)
   const writeInFlight = useRef(false)
   const scopeRef = useRef(activeVenue.id)
+  scopeRef.current = activeVenue.id
+  const writeGeneration = useRef(0)
   const detailRequestRef = useRef(initialDetail?.id ?? null)
   const detailReadGeneration = useRef(0)
   const requestReadGeneration = useRef(0)
@@ -265,10 +266,12 @@ export function SupportWorkspace({
     detailReadGeneration.current += 1
     requestReadGeneration.current += 1
     attachmentReadGeneration.current += 1
+    writeGeneration.current += 1
     detailRequestRef.current = initialDetail?.id ?? null
     messageReadInFlight.current = false
     requestReadInFlight.current = false
     attachmentReadInFlight.current = false
+    writeInFlight.current = false
     activeBusyOwner.current = null
     setBusy(null)
     setRequests(initialRequests)
@@ -512,6 +515,8 @@ export function SupportWorkspace({
     event.preventDefault()
     if (writeInFlight.current) return
     writeInFlight.current = true
+    const submittedScope = activeVenue.id
+    const generation = ++writeGeneration.current
     clearFeedback()
     const busyOwner = startBusy('create')
     try {
@@ -523,6 +528,7 @@ export function SupportWorkspace({
         body: requestBody,
         attachments: createAttachments.map((intakeUploadId) => ({ intakeUploadId })),
       })
+      if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       const nextDetail: RequestDetail = {
         ...(created.request as RequestSummary),
         messages: [created.message as ClientMessage],
@@ -541,10 +547,13 @@ export function SupportWorkspace({
       setView('conversation')
       setNotice('Your message and selected files were submitted for review. Nothing was published.')
     } catch (createError) {
-      setError(writeErrorText(createError))
+      if (scopeRef.current === submittedScope && writeGeneration.current === generation)
+        setError(writeErrorText(createError))
     } finally {
-      writeInFlight.current = false
-      finishBusy(busyOwner)
+      if (scopeRef.current === submittedScope && writeGeneration.current === generation) {
+        writeInFlight.current = false
+        finishBusy(busyOwner)
+      }
     }
   }
 
@@ -552,6 +561,8 @@ export function SupportWorkspace({
     event.preventDefault()
     if (!detail || !detail.canReply || writeInFlight.current) return
     writeInFlight.current = true
+    const submittedScope = activeVenue.id
+    const generation = ++writeGeneration.current
     clearFeedback()
     const busyOwner = startBusy('reply')
     const submittedRequestId = detail.id
@@ -564,6 +575,7 @@ export function SupportWorkspace({
         body: replyBody,
         attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
       })
+      if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       setDetail((current) =>
         current?.id === submittedRequestId
           ? {
@@ -585,6 +597,7 @@ export function SupportWorkspace({
       replyOperationId.current = crypto.randomUUID()
       setNotice('Your message and selected files were submitted for review. Nothing was published.')
     } catch (replyError) {
+      if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
       if (isNotFound(replyError)) {
         purgeRequest(submittedRequestId)
         return
@@ -596,8 +609,10 @@ export function SupportWorkspace({
           : writeErrorText(replyError),
       )
     } finally {
-      writeInFlight.current = false
-      finishBusy(busyOwner)
+      if (scopeRef.current === submittedScope && writeGeneration.current === generation) {
+        writeInFlight.current = false
+        finishBusy(busyOwner)
+      }
     }
   }
 
@@ -861,6 +876,48 @@ export function SupportWorkspace({
                     </span>
                   </div>
                 </div>
+
+                {detail.canReply &&
+                detail.missingInformation.length > 0 &&
+                detail.status !== 'COMPLETED' &&
+                detail.status !== 'CANCELLED' ? (
+                  <section
+                    aria-labelledby="support-information-needed"
+                    className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">
+                      Your next step
+                    </p>
+                    <h3
+                      id="support-information-needed"
+                      className="mt-1 text-lg font-semibold text-amber-950"
+                    >
+                      A few details will help us continue
+                    </h3>
+                    <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-6 text-amber-950/85">
+                      {detail.missingInformation.slice(0, 5).map((item, index) => (
+                        <li key={`${index}:${item}`}>{item}</li>
+                      ))}
+                      {detail.missingInformation.length > 5 ? (
+                        <li>{detail.missingInformation.length - 5} more details in this request</li>
+                      ) : null}
+                    </ul>
+                    <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                      <a
+                        href="#support-reply"
+                        className="inline-flex min-h-11 items-center rounded-xl bg-amber-900 px-4 font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 focus-visible:ring-offset-2"
+                      >
+                        Reply with details
+                      </a>
+                      <a
+                        href={`/venues/${encodeURIComponent(activeVenue.id)}/intake`}
+                        className="inline-flex min-h-11 items-center rounded-xl px-3 font-semibold text-amber-900 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+                      >
+                        Share a file or website
+                      </a>
+                    </div>
+                  </section>
+                ) : null}
 
                 <div className="flex-1 space-y-4 py-6" aria-live="polite">
                   {detail.messages.filter(isSafeClientMessage).map((message) => {

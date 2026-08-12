@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   acquireAnswerAnalysisRecoveryExecution: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
   deferAnswerAnalysisExecution: vi.fn(),
+  renewAnswerAnalysisExecution: vi.fn(),
   snapshotUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   responseFindMany: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  GENERATION_EXECUTION_LEASE_MS: 300_000,
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
   assertVenueAiAvailable: mocks.assertGlobalAiAvailable,
   reserveAiCostAttempt: vi.fn(async () => null),
@@ -48,6 +50,7 @@ vi.mock('@pathfinder/db', () => ({
   acquireAnswerAnalysisExecution: mocks.acquireAnswerAnalysisExecution,
   acquireAnswerAnalysisRecoveryExecution: mocks.acquireAnswerAnalysisRecoveryExecution,
   deferAnswerAnalysisExecution: mocks.deferAnswerAnalysisExecution,
+  renewAnswerAnalysisExecution: mocks.renewAnswerAnalysisExecution,
   db: {
     answerAnalysisSnapshot: {
       updateMany: mocks.snapshotUpdateMany,
@@ -98,6 +101,7 @@ describe('processAnswerAnalysisJob', () => {
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
     mocks.deferAnswerAnalysisExecution.mockResolvedValue(true)
+    mocks.renewAnswerAnalysisExecution.mockResolvedValue(true)
     mocks.acquireAnswerAnalysisExecution.mockResolvedValue({
       state: 'acquired',
       leaseToken: LEASE_TOKEN,
@@ -143,7 +147,7 @@ describe('processAnswerAnalysisJob', () => {
     })
     expect(anthropicCreate).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'claude-sonnet-4-6', max_tokens: 1_500 }),
-      { timeout: 30_000 },
+      expect.objectContaining({ timeout: 30_000, signal: expect.any(AbortSignal) }),
     )
     expect(mocks.aiUsageEventCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -194,6 +198,18 @@ describe('processAnswerAnalysisJob', () => {
     expect(mocks.snapshotUpdateMany).not.toHaveBeenCalled()
     expect(mocks.updateJobRecord).not.toHaveBeenCalled()
     expect(anthropicCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not dispatch or settle snapshot state after lease ownership is lost', async () => {
+    mocks.renewAnswerAnalysisExecution.mockResolvedValueOnce(false)
+
+    await expect(processAnswerAnalysisJob(payload)).rejects.toMatchObject({
+      code: 'execution-lease-ownership-lost',
+    })
+
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.snapshotUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.deferAnswerAnalysisExecution).not.toHaveBeenCalled()
   })
 
   it('uses an exact observed-token recovery claim without persisting the token', async () => {

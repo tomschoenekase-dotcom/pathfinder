@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./EvaluationRunLifecycleControl', () => ({
   EvaluationRunLifecycleControl: ({ status }: { status: string }) => <span>{status}</span>,
 }))
+vi.mock('./EvaluationComparisonPanel', () => ({
+  EvaluationComparisonPanel: () => <span>Comparison panel</span>,
+}))
 
 import { EvaluationOperationsView } from './EvaluationOperationsView'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React

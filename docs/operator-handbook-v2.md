@@ -151,6 +151,11 @@ workflow state. Triage requires the displayed request version, retains selection
 and records one audited revision. It does not message the client, change status, create a package,
 or apply content; communicate deliberately through the separate message composer.
 
+The portal task checklist is bounded and uses the same requester/participant ACL. It shows at most
+five missing details for a request plus a remaining count. Staff-answer review shows only safe
+sharing choices and retained/public text; confidence, discrepancies, readiness, timelines and
+internal evidence are admin-only. Client errors remain plain and nondisclosing.
+
 The Internal Workspace package page exposes deliberate `DRAFT` → `APPROVED` → `APPLIED` →
 `REVERTED` controls to a platform administrator. Review the exact stored payload and every warning,
 acknowledge the displayed payload/warning evidence before approval, confirm apply or revert, and
@@ -179,6 +184,11 @@ Changing Global AI requires an internal reason and the displayed revision. An id
 is a replay; a stale revision or concurrent first write is a conflict and requires an authoritative
 refresh. A malformed stored control displays fail-closed and may only be repaired through an
 explicit pause. The audited control write itself performs no provider or queue operation.
+
+Workers renew generation leases before and during long provider calls. Ownership loss aborts the
+call through its signal, treats dispatched cost as ambiguous, and suppresses redispatch. User
+cancellation and takeover are distinct; never force a stale terminal write after either fence
+rejects. This is locally tested behavior, not a live provider claim.
 
 ## Search and help
 
@@ -212,6 +222,12 @@ tenant gate all admit dispatch. The reconciler advances durable state before det
 publication and repairs queued publication gaps. `LEGACY` runs are intentionally non-runnable;
 `RETRY_SCHEDULED` is not active execution. Cancellation records audited intent and uses lifecycle
 CAS, but none of these local controls is provider or staging proof.
+
+Compare only two compatible frozen runs. `INCOMPARABLE` means corpus, content/package, model/config,
+manifest, case hash/revision, or result evidence did not match. Per-case classifications and deltas
+are evidence, not a release gate. A human platform administrator may append a replay-safe conclusion
+only after the candidate run is `COMPLETED`; refresh on conflict. A conclusion neither approves nor
+blocks a package and cannot enable a gate, queue work, or call a provider.
 
 ## Universal content and MCP reads
 

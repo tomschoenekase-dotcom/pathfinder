@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { DashboardOverview } from '../../components/DashboardOverview'
+import { DashboardOverview, type ClientPortalTask } from '../../components/DashboardOverview'
 import { buildGuestChatUrl } from '../../lib/guest-chat-url'
 import { createDashboardCaller } from '../../lib/server-caller'
 
@@ -37,6 +37,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0] ?? null
   const selectedLifecycle = lifecycleRows.find((row) => row.venueId === selectedVenue?.id)
   if (!selectedLifecycle) throw new Error('Portal lifecycle evidence is unavailable')
+  const taskEvidence = await caller.portal.getVenueTaskEvidence({ venueId: selectedVenue!.id })
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
   const now = new Date()
   const activeAlerts = operationalUpdates.filter(
@@ -52,6 +53,73 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
         allowLoopbackHttp: process.env.NODE_ENV === 'development',
       })
     : null
+  const tasks: ClientPortalTask[] = taskEvidence.missingInformation.map((request) => ({
+    id: `missing-information:${request.requestId}`,
+    title: request.subject,
+    description: 'PathFinder Support is waiting for the details below.',
+    href: `/support?venue=${encodeURIComponent(selectedVenue!.id)}&request=${encodeURIComponent(request.requestId)}`,
+    required: true,
+    items: request.items,
+    additionalItemCount: request.additionalItemCount,
+  }))
+  if (taskEvidence.additionalMissingRequest) {
+    tasks.push({
+      id: 'additional-support-questions',
+      title: 'More questions are waiting in Support',
+      description: 'Open Support to see the rest of the information requests for this venue.',
+      href: `/support?venue=${encodeURIComponent(selectedVenue!.id)}`,
+      required: true,
+    })
+  }
+  if (
+    selectedLifecycle.lifecycle.state === 'CLIENT_PREVIEW' &&
+    selectedLifecycle.clientPreview.state === 'AVAILABLE' &&
+    selectedLifecycle.clientPreview.id
+  ) {
+    tasks.push({
+      id: 'review-preview',
+      title: 'Review the visitor experience',
+      description: 'See what visitors will experience and send any changes through Support.',
+      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/preview/${encodeURIComponent(selectedLifecycle.clientPreview.id)}`,
+      required: true,
+    })
+  } else if (
+    selectedLifecycle.lifecycle.state !== 'CLIENT_PREVIEW' &&
+    selectedLifecycle.lifecycle.clientAction === 'OPEN_PREVIEW' &&
+    chatUrl
+  ) {
+    tasks.push({
+      id: 'open-visitor-experience',
+      title: 'Open visitor experience',
+      description: selectedLifecycle.lifecycle.summary,
+      href: chatUrl,
+      required: true,
+    })
+  } else if (
+    selectedLifecycle.lifecycle.state === 'SETUP_REQUESTED' ||
+    selectedLifecycle.lifecycle.state === 'COLLECTING'
+  ) {
+    tasks.push({
+      id: 'share-information',
+      title: taskEvidence.hasSharedInformation
+        ? 'Share more useful information'
+        : 'Share your starting information',
+      description: taskEvidence.hasSharedInformation
+        ? 'Add another website, staff answer, document, or image when it is ready.'
+        : 'Start with a website, staff answer, document, or image. Rough source material is welcome.',
+      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/intake`,
+      required: true,
+    })
+  }
+  if (taskEvidence.latestReport) {
+    tasks.push({
+      id: `report:${taskEvidence.latestReport.id}`,
+      title: taskEvidence.latestReport.title,
+      description: 'A published PathFinder report is available to read.',
+      href: `/weekly-reports/${encodeURIComponent(taskEvidence.latestReport.id)}?venue=${encodeURIComponent(selectedVenue!.id)}`,
+      required: false,
+    })
+  }
 
   return (
     <DashboardOverview
@@ -64,6 +132,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
       activeUpdates={activeAlerts}
       chatUrl={chatUrl}
+      tasks={tasks.slice(0, 6)}
       {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
     />
   )

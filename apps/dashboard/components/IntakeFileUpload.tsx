@@ -63,6 +63,17 @@ type QueueItem = {
   error: string | null
 }
 
+const CLIENT_PHASE_LABELS: Record<QueueItem['phase'], string> = {
+  selected: 'Ready to send',
+  hashing: 'Preparing file',
+  uploading: 'Sending file',
+  verifying: 'Confirming arrival',
+  'awaiting-review': 'Received',
+  error: 'Needs attention',
+}
+
+class ClientIntakeFileError extends Error {}
+
 export function IntakeFileUpload({
   venueId,
   uploads,
@@ -150,7 +161,9 @@ export function IntakeFileUpload({
         return
       }
       if (reserved.upload.status === 'REJECTED') {
-        throw new Error('This upload was rejected. Remove it and select the file again.')
+        throw new ClientIntakeFileError(
+          'This file could not be accepted. Remove it and select the file again.',
+        )
       }
       if (reserved.uploadRequest) {
         update(item.localId, { phase: 'uploading' })
@@ -163,7 +176,7 @@ export function IntakeFileUpload({
         // exists. Reconcile it through server-side generation/checksum verification; never infer
         // success from the storage response alone.
         if (!response.ok && response.status !== 412) {
-          throw new Error(`Upload transport failed (${response.status}).`)
+          throw new ClientIntakeFileError('The file could not be sent. Please try again.')
         }
       }
       update(item.localId, { phase: 'verifying' })
@@ -173,10 +186,10 @@ export function IntakeFileUpload({
         claimId: attempt.claimId,
       })
       if (verified.upload.status !== 'AWAITING_REVIEW') {
-        throw new Error(
+        throw new ClientIntakeFileError(
           verified.upload.rejectionCode
-            ? `Transport verification rejected this file (${verified.upload.rejectionCode}).`
-            : 'Transport verification did not complete.',
+            ? 'PathFinder could not accept this file. Remove it and select the file again.'
+            : 'PathFinder could not confirm that the file arrived. Please try again.',
         )
       }
       update(item.localId, { phase: 'awaiting-review' })
@@ -184,7 +197,10 @@ export function IntakeFileUpload({
     } catch (error) {
       update(item.localId, {
         phase: 'error',
-        error: error instanceof Error ? error.message : 'The file was not submitted.',
+        error:
+          error instanceof ClientIntakeFileError
+            ? error.message
+            : 'PathFinder could not confirm this file. Please try again.',
       })
     } finally {
       inFlightRef.current.delete(item.localId)
@@ -197,12 +213,12 @@ export function IntakeFileUpload({
       aria-labelledby="file-intake-title"
     >
       <h2 id="file-intake-title" className="text-lg font-semibold text-pf-deep">
-        Document and image intake
+        Share documents and images
       </h2>
       <p className="mt-1 text-sm leading-6 text-pf-deep/75">
-        Submit PDFs or supported raster images as quarantined evidence. A successful upload verifies
-        only transport size, type, and checksum; it does not mean the format or file has passed
-        malware inspection. Nothing here is published, approved, or applied.
+        Add PDFs or supported images for the PathFinder team to review. A completed upload confirms
+        that the file arrived as sent; the team still reviews it before use. Nothing is published
+        from this page.
       </p>
       <label className="mt-4 block text-sm font-medium text-pf-deep">
         Choose files
@@ -231,7 +247,7 @@ export function IntakeFileUpload({
             <li key={item.localId} className="rounded-xl border border-pf-light p-3">
               <p className="break-all text-sm font-medium text-pf-deep">{item.file.name}</p>
               <p className="text-xs text-pf-deep/65" aria-live="polite">
-                {item.phase.replace('-', ' ')}
+                {CLIENT_PHASE_LABELS[item.phase]}
               </p>
               {item.error ? (
                 <p className="mt-1 text-sm text-rose-700" role="alert">
@@ -270,16 +286,20 @@ export function IntakeFileUpload({
           ))}
         </ul>
       ) : null}
-      <h3 className="mt-6 font-medium text-pf-deep">Submitted evidence</h3>
+      <h3 className="mt-6 font-medium text-pf-deep">Files shared</h3>
       {uploads.length === 0 ? (
-        <p className="mt-2 text-sm text-pf-deep/65">No quarantined files have been submitted.</p>
+        <p className="mt-2 text-sm text-pf-deep/65">No files have been shared yet.</p>
       ) : (
         <ul className="mt-2 space-y-2">
           {uploads.map((upload) => (
             <li key={upload.id} className="rounded-xl bg-slate-50 p-3 text-sm">
               <span className="font-medium">{upload.displayName}</span>
               <span className="ml-2 text-xs uppercase text-pf-deep/60">
-                {upload.status.replaceAll('_', ' ')}
+                {upload.status === 'AWAITING_REVIEW'
+                  ? 'Received'
+                  : upload.status === 'REJECTED'
+                    ? 'Could not be accepted'
+                    : 'Sending'}
               </span>
             </li>
           ))}

@@ -5,23 +5,33 @@ import type { TRPCContext } from '../context'
 import { portalRouter } from './portal'
 
 const venueFindMany = vi.fn()
+const venueFindFirst = vi.fn()
 const intakeGroupBy = vi.fn()
+const intakeCount = vi.fn()
+const uploadCount = vi.fn()
 const mediaGroupBy = vi.fn()
 const packageGroupBy = vi.fn()
 const packageFindMany = vi.fn()
 const historyFindMany = vi.fn()
 const offboardingFindMany = vi.fn()
+const supportFindMany = vi.fn()
+const reportConfigurationFindFirst = vi.fn()
+const weeklyReportFindFirst = vi.fn()
 
 const app = router({ portal: portalRouter })
 const ctx = {
   db: {
     $transaction: vi.fn(async (callback: (db: unknown) => unknown) => callback(ctx.db)),
-    venue: { findMany: venueFindMany },
-    intakeRun: { groupBy: intakeGroupBy },
+    venue: { findMany: venueFindMany, findFirst: venueFindFirst },
+    intakeRun: { groupBy: intakeGroupBy, count: intakeCount },
+    intakeUpload: { count: uploadCount },
     mediaIngestionProject: { groupBy: mediaGroupBy },
     venuePackage: { groupBy: packageGroupBy, findMany: packageFindMany },
     contentVersion: { findMany: historyFindMany },
     offboardingVenueTarget: { findMany: offboardingFindMany },
+    supportRequest: { findMany: supportFindMany },
+    venueReportConfiguration: { findFirst: reportConfigurationFindFirst },
+    weeklyReport: { findFirst: weeklyReportFindFirst },
   } as unknown as TRPCContext['db'],
   headers: new Headers(),
   session: {
@@ -33,6 +43,117 @@ const ctx = {
 }
 
 describe('client portal lifecycle read model', () => {
+  it('returns only exact-ACL, bounded client task evidence without request bodies or internals', async () => {
+    venueFindFirst.mockResolvedValue({ id: 'venue-1' })
+    supportFindMany.mockResolvedValue([
+      {
+        id: 'request-1',
+        subject: 'Updated admission details',
+        missingInformation: ['Current price', 'Effective date', 'Source link'],
+      },
+      {
+        id: 'request-2',
+        subject: 'Entrance accessibility',
+        missingInformation: ['Ramp dimensions'],
+      },
+    ])
+    intakeCount.mockResolvedValue(1)
+    uploadCount.mockResolvedValue(2)
+    reportConfigurationFindFirst.mockResolvedValue({ id: 'configuration-1' })
+    weeklyReportFindFirst.mockResolvedValue({
+      id: 'report-1',
+      title: 'July review',
+      publishedAt: new Date('2026-08-01T12:00:00.000Z'),
+    })
+
+    const result = await app.createCaller(ctx).portal.getVenueTaskEvidence({ venueId: 'venue-1' })
+
+    expect(venueFindFirst).toHaveBeenCalledWith({
+      where: { id: 'venue-1', tenantId: 'tenant-1' },
+      select: { id: true },
+    })
+    expect(supportFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          createdByKind: 'CLIENT',
+          OR: expect.arrayContaining([
+            expect.objectContaining({ requesterUserId: 'user-1' }),
+            expect.objectContaining({ participants: expect.any(Object) }),
+          ]),
+        }),
+        take: 4,
+        select: { id: true, subject: true, missingInformation: true },
+      }),
+    )
+    expect(result).toEqual({
+      missingInformation: [
+        {
+          requestId: 'request-1',
+          subject: 'Updated admission details',
+          items: ['Current price', 'Effective date', 'Source link'],
+          additionalItemCount: 0,
+        },
+        {
+          requestId: 'request-2',
+          subject: 'Entrance accessibility',
+          items: ['Ramp dimensions'],
+          additionalItemCount: 0,
+        },
+      ],
+      additionalMissingRequest: false,
+      hasSharedInformation: true,
+      latestReport: {
+        id: 'report-1',
+        title: 'July review',
+        publishedAt: new Date('2026-08-01T12:00:00.000Z'),
+      },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/body|participant|requester|package|hash|status/iu)
+  })
+
+  it('fails nondisclosingly before task reads for a missing or cross-tenant venue', async () => {
+    venueFindFirst.mockResolvedValue(null)
+    supportFindMany.mockClear()
+    intakeCount.mockClear()
+    uploadCount.mockClear()
+
+    await expect(
+      app.createCaller(ctx).portal.getVenueTaskEvidence({ venueId: 'foreign-venue' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(supportFindMany).not.toHaveBeenCalled()
+    expect(intakeCount).not.toHaveBeenCalled()
+    expect(uploadCount).not.toHaveBeenCalled()
+  })
+
+  it('bounds missing-information evidence and keeps reports fail-closed when disabled', async () => {
+    venueFindFirst.mockResolvedValue({ id: 'venue-1' })
+    supportFindMany.mockResolvedValue(
+      Array.from({ length: 4 }, (_, index) => ({
+        id: `request-${index}`,
+        subject: `Question ${index}`,
+        missingInformation: Array.from({ length: 7 }, (_item, item) => `Detail ${index}-${item}`),
+      })),
+    )
+    intakeCount.mockResolvedValue(0)
+    uploadCount.mockResolvedValue(0)
+    reportConfigurationFindFirst.mockResolvedValue(null)
+    weeklyReportFindFirst.mockClear()
+
+    const result = await app.createCaller(ctx).portal.getVenueTaskEvidence({ venueId: 'venue-1' })
+
+    expect(result.missingInformation).toHaveLength(3)
+    expect(result.missingInformation[0]).toMatchObject({
+      items: ['Detail 0-0', 'Detail 0-1', 'Detail 0-2', 'Detail 0-3', 'Detail 0-4'],
+      additionalItemCount: 2,
+    })
+    expect(result.additionalMissingRequest).toBe(true)
+    expect(result.hasSharedInformation).toBe(false)
+    expect(result.latestReport).toBeNull()
+    expect(weeklyReportFindFirst).not.toHaveBeenCalled()
+  })
+
   it('uses UNAVAILABLE rather than false staleness when CLIENT_PREVIEW has no eligible candidate', async () => {
     venueFindMany.mockResolvedValue([
       {

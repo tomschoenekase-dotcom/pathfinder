@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   cancelRun: vi.fn(),
   durableEnabled: vi.fn(),
   markQueued: vi.fn(),
+  compareRuns: vi.fn(),
+  appendReview: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({ env: { EVALUATION_RUNNER_ENABLED: true } }))
@@ -26,7 +28,25 @@ vi.mock('@pathfinder/ai', () => ({
 vi.mock('@pathfinder/jobs', () => ({ enqueueEvaluationRun: mocks.enqueueRun }))
 
 vi.mock('@pathfinder/db', () => ({
+  EvaluationRunComparisonError: class EvaluationRunComparisonError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  EvaluationReviewActionError: class EvaluationReviewActionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
   withTenantIsolationBypass: mocks.bypass,
+  compareEvaluationRuns: mocks.compareRuns,
+  appendEvaluationReviewAction: mocks.appendReview,
   createVenueContentSnapshot: mocks.createSnapshot,
   createOrReplayEvaluationRun: mocks.createRun,
   requestEvaluationRunCancellation: mocks.cancelRun,
@@ -75,6 +95,12 @@ describe('admin evaluation operations router', () => {
     mocks.cancelRun.mockResolvedValue('requested')
     mocks.durableEnabled.mockResolvedValue(true)
     mocks.markQueued.mockResolvedValue(true)
+    mocks.compareRuns.mockResolvedValue({
+      status: 'INCOMPARABLE',
+      mismatchReasons: ['CONTENT'],
+      cases: [],
+      totals: null,
+    })
   })
 
   it('freezes server-derived identities as STAGED without publishing directly from the API', async () => {
@@ -344,5 +370,68 @@ describe('admin evaluation operations router', () => {
     expect(result).toEqual({ items: [], humanConclusions: [], nextCursor: null })
     expect(mocks.resultGroupBy).not.toHaveBeenCalled()
     expect(mocks.reviewFindMany).not.toHaveBeenCalled()
+  })
+
+  it('returns exact-scoped fail-closed comparison evidence without provider or write work', async () => {
+    const baselineRunId = '11111111-1111-4111-8111-111111111111'
+    const candidateRunId = '22222222-2222-4222-8222-222222222222'
+    await expect(
+      testRouter.createCaller(context()).evaluations.compareEvaluationRuns({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        baselineRunId,
+        candidateRunId,
+      }),
+    ).resolves.toMatchObject({ status: 'INCOMPARABLE', mismatchReasons: ['CONTENT'] })
+    expect(mocks.compareRuns).toHaveBeenCalledWith(
+      { tenantId: 'tenant_1', venueId: 'venue_1', baselineRunId, candidateRunId },
+      expect.anything(),
+    )
+    expect(mocks.createRun).not.toHaveBeenCalled()
+  })
+
+  it('appends a conclusion with server-owned HUMAN PLATFORM_ADMIN identity', async () => {
+    const runId = '11111111-1111-4111-8111-111111111111'
+    const resultId = '22222222-2222-4222-8222-222222222222'
+    const operationId = '33333333-3333-4333-8333-333333333333'
+    mocks.appendReview.mockResolvedValue({
+      id: operationId,
+      resultId,
+      reviewerId: 'operator_1',
+      conclusion: 'Accept this exact result.',
+      decision: 'ACCEPTED',
+      rubricVersion: 'operator-v1',
+      revision: 1,
+      createdAt: new Date('2026-08-12T12:00:00Z'),
+      replayed: false,
+      result: {
+        runId,
+        caseRevision: 2,
+        evalCase: { caseKey: 'hours', category: 'grounding' },
+      },
+    })
+    await expect(
+      testRouter.createCaller(context()).evaluations.appendEvaluationConclusion({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        runId,
+        expectedRunIdentityHash: 'a'.repeat(64),
+        resultId,
+        expectedRevision: 0,
+        operationId,
+        decision: 'ACCEPTED',
+        conclusion: 'Accept this exact result.',
+        rubricVersion: 'operator-v1',
+      }),
+    ).resolves.toMatchObject({ id: operationId, replayed: false })
+    expect(mocks.appendReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        runId,
+        resultId,
+        actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+      }),
+    )
   })
 })

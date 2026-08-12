@@ -89,6 +89,8 @@ export {
   acquireWeeklyReportRecoveryExecution,
   deferAnswerAnalysisExecution,
   deferWeeklyReportExecution,
+  renewAnswerAnalysisExecution,
+  renewWeeklyReportExecution,
   GENERATION_EXECUTION_LEASE_MS,
 } from './helpers/generation-execution-claims'
 export type {
@@ -98,6 +100,8 @@ export type {
   AcquireWeeklyReportRecoveryExecutionParams,
   DeferAnswerAnalysisExecutionParams,
   DeferWeeklyReportExecutionParams,
+  RenewAnswerAnalysisExecutionParams,
+  RenewWeeklyReportExecutionParams,
   GenerationExecutionAcquisition,
   GenerationRecoveryExecutionAcquisition,
 } from './helpers/generation-execution-claims'
@@ -298,6 +302,7 @@ export {
 export type { EvaluationRunIdentity } from './helpers/evaluation-runs'
 export {
   claimEvaluationRunAttempt,
+  EVALUATION_RUN_EXECUTION_LEASE_MS,
   failEvaluationRunAttempt,
   finishEvaluationRunAttempt,
   isEvaluationRunCancellationRequested,
@@ -577,6 +582,24 @@ export type {
   ChatlogReviewActionErrorCode,
   ChatlogReviewActor,
 } from './helpers/chatlog-review-actions'
+export {
+  appendEvaluationReviewAction,
+  evaluationReviewInputHash,
+  EvaluationReviewActionError,
+} from './helpers/evaluation-review-actions'
+export type {
+  AppendEvaluationReviewInput,
+  EvaluationReviewActionClient,
+  EvaluationReviewActor,
+} from './helpers/evaluation-review-actions'
+export {
+  compareEvaluationRuns,
+  EvaluationRunComparisonError,
+} from './helpers/evaluation-run-comparison'
+export type {
+  EvaluationComparisonClassification,
+  EvaluationComparisonMismatch,
+} from './helpers/evaluation-run-comparison'
 export {
   prepareWeeklyDigestIntentAction,
   WeeklyDigestIntentActionError,

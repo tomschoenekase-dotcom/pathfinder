@@ -21,10 +21,10 @@ describe('IntakeProposalWorkspace', () => {
     cleanup()
     vi.clearAllMocks()
   })
-  it('records a text interview as a draft-only proposal', async () => {
+  it('shares staff answers with client-safe language and no implementation identifiers', async () => {
     mocks.mutate.mockResolvedValue({ id: 'run-1' })
     render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
-    fireEvent.click(screen.getByLabelText('Text interview'))
+    fireEvent.click(screen.getByLabelText('Staff questionnaire'))
     fireEvent.change(screen.getByLabelText('Interview name'), {
       target: { value: 'Staff interview' },
     })
@@ -34,7 +34,7 @@ describe('IntakeProposalWorkspace', () => {
     fireEvent.click(screen.getAllByLabelText('Explicitly skip')[1]!)
     fireEvent.click(screen.getAllByLabelText('Redact')[2]!)
     fireEvent.click(screen.getByLabelText(STAFF_INTERVIEW_CONSENT_TEXT))
-    fireEvent.click(screen.getByRole('button', { name: 'Record review proposal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Share staff answers' }))
     await waitFor(() =>
       expect(mocks.mutate).toHaveBeenCalledWith({
         venueId: 'venue-1',
@@ -75,18 +75,52 @@ describe('IntakeProposalWorkspace', () => {
         },
       }),
     )
-    expect(await screen.findByText(/Nothing was approved, applied, or published/)).toBeTruthy()
+    expect(await screen.findByText(/Information received/)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(
+      /proposal|package|handoff|manifest|hash|quarantin/iu,
+    )
   })
 
   it('does not offer a public classification for private-by-default questions', () => {
     render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
-    fireEvent.click(screen.getByLabelText('Text interview'))
+    fireEvent.click(screen.getByLabelText('Staff questionnaire'))
     fireEvent.change(screen.getByLabelText('Staff role'), { target: { value: 'OPERATIONS' } })
     const classifications = screen.getAllByLabelText('Privacy', {
       selector: 'select',
     })
     const classification = classifications.at(-1) as HTMLSelectElement
     expect(Array.from(classification.options).map((option) => option.value)).toEqual(['PRIVATE'])
+  })
+
+  it('keeps package identity and operator workflow language out of client history', () => {
+    render(
+      <IntakeProposalWorkspace
+        venueId="venue-1"
+        proposals={[
+          {
+            id: 'intake-secret-id',
+            sourceKind: 'WEBSITE',
+            status: 'AWAITING_REVIEW',
+            displayName: 'Venue website',
+            websiteUri: 'https://example.com',
+            interviewRole: null,
+            createdAt: new Date('2026-08-10T12:00:00.000Z'),
+            _count: { evidence: 8, events: 3 },
+            packageHandoff: {
+              packageDraftId: 'package-secret-id',
+              createdAt: new Date('2026-08-10T13:00:00.000Z'),
+            },
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Information shared' })).toBeTruthy()
+    expect(screen.getByText(/Prepared for PathFinder review/)).toBeTruthy()
+    expect(screen.getByLabelText('Website name')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(
+      /package-secret-id|intake-secret-id|draft package|handoff|proposal history|evidence record/iu,
+    )
   })
 
   it('fences same-tick duplicate submits and retains the request identity for an exact retry', async () => {

@@ -276,6 +276,12 @@ Section-level evidence and blockers are indexed in
   retained as compatibility redirects rather than deleted.
 - Premium onboarding reframed around modest raw client input, private assembly milestones, and
   preview rather than asking clients to design the knowledge system themselves.
+- The client home derives a bounded task checklist from exact venue scope and the immutable
+  requester/active-participant Support ACL. Missing-information lists are capped with remaining
+  counts, task links expose visible checklist content accessibly, and Support writes are fenced
+  against venue changes. Tenant staff-answer review is a server-side safe DTO: confidence,
+  discrepancies, readiness, timelines, hashes and internal evidence never reach the client browser.
+  Client copy/errors are plain and sanitized; detailed admin review remains separate.
 - Guest structured response renderer foundation with backward-compatible text/place responses plus
   callouts, safe actions, citations, typed places, choices, images, galleries, events and locations.
 - Route-level loading states and reduced-motion-safe transitions across the rebuilt surfaces.
@@ -318,6 +324,17 @@ Section-level evidence and blockers are indexed in
   durable dispatcher advances and idempotently publishes `QUEUED` work, while the registered worker
   records retry, cancellation, budget, operational-failure, and scored-quality evidence. Process,
   durable-global, and tenant gates all remain off until explicitly and separately enabled.
+- Evaluation Operations compares two runs only when frozen corpus, content/package, model/config,
+  manifest and exact case/result identities agree. Duplicate, off-manifest or hash/revision-mismatched
+  evidence is `INCOMPARABLE`; compatible rows expose bounded classifications and deltas. HUMAN
+  platform administrators may append replay-safe revision-CAS conclusions only to `COMPLETED`
+  evidence with atomic sanitized audit. Conclusions never approve/block a package or call a provider;
+  forward migration `20260812000600_evaluation_review_commands` remains unapplied.
+- Answer-analysis, weekly-report and evaluation provider waits renew exact live leases before,
+  during and after provider work. The heartbeat passes an `AbortSignal`; ownership loss aborts,
+  settles dispatched reservations as ambiguous, suppresses redispatch and prevents stale worker
+  settlement. Evaluation distinguishes durable user cancellation from takeover. This is local
+  worker/gateway evidence, not a live provider claim.
 - Read-only Freshness Audit queues for overdue human-reviewed sources, provenance metadata gaps, and
   expired/soon-expiring operational updates. The console never represents metadata gaps as factual
   contradictions and exposes no patch/publish action.
@@ -414,7 +431,8 @@ Section-level evidence and blockers are indexed in
 
 ## Local browser-surface foundation
 
-`pnpm test:browser-foundation` now runs 88 deterministic DOM and route-adapter contracts across the
+`pnpm test:browser-foundation` now runs 104 deterministic DOM and route-adapter contracts (44
+dashboard and 60 web) across the
 Admin OS, Internal Client Workspace, ultra-simple Client Portal, and Guest experience. The gate is
 wired into CI and performs no authentication, network, provider, or database access. It is an inner
 loop foundation, not Playwright or deployed-browser evidence: browser-engine layout, Clerk flows,
@@ -430,23 +448,27 @@ mode and assistive-technology evidence remain unverified.
 - Isolated live staging, alert delivery, promotion, restore, and production evidence where owner
   authorization is required.
 
-## Verification evidence boundary — 2026-08-11
+## Verification evidence boundary — 2026-08-12
 
-- Final merged `pnpm typecheck`: 23/23 tasks passed across 13 workspaces.
-- Final merged `pnpm lint`: 13/13 tasks passed with zero errors and one existing guest
+- Historical merged evidence at commit `5a783ff4` predates the current three waves: `pnpm typecheck`
+  passed 23/23 tasks across 13 workspaces; `pnpm lint` passed 13/13 tasks with one existing guest
   `no-img-element` warning in `PlaceCard.tsx`.
-- Final merged `pnpm test`: 2,522 tests passed, 134 configured/intentional tests skipped, and zero
+- At that historical commit, `pnpm test` passed 2,522 tests with 134 configured/intentional skips and zero
   failed. This includes 135 passing structural/security script tests and one intentional legacy
   fixture skip.
-- Final merged `pnpm build`: 13/13 tasks passed, including both optimized Next.js applications.
+- At that historical commit, `pnpm build` passed 13/13 tasks, including both optimized Next.js applications.
   Existing Sentry/OpenTelemetry dynamic-require and Windows standalone-link warnings remain.
-- Static boundaries passed: 72-model tenant registry, 66 tenant procedures, 123 reviewed tenant
+- At that historical commit, static boundaries passed: 72-model tenant registry, 66 tenant procedures, 123 reviewed tenant
   bypasses in 39 production files, 811-file AI-provider review, 12 budgeted gateway sites, 62 raw
   SQL operations, six public tRPC procedures, six public HTTP modules, one dashboard public API
   path, and 310 browser files scanned against 11 credential/secret canaries.
-- Prisma format, validation, and client generation for the three new forward-only migrations used
+- At that historical commit, Prisma format, validation, and client generation for three then-new forward-only migrations used
   dummy loopback URLs only. The migrations remain unapplied and have no live-schema evidence.
 - No database, Redis, provider, migration-apply, staging, or production operation was executed.
+- Current focused evidence passed: evaluation DB 18, API 11 and dashboard 19 tests; tenant intake API
+  5 and the expanded onboarding dashboard set 49 tests; affected AI/DB/worker suites reported 1,177
+  passing with 78 configured skips. Relevant typechecks and lints passed. These focused counts do not
+  replace a new final merged repository gate; no current full-suite or build totals are claimed.
 
 Live browser visual/E2E evidence is not claimed: the in-app browser had no connected runtime, and
 starting a data-backed application against an unidentified environment would violate the active

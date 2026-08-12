@@ -28,6 +28,8 @@ import {
   deferAnswerAnalysisExecution,
   deferWeeklyReportExecution,
   GENERATION_EXECUTION_LEASE_MS,
+  renewAnswerAnalysisExecution,
+  renewWeeklyReportExecution,
 } from './generation-execution-claims'
 
 const rangeStart = new Date('2026-08-01T00:00:00.000Z')
@@ -124,6 +126,50 @@ describe('generation execution claims', () => {
       'recovery_lineage_token = NULL',
     )
     expect(mocks.reportFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('renews answer analysis only for the exact live token and request scope', async () => {
+    expect(
+      await renewAnswerAnalysisExecution({ ...analysisIdentity, leaseToken: observedLeaseToken }),
+    ).toBe(true)
+
+    const call = mocks.executeRaw.mock.calls[0]!
+    const sql = (call[0] as readonly string[]).join('?')
+    expect(sql).toContain("status = 'GENERATING'")
+    expect(sql).toContain('execution_lease_token = ?::uuid')
+    expect(sql).toContain('execution_lease_expires_at > clock_timestamp()')
+    expect(call.slice(1)).toEqual([
+      GENERATION_EXECUTION_LEASE_MS,
+      'snapshot_1',
+      'tenant_1',
+      'venue_1',
+      rangeStart,
+      rangeEnd,
+      observedLeaseToken,
+    ])
+  })
+
+  it('renews weekly report only for the exact live token and request scope', async () => {
+    mocks.executeRaw.mockResolvedValueOnce(0)
+
+    expect(
+      await renewWeeklyReportExecution({ ...reportIdentity, leaseToken: observedLeaseToken }),
+    ).toBe(false)
+
+    const call = mocks.executeRaw.mock.calls[0]!
+    const sql = (call[0] as readonly string[]).join('?')
+    expect(sql).toContain("status = 'GENERATING'")
+    expect(sql).toContain('execution_lease_token = ?::uuid')
+    expect(sql).toContain('execution_lease_expires_at > clock_timestamp()')
+    expect(call.slice(1)).toEqual([
+      GENERATION_EXECUTION_LEASE_MS,
+      'report_1',
+      'tenant_1',
+      'venue_1',
+      rangeStart,
+      rangeEnd,
+      observedLeaseToken,
+    ])
   })
 
   it('releases only the exact answer-analysis lease while retaining retryable state', async () => {

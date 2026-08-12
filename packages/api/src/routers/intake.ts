@@ -120,12 +120,26 @@ export const intakeRouter = router({
     .input(scope.extend({ runId: z.string().trim().min(1).max(191) }))
     .query(async ({ ctx, input }) => {
       try {
-        return await getIntakeProposalReview({
+        const review = await getIntakeProposalReview({
           db: ctx.db,
           tenantId: ctx.session.activeTenantId,
           venueId: input.venueId,
           runId: input.runId,
         })
+        return {
+          id: review.id,
+          role: review.role,
+          consentVerified: review.consentVerified,
+          answers: review.answers.map((answer) => ({
+            questionId: answer.questionId,
+            prompt: answer.prompt,
+            privacy: answer.privacy,
+            skipped: answer.skipped,
+            redacted: answer.redacted,
+            hasEvidence: answer.hasEvidence,
+            publicText: answer.publicText,
+          })),
+        }
       } catch (error) {
         mapActionError(error)
       }

@@ -23,9 +23,11 @@ type Proposal = {
 
 function WebsiteProposalCapture({
   disabled,
+  clientFacing,
   onSubmit,
 }: {
   disabled: boolean
+  clientFacing: boolean
   onSubmit: (input: { displayName: string; websiteUri: string; requestId: string }) => Promise<void>
 }) {
   const [displayName, setDisplayName] = useState('')
@@ -52,12 +54,16 @@ function WebsiteProposalCapture({
       }}
     >
       <fieldset disabled={disabled}>
-        <legend className="font-semibold text-pf-deep">Website source proposal</legend>
+        <legend className="font-semibold text-pf-deep">
+          {clientFacing ? 'Share a website' : 'Website source proposal'}
+        </legend>
         <p className="mt-1 text-sm text-pf-deep/75">
-          Record an address for later review. This form does not fetch or crawl it.
+          {clientFacing
+            ? 'Add a website address for the PathFinder team to review. Nothing is published from this step.'
+            : 'Record an address for later review. This form does not fetch or crawl it.'}
         </p>
         <label className="mt-4 block text-sm font-medium text-pf-deep">
-          Proposal name
+          {clientFacing ? 'Website name' : 'Proposal name'}
           <input
             required
             maxLength={255}
@@ -89,7 +95,13 @@ function WebsiteProposalCapture({
         disabled={disabled || !displayName.trim() || !websiteUri.trim()}
         className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {disabled ? 'Recording…' : 'Record website proposal'}
+        {disabled
+          ? clientFacing
+            ? 'Sharing…'
+            : 'Recording…'
+          : clientFacing
+            ? 'Share website'
+            : 'Record website proposal'}
       </button>
     </form>
   )
@@ -106,6 +118,7 @@ export function IntakeProposalWorkspace({
 }) {
   const client = useTRPCClient()
   const router = useRouter()
+  const clientFacing = !adminTenantId
   const [source, setSource] = useState<'WEBSITE' | 'INTERVIEW'>('WEBSITE')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -140,11 +153,23 @@ export function IntakeProposalWorkspace({
       } else {
         await client.intake.createProposal.mutate({ venueId, ...proposal })
       }
-      setMessage('Draft proposal recorded for review. Nothing was approved, applied, or published.')
+      setMessage(
+        clientFacing
+          ? 'Information received. The PathFinder team will review it before use.'
+          : 'Draft proposal recorded for review. Nothing was approved, applied, or published.',
+      )
       router.refresh()
     } catch (error) {
-      const failure = error instanceof Error ? error.message : 'The proposal was not recorded.'
-      setMessage(`${failure} No changes were published.`)
+      const failure = clientFacing
+        ? 'PathFinder could not receive this information.'
+        : error instanceof Error
+          ? error.message
+          : 'The proposal was not recorded.'
+      setMessage(
+        clientFacing
+          ? `${failure} Your information was not shared.`
+          : `${failure} No changes were published.`,
+      )
       throw error
     } finally {
       creatingRef.current = false
@@ -159,7 +184,7 @@ export function IntakeProposalWorkspace({
         aria-labelledby="new-intake-source"
       >
         <h2 id="new-intake-source" className="font-semibold text-pf-deep">
-          New draft proposal
+          {clientFacing ? 'Share more information' : 'New draft proposal'}
         </h2>
         <fieldset className="mt-3" disabled={busy}>
           <legend className="sr-only">Choose source type</legend>
@@ -178,7 +203,7 @@ export function IntakeProposalWorkspace({
                 checked={source === 'INTERVIEW'}
                 onChange={() => setSource('INTERVIEW')}
               />{' '}
-              Text interview
+              {clientFacing ? 'Staff questionnaire' : 'Text interview'}
             </label>
           </div>
         </fieldset>
@@ -186,11 +211,13 @@ export function IntakeProposalWorkspace({
           {source === 'WEBSITE' ? (
             <WebsiteProposalCapture
               disabled={busy}
+              clientFacing={clientFacing}
               onSubmit={(input) => create({ kind: 'WEBSITE', ...input })}
             />
           ) : (
             <StaffInterviewCapture
               disabled={busy}
+              clientFacing={clientFacing}
               onSubmit={(input) => create({ kind: 'INTERVIEW', ...input })}
             />
           )}
@@ -201,7 +228,7 @@ export function IntakeProposalWorkspace({
       </section>
       <section aria-labelledby="proposal-history">
         <h2 id="proposal-history" className="text-xl font-semibold text-pf-deep">
-          Proposal history
+          {clientFacing ? 'Information shared' : 'Proposal history'}
         </h2>
         {proposals.length ? (
           <ul className="mt-3 space-y-3">
@@ -209,22 +236,40 @@ export function IntakeProposalWorkspace({
               <li key={proposal.id} className="rounded-2xl border border-pf-light bg-white p-4">
                 <div className="flex flex-wrap justify-between gap-2">
                   <strong>{proposal.displayName}</strong>
-                  <span>{proposal.status.replaceAll('_', ' ')}</span>
+                  <span>
+                    {clientFacing
+                      ? proposal.status === 'AWAITING_REVIEW'
+                        ? 'Received'
+                        : 'Reviewed'
+                      : proposal.status.replaceAll('_', ' ')}
+                  </span>
                 </div>
                 <p className="mt-1 text-sm text-pf-deep/75">
-                  {proposal.sourceKind.replaceAll('_', ' ')}
-                  {proposal.interviewRole
-                    ? ` · ${proposal.interviewRole.replaceAll('_', ' ')}`
-                    : ''}{' '}
-                  · {proposal._count.evidence} evidence record(s) ·{' '}
-                  {proposal.packageHandoff
-                    ? `Draft package ${proposal.packageHandoff.packageDraftId}`
-                    : 'Awaiting review handoff'}
+                  {clientFacing ? (
+                    <>
+                      {proposal.sourceKind === 'INTERVIEW' ? 'Staff answers' : 'Website'} ·{' '}
+                      {proposal.packageHandoff
+                        ? 'Prepared for PathFinder review'
+                        : 'Review pending'}
+                    </>
+                  ) : (
+                    <>
+                      {proposal.sourceKind.replaceAll('_', ' ')}
+                      {proposal.interviewRole
+                        ? ` · ${proposal.interviewRole.replaceAll('_', ' ')}`
+                        : ''}{' '}
+                      · {proposal._count.evidence} evidence record(s) ·{' '}
+                      {proposal.packageHandoff
+                        ? `Draft package ${proposal.packageHandoff.packageDraftId}`
+                        : 'Awaiting review handoff'}
+                    </>
+                  )}
                 </p>
                 {proposal.sourceKind === 'INTERVIEW' ? (
                   <IntakeProposalReview
                     venueId={venueId}
                     runId={proposal.id}
+                    clientFacing={clientFacing}
                     {...(adminTenantId ? { adminTenantId } : {})}
                   />
                 ) : null}
@@ -233,7 +278,9 @@ export function IntakeProposalWorkspace({
           </ul>
         ) : (
           <p className="mt-3 rounded-2xl border border-dashed border-pf-light p-6 text-sm text-pf-deep/75">
-            No intake proposals yet.
+            {clientFacing
+              ? 'No websites or staff answers have been shared yet.'
+              : 'No intake proposals yet.'}
           </p>
         )}
       </section>

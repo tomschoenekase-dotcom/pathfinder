@@ -71,6 +71,13 @@ access does not transfer upload ownership: each client actor may attach only tha
 quarantined upload. Platform-admin Support reads and mutations remain a separate admin procedure with
 exact tenant/venue/request scope, not a path through the tenant ACL.
 
+The client portal task projection must reuse that same ACL, first verify exact tenant/venue scope,
+and return only bounded client evidence. Missing-information tasks expose at most three requests and
+five items per request with explicit remaining counts. Tenant intake review is a positive allowlist:
+id, role, consent state, and safe prompt/privacy/retention/public-text fields only. Never send
+confidence, discrepancies, readiness, timelines, hashes, evidence internals, field paths, or
+automation metadata to the tenant browser. Admin review retains its separately authorized detail.
+
 Approved-preview feedback is a separate canonical support action. Session tenant and HUMAN client
 identity are authoritative. Inside one `RepeatableRead` transaction it revalidates the same current
 eligible `APPROVED` preview, then creates the Support request, immutable message, trusted attachment
@@ -203,6 +210,20 @@ then publishes a deterministic job and republishes queued rows to repair crash g
 changes behind the SQL state machine and scoped CAS helpers. Retry must reuse terminal case results
 and prior spend; never rebuild mutable content or silently switch models.
 
+Long provider calls run under an exact live execution lease. Renew with the database clock and the
+same tenant/venue/record/token before dispatch, periodically while awaiting the provider, and once
+more before accepting its result. Pass the heartbeat `AbortSignal` to the provider gateway. If a
+renewal loses ownership, abort, settle any dispatched reservation as ambiguous, and never
+redispatch it. Distinguish durable user cancellation from takeover and perform no stale terminal
+domain write after ownership loss.
+
+Operational evaluation comparison accepts two runs only when frozen corpus, content/package,
+model, prompt/config, manifest, case revision/hash, and result evidence are compatible. Duplicate or
+off-manifest evidence is explicitly `INCOMPARABLE`. A HUMAN `PLATFORM_ADMIN` may append a conclusion
+only to exact `COMPLETED` run evidence. Actor/scope/revision-bound UUID/hash replay and sanitized
+audit are atomic. Comparison and conclusions are evidence, not package approval, a package gate, or
+provider authority.
+
 Agent identity configuration uses the closed contracts in `@pathfinder/contracts` and neutral DB
 actions. Creation is disabled-only, edits require a disabled row and current `updatedAt`, and disable
 is the only activation-related mutation exposed. Do not add enable/run/provider/credential controls
@@ -322,6 +343,11 @@ immutable requester membership, adds append-only grant/revocation evidence for e
 and separates client-visible version/activity from global operator history. It rejects unresolved
 historical client requesters rather than inventing identity. It is intentionally unapplied; schema,
 migration-contract, domain, API, UI and static checks remain local evidence only.
+
+The forward-only `20260812000600_evaluation_review_commands` migration adds paired nullable command
+UUID/hash columns for historical compatibility and tenant-scoped uniqueness for new review
+commands. It invents no historical values and is intentionally unapplied; local checks are not live
+database evidence.
 
 ## Required verification
 

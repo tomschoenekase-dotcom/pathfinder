@@ -126,6 +126,7 @@ function deps(overrides: Partial<EvaluationRunnerDependencies> = {}): Evaluation
     reserve: vi.fn(async () => ({ state: 'reserved' as const, reservationId: 'reservation-1' })),
     persist: vi.fn(async () => undefined),
     isCancelled: async () => false,
+    isCancellationRequested: async () => false,
     ...overrides,
   }
 }
@@ -276,6 +277,23 @@ describe('executeFrozenEvaluationRun', () => {
     ).rejects.toThrow('EVALUATION_RUN_LEASE_LOST')
     expect(evaluate).toHaveBeenCalledOnce()
     expect(renewLease).toHaveBeenCalledTimes(2)
+    expect(subject.persist).toHaveBeenCalledTimes(1)
+  })
+
+  it('classifies durable cancellation separately when between-case renewal is rejected', async () => {
+    const subject = deps({
+      renewLease: vi.fn(async () => false),
+      isCancellationRequested: vi.fn(async () => true),
+    })
+
+    await expect(
+      executeFrozenEvaluationRun(payload, subject, {
+        finalAttempt: false,
+        attemptNumber: 1,
+        leaseToken: id,
+      }),
+    ).rejects.toMatchObject({ code: 'execution-lease-cancelled' })
+    expect(subject.persist).not.toHaveBeenCalled()
   })
 
   it('rechecks durable cancellation last at final provider admission', async () => {
@@ -438,6 +456,54 @@ describe('processEvaluationRunJob lifecycle', () => {
       }),
     )
     expect(lifecycleMocks.generateText).not.toHaveBeenCalled()
+  })
+
+  it('completes a durably cancelled run without failure settlement after renewal loss', async () => {
+    lifecycleMocks.claimEvaluationRunAttempt.mockResolvedValueOnce({
+      state: 'acquired',
+      cancellationRequested: false,
+      attemptNumber: 1,
+      leaseToken: id,
+    })
+    lifecycleMocks.finishEvaluationRunAttempt.mockResolvedValueOnce(true)
+    lifecycleMocks.writeJobRecord.mockResolvedValueOnce('job_record_cancel')
+    lifecycleMocks.updateJobRecord.mockResolvedValueOnce(undefined)
+
+    await processEvaluationRunJob(payload, undefined, undefined, {
+      ...deps(),
+      renewLease: async () => false,
+      isCancellationRequested: async () => true,
+    })
+
+    expect(lifecycleMocks.finishEvaluationRunAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ leaseToken: id, outcome: 'CANCELLED' }),
+    )
+    expect(lifecycleMocks.failEvaluationRunAttempt).not.toHaveBeenCalled()
+    expect(lifecycleMocks.updateJobRecord).toHaveBeenCalledWith('job_record_cancel', {
+      status: 'COMPLETE',
+    })
+  })
+
+  it('does not stale-settle lifecycle state when a takeover rejects renewal', async () => {
+    lifecycleMocks.claimEvaluationRunAttempt.mockResolvedValueOnce({
+      state: 'acquired',
+      cancellationRequested: false,
+      attemptNumber: 1,
+      leaseToken: id,
+    })
+    lifecycleMocks.writeJobRecord.mockResolvedValueOnce('job_record_takeover')
+    lifecycleMocks.updateJobRecord.mockResolvedValueOnce(undefined)
+
+    await expect(
+      processEvaluationRunJob(payload, undefined, undefined, {
+        ...deps(),
+        renewLease: async () => false,
+        isCancellationRequested: async () => false,
+      }),
+    ).rejects.toMatchObject({ code: 'execution-lease-ownership-lost' })
+
+    expect(lifecycleMocks.finishEvaluationRunAttempt).not.toHaveBeenCalled()
+    expect(lifecycleMocks.failEvaluationRunAttempt).not.toHaveBeenCalled()
   })
 
   it('retries an immediate consumer race until STAGED advances to QUEUED', async () => {

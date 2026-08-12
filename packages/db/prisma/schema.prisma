@@ -1426,21 +1426,24 @@ model EvalResult {
 
 /// Append-only human review conclusion. It stores a bounded conclusion, never hidden reasoning.
 model EvalReview {
-  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String             @map("tenant_id")
-  venueId       String             @map("venue_id")
-  resultId      String             @map("result_id") @db.Uuid
-  reviewerId    String             @map("reviewer_id") @db.VarChar(191)
-  conclusion    String             @db.VarChar(1000)
-  decision      EvalReviewDecision
-  rubricVersion String             @map("rubric_version") @db.VarChar(64)
-  revision      Int
-  createdAt     DateTime           @default(now()) @map("created_at")
-  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue         Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  result        EvalResult         @relation(fields: [resultId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String             @map("tenant_id")
+  venueId               String             @map("venue_id")
+  resultId              String             @map("result_id") @db.Uuid
+  reviewerId            String             @map("reviewer_id") @db.VarChar(191)
+  conclusion            String             @db.VarChar(1000)
+  decision              EvalReviewDecision
+  rubricVersion         String             @map("rubric_version") @db.VarChar(64)
+  revision              Int
+  submissionOperationId String?            @map("submission_operation_id") @db.Uuid
+  submissionInputHash   String?            @map("submission_input_hash") @db.Char(64)
+  createdAt             DateTime           @default(now()) @map("created_at")
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  result                EvalResult         @relation(fields: [resultId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([resultId, revision])
+  @@unique([tenantId, submissionOperationId], map: "eval_reviews_tenant_submission_operation_key")
   @@index([tenantId, venueId, createdAt])
   @@map("eval_reviews")
 }

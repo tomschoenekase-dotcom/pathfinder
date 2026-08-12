@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   acquireWeeklyReportRecoveryExecution: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
   deferWeeklyReportExecution: vi.fn(),
+  renewWeeklyReportExecution: vi.fn(),
   reportUpdateMany: vi.fn(),
   venueFindFirst: vi.fn(),
   sessionCount: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('@pathfinder/config', () => ({
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  GENERATION_EXECUTION_LEASE_MS: 300_000,
   assertGlobalAiAvailable: mocks.assertGlobalAiAvailable,
   assertVenueAiAvailable: mocks.assertGlobalAiAvailable,
   reserveAiCostAttempt: vi.fn(async () => null),
@@ -62,6 +64,7 @@ vi.mock('@pathfinder/db', () => ({
   acquireWeeklyReportExecution: mocks.acquireWeeklyReportExecution,
   acquireWeeklyReportRecoveryExecution: mocks.acquireWeeklyReportRecoveryExecution,
   deferWeeklyReportExecution: mocks.deferWeeklyReportExecution,
+  renewWeeklyReportExecution: mocks.renewWeeklyReportExecution,
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
   updateJobRecord: mocks.updateJobRecord,
@@ -100,6 +103,7 @@ describe('processWeeklyReportJob', () => {
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
     mocks.deferWeeklyReportExecution.mockResolvedValue(true)
+    mocks.renewWeeklyReportExecution.mockResolvedValue(true)
     mocks.acquireWeeklyReportExecution.mockResolvedValue({
       state: 'acquired',
       leaseToken: 'report_lease_1',
@@ -150,7 +154,7 @@ describe('processWeeklyReportJob', () => {
     })
     expect(anthropicCreate).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'claude-sonnet-4-6', max_tokens: 1_800 }),
-      { timeout: 30_000 },
+      expect.objectContaining({ timeout: 30_000, signal: expect.any(AbortSignal) }),
     )
     expect(mocks.aiUsageEventCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -202,6 +206,18 @@ describe('processWeeklyReportJob', () => {
     expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
     expect(mocks.updateJobRecord).not.toHaveBeenCalled()
     expect(anthropicCreate).not.toHaveBeenCalled()
+  })
+
+  it('does not dispatch or settle report state after lease ownership is lost', async () => {
+    mocks.renewWeeklyReportExecution.mockResolvedValueOnce(false)
+
+    await expect(processWeeklyReportJob(payload)).rejects.toMatchObject({
+      code: 'execution-lease-ownership-lost',
+    })
+
+    expect(anthropicCreate).not.toHaveBeenCalled()
+    expect(mocks.reportUpdateMany).not.toHaveBeenCalled()
+    expect(mocks.deferWeeklyReportExecution).not.toHaveBeenCalled()
   })
 
   it('uses an exact observed-token recovery claim without persisting the token', async () => {

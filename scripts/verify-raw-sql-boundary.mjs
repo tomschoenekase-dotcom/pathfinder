@@ -20,6 +20,8 @@ const approvedPolicies = new Set([
   'tenant-venue-revision-source',
   'tenant-venue-entity-lease',
   'tenant-venue-range-generation-lease',
+  'tenant-venue-range-answer-analysis-lease-renew',
+  'tenant-venue-range-weekly-report-lease-renew',
   'tenant-venue-range-generation-dispatch-consume',
   'platform-generation-dispatch-lease',
   'tenant-venue-record-generation-dispatch-lease',
@@ -401,6 +403,18 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: 'e6d37a7a7452145e1b77c7b787342abcae11c1911d3739c347f6a4607a0043f3',
     policy: 'tenant-venue-range-generation-lease',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: '7bb04955ee2a6c98de035fa23b2ba57b09e2ce287d9c2297731207afa521f993',
+    policy: 'tenant-venue-range-answer-analysis-lease-renew',
+  },
+  {
+    file: 'packages/db/src/helpers/generation-execution-claims.ts',
+    method: '$executeRaw',
+    hash: 'a99d0289e70f9cf5284f6b52ad599ed460a7353d5fd7900381fcec9ded9a5239',
+    policy: 'tenant-venue-range-weekly-report-lease-renew',
   },
   {
     file: 'packages/db/src/helpers/generation-request-dispatches.ts',

@@ -135,6 +135,55 @@ describe('SupportWorkspace', () => {
     expect(mocks.replace).toHaveBeenCalledWith('/support?venue=venue_beta')
   })
 
+  it('shows bounded client questions with reply and upload actions, then hides them when resolved', async () => {
+    const requestedDetail = {
+      ...detail,
+      missingInformation: [
+        'Current admission price',
+        'Date the price takes effect',
+        'Child admission price',
+        'Senior admission price',
+        'Member admission price',
+        'Group admission price',
+        'Holiday admission price',
+        'School admission price',
+      ],
+      status: 'WAITING_FOR_CLIENT',
+    }
+    const rendered = renderWorkspace({
+      initialRequests: [{ ...request, ...requestedDetail }],
+      initialDetail: requestedDetail,
+    })
+
+    expect(
+      screen.getByRole('heading', { name: 'A few details will help us continue' }),
+    ).toBeTruthy()
+    expect(screen.getByText('Current admission price')).toBeTruthy()
+    expect(screen.getByText('3 more details in this request')).toBeTruthy()
+    expect(screen.queryByText('Group admission price')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Reply with details' }).getAttribute('href')).toBe(
+      '#support-reply',
+    )
+    expect(screen.getByRole('link', { name: 'Share a file or website' }).getAttribute('href')).toBe(
+      '/venues/venue_alpha/intake',
+    )
+    expect(document.body.textContent).not.toMatch(/package|handoff|hash|quarantin|internal note/iu)
+
+    rendered.rerender(
+      <SupportWorkspace
+        venues={[venue]}
+        activeVenue={venue}
+        initialRequests={[request]}
+        initialNextCursor={null}
+        initialDetail={detail}
+        initialEligibleAttachments={[]}
+        initialEligibleAttachmentsNextCursor={null}
+      />,
+    )
+    await waitFor(() => expect(screen.queryByText('Current admission price')).toBeNull())
+    expect(screen.queryByRole('link', { name: 'Reply with details' })).toBeNull()
+  })
+
   it('loads paginated requests with the exact active venue scope', async () => {
     const cursor = { clientActivityAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }
     renderWorkspace({ initialNextCursor: cursor })
@@ -242,6 +291,84 @@ describe('SupportWorkspace', () => {
       ),
     ).toBeTruthy()
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('')
+  })
+
+  it('ignores a late create result after a render-synchronous venue scope change', async () => {
+    const pending = deferred<{
+      request: typeof request
+      message: typeof clientMessage
+    }>()
+    mocks.createRequest.mockReturnValueOnce(pending.promise)
+    const rendered = renderWorkspace({
+      venues: [venue, otherVenue],
+      initialRequests: [],
+      initialDetail: null,
+    })
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Old venue request' } })
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Old venue message' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+
+    rendered.rerender(
+      <SupportWorkspace
+        venues={[venue, otherVenue]}
+        activeVenue={otherVenue}
+        initialRequests={[]}
+        initialNextCursor={null}
+        initialDetail={null}
+        initialEligibleAttachments={[]}
+        initialEligibleAttachmentsNextCursor={null}
+      />,
+    )
+    await act(async () =>
+      pending.resolve({
+        request: { ...request, subject: 'Old venue request' },
+        message: { ...clientMessage, body: 'Old venue message' },
+      }),
+    )
+
+    expect(screen.getByText(otherVenue.name)).toBeTruthy()
+    expect(screen.queryByText('Old venue request')).toBeNull()
+    expect(screen.queryByText(/submitted for review/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Send request' })).toBeTruthy()
+  })
+
+  it('ignores a late reply result and releases the write lock after venue scope changes', async () => {
+    const pending = deferred<{
+      clientVersion: number
+      message: typeof clientMessage
+    }>()
+    mocks.addMessage.mockReturnValueOnce(pending.promise)
+    const rendered = renderWorkspace({ venues: [venue, otherVenue] })
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Old venue reply' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+
+    const otherRequest = { ...request, id: 'request_beta', venueId: otherVenue.id }
+    const otherDetail = {
+      ...otherRequest,
+      messages: [{ ...clientMessage, id: 'message_beta', body: 'Current venue message.' }],
+      nextMessageCursor: null,
+    }
+    rendered.rerender(
+      <SupportWorkspace
+        venues={[venue, otherVenue]}
+        activeVenue={otherVenue}
+        initialRequests={[otherRequest]}
+        initialNextCursor={null}
+        initialDetail={otherDetail}
+        initialEligibleAttachments={[]}
+        initialEligibleAttachmentsNextCursor={null}
+      />,
+    )
+    await act(async () =>
+      pending.resolve({
+        clientVersion: 5,
+        message: { ...clientMessage, id: 'late_message', body: 'Old venue reply' },
+      }),
+    )
+
+    expect(screen.getByText('Current venue message.')).toBeTruthy()
+    expect(screen.queryByText('Old venue reply')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Send reply' })).toBeTruthy()
   })
 
   it('sends only exact server-provided source references for create and retains text and selection on failure', async () => {

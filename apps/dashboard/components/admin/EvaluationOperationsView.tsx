@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { EvaluationRunRequestPanel, type EvaluationCaseListItem } from './EvaluationRunRequestPanel'
 import { EvaluationRunLifecycleControl } from './EvaluationRunLifecycleControl'
+import { EvaluationComparisonPanel } from './EvaluationComparisonPanel'
 
 type EvaluationSummary = {
   resultCount: number
@@ -283,6 +284,8 @@ export function EvaluationOperationsView({
           })}
         </section>
       )}
+
+      <EvaluationComparisonPanel tenantId={tenantId} venueId={venueId} runs={runs} />
 
       <section
         className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm sm:p-6"

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -25,25 +25,60 @@ export function EvaluationRunLifecycleControl(props: {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const generation = useRef(0)
+  const openButton = useRef<HTMLButtonElement>(null)
+  const confirmButton = useRef<HTMLButtonElement>(null)
+  const restoreFocus = useRef(false)
+  const inFlight = useRef(false)
+  const scope = `${props.tenantId}:${props.venueId}:${props.runId}:${props.status}:${props.cancellationRequestedAt?.toISOString() ?? ''}`
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
   const cancellable = ['STAGED', 'QUEUED', 'RETRY_SCHEDULED', 'RUNNING'].includes(props.status)
 
+  useEffect(() => {
+    generation.current += 1
+    setConfirming(false)
+    setBusy(false)
+    inFlight.current = false
+    setMessage(null)
+  }, [props.tenantId, props.venueId, props.runId, props.status, props.cancellationRequestedAt])
+
+  useEffect(() => {
+    if (confirming) {
+      confirmButton.current?.focus()
+    } else if (restoreFocus.current) {
+      restoreFocus.current = false
+      openButton.current?.focus()
+    }
+  }, [confirming])
+
   async function cancel() {
-    if (busy) return
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     setMessage(null)
+    const current = ++generation.current
+    const requestedScope = scope
     try {
       await client.admin.cancelEvaluationRun.mutate({
         tenantId: props.tenantId,
         venueId: props.venueId,
         runId: props.runId,
       })
-      setMessage('Cancellation requested. No new case dispatch will begin for this run.')
-      setConfirming(false)
-      router.refresh()
+      if (current === generation.current && requestedScope === scopeRef.current) {
+        setMessage('Cancellation requested. No new case dispatch will begin for this run.')
+        restoreFocus.current = true
+        setConfirming(false)
+        router.refresh()
+      }
     } catch {
-      setMessage('Cancellation could not be confirmed. Refresh this run before trying again.')
+      if (current === generation.current && requestedScope === scopeRef.current)
+        setMessage('Cancellation could not be confirmed. Refresh this run before trying again.')
     } finally {
-      setBusy(false)
+      if (current === generation.current && requestedScope === scopeRef.current) {
+        inFlight.current = false
+        setBusy(false)
+      }
     }
   }
 
@@ -60,6 +95,7 @@ export function EvaluationRunLifecycleControl(props: {
             <p>Stop remaining cases? Completed case evidence is retained.</p>
             <div className="mt-2 flex gap-2">
               <button
+                ref={confirmButton}
                 type="button"
                 onClick={cancel}
                 disabled={busy}
@@ -69,7 +105,10 @@ export function EvaluationRunLifecycleControl(props: {
               </button>
               <button
                 type="button"
-                onClick={() => setConfirming(false)}
+                onClick={() => {
+                  restoreFocus.current = true
+                  setConfirming(false)
+                }}
                 disabled={busy}
                 className="min-h-10 rounded-lg border border-amber-300 px-3 font-semibold"
               >
@@ -79,6 +118,7 @@ export function EvaluationRunLifecycleControl(props: {
           </div>
         ) : (
           <button
+            ref={openButton}
             type="button"
             onClick={() => setConfirming(true)}
             className="min-h-10 rounded-lg border border-pf-light px-3 text-xs font-semibold text-pf-deep"

@@ -274,7 +274,23 @@ describe('intake draft proposals', () => {
         },
       }),
     )
-    expect(result.summary).toMatchObject({ evidenceCount: 2, discrepancyCount: 2 })
+    expect(result.answers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          questionId: 'operations.hours',
+          publicText: 'Open daily.',
+          privacy: 'PUBLIC_CANDIDATE',
+        }),
+        expect.objectContaining({
+          questionId: 'operations.internal-procedures',
+          publicText: null,
+          privacy: 'PRIVATE',
+        }),
+      ]),
+    )
+    expect(JSON.stringify(result)).not.toMatch(
+      /"confidence"|"discrepancies"|"structuredSummary"|"timeline"|"evidence"|"fieldPath"|"uncertain"|handoff|normalizedHash|autoApprove|autoApply|published/iu,
+    )
     expect(JSON.stringify(result)).not.toContain('b'.repeat(64))
   })
 

@@ -25,6 +25,7 @@ import {
   assertVenueAiAvailable,
   claimEvaluationRunAttempt,
   db,
+  EVALUATION_RUN_EXECUTION_LEASE_MS,
   evaluationSnapshotHash,
   hashEvalCase,
   hashEvalObservation,
@@ -49,6 +50,11 @@ import {
 } from '@pathfinder/jobs'
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
+import {
+  ExecutionLeaseCancelledError,
+  ExecutionLeaseOwnershipLostError,
+  withExecutionLeaseHeartbeat,
+} from '../lib/execution-lease-heartbeat'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -150,6 +156,7 @@ export type EvaluationRunnerDependencies = {
     reservation?: { id: string; settlement: 'exact' | 'ambiguous' }
   }): Promise<void>
   isCancelled(runId: string): Promise<boolean>
+  isCancellationRequested(runId: string): Promise<boolean>
 }
 
 class EvaluationDeclaredBudgetError extends Error {
@@ -167,14 +174,20 @@ export async function assertFinalEvaluationProviderAdmission(checks: {
   tenantEnabled(): Promise<boolean>
   cancellationRequested(): Promise<boolean>
 }): Promise<void> {
-  if (checks.signalAborted) throw new Error('EVALUATION_RUN_CANCELLED')
+  if (checks.signalAborted) throw new ExecutionLeaseCancelledError('EVALUATION_RUN_CANCELLED')
   if (!(await checks.globalEnabled())) throw new Error('EVALUATION_RUNTIME_DISABLED')
-  if (!(await checks.renewLease())) throw new Error('EVALUATION_RUN_LEASE_LOST')
+  if (!(await checks.renewLease())) {
+    throw new ExecutionLeaseOwnershipLostError('EVALUATION_RUN_LEASE_LOST')
+  }
   await checks.venueAvailable()
-  if (!(await checks.tenantEnabled())) throw new Error('EVALUATION_RUN_CANCELLED')
+  if (!(await checks.tenantEnabled())) {
+    throw new ExecutionLeaseCancelledError('EVALUATION_RUN_CANCELLED')
+  }
   // This is deliberately last: cancellation may commit after the case boundary
   // and reservation CAS but before the provider facade performs I/O.
-  if (await checks.cancellationRequested()) throw new Error('EVALUATION_RUN_CANCELLED')
+  if (await checks.cancellationRequested()) {
+    throw new ExecutionLeaseCancelledError('EVALUATION_RUN_CANCELLED')
+  }
 }
 
 function resultFor(evalCase: EvalCase, observation: EvalObservation, caseHash: string): EvalResult {
@@ -302,7 +315,12 @@ export async function executeFrozenEvaluationRun(
       throw new Error('EVALUATION_CASE_SNAPSHOT_HASH_MISMATCH')
     }
     const leaseToken = options.leaseToken ?? '00000000-0000-4000-8000-000000000000'
-    if (!(await deps.renewLease({ run, leaseToken }))) throw new Error('EVALUATION_RUN_LEASE_LOST')
+    if (!(await deps.renewLease({ run, leaseToken }))) {
+      if (await deps.isCancellationRequested(run.id)) {
+        throw new ExecutionLeaseCancelledError('EVALUATION_RUN_CANCELLED')
+      }
+      throw new ExecutionLeaseOwnershipLostError('EVALUATION_RUN_LEASE_LOST')
+    }
     if (await deps.isCancelled(run.id)) {
       await deps.persist({
         run,
@@ -399,6 +417,12 @@ export async function executeFrozenEvaluationRun(
       })
       processed += 1
     } catch (error) {
+      if (
+        error instanceof ExecutionLeaseOwnershipLostError ||
+        error instanceof ExecutionLeaseCancelledError
+      ) {
+        throw error
+      }
       if (error instanceof EvaluationDeclaredBudgetError) {
         await deps.persist({
           run,
@@ -531,6 +555,13 @@ function defaultDependencies(
       )
       return flag?.enabled !== true
     },
+    isCancellationRequested: () =>
+      isEvaluationRunCancellationRequested({
+        runId: payload.runId,
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        runIdentityHash: payload.runIdentityHash,
+      }),
     renewLease: ({ run, leaseToken }) =>
       renewEvaluationRunLease({
         runId: run.id,
@@ -543,52 +574,72 @@ function defaultDependencies(
       const prompt = evaluationPrompt(evalCase, contentSnapshot)
       const reserved = evaluationPromptCostCeiling(evalCase, contentSnapshot)
       if (reserved > remainingBudgetE8Usd) throw new EvaluationDeclaredBudgetError()
-      const response = await generateText({
-        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
-        ...prompt,
-        maxAttempts: 1,
-        usageSink: createWorkerAiUsageSink({
+      const renewLease = () =>
+        renewEvaluationRunLease({
+          runId: run.id,
           tenantId: run.tenantId,
           venueId: run.venueId,
-          feature: 'evaluation-run',
-        }),
-        admissionGuard: async () => {
-          await assertFinalEvaluationProviderAdmission({
-            signalAborted: signal?.aborted === true,
-            globalEnabled: () => isEvaluationRuntimeDurablyEnabled(db),
-            renewLease: () =>
-              renewEvaluationRunLease({
-                runId: run.id,
-                tenantId: run.tenantId,
-                venueId: run.venueId,
-                runIdentityHash: run.identityHash,
-                leaseToken,
-              }),
-            venueAvailable: () =>
-              assertVenueAiAvailable(db, { tenantId: run.tenantId, venueId: run.venueId }),
-            tenantEnabled: () =>
-              withTenantIsolationBypass(() =>
-                db.tenantFeatureFlag.findUnique({
-                  where: {
-                    tenantId_flagKey: { tenantId: run.tenantId, flagKey: EVALUATION_RUNNER_FLAG },
-                  },
-                  select: { enabled: true },
-                }),
-              ).then((flag) => flag?.enabled === true),
-            cancellationRequested: () =>
-              isEvaluationRunCancellationRequested({
-                runId: run.id,
-                tenantId: run.tenantId,
-                venueId: run.venueId,
-                runIdentityHash: run.identityHash,
-              }),
-          })
-        },
-        budgetGate: createWorkerAiBudgetGate({
-          tenantId: run.tenantId,
-          venueId: run.venueId,
-          feature: 'evaluation-run',
-        }),
+          runIdentityHash: run.identityHash,
+          leaseToken,
+        })
+      const response = await withExecutionLeaseHeartbeat({
+        intervalMs: Math.floor(EVALUATION_RUN_EXECUTION_LEASE_MS / 3),
+        renew: renewLease,
+        ...(signal ? { signal } : {}),
+        leaseLostError: async () =>
+          (await isEvaluationRunCancellationRequested({
+            runId: run.id,
+            tenantId: run.tenantId,
+            venueId: run.venueId,
+            runIdentityHash: run.identityHash,
+          }))
+            ? new ExecutionLeaseCancelledError('EVALUATION_RUN_CANCELLED')
+            : new ExecutionLeaseOwnershipLostError('EVALUATION_RUN_LEASE_LOST'),
+        operation: (providerSignal) =>
+          generateText({
+            signal: providerSignal,
+            modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+            ...prompt,
+            maxAttempts: 1,
+            usageSink: createWorkerAiUsageSink({
+              tenantId: run.tenantId,
+              venueId: run.venueId,
+              feature: 'evaluation-run',
+            }),
+            admissionGuard: async () => {
+              await assertFinalEvaluationProviderAdmission({
+                signalAborted: providerSignal.aborted,
+                globalEnabled: () => isEvaluationRuntimeDurablyEnabled(db),
+                renewLease,
+                venueAvailable: () =>
+                  assertVenueAiAvailable(db, { tenantId: run.tenantId, venueId: run.venueId }),
+                tenantEnabled: () =>
+                  withTenantIsolationBypass(() =>
+                    db.tenantFeatureFlag.findUnique({
+                      where: {
+                        tenantId_flagKey: {
+                          tenantId: run.tenantId,
+                          flagKey: EVALUATION_RUNNER_FLAG,
+                        },
+                      },
+                      select: { enabled: true },
+                    }),
+                  ).then((flag) => flag?.enabled === true),
+                cancellationRequested: () =>
+                  isEvaluationRunCancellationRequested({
+                    runId: run.id,
+                    tenantId: run.tenantId,
+                    venueId: run.venueId,
+                    runIdentityHash: run.identityHash,
+                  }),
+              })
+            },
+            budgetGate: createWorkerAiBudgetGate({
+              tenantId: run.tenantId,
+              venueId: run.venueId,
+              feature: 'evaluation-run',
+            }),
+          }),
       })
       return {
         answer: response.text,
@@ -710,6 +761,30 @@ export async function processEvaluationRunJob(
     if (!advanced) throw new Error('EVALUATION_RUN_LIFECYCLE_STALE')
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
   } catch (error) {
+    if (acquiredClaim && error instanceof ExecutionLeaseCancelledError) {
+      const cancelled = await finishEvaluationRunAttempt({
+        runId: payload.runId,
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        runIdentityHash: payload.runIdentityHash,
+        attemptNumber: acquiredClaim.attemptNumber,
+        leaseToken: acquiredClaim.leaseToken,
+        outcome: 'CANCELLED',
+      })
+      if (cancelled) {
+        await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
+        return
+      }
+    }
+    if (error instanceof ExecutionLeaseOwnershipLostError) {
+      await recordJobFailure({
+        jobRecordId,
+        error,
+        errorMessage: error.message,
+        execution,
+      })
+      throw error
+    }
     if (acquiredClaim) {
       await failEvaluationRunAttempt({
         runId: payload.runId,

@@ -8,8 +8,11 @@ import type { AppRouter } from '@pathfinder/api'
 import { useTRPCClient } from '../lib/trpc'
 import { ReviewedVenuePackageDraftForm } from './admin/ReviewedVenuePackageDraftForm'
 
-type Review = Awaited<
+type ClientReview = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['intake']['getProposalReview']['query']>
+>
+type AdminReview = Awaited<
+  ReturnType<ReturnType<typeof useTRPCClient>['admin']['getIntakeProposalReview']['query']>
 >
 type Candidate = inferRouterOutputs<AppRouter>['admin']['getIntakeVenuePackageCandidate']
 
@@ -17,13 +20,15 @@ export function IntakeProposalReview({
   venueId,
   runId,
   adminTenantId,
+  clientFacing = false,
 }: {
   venueId: string
   runId: string
   adminTenantId?: string
+  clientFacing?: boolean
 }) {
   const client = useTRPCClient()
-  const [review, setReview] = useState<Review | null>(null)
+  const [review, setReview] = useState<ClientReview | AdminReview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [candidate, setCandidate] = useState<Candidate | null>(null)
   const [busy, setBusy] = useState(false)
@@ -51,7 +56,7 @@ export function IntakeProposalReview({
         : await client.intake.getProposalReview.query({ venueId, runId })
       if (sequence !== loadSequence.current) return
       setReview(nextReview)
-      if (adminTenantId && nextReview.structuredSummary.handoffReady) {
+      if (adminTenantId && (nextReview as AdminReview).structuredSummary.handoffReady) {
         const nextCandidate = await client.admin.getIntakeVenuePackageCandidate.query({
           tenantId: adminTenantId,
           venueId,
@@ -62,7 +67,13 @@ export function IntakeProposalReview({
       }
     } catch (cause) {
       if (sequence !== loadSequence.current) return
-      setError(cause instanceof Error ? cause.message : 'Interview review is unavailable.')
+      setError(
+        !clientFacing && cause instanceof Error
+          ? cause.message
+          : clientFacing
+            ? 'Your staff answers are unavailable right now.'
+            : 'Interview review is unavailable.',
+      )
     } finally {
       if (sequence === loadSequence.current) setBusy(false)
     }
@@ -76,7 +87,11 @@ export function IntakeProposalReview({
           onClick={() => void load()}
           className="min-h-11 rounded-full border border-pf-light px-4 text-sm font-medium text-pf-deep disabled:opacity-50"
         >
-          {busy ? 'Loading review…' : 'Review interview evidence'}
+          {busy
+            ? 'Loading…'
+            : clientFacing
+              ? 'Review what you shared'
+              : 'Review interview evidence'}
         </button>
         {error ? (
           <p className="mt-2 text-sm text-rose-700" role="alert">
@@ -86,25 +101,38 @@ export function IntakeProposalReview({
       </div>
     )
   }
+  const adminReview = adminTenantId ? (review as AdminReview) : null
   return (
-    <section className="mt-4 rounded-xl bg-slate-50 p-4" aria-label="Interview evidence review">
+    <section
+      className="mt-4 rounded-xl bg-slate-50 p-4"
+      aria-label={clientFacing ? 'Staff answers shared' : 'Interview evidence review'}
+    >
       <p className="text-sm font-medium text-pf-deep">
-        {review.role.replaceAll('_', ' ')} · consent{' '}
-        {review.consentVerified ? 'verified' : 'invalid'}
+        {review.role.replaceAll('_', ' ')} ·{' '}
+        {clientFacing
+          ? review.consentVerified
+            ? 'sharing choices confirmed'
+            : 'sharing choices need attention'
+          : `consent ${review.consentVerified ? 'verified' : 'invalid'}`}
       </p>
-      <p className="mt-1 text-xs text-pf-deep/65">
-        {review.summary.evidenceCount} evidence hash(es) · {review.summary.discrepancyCount}{' '}
-        reviewer flag(s) · no automatic approval, apply, or publication
-      </p>
+      {clientFacing ? null : (
+        <p className="mt-1 text-xs text-pf-deep/65">
+          {adminReview!.summary.evidenceCount} evidence hash(es) ·{' '}
+          {adminReview!.summary.discrepancyCount} reviewer flag(s) · no automatic approval, apply,
+          or publication
+        </p>
+      )}
       <p className="mt-2 text-sm font-medium text-pf-deep">
-        {review.structuredSummary.handoffReady
-          ? 'Ready for an operator to create a separate reviewed draft handoff.'
-          : 'Not handoff-ready: resolve reviewer flags, consent, or missing public candidate fields.'}
+        {clientFacing
+          ? 'Your answers are available to the PathFinder team for review.'
+          : adminReview!.structuredSummary.handoffReady
+            ? 'Ready for an operator to create a separate reviewed draft handoff.'
+            : 'Not handoff-ready: resolve reviewer flags, consent, or missing public candidate fields.'}
       </p>
       {error ? (
         <div className="mt-3" role="alert">
           <p className="text-sm text-rose-700">{error}</p>
-          {adminTenantId && review.structuredSummary.handoffReady ? (
+          {adminReview?.structuredSummary.handoffReady ? (
             <button
               type="button"
               disabled={busy}
@@ -123,9 +151,22 @@ export function IntakeProposalReview({
             className="rounded-lg border border-pf-light bg-white p-3 text-sm"
           >
             <p className="font-medium text-pf-deep">{answer.prompt}</p>
-            <p className="mt-1 text-xs uppercase text-pf-deep/60">
-              {answer.fieldPath} · {answer.privacy.replaceAll('_', ' ')} · confidence{' '}
-              {Math.round(answer.confidence * 100)}%
+            <p className="mt-1 text-xs text-pf-deep/60">
+              {clientFacing ? (
+                <>
+                  {answer.privacy === 'PUBLIC_CANDIDATE'
+                    ? 'May be used for visitors'
+                    : answer.privacy === 'INTERNAL_CONTEXT'
+                      ? 'PathFinder team only'
+                      : 'Private'}
+                </>
+              ) : (
+                <>
+                  {(answer as AdminReview['answers'][number]).fieldPath} ·{' '}
+                  {answer.privacy.replaceAll('_', ' ')} · confidence{' '}
+                  {Math.round((answer as AdminReview['answers'][number]).confidence * 100)}%
+                </>
+              )}
             </p>
             {answer.publicText ? (
               <p className="mt-2 whitespace-pre-wrap text-pf-deep">{answer.publicText}</p>
@@ -137,21 +178,27 @@ export function IntakeProposalReview({
                   : answer.redacted
                     ? 'Redacted; no text or hash retained.'
                     : answer.hasEvidence
-                      ? 'Text withheld; evidence hash retained.'
+                      ? clientFacing
+                        ? 'Answer text kept private.'
+                        : 'Text withheld; evidence hash retained.'
                       : 'No text retained.'}
               </p>
             ) : null}
-            {answer.discrepancies.length ? (
+            {!clientFacing && (answer as AdminReview['answers'][number]).discrepancies.length ? (
               <p className="mt-2 text-amber-800" role="status">
                 Reviewer attention:{' '}
-                {answer.discrepancies.join(', ').replaceAll('_', ' ').toLowerCase()}.
+                {(answer as AdminReview['answers'][number]).discrepancies
+                  .join(', ')
+                  .replaceAll('_', ' ')
+                  .toLowerCase()}
+                .
               </p>
             ) : null}
           </li>
         ))}
       </ol>
       {adminTenantId &&
-      review.structuredSummary.handoffReady &&
+      adminReview?.structuredSummary.handoffReady &&
       candidate?.ready &&
       candidate.payload &&
       candidate.candidateHash ? (
@@ -167,8 +214,8 @@ export function IntakeProposalReview({
               source: {
                 kind: candidate.sourceKind,
                 label: 'reviewed staff interview',
-                evidenceCount: review.summary.evidenceCount,
-                discrepancyCount: review.summary.discrepancyCount,
+                evidenceCount: adminReview.summary.evidenceCount,
+                discrepancyCount: adminReview.summary.discrepancyCount,
                 confidence: null,
               },
               warnings: candidate.issues.map((issue) => `${issue.path}: ${issue.message}`),
@@ -176,7 +223,7 @@ export function IntakeProposalReview({
           />
         </div>
       ) : null}
-      {adminTenantId && review.structuredSummary.handoffReady && candidate && !candidate.ready ? (
+      {adminReview?.structuredSummary.handoffReady && candidate && !candidate.ready ? (
         <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
           <p className="text-sm font-semibold text-amber-950">Package candidate needs review</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
@@ -186,14 +233,18 @@ export function IntakeProposalReview({
           </ul>
         </div>
       ) : null}
-      <h4 className="mt-4 text-sm font-semibold text-pf-deep">Timeline</h4>
-      <ol className="mt-2 space-y-1 text-xs text-pf-deep/70">
-        {review.timeline.map((event) => (
-          <li key={event.id}>
-            {event.kind.replaceAll('_', ' ')} · {event.createdAt.toLocaleString()}
-          </li>
-        ))}
-      </ol>
+      {clientFacing ? null : (
+        <>
+          <h4 className="mt-4 text-sm font-semibold text-pf-deep">Timeline</h4>
+          <ol className="mt-2 space-y-1 text-xs text-pf-deep/70">
+            {adminReview!.timeline.map((event) => (
+              <li key={event.id}>
+                {event.kind.replaceAll('_', ' ')} · {event.createdAt.toLocaleString()}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
     </section>
   )
 }

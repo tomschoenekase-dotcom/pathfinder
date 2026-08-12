@@ -123,4 +123,27 @@ describe('EvaluationRunRequestPanel', () => {
     expect(evaluationBudgetToE8Usd('0.00000001')).toBe('1')
     expect(evaluationBudgetToE8Usd('1.01')).toBeNull()
   })
+
+  it('resets scope and ignores a late request response from the prior venue', async () => {
+    let resolve!: (value: { enqueued: boolean }) => void
+    mocks.mutate.mockReturnValueOnce(new Promise((done) => (resolve = done)))
+    const view = renderPanel()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
+    view.rerender(
+      <EvaluationRunRequestPanel
+        tenantId="tenant-2"
+        venueId="venue-2"
+        initialCases={[]}
+        initialNextCursor={null}
+        runnerEnabled
+        maximumCases={50}
+      />,
+    )
+    expect(await screen.findByText(/No evaluation cases are ready/)).toBeTruthy()
+    resolve({ enqueued: true })
+    await Promise.resolve()
+    expect(mocks.listRuns).not.toHaveBeenCalled()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
 })

@@ -84,7 +84,7 @@ describe('quarantined intake file upload', () => {
   it('uses the exact signed PUT headers and reports transport verification without safety claims', async () => {
     const file = renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('awaiting review')
+    await screen.findByText('Received')
 
     expect(reserve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -106,26 +106,46 @@ describe('quarantined intake file upload', () => {
       uploadId: 'upload-a',
       claimId: expect.stringMatching(/^[0-9a-f-]{36}$/),
     })
-    expect(
-      screen.getByText(/does not mean the format or file has passed malware inspection/i),
-    ).toBeTruthy()
+    expect(screen.getByText(/team still reviews it before use/i)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(
+      /quarantin|checksum|object version|approved|applied/iu,
+    )
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.queryByRole('img')).toBeNull()
   })
 
   it('retains request and claim identity for an unchanged ambiguous retry and fences a double click', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('connection lost'))
+    fetchMock.mockRejectedValueOnce(
+      new Error('storage-signature-secret=raw-provider-detail connection lost'),
+    )
     renderUpload()
     const uploadButton = screen.getByRole('button', { name: 'Upload' })
     fireEvent.click(uploadButton)
     fireEvent.click(uploadButton)
-    await screen.findByText('connection lost')
+    await screen.findByText('PathFinder could not confirm this file. Please try again.')
+    expect(document.body.textContent).not.toMatch(/storage-signature-secret|raw-provider-detail/iu)
     expect(reserve).toHaveBeenCalledOnce()
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     await waitFor(() => expect(reserve).toHaveBeenCalledTimes(2))
     expect(reserve.mock.calls[1]?.[0]?.requestId).toBe(reserve.mock.calls[0]?.[0]?.requestId)
     expect(verify).toHaveBeenCalledOnce()
+  })
+
+  it('never renders raw reservation or provider error details', async () => {
+    reserve.mockRejectedValueOnce(
+      new Error('signed-object-key=private/raw-map.pdf provider request failed'),
+    )
+    renderUpload()
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    expect(
+      await screen.findByText('PathFinder could not confirm this file. Please try again.'),
+    ).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(
+      /signed-object-key|private\/raw-map|provider request/iu,
+    )
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   })
 
   it('reconciles an ambiguous uploaded attempt when reserve replays without another PUT', async () => {
@@ -145,7 +165,7 @@ describe('quarantined intake file upload', () => {
     })
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('awaiting review')
+    await screen.findByText('Received')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(verify).toHaveBeenCalledWith({
       venueId: 'venue-a',
@@ -155,10 +175,13 @@ describe('quarantined intake file upload', () => {
   })
 
   it('retains the same request and verification claim after ambiguous finalization', async () => {
-    verify.mockRejectedValueOnce(new Error('verification response lost'))
+    verify.mockRejectedValueOnce(
+      new Error('internal-verification-claim=secret verification response lost'),
+    )
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('verification response lost')
+    await screen.findByText('PathFinder could not confirm this file. Please try again.')
+    expect(document.body.textContent).not.toMatch(/internal-verification-claim|secret/iu)
     const firstRequestId = reserve.mock.calls[0]?.[0]?.requestId
     const firstClaimId = verify.mock.calls[0]?.[0]?.claimId
     reserve.mockResolvedValueOnce({
@@ -176,7 +199,7 @@ describe('quarantined intake file upload', () => {
       uploadRequest: null,
     })
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    await screen.findByText('awaiting review')
+    await screen.findByText('Received')
     expect(reserve.mock.calls[1]?.[0]?.requestId).toBe(firstRequestId)
     expect(verify.mock.calls[1]?.[0]?.claimId).toBe(firstClaimId)
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -186,7 +209,7 @@ describe('quarantined intake file upload', () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 412 })
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('awaiting review')
+    await screen.findByText('Received')
     expect(verify).toHaveBeenCalledOnce()
   })
 

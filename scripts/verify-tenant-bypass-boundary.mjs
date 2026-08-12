@@ -39,8 +39,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/cost-budget.ts', 3],
   ['packages/api/src/routers/admin/digest.ts', 1],
   ['packages/api/src/routers/admin/deployment-manifest-review.ts', 2],
-  ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 1],
-  ['packages/api/src/routers/admin/evaluation-operations.ts', 2],
+  // Review append uses one exact tenant-scoped bypass for durable conclusion evidence.
+  ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 2],
+  // Evaluation comparison uses one additional exact tenant-scoped read.
+  ['packages/api/src/routers/admin/evaluation-operations.ts', 3],
   ['packages/api/src/routers/admin/freshness-audit.ts', 1],
   ['packages/api/src/routers/admin/legacy-content.ts', 7],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
@@ -59,7 +61,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/weekly-reports.ts', 5],
   ['packages/api/src/routers/admin/venue-availability.ts', 2],
   ['packages/db/src/helpers/job-records.ts', 4],
-  ['packages/db/src/helpers/generation-execution-claims.ts', 6],
+  // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
+  ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
 ])
 

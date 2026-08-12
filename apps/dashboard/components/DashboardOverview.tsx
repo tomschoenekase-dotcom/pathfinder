@@ -17,6 +17,17 @@ type DashboardOverviewProps = {
   activeUpdates: number
   chatUrl?: string | null
   impersonatedTenantName?: string
+  tasks?: ClientPortalTask[]
+}
+
+export type ClientPortalTask = {
+  id: string
+  title: string
+  description: string
+  href: string
+  required: boolean
+  items?: string[]
+  additionalItemCount?: number
 }
 
 export function DashboardOverview({
@@ -25,6 +36,7 @@ export function DashboardOverview({
   activeUpdates,
   chatUrl,
   impersonatedTenantName,
+  tasks,
 }: DashboardOverviewProps) {
   const { organization } = useOrganization()
   const orgName = impersonatedTenantName ?? organization?.name ?? venue.name
@@ -42,6 +54,39 @@ export function DashboardOverview({
       : lifecycle.clientAction === 'CONTACT_SUPPORT'
         ? { href: '/support', label: 'Contact Support' }
         : null
+  const fallbackTasks: ClientPortalTask[] = previewHref
+    ? [
+        {
+          id: 'preview',
+          title: 'Review the visitor experience',
+          description: lifecycle.summary,
+          href: previewHref,
+          required: true,
+        },
+      ]
+    : action
+      ? [
+          {
+            id: lifecycle.clientAction.toLowerCase(),
+            title: action.label,
+            description: lifecycle.summary,
+            href: action.href,
+            required: true,
+          },
+        ]
+      : lifecycle.state !== 'CLIENT_PREVIEW' && lifecycle.clientAction === 'OPEN_PREVIEW' && chatUrl
+        ? [
+            {
+              id: 'open-visitor-experience',
+              title: 'Open visitor experience',
+              description: lifecycle.summary,
+              href: chatUrl,
+              required: true,
+            },
+          ]
+        : []
+  const visibleTasks = tasks ?? fallbackTasks
+  const requiredTaskCount = visibleTasks.filter((task) => task.required).length
 
   return (
     <div className="min-h-screen px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
@@ -121,19 +166,26 @@ export function DashboardOverview({
           </div>
         </section>
 
-        {lifecycle.clientActionRequired ||
+        {visibleTasks.length > 0 ||
         (lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state !== 'AVAILABLE') ? (
           <section
             aria-labelledby="next-step-heading"
             className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8"
           >
-            <p className="text-sm font-medium text-pf-primary">Your next step</p>
+            <p className="text-sm font-medium text-pf-primary">
+              {requiredTaskCount === 0
+                ? 'Available now'
+                : requiredTaskCount > 1
+                  ? 'Your next steps'
+                  : 'Your next step'}
+            </p>
             <h2 id="next-step-heading" className="mt-1 text-xl font-semibold text-pf-deep">
-              {lifecycle.clientAction === 'OPEN_PREVIEW'
-                ? 'Review the visitor experience'
-                : lifecycle.headline}
+              {requiredTaskCount === 0
+                ? 'More from PathFinder'
+                : visibleTasks.length > 1
+                  ? 'What we need from you'
+                  : (visibleTasks[0]?.title ?? lifecycle.headline)}
             </h2>
-            <p className="mt-2 text-sm leading-6 text-pf-deep/75">{lifecycle.summary}</p>
             {lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state === 'SUPERSEDED' ? (
               <p
                 className="mt-4 rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/75"
@@ -150,31 +202,69 @@ export function DashboardOverview({
                 This preview is temporarily unavailable. PathFinder will make a reviewed preview
                 available here when it is ready.
               </p>
-            ) : lifecycle.state === 'CLIENT_PREVIEW' && previewHref ? (
-              <Link
-                href={previewHref}
-                className="mt-4 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white"
-              >
-                Open preview
-              </Link>
-            ) : lifecycle.state !== 'CLIENT_PREVIEW' &&
-              lifecycle.clientAction === 'OPEN_PREVIEW' &&
-              chatUrl ? (
-              <a
-                href={chatUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white"
-              >
-                Open visitor experience
-              </a>
-            ) : action ? (
-              <Link
-                href={action.href}
-                className="mt-4 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white"
-              >
-                {action.label}
-              </Link>
+            ) : visibleTasks.length > 0 ? (
+              <ol className="mt-5 space-y-3" aria-label="PathFinder tasks">
+                {visibleTasks.map((task, index) => {
+                  const external = /^https?:\/\//u.test(task.href)
+                  const content = (
+                    <>
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pf-primary/10 text-sm font-semibold text-pf-primary">
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <strong className="text-pf-deep">{task.title}</strong>
+                          {task.required ? (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[0.68rem] font-semibold uppercase tracking-wide text-amber-800">
+                              Action needed
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="mt-1 block text-sm leading-6 text-pf-deep/70">
+                          {task.description}
+                        </span>
+                        {task.items?.length ? (
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-pf-deep/75">
+                            {task.items.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                            {task.additionalItemCount ? (
+                              <li>
+                                {task.additionalItemCount} more detail
+                                {task.additionalItemCount === 1 ? '' : 's'} in Support
+                              </li>
+                            ) : null}
+                          </ul>
+                        ) : null}
+                        <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-pf-primary">
+                          Open <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                      </span>
+                    </>
+                  )
+                  return (
+                    <li key={task.id}>
+                      {external ? (
+                        <a
+                          href={task.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex gap-3 rounded-2xl border border-pf-light bg-pf-surface/40 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+                        >
+                          {content}
+                        </a>
+                      ) : (
+                        <Link
+                          href={task.href}
+                          className="flex gap-3 rounded-2xl border border-pf-light bg-pf-surface/40 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+                        >
+                          {content}
+                        </Link>
+                      )}
+                    </li>
+                  )
+                })}
+              </ol>
             ) : null}
           </section>
         ) : null}

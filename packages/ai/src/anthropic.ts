@@ -36,7 +36,10 @@ export type AnthropicCreateParams = {
 
 export type AnthropicMessagesClient = {
   messages: {
-    create: (params: AnthropicCreateParams, options?: { timeout?: number }) => Promise<unknown>
+    create: (
+      params: AnthropicCreateParams,
+      options?: { timeout?: number; signal?: AbortSignal },
+    ) => Promise<unknown>
   }
 }
 
@@ -193,6 +196,7 @@ export async function generateText<TParsed = string>(params: {
   parseResponse?: (text: string) => TParsed
   invocationId?: string
   onBeforeFirstDispatch?: () => Promise<void>
+  signal?: AbortSignal
 }): Promise<AiTextResult<TParsed>> {
   const spec = getAiModelSpec(params.modelKey)
   const maxAttempts = params.maxAttempts ?? spec.maxAttempts
@@ -214,6 +218,7 @@ export async function generateText<TParsed = string>(params: {
     maxOutputTokens,
   })
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (params.signal?.aborted) throw abortReason(params.signal)
     try {
       await params.admissionGuard()
     } catch (admissionError) {
@@ -282,8 +287,9 @@ export async function generateText<TParsed = string>(params: {
           system: params.system,
           messages: params.messages,
         },
-        { timeout: timeoutMs },
+        { timeout: timeoutMs, ...(params.signal ? { signal: params.signal } : {}) },
       )
+      if (params.signal?.aborted) throw abortReason(params.signal)
       const response = responseSchema.parse(raw)
       const usage: AiTokenUsage = {
         inputTokens: response.usage.input_tokens,
@@ -389,6 +395,7 @@ export async function generateText<TParsed = string>(params: {
         }
       }
       lastError = error
+      if (params.signal?.aborted) throw abortReason(params.signal)
       if (attempt >= maxAttempts || !isRetryable(error)) {
         const gatewayError = new AiGatewayError(
           error instanceof Error ? error.message : 'AI provider failed',
@@ -427,4 +434,8 @@ export async function generateText<TParsed = string>(params: {
     code: errorCode(lastError),
     cause: lastError,
   })
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
 }

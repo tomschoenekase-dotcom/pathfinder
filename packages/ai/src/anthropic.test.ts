@@ -121,6 +121,34 @@ describe('generateText', () => {
     )
   })
 
+  it('passes ownership cancellation to the provider and never redispatches ambiguous cost', async () => {
+    const controller = new AbortController()
+    const ownershipLoss = new Error('execution-lease-ownership-lost')
+    const gate = budgetGate()
+    create.mockImplementationOnce(async (_params, options) => {
+      expect(options?.signal).toBe(controller.signal)
+      controller.abort(ownershipLoss)
+      throw options?.signal?.reason
+    })
+
+    await expect(
+      generateText({
+        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        system: [],
+        messages: [{ role: 'user', content: 'Hello' }],
+        maxAttempts: 3,
+        signal: controller.signal,
+        usageSink,
+        admissionGuard,
+        budgetGate: gate,
+      }),
+    ).rejects.toBe(ownershipLoss)
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(gate.settleAmbiguous).toHaveBeenCalledOnce()
+    expect(gate.settleExact).not.toHaveBeenCalled()
+  })
+
   it('rejects malformed provider output without retrying', async () => {
     create.mockResolvedValueOnce({ content: [{ type: 'text', text: 'Missing usage' }] })
 

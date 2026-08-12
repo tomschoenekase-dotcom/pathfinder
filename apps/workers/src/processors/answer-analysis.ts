@@ -13,7 +13,9 @@ import {
   assertVenueAiAvailable,
   db,
   deferAnswerAnalysisExecution,
+  GENERATION_EXECUTION_LEASE_MS,
   isAiAdmissionControlError,
+  renewAnswerAnalysisExecution,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -26,6 +28,10 @@ import {
 } from '@pathfinder/jobs'
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
+import {
+  ExecutionLeaseOwnershipLostError,
+  withExecutionLeaseHeartbeat,
+} from '../lib/execution-lease-heartbeat'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -347,26 +353,36 @@ export async function processAnswerAnalysisJob(
       generalMessages: promptData.generalMessages,
     })
 
-    const response = await generateText({
-      admissionGuard: () =>
-        assertVenueAiAvailable(db, {
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
+    const renewLease = () =>
+      renewAnswerAnalysisExecution({ ...claimIdentity, leaseToken: ownedLeaseToken })
+    const response = await withExecutionLeaseHeartbeat({
+      intervalMs: Math.floor(GENERATION_EXECUTION_LEASE_MS / 3),
+      renew: renewLease,
+      operation: (signal) =>
+        generateText({
+          signal,
+          admissionGuard: async () => {
+            await assertVenueAiAvailable(db, {
+              tenantId: payload.tenantId,
+              venueId: payload.venueId,
+            })
+            if (!(await renewLease())) throw new ExecutionLeaseOwnershipLostError()
+          },
+          modelKey: AI_MODEL_KEYS.ANSWER_ANALYSIS,
+          system: [],
+          messages: [{ role: 'user', content: prompt }],
+          parseResponse: parseAnalysis,
+          usageSink: createWorkerAiUsageSink({
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            feature: 'answer-analysis',
+          }),
+          budgetGate: createWorkerAiBudgetGate({
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            feature: 'answer-analysis',
+          }),
         }),
-      modelKey: AI_MODEL_KEYS.ANSWER_ANALYSIS,
-      system: [],
-      messages: [{ role: 'user', content: prompt }],
-      parseResponse: parseAnalysis,
-      usageSink: createWorkerAiUsageSink({
-        tenantId: payload.tenantId,
-        venueId: payload.venueId,
-        feature: 'answer-analysis',
-      }),
-      budgetGate: createWorkerAiBudgetGate({
-        tenantId: payload.tenantId,
-        venueId: payload.venueId,
-        feature: 'answer-analysis',
-      }),
     })
 
     const summary = response.parsed
@@ -390,6 +406,16 @@ export async function processAnswerAnalysisJob(
       generalMessageCount: promptData.generalMessages.length,
     })
   } catch (error) {
+    if (error instanceof ExecutionLeaseOwnershipLostError) {
+      leaseToken = null
+      await recordJobFailure({
+        jobRecordId,
+        error,
+        errorMessage: error.message,
+        execution,
+      })
+      throw error
+    }
     if (isAiAdmissionControlError(error)) {
       if (leaseToken !== null) {
         const released = await deferAnswerAnalysisExecution({

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -40,23 +40,44 @@ export function EvaluationRunRequestPanel(props: {
   const [busy, setBusy] = useState(false)
   const idempotencyKey = useRef(crypto.randomUUID())
   const submitting = useRef(false)
+  const generation = useRef(0)
+  const scope = `${props.tenantId}:${props.venueId}`
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
+
+  useEffect(() => {
+    generation.current += 1
+    setCases(props.initialCases)
+    setNextCursor(props.initialNextCursor)
+    setSelected(new Set())
+    setBudget('0.25')
+    setMessage(null)
+    setBusy(false)
+    submitting.current = false
+    idempotencyKey.current = crypto.randomUUID()
+  }, [props.tenantId, props.venueId, props.initialCases, props.initialNextCursor])
 
   async function loadMore() {
     if (!nextCursor || busy) return
     setBusy(true)
     setMessage(null)
+    const currentGeneration = generation.current
+    const requestedScope = scope
     try {
       const page = await client.admin.listEvaluationCases.query({
         tenantId: props.tenantId,
         venueId: props.venueId,
         cursor: nextCursor,
       })
+      if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       setCases((current) => [...current, ...page.items])
       setNextCursor(page.nextCursor)
     } catch {
-      setMessage('More cases could not be loaded. Your current selections are preserved.')
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current)
+        setMessage('More cases could not be loaded. Your current selections are preserved.')
     } finally {
-      setBusy(false)
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current)
+        setBusy(false)
     }
   }
 
@@ -70,6 +91,8 @@ export function EvaluationRunRequestPanel(props: {
     submitting.current = true
     setBusy(true)
     setMessage(null)
+    const currentGeneration = generation.current
+    const requestedScope = scope
     try {
       const result = await client.admin.requestEvaluationRun.mutate({
         tenantId: props.tenantId,
@@ -78,6 +101,7 @@ export function EvaluationRunRequestPanel(props: {
         caseIds: [...selected],
         budgetCeilingE8Usd,
       })
+      if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       if (result.dispatchPending) {
         setMessage(
           'Run staged. The durable worker dispatcher will publish it after rechecking global and tenant gates.',
@@ -92,21 +116,27 @@ export function EvaluationRunRequestPanel(props: {
           venueId: props.venueId,
           limit: 1,
         })
+        if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
         setMessage('Run queued. Refreshing the evidence list…')
       } catch {
+        if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
         setMessage(
           'Run queueing was confirmed, but refreshed evidence could not be loaded yet. Do not resubmit; refresh this page.',
         )
       }
+      if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       idempotencyKey.current = crypto.randomUUID()
       router.refresh()
     } catch {
-      setMessage(
-        'The request outcome is unknown. Your selections are preserved; refresh evaluation evidence before retrying with the same request.',
-      )
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current)
+        setMessage(
+          'The request outcome is unknown. Your selections are preserved; refresh evaluation evidence before retrying with the same request.',
+        )
     } finally {
-      submitting.current = false
-      setBusy(false)
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current) {
+        submitting.current = false
+        setBusy(false)
+      }
     }
   }
 

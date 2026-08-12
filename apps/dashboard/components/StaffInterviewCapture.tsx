@@ -35,9 +35,11 @@ function draftsFor(role: StaffInterviewRole): Record<string, AnswerDraft> {
 
 export function StaffInterviewCapture({
   disabled,
+  clientFacing = false,
   onSubmit,
 }: {
   disabled: boolean
+  clientFacing?: boolean
   onSubmit: (input: {
     displayName: string
     requestId: string
@@ -117,11 +119,13 @@ export function StaffInterviewCapture({
   return (
     <form className="space-y-5" onSubmit={(event) => void submit(event)}>
       <fieldset disabled={disabled} className="space-y-5">
-        <legend className="font-semibold text-pf-deep">Text-only staff interview</legend>
+        <legend className="font-semibold text-pf-deep">
+          {clientFacing ? 'Share staff knowledge' : 'Text-only staff interview'}
+        </legend>
         <p className="text-sm leading-6 text-pf-deep/75">
-          Public-candidate text may be reviewed. Internal and private text is converted to evidence
-          hashes only; skipped and redacted answers retain no text. No recording, audio, or video is
-          accepted.
+          {clientFacing
+            ? 'Written answers help the PathFinder team understand your venue. Choose how each answer may be used; skipped or redacted answers retain no text. This form does not accept recordings.'
+            : 'Public-candidate text may be reviewed. Internal and private text is converted to evidence hashes only; skipped and redacted answers retain no text. No recording, audio, or video is accepted.'}
         </p>
         <label className="block text-sm font-medium text-pf-deep">
           Interview name
@@ -206,8 +210,12 @@ export function StaffInterviewCapture({
                   ) : (
                     <p className="mt-2 text-sm text-pf-deep/65">
                       {draft.mode === 'SKIP'
-                        ? 'The manifest will record an explicit refusal without text.'
-                        : 'The manifest will record redaction without text or a text hash.'}
+                        ? clientFacing
+                          ? 'This question will be marked as skipped without retaining an answer.'
+                          : 'The manifest will record an explicit refusal without text.'
+                        : clientFacing
+                          ? 'This answer will be redacted without retaining its text.'
+                          : 'The manifest will record redaction without text or a text hash.'}
                     </p>
                   )}
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -224,7 +232,13 @@ export function StaffInterviewCapture({
                       >
                         {privacyOptions.map((option) => (
                           <option key={option} value={option}>
-                            {option.replaceAll('_', ' ')}
+                            {clientFacing
+                              ? option === 'PUBLIC_CANDIDATE'
+                                ? 'May be used for visitors'
+                                : option === 'INTERNAL_CONTEXT'
+                                  ? 'PathFinder team only'
+                                  : 'Private—do not retain the text'
+                              : option.replaceAll('_', ' ')}
                           </option>
                         ))}
                       </select>
@@ -276,7 +290,13 @@ export function StaffInterviewCapture({
         disabled={disabled || incomplete || !consent || !displayName.trim()}
         className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
       >
-        {disabled ? 'Recording…' : 'Record review proposal'}
+        {disabled
+          ? clientFacing
+            ? 'Sharing…'
+            : 'Recording…'
+          : clientFacing
+            ? 'Share staff answers'
+            : 'Record review proposal'}
       </button>
       <p aria-live="polite" className="text-sm text-rose-700">
         {message}

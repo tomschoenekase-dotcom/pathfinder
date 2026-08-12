@@ -1,6 +1,13 @@
 import { z } from 'zod'
 import { env } from '@pathfinder/config'
-import { db, isEvaluationRuntimeDurablyEnabled, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  compareEvaluationRuns,
+  db,
+  EvaluationRunComparisonError,
+  isEvaluationRuntimeDurablyEnabled,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
+import { TRPCError } from '@trpc/server'
 
 import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
@@ -30,6 +37,18 @@ const caseListInputSchema = z.object({
   cursor: z.object({ createdAt: z.string().datetime(), id: z.string().uuid() }).optional(),
   limit: z.number().int().min(1).max(MAX_PAGE_LIMIT).default(DEFAULT_PAGE_LIMIT),
 })
+
+const comparisonInputSchema = z
+  .object({
+    tenantId: z.string().min(1),
+    venueId: z.string().min(1),
+    baselineRunId: z.string().uuid(),
+    candidateRunId: z.string().uuid(),
+  })
+  .refine((input) => input.baselineRunId !== input.candidateRunId, {
+    message: 'Select two different evaluation runs',
+    path: ['candidateRunId'],
+  })
 
 type OutcomeCount = {
   runId: string
@@ -81,6 +100,18 @@ function summarizeOutcomes(rows: OutcomeCount[]) {
  * needs a separate privacy and authorization review.
  */
 const adminEvaluationOperationReadsRouter = router({
+  compareEvaluationRuns: adminProcedure.input(comparisonInputSchema).query(async ({ input }) => {
+    try {
+      return await withTenantIsolationBypass(() => compareEvaluationRuns(input, db))
+    } catch (error) {
+      if (error instanceof EvaluationRunComparisonError)
+        throw new TRPCError({
+          code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : 'NOT_FOUND',
+          message: error.message,
+        })
+      throw error
+    }
+  }),
   listEvaluationCases: adminProcedure.input(caseListInputSchema).query(({ input }) =>
     withTenantIsolationBypass(async () => {
       const cursorDate = input.cursor ? new Date(input.cursor.createdAt) : null

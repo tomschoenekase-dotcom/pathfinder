@@ -168,9 +168,11 @@ describe('DashboardOverview client portal', () => {
         activeUpdates={0}
       />,
     )
-    expect(screen.getByRole('link', { name: 'Continue setup' }).getAttribute('href')).toBe(
-      '/venues/venue%20%2F%20one/intake',
-    )
+    expect(
+      screen
+        .getByRole('link', { name: /Continue setup Action needed Share the information/iu })
+        .getAttribute('href'),
+    ).toBe('/venues/venue%20%2F%20one/intake')
     expect(document.body.textContent).not.toMatch(/package|worker|queue|analytics|agent/iu)
     expect(screen.queryByRole('navigation', { name: 'Choose venue' })).toBeNull()
   })
@@ -193,9 +195,13 @@ describe('DashboardOverview client portal', () => {
     )
 
     expect(screen.getAllByText('Your next step')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: 'Open preview' }).getAttribute('href')).toBe(
-      '/venues/riverside/preview/package-approved',
-    )
+    expect(
+      screen
+        .getByRole('link', {
+          name: /Review the visitor experience Action needed See what visitors/iu,
+        })
+        .getAttribute('href'),
+    ).toBe('/venues/riverside/preview/package-approved')
     expect(screen.queryByRole('link', { name: 'Open visitor experience' })).toBeNull()
     expect(screen.queryByText('The essentials')).toBeNull()
     expect(screen.queryByText(/visitor updates live/i)).toBeNull()
@@ -219,10 +225,84 @@ describe('DashboardOverview client portal', () => {
 
     expect(screen.getByRole('heading', { name: 'Owner-authorized preview' })).toBeTruthy()
     expect(screen.getAllByText('Your next step')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: 'Contact Support' }).getAttribute('href')).toBe(
-      '/support',
-    )
+    expect(
+      screen
+        .getByRole('link', { name: /Contact Support Action needed Visitors cannot open/iu })
+        .getAttribute('href'),
+    ).toBe('/support')
     expect(screen.queryByRole('link', { name: /Open PathFinder|Open preview/ })).toBeNull()
     expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)
+  })
+
+  it('renders server-derived questions before preview and optional report actions', () => {
+    render(
+      <DashboardOverview
+        venue={{
+          id: 'riverside',
+          name: 'Riverside',
+          lifecycle: lifecycleFrom({
+            packageCounts: { draft: 0, approved: 1, applied: 0, reverted: 0 },
+          }),
+          clientPreview: { state: 'AVAILABLE', id: 'approved-preview' },
+        }}
+        venues={[
+          { id: 'riverside', name: 'Riverside' },
+          { id: 'uptown', name: 'Uptown' },
+        ]}
+        activeUpdates={0}
+        tasks={[
+          {
+            id: 'missing:request-1',
+            title: 'Updated admission details',
+            description: 'PathFinder Support is waiting for the details below.',
+            href: '/support?venue=riverside&request=request-1',
+            required: true,
+            items: ['Current price', 'Effective date'],
+          },
+          {
+            id: 'preview',
+            title: 'Review the visitor experience',
+            description: 'See what visitors will experience.',
+            href: '/venues/riverside/preview/approved-preview',
+            required: true,
+          },
+          {
+            id: 'report',
+            title: 'July review',
+            description: 'A published PathFinder report is available to read.',
+            href: '/weekly-reports/report-1?venue=riverside',
+            required: false,
+          },
+        ]}
+      />,
+    )
+
+    const tasks = screen.getByRole('list', { name: 'PathFinder tasks' })
+    const links = Array.from(tasks.querySelectorAll('a'))
+    expect(links.every((link) => link.getAttribute('aria-label') === null)).toBe(true)
+    expect(
+      screen.getByRole('link', {
+        name: /Updated admission details Action needed PathFinder Support is waiting.*Current price.*Effective date.*Open/iu,
+      }),
+    ).toBeTruthy()
+    expect(screen.getByText('Current price')).toBeTruthy()
+    expect(screen.getAllByText('Action needed')).toHaveLength(2)
+    expect(screen.getByRole('navigation', { name: 'Choose venue' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(
+      /package|request-1|approved-preview|hash|analytics/iu,
+    )
+  })
+
+  it('shows no task checklist when server evidence has no client action', () => {
+    render(
+      <DashboardOverview
+        venue={{ id: 'riverside', name: 'Riverside', lifecycle: lifecycle('PROCESSING') }}
+        venues={[{ id: 'riverside', name: 'Riverside' }]}
+        activeUpdates={0}
+        tasks={[]}
+      />,
+    )
+    expect(screen.queryByRole('list', { name: 'PathFinder tasks' })).toBeNull()
+    expect(screen.queryByText(/Your next step/)).toBeNull()
   })
 })

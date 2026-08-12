@@ -13,7 +13,9 @@ import {
   assertVenueAiAvailable,
   db,
   deferWeeklyReportExecution,
+  GENERATION_EXECUTION_LEASE_MS,
   isAiAdmissionControlError,
+  renewWeeklyReportExecution,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -26,6 +28,10 @@ import {
 } from '@pathfinder/jobs'
 
 import { createWorkerAiBudgetGate, createWorkerAiUsageSink } from '../lib/ai-usage'
+import {
+  ExecutionLeaseOwnershipLostError,
+  withExecutionLeaseHeartbeat,
+} from '../lib/execution-lease-heartbeat'
 import {
   normalizeJobExecutionMetadata,
   recordJobFailure,
@@ -380,26 +386,36 @@ export async function processWeeklyReportJob(
       generalMessages: data.generalMessages,
     })
 
-    const response = await generateText({
-      admissionGuard: () =>
-        assertVenueAiAvailable(db, {
-          tenantId: payload.tenantId,
-          venueId: payload.venueId,
+    const renewLease = () =>
+      renewWeeklyReportExecution({ ...claimIdentity, leaseToken: acquiredLeaseToken })
+    const response = await withExecutionLeaseHeartbeat({
+      intervalMs: Math.floor(GENERATION_EXECUTION_LEASE_MS / 3),
+      renew: renewLease,
+      operation: (signal) =>
+        generateText({
+          signal,
+          admissionGuard: async () => {
+            await assertVenueAiAvailable(db, {
+              tenantId: payload.tenantId,
+              venueId: payload.venueId,
+            })
+            if (!(await renewLease())) throw new ExecutionLeaseOwnershipLostError()
+          },
+          modelKey: AI_MODEL_KEYS.WEEKLY_REPORT,
+          system: [],
+          messages: [{ role: 'user', content: prompt }],
+          parseResponse: parseReport,
+          usageSink: createWorkerAiUsageSink({
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            feature: 'weekly-report',
+          }),
+          budgetGate: createWorkerAiBudgetGate({
+            tenantId: payload.tenantId,
+            venueId: payload.venueId,
+            feature: 'weekly-report',
+          }),
         }),
-      modelKey: AI_MODEL_KEYS.WEEKLY_REPORT,
-      system: [],
-      messages: [{ role: 'user', content: prompt }],
-      parseResponse: parseReport,
-      usageSink: createWorkerAiUsageSink({
-        tenantId: payload.tenantId,
-        venueId: payload.venueId,
-        feature: 'weekly-report',
-      }),
-      budgetGate: createWorkerAiBudgetGate({
-        tenantId: payload.tenantId,
-        venueId: payload.venueId,
-        feature: 'weekly-report',
-      }),
     })
 
     const parsed = response.parsed
@@ -433,6 +449,16 @@ export async function processWeeklyReportJob(
       sessionCount: data.sessionCount,
     })
   } catch (error) {
+    if (error instanceof ExecutionLeaseOwnershipLostError) {
+      executionLeaseToken = null
+      await recordJobFailure({
+        jobRecordId,
+        error,
+        errorMessage: error.message,
+        execution,
+      })
+      throw error
+    }
     if (isAiAdmissionControlError(error)) {
       if (executionLeaseToken !== null) {
         const released = await deferWeeklyReportExecution({

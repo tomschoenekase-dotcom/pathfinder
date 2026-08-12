@@ -1,6 +1,11 @@
 import { resolveClientPortalLifecycle } from '@pathfinder/contracts/client-portal-lifecycle'
 import { CreateClientPreviewFeedbackInput } from '@pathfinder/contracts/client-package-preview'
-import { createPreviewFeedbackRequestAction, SupportActionError } from '@pathfinder/db'
+import {
+  createPreviewFeedbackRequestAction,
+  SupportActionError,
+  tenantSupportRequestAccessWhere,
+  type TenantSupportRole,
+} from '@pathfinder/db'
 import { z } from 'zod'
 
 import { router } from '../core'
@@ -455,6 +460,79 @@ export const portalRouter = router({
       return ctx.db.$transaction((db) => loadClientPreview(db, tenantId, input), {
         isolationLevel: 'RepeatableRead',
       })
+    }),
+  getVenueTaskEvidence: tenantProcedure
+    .input(z.object({ venueId: z.string().min(1).max(191) }).strict())
+    .query(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      if (!ctx.session.role)
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Tenant role required' })
+      const actor = {
+        actorId: ctx.session.userId,
+        role: ctx.session.role as TenantSupportRole,
+      }
+
+      return ctx.db.$transaction(
+        async (db) => {
+          const venue = await db.venue.findFirst({
+            where: { id: input.venueId, tenantId },
+            select: { id: true },
+          })
+          if (!venue)
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue task evidence not found' })
+
+          const [supportRows, sharedProposalCount, sharedUploadCount, reportConfiguration] =
+            await Promise.all([
+              db.supportRequest.findMany({
+                where: {
+                  tenantId,
+                  venueId: input.venueId,
+                  status: { notIn: ['COMPLETED', 'CANCELLED'] },
+                  missingInformation: { isEmpty: false },
+                  ...tenantSupportRequestAccessWhere(actor),
+                },
+                orderBy: [{ clientActivityAt: 'desc' }, { id: 'desc' }],
+                take: 4,
+                select: {
+                  id: true,
+                  subject: true,
+                  missingInformation: true,
+                },
+              }),
+              db.intakeRun.count({
+                where: { tenantId, venueId: input.venueId, status: 'AWAITING_REVIEW' },
+              }),
+              db.intakeUpload.count({
+                where: { tenantId, venueId: input.venueId, status: 'AWAITING_REVIEW' },
+              }),
+              db.venueReportConfiguration.findFirst({
+                where: { tenantId, venueId: input.venueId, enabled: true },
+                select: { id: true },
+              }),
+            ])
+
+          const latestReport = reportConfiguration
+            ? await db.weeklyReport.findFirst({
+                where: { tenantId, venueId: input.venueId, status: 'PUBLISHED' },
+                orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+                select: { id: true, title: true, publishedAt: true },
+              })
+            : null
+
+          return {
+            missingInformation: supportRows.slice(0, 3).map((request) => ({
+              requestId: request.id,
+              subject: request.subject,
+              items: request.missingInformation.slice(0, 5),
+              additionalItemCount: Math.max(0, request.missingInformation.length - 5),
+            })),
+            additionalMissingRequest: supportRows.length > 3,
+            hasSharedInformation: sharedProposalCount + sharedUploadCount > 0,
+            latestReport,
+          }
+        },
+        { isolationLevel: 'RepeatableRead' },
+      )
     }),
   createPreviewFeedbackRequest: tenantProcedure
     .input(CreateClientPreviewFeedbackInput)
