@@ -28,6 +28,7 @@ import { adminIntakeUploadReviewRouter } from './intake-upload-review'
 import { adminLegacyContentRouter } from './legacy-content'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminSupportOperationsRouter } from './support-operations'
+import { adminSupportAttachmentsRouter } from './support-attachments'
 import { adminSupportReviewedDraftRouter } from './support-reviewed-drafts'
 import { adminUniversalContentRouter } from './universal-content'
 import { adminWeeklyReportsRouter } from './weekly-reports'
@@ -53,6 +54,7 @@ export const adminRouter = mergeRouters(
   adminExternalCredentialsRouter,
   adminFreshnessAuditRouter,
   adminSupportOperationsRouter,
+  adminSupportAttachmentsRouter,
   adminSupportReviewedDraftRouter,
   adminUniversalContentRouter,
   adminClientReadsRouter,

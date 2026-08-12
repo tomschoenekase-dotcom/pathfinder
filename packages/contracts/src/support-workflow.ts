@@ -29,13 +29,36 @@ export type SupportParticipantKind = z.infer<typeof SupportParticipantKind>
 export const SupportMessageVisibility = z.enum(['CLIENT_VISIBLE', 'INTERNAL_ONLY'])
 export type SupportMessageVisibility = z.infer<typeof SupportMessageVisibility>
 
+export const SUPPORT_ATTACHMENT_REFERENCE_MAX = 20
+export const SupportAttachmentReference = z
+  .object({ intakeUploadId: z.string().trim().min(1).max(191) })
+  .strict()
+export type SupportAttachmentReference = z.infer<typeof SupportAttachmentReference>
+
+export const SupportAttachmentReferences = z
+  .array(SupportAttachmentReference)
+  .max(SUPPORT_ATTACHMENT_REFERENCE_MAX)
+  .superRefine((references, context) => {
+    const seen = new Set<string>()
+    references.forEach((reference, index) => {
+      if (seen.has(reference.intakeUploadId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, 'intakeUploadId'],
+          message: 'An intake upload can be attached only once per message.',
+        })
+      }
+      seen.add(reference.intakeUploadId)
+    })
+  })
+export type SupportAttachmentReferences = z.infer<typeof SupportAttachmentReferences>
+
 export const SupportAttachment = z
   .object({
     id: z.string().min(1),
     filename: z.string().trim().min(1).max(255),
     mediaType: z.string().trim().min(1).max(127),
     byteSize: z.number().int().nonnegative(),
-    sourceId: z.string().min(1).optional(),
   })
   .strict()
 export type SupportAttachment = z.infer<typeof SupportAttachment>

@@ -108,6 +108,14 @@ version/current status and may conflict if another operator acted first; reload 
 `VALIDATING` includes validation/evaluation review in the current persisted vocabulary. Moving a
 request to `APPLYING` or `COMPLETED` records workflow state only and never executes a package.
 
+Support file references remain quarantined evidence. Upload verification confirms the stored object
+version, declared MIME, size and checksum; it does not establish readability, format safety or
+malware safety. Do not preview, download, approve or reuse the bytes as content from the Support
+surface. Client pickers show only that user's exact-venue uploads awaiting PathFinder review;
+operators may select exact-venue eligible evidence. On an ambiguous send result, retry the unchanged
+draft so its retained operation identity can converge. Edit the message or selection only when you
+intend to start a new operation.
+
 Use support triage to assign a category and a concise missing-information checklist before changing
 workflow state. Triage requires the displayed request version, retains selections on a conflict,
 and records one audited revision. It does not message the client, change status, create a package,

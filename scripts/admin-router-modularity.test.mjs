@@ -60,6 +60,7 @@ const expectedAdminProcedures = [
   'listAnswerAnalyses',
   'listApprovalRequests',
   'listClients',
+  'listEligibleSupportAttachments',
   'listEvaluationCases',
   'listEvaluationRuns',
   'listExternalCredentials',

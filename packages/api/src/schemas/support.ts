@@ -1,10 +1,16 @@
 import { z } from 'zod'
 
-import { SupportRequestCategory } from '@pathfinder/contracts/support-workflow'
+import {
+  SupportAttachmentReferences,
+  SupportAttachmentReference,
+  SupportRequestCategory,
+} from '@pathfinder/contracts/support-workflow'
+import { IntakeUploadCursor } from '@pathfinder/contracts/intake-upload'
 
 export const SUPPORT_PAGE_DEFAULT = 20
 export const SUPPORT_PAGE_MAX = 50
-export const SUPPORT_ATTACHMENT_MAX_BYTES = 1_000_000_000
+/** Compatibility name; the browser now supplies only a trusted upload reference. */
+export const SupportAttachmentDraftInput = SupportAttachmentReference
 
 export const SupportCursorInput = z
   .object({
@@ -21,22 +27,14 @@ export const SupportPageInput = z
   })
   .strict()
 
-export const SupportAttachmentDraftInput = z
-  .object({
-    filename: z.string().trim().min(1).max(255),
-    mediaType: z.string().trim().min(1).max(127),
-    byteSize: z.number().int().nonnegative().max(SUPPORT_ATTACHMENT_MAX_BYTES),
-    sourceId: z.string().min(1).max(191).optional(),
-  })
-  .strict()
-
 export const CreateSupportRequestInput = z
   .object({
+    operationId: z.string().uuid(),
     venueId: z.string().min(1),
     category: SupportRequestCategory,
     subject: z.string().trim().min(1).max(200),
     body: z.string().trim().min(1).max(20_000),
-    attachments: z.array(SupportAttachmentDraftInput).max(20).default([]),
+    attachments: SupportAttachmentReferences.default([]),
   })
   .strict()
 
@@ -59,7 +57,16 @@ export const GetSupportRequestInput = SupportRequestRefInput.extend({
 }).strict()
 
 export const AddClientSupportMessageInput = SupportRequestRefInput.extend({
+  operationId: z.string().uuid(),
   expectedVersion: z.number().int().positive(),
   body: z.string().trim().min(1).max(20_000),
-  attachments: z.array(SupportAttachmentDraftInput).max(20).default([]),
+  attachments: SupportAttachmentReferences.default([]),
 }).strict()
+
+export const EligibleSupportAttachmentsInput = z
+  .object({
+    venueId: z.string().trim().min(1).max(191),
+    limit: z.number().int().min(1).max(50).default(20),
+    cursor: IntakeUploadCursor.optional(),
+  })
+  .strict()

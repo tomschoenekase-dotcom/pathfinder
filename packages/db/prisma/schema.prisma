@@ -786,6 +786,7 @@ model IntakeUpload {
   tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue                 Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   intakeRun             IntakeRun?         @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportAttachments    SupportMessageAttachment[]
 
   @@unique([tenantId, requestId], map: "intake_uploads_tenant_request_key")
   @@unique([intakeRunId, tenantId, venueId], map: "intake_uploads_run_scope_key")
@@ -2264,6 +2265,8 @@ model SupportMessage {
   authorId         String                     @map("author_id") @db.VarChar(191)
   visibility       SupportMessageVisibility   @default(CLIENT_VISIBLE)
   body             String
+  submissionRequestId String?                  @map("submission_request_id") @db.Uuid
+  submissionInputHash String?                  @map("submission_input_hash") @db.Char(64)
   createdAt        DateTime                   @default(now()) @map("created_at")
   tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue            Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
@@ -2271,6 +2274,7 @@ model SupportMessage {
   attachments      SupportMessageAttachment[]
 
   @@unique([id, tenantId, venueId, supportRequestId])
+  @@unique([tenantId, submissionRequestId], map: "support_messages_tenant_submission_request_key")
   @@index([tenantId, venueId, supportRequestId, createdAt, id])
   @@map("support_messages")
 }
@@ -2287,12 +2291,15 @@ model SupportMessageAttachment {
   mediaType        String         @map("media_type") @db.VarChar(127)
   byteSize         BigInt         @map("byte_size")
   sourceId         String?        @map("source_id") @db.VarChar(191)
+  intakeUploadId   String?        @map("intake_upload_id") @db.VarChar(191)
   createdAt        DateTime       @default(now()) @map("created_at")
   tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue            Venue          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   supportMessage   SupportMessage @relation(fields: [supportMessageId, tenantId, venueId, supportRequestId], references: [id, tenantId, venueId, supportRequestId], onDelete: Restrict, onUpdate: Restrict)
+  intakeUpload     IntakeUpload?  @relation(fields: [intakeUploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId, venueId, supportRequestId, supportMessageId])
+  @@unique([supportMessageId, tenantId, venueId, intakeUploadId], map: "support_message_attachments_message_upload_key")
   @@map("support_message_attachments")
 }
 

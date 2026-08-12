@@ -47,6 +47,12 @@ Section-level evidence and blockers are indexed in
 - Support creation and message append are the first canonical domain actions shared below route
   adapters. They require trusted HUMAN/AGENT/SYSTEM actor context, enforce visibility and scope,
   and transactionally couple version CAS, content evidence, support audit, and platform audit.
+- Client and operator messages may reference only exact-scope quarantined intake uploads whose
+  stored version, MIME, size, checksum, FILE_UPLOAD run and immutable evidence correspond. The
+  server derives the attachment snapshot, client reuse is uploader-bound, and durable operation
+  UUID/hash replay converges ambiguous create/reply outcomes before request-version CAS. The UI
+  truthfully exposes transport verification and review status only; it provides no file preview,
+  download, malware-safety, approval or publication claim. The additive migration is unapplied.
 - A normalized support-to-package handoff can link an exact support request version to an existing
   same-tenant, same-venue `DRAFT` VenuePackage. The append-only handoff is HUMAN-operator attributed,
   version-CAS guarded, strictly audited, and makes zero package lifecycle writes. Its forward-only
@@ -216,7 +222,8 @@ Section-level evidence and blockers are indexed in
 - Ultra-Simple Client Portal reconstruction: no analytics, responsive calm navigation, lifecycle
   status, single-venue-first home, unobtrusive multi-venue switching, operational updates, simple
   tone controls, real venue-scoped support requests/replies with conflict-safe draft retention, and
-  platform-admin-only links back to internal tools.
+  requester-owned quarantined-evidence attachment selection, plus platform-admin-only links back to
+  internal tools.
 - Client lifecycle is derived, not stored as a new mutable claim. The browser-safe resolver and
   tenant-scoped read model map existing venue, intake, package and offboarding evidence to the ten
   packet states and show only client-required tasks and human milestones.

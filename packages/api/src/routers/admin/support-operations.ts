@@ -341,6 +341,7 @@ export const adminSupportOperationsRouter = router({
   addSupportMessage: adminProcedure
     .input(
       adminScope.extend({
+        operationId: z.string().uuid(),
         requestId: z.string().min(1),
         expectedVersion: z.number().int().positive(),
         visibility: SupportMessageVisibility,
@@ -352,6 +353,7 @@ export const adminSupportOperationsRouter = router({
       try {
         const result = await appendSupportMessageAction(
           {
+            operationId: input.operationId,
             tenantId: input.tenantId,
             venueId: input.venueId,
             requestId: input.requestId,
@@ -368,7 +370,11 @@ export const adminSupportOperationsRouter = router({
           },
           ctx.db,
         )
-        return { message: serializeMessage(result.message), requestVersion: result.requestVersion }
+        return {
+          message: serializeMessage(result.message),
+          requestVersion: result.requestVersion,
+          replayed: result.replayed,
+        }
       } catch (error) {
         return supportActionError(error)
       }

@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useRef, useState } from 'react'
+import { type FormEvent, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
@@ -15,6 +15,14 @@ import {
 import { useTRPCClient } from '../lib/trpc'
 
 type VenueOption = { id: string; name: string }
+type EligibleAttachment = {
+  intakeUploadId: string
+  fileName: string
+  mimeType: string
+  byteSize: number
+  createdAt: Date | string
+}
+type EligibleAttachmentCursor = { createdAt: string; id: string }
 type RequestSummary = {
   id: string
   venueId: string
@@ -32,7 +40,6 @@ type Attachment = {
   filename: string
   mediaType: string
   byteSize: string | bigint
-  sourceId: string | null
 }
 type ClientMessage = {
   id: string
@@ -53,6 +60,8 @@ type SupportWorkspaceProps = {
   initialRequests: RequestSummary[]
   initialNextCursor: { updatedAt: string; id: string } | null
   initialDetail: RequestDetail | null
+  initialEligibleAttachments: EligibleAttachment[]
+  initialEligibleAttachmentsNextCursor: EligibleAttachmentCursor | null
 }
 
 const categories = [
@@ -101,12 +110,104 @@ function isConflict(error: unknown) {
   )
 }
 
+function fileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function AttachmentPicker({
+  available,
+  selected,
+  disabled,
+  label,
+  onChange,
+}: {
+  available: EligibleAttachment[]
+  selected: string[]
+  disabled: boolean
+  label: string
+  onChange: (ids: string[]) => void
+}) {
+  const id = useId()
+  const selectedRows = selected.flatMap((selectedId) => {
+    const row = available.find((candidate) => candidate.intakeUploadId === selectedId)
+    return row ? [row] : []
+  })
+  return (
+    <fieldset className="rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
+      <legend className="px-1 text-sm font-semibold text-pf-deep">{label}</legend>
+      <p id={`${id}-help`} className="mt-1 text-xs leading-5 text-pf-deep/70">
+        Files stay in quarantine for PathFinder review. Upload verification confirms the stored
+        object version, declared media type, size, and checksum only. It does not confirm that a
+        file is safe, readable, or malware-free. Files cannot be previewed or downloaded here.
+      </p>
+      {available.length ? (
+        <label className="mt-3 block text-sm font-medium text-pf-deep">
+          Choose one of your recent files
+          <select
+            aria-describedby={`${id}-help`}
+            disabled={disabled || selected.length >= 20}
+            value=""
+            onChange={(event) => {
+              const next = event.target.value
+              if (next && !selected.includes(next)) onChange([...selected, next])
+            }}
+            className="mt-2 block min-h-11 w-full rounded-xl border border-pf-light bg-white px-3 disabled:opacity-50"
+          >
+            <option value="">Select a file</option>
+            {available
+              .filter((row) => !selected.includes(row.intakeUploadId))
+              .map((row) => (
+                <option key={row.intakeUploadId} value={row.intakeUploadId}>
+                  {row.fileName} ({fileSize(row.byteSize)})
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : (
+        <p className="mt-3 text-sm text-pf-deep/70">No recent files are available for review.</p>
+      )}
+      {selectedRows.length ? (
+        <ul className="mt-3 space-y-2" aria-label="Selected files">
+          {selectedRows.map((row) => (
+            <li
+              key={row.intakeUploadId}
+              className="flex items-center justify-between gap-3 rounded-xl bg-white p-3 text-sm"
+            >
+              <span>
+                <strong className="block text-pf-deep">{row.fileName}</strong>
+                <span className="text-xs text-pf-deep/65">
+                  {row.mimeType} · {fileSize(row.byteSize)} · Awaiting PathFinder review
+                </span>
+              </span>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() =>
+                  onChange(selected.filter((candidate) => candidate !== row.intakeUploadId))
+                }
+                aria-label={`Remove ${row.fileName}`}
+                className="min-h-11 shrink-0 rounded-lg px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </fieldset>
+  )
+}
+
 export function SupportWorkspace({
   venues,
   activeVenue,
   initialRequests,
   initialNextCursor,
   initialDetail,
+  initialEligibleAttachments,
+  initialEligibleAttachmentsNextCursor,
 }: SupportWorkspaceProps) {
   const router = useRouter()
   const client = useTRPCClient()
@@ -120,11 +221,28 @@ export function SupportWorkspace({
   const [category, setCategory] = useState<(typeof categories)[number][0]>('GENERAL')
   const [requestBody, setRequestBody] = useState('')
   const [replyBody, setReplyBody] = useState('')
+  const [createAttachments, setCreateAttachments] = useState<string[]>([])
+  const [replyAttachments, setReplyAttachments] = useState<string[]>([])
+  const [eligibleAttachments, setEligibleAttachments] = useState(initialEligibleAttachments)
+  const [eligibleAttachmentsNextCursor, setEligibleAttachmentsNextCursor] = useState(
+    initialEligibleAttachmentsNextCursor,
+  )
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState(false)
   const writeInFlight = useRef(false)
+  const createOperationId = useRef(crypto.randomUUID())
+  const replyOperationId = useRef(crypto.randomUUID())
+
+  function changeCreateDraft(change: () => void) {
+    change()
+    createOperationId.current = crypto.randomUUID()
+  }
+  function changeReplyDraft(change: () => void) {
+    change()
+    replyOperationId.current = crypto.randomUUID()
+  }
 
   function clearFeedback() {
     setNotice(null)
@@ -133,6 +251,7 @@ export function SupportWorkspace({
   }
 
   async function openRequest(requestId: string) {
+    if (writeInFlight.current) return
     clearFeedback()
     setBusy('detail')
     try {
@@ -140,8 +259,37 @@ export function SupportWorkspace({
         venueId: activeVenue.id,
         requestId,
       })
+      if (detail?.id !== requestId || next.status === 'COMPLETED' || next.status === 'CANCELLED') {
+        setReplyBody('')
+        setReplyAttachments([])
+      }
       setDetail(next as RequestDetail)
+      replyOperationId.current = crypto.randomUUID()
       setView('conversation')
+    } catch (loadError) {
+      setError(errorText(loadError))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function loadMoreEligibleAttachments() {
+    if (!eligibleAttachmentsNextCursor || busy) return
+    clearFeedback()
+    setBusy('attachments')
+    try {
+      const next = await client.support.listEligibleAttachments.query({
+        venueId: activeVenue.id,
+        limit: 20,
+        cursor: eligibleAttachmentsNextCursor,
+      })
+      setEligibleAttachments((current) => [
+        ...current,
+        ...next.items.filter(
+          (row) => !current.some((existing) => existing.intakeUploadId === row.intakeUploadId),
+        ),
+      ])
+      setEligibleAttachmentsNextCursor(next.nextCursor)
     } catch (loadError) {
       setError(errorText(loadError))
     } finally {
@@ -200,10 +348,12 @@ export function SupportWorkspace({
     setBusy('create')
     try {
       const created = await client.support.createRequest.mutate({
+        operationId: createOperationId.current,
         venueId: activeVenue.id,
         category,
         subject,
         body: requestBody,
+        attachments: createAttachments.map((intakeUploadId) => ({ intakeUploadId })),
       })
       const nextDetail: RequestDetail = {
         ...(created.request as RequestSummary),
@@ -214,8 +364,10 @@ export function SupportWorkspace({
       setDetail(nextDetail)
       setSubject('')
       setRequestBody('')
+      setCreateAttachments([])
+      createOperationId.current = crypto.randomUUID()
       setView('conversation')
-      setNotice('Your message was sent to PathFinder Support.')
+      setNotice('Your message and selected files were submitted for review. Nothing was published.')
     } catch (createError) {
       setError(writeErrorText(createError))
     } finally {
@@ -230,15 +382,18 @@ export function SupportWorkspace({
     writeInFlight.current = true
     clearFeedback()
     setBusy('reply')
+    const submittedRequestId = detail.id
     try {
       const result = await client.support.addMessage.mutate({
+        operationId: replyOperationId.current,
         venueId: activeVenue.id,
-        requestId: detail.id,
+        requestId: submittedRequestId,
         expectedVersion: detail.version,
         body: replyBody,
+        attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
       })
       setDetail((current) =>
-        current
+        current?.id === submittedRequestId
           ? {
               ...current,
               version: result.requestVersion,
@@ -248,11 +403,15 @@ export function SupportWorkspace({
       )
       setRequests((current) =>
         current.map((request) =>
-          request.id === detail.id ? { ...request, version: result.requestVersion } : request,
+          request.id === submittedRequestId
+            ? { ...request, version: result.requestVersion }
+            : request,
         ),
       )
       setReplyBody('')
-      setNotice('Your reply was sent.')
+      setReplyAttachments([])
+      replyOperationId.current = crypto.randomUUID()
+      setNotice('Your message and selected files were submitted for review. Nothing was published.')
     } catch (replyError) {
       setConflict(isConflict(replyError))
       setError(
@@ -267,7 +426,7 @@ export function SupportWorkspace({
   }
 
   return (
-    <main className="min-h-screen px-4 py-7 sm:px-6 sm:py-10 lg:px-10">
+    <div className="min-h-screen px-4 py-7 sm:px-6 sm:py-10 lg:px-10">
       <div className="mx-auto max-w-6xl">
         <header className="flex flex-col gap-5 border-b border-pf-light pb-7 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -286,6 +445,7 @@ export function SupportWorkspace({
               <select
                 aria-label="Venue"
                 value={activeVenue.id}
+                disabled={busy === 'create' || busy === 'reply'}
                 onChange={(event) =>
                   router.replace(`/support?venue=${encodeURIComponent(event.target.value)}`)
                 }
@@ -305,6 +465,7 @@ export function SupportWorkspace({
           <aside className="rounded-3xl border border-pf-light bg-white p-4 shadow-sm">
             <button
               type="button"
+              disabled={busy === 'create' || busy === 'reply'}
               onClick={() => {
                 clearFeedback()
                 setView('create')
@@ -327,6 +488,7 @@ export function SupportWorkspace({
                   <li key={request.id}>
                     <button
                       type="button"
+                      disabled={busy === 'create' || busy === 'reply'}
                       onClick={() => void openRequest(request.id)}
                       aria-current={view === 'conversation' && detail?.id === request.id}
                       className={`flex min-h-16 w-full items-center gap-3 rounded-xl px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent ${
@@ -418,7 +580,9 @@ export function SupportWorkspace({
                     value={category}
                     disabled={busy === 'create'}
                     onChange={(event) =>
-                      setCategory(event.target.value as (typeof categories)[number][0])
+                      changeCreateDraft(() =>
+                        setCategory(event.target.value as (typeof categories)[number][0]),
+                      )
                     }
                     className="mt-2 block min-h-12 w-full rounded-xl border border-pf-light bg-white px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
                   >
@@ -436,7 +600,7 @@ export function SupportWorkspace({
                     maxLength={200}
                     value={subject}
                     disabled={busy === 'create'}
-                    onChange={(event) => setSubject(event.target.value)}
+                    onChange={(event) => changeCreateDraft(() => setSubject(event.target.value))}
                     className="mt-2 block min-h-12 w-full rounded-xl border border-pf-light px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
                   />
                 </label>
@@ -448,11 +612,30 @@ export function SupportWorkspace({
                     rows={7}
                     value={requestBody}
                     disabled={busy === 'create'}
-                    onChange={(event) => setRequestBody(event.target.value)}
+                    onChange={(event) =>
+                      changeCreateDraft(() => setRequestBody(event.target.value))
+                    }
                     className="mt-2 block w-full rounded-xl border border-pf-light px-4 py-3 leading-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
                     placeholder="Share the change, question, or information you would like us to review."
                   />
                 </label>
+                <AttachmentPicker
+                  available={eligibleAttachments}
+                  selected={createAttachments}
+                  disabled={busy === 'create'}
+                  label="Files for PathFinder review (optional)"
+                  onChange={(ids) => changeCreateDraft(() => setCreateAttachments(ids))}
+                />
+                {eligibleAttachmentsNextCursor ? (
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={() => void loadMoreEligibleAttachments()}
+                    className="min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                  >
+                    {busy === 'attachments' ? 'Loading files…' : 'Show more recent files'}
+                  </button>
+                ) : null}
                 <button
                   type="submit"
                   disabled={busy !== null}
@@ -552,12 +735,31 @@ export function SupportWorkspace({
                       value={replyBody}
                       disabled={busy === 'reply'}
                       onChange={(event) => {
-                        setReplyBody(event.target.value)
+                        changeReplyDraft(() => setReplyBody(event.target.value))
                         if (!writeInFlight.current) clearFeedback()
                       }}
                       placeholder="Write a reply…"
                       className="block w-full rounded-xl border border-pf-light px-4 py-3 text-sm leading-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
                     />
+                    <div className="mt-4">
+                      <AttachmentPicker
+                        available={eligibleAttachments}
+                        selected={replyAttachments}
+                        disabled={busy === 'reply'}
+                        label="Files for PathFinder review (optional)"
+                        onChange={(ids) => changeReplyDraft(() => setReplyAttachments(ids))}
+                      />
+                      {eligibleAttachmentsNextCursor ? (
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => void loadMoreEligibleAttachments()}
+                          className="mt-3 min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                        >
+                          {busy === 'attachments' ? 'Loading files…' : 'Show more recent files'}
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="mt-3 flex justify-end">
                       <button
                         type="submit"
@@ -579,6 +781,6 @@ export function SupportWorkspace({
           </section>
         </div>
       </div>
-    </main>
+    </div>
   )
 }

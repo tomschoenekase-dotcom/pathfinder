@@ -30,12 +30,15 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
   const query = await searchParams
   const caller = await createAdminCaller()
   try {
-    const requestPage = await caller.admin.listSupportRequests({
-      tenantId,
-      venueId,
-      limit: 20,
-      ...(requestCursor(query) ? { cursor: requestCursor(query) } : {}),
-    })
+    const [requestPage, eligibleAttachments] = await Promise.all([
+      caller.admin.listSupportRequests({
+        tenantId,
+        venueId,
+        limit: 20,
+        ...(requestCursor(query) ? { cursor: requestCursor(query) } : {}),
+      }),
+      caller.admin.listEligibleSupportAttachments({ tenantId, venueId, limit: 20 }),
+    ])
     const selectedId = query.requestId ?? requestPage.items[0]?.id ?? null
     const normalizeRequest = (request: (typeof requestPage.items)[number]) => ({
       id: request.id,
@@ -61,6 +64,8 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
           audit={{ items: [], nextCursor: null }}
           draftPackages={[]}
           handoffs={[]}
+          eligibleAttachments={eligibleAttachments.items}
+          eligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
         />
       )
     const [selectedRaw, messagePage, audit, draftPackages, handoffs] = await Promise.all([
@@ -114,6 +119,8 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         audit={audit}
         draftPackages={draftPackages}
         handoffs={handoffs}
+        eligibleAttachments={eligibleAttachments.items}
+        eligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
       />
     )
   } catch {

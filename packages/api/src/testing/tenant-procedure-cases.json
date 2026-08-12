@@ -457,6 +457,13 @@
     }
   },
   {
+    "path": "support.listEligibleAttachments",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "intakeUpload.findMany",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
     "path": "support.listRequests",
     "kind": "query",
     "minimumRole": "STAFF",
@@ -479,6 +486,7 @@
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
     "input": {
+      "operationId": "39e0c79f-222f-4d9d-8e68-772170cabf97",
       "venueId": "cvenueabc123456789012",
       "category": "GENERAL",
       "subject": "Visitor information request",
@@ -491,6 +499,7 @@
     "minimumRole": "STAFF",
     "firstTouch": "supportRequest.findFirst",
     "input": {
+      "operationId": "a9c3c094-8807-43f4-b7da-5d38982930cc",
       "venueId": "cvenueabc123456789012",
       "requestId": "csupportabc1234567890",
       "expectedVersion": 1,

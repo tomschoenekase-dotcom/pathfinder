@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  SupportAttachmentReferences,
   SupportMessage,
   canTransitionSupportRequest,
   visibleSupportMessages,
@@ -25,6 +26,26 @@ const internalMessage = SupportMessage.parse({
 })
 
 describe('support workflow contract', () => {
+  it('accepts only unique narrow intake upload references', () => {
+    expect(SupportAttachmentReferences.parse([{ intakeUploadId: 'upload_1' }])).toEqual([
+      { intakeUploadId: 'upload_1' },
+    ])
+    expect(
+      SupportAttachmentReferences.safeParse([{ intakeUploadId: 'upload_1', filename: 'spoof.pdf' }])
+        .success,
+    ).toBe(false)
+    expect(
+      SupportAttachmentReferences.safeParse([
+        { intakeUploadId: 'upload_1' },
+        { intakeUploadId: 'upload_1' },
+      ]).success,
+    ).toBe(false)
+    expect(
+      SupportAttachmentReferences.safeParse(
+        Array.from({ length: 21 }, (_, index) => ({ intakeUploadId: `upload_${index}` })),
+      ).success,
+    ).toBe(false)
+  })
   it('allows the reviewed patch path but not an approval bypass', () => {
     expect(canTransitionSupportRequest('IN_REVIEW', 'PATCH_DRAFTED')).toBe(true)
     expect(canTransitionSupportRequest('PATCH_DRAFTED', 'VALIDATING')).toBe(true)

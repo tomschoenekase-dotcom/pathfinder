@@ -41,6 +41,14 @@ scope, expected version/current-status CAS, and transactional append-only suppor
 They have no lifecycle execution side effects. `VALIDATING` includes validation/evaluation review
 because the persisted enum has no separate evaluation state.
 
+Support attachments are typed references to existing quarantined `IntakeUpload` evidence, never
+browser-authored filename, MIME, byte-size or storage metadata. Resolve every reference inside the
+message transaction with exact tenant/venue scope, uploader ownership for client actors, terminal
+transport evidence and one matching FILE_UPLOAD evidence row. Create and reply operations retain a
+UUID and canonical actor/scope/content/attachment hash across ambiguous retries; replay must be
+checked before reply-version CAS. Safe projections omit upload/run/hash/storage identities, and
+strict audit records only attachment count. This boundary does not authorize reading file bytes.
+
 Operational updates are another canonical-action reference: HUMAN manager/owner authorization,
 exact tenant/venue/place scope, content-version entity and capacity locks, expected `updatedAt` CAS,
 bounded overlap validation, and required audit in one transaction. API adapters validate and

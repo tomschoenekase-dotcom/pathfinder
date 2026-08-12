@@ -16,7 +16,10 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
   const requested = (await searchParams).venue
   const requestedVenueId = Array.isArray(requested) ? requested[0] : requested
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0]!
-  const requestPage = await caller.support.listRequests({ venueId: selectedVenue.id })
+  const [requestPage, eligibleAttachments] = await Promise.all([
+    caller.support.listRequests({ venueId: selectedVenue.id }),
+    caller.support.listEligibleAttachments({ venueId: selectedVenue.id, limit: 20 }),
+  ])
   const firstRequest = requestPage.items[0]
   const initialDetail = firstRequest
     ? await caller.support.getRequest({
@@ -33,6 +36,8 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
       initialRequests={requestPage.items}
       initialNextCursor={requestPage.nextCursor}
       initialDetail={initialDetail}
+      initialEligibleAttachments={eligibleAttachments.items}
+      initialEligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
     />
   )
 }

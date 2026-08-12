@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   transition: vi.fn(),
   triage: vi.fn(),
   query: vi.fn(),
+  listEligibleAttachments: vi.fn(),
   refresh: vi.fn(),
 }))
 vi.mock('../../lib/trpc', () => ({
@@ -16,6 +17,7 @@ vi.mock('../../lib/trpc', () => ({
     admin: {
       addSupportMessage: { mutate: mocks.mutate },
       getSupportRequest: { query: mocks.query },
+      listEligibleSupportAttachments: { query: mocks.listEligibleAttachments },
       linkSupportDraftPackage: { mutate: mocks.link },
       transitionSupportRequestStatus: { mutate: mocks.transition },
       triageSupportRequest: { mutate: mocks.triage },
@@ -92,6 +94,83 @@ describe('support operations UI', () => {
     expect(screen.getByText('Client text')).toBeTruthy()
     expect(screen.getByText('Private note')).toBeTruthy()
     expect(screen.queryByText(/artifacts/i)).toBeNull()
+  })
+
+  it('does not render message or attachment controls for a terminal request', () => {
+    const request = {
+      id: 'req_closed',
+      category: 'GENERAL' as const,
+      missingInformation: [],
+      status: 'COMPLETED' as const,
+      subject: 'Finished request',
+      version: 7,
+      createdByKind: 'CLIENT',
+      updatedByKind: 'OPERATOR',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    render(
+      <SupportOperationsView
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requests={{ items: [request], nextCursor: null }}
+        selected={request}
+        messages={{ items: [], nextCursor: null }}
+        audit={{ items: [], nextCursor: null }}
+        eligibleAttachments={[
+          {
+            intakeUploadId: 'upload_1',
+            fileName: 'hours.pdf',
+            mimeType: 'application/pdf',
+            byteSize: 2048,
+            createdAt: new Date(),
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText(/request is closed/i)).toBeTruthy()
+    expect(screen.queryByLabelText('Message')).toBeNull()
+    expect(screen.queryByLabelText('Choose a recent venue file')).toBeNull()
+  })
+
+  it('does not carry body, visibility, or selected files into another request', () => {
+    const attachment = {
+      intakeUploadId: 'upload_1',
+      fileName: 'hours.pdf',
+      mimeType: 'application/pdf',
+      byteSize: 2048,
+      createdAt: new Date(),
+    }
+    const { rerender } = render(
+      <SupportMessageComposer
+        key="req_1:composer"
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        initialEligibleAttachments={[attachment]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Private draft' } })
+    fireEvent.click(screen.getByLabelText(/Client visible/))
+    fireEvent.change(screen.getByLabelText('Choose a recent venue file'), {
+      target: { value: 'upload_1' },
+    })
+
+    rerender(
+      <SupportMessageComposer
+        key="req_2:composer"
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_2"
+        expectedVersion={1}
+        initialEligibleAttachments={[attachment]}
+      />,
+    )
+
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Message').value).toBe('')
+    expect(screen.getByLabelText<HTMLInputElement>(/Internal only/).checked).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Remove hours.pdf' })).toBeNull()
   })
 
   it('submits bounded structured triage without status, message, artifact, or package fields', async () => {
@@ -199,6 +278,7 @@ describe('support operations UI', () => {
     fireEvent.click(submit)
     expect(mocks.mutate).toHaveBeenCalledTimes(1)
     expect(mocks.mutate).toHaveBeenCalledWith({
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       tenantId: 'tenant_1',
       venueId: 'venue_1',
       requestId: 'req_1',
@@ -209,6 +289,46 @@ describe('support operations UI', () => {
     })
     resolve()
     await waitFor(() => expect(screen.getByText('Client-visible message added.')).toBeTruthy())
+  })
+
+  it('sends only selected eligible admin file references and retains them after an ambiguous error', async () => {
+    mocks.mutate
+      .mockRejectedValueOnce(new Error('Unknown outcome'))
+      .mockRejectedValueOnce(new Error('Unknown outcome'))
+    render(
+      <SupportMessageComposer
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        initialEligibleAttachments={[
+          {
+            intakeUploadId: 'upload_1',
+            fileName: 'hours.pdf',
+            mimeType: 'application/pdf',
+            byteSize: 2048,
+            createdAt: '2026-08-10T13:00:00.000Z',
+          },
+        ]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Review this file' } })
+    fireEvent.change(screen.getByLabelText('Choose a recent venue file'), {
+      target: { value: 'upload_1' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add internal note' }))
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledOnce())
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [{ intakeUploadId: 'upload_1' }] }),
+    )
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Message').value).toBe('Review this file')
+    expect(screen.getByRole('button', { name: 'Remove hours.pdf' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /hours\.pdf/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh request' })).toBeNull()
+    const firstOperationId = mocks.mutate.mock.calls[0]![0].operationId
+    fireEvent.click(screen.getByRole('button', { name: 'Add internal note' }))
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(2))
+    expect(mocks.mutate.mock.calls[1]![0].operationId).toBe(firstOperationId)
   })
 
   it('retains the draft and blocks retry after a version conflict', async () => {

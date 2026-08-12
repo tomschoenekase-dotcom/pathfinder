@@ -6,7 +6,27 @@ import type { FormEvent } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 
-type Props = { tenantId: string; venueId: string; requestId: string; expectedVersion: number }
+type EligibleAttachment = {
+  intakeUploadId: string
+  fileName: string
+  mimeType: string
+  byteSize: number
+  createdAt: Date | string
+}
+type Props = {
+  tenantId: string
+  venueId: string
+  requestId: string
+  expectedVersion: number
+  initialEligibleAttachments?: EligibleAttachment[]
+  initialEligibleAttachmentsNextCursor?: { createdAt: string; id: string } | null
+}
+
+function fileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 function errorCode(error: unknown) {
   if (!error || typeof error !== 'object' || !('data' in error)) return null
@@ -16,7 +36,14 @@ function errorCode(error: unknown) {
     : null
 }
 
-export function SupportMessageComposer({ tenantId, venueId, requestId, expectedVersion }: Props) {
+export function SupportMessageComposer({
+  tenantId,
+  venueId,
+  requestId,
+  expectedVersion,
+  initialEligibleAttachments = [],
+  initialEligibleAttachmentsNextCursor = null,
+}: Props) {
   const client = useTRPCClient()
   const router = useRouter()
   const [body, setBody] = useState('')
@@ -25,7 +52,13 @@ export function SupportMessageComposer({ tenantId, venueId, requestId, expectedV
   const [pending, setPending] = useState(false)
   const [requiresRefresh, setRequiresRefresh] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+  const [attachments, setAttachments] = useState<string[]>([])
+  const [eligibleAttachments, setEligibleAttachments] = useState(initialEligibleAttachments)
+  const [eligibleAttachmentsNextCursor, setEligibleAttachmentsNextCursor] = useState(
+    initialEligibleAttachmentsNextCursor,
+  )
   const active = useRef(false)
+  const operation = useRef<{ id: string; fingerprint: string } | null>(null)
 
   useEffect(() => {
     active.current = false
@@ -33,7 +66,7 @@ export function SupportMessageComposer({ tenantId, venueId, requestId, expectedV
     setPending(false)
     setRequiresRefresh(false)
     setFeedback(null)
-  }, [requestId, expectedVersion])
+  }, [expectedVersion])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -41,18 +74,34 @@ export function SupportMessageComposer({ tenantId, venueId, requestId, expectedV
     active.current = true
     setPending(true)
     setFeedback(null)
+    const trimmedBody = body.trim()
+    const fingerprint = JSON.stringify({
+      tenantId,
+      venueId,
+      requestId,
+      expectedVersion: revision,
+      visibility,
+      body: trimmedBody,
+      attachments,
+    })
+    if (!operation.current || operation.current.fingerprint !== fingerprint) {
+      operation.current = { id: crypto.randomUUID(), fingerprint }
+    }
     try {
       const result = await client.admin.addSupportMessage.mutate({
+        operationId: operation.current.id,
         tenantId,
         venueId,
         requestId,
         expectedVersion: revision,
         visibility,
-        body: body.trim(),
-        attachments: [],
+        body: trimmedBody,
+        attachments: attachments.map((intakeUploadId) => ({ intakeUploadId })),
       })
       setRevision(result.requestVersion)
       setBody('')
+      setAttachments([])
+      operation.current = null
       setFeedback({
         kind: 'success',
         text:
@@ -60,15 +109,41 @@ export function SupportMessageComposer({ tenantId, venueId, requestId, expectedV
       })
       router.refresh()
     } catch (error) {
-      setRequiresRefresh(true)
+      const conflict = errorCode(error) === 'CONFLICT'
+      setRequiresRefresh(conflict)
       setFeedback({
         kind: 'error',
-        text:
-          errorCode(error) === 'CONFLICT'
-            ? 'This request changed after the page loaded. Your draft is retained. Refresh before trying again.'
-            : 'The message outcome could not be confirmed. Your draft is retained. Refresh before trying again.',
+        text: conflict
+          ? 'This request changed after the page loaded. Your draft is retained. Refresh before trying again.'
+          : 'The message outcome could not be confirmed. Your draft and retry identity are retained; retry unchanged to check the original operation.',
       })
-      router.refresh()
+    } finally {
+      active.current = false
+      setPending(false)
+    }
+  }
+
+  async function loadMoreAttachments() {
+    if (active.current || !eligibleAttachmentsNextCursor) return
+    active.current = true
+    setPending(true)
+    setFeedback(null)
+    try {
+      const next = await client.admin.listEligibleSupportAttachments.query({
+        tenantId,
+        venueId,
+        limit: 20,
+        cursor: eligibleAttachmentsNextCursor,
+      })
+      setEligibleAttachments((current) => [
+        ...current,
+        ...next.items.filter(
+          (row) => !current.some((existing) => existing.intakeUploadId === row.intakeUploadId),
+        ),
+      ])
+      setEligibleAttachmentsNextCursor(next.nextCursor)
+    } catch {
+      setFeedback({ kind: 'error', text: 'More files could not be loaded. No draft was changed.' })
     } finally {
       active.current = false
       setPending(false)
@@ -155,6 +230,85 @@ export function SupportMessageComposer({ tenantId, venueId, requestId, expectedV
             className="rounded-2xl border border-pf-light bg-white px-4 py-3 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
           />
         </label>
+        <fieldset className="mt-4 rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
+          <legend className="px-1 text-sm font-semibold text-pf-deep">
+            Files for PathFinder review (optional)
+          </legend>
+          <p id="admin-support-file-help" className="mt-1 text-xs leading-5 text-pf-deep/70">
+            Files stay in quarantine for PathFinder review. Upload verification confirms the stored
+            object version, declared media type, size, and checksum only. It does not confirm that a
+            file is safe, readable, or malware-free. Files cannot be previewed or downloaded here.
+          </p>
+          {eligibleAttachments.length ? (
+            <label className="mt-3 block text-sm font-medium text-pf-deep">
+              Choose a recent venue file
+              <select
+                aria-describedby="admin-support-file-help"
+                disabled={pending || requiresRefresh || attachments.length >= 20}
+                value=""
+                onChange={(event) => {
+                  const id = event.target.value
+                  if (id && !attachments.includes(id)) setAttachments((current) => [...current, id])
+                }}
+                className="mt-2 block min-h-11 w-full rounded-xl border border-pf-light bg-white px-3 disabled:opacity-50"
+              >
+                <option value="">Select a file</option>
+                {eligibleAttachments
+                  .filter((row) => !attachments.includes(row.intakeUploadId))
+                  .map((row) => (
+                    <option key={row.intakeUploadId} value={row.intakeUploadId}>
+                      {row.fileName} ({fileSize(row.byteSize)})
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : (
+            <p className="mt-3 text-sm text-pf-deep/70">
+              No recent files are available for review.
+            </p>
+          )}
+          {attachments.length ? (
+            <ul className="mt-3 space-y-2" aria-label="Selected files">
+              {attachments.map((id) => {
+                const row = eligibleAttachments.find((candidate) => candidate.intakeUploadId === id)
+                return row ? (
+                  <li
+                    key={id}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-white p-3 text-sm"
+                  >
+                    <span>
+                      <strong className="block text-pf-deep">{row.fileName}</strong>
+                      <span className="text-xs text-pf-deep/65">
+                        {row.mimeType} · {fileSize(row.byteSize)} · Awaiting PathFinder review
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={pending || requiresRefresh}
+                      aria-label={`Remove ${row.fileName}`}
+                      onClick={() =>
+                        setAttachments((current) => current.filter((value) => value !== id))
+                      }
+                      className="min-h-11 rounded-lg px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ) : null
+              })}
+            </ul>
+          ) : null}
+          {eligibleAttachmentsNextCursor ? (
+            <button
+              type="button"
+              disabled={pending || requiresRefresh}
+              onClick={() => void loadMoreAttachments()}
+              className="mt-3 min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
+            >
+              {pending ? 'Loading files…' : 'Show more recent files'}
+            </button>
+          ) : null}
+        </fieldset>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="submit"

@@ -6,12 +6,17 @@ const mocks = vi.hoisted(() => ({
   venueList: vi.fn(),
   listRequests: vi.fn(),
   getRequest: vi.fn(),
+  listEligibleAttachments: vi.fn(),
 }))
 
 vi.mock('../../../lib/server-caller', () => ({
   createDashboardCaller: vi.fn(async () => ({
     venue: { list: mocks.venueList },
-    support: { listRequests: mocks.listRequests, getRequest: mocks.getRequest },
+    support: {
+      listRequests: mocks.listRequests,
+      getRequest: mocks.getRequest,
+      listEligibleAttachments: mocks.listEligibleAttachments,
+    },
   })),
 }))
 
@@ -29,6 +34,7 @@ describe('SupportPage', () => {
       nextCursor: null,
     })
     mocks.getRequest.mockResolvedValue({ id: 'request_beta', messages: [] })
+    mocks.listEligibleAttachments.mockResolvedValue({ items: [], nextCursor: null })
   })
 
   it('loads both list and detail using only the explicitly selected venue', async () => {
@@ -41,6 +47,10 @@ describe('SupportPage', () => {
       venueId: 'venue_beta',
       requestId: 'request_beta',
     })
+    expect(mocks.listEligibleAttachments).toHaveBeenCalledWith({
+      venueId: 'venue_beta',
+      limit: 20,
+    })
     expect(element.props.activeVenue).toEqual({ id: 'venue_beta', name: 'History Center' })
   })
 
@@ -51,6 +61,10 @@ describe('SupportPage', () => {
 
     expect(mocks.listRequests).toHaveBeenCalledWith({ venueId: 'venue_alpha' })
     expect(mocks.getRequest).not.toHaveBeenCalled()
+    expect(mocks.listEligibleAttachments).toHaveBeenCalledWith({
+      venueId: 'venue_alpha',
+      limit: 20,
+    })
     expect(element.props.initialDetail).toBeNull()
   })
 })

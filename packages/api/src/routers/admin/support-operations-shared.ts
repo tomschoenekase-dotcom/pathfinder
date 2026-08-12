@@ -49,7 +49,6 @@ export const supportMessageSelect = {
       filename: true,
       mediaType: true,
       byteSize: true,
-      sourceId: true,
       createdAt: true,
     },
     orderBy: { createdAt: 'asc' as const },
@@ -61,9 +60,9 @@ export function serializeSupportMessage<T extends { attachments: Array<{ byteSiz
 ) {
   return {
     ...message,
-    attachments: message.attachments.map((attachment) => ({
+    attachments: message.attachments.map(({ byteSize, ...attachment }) => ({
       ...attachment,
-      byteSize: attachment.byteSize.toString(),
+      byteSize: byteSize.toString(),
     })),
   }
 }
@@ -86,7 +85,10 @@ export function supportActionError(error: unknown): never {
     error instanceof SupportPackageHandoffError ||
     error instanceof SupportStatusTransitionError
   ) {
-    throw new TRPCError({ code: error.code, message: error.message })
+    throw new TRPCError({
+      code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+      message: error.message,
+    })
   }
   throw error
 }

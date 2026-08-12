@@ -2,7 +2,8 @@ import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TRPCContext } from '../../context'
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
+import { adminSupportAttachmentsRouter } from './support-attachments'
 import { adminSupportOperationsRouter } from './support-operations'
 
 const requestFindFirst = vi.fn()
@@ -15,12 +16,19 @@ const packageFindFirst = vi.fn()
 const handoffFindMany = vi.fn()
 const handoffFindFirst = vi.fn()
 const handoffCreate = vi.fn()
+const uploadFindMany = vi.fn()
+const operationId = '00000000-0000-4000-8000-000000000001'
 
 const mockDb = {
   $executeRaw: vi.fn(),
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   supportRequest: { findFirst: requestFindFirst, findMany: vi.fn(), updateMany: requestUpdateMany },
-  supportMessage: { findMany: messageFindMany, create: messageCreate },
+  intakeUpload: { findMany: uploadFindMany },
+  supportMessage: {
+    findMany: messageFindMany,
+    findFirst: vi.fn().mockResolvedValue(null),
+    create: messageCreate,
+  },
   supportRequestAuditEvent: { create: auditEventCreate },
   venuePackage: { findMany: packageFindMany, findFirst: packageFindFirst },
   supportPackageHandoff: {
@@ -44,7 +52,9 @@ function context(isPlatformAdmin: boolean): TRPCContext {
   }
 }
 
-const testRouter = router({ admin: adminSupportOperationsRouter })
+const testRouter = router({
+  admin: mergeRouters(adminSupportOperationsRouter, adminSupportAttachmentsRouter),
+})
 const tenantId = 'tenant_target'
 const venueId = 'venue_target'
 const requestId = 'request_target'
@@ -84,6 +94,53 @@ describe('admin support operations', () => {
       linkedById: 'platform_admin',
       createdAt: now,
     })
+    uploadFindMany.mockResolvedValue([])
+  })
+
+  it('lists safe exact-scope verified attachment choices for operators', async () => {
+    await testRouter.createCaller(context(true)).admin.listEligibleSupportAttachments({
+      tenantId,
+      venueId,
+    })
+    expect(uploadFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId,
+          venueId,
+          status: 'AWAITING_REVIEW',
+          verifiedAt: { not: null },
+          storageVersionId: { not: null },
+        }),
+      }),
+    )
+    expect(uploadFindMany.mock.calls[0]?.[0]?.where).not.toHaveProperty('requestedBy')
+  })
+
+  it('keeps an admin cursor when a full raw page contains only inconsistent evidence', async () => {
+    uploadFindMany.mockResolvedValue(
+      ['bad_1', 'bad_2'].map((id, index) => ({
+        id,
+        fileName: 'bad.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 42,
+        sha256: 'a'.repeat(64),
+        verifiedAt: now,
+        storageVersionId: 'private-version',
+        intakeRunId: `run_${index}`,
+        intakeRun: {
+          id: `run_${index}`,
+          sourceKind: 'FILE_UPLOAD',
+          status: 'AWAITING_REVIEW',
+          evidence: [],
+        },
+        createdAt: new Date(now.getTime() - index),
+      })),
+    )
+    const result = await testRouter
+      .createCaller(context(true))
+      .admin.listEligibleSupportAttachments({ tenantId, venueId, limit: 1 })
+    expect(result.items).toEqual([])
+    expect(result.nextCursor?.id).toBe('bad_2')
   })
 
   it('rejects non-admin callers before support data access', async () => {
@@ -121,6 +178,7 @@ describe('admin support operations', () => {
 
   it('creates an internal note with server-owned operator identity and scoped version check', async () => {
     await testRouter.createCaller(context(true)).admin.addSupportMessage({
+      operationId,
       tenantId,
       venueId,
       requestId,

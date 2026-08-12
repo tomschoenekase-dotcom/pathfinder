@@ -6,6 +6,7 @@ import { router } from '../core'
 import { supportRouter } from './support'
 
 const venueFindFirst = vi.fn()
+const uploadFindMany = vi.fn()
 const requestFindMany = vi.fn()
 const requestFindFirst = vi.fn()
 const requestCreate = vi.fn()
@@ -15,15 +16,17 @@ const auditEventCreate = vi.fn()
 const auditLogCreate = vi.fn()
 
 const mockDb = {
+  $executeRaw: vi.fn(),
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   venue: { findFirst: venueFindFirst },
+  intakeUpload: { findMany: uploadFindMany },
   supportRequest: {
     findMany: requestFindMany,
     findFirst: requestFindFirst,
     create: requestCreate,
     updateMany: requestUpdateMany,
   },
-  supportMessage: { create: messageCreate },
+  supportMessage: { findFirst: vi.fn().mockResolvedValue(null), create: messageCreate },
   supportRequestAuditEvent: { create: auditEventCreate },
   auditLog: { create: auditLogCreate },
 } as unknown as TRPCContext['db']
@@ -43,6 +46,7 @@ const testRouter = router({ support: supportRouter })
 const venueId = 'venue_assigned'
 const requestId = 'support_request_1'
 const createdAt = new Date('2030-01-01T00:00:00.000Z')
+const operationId = '00000000-0000-4000-8000-000000000001'
 
 const requestRow = {
   id: requestId,
@@ -94,6 +98,95 @@ describe('client support router', () => {
     )
   })
 
+  it('lists only requester-owned transport-verified attachment metadata without provenance secrets', async () => {
+    uploadFindMany.mockResolvedValue([
+      {
+        id: 'upload_1',
+        fileName: 'verified.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 42,
+        sha256: 'a'.repeat(64),
+        verifiedAt: createdAt,
+        storageVersionId: 'private-version',
+        intakeRunId: 'run_1',
+        intakeRun: {
+          id: 'run_1',
+          sourceKind: 'FILE_UPLOAD',
+          status: 'AWAITING_REVIEW',
+          evidence: [
+            {
+              tenantId: 'tenant_assigned',
+              venueId,
+              runId: 'run_1',
+              sourceKind: 'FILE_UPLOAD',
+              locator: 'intake-upload:upload_1',
+              normalizedHash: 'a'.repeat(64),
+            },
+          ],
+        },
+        createdAt,
+      },
+    ])
+    const result = await testRouter.createCaller(tenantCtx).support.listEligibleAttachments({
+      venueId,
+    })
+    expect(uploadFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_assigned',
+          venueId,
+          requestedBy: 'user_client',
+          verifiedAt: { not: null },
+          storageVersionId: { not: null },
+        }),
+      }),
+    )
+    expect(result).toEqual({
+      items: [
+        {
+          intakeUploadId: 'upload_1',
+          fileName: 'verified.pdf',
+          mimeType: 'application/pdf',
+          byteSize: 42,
+          createdAt,
+        },
+      ],
+      nextCursor: null,
+    })
+    expect(JSON.stringify(result)).not.toMatch(/sha256|version|locator|runId|sourceId/u)
+  })
+
+  it('continues pagination after a full window of inconsistent evidence rows', async () => {
+    uploadFindMany.mockResolvedValue(
+      ['upload_bad_1', 'upload_bad_2'].map((id, index) => ({
+        id,
+        fileName: 'bad.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 42,
+        sha256: 'a'.repeat(64),
+        verifiedAt: createdAt,
+        storageVersionId: 'private-version',
+        intakeRunId: `run_${index}`,
+        intakeRun: {
+          id: `run_${index}`,
+          sourceKind: 'FILE_UPLOAD',
+          status: 'AWAITING_REVIEW',
+          evidence: [],
+        },
+        createdAt: new Date(createdAt.getTime() - index),
+      })),
+    )
+    const result = await testRouter.createCaller(tenantCtx).support.listEligibleAttachments({
+      venueId,
+      limit: 1,
+    })
+    expect(result.items).toEqual([])
+    expect(result.nextCursor).toEqual({
+      createdAt: new Date(createdAt.getTime() - 1).toISOString(),
+      id: 'upload_bad_2',
+    })
+  })
+
   it('filters client reads to CLIENT_VISIBLE messages at the database boundary', async () => {
     requestFindFirst.mockResolvedValue({ ...requestRow, messages: [messageRow] })
 
@@ -125,6 +218,7 @@ describe('client support router', () => {
 
     await expect(
       testRouter.createCaller(tenantCtx).support.createRequest({
+        operationId,
         venueId: 'venue_other_tenant',
         category: 'GENERAL',
         subject: 'Help needed',
@@ -143,6 +237,7 @@ describe('client support router', () => {
   it('creates a client-visible draft without accepting visibility or internal fields', async () => {
     const caller = testRouter.createCaller(tenantCtx)
     await caller.support.createRequest({
+      operationId,
       venueId,
       category: 'CONTENT_CORRECTION',
       subject: 'Entrance directions',
@@ -173,6 +268,7 @@ describe('client support router', () => {
 
     await expect(
       caller.support.createRequest({
+        operationId,
         venueId,
         category: 'GENERAL',
         subject: 'Attempted internal note',
@@ -180,6 +276,19 @@ describe('client support router', () => {
         visibility: 'INTERNAL_ONLY',
       } as never),
     ).rejects.toThrow()
+
+    await expect(
+      caller.support.createRequest({
+        operationId,
+        venueId,
+        category: 'GENERAL',
+        subject: 'Spoof metadata',
+        body: 'Must fail.',
+        attachments: [
+          { intakeUploadId: 'upload_1', filename: 'spoof.pdf', mediaType: 'text/plain' },
+        ],
+      } as never),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'BAD_REQUEST' }))
   })
 
   it('fails a cross-tenant request lookup before adding a message', async () => {
@@ -187,6 +296,7 @@ describe('client support router', () => {
 
     await expect(
       testRouter.createCaller(tenantCtx).support.addMessage({
+        operationId,
         venueId,
         requestId: 'request_other_tenant',
         expectedVersion: 1,

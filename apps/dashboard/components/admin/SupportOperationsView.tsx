@@ -58,6 +58,13 @@ type Handoff = {
   createdAt: Date
   venuePackage: { status: string; schemaVersion: number; payloadHash: string }
 }
+type EligibleAttachment = {
+  intakeUploadId: string
+  fileName: string
+  mimeType: string
+  byteSize: number
+  createdAt: Date | string
+}
 type Props = {
   tenantId: string
   venueId: string
@@ -67,6 +74,8 @@ type Props = {
   audit: Page<Audit>
   draftPackages?: DraftPackage[]
   handoffs?: Handoff[]
+  eligibleAttachments?: EligibleAttachment[]
+  eligibleAttachmentsNextCursor?: { createdAt: string; id: string } | null
 }
 
 function query(
@@ -91,6 +100,8 @@ export function SupportOperationsView({
   audit,
   draftPackages = [],
   handoffs = [],
+  eligibleAttachments = [],
+  eligibleAttachmentsNextCursor = null,
 }: Props) {
   const base = `/admin/clients/${tenantId}/venues/${venueId}/support-operations`
   return (
@@ -142,7 +153,7 @@ export function SupportOperationsView({
             ) : null}
           </aside>
           {selected ? (
-            <main className="min-w-0 space-y-6">
+            <div className="min-w-0 space-y-6">
               <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-800">
@@ -156,12 +167,21 @@ export function SupportOperationsView({
                   {selected.updatedByKind.toLowerCase()} · {selected.updatedAt.toLocaleString()}
                 </p>
               </section>
-              <SupportMessageComposer
-                tenantId={tenantId}
-                venueId={venueId}
-                requestId={selected.id}
-                expectedVersion={selected.version}
-              />
+              {selected.status === 'COMPLETED' || selected.status === 'CANCELLED' ? (
+                <section className="rounded-3xl border border-pf-light bg-white p-5 text-sm text-pf-deep/75 shadow-sm">
+                  This request is closed. New messages, notes, and files cannot be added.
+                </section>
+              ) : (
+                <SupportMessageComposer
+                  key={`${selected.id}:composer`}
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  requestId={selected.id}
+                  expectedVersion={selected.version}
+                  initialEligibleAttachments={eligibleAttachments}
+                  initialEligibleAttachmentsNextCursor={eligibleAttachmentsNextCursor}
+                />
+              )}
               <SupportTriageForm
                 key={`${selected.id}:${selected.version}:triage`}
                 tenantId={tenantId}
@@ -293,7 +313,7 @@ export function SupportOperationsView({
                   />
                 ) : null}
               </section>
-            </main>
+            </div>
           ) : null}
         </div>
       )}

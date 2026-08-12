@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getRequest: vi.fn(),
   createRequest: vi.fn(),
   addMessage: vi.fn(),
+  listEligibleAttachments: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: mocks.replace }) }))
@@ -21,6 +22,7 @@ vi.mock('../lib/trpc', () => ({
       getRequest: { query: mocks.getRequest },
       createRequest: { mutate: mocks.createRequest },
       addMessage: { mutate: mocks.addMessage },
+      listEligibleAttachments: { query: mocks.listEligibleAttachments },
     },
   }),
 }))
@@ -29,6 +31,15 @@ import { SupportWorkspace } from './SupportWorkspace'
 
 const venue = { id: 'venue_alpha', name: 'Science Museum' }
 const otherVenue = { id: 'venue_beta', name: 'History Center' }
+const eligible = [
+  {
+    intakeUploadId: 'upload_alpha',
+    fileName: 'visitor-hours.pdf',
+    mimeType: 'application/pdf',
+    byteSize: 2048,
+    createdAt: '2026-08-10T13:00:00.000Z',
+  },
+]
 const request = {
   id: 'request_1',
   venueId: venue.id,
@@ -69,6 +80,8 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof SupportW
       initialRequests={[request]}
       initialNextCursor={null}
       initialDetail={detail}
+      initialEligibleAttachments={[]}
+      initialEligibleAttachmentsNextCursor={null}
       {...overrides}
     />,
   )
@@ -143,10 +156,12 @@ describe('SupportWorkspace', () => {
 
     expect(mocks.createRequest).toHaveBeenCalledOnce()
     expect(mocks.createRequest).toHaveBeenCalledWith({
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       venueId: venue.id,
       category: 'GENERAL',
       subject: 'New visitor hours',
       body: 'Please show our summer schedule.',
+      attachments: [],
     })
     expect(screen.queryByText(/message was sent/i)).toBeNull()
 
@@ -171,10 +186,12 @@ describe('SupportWorkspace', () => {
 
     await waitFor(() =>
       expect(mocks.addMessage).toHaveBeenCalledWith({
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         venueId: venue.id,
         requestId: request.id,
         expectedVersion: 4,
         body: 'The revised wording looks right.',
+        attachments: [],
       }),
     )
     expect((await screen.findByRole('alert')).textContent).toMatch(/not sent.*changed/i)
@@ -215,7 +232,155 @@ describe('SupportWorkspace', () => {
       }),
     )
 
-    expect(await screen.findByText('Your reply was sent.')).toBeTruthy()
+    expect(
+      await screen.findByText(
+        'Your message and selected files were submitted for review. Nothing was published.',
+      ),
+    ).toBeTruthy()
     expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe('')
+  })
+
+  it('sends only exact server-provided source references for create and retains text and selection on failure', async () => {
+    mocks.createRequest.mockRejectedValueOnce(new Error('Connection lost.'))
+    renderWorkspace({
+      initialRequests: [],
+      initialDetail: null,
+      initialEligibleAttachments: eligible,
+    })
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Review hours' } })
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Please review this.' } })
+    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+      target: { value: 'upload_alpha' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+    await waitFor(() => expect(mocks.createRequest).toHaveBeenCalledOnce())
+    expect(mocks.createRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [{ intakeUploadId: 'upload_alpha' }] }),
+    )
+    expect(await screen.findByText(/draft is still here/i)).toBeTruthy()
+    expect(screen.getByLabelText<HTMLInputElement>('Subject').value).toBe('Review hours')
+    expect(screen.getByRole('button', { name: 'Remove visitor-hours.pdf' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/upload_beta|intakeRunId|sourceId/)
+    expect(screen.queryByRole('link', { name: /visitor-hours/i })).toBeNull()
+  })
+
+  it('sends reply references, fences same-tick duplicates, and rotates identity only after edits', async () => {
+    const pending = deferred<never>()
+    mocks.addMessage
+      .mockReturnValueOnce(pending.promise)
+      .mockRejectedValueOnce(new Error('Again'))
+      .mockRejectedValueOnce(new Error('Again'))
+    renderWorkspace({ initialEligibleAttachments: eligible })
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'See the file.' } })
+    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+      target: { value: 'upload_alpha' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    fireEvent.submit(screen.getByLabelText('Reply').closest('form')!)
+    expect(mocks.addMessage).toHaveBeenCalledOnce()
+    const first = mocks.addMessage.mock.calls[0]![0]
+    expect(first).toMatchObject({ attachments: [{ intakeUploadId: 'upload_alpha' }] })
+    await act(async () => pending.reject(new Error('Unknown outcome.')))
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
+    expect(mocks.addMessage.mock.calls[1]![0].operationId).toBe(first.operationId)
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'See the revised file.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(3))
+    expect(mocks.addMessage.mock.calls[2]![0].operationId).not.toBe(first.operationId)
+  })
+
+  it('fences conversation and venue navigation while a reply result is unresolved', async () => {
+    const pending = deferred<{
+      message: typeof clientMessage
+      requestVersion: number
+      replayed: boolean
+    }>()
+    mocks.addMessage.mockReturnValueOnce(pending.promise)
+    const secondRequest = {
+      ...request,
+      id: 'request_2',
+      subject: 'Second request',
+      version: 1,
+    }
+    renderWorkspace({ venues: [venue, otherVenue], initialRequests: [request, secondRequest] })
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Pending reply' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+
+    const secondConversation = screen.getByText('Second request').closest('button')!
+    expect((secondConversation as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLSelectElement>('Venue').disabled).toBe(true)
+    fireEvent.click(secondConversation)
+    expect(mocks.getRequest).not.toHaveBeenCalled()
+
+    await act(async () =>
+      pending.resolve({
+        message: { ...clientMessage, id: 'message_reply' },
+        requestVersion: 5,
+        replayed: false,
+      }),
+    )
+    await waitFor(() => expect((secondConversation as HTMLButtonElement).disabled).toBe(false))
+    expect(screen.getByText('Second request').closest('button')?.getAttribute('aria-current')).toBe(
+      'false',
+    )
+  })
+
+  it('purges hidden reply state and identity when a same-request refresh becomes terminal', async () => {
+    mocks.addMessage.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
+    mocks.getRequest
+      .mockResolvedValueOnce({ ...detail, status: 'COMPLETED', version: 5 })
+      .mockResolvedValueOnce({ ...detail, status: 'OPEN', version: 5 })
+    mocks.addMessage.mockRejectedValueOnce(new Error('Unknown outcome'))
+    renderWorkspace({ initialEligibleAttachments: eligible })
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Old hidden reply' } })
+    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+      target: { value: 'upload_alpha' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy())
+    const oldOperationId = mocks.addMessage.mock.calls[0]![0].operationId
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(screen.queryByLabelText('Reply')).toBeNull())
+    fireEvent.click(screen.getAllByText(request.subject)[0]!.closest('button')!)
+    await waitFor(() => expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe(''))
+    expect(screen.queryByRole('button', { name: 'Remove visitor-hours.pdf' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Fresh reply' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }))
+    await waitFor(() => expect(mocks.addMessage).toHaveBeenCalledTimes(2))
+    expect(mocks.addMessage.mock.calls[1]![0].operationId).not.toBe(oldOperationId)
+  })
+
+  it('paginates only through the exact active-venue eligible-file procedure', async () => {
+    mocks.listEligibleAttachments.mockResolvedValue({
+      items: [
+        {
+          intakeUploadId: 'upload_second',
+          fileName: 'map.png',
+          mimeType: 'image/png',
+          byteSize: 4096,
+          createdAt: '2026-08-09T13:00:00.000Z',
+        },
+      ],
+      nextCursor: null,
+    })
+    renderWorkspace({
+      initialRequests: [],
+      initialDetail: null,
+      initialEligibleAttachments: eligible,
+      initialEligibleAttachmentsNextCursor: {
+        createdAt: '2026-08-10T13:00:00.000Z',
+        id: 'upload_alpha',
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Show more recent files' }))
+    await waitFor(() =>
+      expect(mocks.listEligibleAttachments).toHaveBeenCalledWith({
+        venueId: venue.id,
+        limit: 20,
+        cursor: { createdAt: '2026-08-10T13:00:00.000Z', id: 'upload_alpha' },
+      }),
+    )
+    expect(await screen.findByRole('option', { name: /map\.png/i })).toBeTruthy()
   })
 })
