@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   createRequest: vi.fn(),
   addMessage: vi.fn(),
   respondToInformation: vi.fn(),
+  listParticipantCandidates: vi.fn(),
+  grantParticipant: vi.fn(),
+  revokeParticipant: vi.fn(),
   listEligibleAttachments: vi.fn(),
 }))
 
@@ -25,6 +28,9 @@ vi.mock('../lib/trpc', () => ({
       createRequest: { mutate: mocks.createRequest },
       addMessage: { mutate: mocks.addMessage },
       respondToInformation: { mutate: mocks.respondToInformation },
+      listParticipantCandidates: { query: mocks.listParticipantCandidates },
+      grantParticipant: { mutate: mocks.grantParticipant },
+      revokeParticipant: { mutate: mocks.revokeParticipant },
       listEligibleAttachments: { query: mocks.listEligibleAttachments },
     },
   }),
@@ -98,6 +104,7 @@ describe('SupportWorkspace', () => {
     vi.clearAllMocks()
     mocks.listRequests.mockResolvedValue({ items: [], nextCursor: null })
     mocks.getRequest.mockResolvedValue(detail)
+    mocks.listParticipantCandidates.mockResolvedValue({ candidates: [], nextCursor: null })
   })
 
   afterEach(cleanup)
@@ -775,5 +782,85 @@ describe('SupportWorkspace', () => {
     const { container } = renderWorkspace({ initialEligibleAttachments: eligible })
     const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
     expect(result.violations.map(({ id }) => id)).toEqual([])
+  })
+
+  it('shows participant management only to the requester and sends exact CAS actions', async () => {
+    mocks.listParticipantCandidates.mockResolvedValueOnce({
+      candidates: [
+        { userId: 'member-2', displayLabel: 'Alex Morgan', activeOnRequest: false },
+        { userId: 'member-3', displayLabel: 'Sam Lee', activeOnRequest: true },
+      ],
+      nextCursor: null,
+    })
+    mocks.grantParticipant.mockResolvedValueOnce({
+      clientVersion: 5,
+      requestVersion: 5,
+      active: true,
+    })
+    renderWorkspace()
+    fireEvent.click(screen.getByRole('button', { name: 'Manage team access' }))
+    expect(await screen.findByText('Alex Morgan')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Give access' }))
+    await waitFor(() =>
+      expect(mocks.grantParticipant).toHaveBeenCalledWith({
+        operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        venueId: venue.id,
+        requestId: request.id,
+        userId: 'member-2',
+        expectedClientVersion: 4,
+      }),
+    )
+    expect(mocks.revokeParticipant).not.toHaveBeenCalled()
+    expect(await screen.findByText(/refreshing before more actions/i)).toBeTruthy()
+
+    cleanup()
+    renderWorkspace({
+      initialRequests: [
+        { ...request, requesterIsCurrentUser: false, participantIsCurrentUser: true },
+      ],
+      initialDetail: { ...detail, requesterIsCurrentUser: false, participantIsCurrentUser: true },
+    })
+    expect(screen.queryByRole('heading', { name: 'Conversation access' })).toBeNull()
+  })
+
+  it('fences duplicate and late candidate reads after same-request authority changes', async () => {
+    const pending = deferred<{
+      candidates: { userId: string; displayLabel: string; activeOnRequest: boolean }[]
+      nextCursor: null
+    }>()
+    mocks.listParticipantCandidates.mockReturnValueOnce(pending.promise)
+    const rendered = renderWorkspace()
+    const manage = screen.getByRole('button', { name: 'Manage team access' })
+    fireEvent.click(manage)
+    fireEvent.click(manage)
+    expect(mocks.listParticipantCandidates).toHaveBeenCalledOnce()
+
+    const downgraded = {
+      ...detail,
+      clientVersion: 5,
+      requesterIsCurrentUser: false,
+      participantIsCurrentUser: true,
+    }
+    rendered.rerender(
+      <SupportWorkspace
+        venues={[venue]}
+        activeVenue={venue}
+        initialRequests={[downgraded]}
+        initialNextCursor={null}
+        initialDetail={downgraded}
+        initialEligibleAttachments={[]}
+        initialEligibleAttachmentsNextCursor={null}
+      />,
+    )
+    await act(async () =>
+      pending.resolve({
+        candidates: [
+          { userId: 'private-member', displayLabel: 'Private member', activeOnRequest: false },
+        ],
+        nextCursor: null,
+      }),
+    )
+    expect(screen.queryByText('Private member')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Conversation access' })).toBeNull()
   })
 })

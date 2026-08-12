@@ -19,6 +19,7 @@ import {
   CreateSupportRequestInput,
   EligibleSupportAttachmentsInput,
   GetSupportRequestInput,
+  ListSupportParticipantCandidatesInput,
   ManageSupportParticipantInput,
   RespondToSupportInformationInput,
   SupportPageInput,
@@ -161,6 +162,72 @@ function supportActionError(error: unknown): never {
 }
 
 export const supportRouter = router({
+  listParticipantCandidates: tenantProcedure
+    .input(ListSupportParticipantCandidatesInput)
+    .query(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      const userId = ctx.session.userId
+      return ctx.db.$transaction(
+        async (tx) => {
+          const request = await tx.supportRequest.findFirst({
+            where: {
+              id: input.requestId,
+              tenantId,
+              venueId: input.venueId,
+              createdByKind: 'CLIENT',
+              requesterUserId: userId,
+              requesterMembership: { is: { status: 'ACTIVE' } },
+            },
+            select: {
+              id: true,
+              requesterUserId: true,
+            },
+          })
+          if (!request)
+            throw new TRPCError({ code: 'NOT_FOUND', message: 'Support request not found' })
+
+          const memberships = await tx.tenantMembership.findMany({
+            where: {
+              tenantId,
+              status: 'ACTIVE',
+              userId: { not: request.requesterUserId ?? userId },
+            },
+            orderBy: { userId: 'asc' },
+            take: input.limit + 1,
+            ...(input.cursor
+              ? { cursor: { tenantId_userId: { tenantId, userId: input.cursor } }, skip: 1 }
+              : {}),
+            select: { userId: true, user: { select: { fullName: true } } },
+          })
+          const page = memberships.slice(0, input.limit)
+          const activeParticipants = page.length
+            ? await tx.supportRequestParticipant.findMany({
+                where: {
+                  tenantId,
+                  venueId: input.venueId,
+                  supportRequestId: input.requestId,
+                  userId: { in: page.map((membership) => membership.userId) },
+                  revokedAt: null,
+                },
+                select: { userId: true },
+              })
+            : []
+          const activeParticipantIds = new Set(
+            activeParticipants.map((participant) => participant.userId),
+          )
+          return {
+            candidates: page.map((membership) => ({
+              userId: membership.userId,
+              displayLabel: membership.user.fullName?.trim().slice(0, 120) || 'Team member',
+              activeOnRequest: activeParticipantIds.has(membership.userId),
+            })),
+            nextCursor: memberships.length > input.limit ? page.at(-1)!.userId : null,
+          }
+        },
+        { isolationLevel: 'RepeatableRead' },
+      )
+    }),
+
   listEligibleAttachments: tenantProcedure
     .input(EligibleSupportAttachmentsInput)
     .query(async ({ ctx, input }) => {
@@ -493,7 +560,9 @@ export const supportRouter = router({
           ctx.db,
         )
         return {
+          requestVersion: result.requestVersion,
           clientVersion: result.clientVersion,
+          actionAt: result.actionAt,
           active: result.active,
           replayed: result.replayed,
         }
@@ -521,7 +590,9 @@ export const supportRouter = router({
           ctx.db,
         )
         return {
+          requestVersion: result.requestVersion,
           clientVersion: result.clientVersion,
+          actionAt: result.actionAt,
           active: result.active,
           replayed: result.replayed,
         }

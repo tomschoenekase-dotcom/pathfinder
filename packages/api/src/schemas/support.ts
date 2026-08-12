@@ -76,6 +76,11 @@ export const ManageSupportParticipantInput = SupportRequestRefInput.extend({
   expectedClientVersion: z.number().int().positive(),
 }).strict()
 
+export const ListSupportParticipantCandidatesInput = SupportRequestRefInput.extend({
+  limit: z.number().int().min(1).max(50).default(20),
+  cursor: z.string().trim().min(1).max(191).optional(),
+}).strict()
+
 export const EligibleSupportAttachmentsInput = z
   .object({
     venueId: z.string().trim().min(1).max(191),

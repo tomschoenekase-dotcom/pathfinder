@@ -11,6 +11,7 @@ import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
 import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
 import { SupportVersionBoundActions } from './SupportVersionBoundActions'
+import { SupportAgentRunLineagePanel, type SupportRunLineage } from './SupportAgentRunLineagePanel'
 
 type Cursor = Record<string, string | number> | null
 type RequestItem = {
@@ -77,6 +78,8 @@ type Props = {
   handoffs?: Handoff[]
   eligibleAttachments?: EligibleAttachment[]
   eligibleAttachmentsNextCursor?: { createdAt: string; id: string } | null
+  runLineages?: SupportRunLineage[]
+  runLineagesNextCursor?: { createdAt: string; id: string } | null
 }
 
 function query(
@@ -103,6 +106,8 @@ export function SupportOperationsView({
   handoffs = [],
   eligibleAttachments = [],
   eligibleAttachmentsNextCursor = null,
+  runLineages = [],
+  runLineagesNextCursor = null,
 }: Props) {
   const base = `/admin/clients/${tenantId}/venues/${venueId}/support-operations`
   return (
@@ -245,6 +250,15 @@ export function SupportOperationsView({
                   </ol>
                 )}
               </section>
+              <SupportAgentRunLineagePanel
+                key={`${tenantId}:${venueId}:${selected.id}:${selected.version}:run-lineage`}
+                tenantId={tenantId}
+                venueId={venueId}
+                requestId={selected.id}
+                expectedVersion={selected.version}
+                lineages={runLineages}
+                nextCursor={runLineagesNextCursor}
+              />
               <section className="space-y-3" aria-labelledby="support-thread-heading">
                 <h3 id="support-thread-heading" className="text-xl font-semibold text-pf-deep">
                   Thread

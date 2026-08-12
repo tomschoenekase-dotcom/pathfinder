@@ -56,6 +56,7 @@ type RequestDetail = RequestSummary & {
   messages: ClientMessage[]
   nextMessageCursor: { createdAt: string; id: string } | null
 }
+type ParticipantCandidate = { userId: string; displayLabel: string; activeOnRequest: boolean }
 
 type SupportWorkspaceProps = {
   venues: VenueOption[]
@@ -257,6 +258,35 @@ export function SupportWorkspace({
   const activeBusyOwner = useRef<number | null>(null)
   const createOperationId = useRef(crypto.randomUUID())
   const replyOperationId = useRef(crypto.randomUUID())
+  const participantOperation = useRef({ key: '', id: crypto.randomUUID() })
+  const [participantCandidates, setParticipantCandidates] = useState<ParticipantCandidate[] | null>(
+    null,
+  )
+  const [participantNextCursor, setParticipantNextCursor] = useState<string | null>(null)
+  const participantReadGeneration = useRef(0)
+  const participantReadInFlight = useRef(false)
+  const participantAuthorityRef = useRef({
+    id: detail?.id ?? null,
+    clientVersion: detail?.clientVersion ?? null,
+    requesterIsCurrentUser: detail?.requesterIsCurrentUser ?? false,
+  })
+  const nextParticipantAuthority = {
+    id: detail?.id ?? null,
+    clientVersion: detail?.clientVersion ?? null,
+    requesterIsCurrentUser: detail?.requesterIsCurrentUser ?? false,
+  }
+  if (
+    participantAuthorityRef.current.id !== nextParticipantAuthority.id ||
+    participantAuthorityRef.current.clientVersion !== nextParticipantAuthority.clientVersion ||
+    participantAuthorityRef.current.requesterIsCurrentUser !==
+      nextParticipantAuthority.requesterIsCurrentUser
+  ) {
+    participantReadGeneration.current += 1
+    participantReadInFlight.current = false
+    participantAuthorityRef.current = nextParticipantAuthority
+    if (participantCandidates !== null) setParticipantCandidates(null)
+    if (participantNextCursor !== null) setParticipantNextCursor(null)
+  }
 
   useEffect(() => {
     scopeRef.current = activeVenue.id
@@ -285,6 +315,11 @@ export function SupportWorkspace({
     setReplyAttachments([])
     createOperationId.current = crypto.randomUUID()
     replyOperationId.current = crypto.randomUUID()
+    participantOperation.current = { key: '', id: crypto.randomUUID() }
+    participantReadGeneration.current += 1
+    participantReadInFlight.current = false
+    setParticipantCandidates(null)
+    setParticipantNextCursor(null)
     setNotice(null)
     setError(null)
     setConflict(false)
@@ -638,6 +673,109 @@ export function SupportWorkspace({
     }
   }
 
+  async function loadParticipantCandidates(cursor?: string) {
+    if (!detail?.requesterIsCurrentUser || writeInFlight.current || participantReadInFlight.current)
+      return
+    participantReadInFlight.current = true
+    const scope = activeVenue.id
+    const requestId = detail.id
+    const clientVersion = detail.clientVersion
+    const generation = ++participantReadGeneration.current
+    const busyOwner = startBusy('participants')
+    try {
+      const result = await client.support.listParticipantCandidates.query({
+        venueId: scope,
+        requestId,
+        limit: 20,
+        ...(cursor ? { cursor } : {}),
+      })
+      if (
+        scopeRef.current !== scope ||
+        participantReadGeneration.current !== generation ||
+        detailRequestRef.current !== requestId ||
+        participantAuthorityRef.current.id !== requestId ||
+        participantAuthorityRef.current.clientVersion !== clientVersion ||
+        !participantAuthorityRef.current.requesterIsCurrentUser
+      )
+        return
+      setParticipantCandidates((current) =>
+        cursor && current
+          ? [
+              ...current,
+              ...result.candidates.filter(
+                (row) => !current.some((item) => item.userId === row.userId),
+              ),
+            ]
+          : result.candidates,
+      )
+      setParticipantNextCursor(result.nextCursor)
+    } catch (loadError) {
+      if (
+        scopeRef.current !== scope ||
+        participantReadGeneration.current !== generation ||
+        participantAuthorityRef.current.id !== requestId ||
+        participantAuthorityRef.current.clientVersion !== clientVersion ||
+        !participantAuthorityRef.current.requesterIsCurrentUser
+      )
+        return
+      if (isNotFound(loadError)) purgeRequest(requestId)
+      else setError(errorText(loadError))
+    } finally {
+      if (participantReadGeneration.current === generation) participantReadInFlight.current = false
+      finishBusy(busyOwner)
+    }
+  }
+
+  async function changeParticipant(candidate: ParticipantCandidate) {
+    if (!detail?.requesterIsCurrentUser || writeInFlight.current) return
+    writeInFlight.current = true
+    const scope = activeVenue.id
+    const requestId = detail.id
+    const generation = ++writeGeneration.current
+    const busyOwner = startBusy('participant-write')
+    let confirmed = false
+    clearFeedback()
+    try {
+      const operationKey = `${candidate.activeOnRequest ? 'revoke' : 'grant'}:${candidate.userId}:${detail.clientVersion}`
+      if (participantOperation.current.key !== operationKey)
+        participantOperation.current = { key: operationKey, id: crypto.randomUUID() }
+      const mutation = candidate.activeOnRequest
+        ? client.support.revokeParticipant
+        : client.support.grantParticipant
+      await mutation.mutate({
+        operationId: participantOperation.current.id,
+        venueId: scope,
+        requestId,
+        userId: candidate.userId,
+        expectedClientVersion: detail.clientVersion,
+      })
+      if (scopeRef.current !== scope || writeGeneration.current !== generation) return
+      participantReadGeneration.current += 1
+      confirmed = true
+      setParticipantCandidates(null)
+      setNotice(
+        'Team access changed. This conversation is refreshing before more actions can be taken.',
+      )
+      router.refresh()
+    } catch (mutationError) {
+      if (scopeRef.current !== scope || writeGeneration.current !== generation) return
+      if (isNotFound(mutationError)) purgeRequest(requestId)
+      else {
+        setConflict(isConflict(mutationError))
+        setError(
+          isConflict(mutationError)
+            ? 'Team access was not changed because this conversation changed. Refresh before retrying.'
+            : 'We could not confirm whether team access changed. Retry uses the same request identity.',
+        )
+      }
+    } finally {
+      if (!confirmed && scopeRef.current === scope && writeGeneration.current === generation) {
+        writeInFlight.current = false
+        finishBusy(busyOwner)
+      }
+    }
+  }
+
   return (
     <div className="min-h-screen px-4 py-7 sm:px-6 sm:py-10 lg:px-10">
       <div className="mx-auto max-w-6xl">
@@ -983,6 +1121,66 @@ export function SupportWorkspace({
                     </button>
                   ) : null}
                 </div>
+
+                {detail.requesterIsCurrentUser ? (
+                  <section
+                    className="border-t border-pf-light py-5"
+                    aria-labelledby="support-team-heading"
+                  >
+                    <h3 id="support-team-heading" className="font-semibold text-pf-deep">
+                      Conversation access
+                    </h3>
+                    <p className="mt-1 text-sm text-pf-deep/65">
+                      Choose active members of your organization who may read and reply to this
+                      conversation.
+                    </p>
+                    {participantCandidates === null ? (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void loadParticipantCandidates()}
+                        className="mt-3 min-h-11 rounded-xl border border-pf-primary px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                      >
+                        {busy === 'participants' ? 'Loading…' : 'Manage team access'}
+                      </button>
+                    ) : participantCandidates.length === 0 ? (
+                      <p className="mt-3 text-sm text-pf-deep/65">
+                        No other active team members are available.
+                      </p>
+                    ) : (
+                      <ul className="mt-3 divide-y divide-pf-light rounded-2xl border border-pf-light">
+                        {participantCandidates.map((candidate) => (
+                          <li
+                            key={candidate.userId}
+                            className="flex items-center justify-between gap-3 p-3"
+                          >
+                            <span className="text-sm font-medium text-pf-deep">
+                              {candidate.displayLabel}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={busy !== null}
+                              onClick={() => void changeParticipant(candidate)}
+                              className="min-h-11 rounded-xl px-3 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                            >
+                              {candidate.activeOnRequest ? 'Remove access' : 'Give access'}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {participantNextCursor ? (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void loadParticipantCandidates(participantNextCursor)}
+                        className="mt-3 min-h-11 text-sm font-semibold text-pf-primary disabled:opacity-50"
+                      >
+                        Show more team members
+                      </button>
+                    ) : null}
+                  </section>
+                ) : null}
 
                 {!detail.canReply ||
                 detail.status === 'COMPLETED' ||

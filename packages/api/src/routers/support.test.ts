@@ -15,12 +15,14 @@ const messageCreate = vi.fn()
 const auditEventCreate = vi.fn()
 const auditLogCreate = vi.fn()
 const membershipFindFirst = vi.fn()
+const membershipFindMany = vi.fn()
+const participantFindMany = vi.fn()
 
 const mockDb = {
   $executeRaw: vi.fn(),
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   venue: { findFirst: venueFindFirst },
-  tenantMembership: { findFirst: membershipFindFirst },
+  tenantMembership: { findFirst: membershipFindFirst, findMany: membershipFindMany },
   intakeUpload: { findMany: uploadFindMany },
   supportRequest: {
     findMany: requestFindMany,
@@ -29,6 +31,7 @@ const mockDb = {
     updateMany: requestUpdateMany,
   },
   supportMessage: { findFirst: vi.fn().mockResolvedValue(null), create: messageCreate },
+  supportRequestParticipant: { findMany: participantFindMany },
   supportRequestAuditEvent: { create: auditEventCreate },
   auditLog: { create: auditLogCreate },
 } as unknown as TRPCContext['db']
@@ -115,6 +118,7 @@ describe('client support router', () => {
     vi.clearAllMocks()
     venueFindFirst.mockResolvedValue({ id: venueId })
     membershipFindFirst.mockResolvedValue({ id: 'membership_1' })
+    participantFindMany.mockResolvedValue([])
     requestCreate.mockResolvedValue(requestRow)
     messageCreate.mockResolvedValue(messageRow)
     auditEventCreate.mockResolvedValue({ id: 'support_event_1' })
@@ -160,6 +164,68 @@ describe('client support router', () => {
         },
       ],
     })
+  })
+
+  it('authorizes the exact active requester before returning bounded participant candidates', async () => {
+    requestFindFirst.mockResolvedValueOnce({
+      id: requestId,
+      requesterUserId: 'user_client',
+    })
+    membershipFindMany.mockResolvedValueOnce([
+      { userId: 'user_active', user: { fullName: 'Active teammate' } },
+      { userId: 'user_revoked', user: { fullName: null } },
+    ])
+    participantFindMany.mockResolvedValueOnce([{ userId: 'user_active' }])
+
+    const result = await testRouter.createCaller(tenantCtx).support.listParticipantCandidates({
+      venueId,
+      requestId,
+    })
+
+    expect(requestFindFirst).toHaveBeenCalledWith({
+      where: {
+        id: requestId,
+        tenantId: 'tenant_assigned',
+        venueId,
+        createdByKind: 'CLIENT',
+        requesterUserId: 'user_client',
+        requesterMembership: { is: { status: 'ACTIVE' } },
+      },
+      select: {
+        id: true,
+        requesterUserId: true,
+      },
+    })
+    expect(membershipFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant_assigned',
+          status: 'ACTIVE',
+          userId: { not: 'user_client' },
+        },
+        take: 21,
+      }),
+    )
+    expect(result).toEqual({
+      candidates: [
+        { userId: 'user_active', displayLabel: 'Active teammate', activeOnRequest: true },
+        { userId: 'user_revoked', displayLabel: 'Team member', activeOnRequest: false },
+      ],
+      nextCursor: null,
+    })
+    expect(JSON.stringify(result)).not.toMatch(/email|role|membership|grant|revokedAt/i)
+    expect(mockDb.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    })
+  })
+
+  it('does not enumerate tenant members for a participant, inactive requester, or wrong scope', async () => {
+    requestFindFirst.mockResolvedValue(null)
+    await expect(
+      testRouter.createCaller(tenantCtx).support.listParticipantCandidates({ venueId, requestId }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(membershipFindMany).not.toHaveBeenCalled()
+    expect(participantFindMany).not.toHaveBeenCalled()
   })
 
   it.each(['STAFF', 'MANAGER', 'OWNER'] as const)(

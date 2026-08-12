@@ -496,6 +496,16 @@
     "input": { "venueId": "cvenueabc123456789012" }
   },
   {
+    "path": "support.listParticipantCandidates",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "supportRequest.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "requestId": "csupportabc1234567890"
+    }
+  },
+  {
     "path": "support.listRequests",
     "kind": "query",
     "minimumRole": "STAFF",

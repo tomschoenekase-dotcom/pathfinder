@@ -24,6 +24,11 @@ function auditCursor(query: Record<string, string | undefined>) {
     ? { requestVersion: version, id }
     : undefined
 }
+function lineageCursor(query: Record<string, string | undefined>) {
+  const createdAt = query.lineageCursorCreatedAt
+  const id = query.lineageCursorId
+  return createdAt && id ? { createdAt, id } : undefined
+}
 
 export default async function SupportOperationsPage({ params, searchParams }: Props) {
   const { tenantId, venueId } = await params
@@ -68,30 +73,38 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
           eligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
         />
       )
-    const [selectedRaw, messagePage, audit, draftPackages, handoffs] = await Promise.all([
-      caller.admin.getSupportRequest({ tenantId, venueId, requestId: selectedId }),
-      caller.admin.listSupportMessages({
-        tenantId,
-        venueId,
-        requestId: selectedId,
-        limit: 20,
-        ...(messageCursor(query) ? { cursor: messageCursor(query) } : {}),
-      }),
-      caller.admin.listSupportAuditEvents({
-        tenantId,
-        venueId,
-        requestId: selectedId,
-        limit: 20,
-        ...(auditCursor(query) ? { cursor: auditCursor(query) } : {}),
-      }),
-      caller.admin.listSupportDraftPackages({
-        tenantId,
-        venueId,
-        requestId: selectedId,
-        limit: 50,
-      }),
-      caller.admin.listSupportPackageHandoffs({ tenantId, venueId, requestId: selectedId }),
-    ])
+    const [selectedRaw, messagePage, audit, draftPackages, handoffs, runLineages] =
+      await Promise.all([
+        caller.admin.getSupportRequest({ tenantId, venueId, requestId: selectedId }),
+        caller.admin.listSupportMessages({
+          tenantId,
+          venueId,
+          requestId: selectedId,
+          limit: 20,
+          ...(messageCursor(query) ? { cursor: messageCursor(query) } : {}),
+        }),
+        caller.admin.listSupportAuditEvents({
+          tenantId,
+          venueId,
+          requestId: selectedId,
+          limit: 20,
+          ...(auditCursor(query) ? { cursor: auditCursor(query) } : {}),
+        }),
+        caller.admin.listSupportDraftPackages({
+          tenantId,
+          venueId,
+          requestId: selectedId,
+          limit: 50,
+        }),
+        caller.admin.listSupportPackageHandoffs({ tenantId, venueId, requestId: selectedId }),
+        caller.admin.listSupportAgentRunLineages({
+          tenantId,
+          venueId,
+          requestId: selectedId,
+          limit: 20,
+          ...(lineageCursor(query) ? { cursor: lineageCursor(query) } : {}),
+        }),
+      ])
     const selected = normalizeRequest(selectedRaw)
     const messages = {
       ...messagePage,
@@ -121,6 +134,8 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
         handoffs={handoffs}
         eligibleAttachments={eligibleAttachments.items}
         eligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
+        runLineages={runLineages.items}
+        runLineagesNextCursor={runLineages.nextCursor}
       />
     )
   } catch {

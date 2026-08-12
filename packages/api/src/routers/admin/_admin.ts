@@ -30,6 +30,7 @@ import { adminLegacyContentRouter } from './legacy-content'
 import { adminReportConfigurationRouter } from './report-configuration'
 import { adminSupportOperationsRouter } from './support-operations'
 import { adminSupportManualLoopRouter } from './support-manual-loop'
+import { adminSupportAgentRunLineageRouter } from './support-agent-run-lineage'
 import { adminSupportAttachmentsRouter } from './support-attachments'
 import { adminSupportReviewedDraftRouter } from './support-reviewed-drafts'
 import { adminUniversalContentRouter } from './universal-content'
@@ -58,6 +59,7 @@ export const adminRouter = mergeRouters(
   adminGuestDesignRouter,
   adminSupportOperationsRouter,
   adminSupportManualLoopRouter,
+  adminSupportAgentRunLineageRouter,
   adminSupportAttachmentsRouter,
   adminSupportReviewedDraftRouter,
   adminUniversalContentRouter,

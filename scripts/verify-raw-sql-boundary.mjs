@@ -44,6 +44,8 @@ const approvedPolicies = new Set([
   'tenant-intake-upload-request-lock',
   'tenant-intake-proposal-request-lock',
   'tenant-support-operation-lock',
+  'tenant-support-agent-run-operation-lock',
+  'tenant-support-request-lineage-lock',
   'tenant-guest-chat-turn-lock',
 ])
 
@@ -301,6 +303,18 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '22fdd4471306219d371c62e8c50eda90105555479bd2c322b8668bced4d8e70c',
     policy: 'tenant-support-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/support-agent-run-lineage.ts',
+    method: '$executeRaw',
+    hash: '116b78a643ec8c5c693f15573037538304f5d1ae2691cb835256f4e6f853b13d',
+    policy: 'tenant-support-agent-run-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/support-agent-run-lineage.ts',
+    method: '$executeRaw',
+    hash: '22fdd4471306219d371c62e8c50eda90105555479bd2c322b8668bced4d8e70c',
+    policy: 'tenant-support-request-lineage-lock',
   },
   {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',

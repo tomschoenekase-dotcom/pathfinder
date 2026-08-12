@@ -48,9 +48,12 @@ Section-level evidence and blockers are indexed in
   `STAFF`, `MANAGER`, and `OWNER` have equal requester-or-participant access and no implicit role-wide
   visibility; requester and participant membership must remain active. Requester-only, actor-bound
   grant/revoke actions retain append-only evidence and use `clientVersion` CAS. Client-safe
-  projections expose only current-user booleans and `Your team` UI copy, not member identities.
-  Platform-admin Support remains a separate exact-scoped admin surface. The API actions are present,
-  but there is no client participant-management UI yet.
+  projections expose only current-user booleans and `Your team` UI copy. A requester-only bounded
+  participant manager authorizes the exact active requester in one repeatable read before paging
+  active member candidates and their active-on-request state; participants cannot enumerate it.
+  Grant/revoke uses scope/version/generation fences and durable produced global/client versions and
+  timestamps for truthful replay after later activity or membership changes. Platform-admin Support
+  remains a separate exact-scoped admin surface.
 - Support creation and message append are the first canonical domain actions shared below route
   adapters. They require trusted HUMAN/AGENT/SYSTEM actor context, enforce visibility and scope,
   and transactionally couple version CAS, content evidence, support audit, and platform audit.
@@ -88,6 +91,18 @@ Section-level evidence and blockers are indexed in
   attachments, and none of the three actions creates/applies a package or triggers execution.
   Forward-only migration `20260812000900_add_support_message_request_version` preserves exact
   produced global-version replay evidence without guessing legacy rows; it remains unapplied.
+- Immutable Support→AgentRun lineage can associate an exact existing Support request audit version
+  with one exact same-venue terminal AgentRun and preserve its terminal status/completion snapshot.
+  UUID/hash replay, restrictive composite references, append-only guards and strict audit make this
+  evidence-only: the action changes no Support status/version, run, action, approval, package,
+  provider or execution state. Migration `20260812001000_add_support_agent_run_lineage` also
+  preflights and guards the exact run→approval request→`APPROVED` decision→action tenant, venue, run,
+  identity, requested-operation and proposed-action chain. It performs no backfill, remains
+  unapplied, and the bounded admin read intentionally has no reverse AgentRun backlink endpoint.
+- Forward-only migration `20260812001100_add_support_participant_produced_versions` adds nullable
+  immutable grant/revoke request/client versions and action times with exact Support audit-event
+  references. It does not backfill or guess legacy rows; new grants/revocations require complete
+  evidence, and already-revoked legacy rows cannot be upgraded later. It remains unapplied.
 - Operational-update create, edit, schedule and deactivate mutations now route through canonical
   HUMAN manager/owner domain actions. They enforce exact tenant/venue/place scope, content-version
   locking, optimistic `updatedAt` CAS, bounded overlapping published updates, valid time windows,
@@ -299,7 +314,7 @@ Section-level evidence and blockers are indexed in
   tone controls, real venue-scoped support requests/replies with conflict-safe draft retention, and
   per-request requester/participant isolation with uploader-owned quarantined-evidence attachment
   selection, plus platform-admin-only links back to internal tools. The Support UI safely labels an
-  authorized non-requester as `Your team`; participant grant/revoke is API-only in this build.
+  authorized non-requester as `Your team`; only the requester sees the bounded team-access manager.
 - Client lifecycle is derived, not stored as a new mutable claim. The browser-safe resolver and
   tenant-scoped read model map existing venue, intake, package and offboarding evidence to the ten
   packet states and show only client-required tasks and human milestones.
@@ -440,8 +455,9 @@ Section-level evidence and blockers are indexed in
   but none of these forward migrations, including durable guest chat turn migration
   `20260812000400_add_durable_guest_chat_turns`, requester isolation `20260812000500`, evaluation
   review `20260812000600`, analytics attribution `20260812000700`, immutable manifest artifacts
-  `20260812000800`, or Support produced-version evidence `20260812000900`, was applied or rehearsed
-  against a database.
+  `20260812000800`, Support message version evidence `20260812000900`, terminal AgentRun lineage
+  `20260812001000`, or participant produced-version evidence `20260812001100`, was applied or
+  rehearsed against a database.
 
 ## Required program work not yet proven complete
 
@@ -452,9 +468,9 @@ Section-level evidence and blockers are indexed in
   immutable review artifact and supported PATCH-to-compatibility-DRAFT bridge.
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
-- Support workflow beyond verified manual prompting/response/completion, status transitions and
-  reviewed-DRAFT creation/linkage, including a client participant-management UI and any later
-  automated approval, apply or agent orchestration.
+- Support workflow beyond verified participant management, manual prompting/response/completion,
+  status transitions, reviewed-DRAFT linkage and terminal AgentRun association evidence, including
+  any later automated approval, apply or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration
   does not activate an agent.
 - MCP transport/authentication, credential issuance/verification/lifecycle, write bindings, and any
@@ -469,7 +485,7 @@ Section-level evidence and blockers are indexed in
 
 ## Local browser-surface foundation
 
-`pnpm test:browser-foundation` now runs 155 deterministic DOM and route-adapter contracts (95
+`pnpm test:browser-foundation` now runs 158 deterministic DOM and route-adapter contracts (98
 dashboard and 60 web) across the Admin OS, Internal Client Workspace, ultra-simple Client Portal,
 and Guest experience. The gate is
 wired into CI and performs no authentication, network, provider, or database access. It is an inner

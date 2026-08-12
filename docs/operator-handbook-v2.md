@@ -123,10 +123,12 @@ patch still follows validation, evaluation, preview, approval, and apply boundar
 A tenant role does not open every request. `STAFF`, `MANAGER`, and `OWNER` have identical client-side
 access: a person must be the immutable requester or an explicitly granted, unrevoked participant,
 and their tenant membership must still be active. An authorized teammate is labeled `Your team`;
-the client projection does not expose requester or participant identities. The requester-facing API
-has conflict-safe grant/revoke actions for active tenant members, but this build has no participant
-manager in the Support UI. Do not promise that teammates can be added from the visible portal yet.
-Revocation removes future access without deleting the durable grant/revocation record.
+the ordinary client projection does not expose requester or participant identities. The requester
+alone can open the bounded **Conversation access** manager, page active organization members, and
+grant or remove access with the displayed conversation version. Participants cannot enumerate or
+manage the roster. A successful change forces an authoritative refresh before another action; after
+an ambiguous result, retry the unchanged operation identity, and after a conflict refresh rather
+than guessing. Revocation removes future access without deleting durable grant/revocation evidence.
 
 The verified package-lineage action can attach an exact support request version to an existing
 same-client, same-venue `DRAFT` package. Confirm both scopes, request version and target package
@@ -174,6 +176,14 @@ completion is separate: it is available only for an `OPEN` or `IN_REVIEW` reques
 items and always records an explicit client-visible completion message. These actions record
 versions and audits only. They do not create or apply a package, run an agent, or call a provider.
 After an ambiguous result, retry the unchanged operation identity; after a conflict, refresh.
+
+An Internal Support operator may append evidence that an exact request audit version relates to one
+existing terminal AgentRun in the same tenant and venue. Confirm the displayed request version and
+terminal run identity/status before linking. The link records the run's terminal status and
+completion time immutably; it does not create, start, resume, cancel or otherwise change the run,
+does not decide an approval, and does not execute Support or package work. Lineage is read from the
+Support request in this build; the AgentRun screen has no reverse backlink. Do not infer that an
+unlinked run is unrelated, or that a link proves provider or live execution quality.
 
 The portal task checklist is bounded and uses the same requester/participant ACL. It shows at most
 five missing details for a request plus a remaining count. Staff-answer review shows only safe

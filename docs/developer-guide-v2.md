@@ -71,6 +71,16 @@ access does not transfer upload ownership: each client actor may attach only tha
 quarantined upload. Platform-admin Support reads and mutations remain a separate admin procedure with
 exact tenant/venue/request scope, not a path through the tenant ACL.
 
+Participant management is a requester-only projection. Candidate enumeration must authorize the
+exact active requester first inside one repeatable read, then page active tenant memberships with a
+stable bounded cursor and join only the active-participant state for those returned members. An
+active participant cannot enumerate the roster. Grant/revoke remains actor-bound UUID/hash replay
+with exact `clientVersion` CAS. Immutable produced global/client versions and action timestamps make
+replay truthful after later request activity or membership changes; legacy rows with missing
+evidence fail closed rather than being inferred. The requester and inactive members are never
+offered as candidates, and the UI discards late roster or mutation results after scope, authority or
+version changes.
+
 The manual Support conversation loop uses three dedicated canonical actions rather than the generic
 status graph. A HUMAN platform operator may request a bounded missing-information checklist from an
 `OPEN` or `IN_REVIEW` request, atomically recording the client-visible prompt and moving it to
@@ -393,6 +403,21 @@ The forward-only `20260812000900_add_support_message_request_version` migration 
 immutable produced-request-version evidence to Support messages. Legacy messages are not guessed or
 backfilled; manual-loop replay requires the evidence and fails closed when it is absent. It is
 intentionally unapplied, so local schema, migration and replay tests are not live database evidence.
+
+The forward-only `20260812001000_add_support_agent_run_lineage` migration adds append-only evidence
+linking one exact Support request audit version to one exact venue-scoped terminal AgentRun. The
+stored terminal status/completion time is checked against the run at insert; UUID/hash replay and
+strict audit do not create or mutate Support status/version, runs, actions, approvals, packages, or
+provider work. The same migration aborts historical approval/action chain mismatches and installs
+NULL-safe guards for exact tenant, venue, run, identity, requested operation, proposed action and
+`APPROVED` decision outcome. It performs no backfill and is intentionally unapplied. The bounded
+admin read is Support-request-oriented; there is intentionally no reverse AgentRun backlink query.
+
+The forward-only `20260812001100_add_support_participant_produced_versions` migration adds nullable
+immutable grant/revoke produced-version and action-time evidence with exact audit-event references.
+It does not guess or backfill legacy values. New grants and new revocations require complete paired
+evidence, while previously revoked legacy rows cannot be upgraded after the fact. It is intentionally
+unapplied; focused migration/domain/API/UI tests are local evidence only.
 
 Client Weekly Reports routes are capability projections, not an enablement surface. Resolve exact
 authorized report availability on the server; show navigation only when at least one authorized

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   triage: vi.fn(),
   requestInformation: vi.fn(),
   completeRequest: vi.fn(),
+  linkRun: vi.fn(),
   query: vi.fn(),
   listEligibleAttachments: vi.fn(),
   refresh: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('../../lib/trpc', () => ({
       triageSupportRequest: { mutate: mocks.triage },
       requestSupportInformation: { mutate: mocks.requestInformation },
       completeSupportRequest: { mutate: mocks.completeRequest },
+      linkSupportAgentRun: { mutate: mocks.linkRun },
     },
   }),
 }))
@@ -45,6 +47,7 @@ import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
 import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
 import { SupportTriageForm } from './SupportTriageForm'
 import { SupportVersionBoundActions } from './SupportVersionBoundActions'
+import { SupportAgentRunLineagePanel } from './SupportAgentRunLineagePanel'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 describe('support operations UI', () => {
@@ -657,5 +660,38 @@ describe('support operations UI', () => {
     )
     expect(screen.getByText('This request is in a terminal status.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Record status change' })).toBeNull()
+  })
+
+  it('links an exact existing terminal run as evidence only with replay fencing', async () => {
+    let resolve!: (value: unknown) => void
+    mocks.linkRun.mockReturnValueOnce(new Promise((done) => (resolve = done)))
+    render(
+      <SupportAgentRunLineagePanel
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={7}
+        lineages={[]}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Existing terminal run ID'), {
+      target: { value: 'run_terminal_1' },
+    })
+    const submit = screen.getByRole('button', { name: 'Link terminal run evidence' })
+    fireEvent.click(submit)
+    fireEvent.submit(submit.closest('form')!)
+    expect(mocks.linkRun).toHaveBeenCalledOnce()
+    expect(mocks.linkRun).toHaveBeenCalledWith({
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'req_1',
+      agentRunId: 'run_terminal_1',
+      expectedVersion: 7,
+    })
+    await act(async () => resolve({ requestVersion: 7, replayed: false }))
+    expect((await screen.findByRole('status')).textContent).toMatch(
+      /did not create, start, resume, cancel, approve, or execute/i,
+    )
   })
 })

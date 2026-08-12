@@ -226,6 +226,10 @@ export {
 } from './helpers/support-triage-actions'
 export type { SupportTriageActor } from './helpers/support-triage-actions'
 export {
+  linkSupportRequestAgentRunAction,
+  SupportAgentRunLineageError,
+} from './helpers/support-agent-run-lineage'
+export {
   linkSupportRequestDraftPackageAction,
   SupportPackageHandoffError,
 } from './helpers/support-package-handoffs'

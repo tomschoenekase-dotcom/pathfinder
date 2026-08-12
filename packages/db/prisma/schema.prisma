@@ -129,6 +129,7 @@ model Tenant {
   supportAuditEvents            SupportRequestAuditEvent[]
   supportPackageHandoffs        SupportPackageHandoff[]
   supportPreviewFeedback        SupportPreviewFeedback[]
+  supportAgentRunLineages       SupportAgentRunLineage[]
   supportRequestParticipants    SupportRequestParticipant[]
   offboardingPlans              OffboardingPlan[]
   offboardingVenueTargets       OffboardingVenueTarget[]
@@ -353,6 +354,7 @@ model Venue {
   supportAuditEvents            SupportRequestAuditEvent[]
   supportPackageHandoffs        SupportPackageHandoff[]
   supportPreviewFeedback        SupportPreviewFeedback[]
+  supportAgentRunLineages       SupportAgentRunLineage[]
   supportRequestParticipants    SupportRequestParticipant[]
   offboardingTargets            OffboardingVenueTarget[]
   contentModuleIdentities       ContentModuleIdentity[]
@@ -2231,8 +2233,10 @@ model AgentRun {
   actions            AgentAction[]
   timelineEvents     AgentTimelineEvent[]
   approvalRequests   ApprovalRequest[]
+  supportLineage     SupportAgentRunLineage?
 
   @@unique([id, tenantId])
+  @@unique([id, tenantId, venueId], map: "agent_runs_id_tenant_id_venue_id_key")
   @@index([tenantId, status, createdAt])
   @@index([tenantId, venueId, createdAt])
   @@index([tenantId, agentIdentityId, createdAt])
@@ -2432,6 +2436,7 @@ model SupportRequest {
   previewFeedback     SupportPreviewFeedback[]
   requesterMembership TenantMembership?           @relation("support_request_requester_membership", fields: [tenantId, requesterUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
   participants        SupportRequestParticipant[]
+  agentRunLineages    SupportAgentRunLineage[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, updatedAt, id])
@@ -2449,6 +2454,9 @@ model SupportRequestParticipant {
   userId              String                  @map("user_id")
   grantOperationId    String                  @map("grant_operation_id") @db.Uuid
   grantOperationHash  String                  @map("grant_operation_hash") @db.Char(64)
+  grantRequestVersion Int?                    @map("grant_request_version")
+  grantClientVersion  Int?                    @map("grant_client_version")
+  grantActionAt       DateTime?               @map("grant_action_at")
   grantedByKind       SupportParticipantKind  @map("granted_by_kind")
   grantedById         String                  @map("granted_by_id") @db.VarChar(191)
   grantedAt           DateTime                @default(now()) @map("granted_at")
@@ -2457,10 +2465,15 @@ model SupportRequestParticipant {
   revokedById         String?                 @map("revoked_by_id") @db.VarChar(191)
   revokeOperationId   String?                 @map("revoke_operation_id") @db.Uuid
   revokeOperationHash String?                 @map("revoke_operation_hash") @db.Char(64)
+  revokeRequestVersion Int?                   @map("revoke_request_version")
+  revokeClientVersion  Int?                   @map("revoke_client_version")
+  revokeActionAt       DateTime?               @map("revoke_action_at")
   tenant              Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue               Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  request             SupportRequest          @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  request             SupportRequest          @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "support_participant_request_fk")
   membership          TenantMembership        @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+  grantAuditEvent     SupportRequestAuditEvent? @relation("participant_grant_audit", fields: [supportRequestId, tenantId, venueId, grantRequestVersion], references: [supportRequestId, tenantId, venueId, requestVersion], onDelete: Restrict, onUpdate: Restrict, map: "support_participant_grant_audit_fk")
+  revokeAuditEvent    SupportRequestAuditEvent? @relation("participant_revoke_audit", fields: [supportRequestId, tenantId, venueId, revokeRequestVersion], references: [supportRequestId, tenantId, venueId, requestVersion], onDelete: Restrict, onUpdate: Restrict, map: "support_participant_revoke_audit_fk")
 
   @@unique([tenantId, grantOperationId], map: "support_request_participants_grant_operation_key")
   @@unique([tenantId, revokeOperationId], map: "support_request_participants_revoke_operation_key")
@@ -2537,10 +2550,43 @@ model SupportRequestAuditEvent {
   tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   venue            Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   supportRequest   SupportRequest         @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentRunLineage  SupportAgentRunLineage?
+  participantGrants SupportRequestParticipant[] @relation("participant_grant_audit")
+  participantRevokes SupportRequestParticipant[] @relation("participant_revoke_audit")
 
   @@unique([supportRequestId, tenantId, venueId, requestVersion])
   @@index([tenantId, venueId, supportRequestId, requestVersion])
   @@map("support_request_audit_events")
+}
+
+/// Immutable evidence that one existing AgentRun was linked to an exact
+/// Support request version. It never creates or changes the run.
+model SupportAgentRunLineage {
+  id               String                 @id @default(cuid())
+  tenantId         String                 @map("tenant_id")
+  venueId          String                 @map("venue_id")
+  supportRequestId String                 @map("support_request_id")
+  requestVersion   Int                    @map("request_version")
+  agentRunId       String                 @map("agent_run_id")
+  linkedRunStatus  AgentRunStatus         @map("linked_run_status")
+  linkedRunCompletedAt DateTime            @map("linked_run_completed_at")
+  operationId      String                 @map("operation_id") @db.Uuid
+  operationHash    String                 @map("operation_hash") @db.Char(64)
+  linkedByKind     SupportParticipantKind @default(OPERATOR) @map("linked_by_kind")
+  linkedById       String                 @map("linked_by_id") @db.VarChar(191)
+  linkedByRole     String                 @default("PLATFORM_ADMIN") @map("linked_by_role") @db.VarChar(64)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue            Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest   SupportRequest           @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "support_agent_run_lineages_request_scope_fkey")
+  requestEvent     SupportRequestAuditEvent @relation(fields: [supportRequestId, tenantId, venueId, requestVersion], references: [supportRequestId, tenantId, venueId, requestVersion], onDelete: Restrict, onUpdate: Restrict, map: "support_agent_run_lineages_request_event_fkey")
+  agentRun         AgentRun                 @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict, map: "support_agent_run_lineages_run_scope_fkey")
+
+  @@unique([tenantId, operationId], map: "support_agent_run_lineages_tenant_operation_key")
+  @@unique([agentRunId, tenantId, venueId], map: "support_agent_run_lineages_run_scope_key")
+  @@unique([supportRequestId, tenantId, venueId, requestVersion], map: "support_agent_run_lineages_request_version_key")
+  @@index([tenantId, venueId, supportRequestId, createdAt, id], map: "support_agent_run_lineages_request_created_idx")
+  @@map("support_agent_run_lineages")
 }
 
 /// Immutable lineage linking an exact support-request version to one existing

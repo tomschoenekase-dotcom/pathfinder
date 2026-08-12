@@ -150,6 +150,9 @@ describe('support participant actions', () => {
       supportRequestId: 'request_1',
       userId: 'member_2',
       grantOperationHash: operationHash,
+      grantRequestVersion: 5,
+      grantClientVersion: 3,
+      grantActionAt: new Date('2030-01-01T00:00:00.000Z'),
       revokedAt: null,
     })
     const transaction = replay.rawClient.$transaction.getMockImplementation()!
@@ -171,5 +174,81 @@ describe('support participant actions', () => {
         replay.client,
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('replays durable produced versions and fails closed for legacy evidence', async () => {
+    const seed = harness()
+    await grantSupportRequestParticipantAction(input, seed.client)
+    const operationHash =
+      seed.tx.supportRequestParticipant.create.mock.calls[0]?.[0]?.data.grantOperationHash
+    const replay = harness()
+    replay.tx.supportRequest.findFirst.mockResolvedValueOnce({
+      id: 'request_1',
+      version: 99,
+      clientVersion: 88,
+      requesterUserId: 'requester_1',
+    })
+    replay.tx.supportRequestParticipant.findFirst.mockResolvedValueOnce({
+      id: 'participant_1',
+      supportRequestId: 'request_1',
+      userId: 'member_2',
+      grantOperationHash: operationHash,
+      grantRequestVersion: 5,
+      grantClientVersion: 3,
+      grantActionAt: new Date('2030-01-01T00:00:00.000Z'),
+      revokedAt: null,
+    })
+    await expect(grantSupportRequestParticipantAction(input, replay.client)).resolves.toMatchObject(
+      {
+        requestVersion: 5,
+        clientVersion: 3,
+        replayed: true,
+      },
+    )
+
+    const legacy = harness()
+    legacy.tx.supportRequestParticipant.findFirst.mockResolvedValueOnce({
+      id: 'participant_1',
+      supportRequestId: 'request_1',
+      userId: 'member_2',
+      grantOperationHash: operationHash,
+      grantRequestVersion: null,
+      grantClientVersion: null,
+      grantActionAt: null,
+      revokedAt: null,
+    })
+    await expect(grantSupportRequestParticipantAction(input, legacy.client)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+  })
+
+  it('authorizes requester before replay but does not revalidate a later-deactivated target', async () => {
+    const seed = harness()
+    await grantSupportRequestParticipantAction(input, seed.client)
+    const operationHash =
+      seed.tx.supportRequestParticipant.create.mock.calls[0]?.[0]?.data.grantOperationHash
+    const replay = harness()
+    replay.tx.tenantMembership.findFirst.mockResolvedValueOnce(null)
+    replay.tx.supportRequestParticipant.findFirst.mockResolvedValueOnce({
+      id: 'participant_1',
+      supportRequestId: 'request_1',
+      userId: 'member_2',
+      grantOperationHash: operationHash,
+      grantRequestVersion: 5,
+      grantClientVersion: 3,
+      grantActionAt: new Date('2030-01-01T00:00:00.000Z'),
+      revokedAt: new Date('2030-01-02T00:00:00.000Z'),
+    })
+
+    await expect(grantSupportRequestParticipantAction(input, replay.client)).resolves.toMatchObject(
+      {
+        active: true,
+        requestVersion: 5,
+        clientVersion: 3,
+        replayed: true,
+      },
+    )
+    expect(replay.tx.tenantMembership.findFirst).not.toHaveBeenCalled()
+    expect(replay.tx.supportRequest.updateMany).not.toHaveBeenCalled()
   })
 })

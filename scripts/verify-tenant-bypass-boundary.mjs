@@ -61,6 +61,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/media-ingestion-reconcile-upload.ts', 4],
   ['packages/api/src/routers/admin/overview.ts', 1],
   ['packages/api/src/routers/admin/report-configuration.ts', 2],
+  // Platform-admin-only bounded lineage read rechecks exact tenant, venue, and Support request.
+  ['packages/api/src/routers/admin/support-agent-run-lineage.ts', 1],
   ['packages/api/src/routers/admin/weekly-reports.ts', 5],
   ['packages/api/src/routers/admin/venue-availability.ts', 2],
   ['packages/db/src/helpers/job-records.ts', 4],
