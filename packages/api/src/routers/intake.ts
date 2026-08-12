@@ -8,7 +8,6 @@ import {
   getIntakeProposalReview,
   getOnboardingBootstrapSubmission,
   interviewProposalInput,
-  linkIntakePackageDraft,
   listIntakeProposals,
   onboardingBootstrapSubmissionInput,
   submitOnboardingBootstrapAction,
@@ -126,24 +125,6 @@ export const intakeRouter = router({
           tenantId: ctx.session.activeTenantId,
           venueId: input.venueId,
           runId: input.runId,
-        })
-      } catch (error) {
-        mapActionError(error)
-      }
-    }),
-
-  linkPackageDraft: tenantProcedure
-    .use(requireRole('MANAGER'))
-    .input(scope.extend({ runId: z.string().min(1), packageDraftId: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      try {
-        return await linkIntakePackageDraft({
-          db: ctx.db,
-          tenantId: ctx.session.activeTenantId,
-          venueId: input.venueId,
-          runId: input.runId,
-          packageDraftId: input.packageDraftId,
-          actorId: ctx.session.userId,
         })
       } catch (error) {
         mapActionError(error)

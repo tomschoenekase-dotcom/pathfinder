@@ -1,6 +1,9 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+
+import type { inferRouterOutputs } from '@trpc/server'
+import type { AppRouter } from '@pathfinder/api'
 
 import { useTRPCClient } from '../../lib/trpc'
 
@@ -9,17 +12,57 @@ type Props = {
   venueId: string
   support?: { requestId: string; expectedVersion: number }
   intakeRunId?: string
+  prefillCandidate?: ReviewedVenuePackageDraftCandidate
+}
+
+export type ReviewedVenuePackageDraftCandidate = {
+  identity: string
+  expectedCandidateHash: string
+  payload: NonNullable<
+    inferRouterOutputs<AppRouter>['admin']['getIntakeVenuePackageCandidate']['payload']
+  >
+  source: {
+    kind: string
+    label: string
+    evidenceCount: number
+    discrepancyCount: number
+    confidence: number | null
+  }
+  warnings: readonly string[]
+}
+
+function candidateText(candidate: ReviewedVenuePackageDraftCandidate | undefined) {
+  return candidate ? JSON.stringify(candidate.payload, null, 2) : ''
 }
 
 export function ReviewedVenuePackageDraftForm(props: Props) {
   const client = useTRPCClient()
-  const [text, setText] = useState('')
+  const instanceId = useId()
+  const titleId = `${instanceId}-draft-title`
+  const editorId = `${instanceId}-reviewed-package-json`
+  const [text, setText] = useState(() => candidateText(props.prefillCandidate))
   const [reviewed, setReviewed] = useState<unknown>(null)
-  const [draftKey, setDraftKey] = useState(() => crypto.randomUUID())
+  const [draftKey, setDraftKey] = useState(() =>
+    props.prefillCandidate ? '' : crypto.randomUUID(),
+  )
   const [busy, setBusy] = useState(false)
+  const [completed, setCompleted] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const inFlight = useRef(false)
   const attemptedKey = useRef(false)
+  const prefillIdentity = useRef(props.prefillCandidate?.identity)
+
+  useEffect(() => {
+    const nextIdentity = props.prefillCandidate?.identity
+    if (nextIdentity === prefillIdentity.current) return
+    prefillIdentity.current = nextIdentity
+    setText(candidateText(props.prefillCandidate))
+    setReviewed(null)
+    setDraftKey(props.prefillCandidate ? '' : crypto.randomUUID())
+    setCompleted(false)
+    attemptedKey.current = false
+    setMessage(null)
+  }, [props.prefillCandidate])
 
   function review() {
     setMessage(null)
@@ -32,7 +75,7 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
   }
 
   async function createDraft() {
-    if (!reviewed || inFlight.current) return
+    if (!reviewed || inFlight.current || (props.intakeRunId && !props.prefillCandidate)) return
     inFlight.current = true
     attemptedKey.current = true
     setBusy(true)
@@ -44,18 +87,21 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
         draftKey,
         payload: reviewed as never,
       }
-      const result = props.support
-        ? await client.admin.createAndLinkSupportReviewedVenuePackageDraft.mutate({
-            ...common,
-            supportRequestId: props.support.requestId,
-            expectedVersion: props.support.expectedVersion,
-          })
-        : props.intakeRunId
-          ? await client.admin.createAndLinkIntakeReviewedVenuePackageDraft.mutate({
-              ...common,
-              intakeRunId: props.intakeRunId,
+      const result =
+        props.prefillCandidate && props.intakeRunId
+          ? await client.admin.createAndLinkIntakeCandidateDraft.mutate({
+              tenantId: props.tenantId,
+              venueId: props.venueId,
+              runId: props.intakeRunId,
+              expectedCandidateHash: props.prefillCandidate.expectedCandidateHash,
             })
-          : await client.admin.createReviewedVenuePackageDraft.mutate(common)
+          : props.support
+            ? await client.admin.createAndLinkSupportReviewedVenuePackageDraft.mutate({
+                ...common,
+                supportRequestId: props.support.requestId,
+                expectedVersion: props.support.expectedVersion,
+              })
+            : await client.admin.createReviewedVenuePackageDraft.mutate(common)
       setMessage(
         result.value.replayed
           ? 'The exact existing DRAFT was reconciled.'
@@ -63,9 +109,13 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
             ? 'The reviewed DRAFT was created and linked atomically.'
             : 'The reviewed DRAFT was created with complete semantic evidence.',
       )
-      setDraftKey(crypto.randomUUID())
-      attemptedKey.current = false
-      setReviewed(null)
+      if (props.prefillCandidate) {
+        setCompleted(true)
+      } else {
+        setDraftKey(crypto.randomUUID())
+        attemptedKey.current = false
+        setReviewed(null)
+      }
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : 'The reviewed DRAFT could not be created.',
@@ -77,11 +127,8 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
   }
 
   return (
-    <section
-      className="rounded-2xl border border-pf-light bg-white p-5"
-      aria-labelledby="draft-title"
-    >
-      <h3 id="draft-title" className="font-semibold text-pf-deep">
+    <section className="rounded-2xl border border-pf-light bg-white p-5" aria-labelledby={titleId}>
+      <h3 id={titleId} className="font-semibold text-pf-deep">
         Create a reviewed DRAFT
       </h3>
       <p className="mt-1 text-sm leading-6 text-pf-deep/75">
@@ -89,16 +136,48 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
         safe retry until success. Creation uses the canonical gated semantic-analysis pipeline and
         records only a DRAFT; it never approves, applies, publishes, or reverts content.
       </p>
-      <label
-        htmlFor="reviewed-package-json"
-        className="mt-4 block text-sm font-semibold text-pf-deep"
-      >
+      {props.prefillCandidate ? (
+        <div className="mt-4 rounded-xl border border-pf-light bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-pf-deep">
+            Candidate from {props.prefillCandidate.source.label}
+          </p>
+          <p className="mt-1 text-xs text-pf-deep/70">
+            {props.prefillCandidate.source.kind.replaceAll('_', ' ')} ·{' '}
+            {props.prefillCandidate.source.evidenceCount} evidence item(s) ·{' '}
+            {props.prefillCandidate.source.discrepancyCount} discrepancy flag(s)
+            {props.prefillCandidate.source.confidence === null
+              ? ''
+              : ` · ${Math.round(props.prefillCandidate.source.confidence * 100)}% confidence`}
+          </p>
+          {props.prefillCandidate.warnings.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-900">
+              {props.prefillCandidate.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-xs text-pf-deep/65">No candidate warnings were reported.</p>
+          )}
+        </div>
+      ) : null}
+      {props.intakeRunId && !props.prefillCandidate ? (
+        <p
+          className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+          role="alert"
+        >
+          Load the server-reviewed intake candidate before creating a linked DRAFT. Browser-authored
+          JSON cannot be linked to intake evidence.
+        </p>
+      ) : null}
+      <label htmlFor={editorId} className="mt-4 block text-sm font-semibold text-pf-deep">
         VenuePackage payload JSON
       </label>
       <textarea
-        id="reviewed-package-json"
+        id={editorId}
         value={text}
+        readOnly={Boolean(props.prefillCandidate)}
         onChange={(event) => {
+          if (props.prefillCandidate) return
           if (attemptedKey.current) {
             setDraftKey(crypto.randomUUID())
             attemptedKey.current = false
@@ -114,19 +193,26 @@ export function ReviewedVenuePackageDraftForm(props: Props) {
       <div className="mt-3 flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={busy || !text.trim()}
+          disabled={
+            busy ||
+            completed ||
+            Boolean(props.intakeRunId && !props.prefillCandidate) ||
+            !text.trim()
+          }
           onClick={review}
           className="rounded-lg bg-pf-deep px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Review exact payload
+          {props.prefillCandidate ? 'Review exact candidate' : 'Review exact payload'}
         </button>
         <button
           type="button"
-          disabled={busy || !reviewed}
+          disabled={
+            busy || completed || Boolean(props.intakeRunId && !props.prefillCandidate) || !reviewed
+          }
           onClick={() => void createDraft()}
           className="rounded-lg bg-pf-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Create DRAFT only
+          {props.prefillCandidate ? 'Create and link DRAFT only' : 'Create DRAFT only'}
         </button>
       </div>
       {reviewed ? (

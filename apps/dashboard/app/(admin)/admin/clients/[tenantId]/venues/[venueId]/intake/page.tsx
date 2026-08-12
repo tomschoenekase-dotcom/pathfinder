@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { IntakeProposalWorkspace } from '../../../../../../../../components/IntakeProposalWorkspace'
 import { IntakeUploadReviewList } from '../../../../../../../../components/admin/IntakeUploadReviewList'
+import { OnboardingBootstrapReview } from '../../../../../../../../components/admin/OnboardingBootstrapReview'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 
 type PageProps = {
@@ -82,14 +83,8 @@ export default async function AdminIntakePage({ params, searchParams }: PageProp
           </p>
           <ul className="mt-4 space-y-4">
             {onboardingDetails.map((detail) => (
-              <li key={detail.id} className="rounded-xl border border-pf-light p-4">
-                <p className="font-medium text-pf-deep">{detail.displayName}</p>
-                <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/60">
-                  {detail.status.replaceAll('_', ' ')}
-                </p>
-                <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
-                  {JSON.stringify(detail.structuredBootstrap, null, 2)}
-                </pre>
+              <li key={detail.id}>
+                <OnboardingBootstrapReview tenantId={tenantId} venueId={venueId} run={detail} />
               </li>
             ))}
           </ul>

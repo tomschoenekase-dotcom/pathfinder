@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { onboardingBootstrapInputHash } from '@pathfinder/db'
+
 const reviewedDraft = vi.hoisted(() => ({ orchestrate: vi.fn() }))
 vi.mock('../../lib/admin-reviewed-draft-orchestration', () => ({
   runAdminReviewedDraftOrchestration: reviewedDraft.orchestrate,
@@ -7,18 +9,21 @@ vi.mock('../../lib/admin-reviewed-draft-orchestration', () => ({
 
 import type { TRPCContext } from '../../context'
 import { router } from '../../core'
+import { intakeCandidateDraftKey } from '../../lib/intake-venue-package-candidate'
 import { adminIntakeOperationsRouter } from './intake-operations'
 
 const venueFindFirst = vi.fn()
 const runFindMany = vi.fn()
 const runFindFirst = vi.fn()
 const runCreate = vi.fn()
+const handoffFindFirst = vi.fn()
 const eventCreate = vi.fn()
 const executeRaw = vi.fn()
 const auditCreate = vi.fn()
 const db = {
   venue: { findFirst: venueFindFirst },
   intakeRun: { findMany: runFindMany, findFirst: runFindFirst, create: runCreate },
+  intakePackageHandoff: { findFirst: handoffFindFirst },
   intakeRunEvent: { create: eventCreate },
   auditLog: { create: auditCreate },
   $executeRaw: executeRaw,
@@ -34,6 +39,36 @@ function context(isPlatformAdmin = true): TRPCContext {
 }
 
 const testRouter = router({ operations: adminIntakeOperationsRouter })
+const candidateVenue = {
+  name: 'Museum',
+  slug: 'museum',
+  category: null,
+  guideMode: 'non_location',
+  defaultCenterLat: null,
+  defaultCenterLng: null,
+}
+const candidateHash = onboardingBootstrapInputHash({
+  venue: { name: 'Museum', slug: 'museum', guideMode: 'non_location' },
+  proposal: {
+    version: 1,
+    content: {
+      kind: 'knowledge',
+      value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+    },
+  },
+})
+const candidateEvidence = {
+  submissionInputHash: candidateHash,
+  venue: candidateVenue,
+  evidence: [
+    {
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      locator: 'onboarding:structured-bootstrap:v1',
+      normalizedHash: candidateHash,
+      confidence: 1,
+    },
+  ],
+}
 
 describe('platform admin intake operations', () => {
   beforeEach(() => {
@@ -41,6 +76,7 @@ describe('platform admin intake operations', () => {
     venueFindFirst.mockResolvedValue({ id: 'venue-a' })
     runFindMany.mockResolvedValue([])
     runFindFirst.mockResolvedValue(null)
+    handoffFindFirst.mockResolvedValue(null)
     executeRaw.mockResolvedValue(1)
     runCreate.mockResolvedValue({
       id: 'run-1',
@@ -52,31 +88,308 @@ describe('platform admin intake operations', () => {
     })
   })
 
-  it('adapts atomic intake-to-new-DRAFT orchestration in exact scope', async () => {
-    reviewedDraft.orchestrate.mockResolvedValue({ value: { id: 'package_1' }, attachment: {} })
-    const payload = {
-      schemaVersion: 1 as const,
-      places: [],
-      knowledgeEntries: [
-        { title: 'Hours', category: 'FAQ', content: 'Current hours.', isEnabled: true },
-      ],
-    }
-    await testRouter
-      .createCaller(context())
-      .operations.createAndLinkIntakeReviewedVenuePackageDraft({
+  it('gates candidate projection before DB access and exact-binds the intake source', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).operations.getIntakeVenuePackageCandidate({
         tenantId: 'tenant-a',
         venueId: 'venue-a',
-        intakeRunId: 'run-1',
-        draftKey: '11111111-1111-4111-8111-111111111111',
-        payload,
+        runId: 'run-1',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(runFindFirst).not.toHaveBeenCalled()
+
+    runFindFirst.mockResolvedValue({
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: null,
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    })
+    const result = await testRouter
+      .createCaller(context())
+      .operations.getIntakeVenuePackageCandidate({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
       })
+    expect(runFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'run-1',
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          sourceKind: { in: ['STRUCTURED_BOOTSTRAP', 'INTERVIEW'] },
+        },
+      }),
+    )
+    expect(result).toMatchObject({
+      ready: true,
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      payload: { schemaVersion: 3 },
+      candidateHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      autoApprove: false,
+      autoApply: false,
+      published: false,
+    })
+  })
+
+  it('rebuilds and hash-binds the canonical intake payload before draft orchestration', async () => {
+    runFindFirst.mockResolvedValue({
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: null,
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    })
+    const caller = testRouter.createCaller(context())
+    const candidate = await caller.operations.getIntakeVenuePackageCandidate({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+    })
+    runFindFirst.mockClear().mockResolvedValue({
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: null,
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    })
+    reviewedDraft.orchestrate.mockResolvedValue({ value: { id: 'package-1' }, attachment: {} })
+    await caller.operations.createAndLinkIntakeCandidateDraft({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+      expectedCandidateHash: candidate.candidateHash!,
+    })
+    expect(runFindFirst).toHaveBeenCalledTimes(1)
     expect(reviewedDraft.orchestrate).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-a',
-        draft: expect.objectContaining({ venueId: 'venue-a', payload }),
+        draft: expect.objectContaining({
+          venueId: 'venue-a',
+          draftKey: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+          ),
+          payload: candidate.payload,
+        }),
         finalizer: expect.any(Function),
       }),
     )
+  })
+
+  it('rejects a stale candidate hash without starting draft orchestration', async () => {
+    runFindFirst.mockResolvedValue({
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: null,
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    })
+    await expect(
+      testRouter.createCaller(context()).operations.createAndLinkIntakeCandidateDraft({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        expectedCandidateHash: 'f'.repeat(64),
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(reviewedDraft.orchestrate).not.toHaveBeenCalled()
+  })
+
+  it('blocks a mismatched existing handoff before draft orchestration', async () => {
+    const run = {
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: null,
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    }
+    runFindFirst.mockResolvedValue(run)
+    const caller = testRouter.createCaller(context())
+    const preview = await caller.operations.getIntakeVenuePackageCandidate({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+    })
+    runFindFirst.mockResolvedValue({
+      ...run,
+      packageHandoff: { packageDraftId: 'different-package' },
+    })
+    handoffFindFirst.mockResolvedValue({
+      createdBy: 'another-admin',
+      packageDraft: {
+        id: 'different-package',
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        draftKey: '11111111-1111-4111-8111-111111111111',
+        payloadHash: 'b'.repeat(64),
+        status: 'DRAFT',
+        createdBy: 'another-admin',
+      },
+    })
+    await expect(
+      caller.operations.createAndLinkIntakeCandidateDraft({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        expectedCandidateHash: preview.candidateHash!,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(reviewedDraft.orchestrate).not.toHaveBeenCalled()
+  })
+
+  it('allows only an exact actor-bound existing handoff to enter orchestration replay', async () => {
+    const run = {
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: null,
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    }
+    runFindFirst.mockResolvedValue(run)
+    const caller = testRouter.createCaller(context())
+    const preview = await caller.operations.getIntakeVenuePackageCandidate({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+    })
+    const draftKey = intakeCandidateDraftKey({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+      candidateHash: preview.candidateHash!,
+      actorId: 'platform-admin',
+    })
+    runFindFirst.mockResolvedValue({
+      ...run,
+      packageHandoff: { packageDraftId: 'package-1' },
+    })
+    handoffFindFirst.mockResolvedValue({
+      createdBy: 'platform-admin',
+      packageDraft: {
+        id: 'package-1',
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        draftKey,
+        payloadHash: preview.candidateHash,
+        status: 'DRAFT',
+        createdBy: 'platform-admin',
+      },
+    })
+    reviewedDraft.orchestrate.mockResolvedValue({ value: { id: 'package-1' }, attachment: {} })
+    await caller.operations.createAndLinkIntakeCandidateDraft({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+      expectedCandidateHash: preview.candidateHash!,
+    })
+    expect(reviewedDraft.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({ draft: expect.objectContaining({ draftKey }) }),
+    )
+  })
+
+  it('rejects browser-supplied candidate payload or draft identity fields', async () => {
+    await expect(
+      testRouter.createCaller(context()).operations.createAndLinkIntakeCandidateDraft({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-1',
+        draftKey: '11111111-1111-4111-8111-111111111111',
+        expectedCandidateHash: 'a'.repeat(64),
+        payload: { schemaVersion: 3 },
+      } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(runFindFirst).not.toHaveBeenCalled()
+    expect(reviewedDraft.orchestrate).not.toHaveBeenCalled()
+  })
+
+  it('revalidates candidate readiness inside the final transaction before linking', async () => {
+    runFindFirst.mockResolvedValue({
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: null,
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    })
+    reviewedDraft.orchestrate.mockResolvedValue({ value: { id: 'package-1' }, attachment: {} })
+    const caller = testRouter.createCaller(context())
+    const candidate = await caller.operations.getIntakeVenuePackageCandidate({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+    })
+    await caller.operations.createAndLinkIntakeCandidateDraft({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-1',
+      expectedCandidateHash: candidate.candidateHash!,
+    })
+    const finalizer = reviewedDraft.orchestrate.mock.calls.at(-1)?.[0].finalizer
+    runFindFirst.mockResolvedValue({
+      id: 'run-1',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      packageHandoff: { packageDraftId: 'racing-draft' },
+      ...candidateEvidence,
+      structuredBootstrap: {
+        version: 1,
+        content: {
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+        },
+      },
+    })
+    await expect(finalizer({ tx: db } as never)).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(eventCreate).not.toHaveBeenCalled()
   })
 
   it('blocks non-admin callers before database access', async () => {

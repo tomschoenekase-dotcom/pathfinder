@@ -399,17 +399,6 @@ vi.mock('@pathfinder/db', async () => {
           select: { id: true },
         }),
     ),
-    linkIntakePackageDraft: vi.fn(
-      (input: { db: typeof harness.db; tenantId: string; venueId: string; runId: string }) =>
-        (
-          input.db as {
-            intakeRun: { findFirst: (args: unknown) => unknown }
-          }
-        ).intakeRun.findFirst({
-          where: { id: input.runId, tenantId: input.tenantId, venueId: input.venueId },
-          select: { id: true },
-        }),
-    ),
     SupportActionError: class SupportActionError extends Error {},
     appendSupportMessageAction: vi.fn(
       (

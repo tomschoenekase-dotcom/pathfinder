@@ -45,8 +45,10 @@ Operational updates are another canonical-action reference: HUMAN manager/owner 
 exact tenant/venue/place scope, content-version entity and capacity locks, expected `updatedAt` CAS,
 bounded overlap validation, and required audit in one transaction. API adapters validate and
 authorize before calling the helper; they must not recreate mutations in route code. Intake
-proposal creation, listing, and existing-`DRAFT` package linkage similarly live in the neutral DB
-service so tenant and admin adapters share the same scope, privacy, lineage, and audit rules.
+proposal creation, listing, and privacy-safe review evidence live in the neutral DB service so
+tenant and admin adapters share the same scope and privacy rules. Reviewed bootstrap/interview
+package creation is separate canonical API orchestration: it rebuilds the deterministic candidate
+server-side and atomically links only the resulting semantic-complete `DRAFT`.
 
 Legacy Place and Knowledge compatibility writes now use neutral create, CAS update, and soft-retire
 actions. They lock the exact tenant/venue entity, set content-version context, require strict audit in
@@ -101,10 +103,12 @@ redirect-only. Do not cite that dormant component test as evidence of a reachabl
 Implement the adapter interface in `@pathfinder/intake-engine`. Bound time, size, count, evidence,
 cost, redirects, and cancellation. Preserve citations and privacy classes. Unsupported sources must
 return `NOT_CONFIGURED`. The adapter may produce a draft proposal but cannot approve or apply it.
-Persist proposals and package links through the neutral `packages/db` intake action. Candidate
-content must contain only material authorized for that audience; keep withheld input as manifest or
-hash evidence. Package linkage is exact-scope, append-only, and existing-`DRAFT` only, and has no
-create, approve, apply, or publish side effect.
+Persist proposals through the neutral `packages/db` intake action. Candidate content must contain
+only material authorized for that audience; keep withheld input as manifest or hash evidence.
+Reviewed structured-bootstrap and interview sources may create and atomically link only the
+deterministic server-rebuilt `DRAFT` candidate. Website and quarantined-file sources remain
+proposal/evidence only. Intake exposes no arbitrary existing-draft link, approve, apply, or publish
+operation.
 
 Website and text-interview proposal mutations require a browser-generated UUID. The neutral action
 binds that request identity to the exact tenant, venue, actor, source kind, and canonical validated

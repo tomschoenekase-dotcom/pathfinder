@@ -18,8 +18,6 @@ const mocks = vi.hoisted(() => ({
   runFind: vi.fn(),
   evidenceCreate: vi.fn(),
   eventCreate: vi.fn(),
-  draftFind: vi.fn(),
-  handoffCreate: vi.fn(),
   auditCreate: vi.fn(),
   executeRaw: vi.fn(),
 }))
@@ -28,8 +26,6 @@ const db = {
   intakeRun: { create: mocks.runCreate, findMany: vi.fn(), findFirst: mocks.runFind },
   intakeEvidenceRecord: { create: mocks.evidenceCreate },
   intakeRunEvent: { create: mocks.eventCreate },
-  venuePackage: { findFirst: mocks.draftFind },
-  intakePackageHandoff: { create: mocks.handoffCreate },
   auditLog: { create: mocks.auditCreate },
   $executeRaw: mocks.executeRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
@@ -294,28 +290,5 @@ describe('intake draft proposals', () => {
       }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     expect(mocks.runCreate).not.toHaveBeenCalled()
-  })
-
-  it('links only an exact-scope package already in DRAFT status', async () => {
-    mocks.runFind.mockResolvedValue({ id: 'run-1' })
-    mocks.draftFind.mockResolvedValue({ id: 'draft-1' })
-    mocks.handoffCreate.mockResolvedValue({
-      id: 'handoff-1',
-      runId: 'run-1',
-      packageDraftId: 'draft-1',
-      createdAt: new Date(),
-    })
-    await caller
-      .createCaller(context())
-      .intake.linkPackageDraft({ venueId: 'venue-a', runId: 'run-1', packageDraftId: 'draft-1' })
-    expect(mocks.draftFind).toHaveBeenCalledWith({
-      where: { id: 'draft-1', tenantId: 'tenant-a', venueId: 'venue-a', status: 'DRAFT' },
-      select: { id: true },
-    })
-    expect(mocks.handoffCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ tenantId: 'tenant-a', venueId: 'venue-a' }),
-      }),
-    )
   })
 })

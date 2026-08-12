@@ -557,17 +557,6 @@
     }
   },
   {
-    "path": "intake.linkPackageDraft",
-    "kind": "mutation",
-    "minimumRole": "MANAGER",
-    "firstTouch": "intakeRun.findFirst",
-    "input": {
-      "venueId": "cvenueabc123456789012",
-      "runId": "crunabc123456789012345",
-      "packageDraftId": "cdraftabc123456789012"
-    }
-  },
-  {
     "path": "intakeUpload.reserve",
     "kind": "mutation",
     "minimumRole": "STAFF",

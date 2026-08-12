@@ -117,9 +117,11 @@ Section-level evidence and blockers are indexed in
   evidence/discrepancy/cost bounds, and validated draft-for-review handoff. Unconfigured source
   types fail explicitly rather than pretending extraction; there is no approve/apply/publish API.
 - A neutral `packages/db` intake service now owns tenant/venue-scoped proposal creation and reads,
-  privacy-preserving interview evidence, append-only events, and one existing-`DRAFT` package
-  lineage link. Tenant and platform-admin routers are adapters over the same service. It cannot
-  create, approve, apply or publish a package, and its migration remains unapplied.
+  privacy-preserving interview evidence, and append-only events. Reviewed structured-bootstrap and
+  interview sources use a deterministic server-rebuilt candidate to create and atomically link a
+  new `DRAFT`; arbitrary existing-draft linkage is not exposed. Website and quarantined-file intake
+  remain proposal/evidence only. No intake path approves, applies, or publishes a package, and its
+  migration remains unapplied.
 - A separate quarantined file-intake seam accepts bounded PDFs and safe raster-image MIME types.
   It persists an actor-bound request before signing a create-only private PUT, uses a fenced
   verification lease, and creates a `FILE_UPLOAD` intake run only after exact generation, byte,

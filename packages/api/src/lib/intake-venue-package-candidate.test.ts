@@ -1,0 +1,637 @@
+import { createHash } from 'node:crypto'
+import { describe, expect, it, vi } from 'vitest'
+
+import { onboardingBootstrapInputHash } from '@pathfinder/db'
+
+import { buildIntakeVenuePackageCandidate } from './intake-venue-package-candidate'
+
+const consentHash = createHash('sha256')
+  .update(
+    'I consent to PathFinder using these written answers to prepare a reviewable venue-content draft.',
+  )
+  .digest('hex')
+
+function db(run: unknown, reviewRun: unknown = run) {
+  const findFirst = vi.fn().mockResolvedValueOnce(run).mockResolvedValueOnce(reviewRun)
+  return {
+    intakeRun: { findFirst },
+    venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue-a' }) },
+  }
+}
+
+function bootstrapRun(content: unknown, overrides: Record<string, unknown> = {}) {
+  const venue = {
+    name: 'Museum',
+    slug: 'museum',
+    guideMode: 'non_location' as const,
+  }
+  const bootstrapHash = onboardingBootstrapInputHash({
+    venue,
+    proposal: { version: 1, content } as Parameters<
+      typeof onboardingBootstrapInputHash
+    >[0]['proposal'],
+  })
+  return {
+    id: 'run-a',
+    sourceKind: 'STRUCTURED_BOOTSTRAP',
+    status: 'AWAITING_REVIEW',
+    packageHandoff: null,
+    submissionInputHash: bootstrapHash,
+    venue: { ...venue, category: null, defaultCenterLat: null, defaultCenterLng: null },
+    evidence: [
+      {
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        locator: 'onboarding:structured-bootstrap:v1',
+        normalizedHash: bootstrapHash,
+        confidence: 1,
+      },
+    ],
+    structuredBootstrap: { version: 1, content },
+    ...overrides,
+  }
+}
+
+function interviewRun(entries: ReadonlyArray<readonly [string, string]>, reverse = false) {
+  const manifests = entries.map(([questionId, text]) => ({
+    questionId,
+    privacy: 'PUBLIC_CANDIDATE',
+    skipped: false,
+    redacted: false,
+    uncertain: false,
+    confidence: 0.8,
+    normalizedHash: createHash('sha256')
+      .update(`${questionId}:PUBLIC_CANDIDATE:${text}`)
+      .digest('hex'),
+  }))
+  const ordered = reverse ? [...manifests].reverse() : manifests
+  const missingPublic = ['operations.hours', 'operations.closures']
+    .filter((questionId) => !entries.some(([candidateId]) => candidateId === questionId))
+    .map((questionId) => ({
+      questionId,
+      privacy: 'PUBLIC_CANDIDATE',
+      skipped: true,
+      redacted: false,
+      uncertain: false,
+      confidence: 0.8,
+      normalizedHash: null,
+    }))
+  return {
+    id: 'run-a',
+    sourceKind: 'INTERVIEW',
+    status: 'AWAITING_REVIEW',
+    displayName: 'Interview',
+    interviewRole: 'OPERATIONS',
+    interviewConsentTextHash: consentHash,
+    interviewPublicAnswers: ordered.map((answer) => ({
+      questionId: answer.questionId,
+      text: entries.find(([questionId]) => questionId === answer.questionId)![1],
+      privacy: 'PUBLIC_CANDIDATE',
+      confidence: 0.8,
+    })),
+    interviewAnswerManifest: [
+      ...ordered,
+      ...missingPublic,
+      {
+        questionId: 'operations.internal-procedures',
+        privacy: 'PRIVATE',
+        skipped: false,
+        redacted: true,
+        uncertain: false,
+        confidence: 0.8,
+        normalizedHash: null,
+      },
+    ],
+    evidence: ordered.map((answer, index) => ({
+      id: `e${index}`,
+      sourceKind: 'INTERVIEW',
+      locator: `interview:question:${answer.questionId}:PUBLIC_CANDIDATE`,
+      normalizedHash: answer.normalizedHash,
+      confidence: 0.8,
+      capturedAt: new Date(index),
+    })),
+    events: [],
+    createdAt: new Date(),
+  }
+}
+
+describe('deterministic intake VenuePackage candidate', () => {
+  it('maps exact validated bootstrap knowledge and returns a stable strict V3 payload', async () => {
+    const content = {
+      kind: 'knowledge',
+      value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+    }
+    const client = db(bootstrapRun(content))
+    const input = { db: client as never, tenantId: 'tenant-a', venueId: 'venue-a', runId: 'run-a' }
+    const first = await buildIntakeVenuePackageCandidate(input)
+    const secondClient = db(bootstrapRun(content))
+    const second = await buildIntakeVenuePackageCandidate({ ...input, db: secondClient as never })
+    expect(first).toMatchObject({
+      ready: true,
+      payload: { schemaVersion: 3 },
+      autoApply: false,
+      published: false,
+    })
+    expect(first.payload?.knowledgeEntries.create[0]).toMatchObject({
+      provenance: { sourceType: 'PATHFINDER_INTAKE', contentOrigin: 'HUMAN_AUTHORED' },
+      value: { title: 'Hours', content: 'Open daily.', isEnabled: true },
+    })
+    expect(first.payload?.knowledgeEntries.create[0]?.itemKey).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+    )
+    expect(second.payload?.knowledgeEntries.create[0]?.itemKey).toBe(
+      first.payload?.knowledgeEntries.create[0]?.itemKey,
+    )
+  })
+
+  it('fails closed rather than truncating bootstrap fields outside VenuePackage bounds', async () => {
+    const client = db(
+      bootstrapRun({
+        kind: 'knowledge',
+        value: { title: 'x'.repeat(201), category: 'VISIT', content: 'Valid.' },
+      }),
+    )
+    const result = await buildIntakeVenuePackageCandidate({
+      db: client as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(result).toMatchObject({
+      ready: false,
+      payload: null,
+      issues: [expect.objectContaining({ code: 'PACKAGE_FIELD_INVALID' })],
+    })
+  })
+
+  it('requires one exact immutable bootstrap evidence binding without leaking its values', async () => {
+    const content = {
+      kind: 'knowledge',
+      value: { title: 'Sensitive title', category: 'VISIT', content: 'Sensitive content.' },
+    }
+    const exact = bootstrapRun(content)
+    for (const run of [
+      bootstrapRun(content, {
+        evidence: [
+          {
+            sourceKind: 'STRUCTURED_BOOTSTRAP',
+            locator: 'onboarding:structured-bootstrap:v1',
+            normalizedHash: 'b'.repeat(64),
+            confidence: 1,
+          },
+        ],
+      }),
+      bootstrapRun(content, {
+        evidence: [
+          {
+            sourceKind: 'STRUCTURED_BOOTSTRAP',
+            locator: 'onboarding:structured-bootstrap:v1',
+            normalizedHash: exact.submissionInputHash,
+            confidence: 1,
+          },
+          {
+            sourceKind: 'STRUCTURED_BOOTSTRAP',
+            locator: 'onboarding:structured-bootstrap:v1',
+            normalizedHash: exact.submissionInputHash,
+            confidence: 1,
+          },
+        ],
+      }),
+    ]) {
+      await expect(
+        buildIntakeVenuePackageCandidate({
+          db: db(run) as never,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          runId: 'run-a',
+        }),
+      ).rejects.toMatchObject({
+        code: 'INVALID_EVIDENCE',
+        message: 'Stored onboarding evidence is invalid',
+      })
+    }
+  })
+
+  it('fails closed when the stored bootstrap proposal or venue shell no longer matches its hash', async () => {
+    const content = {
+      kind: 'knowledge',
+      value: { title: 'Hours', category: 'VISIT', content: 'Open daily.' },
+    }
+    const exact = bootstrapRun(content)
+    for (const run of [
+      {
+        ...exact,
+        structuredBootstrap: {
+          version: 1,
+          content: {
+            kind: 'knowledge',
+            value: { title: 'Hours', category: 'VISIT', content: 'Changed content.' },
+          },
+        },
+      },
+      { ...exact, venue: { ...exact.venue, name: 'Changed venue' } },
+    ]) {
+      await expect(
+        buildIntakeVenuePackageCandidate({
+          db: db(run) as never,
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          runId: 'run-a',
+        }),
+      ).rejects.toMatchObject({
+        code: 'INVALID_EVIDENCE',
+        message: 'Stored onboarding source is inconsistent',
+      })
+    }
+  })
+
+  it('does not invent coordinates for a location-aware bootstrap place', async () => {
+    const content = {
+      kind: 'place' as const,
+      value: { name: 'Front entrance', type: 'ENTRANCE', shortDescription: 'Main doors.' },
+    }
+    const venue = {
+      name: 'Museum',
+      slug: 'museum',
+      guideMode: 'location_aware' as const,
+      defaultCenterLat: 41.88,
+      defaultCenterLng: -87.63,
+    }
+    const submissionInputHash = onboardingBootstrapInputHash({
+      venue,
+      proposal: { version: 1, content },
+    })
+    const run = bootstrapRun(content, {
+      venue: { ...venue, category: null },
+      submissionInputHash,
+      evidence: [
+        {
+          sourceKind: 'STRUCTURED_BOOTSTRAP',
+          locator: 'onboarding:structured-bootstrap:v1',
+          normalizedHash: submissionInputHash,
+          confidence: 1,
+        },
+      ],
+    })
+    const result = await buildIntakeVenuePackageCandidate({
+      db: db(run) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(result).toMatchObject({
+      ready: false,
+      payload: null,
+      issues: [
+        expect.objectContaining({
+          code: 'PACKAGE_FIELD_INVALID',
+          path: 'places.create.0.value',
+        }),
+      ],
+    })
+    expect(JSON.stringify(result)).not.toContain('41.88')
+  })
+
+  it('enforces strict bootstrap shape and exact V3 5000/5001 UTF-16 boundaries', async () => {
+    const astral = '\u{1F600}'
+    const validContent = 'x'.repeat(4_998) + astral
+    const valid = await buildIntakeVenuePackageCandidate({
+      db: db(
+        bootstrapRun({
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: validContent },
+        }),
+      ) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(valid).toMatchObject({ ready: true, summary: { candidateCount: 1 } })
+
+    const tooLong = 'x'.repeat(4_999) + astral
+    const invalid = await buildIntakeVenuePackageCandidate({
+      db: db(
+        bootstrapRun({
+          kind: 'knowledge',
+          value: { title: 'Hours', category: 'VISIT', content: tooLong },
+        }),
+      ) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(invalid).toMatchObject({ ready: false, payload: null })
+    expect(invalid.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'PACKAGE_FIELD_INVALID' })]),
+    )
+
+    await expect(
+      buildIntakeVenuePackageCandidate({
+        db: db(
+          bootstrapRun({
+            kind: 'knowledge',
+            value: {
+              title: 'Sensitive title',
+              category: 'VISIT',
+              content: 'Sensitive content.',
+              privateText: 'must not survive',
+            },
+          }),
+        ) as never,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_EVIDENCE',
+      message: 'Stored onboarding information is invalid',
+    })
+  })
+
+  it('maps only evidence-verified public interview text and blocks discrepancies', async () => {
+    const publicText = 'Open nine to five.'
+    const normalizedHash = createHash('sha256')
+      .update(`operations.hours:PUBLIC_CANDIDATE:${publicText}`)
+      .digest('hex')
+    const reviewRun = {
+      id: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Interview',
+      interviewRole: 'OPERATIONS',
+      interviewConsentTextHash: consentHash,
+      interviewPublicAnswers: [
+        {
+          questionId: 'operations.hours',
+          text: publicText,
+          privacy: 'PUBLIC_CANDIDATE',
+          confidence: 0.8,
+        },
+      ],
+      interviewAnswerManifest: [
+        {
+          questionId: 'operations.hours',
+          privacy: 'PUBLIC_CANDIDATE',
+          skipped: false,
+          redacted: false,
+          uncertain: false,
+          confidence: 0.8,
+          normalizedHash,
+        },
+        {
+          questionId: 'operations.closures',
+          privacy: 'PUBLIC_CANDIDATE',
+          skipped: true,
+          redacted: false,
+          uncertain: true,
+          confidence: 0.5,
+          normalizedHash: null,
+        },
+        {
+          questionId: 'operations.internal-procedures',
+          privacy: 'PRIVATE',
+          skipped: false,
+          redacted: false,
+          uncertain: false,
+          confidence: 0.8,
+          normalizedHash: 'b'.repeat(64),
+        },
+      ],
+      evidence: [
+        {
+          id: 'e1',
+          sourceKind: 'INTERVIEW',
+          locator: 'interview:question:operations.hours:PUBLIC_CANDIDATE',
+          normalizedHash,
+          confidence: 0.8,
+          capturedAt: new Date(),
+        },
+        {
+          id: 'e2',
+          sourceKind: 'INTERVIEW',
+          locator: 'interview:question:operations.internal-procedures:PRIVATE',
+          normalizedHash: 'b'.repeat(64),
+          confidence: 0.8,
+          capturedAt: new Date(),
+        },
+      ],
+      events: [],
+      createdAt: new Date(),
+    }
+    const client = db(
+      {
+        id: 'run-a',
+        sourceKind: 'INTERVIEW',
+        status: 'AWAITING_REVIEW',
+        structuredBootstrap: null,
+        packageHandoff: null,
+      },
+      reviewRun,
+    )
+    const result = await buildIntakeVenuePackageCandidate({
+      db: client as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(result.ready).toBe(false)
+    expect(result.payload).toBeNull()
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'INTERVIEW_DISCREPANCY',
+          path: 'venue.operations.closures',
+        }),
+      ]),
+    )
+    expect(JSON.stringify(result)).not.toContain('b'.repeat(64))
+    expect(JSON.stringify(result)).not.toContain('internal-procedures')
+  })
+
+  it('builds a public-only interview candidate after every discrepancy is resolved', async () => {
+    const answers = [
+      ['operations.hours', 'Open nine to five.'],
+      ['operations.closures', "Closed on New Year's Day."],
+    ] as const
+    const manifests = answers.map(([questionId, text]) => ({
+      questionId,
+      privacy: 'PUBLIC_CANDIDATE',
+      skipped: false,
+      redacted: false,
+      uncertain: false,
+      confidence: 0.8,
+      normalizedHash: createHash('sha256')
+        .update(`${questionId}:PUBLIC_CANDIDATE:${text}`)
+        .digest('hex'),
+    }))
+    const reviewRun = {
+      id: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Interview',
+      interviewRole: 'OPERATIONS',
+      interviewConsentTextHash: consentHash,
+      interviewPublicAnswers: answers.map(([questionId, text]) => ({
+        questionId,
+        text,
+        privacy: 'PUBLIC_CANDIDATE',
+        confidence: 0.8,
+      })),
+      interviewAnswerManifest: [
+        ...manifests,
+        {
+          questionId: 'operations.internal-procedures',
+          privacy: 'PRIVATE',
+          skipped: false,
+          redacted: true,
+          uncertain: false,
+          confidence: 0.8,
+          normalizedHash: null,
+        },
+      ],
+      evidence: manifests.map((answer, index) => ({
+        id: `e${index}`,
+        sourceKind: 'INTERVIEW',
+        locator: `interview:question:${answer.questionId}:PUBLIC_CANDIDATE`,
+        normalizedHash: answer.normalizedHash,
+        confidence: 0.8,
+        capturedAt: new Date(),
+      })),
+      events: [],
+      createdAt: new Date(),
+    }
+    const client = db(
+      {
+        id: 'run-a',
+        sourceKind: 'INTERVIEW',
+        status: 'AWAITING_REVIEW',
+        structuredBootstrap: null,
+        packageHandoff: null,
+      },
+      reviewRun,
+    )
+    const result = await buildIntakeVenuePackageCandidate({
+      db: client as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(result).toMatchObject({
+      ready: true,
+      candidateHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      summary: { candidateCount: 2, issueCount: 0 },
+    })
+    expect(result.payload?.knowledgeEntries.create).toEqual([
+      expect.objectContaining({
+        provenance: expect.objectContaining({
+          sourceName: 'Staff interview: venue.operations.hours',
+          contentOrigin: 'HUMAN_AUTHORED',
+        }),
+        value: expect.objectContaining({ category: 'HOURS', content: 'Open nine to five.' }),
+      }),
+      expect.objectContaining({
+        provenance: expect.objectContaining({
+          sourceName: 'Staff interview: venue.operations.closures',
+        }),
+        value: expect.objectContaining({
+          category: 'CLOSURES',
+          content: "Closed on New Year's Day.",
+        }),
+      }),
+    ])
+    expect(JSON.stringify(result)).not.toContain('internal-procedures')
+  })
+
+  it('freezes interview candidate order across stored row permutations', async () => {
+    const entries = [
+      ['operations.closures', "Closed on New Year's Day."],
+      ['operations.hours', 'Open nine to five.'],
+    ] as const
+    const scopeRun = {
+      id: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      structuredBootstrap: null,
+      packageHandoff: null,
+      evidence: [],
+    }
+    const first = await buildIntakeVenuePackageCandidate({
+      db: db(scopeRun, interviewRun(entries)) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    const permuted = await buildIntakeVenuePackageCandidate({
+      db: db(scopeRun, interviewRun(entries, true)) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(permuted.payload).toEqual(first.payload)
+    expect(permuted.candidateHash).toBe(first.candidateHash)
+    expect(first.payload?.knowledgeEntries.create.map((entry) => entry.value.category)).toEqual([
+      'HOURS',
+      'CLOSURES',
+    ])
+  })
+
+  it('changes both item identity and candidate hash when reviewed public text changes', async () => {
+    const scopeRun = {
+      id: 'run-a',
+      sourceKind: 'INTERVIEW',
+      status: 'AWAITING_REVIEW',
+      structuredBootstrap: null,
+      packageHandoff: null,
+      evidence: [],
+    }
+    const first = await buildIntakeVenuePackageCandidate({
+      db: db(
+        scopeRun,
+        interviewRun([
+          ['operations.hours', 'Open nine to five.'],
+          ['operations.closures', 'Closed on holidays.'],
+        ]),
+      ) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    const changed = await buildIntakeVenuePackageCandidate({
+      db: db(
+        scopeRun,
+        interviewRun([
+          ['operations.hours', 'Open ten to six.'],
+          ['operations.closures', 'Closed on holidays.'],
+        ]),
+      ) as never,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      runId: 'run-a',
+    })
+    expect(changed.payload?.knowledgeEntries.create[0]?.itemKey).not.toBe(
+      first.payload?.knowledgeEntries.create[0]?.itemKey,
+    )
+    expect(changed.candidateHash).not.toBe(first.candidateHash)
+  })
+
+  it('exact-binds tenant, venue, run and rejects unsupported source as not found', async () => {
+    const client = db(null)
+    await expect(
+      buildIntakeVenuePackageCandidate({
+        db: client as never,
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        runId: 'run-a',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(client.intakeRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'run-a',
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          sourceKind: { in: ['STRUCTURED_BOOTSTRAP', 'INTERVIEW'] },
+        },
+      }),
+    )
+  })
+})

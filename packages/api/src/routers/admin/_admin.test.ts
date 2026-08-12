@@ -248,7 +248,6 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
       .strict(),
     createIntakeProposal: vi.fn(),
     listIntakeProposals: vi.fn(),
-    linkIntakePackageDraft: vi.fn(),
     AI_COST_BUDGET_COVERAGE_VERSION: 'gateway-v1',
     assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
     reconcileExpiredAiCostAttempts: vi.fn().mockResolvedValue({

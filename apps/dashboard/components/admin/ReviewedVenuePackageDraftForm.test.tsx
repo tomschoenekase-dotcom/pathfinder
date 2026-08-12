@@ -3,19 +3,21 @@
 import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { inferRouterOutputs } from '@trpc/server'
+import type { AppRouter } from '@pathfinder/api'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
 
 const mutate = vi.fn()
 const supportMutate = vi.fn()
-const intakeMutate = vi.fn()
+const candidateMutate = vi.fn()
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
     admin: {
       createReviewedVenuePackageDraft: { mutate },
       createAndLinkSupportReviewedVenuePackageDraft: { mutate: supportMutate },
-      createAndLinkIntakeReviewedVenuePackageDraft: { mutate: intakeMutate },
+      createAndLinkIntakeCandidateDraft: { mutate: candidateMutate },
     },
   }),
 }))
@@ -30,7 +32,13 @@ describe('ReviewedVenuePackageDraftForm', () => {
     expect(screen.getByText(/canonical gated semantic-analysis pipeline/i)).toBeTruthy()
     const create = screen.getByRole('button', { name: 'Create DRAFT only' }) as HTMLButtonElement
     expect(create.disabled).toBe(true)
-    const payload = { schemaVersion: 1, places: [], knowledgeEntries: [] }
+    const payload: NonNullable<
+      inferRouterOutputs<AppRouter>['admin']['getIntakeVenuePackageCandidate']['payload']
+    > = {
+      schemaVersion: 3,
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    }
     fireEvent.change(screen.getByLabelText('VenuePackage payload JSON'), {
       target: { value: JSON.stringify(payload) },
     })
@@ -54,7 +62,7 @@ describe('ReviewedVenuePackageDraftForm', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
-  it('routes support and intake contexts to atomic create-and-link procedures', async () => {
+  it('routes support context to its atomic create-and-link procedure', async () => {
     supportMutate.mockResolvedValue({ value: { replayed: false }, attachment: {} })
     const { unmount } = render(
       <ReviewedVenuePackageDraftForm
@@ -73,18 +81,75 @@ describe('ReviewedVenuePackageDraftForm', () => {
       expect.objectContaining({ supportRequestId: 'support_1', expectedVersion: 4 }),
     )
     unmount()
+  })
 
-    intakeMutate.mockResolvedValue({ value: { replayed: false }, attachment: {} })
+  it('fails closed when intake linkage has no server-reviewed candidate', () => {
     render(
       <ReviewedVenuePackageDraftForm tenantId="tenant_1" venueId="venue_1" intakeRunId="run_1" />,
     )
+    expect(screen.getByText(/Load the server-reviewed intake candidate/)).toBeTruthy()
     fireEvent.change(screen.getByLabelText('VenuePackage payload JSON'), {
       target: { value: JSON.stringify({ schemaVersion: 1, places: [], knowledgeEntries: [] }) },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Review exact payload' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Create DRAFT only' }))
-    await waitFor(() => expect(intakeMutate).toHaveBeenCalledOnce())
-    expect(intakeMutate).toHaveBeenCalledWith(expect.objectContaining({ intakeRunId: 'run_1' }))
+    expect(
+      (screen.getByRole('button', { name: 'Review exact payload' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Create DRAFT only' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+    expect(candidateMutate).not.toHaveBeenCalled()
+  })
+
+  it('uses unique title and editor IDs when multiple candidate forms render together', () => {
+    const candidate = {
+      identity: 'STRUCTURED_BOOTSTRAP:run_1:a',
+      expectedCandidateHash: 'a'.repeat(64),
+      payload: {
+        schemaVersion: 3 as const,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+      source: {
+        kind: 'STRUCTURED_BOOTSTRAP',
+        label: 'structured onboarding proposal',
+        evidenceCount: 1,
+        discrepancyCount: 0,
+        confidence: null,
+      },
+      warnings: [],
+    }
+    const { container } = render(
+      <>
+        <ReviewedVenuePackageDraftForm
+          tenantId="tenant_1"
+          venueId="venue_1"
+          intakeRunId="run_1"
+          prefillCandidate={candidate}
+        />
+        <ReviewedVenuePackageDraftForm
+          tenantId="tenant_1"
+          venueId="venue_1"
+          intakeRunId="run_2"
+          prefillCandidate={{
+            ...candidate,
+            identity: 'STRUCTURED_BOOTSTRAP:run_2:b',
+            expectedCandidateHash: 'b'.repeat(64),
+          }}
+        />
+      </>,
+    )
+    const sections = Array.from(container.querySelectorAll('section'))
+    const editors = screen.getAllByLabelText('VenuePackage payload JSON') as HTMLTextAreaElement[]
+    const titleIds = sections.map((section) => section.getAttribute('aria-labelledby'))
+    const editorIds = editors.map((editor) => editor.id)
+
+    expect(new Set(titleIds).size).toBe(2)
+    expect(new Set(editorIds).size).toBe(2)
+    expect(titleIds.every((id) => Boolean(id && container.ownerDocument.getElementById(id)))).toBe(
+      true,
+    )
+    expect(editors.every((editor) => editor.labels?.length === 1)).toBe(true)
   })
 
   it('retains the exact draft request key across an ambiguous retry', async () => {
@@ -143,5 +208,162 @@ describe('ReviewedVenuePackageDraftForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create DRAFT only' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
     expect(mutate.mock.calls[1]?.[0].draftKey).not.toBe(firstKey)
+  })
+
+  it('prefills a server candidate with evidence context but still requires explicit review', () => {
+    const payload = {
+      schemaVersion: 3 as const,
+      places: { create: [], update: [], delete: [] },
+      knowledgeEntries: { create: [], update: [], delete: [] },
+    }
+    render(
+      <ReviewedVenuePackageDraftForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        prefillCandidate={{
+          identity: 'INTERVIEW:run_1:candidate_hash',
+          expectedCandidateHash: 'a'.repeat(64),
+          payload,
+          source: {
+            kind: 'INTERVIEW',
+            label: 'Staff interview',
+            evidenceCount: 3,
+            discrepancyCount: 0,
+            confidence: 0.8,
+          },
+          warnings: ['Confirm seasonal hours before approval.'],
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Candidate from Staff interview')).toBeTruthy()
+    expect(screen.getByText(/3 evidence item/)).toBeTruthy()
+    expect(screen.getByText(/Confirm seasonal hours/)).toBeTruthy()
+    expect((screen.getByLabelText('VenuePackage payload JSON') as HTMLTextAreaElement).value).toBe(
+      JSON.stringify(payload, null, 2),
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Create and link DRAFT only' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+  })
+
+  it('keeps a server candidate read-only and submits only its hash to the rebuilding mutation', async () => {
+    candidateMutate.mockResolvedValue({ value: { replayed: false }, attachment: {} })
+    render(
+      <ReviewedVenuePackageDraftForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        intakeRunId="run_1"
+        prefillCandidate={{
+          identity: 'INTERVIEW:run_1:candidate_hash',
+          expectedCandidateHash: 'a'.repeat(64),
+          payload: {
+            schemaVersion: 3,
+            places: { create: [], update: [], delete: [] },
+            knowledgeEntries: { create: [], update: [], delete: [] },
+          },
+          source: {
+            kind: 'INTERVIEW',
+            label: 'Staff interview',
+            evidenceCount: 2,
+            discrepancyCount: 0,
+            confidence: null,
+          },
+          warnings: [],
+        }}
+      />,
+    )
+    expect(
+      (screen.getByLabelText('VenuePackage payload JSON') as HTMLTextAreaElement).readOnly,
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Review exact candidate' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create and link DRAFT only' }))
+    await waitFor(() => expect(candidateMutate).toHaveBeenCalledOnce())
+    expect(candidateMutate).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      runId: 'run_1',
+      expectedCandidateHash: 'a'.repeat(64),
+    })
+    expect(candidateMutate.mock.calls[0]?.[0]).not.toHaveProperty('draftKey')
+    expect(candidateMutate.mock.calls[0]?.[0]).not.toHaveProperty('payload')
+    const review = screen.getByRole('button', {
+      name: 'Review exact candidate',
+    }) as HTMLButtonElement
+    const create = screen.getByRole('button', {
+      name: 'Create and link DRAFT only',
+    }) as HTMLButtonElement
+    expect(review.disabled).toBe(true)
+    expect(create.disabled).toBe(true)
+    fireEvent.click(create)
+    expect(candidateMutate).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the same read-only candidate on rerender and resets for a different source identity', () => {
+    const first = {
+      identity: 'INTERVIEW:run_1:first',
+      expectedCandidateHash: 'a'.repeat(64),
+      payload: {
+        schemaVersion: 3 as const,
+        places: { create: [], update: [], delete: [] },
+        knowledgeEntries: { create: [], update: [], delete: [] },
+      },
+      source: {
+        kind: 'INTERVIEW',
+        label: 'First interview',
+        evidenceCount: 1,
+        discrepancyCount: 0,
+        confidence: 1,
+      },
+      warnings: [],
+    }
+    const { rerender } = render(
+      <ReviewedVenuePackageDraftForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        prefillCandidate={first}
+      />,
+    )
+    const editor = screen.getByLabelText('VenuePackage payload JSON')
+    const firstText = (editor as HTMLTextAreaElement).value
+
+    rerender(
+      <ReviewedVenuePackageDraftForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        prefillCandidate={{ ...first }}
+      />,
+    )
+    expect((editor as HTMLTextAreaElement).value).toBe(firstText)
+
+    rerender(
+      <ReviewedVenuePackageDraftForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        prefillCandidate={{
+          ...first,
+          identity: 'STRUCTURED_BOOTSTRAP:run_2:second',
+          expectedCandidateHash: 'b'.repeat(64),
+          payload: {
+            schemaVersion: 3,
+            places: { create: [], update: [], delete: [] },
+            knowledgeEntries: { create: [], update: [], delete: [] },
+          },
+          source: { ...first.source, kind: 'STRUCTURED_BOOTSTRAP', label: 'Bootstrap proposal' },
+        }}
+      />,
+    )
+    expect((editor as HTMLTextAreaElement).value).toBe(
+      JSON.stringify(
+        {
+          schemaVersion: 3,
+          places: { create: [], update: [], delete: [] },
+          knowledgeEntries: { create: [], update: [], delete: [] },
+        },
+        null,
+        2,
+      ),
+    )
   })
 })

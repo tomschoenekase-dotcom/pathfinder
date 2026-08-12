@@ -359,7 +359,6 @@ export {
   intakeProposalInput,
   interviewProposalInput,
   interviewSubmissionInput,
-  linkIntakePackageDraft,
   listIntakeProposals,
   websiteProposalInput,
 } from './helpers/intake-actions'
@@ -567,6 +566,7 @@ export type {
 export {
   getOnboardingBootstrapSubmission,
   listOnboardingBootstrapDetails,
+  onboardingBootstrapInputHash,
   onboardingBootstrapSubmissionInput,
   OnboardingBootstrapError,
   submitOnboardingBootstrapAction,

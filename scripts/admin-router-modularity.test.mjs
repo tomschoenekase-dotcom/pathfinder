@@ -14,7 +14,7 @@ const expectedAdminProcedures = [
   'attentionConsole',
   'cancelEvaluationRun',
   'confirmFreshnessCurrent',
-  'createAndLinkIntakeReviewedVenuePackageDraft',
+  'createAndLinkIntakeCandidateDraft',
   'createAndLinkSupportReviewedVenuePackageDraft',
   'createClient',
   'createClientAndVenue',
@@ -42,6 +42,7 @@ const expectedAdminProcedures = [
   'getGlobalAiControl',
   'getIntakeProposalReview',
   'getIntakeUploadDetail',
+  'getIntakeVenuePackageCandidate',
   'getOffboardingPlan',
   'getSessionChatlog',
   'getSupportRequest',
@@ -51,7 +52,6 @@ const expectedAdminProcedures = [
   'getVenueReportConfiguration',
   'getWeeklyReport',
   'getWeeklyReportLifecycle',
-  'linkIntakePackageDraft',
   'linkSupportDraftPackage',
   'listAgentIdentities',
   'listAgentRunActions',
@@ -165,5 +165,16 @@ test('platform-admin routers stay domain-split without changing their public pro
     const source = await readFile(path.join(adminDirectory, composer), 'utf8')
     assert.match(source, /mergeRouters\(/u, `${composer} must compose its domain routers`)
     assert.equal(procedureNames(source).length, 0, `${composer} must not regain inline procedures`)
+  }
+})
+
+test('intake exposes no arbitrary existing-draft link procedure', async () => {
+  const sources = await Promise.all([
+    readFile(path.join(repositoryRoot, 'packages/api/src/routers/intake.ts'), 'utf8'),
+    readFile(path.join(adminDirectory, 'intake-operations.ts'), 'utf8'),
+  ])
+  for (const source of sources) {
+    assert.doesNotMatch(source, /\blinkPackageDraft\s*:/u)
+    assert.doesNotMatch(source, /\blinkIntakePackageDraft\s*:/u)
   }
 })

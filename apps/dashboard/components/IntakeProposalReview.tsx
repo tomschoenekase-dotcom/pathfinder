@@ -1,6 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { inferRouterOutputs } from '@trpc/server'
+
+import type { AppRouter } from '@pathfinder/api'
 
 import { useTRPCClient } from '../lib/trpc'
 import { ReviewedVenuePackageDraftForm } from './admin/ReviewedVenuePackageDraftForm'
@@ -8,6 +11,7 @@ import { ReviewedVenuePackageDraftForm } from './admin/ReviewedVenuePackageDraft
 type Review = Awaited<
   ReturnType<ReturnType<typeof useTRPCClient>['intake']['getProposalReview']['query']>
 >
+type Candidate = inferRouterOutputs<AppRouter>['admin']['getIntakeVenuePackageCandidate']
 
 export function IntakeProposalReview({
   venueId,
@@ -21,24 +25,46 @@ export function IntakeProposalReview({
   const client = useTRPCClient()
   const [review, setReview] = useState<Review | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [candidate, setCandidate] = useState<Candidate | null>(null)
   const [busy, setBusy] = useState(false)
+  const loadSequence = useRef(0)
+
+  useEffect(() => {
+    loadSequence.current += 1
+    setReview(null)
+    setCandidate(null)
+    setError(null)
+    setBusy(false)
+  }, [adminTenantId, runId, venueId])
+
   async function load() {
+    const sequence = ++loadSequence.current
     setBusy(true)
     setError(null)
     try {
-      setReview(
-        adminTenantId
-          ? await client.admin.getIntakeProposalReview.query({
-              tenantId: adminTenantId,
-              venueId,
-              runId,
-            })
-          : await client.intake.getProposalReview.query({ venueId, runId }),
-      )
+      const nextReview = adminTenantId
+        ? await client.admin.getIntakeProposalReview.query({
+            tenantId: adminTenantId,
+            venueId,
+            runId,
+          })
+        : await client.intake.getProposalReview.query({ venueId, runId })
+      if (sequence !== loadSequence.current) return
+      setReview(nextReview)
+      if (adminTenantId && nextReview.structuredSummary.handoffReady) {
+        const nextCandidate = await client.admin.getIntakeVenuePackageCandidate.query({
+          tenantId: adminTenantId,
+          venueId,
+          runId,
+        })
+        if (sequence !== loadSequence.current) return
+        setCandidate(nextCandidate)
+      }
     } catch (cause) {
+      if (sequence !== loadSequence.current) return
       setError(cause instanceof Error ? cause.message : 'Interview review is unavailable.')
     } finally {
-      setBusy(false)
+      if (sequence === loadSequence.current) setBusy(false)
     }
   }
   if (!review) {
@@ -75,6 +101,21 @@ export function IntakeProposalReview({
           ? 'Ready for an operator to create a separate reviewed draft handoff.'
           : 'Not handoff-ready: resolve reviewer flags, consent, or missing public candidate fields.'}
       </p>
+      {error ? (
+        <div className="mt-3" role="alert">
+          <p className="text-sm text-rose-700">{error}</p>
+          {adminTenantId && review.structuredSummary.handoffReady ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void load()}
+              className="mt-2 min-h-11 rounded-full border border-pf-light bg-white px-4 text-sm font-medium text-pf-deep disabled:opacity-50"
+            >
+              Retry candidate review
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <ol className="mt-3 space-y-3">
         {review.answers.map((answer) => (
           <li
@@ -109,13 +150,40 @@ export function IntakeProposalReview({
           </li>
         ))}
       </ol>
-      {adminTenantId && review.structuredSummary.handoffReady ? (
+      {adminTenantId &&
+      review.structuredSummary.handoffReady &&
+      candidate?.ready &&
+      candidate.payload &&
+      candidate.candidateHash ? (
         <div className="mt-5">
           <ReviewedVenuePackageDraftForm
             tenantId={adminTenantId}
             venueId={venueId}
             intakeRunId={runId}
+            prefillCandidate={{
+              identity: `${candidate.sourceKind}:${candidate.runId}:${candidate.candidateHash}`,
+              expectedCandidateHash: candidate.candidateHash,
+              payload: candidate.payload,
+              source: {
+                kind: candidate.sourceKind,
+                label: 'reviewed staff interview',
+                evidenceCount: review.summary.evidenceCount,
+                discrepancyCount: review.summary.discrepancyCount,
+                confidence: null,
+              },
+              warnings: candidate.issues.map((issue) => `${issue.path}: ${issue.message}`),
+            }}
           />
+        </div>
+      ) : null}
+      {adminTenantId && review.structuredSummary.handoffReady && candidate && !candidate.ready ? (
+        <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
+          <p className="text-sm font-semibold text-amber-950">Package candidate needs review</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+            {candidate.issues.map((issue) => (
+              <li key={`${issue.code}:${issue.path}`}>{issue.message}</li>
+            ))}
+          </ul>
         </div>
       ) : null}
       <h4 className="mt-4 text-sm font-semibold text-pf-deep">Timeline</h4>

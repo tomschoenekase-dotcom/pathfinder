@@ -45,6 +45,12 @@ reviewed-DRAFT workflow. It is not approval, apply, publication, format validati
 verification. If a submission response is ambiguous, retry the unchanged form so its durable request
 identity can converge; edit the form only when intentionally creating a new canonical submission.
 
+When a structured-bootstrap or interview review is handoff-ready, load the server-built package
+candidate, inspect its read-only JSON, and explicitly create the `DRAFT`. The server rebuilds the
+same candidate and replay identity inside the canonical final transaction. Never copy intake text
+into the generic JSON form or attach an unrelated existing draft; those legacy linkage paths are not
+exposed. Website and quarantined-file intake remain proposal/evidence only in this foundation.
+
 ## Read the client lifecycle
 
 The portal lifecycle is a read model derived from current scoped evidence, not a status operators

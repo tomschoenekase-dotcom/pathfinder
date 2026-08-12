@@ -98,6 +98,13 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value)
 }
 
+export function onboardingBootstrapInputHash(input: {
+  venue: OnboardingBootstrapSubmission['venue']
+  proposal: { version: 1; content: OnboardingBootstrapSubmission['rawContent'] }
+}): string {
+  return createHash('sha256').update(canonicalJson(input)).digest('hex')
+}
+
 function safeResult(run: {
   id: string
   venueId: string
@@ -163,10 +170,11 @@ export async function submitOnboardingBootstrapAction(input: {
   const client = input.client ?? db
   const submission = parsed.data
   const slug = normalizeVenueSlug(submission.venue.slug)
-  const proposal = { version: 1, content: submission.rawContent }
-  const inputHash = createHash('sha256')
-    .update(canonicalJson({ venue: { ...submission.venue, slug }, proposal }))
-    .digest('hex')
+  const proposal = { version: 1 as const, content: submission.rawContent }
+  const inputHash = onboardingBootstrapInputHash({
+    venue: { ...submission.venue, slug },
+    proposal,
+  })
 
   try {
     return await client.$transaction(async (rawTx) => {

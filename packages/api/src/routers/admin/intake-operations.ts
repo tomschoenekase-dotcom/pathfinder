@@ -7,7 +7,6 @@ import {
   createIntakeProposal,
   getIntakeProposalReview,
   interviewProposalInput,
-  linkIntakePackageDraft,
   listOnboardingBootstrapDetails,
   listIntakeProposals,
   websiteProposalInput,
@@ -16,7 +15,12 @@ import {
 import { router } from '../../core'
 import { intakeReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
 import { runAdminReviewedDraftOrchestration } from '../../lib/admin-reviewed-draft-orchestration'
-import { VenuePackagePayload } from '../../schemas/venue-package'
+import {
+  buildIntakeVenuePackageCandidate,
+  isExactIntakeCandidateHandoff,
+  intakeCandidateDraftKey,
+  IntakeVenuePackageCandidateError,
+} from '../../lib/intake-venue-package-candidate'
 import { adminProcedure } from '../../trpc'
 
 const adminScope = { tenantId: z.string().min(1), venueId: z.string().min(1) }
@@ -40,29 +44,127 @@ function mapActionError(error: unknown): never {
   throw error
 }
 
+function mapCandidateError(error: unknown): never {
+  if (error instanceof IntakeVenuePackageCandidateError) {
+    throw new TRPCError({
+      code:
+        error.code === 'INVALID_INPUT'
+          ? 'BAD_REQUEST'
+          : error.code === 'NOT_FOUND'
+            ? 'NOT_FOUND'
+            : 'PRECONDITION_FAILED',
+      message: error.message,
+    })
+  }
+  mapActionError(error)
+}
+
 export const adminIntakeOperationsRouter = router({
-  createAndLinkIntakeReviewedVenuePackageDraft: adminProcedure
+  getIntakeVenuePackageCandidate: adminProcedure
     .input(
       z
         .object({
           ...adminScope,
-          intakeRunId: z.string().min(1),
-          draftKey: z.string().uuid(),
-          payload: VenuePackagePayload,
+          runId: z.string().trim().min(1).max(191),
         })
         .strict(),
     )
-    .mutation(({ ctx, input }) =>
-      runAdminReviewedDraftOrchestration({
+    .query(async ({ ctx, input }) => {
+      try {
+        return await buildIntakeVenuePackageCandidate({ db: ctx.db, ...input })
+      } catch (error) {
+        mapCandidateError(error)
+      }
+    }),
+
+  createAndLinkIntakeCandidateDraft: adminProcedure
+    .input(
+      z
+        .object({
+          ...adminScope,
+          runId: z.string().trim().min(1).max(191),
+          expectedCandidateHash: z.string().regex(/^[a-f0-9]{64}$/u),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      let candidate
+      try {
+        candidate = await buildIntakeVenuePackageCandidate({
+          db: ctx.db,
+          tenantId: input.tenantId,
+          venueId: input.venueId,
+          runId: input.runId,
+          allowExistingHandoff: true,
+        })
+      } catch (error) {
+        mapCandidateError(error)
+      }
+      if (!candidate.ready || !candidate.payload || !candidate.candidateHash) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'The reviewed intake source is not ready for a package candidate.',
+        })
+      }
+      if (candidate.candidateHash !== input.expectedCandidateHash) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'The reviewed intake candidate changed. Reload it before creating a draft.',
+        })
+      }
+      const canonicalHash = candidate.candidateHash
+      const draftKey = intakeCandidateDraftKey({
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        runId: input.runId,
+        candidateHash: canonicalHash,
+        actorId: ctx.session.userId,
+      })
+      const existingHandoff = await isExactIntakeCandidateHandoff({
+        db: ctx.db,
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        runId: input.runId,
+        draftKey,
+        candidateHash: canonicalHash,
+        actorId: ctx.session.userId,
+      })
+      if (existingHandoff === 'MISMATCH') {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'This intake proposal is already linked to a different package draft.',
+        })
+      }
+      const baseFinalizer = intakeReviewedDraftFinalizer({
+        actorId: ctx.session.userId,
+        intakeRunId: input.runId,
+      })
+      return runAdminReviewedDraftOrchestration({
         ctx,
         tenantId: input.tenantId,
-        draft: { venueId: input.venueId, draftKey: input.draftKey, payload: input.payload },
-        finalizer: intakeReviewedDraftFinalizer({
-          actorId: ctx.session.userId,
-          intakeRunId: input.intakeRunId,
-        }),
-      }),
-    ),
+        draft: {
+          venueId: input.venueId,
+          draftKey,
+          payload: candidate.payload,
+        },
+        finalizer: async (finalizerInput) => {
+          const current = await buildIntakeVenuePackageCandidate({
+            db: finalizerInput.tx,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: input.runId,
+            allowExistingHandoff: true,
+          })
+          if (!current.ready || !current.payload || current.candidateHash !== canonicalHash) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'The reviewed intake candidate changed during draft creation.',
+            })
+          }
+          return baseFinalizer(finalizerInput)
+        },
+      })
+    }),
 
   listOnboardingBootstrapDetails: adminProcedure
     .input(
@@ -113,26 +215,4 @@ export const adminIntakeOperationsRouter = router({
       mapActionError(error)
     }
   }),
-
-  linkIntakePackageDraft: adminProcedure
-    .input(
-      z
-        .object({
-          ...adminScope,
-          runId: z.string().min(1),
-          packageDraftId: z.string().min(1),
-        })
-        .strict(),
-    )
-    .mutation(async ({ ctx, input }) => {
-      try {
-        return await linkIntakePackageDraft({
-          db: ctx.db,
-          ...input,
-          actorId: ctx.session.userId,
-        })
-      } catch (error) {
-        mapActionError(error)
-      }
-    }),
 })

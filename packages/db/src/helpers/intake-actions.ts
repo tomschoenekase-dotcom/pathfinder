@@ -10,7 +10,6 @@ import {
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
-import { lockVenueContentMutation } from './venue-content-lock'
 
 export type IntakeActionClient = Pick<
   typeof db,
@@ -565,69 +564,6 @@ export async function getIntakeProposalReview(input: {
     autoApprove: false as const,
     autoApply: false as const,
     published: false as const,
-  }
-}
-
-export async function linkIntakePackageDraft(input: {
-  db: IntakeActionClient
-  tenantId: string
-  venueId: string
-  runId: string
-  packageDraftId: string
-  actorId: string
-}) {
-  try {
-    return await input.db.$transaction(async (tx) => {
-      await lockVenueContentMutation(tx, {
-        tenantId: input.tenantId,
-        venueId: input.venueId,
-      })
-      const [run, draft] = await Promise.all([
-        tx.intakeRun.findFirst({
-          where: { id: input.runId, tenantId: input.tenantId, venueId: input.venueId },
-          select: { id: true },
-        }),
-        tx.venuePackage.findFirst({
-          where: {
-            id: input.packageDraftId,
-            tenantId: input.tenantId,
-            venueId: input.venueId,
-            status: 'DRAFT',
-          },
-          select: { id: true },
-        }),
-      ])
-      if (!run || !draft) {
-        throw new IntakeActionError('NOT_FOUND', 'Proposal or draft package not found')
-      }
-      const handoff = await tx.intakePackageHandoff.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId: run.id,
-          packageDraftId: draft.id,
-          createdBy: input.actorId,
-        },
-        select: { id: true, runId: true, packageDraftId: true, createdAt: true },
-      })
-      await tx.intakeRunEvent.create({
-        data: {
-          tenantId: input.tenantId,
-          venueId: input.venueId,
-          runId: run.id,
-          kind: 'PACKAGE_DRAFT_LINKED',
-          actorId: input.actorId,
-          metadata: { packageDraftId: draft.id, statusRequired: 'DRAFT' },
-        },
-      })
-      return { ...handoff, autoApprove: false as const, autoApply: false as const }
-    })
-  } catch (error) {
-    if (error instanceof IntakeActionError) throw error
-    if (isUniqueConflict(error)) {
-      throw new IntakeActionError('CONFLICT', 'Proposal or package draft is already linked')
-    }
-    throw error
   }
 }
 
