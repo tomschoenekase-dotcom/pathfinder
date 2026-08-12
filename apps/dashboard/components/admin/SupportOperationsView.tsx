@@ -1,15 +1,20 @@
 import Link from 'next/link'
 
-import type { SupportRequestStatus } from '@pathfinder/contracts/support-workflow'
+import type {
+  SupportRequestCategory,
+  SupportRequestStatus,
+} from '@pathfinder/contracts/support-workflow'
 
 import { SupportMessageComposer } from './SupportMessageComposer'
 import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
 import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
+import { SupportTriageForm } from './SupportTriageForm'
 
 type Cursor = Record<string, string | number> | null
 type RequestItem = {
   id: string
-  category: string
+  category: SupportRequestCategory
+  missingInformation: string[]
   status: SupportRequestStatus
   subject: string
   version: number
@@ -155,6 +160,16 @@ export function SupportOperationsView({
                 venueId={venueId}
                 requestId={selected.id}
                 expectedVersion={selected.version}
+              />
+              <SupportTriageForm
+                key={`${selected.id}:${selected.version}:triage`}
+                tenantId={tenantId}
+                venueId={venueId}
+                requestId={selected.id}
+                expectedVersion={selected.version}
+                initialCategory={selected.category}
+                initialMissingInformation={selected.missingInformation}
+                closed={selected.status === 'COMPLETED' || selected.status === 'CANCELLED'}
               />
               <SupportStatusTransitionForm
                 tenantId={tenantId}

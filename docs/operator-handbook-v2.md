@@ -76,6 +76,11 @@ version/current status and may conflict if another operator acted first; reload 
 `VALIDATING` includes validation/evaluation review in the current persisted vocabulary. Moving a
 request to `APPLYING` or `COMPLETED` records workflow state only and never executes a package.
 
+Use support triage to assign a category and a concise missing-information checklist before changing
+workflow state. Triage requires the displayed request version, retains selections on a conflict,
+and records one audited revision. It does not message the client, change status, create a package,
+or apply content; communicate deliberately through the separate message composer.
+
 ## AI configuration and budgets
 
 The global incident control and venue admission checks are hard stops. Cost budgets reserve before
@@ -113,6 +118,9 @@ evidence that an agent executed.
 Evaluation runs freeze case, model, prompt, and content identities. Separate operational failures
 from scored quality failures. Freshness queues identify overdue trusted review, provenance gaps, and
 date-sensitive updates; they do not assert factual contradiction and never auto-publish a patch.
+An operator may confirm an active Place or Knowledge record as current and optionally repair safe
+provenance metadata. Review records attribution only; it does not edit factual content. Never paste
+signed, tokenized, credential-bearing, or encoded-secret source URLs—the action rejects them.
 
 New evaluation requests remain `STAGED` until the default-off process gate, durable global gate, and
 tenant gate all admit dispatch. The reconciler advances durable state before deterministic queue

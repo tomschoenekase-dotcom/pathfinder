@@ -5,8 +5,18 @@ const mocks = vi.hoisted(() => ({
   place: vi.fn(),
   knowledge: vi.fn(),
   update: vi.fn(),
+  confirm: vi.fn(),
 }))
 vi.mock('@pathfinder/db', () => ({
+  ContentHumanReviewError: class ContentHumanReviewError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  confirmContentCurrentAction: mocks.confirm,
   withTenantIsolationBypass: mocks.bypass,
   db: {
     place: { findMany: mocks.place },
@@ -34,6 +44,14 @@ describe('admin freshness audit', () => {
     mocks.place.mockResolvedValue([])
     mocks.knowledge.mockResolvedValue([])
     mocks.update.mockResolvedValue([])
+    mocks.confirm.mockResolvedValue({
+      entityType: 'PLACE',
+      entityId: 'place_1',
+      conclusion: 'CONFIRMED_CURRENT',
+      reviewedAt: new Date('2026-08-11T14:30:00.000Z'),
+      updatedAt: new Date('2026-08-11T14:30:00.000Z'),
+      repairedFields: [],
+    })
   })
 
   it('rejects non-admin access before bypass', async () => {
@@ -120,5 +138,45 @@ describe('admin freshness audit', () => {
         entityType: 'PLACE',
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('rejects non-admin confirmation before the domain action', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).freshness.confirmFreshnessCurrent({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        entityType: 'PLACE',
+        entityId: 'place_1',
+        expectedUpdatedAt: new Date('2026-08-10T10:00:00.000Z'),
+        conclusion: 'CONFIRMED_CURRENT',
+        explicitlyConfirmedCurrent: true,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.confirm).not.toHaveBeenCalled()
+  })
+
+  it('binds the signed-in human platform admin to an exact scoped CAS review', async () => {
+    const expectedUpdatedAt = new Date('2026-08-10T10:00:00.000Z')
+    await testRouter.createCaller(context()).freshness.confirmFreshnessCurrent({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      entityType: 'KNOWLEDGE_ENTRY',
+      entityId: 'knowledge_1',
+      expectedUpdatedAt,
+      conclusion: 'CONFIRMED_CURRENT',
+      explicitlyConfirmedCurrent: true,
+      provenanceRepair: { sourceType: 'DOCUMENT', sourceName: 'Operations guide' },
+    })
+    expect(mocks.confirm).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      entityType: 'KNOWLEDGE_ENTRY',
+      entityId: 'knowledge_1',
+      expectedUpdatedAt,
+      conclusion: 'CONFIRMED_CURRENT',
+      explicitlyConfirmedCurrent: true,
+      provenanceRepair: { sourceType: 'DOCUMENT', sourceName: 'Operations guide' },
+      actor: { type: 'HUMAN', id: 'operator', role: 'PLATFORM_ADMIN' },
+    })
   })
 })

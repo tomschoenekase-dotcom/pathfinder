@@ -48,6 +48,14 @@ authorize before calling the helper; they must not recreate mutations in route c
 proposal creation, listing, and existing-`DRAFT` package linkage similarly live in the neutral DB
 service so tenant and admin adapters share the same scope, privacy, lineage, and audit rules.
 
+Legacy Place and Knowledge compatibility writes now use neutral create, CAS update, and soft-retire
+actions. They lock the exact tenant/venue entity, set content-version context, require strict audit in
+the same transaction, and leave trigger-backed embedding dispatch to the database outbox. Do not
+reintroduce direct router writes or dual-write normalized content. Human freshness review uses the
+same exact scope and `updatedAt` concurrency boundary but may update review/provenance attribution
+only, never factual content or publication state. Support triage uses request-version CAS and must
+remain separate from status transitions, client messaging, package lineage, and execution.
+
 ## Adding an intake adapter
 
 Implement the adapter interface in `@pathfinder/intake-engine`. Bound time, size, count, evidence,

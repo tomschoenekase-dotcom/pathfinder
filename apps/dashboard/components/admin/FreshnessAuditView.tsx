@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 
+import { FreshnessReviewControl } from './FreshnessReviewControl'
+
 type Cursor = { sortAt: string; id: string } | null
 export type FreshnessContentItem = {
   id: string
@@ -64,8 +66,8 @@ export function FreshnessAuditView(props: Props) {
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-pf-deep">Evidence review queue</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/65">
-          Read-only signals from existing review, confirmation, provenance, and operational-window
-          metadata.
+          Review signals from existing confirmation, provenance, and operational-window metadata,
+          with an explicit human-only confirmation action.
         </p>
         <form className="mt-4 flex flex-wrap items-end gap-3">
           <label className="grid gap-1 text-sm font-semibold text-pf-deep">
@@ -102,6 +104,8 @@ export function FreshnessAuditView(props: Props) {
           <ContentRow
             key={`${item.entityType}:${item.id}`}
             item={item}
+            tenantId={props.tenantId}
+            venueId={props.venueId}
             detail={
               item.lastReviewedAt
                 ? `Last reviewed ${ageDays(item.lastReviewedAt, props.observedAt)} days ago · ${item.lastReviewedAt.toLocaleDateString()}`
@@ -136,6 +140,8 @@ export function FreshnessAuditView(props: Props) {
             <ContentRow
               key={`${item.entityType}:${item.id}`}
               item={item}
+              tenantId={props.tenantId}
+              venueId={props.venueId}
               detail={`Missing: ${missing}`}
             />
           )
@@ -214,7 +220,17 @@ function Queue({
     </section>
   )
 }
-function ContentRow({ item, detail }: { item: FreshnessContentItem; detail: string }) {
+function ContentRow({
+  item,
+  detail,
+  tenantId,
+  venueId,
+}: {
+  item: FreshnessContentItem
+  detail: string
+  tenantId: string
+  venueId: string
+}) {
   return (
     <article className="rounded-2xl border border-pf-light bg-white p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -228,6 +244,14 @@ function ContentRow({ item, detail }: { item: FreshnessContentItem; detail: stri
         {item.sourceName ?? 'No source name'} · {detail}
       </p>
       {item.sourceUrl ? <p className="mt-2 text-xs text-pf-deep/55">Source URL recorded</p> : null}
+      <FreshnessReviewControl
+        tenantId={tenantId}
+        venueId={venueId}
+        entityType={item.entityType}
+        entityId={item.id}
+        label={item.label}
+        expectedUpdatedAt={item.updatedAt}
+      />
     </article>
   )
 }

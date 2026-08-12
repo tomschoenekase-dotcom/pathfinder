@@ -15,6 +15,7 @@ type KnowledgeEntry = {
   category: string
   content: string
   isEnabled: boolean
+  updatedAt: string | Date
 }
 
 type KnowledgeFormValues = {
@@ -102,6 +103,8 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
         await client.knowledge.update.mutate(
           UpdateKnowledgeEntryInput.parse({
             id: editingEntry.id,
+            venueId,
+            expectedUpdatedAt: new Date(editingEntry.updatedAt),
             ...values,
           }),
         )
@@ -132,7 +135,12 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
     setTogglingId(entry.id)
 
     try {
-      await client.knowledge.update.mutate({ id: entry.id, isEnabled: !entry.isEnabled })
+      await client.knowledge.update.mutate({
+        id: entry.id,
+        venueId,
+        expectedUpdatedAt: new Date(entry.updatedAt),
+        isEnabled: !entry.isEnabled,
+      })
       router.refresh()
     } catch (error) {
       setFormError(getErrorMessage(error))
@@ -158,7 +166,11 @@ export function KnowledgeManager({ venueId, initialEntries }: KnowledgeManagerPr
     setFormError(null)
 
     try {
-      await client.knowledge.delete.mutate({ id: entry.id })
+      await client.knowledge.delete.mutate({
+        id: entry.id,
+        venueId,
+        expectedUpdatedAt: new Date(entry.updatedAt),
+      })
       if (editingEntry?.id === entry.id) {
         startCreate()
       }

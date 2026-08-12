@@ -11,6 +11,10 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }))
+vi.mock('../../lib/trpc', () => ({
+  useTRPCClient: () => ({ admin: { confirmFreshnessCurrent: { mutate: vi.fn() } } }),
+}))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 const empty = { items: [], nextCursor: null }
 
 describe('FreshnessAuditView', () => {

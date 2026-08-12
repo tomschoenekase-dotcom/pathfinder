@@ -48,6 +48,7 @@ const entry = {
   category: 'Visitor Etiquette',
   content: 'The museum opens at nine.',
   isEnabled: true,
+  updatedAt: new Date('2026-08-11T14:30:00.000Z'),
 }
 
 describe('KnowledgeManager', () => {
@@ -103,6 +104,8 @@ describe('KnowledgeManager', () => {
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({
         id: entry.id,
+        venueId,
+        expectedUpdatedAt: entry.updatedAt,
         title: 'Visitor hours',
         category: 'Visitor Etiquette',
         content: 'Updated hours guidance.',
@@ -125,7 +128,12 @@ describe('KnowledgeManager', () => {
     expect((pending as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(pending)
     expect(mocks.update).toHaveBeenCalledOnce()
-    expect(mocks.update).toHaveBeenCalledWith({ id: entry.id, isEnabled: false })
+    expect(mocks.update).toHaveBeenCalledWith({
+      id: entry.id,
+      venueId,
+      expectedUpdatedAt: entry.updatedAt,
+      isEnabled: false,
+    })
 
     await act(async () => resolveUpdate())
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce())
@@ -175,7 +183,13 @@ describe('KnowledgeManager', () => {
     expect(confirm).toHaveBeenLastCalledWith(
       'Delete "Visitor hours"? You can restore it later from Deleted content on the venue page.',
     )
-    await waitFor(() => expect(mocks.delete).toHaveBeenCalledWith({ id: entry.id }))
+    await waitFor(() =>
+      expect(mocks.delete).toHaveBeenCalledWith({
+        id: entry.id,
+        venueId,
+        expectedUpdatedAt: entry.updatedAt,
+      }),
+    )
     expect(mocks.refresh).toHaveBeenCalledOnce()
     expect(screen.getByRole('heading', { name: 'Create entry' })).toBeTruthy()
     expect(screen.queryByText(/KNOWLEDGE_ENTRY:/u)).toBeNull()

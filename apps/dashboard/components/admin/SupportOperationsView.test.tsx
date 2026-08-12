@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
   link: vi.fn(),
   transition: vi.fn(),
+  triage: vi.fn(),
   query: vi.fn(),
   refresh: vi.fn(),
 }))
@@ -17,6 +18,7 @@ vi.mock('../../lib/trpc', () => ({
       getSupportRequest: { query: mocks.query },
       linkSupportDraftPackage: { mutate: mocks.link },
       transitionSupportRequestStatus: { mutate: mocks.transition },
+      triageSupportRequest: { mutate: mocks.triage },
     },
   }),
 }))
@@ -33,6 +35,7 @@ import { SupportMessageComposer } from './SupportMessageComposer'
 import { SupportOperationsView } from './SupportOperationsView'
 import { SupportPackageHandoffForm } from './SupportPackageHandoffForm'
 import { SupportStatusTransitionForm } from './SupportStatusTransitionForm'
+import { SupportTriageForm } from './SupportTriageForm'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 describe('support operations UI', () => {
@@ -44,7 +47,8 @@ describe('support operations UI', () => {
   it('visually and textually distinguishes client-visible messages from internal notes', () => {
     const request = {
       id: 'req_1',
-      category: 'CONTENT_CHANGE',
+      category: 'CONTENT_CORRECTION' as const,
+      missingInformation: [],
       status: 'OPEN' as const,
       subject: 'Update hours',
       version: 3,
@@ -88,6 +92,89 @@ describe('support operations UI', () => {
     expect(screen.getByText('Client text')).toBeTruthy()
     expect(screen.getByText('Private note')).toBeTruthy()
     expect(screen.queryByText(/artifacts/i)).toBeNull()
+  })
+
+  it('submits bounded structured triage without status, message, artifact, or package fields', async () => {
+    mocks.triage.mockResolvedValue({ version: 5 })
+    render(
+      <SupportTriageForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        initialCategory="GENERAL"
+        initialMissingInformation={['Opening date']}
+        closed={false}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Request category'), {
+      target: { value: 'CONTENT_CORRECTION' },
+    })
+    fireEvent.change(screen.getByLabelText('Missing information'), {
+      target: { value: ' Current admission price \nEffective date' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Record triage' }))
+    await waitFor(() => expect(mocks.triage).toHaveBeenCalledOnce())
+    expect(mocks.triage).toHaveBeenCalledWith({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      requestId: 'req_1',
+      expectedVersion: 4,
+      category: 'CONTENT_CORRECTION',
+      missingInformation: ['Current admission price', 'Effective date'],
+    })
+    const sent = mocks.triage.mock.calls[0]![0]
+    expect(sent).not.toHaveProperty('status')
+    expect(sent).not.toHaveProperty('body')
+    expect(sent).not.toHaveProperty('artifacts')
+    expect(sent).not.toHaveProperty('venuePackageId')
+    expect(screen.getByRole('status').textContent).toContain('No status changed')
+  })
+
+  it('retains triage fields and rejects duplicate missing-information lines locally', async () => {
+    render(
+      <SupportTriageForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        initialCategory="GENERAL"
+        initialMissingInformation={[]}
+        closed={false}
+      />,
+    )
+    const input = screen.getByLabelText('Missing information') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'Same item\n Same item ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Record triage' }))
+    expect(mocks.triage).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('must be unique')
+    expect(input.value).toBe('Same item\n Same item ')
+  })
+
+  it('retains triage selections without refreshing after a version conflict', async () => {
+    mocks.triage.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
+    render(
+      <SupportTriageForm
+        tenantId="tenant_1"
+        venueId="venue_1"
+        requestId="req_1"
+        expectedVersion={4}
+        initialCategory="GENERAL"
+        initialMissingInformation={[]}
+        closed={false}
+      />,
+    )
+    const category = screen.getByLabelText('Request category') as HTMLSelectElement
+    const missing = screen.getByLabelText('Missing information') as HTMLTextAreaElement
+    fireEvent.change(category, { target: { value: 'ACCESSIBILITY' } })
+    fireEvent.change(missing, { target: { value: 'Ramp dimensions\nAccessible entrance' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Record triage' }))
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('request changed'))
+    expect(screen.getByRole('alert').textContent).toContain('refresh the page before retrying')
+    expect(category.value).toBe('ACCESSIBILITY')
+    expect(missing.value).toBe('Ramp dimensions\nAccessible entrance')
+    expect(mocks.refresh).not.toHaveBeenCalled()
   })
 
   it('serializes writes and sends the explicit visibility with CAS version', async () => {

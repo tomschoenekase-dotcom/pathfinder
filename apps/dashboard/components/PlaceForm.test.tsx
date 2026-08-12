@@ -36,6 +36,7 @@ import { PlaceForm } from './PlaceForm'
 
 const venueId = 'cm00000000000000000000001'
 const placeId = 'cm00000000000000000000002'
+const expectedUpdatedAt = new Date('2026-08-11T14:30:00.000Z')
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -167,6 +168,7 @@ describe('PlaceForm', () => {
         venueId={venueId}
         venueGuideMode="non_location"
         placeId={placeId}
+        expectedUpdatedAt={expectedUpdatedAt}
         initialValues={{
           id: placeId,
           venueId,
@@ -201,6 +203,8 @@ describe('PlaceForm', () => {
     expect(mocks.update).toHaveBeenCalledWith(
       expect.objectContaining({
         id: placeId,
+        venueId,
+        expectedUpdatedAt,
         type: 'faq',
         itemType: 'faq',
         shortDescription: 'Revised answer',
@@ -238,6 +242,7 @@ describe('PlaceForm', () => {
         venueId={venueId}
         venueGuideMode="non_location"
         placeId={placeId}
+        expectedUpdatedAt={expectedUpdatedAt}
         initialValues={{
           id: placeId,
           venueId,
@@ -264,6 +269,7 @@ describe('PlaceForm', () => {
     fireEvent.submit(deleteButton.closest('form') as HTMLFormElement)
 
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledOnce())
+    expect(mocks.remove).toHaveBeenCalledWith({ id: placeId, venueId, expectedUpdatedAt })
     expect(mocks.update).not.toHaveBeenCalled()
     expect(
       (screen.getByRole('button', { name: 'Deleting...' }) as HTMLButtonElement).disabled,
@@ -302,6 +308,7 @@ describe('PlaceForm', () => {
         venueId={venueId}
         venueGuideMode="non_location"
         placeId={placeId}
+        expectedUpdatedAt={expectedUpdatedAt}
         initialValues={{
           id: placeId,
           venueId,
@@ -340,6 +347,7 @@ describe('PlaceForm', () => {
         venueId={venueId}
         venueGuideMode="non_location"
         placeId={placeId}
+        expectedUpdatedAt={expectedUpdatedAt}
         initialValues={{
           id: placeId,
           venueId,

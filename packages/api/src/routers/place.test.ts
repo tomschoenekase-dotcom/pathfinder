@@ -17,6 +17,8 @@ const placeUpdateMany = vi.fn()
 const placeDeleteMany = vi.fn()
 const dbTransaction = vi.fn()
 const dbExecuteRaw = vi.fn()
+const dbQueryRaw = vi.fn()
+const auditCreate = vi.fn()
 
 const mockDb = {
   venue: { findFirst: venueFindFirst },
@@ -29,6 +31,8 @@ const mockDb = {
   },
   $transaction: dbTransaction,
   $executeRaw: dbExecuteRaw,
+  $queryRaw: dbQueryRaw,
+  auditLog: { create: auditCreate },
 } as unknown as TRPCContext['db']
 
 // ---------------------------------------------------------------------------
@@ -114,6 +118,8 @@ describe('place router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     dbExecuteRaw.mockResolvedValue(1)
+    dbQueryRaw.mockResolvedValue([])
+    auditCreate.mockResolvedValue({})
     dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -213,13 +219,19 @@ describe('place router', () => {
   // --- place.update ---
 
   it('place.update with MANAGER role updates place', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
     placeFindFirst
       .mockResolvedValueOnce(placeRow) // ownership check
       .mockResolvedValueOnce({ ...placeRow, name: 'Updated' }) // return updated row
     placeUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(managerCtx())
-    const result = await caller.place.update({ id: PLACE_ID, name: 'Updated' })
+    const result = await caller.place.update({
+      id: PLACE_ID,
+      venueId: VENUE_ID,
+      expectedUpdatedAt: placeRow.updatedAt,
+      name: 'Updated',
+    })
 
     expect(result).toMatchObject({ name: 'Updated' })
     expect(placeUpdateMany).toHaveBeenCalledWith(
@@ -228,13 +240,20 @@ describe('place router', () => {
   })
 
   it('place.update accepts lat/lng of 0 (valid coordinate)', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
     placeFindFirst
       .mockResolvedValueOnce(placeRow) // ownership check
       .mockResolvedValueOnce({ ...placeRow, lat: 0, lng: 0 }) // return updated row
     placeUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(managerCtx())
-    const result = await caller.place.update({ id: PLACE_ID, lat: 0, lng: 0 })
+    const result = await caller.place.update({
+      id: PLACE_ID,
+      venueId: VENUE_ID,
+      expectedUpdatedAt: placeRow.updatedAt,
+      lat: 0,
+      lng: 0,
+    })
 
     expect(placeUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -249,47 +268,71 @@ describe('place router', () => {
 
     const caller = testRouter.createCaller(managerCtx())
 
-    await expect(caller.place.update({ id: PLACE_ID, name: 'X' })).rejects.toThrowError(
-      expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }),
-    )
+    await expect(
+      caller.place.update({
+        id: PLACE_ID,
+        venueId: VENUE_ID,
+        expectedUpdatedAt: placeRow.updatedAt,
+        name: 'X',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
   })
 
   it('place.update with STAFF role throws FORBIDDEN', async () => {
     const caller = testRouter.createCaller(staffCtx())
 
-    await expect(caller.place.update({ id: PLACE_ID, name: 'X' })).rejects.toThrowError(
-      expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }),
-    )
+    await expect(
+      caller.place.update({
+        id: PLACE_ID,
+        venueId: VENUE_ID,
+        expectedUpdatedAt: placeRow.updatedAt,
+        name: 'X',
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 
   // --- place.delete ---
 
-  it('place.delete with OWNER role deletes place', async () => {
-    placeFindFirst.mockResolvedValueOnce(placeRow)
-    placeDeleteMany.mockResolvedValueOnce({ count: 1 })
+  it('place.delete with OWNER role soft-retires place', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
+    placeFindFirst
+      .mockResolvedValueOnce(placeRow)
+      .mockResolvedValueOnce({ ...placeRow, isActive: false })
+    placeUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(ownerCtx())
-    const result = await caller.place.delete({ id: PLACE_ID })
+    const result = await caller.place.delete({
+      id: PLACE_ID,
+      venueId: VENUE_ID,
+      expectedUpdatedAt: placeRow.updatedAt,
+    })
 
     expect(result).toEqual({ id: PLACE_ID })
-    expect(placeDeleteMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ tenantId: 'tenant_1' }) }),
+    expect(placeUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { isActive: false } }),
     )
+    expect(placeDeleteMany).not.toHaveBeenCalled()
   })
 
   it('place.delete with STAFF role throws FORBIDDEN', async () => {
     const caller = testRouter.createCaller(staffCtx())
 
-    await expect(caller.place.delete({ id: PLACE_ID })).rejects.toThrowError(
-      expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }),
-    )
+    await expect(
+      caller.place.delete({
+        id: PLACE_ID,
+        venueId: VENUE_ID,
+        expectedUpdatedAt: placeRow.updatedAt,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
   })
 
   // --- place.bulkCreate ---
 
   it('place.bulkCreate creates all places in a transaction', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
-    dbTransaction.mockResolvedValueOnce([placeRow, placeRow])
+    placeCreate
+      .mockResolvedValueOnce(placeRow)
+      .mockResolvedValueOnce({ ...placeRow, id: 'cplacedef123456789012' })
 
     const caller = testRouter.createCaller(managerCtx())
     const result = await caller.place.bulkCreate({
@@ -302,6 +345,9 @@ describe('place router', () => {
 
     expect(result.count).toBe(2)
     expect(dbTransaction).toHaveBeenCalled()
+    expect(auditCreate).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(auditCreate.mock.calls)).not.toContain('shortDescription')
+    expect(JSON.stringify(auditCreate.mock.calls)).not.toContain('photoUrl')
   })
 
   it('place.bulkCreate throws BAD_REQUEST when over 500 places', async () => {

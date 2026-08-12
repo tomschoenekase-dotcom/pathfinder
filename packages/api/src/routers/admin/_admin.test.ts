@@ -158,6 +158,8 @@ vi.mock('@pathfinder/db', async () => {
     auditLog: { create: auditLogCreate },
   }
   return {
+    SUPPORT_TRIAGE_MISSING_INFORMATION_MAX: 30,
+    SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX: 500,
     IntakeActionError: class IntakeActionError extends Error {},
     websiteProposalInput: z
       .object({ kind: z.literal('WEBSITE'), displayName: z.string(), websiteUri: z.string().url() })

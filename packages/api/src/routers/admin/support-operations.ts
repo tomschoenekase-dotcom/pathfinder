@@ -3,12 +3,16 @@ import { z } from 'zod'
 
 import {
   SupportMessageVisibility,
+  SupportRequestCategory,
   SupportRequestStatus,
 } from '@pathfinder/contracts/support-workflow'
 import {
   appendSupportMessageAction,
   linkSupportRequestDraftPackageAction,
+  SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX,
+  SUPPORT_TRIAGE_MISSING_INFORMATION_MAX,
   transitionSupportRequestStatusAction,
+  triageSupportRequestAction,
 } from '@pathfinder/db'
 
 import { router } from '../../core'
@@ -30,6 +34,46 @@ import {
 } from './support-operations-shared'
 
 export const adminSupportOperationsRouter = router({
+  triageSupportRequest: adminProcedure
+    .input(
+      adminScope
+        .extend({
+          requestId: z.string().min(1),
+          expectedVersion: z.number().int().positive(),
+          category: SupportRequestCategory,
+          missingInformation: z
+            .array(z.string().trim().min(1).max(SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX))
+            .max(SUPPORT_TRIAGE_MISSING_INFORMATION_MAX),
+        })
+        .superRefine((value, context) => {
+          if (new Set(value.missingInformation).size !== value.missingInformation.length) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['missingInformation'],
+              message: 'Missing-information items must be unique',
+            })
+          }
+        }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await triageSupportRequestAction(
+          {
+            ...input,
+            actor: {
+              actorType: 'HUMAN',
+              participantKind: 'OPERATOR',
+              actorId: ctx.session.userId,
+              auditRole: 'PLATFORM_ADMIN',
+            },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        return supportActionError(error)
+      }
+    }),
+
   transitionSupportRequestStatus: adminProcedure
     .input(
       adminScope.extend({

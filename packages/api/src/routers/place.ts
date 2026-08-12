@@ -1,18 +1,47 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, lockVenueContentMutation, setContentVersionContext } from '@pathfinder/db'
+import {
+  bulkCreateLegacyPlacesAction,
+  createLegacyPlaceAction,
+  db,
+  LegacyContentActionError,
+  retireLegacyPlaceAction,
+  updateLegacyPlaceAction,
+  type LegacyContentActor,
+} from '@pathfinder/db'
 
-import { CreatePlaceInput, PlaceInput, UpdatePlaceInput } from '../schemas/place'
+import { CreatePlaceInput, PlaceInput, RetirePlaceInput, UpdatePlaceInput } from '../schemas/place'
 
 import { router } from '../core'
 import { requireRole } from '../middleware/require-role'
-import { withContentVersionActor } from '../middleware/content-version-actor'
 import { tenantProcedure } from '../trpc'
 
 type Db = typeof db
 
 const BULK_CREATE_LIMIT = 500
+
+function actionActor(session: { userId: string | null; role: string | null }): LegacyContentActor {
+  return {
+    type: 'HUMAN',
+    id: session.userId!,
+    role: session.role === 'OWNER' ? 'OWNER' : 'MANAGER',
+  }
+}
+
+function mapActionError(error: unknown): never {
+  if (!(error instanceof LegacyContentActionError)) throw error
+  throw new TRPCError({
+    code:
+      error.code === 'NOT_FOUND'
+        ? 'NOT_FOUND'
+        : error.code === 'CONFLICT'
+          ? 'CONFLICT'
+          : 'BAD_REQUEST',
+    message: error.message,
+    cause: error,
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Input schemas — defined in ../schemas/place (client-safe, re-exported here)
@@ -100,97 +129,85 @@ export const placeRouter = router({
 
   create: tenantProcedure
     .use(requireRole('MANAGER'))
-    .use(withContentVersionActor)
     .input(CreatePlaceInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
-      await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: input.venueId })
-
-      const place = await ctx.db.place.create({
-        data: {
-          tenantId,
-          venueId: input.venueId,
-          name: input.name,
-          type: input.type,
-          ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
-          ...(input.lat !== undefined ? { lat: input.lat } : {}),
-          ...(input.lng !== undefined ? { lng: input.lng } : {}),
-          tags: input.tags,
-          importanceScore: input.importanceScore,
-          ...(input.shortDescription !== undefined
-            ? { shortDescription: input.shortDescription }
-            : {}),
-          ...(input.longDescription !== undefined
-            ? { longDescription: input.longDescription }
-            : {}),
-          ...(input.areaName !== undefined ? { areaName: input.areaName } : {}),
-          ...(input.hours !== undefined ? { hours: input.hours } : {}),
-          ...(input.photoUrl !== undefined ? { photoUrl: input.photoUrl } : {}),
-        },
-        select: placeSelect,
-      })
-
-      return place
+      try {
+        return await createLegacyPlaceAction(
+          {
+            tenantId,
+            venueId: input.venueId,
+            actor: actionActor(ctx.session),
+            fields: {
+              name: input.name,
+              type: input.type,
+              ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+              ...(input.lat !== undefined ? { lat: input.lat } : {}),
+              ...(input.lng !== undefined ? { lng: input.lng } : {}),
+              tags: input.tags,
+              importanceScore: input.importanceScore,
+              ...(input.shortDescription !== undefined
+                ? { shortDescription: input.shortDescription }
+                : {}),
+              ...(input.longDescription !== undefined
+                ? { longDescription: input.longDescription }
+                : {}),
+              ...(input.areaName !== undefined ? { areaName: input.areaName } : {}),
+              ...(input.hours !== undefined ? { hours: input.hours } : {}),
+              ...(input.photoUrl !== undefined ? { photoUrl: input.photoUrl } : {}),
+            },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
     }),
 
   update: tenantProcedure
     .use(requireRole('MANAGER'))
-    .use(withContentVersionActor)
     .input(UpdatePlaceInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
-      const existing = await ctx.db.place.findFirst({
-        where: { id: input.id, tenantId },
-        select: { id: true, venueId: true },
-      })
-
-      if (!existing) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
-      }
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: existing.venueId })
-
-      const { id, ...raw } = input
+      const { id, venueId, expectedUpdatedAt, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
       const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
 
       // updateMany accepts tenantId in where; update does not (Prisma unique-key constraint)
-      await ctx.db.place.updateMany({ where: { id, tenantId }, data })
-
-      const updated = await ctx.db.place.findFirst({
-        where: { id, tenantId },
-        select: placeSelect,
-      })
-
-      if (!updated) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
+      try {
+        return await updateLegacyPlaceAction(
+          {
+            tenantId,
+            venueId,
+            id,
+            expectedUpdatedAt,
+            actor: actionActor(ctx.session),
+            fields: data,
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
       }
-
-      return updated
     }),
 
   delete: tenantProcedure
     .use(requireRole('MANAGER'))
-    .use(withContentVersionActor)
-    .input(z.object({ id: z.string().cuid() }))
+    .input(RetirePlaceInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
-      const place = await ctx.db.place.findFirst({
-        where: { id: input.id, tenantId },
-        select: { id: true, venueId: true },
-      })
-
-      if (!place) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Place not found' })
+      try {
+        await retireLegacyPlaceAction(
+          { ...input, tenantId, actor: actionActor(ctx.session) },
+          ctx.db,
+        )
+        return { id: input.id }
+      } catch (error) {
+        mapActionError(error)
       }
-      await lockVenueContentMutation(ctx.db, { tenantId, venueId: place.venueId })
-
-      await ctx.db.place.deleteMany({ where: { id: input.id, tenantId } })
-
-      return { id: input.id }
     }),
 
   bulkCreate: tenantProcedure
@@ -213,38 +230,32 @@ export const placeRouter = router({
         })
       }
 
-      await assertVenueBelongsToTenant(ctx.db, input.venueId, tenantId)
-
-      const created = await ctx.db.$transaction(async (tx) => {
-        await setContentVersionContext(tx, { actorId: ctx.session.userId })
-        await lockVenueContentMutation(tx, { tenantId, venueId: input.venueId })
-        return Promise.all(
-          input.places.map((p) =>
-            tx.place.create({
-              data: {
-                tenantId,
-                venueId: input.venueId,
-                name: p.name,
-                type: p.type,
-                ...(p.itemType !== undefined ? { itemType: p.itemType } : {}),
-                ...(p.lat !== undefined ? { lat: p.lat } : {}),
-                ...(p.lng !== undefined ? { lng: p.lng } : {}),
-                tags: p.tags,
-                importanceScore: p.importanceScore,
-                ...(p.shortDescription !== undefined
-                  ? { shortDescription: p.shortDescription }
-                  : {}),
-                ...(p.longDescription !== undefined ? { longDescription: p.longDescription } : {}),
-                ...(p.areaName !== undefined ? { areaName: p.areaName } : {}),
-                ...(p.hours !== undefined ? { hours: p.hours } : {}),
-                ...(p.photoUrl !== undefined ? { photoUrl: p.photoUrl } : {}),
-              },
-              select: placeSelect,
-            }),
-          ),
+      try {
+        const created = await bulkCreateLegacyPlacesAction(
+          {
+            tenantId,
+            venueId: input.venueId,
+            actor: actionActor(ctx.session),
+            places: input.places.map((p) => ({
+              name: p.name,
+              type: p.type,
+              ...(p.itemType !== undefined ? { itemType: p.itemType } : {}),
+              ...(p.lat !== undefined ? { lat: p.lat } : {}),
+              ...(p.lng !== undefined ? { lng: p.lng } : {}),
+              tags: p.tags,
+              importanceScore: p.importanceScore,
+              ...(p.shortDescription !== undefined ? { shortDescription: p.shortDescription } : {}),
+              ...(p.longDescription !== undefined ? { longDescription: p.longDescription } : {}),
+              ...(p.areaName !== undefined ? { areaName: p.areaName } : {}),
+              ...(p.hours !== undefined ? { hours: p.hours } : {}),
+              ...(p.photoUrl !== undefined ? { photoUrl: p.photoUrl } : {}),
+            })),
+          },
+          ctx.db,
         )
-      })
-
-      return { count: created.length, places: created }
+        return { count: created.length, places: created }
+      } catch (error) {
+        mapActionError(error)
+      }
     }),
 })

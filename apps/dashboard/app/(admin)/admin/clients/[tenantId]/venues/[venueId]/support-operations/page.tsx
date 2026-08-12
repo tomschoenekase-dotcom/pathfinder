@@ -40,6 +40,7 @@ export default async function SupportOperationsPage({ params, searchParams }: Pr
     const normalizeRequest = (request: (typeof requestPage.items)[number]) => ({
       id: request.id,
       category: request.category,
+      missingInformation: request.missingInformation,
       status: request.status,
       subject: request.subject,
       version: request.version,

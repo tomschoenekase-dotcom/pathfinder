@@ -146,6 +146,67 @@ describe('admin support operations', () => {
     )
   })
 
+  it('records structured triage with server-owned human operator identity and no side effects', async () => {
+    requestFindFirst.mockResolvedValueOnce({
+      id: requestId,
+      category: 'GENERAL',
+      status: 'OPEN',
+      missingInformation: [],
+      version: 1,
+    })
+    await expect(
+      testRouter.createCaller(context(true)).admin.triageSupportRequest({
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 1,
+        category: 'CONTENT_CORRECTION',
+        missingInformation: ['Current admission price', 'Effective date'],
+      }),
+    ).resolves.toMatchObject({
+      id: requestId,
+      category: 'CONTENT_CORRECTION',
+      version: 2,
+    })
+    expect(requestUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: requestId,
+        tenantId,
+        venueId,
+        version: 1,
+        status: { notIn: ['COMPLETED', 'CANCELLED'] },
+      },
+      data: {
+        category: 'CONTENT_CORRECTION',
+        missingInformation: ['Current admission price', 'Effective date'],
+        version: 2,
+        updatedByKind: 'OPERATOR',
+        updatedById: 'platform_admin',
+      },
+    })
+    expect(auditEventCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ eventType: 'TRIAGE_UPDATED', requestVersion: 2 }),
+      }),
+    )
+    expect(messageCreate).not.toHaveBeenCalled()
+    expect(handoffCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects duplicate triage prompts before domain access', async () => {
+    await expect(
+      testRouter.createCaller(context(true)).admin.triageSupportRequest({
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 1,
+        category: 'GENERAL',
+        missingInformation: ['Same prompt', 'Same prompt'],
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(requestFindFirst).not.toHaveBeenCalled()
+  })
+
   it('lists only unlinked DRAFT packages within exact scope', async () => {
     await testRouter
       .createCaller(context(true))
@@ -184,15 +245,13 @@ describe('admin support operations', () => {
 
   it('rejects non-admin linking before any write', async () => {
     await expect(
-      testRouter
-        .createCaller(context(false))
-        .admin.linkSupportDraftPackage({
-          tenantId,
-          venueId,
-          requestId,
-          venuePackageId: 'package_target',
-          expectedVersion: 1,
-        }),
+      testRouter.createCaller(context(false)).admin.linkSupportDraftPackage({
+        tenantId,
+        venueId,
+        requestId,
+        venuePackageId: 'package_target',
+        expectedVersion: 1,
+      }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(handoffCreate).not.toHaveBeenCalled()
   })
@@ -229,15 +288,13 @@ describe('admin support operations', () => {
 
   it('rejects client status mutation before transaction data access', async () => {
     await expect(
-      testRouter
-        .createCaller(context(false))
-        .admin.transitionSupportRequestStatus({
-          tenantId,
-          venueId,
-          requestId,
-          expectedVersion: 1,
-          toStatus: 'IN_REVIEW',
-        }),
+      testRouter.createCaller(context(false)).admin.transitionSupportRequestStatus({
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 1,
+        toStatus: 'IN_REVIEW',
+      }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(requestUpdateMany).not.toHaveBeenCalled()
   })

@@ -38,7 +38,9 @@ Section-level evidence and blockers are indexed in
 - Additive normalized persistence for services, policies, events, operational facts, and
   relationships uses payload-free identities, immutable revision envelopes, separate typed payload
   tables, and append-only evidence. Exact tenant/venue/kind/endpoint constraints prevent drift;
-  existing Place and Knowledge data remains untouched behind compatibility paths.
+  existing Place and Knowledge data remains the compatibility store, now reached through canonical
+  create/update/soft-retire actions with exact scope, locking, `updatedAt` CAS, content-version
+  context, and strict transactional audit.
 - Structured support-workflow contracts plus tenant/venue-scoped request, immutable message,
   attachment metadata, and append-only audit persistence. Client APIs cannot read or create internal
   notes; admin APIs use explicit scope, pagination, and version-CAS message mutations.
@@ -55,6 +57,9 @@ Section-level evidence and blockers are indexed in
   transactional append-only support event plus strict platform audit. Transitions do not execute
   package lifecycle work. `VALIDATING` truthfully covers validation/evaluation review because the
   persisted enum has no separate evaluation state.
+- Human support triage can set a validated category and bounded missing-information checklist with
+  exact request-version CAS, one version increment, append-only `TRIAGE_UPDATED` evidence, and
+  redacted strict audit. It never changes status, sends a message, or touches package lifecycle.
 - Operational-update create, edit, schedule and deactivate mutations now route through canonical
   HUMAN manager/owner domain actions. They enforce exact tenant/venue/place scope, content-version
   locking, optimistic `updatedAt` CAS, bounded overlapping published updates, valid time windows,
@@ -144,6 +149,10 @@ Section-level evidence and blockers are indexed in
 - Guest structured response renderer foundation with backward-compatible text/place responses plus
   callouts, safe actions, citations, typed places, choices, images, galleries, events and locations.
 - Route-level loading states and reduced-motion-safe transitions across the rebuilt surfaces.
+- Human freshness review can confirm an active Place or Knowledge record as current, optionally
+  repair safe provenance metadata, and atomically record paired reviewer/confirmation attribution.
+  Secret-bearing source URLs fail before transaction; review never changes factual content or
+  publishes a patch.
 
 ### Internal operations and agent foundations
 
@@ -240,8 +249,8 @@ Section-level evidence and blockers are indexed in
   onboarding beyond the bounded existing-DRAFT lineage bridge.
 - Venue Deployment Manifest v2-native persistence/apply semantics beyond the bounded conversion into
   existing preview/draft inputs.
-- Broader canonical domain action coverage beyond support and approval decisions, so every UI,
-  worker, API, MCP, and agent mutation shares the same services.
+- Broader canonical domain action coverage for remaining package, venue, media, report, and account
+  mutations, so every UI, worker, API, MCP, and agent mutation shares the same services.
 - Support workflow beyond verified status transitions and the existing-DRAFT lineage handoff,
   including any later automated validation/evaluation, approval, apply or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration

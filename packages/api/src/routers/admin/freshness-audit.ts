@@ -1,12 +1,37 @@
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
-import { db, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  confirmContentCurrentAction,
+  ContentHumanReviewError,
+  db,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 100
+const reviewInputSchema = z
+  .object({
+    tenantId: z.string().min(1),
+    venueId: z.string().min(1),
+    entityType: z.enum(['PLACE', 'KNOWLEDGE_ENTRY']),
+    entityId: z.string().min(1),
+    expectedUpdatedAt: z.coerce.date(),
+    conclusion: z.literal('CONFIRMED_CURRENT'),
+    explicitlyConfirmedCurrent: z.literal(true),
+    provenanceRepair: z
+      .object({
+        sourceType: z.string().max(64).optional(),
+        sourceName: z.string().max(200).optional(),
+        sourceUrl: z.string().max(2_000).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
 const inputSchema = z
   .object({
     tenantId: z.string().min(1),
@@ -82,6 +107,33 @@ const knowledgeSelect = {
 
 /** Read-only review queues derived from existing timestamps and provenance metadata. */
 export const adminFreshnessAuditRouter = router({
+  confirmFreshnessCurrent: adminProcedure
+    .input(reviewInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await confirmContentCurrentAction({
+          ...input,
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: 'PLATFORM_ADMIN',
+          },
+        })
+      } catch (error) {
+        if (error instanceof ContentHumanReviewError) {
+          throw new TRPCError({
+            code:
+              error.code === 'NOT_FOUND'
+                ? 'NOT_FOUND'
+                : error.code === 'CONFLICT'
+                  ? 'CONFLICT'
+                  : 'BAD_REQUEST',
+            message: error.message,
+          })
+        }
+        throw error
+      }
+    }),
   listFreshnessAudit: adminProcedure.input(inputSchema).query(({ input }) =>
     withTenantIsolationBypass(async () => {
       const observedAt = new Date()

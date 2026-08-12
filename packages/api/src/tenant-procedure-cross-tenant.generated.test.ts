@@ -39,9 +39,76 @@ const harness = vi.hoisted(() => {
   }
 })
 
+type LegacyHarnessTx = {
+  venue: { findFirst: (args: unknown) => unknown }
+  place: { findFirst: (args: unknown) => unknown }
+  venueKnowledgeEntry: { findFirst: (args: unknown) => unknown }
+}
+
+type LegacyHarnessClient = {
+  $transaction: (callback: (tx: LegacyHarnessTx) => unknown) => unknown
+}
+
 vi.mock('@pathfinder/db', async () => {
   const { z } = await import('zod')
   return {
+    LegacyContentActionError: class LegacyContentActionError extends Error {},
+    createLegacyPlaceAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    bulkCreateLegacyPlacesAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    updateLegacyPlaceAction: vi.fn(
+      (input: { tenantId: string; venueId: string; id: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.place.findFirst({
+            where: { id: input.id, tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
+    retireLegacyPlaceAction: vi.fn(
+      (input: { tenantId: string; venueId: string; id: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.place.findFirst({
+            where: { id: input.id, tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
+    createLegacyKnowledgeAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    bulkCreateLegacyKnowledgeAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    updateLegacyKnowledgeAction: vi.fn(
+      (input: { tenantId: string; venueId: string; id: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venueKnowledgeEntry.findFirst({
+            where: { id: input.id, tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
+    retireLegacyKnowledgeAction: vi.fn(
+      (input: { tenantId: string; venueId: string; id: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          tx.venueKnowledgeEntry.findFirst({
+            where: { id: input.id, tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
     OperationalUpdateActionError: class OperationalUpdateActionError extends Error {},
     operationalUpdateActionSelect: { id: true },
     createOperationalUpdateAction: vi.fn(

@@ -48,6 +48,7 @@ type PlaceFormProps = {
   venueGuideMode: VenueGuideMode
   placeId?: string
   initialValues?: PlaceFormValues
+  expectedUpdatedAt?: string | Date
 }
 
 const LOCATION_AWARE_CATEGORY_OPTIONS: { value: string; label: string; hint: string }[] = [
@@ -191,6 +192,7 @@ export function PlaceForm({
   venueGuideMode,
   placeId,
   initialValues,
+  expectedUpdatedAt,
 }: PlaceFormProps) {
   const router = useRouter()
   const client = useTRPCClient()
@@ -198,6 +200,9 @@ export function PlaceForm({
   const isMountedRef = useRef(true)
   const mutationInFlightRef = useRef(false)
   const [activeMutation, setActiveMutation] = useState<'save' | 'delete' | null>(null)
+  const [versionUpdatedAt, setVersionUpdatedAt] = useState<string | Date | undefined>(
+    expectedUpdatedAt,
+  )
   const [showAdvanced, setShowAdvanced] = useState(
     initialValues ? hasAdvancedFields(initialValues, venueGuideMode) : false,
   )
@@ -205,7 +210,9 @@ export function PlaceForm({
   const resolver =
     mode === 'create'
       ? (zodResolver(CreatePlaceInput.passthrough()) as unknown as Resolver<PlaceFormValues>)
-      : (zodResolver(UpdatePlaceInput.passthrough()) as unknown as Resolver<PlaceFormValues>)
+      : (zodResolver(
+          CreatePlaceInput.omit({ venueId: true }).passthrough(),
+        ) as unknown as Resolver<PlaceFormValues>)
   const {
     control,
     formState: { errors, isSubmitting },
@@ -249,6 +256,7 @@ export function PlaceForm({
     async function loadPlace() {
       if (initialValues) {
         reset(initialValues)
+        setVersionUpdatedAt(expectedUpdatedAt)
         setShowAdvanced(hasAdvancedFields(initialValues, venueGuideMode))
         setIsLoadingPlace(false)
         return
@@ -267,6 +275,7 @@ export function PlaceForm({
 
         if (!disposed) {
           reset(nextValues)
+          setVersionUpdatedAt(place.updatedAt)
           setShowAdvanced(hasAdvancedFields(nextValues, venueGuideMode))
         }
       } catch (error) {
@@ -285,7 +294,7 @@ export function PlaceForm({
     return () => {
       disposed = true
     }
-  }, [client, initialValues, mode, placeId, reset, venueGuideMode])
+  }, [client, expectedUpdatedAt, initialValues, mode, placeId, reset, venueGuideMode])
 
   useEffect(() => {
     if (mode === 'create') {
@@ -348,9 +357,15 @@ export function PlaceForm({
           ...payload,
         })
       } else {
+        if (!versionUpdatedAt) {
+          setFormError('Refresh this guide item before saving changes.')
+          return
+        }
         await client.place.update.mutate(
           UpdatePlaceInput.parse({
             id: placeId,
+            venueId,
+            expectedUpdatedAt: new Date(versionUpdatedAt),
             ...payload,
             photoUrl: values.photoUrl?.trim() || null,
             isActive: values.isActive,
@@ -399,8 +414,18 @@ export function PlaceForm({
 
     setFormError(null)
 
+    if (!versionUpdatedAt) {
+      setFormError('Refresh this guide item before retiring it.')
+      finishMutation()
+      return
+    }
+
     try {
-      await client.place.delete.mutate({ id: placeId })
+      await client.place.delete.mutate({
+        id: placeId,
+        venueId,
+        expectedUpdatedAt: new Date(versionUpdatedAt),
+      })
       if (isMountedRef.current) {
         router.push(`/venues/${venueId}`)
         router.refresh()

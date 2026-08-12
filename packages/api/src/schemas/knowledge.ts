@@ -20,13 +20,53 @@ export const BulkCreateKnowledgeEntriesInput = z
   })
   .strict()
 
-export const UpdateKnowledgeEntryInput = z.object({
-  id: z.string().cuid(),
-  title: z.string().min(1).max(200).optional(),
-  category: z.string().min(1).max(100).optional(),
-  content: z.string().min(1).max(5000).optional(),
-  isEnabled: z.boolean().optional(),
-})
+export const UpdateKnowledgeEntryInput = z
+  .object({
+    id: z.string().cuid(),
+    venueId: z.string().cuid().optional(),
+    expectedUpdatedAt: z.coerce.date().optional(),
+    title: z.string().min(1).max(200).optional(),
+    category: z.string().min(1).max(100).optional(),
+    content: z.string().min(1).max(5000).optional(),
+    isEnabled: z.boolean().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.venueId)
+      ctx.addIssue({ code: 'custom', path: ['venueId'], message: 'Venue is required' })
+    if (!value.expectedUpdatedAt)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['expectedUpdatedAt'],
+        message: 'Refresh before editing',
+      })
+  })
+  .transform((value) => ({
+    ...value,
+    venueId: value.venueId!,
+    expectedUpdatedAt: value.expectedUpdatedAt!,
+  }))
+
+export const RetireKnowledgeEntryInput = z
+  .object({
+    id: z.string().cuid(),
+    venueId: z.string().cuid().optional(),
+    expectedUpdatedAt: z.coerce.date().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.venueId)
+      ctx.addIssue({ code: 'custom', path: ['venueId'], message: 'Venue is required' })
+    if (!value.expectedUpdatedAt)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['expectedUpdatedAt'],
+        message: 'Refresh before retiring',
+      })
+  })
+  .transform((value) => ({
+    ...value,
+    venueId: value.venueId!,
+    expectedUpdatedAt: value.expectedUpdatedAt!,
+  }))
 
 export type CreateKnowledgeEntryInput = z.infer<typeof CreateKnowledgeEntryInput>
 export type KnowledgeEntryInput = z.infer<typeof KnowledgeEntryInput>

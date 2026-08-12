@@ -13,6 +13,8 @@ const entryUpdateMany = vi.fn()
 const entryDeleteMany = vi.fn()
 const dbTransaction = vi.fn()
 const dbExecuteRaw = vi.fn()
+const dbQueryRaw = vi.fn()
+const auditCreate = vi.fn()
 
 const mockDb = {
   venue: { findFirst: venueFindFirst },
@@ -25,6 +27,8 @@ const mockDb = {
   },
   $transaction: dbTransaction,
   $executeRaw: dbExecuteRaw,
+  $queryRaw: dbQueryRaw,
+  auditLog: { create: auditCreate },
 } as unknown as TRPCContext['db']
 
 const baseCtx = { db: mockDb, headers: new Headers() }
@@ -73,6 +77,8 @@ describe('knowledge router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     dbExecuteRaw.mockResolvedValue(1)
+    dbQueryRaw.mockResolvedValue([])
+    auditCreate.mockResolvedValue({})
     dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -130,7 +136,9 @@ describe('knowledge router', () => {
 
   it('knowledge.bulkCreate creates all entries for trigger-backed dispatch', async () => {
     venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
-    dbTransaction.mockResolvedValueOnce([entryRow, { ...entryRow, id: 'centrydef123456789012' }])
+    entryCreate
+      .mockResolvedValueOnce(entryRow)
+      .mockResolvedValueOnce({ ...entryRow, id: 'centrydef123456789012' })
 
     const caller = testRouter.createCaller(managerCtx())
     const result = await caller.knowledge.bulkCreate({
@@ -153,6 +161,8 @@ describe('knowledge router', () => {
 
     expect(result.count).toBe(2)
     expect(dbTransaction).toHaveBeenCalled()
+    expect(auditCreate).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(auditCreate.mock.calls)).not.toContain('Refunds are available')
   })
 
   it('knowledge.bulkCreate rejects more than 500 entries before looking up the venue', async () => {
@@ -171,25 +181,37 @@ describe('knowledge router', () => {
   })
 
   it('knowledge.update leaves content dispatch to the database trigger', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
     entryFindFirst
-      .mockResolvedValueOnce({ id: ENTRY_ID })
+      .mockResolvedValueOnce(entryRow)
       .mockResolvedValueOnce({ ...entryRow, content: 'Updated' })
     entryUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(managerCtx())
-    const result = await caller.knowledge.update({ id: ENTRY_ID, content: 'Updated' })
+    const result = await caller.knowledge.update({
+      id: ENTRY_ID,
+      venueId: VENUE_ID,
+      expectedUpdatedAt: entryRow.updatedAt,
+      content: 'Updated',
+    })
 
     expect(result).toMatchObject({ content: 'Updated' })
   })
 
   it('knowledge.update persists isEnabled changes for trigger evaluation', async () => {
+    venueFindFirst.mockResolvedValueOnce({ id: VENUE_ID })
     entryFindFirst
-      .mockResolvedValueOnce({ id: ENTRY_ID })
+      .mockResolvedValueOnce(entryRow)
       .mockResolvedValueOnce({ ...entryRow, isEnabled: false })
     entryUpdateMany.mockResolvedValueOnce({ count: 1 })
 
     const caller = testRouter.createCaller(managerCtx())
-    const result = await caller.knowledge.update({ id: ENTRY_ID, isEnabled: false })
+    const result = await caller.knowledge.update({
+      id: ENTRY_ID,
+      venueId: VENUE_ID,
+      expectedUpdatedAt: entryRow.updatedAt,
+      isEnabled: false,
+    })
 
     expect(result).toMatchObject({ isEnabled: false })
   })
@@ -199,8 +221,12 @@ describe('knowledge router', () => {
 
     const caller = testRouter.createCaller(managerCtx())
 
-    await expect(caller.knowledge.delete({ id: ENTRY_ID })).rejects.toThrowError(
-      expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }),
-    )
+    await expect(
+      caller.knowledge.delete({
+        id: ENTRY_ID,
+        venueId: VENUE_ID,
+        expectedUpdatedAt: entryRow.updatedAt,
+      }),
+    ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
   })
 })

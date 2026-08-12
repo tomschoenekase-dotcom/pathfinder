@@ -132,6 +132,13 @@ export {
 } from './helpers/support-actions'
 export type { SupportActionActor, SupportAttachmentDraft } from './helpers/support-actions'
 export {
+  normalizeSupportMissingInformation,
+  SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX,
+  SUPPORT_TRIAGE_MISSING_INFORMATION_MAX,
+  triageSupportRequestAction,
+} from './helpers/support-triage-actions'
+export type { SupportTriageActor } from './helpers/support-triage-actions'
+export {
   linkSupportRequestDraftPackageAction,
   SupportPackageHandoffError,
 } from './helpers/support-package-handoffs'
@@ -337,3 +344,33 @@ export type {
   UniversalContentHumanActor,
   UniversalContentPreview,
 } from './helpers/universal-content-actions'
+export {
+  confirmContentCurrentAction,
+  ContentHumanReviewError,
+} from './helpers/content-human-review-actions'
+export {
+  bulkCreateLegacyKnowledgeAction,
+  bulkCreateLegacyPlacesAction,
+  createLegacyKnowledgeAction,
+  createLegacyPlaceAction,
+  legacyKnowledgeSelect,
+  legacyPlaceSelect,
+  LegacyContentActionError,
+  retireLegacyKnowledgeAction,
+  retireLegacyPlaceAction,
+  updateLegacyKnowledgeAction,
+  updateLegacyPlaceAction,
+} from './helpers/legacy-content-actions'
+export type {
+  LegacyContentActionClient,
+  LegacyContentActionErrorCode,
+  LegacyContentActor,
+} from './helpers/legacy-content-actions'
+export type {
+  ContentHumanReviewActor,
+  ContentHumanReviewClient,
+  ContentHumanReviewEntityType,
+  ContentHumanReviewErrorCode,
+  ContentHumanReviewProvenanceRepair,
+  ContentHumanReviewResult,
+} from './helpers/content-human-review-actions'

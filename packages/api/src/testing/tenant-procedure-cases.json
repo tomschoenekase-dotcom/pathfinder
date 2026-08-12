@@ -181,14 +181,22 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venueKnowledgeEntry.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "venueId": "cvenueabc123456789012",
+      "expectedUpdatedAt": "2026-08-11T00:00:00.000Z"
+    }
   },
   {
     "path": "knowledge.delete",
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venueKnowledgeEntry.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "venueId": "cvenueabc123456789012",
+      "expectedUpdatedAt": "2026-08-11T00:00:00.000Z"
+    }
   },
 
   {
@@ -285,14 +293,22 @@
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "place.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "venueId": "cvenueabc123456789012",
+      "expectedUpdatedAt": "2026-08-11T00:00:00.000Z"
+    }
   },
   {
     "path": "place.delete",
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "place.findFirst",
-    "input": { "id": "cvenueabc123456789012" }
+    "input": {
+      "id": "cvenueabc123456789012",
+      "venueId": "cvenueabc123456789012",
+      "expectedUpdatedAt": "2026-08-11T00:00:00.000Z"
+    }
   },
   {
     "path": "place.bulkCreate",

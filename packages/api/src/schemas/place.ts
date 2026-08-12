@@ -12,6 +12,8 @@ export const CreatePlaceInput = PlaceInput.extend({
 export const UpdatePlaceInput = z
   .object({
     id: z.string().cuid(),
+    venueId: z.string().cuid().optional(),
+    expectedUpdatedAt: z.coerce.date().optional(),
     name: z.string().min(1).max(200).optional(),
     type: z.string().min(1).optional(),
     itemType: ItemTypeInput,
@@ -30,3 +32,40 @@ export const UpdatePlaceInput = z
     isActive: z.boolean().optional(),
   })
   .strict()
+  .superRefine((value, ctx) => {
+    if (!value.venueId)
+      ctx.addIssue({ code: 'custom', path: ['venueId'], message: 'Venue is required' })
+    if (!value.expectedUpdatedAt)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['expectedUpdatedAt'],
+        message: 'Refresh before editing',
+      })
+  })
+  .transform((value) => ({
+    ...value,
+    venueId: value.venueId!,
+    expectedUpdatedAt: value.expectedUpdatedAt!,
+  }))
+
+export const RetirePlaceInput = z
+  .object({
+    id: z.string().cuid(),
+    venueId: z.string().cuid().optional(),
+    expectedUpdatedAt: z.coerce.date().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.venueId)
+      ctx.addIssue({ code: 'custom', path: ['venueId'], message: 'Venue is required' })
+    if (!value.expectedUpdatedAt)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['expectedUpdatedAt'],
+        message: 'Refresh before retiring',
+      })
+  })
+  .transform((value) => ({
+    ...value,
+    venueId: value.venueId!,
+    expectedUpdatedAt: value.expectedUpdatedAt!,
+  }))
