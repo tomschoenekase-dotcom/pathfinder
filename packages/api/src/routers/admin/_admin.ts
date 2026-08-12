@@ -19,6 +19,7 @@ import { adminDeploymentManifestReviewRouter } from './deployment-manifest-revie
 import { adminEvaluationOperationsRouter } from './evaluation-operations'
 import { adminExternalCredentialsRouter } from './external-credentials'
 import { adminFreshnessAuditRouter } from './freshness-audit'
+import { adminGuestDesignRouter } from './guest-design'
 import { adminOverviewRouter } from './overview'
 import { adminOffboardingPlansRouter } from './offboarding-plans'
 import { adminOffboardingExportPreviewRouter } from './offboarding-export-preview'
@@ -53,6 +54,7 @@ export const adminRouter = mergeRouters(
   adminEvaluationOperationsRouter,
   adminExternalCredentialsRouter,
   adminFreshnessAuditRouter,
+  adminGuestDesignRouter,
   adminSupportOperationsRouter,
   adminSupportAttachmentsRouter,
   adminSupportReviewedDraftRouter,

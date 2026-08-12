@@ -7,6 +7,7 @@ export type EmitEventParams = {
   tenantId: string
   venueId: string
   sessionId: string
+  userMessageId?: string
   eventType: AnalyticsEventType
   placeId?: string
   metadata?: Record<string, unknown>
@@ -20,6 +21,7 @@ export async function emitEvent(params: EmitEventParams): Promise<void> {
         tenantId: params.tenantId,
         venueId: params.venueId,
         sessionId: params.sessionId,
+        ...(params.userMessageId !== undefined ? { userMessageId: params.userMessageId } : {}),
         eventType: params.eventType,
         occurredAt: params.occurredAt ?? new Date(),
         ...(params.placeId !== undefined ? { placeId: params.placeId } : {}),

@@ -533,7 +533,11 @@ import { portalRouter } from './routers/portal'
 import { supportRouter } from './routers/support'
 import { tenantRouter } from './routers/tenant'
 import { venueRouter } from './routers/venue'
-import { venuePackageRouter } from './routers/venue-package'
+import {
+  venuePackageCreateRouter,
+  venuePackageLifecycleRouter,
+  venuePackageReadRouter,
+} from './routers/venue-package'
 import cases from './testing/tenant-procedure-cases.json'
 
 const ATTACKER_TENANT_ID = 'tenant_attacker'
@@ -551,7 +555,9 @@ const testRouter = router({
   support: supportRouter,
   tenant: tenantRouter,
   venue: venueRouter,
-  venuePackage: venuePackageRouter,
+  venuePackageCreate: venuePackageCreateRouter,
+  venuePackageLifecycle: venuePackageLifecycleRouter,
+  venuePackageRead: venuePackageReadRouter,
 })
 
 type ProcedureCase = {

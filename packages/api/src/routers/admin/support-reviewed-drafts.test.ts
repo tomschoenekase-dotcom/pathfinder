@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ orchestrate: vi.fn() }))
-vi.mock('../../lib/admin-reviewed-draft-orchestration', () => ({
-  runAdminReviewedDraftOrchestration: mocks.orchestrate,
+vi.mock('../venue-package', () => ({
+  createVenuePackageDraftService: mocks.orchestrate,
 }))
 
 import type { TRPCContext } from '../../context'
@@ -43,7 +43,9 @@ describe('admin support reviewed-DRAFT adapter', () => {
     expect(mocks.orchestrate).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: input.tenantId,
-        draft: expect.objectContaining({ venueId: input.venueId, payload: input.payload }),
+        input: expect.objectContaining({ venueId: input.venueId, payload: input.payload }),
+        actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+        db: expect.anything(),
         finalizer: expect.any(Function),
       }),
     )

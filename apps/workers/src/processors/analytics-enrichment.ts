@@ -379,12 +379,6 @@ type OwnedRollup = {
   category?: string
 }
 
-function questionFromMetadata(metadata: unknown, key: 'message' | 'question'): string | null {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
-  const value = (metadata as Record<string, unknown>)[key]
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
-}
-
 async function enrichVenue(params: {
   tenantId: string
   venueId: string
@@ -519,13 +513,15 @@ async function enrichVenue(params: {
       venueId,
       eventType: 'message.sent',
       occurredAt: { gte: windowStart, lt: dayEnd },
+      userMessageId: { not: null },
+      userMessage: { is: { role: 'user' } },
     },
     orderBy: { occurredAt: 'desc' },
     take: CLUSTER_MAX_QUESTIONS,
-    select: { metadata: true },
+    select: { userMessage: { select: { content: true } } },
   })
   const topQuestionTexts = windowQuestions
-    .map((event) => questionFromMetadata(event.metadata, 'message'))
+    .map((event) => event.userMessage?.content.trim() || null)
     .filter((text): text is string => text !== null)
   const topClusters = await buildClusters({ questions: topQuestionTexts, tenantId, venueId })
 
@@ -536,13 +532,15 @@ async function enrichVenue(params: {
       venueId,
       eventType: 'message.low_confidence',
       occurredAt: { gte: windowStart, lt: dayEnd },
+      userMessageId: { not: null },
+      userMessage: { is: { role: 'user' } },
     },
     orderBy: { occurredAt: 'desc' },
     take: CLUSTER_MAX_QUESTIONS,
-    select: { metadata: true },
+    select: { userMessage: { select: { content: true } } },
   })
   const gapTexts = gapEvents
-    .map((event) => questionFromMetadata(event.metadata, 'question'))
+    .map((event) => event.userMessage?.content.trim() || null)
     .filter((text): text is string => text !== null)
   const gapClusters = await buildClusters({ questions: gapTexts, tenantId, venueId })
 
@@ -558,13 +556,15 @@ async function enrichVenue(params: {
       venueId,
       eventType: 'message.sent',
       occurredAt: { gte: themeWindowStart, lt: dayEnd },
+      userMessageId: { not: null },
+      userMessage: { is: { role: 'user' } },
     },
     orderBy: { occurredAt: 'desc' },
     take: CLUSTER_MAX_QUESTIONS,
-    select: { metadata: true },
+    select: { userMessage: { select: { content: true } } },
   })
   const themeQuestions = themeEvents
-    .map((event) => questionFromMetadata(event.metadata, 'message'))
+    .map((event) => event.userMessage?.content.trim() || null)
     .filter((text): text is string => text !== null)
 
   let themesWritten = 0

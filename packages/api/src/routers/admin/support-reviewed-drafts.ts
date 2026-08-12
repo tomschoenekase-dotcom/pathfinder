@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { router } from '../../core'
 import { supportReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
-import { runAdminReviewedDraftOrchestration } from '../../lib/admin-reviewed-draft-orchestration'
+import { createVenuePackageDraftService } from '../venue-package'
 import { VenuePackagePayload } from '../../schemas/venue-package'
 import { adminProcedure } from '../../trpc'
 
@@ -21,10 +21,11 @@ export const adminSupportReviewedDraftRouter = router({
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      runAdminReviewedDraftOrchestration({
-        ctx,
+      createVenuePackageDraftService({
+        db: ctx.db,
         tenantId: input.tenantId,
-        draft: { venueId: input.venueId, draftKey: input.draftKey, payload: input.payload },
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        input: { venueId: input.venueId, draftKey: input.draftKey, payload: input.payload },
         finalizer: supportReviewedDraftFinalizer({
           actorId: ctx.session.userId,
           supportRequestId: input.supportRequestId,

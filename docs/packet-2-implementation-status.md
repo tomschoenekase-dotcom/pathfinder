@@ -129,6 +129,10 @@ Section-level evidence and blockers are indexed in
   before persisting the internal session ID; provider error logging and analytics omit guest text and
   bearer values. Forward migration `20260812000400_add_durable_guest_chat_turns` includes legacy
   analytics resolution/backfill and exact composite foreign keys, but remains unapplied.
+- Question-derived analytics now uses an exact nullable user-message foreign key and user-role guard.
+  Event metadata stays structural with no raw-question fallback; enrichment reads text transiently
+  through that relation and skips unattributed legacy events. Forward migration
+  `20260812000700_add_analytics_user_message_attribution` remains unapplied.
 - Global AI incident-control mutation now uses a neutral HUMAN platform-admin action with validated
   reason/revision input, exact configured-state CAS, same-state replay, malformed-state fail-closed
   repair, first-create collision handling and strict same-transaction audit. The router remains a
@@ -209,6 +213,14 @@ Section-level evidence and blockers are indexed in
   and the DRAFT are finalized atomically. Actor-bound replay and UI request-key fencing handle
   ambiguous retries. These controls never approve, apply, publish or revert content, and no live
   provider execution was performed for local verification.
+- Reviewed DRAFT creation now uses one stateless service with explicit database, tenant, truthful
+  HUMAN `MANAGER`/`OWNER`/`PLATFORM_ADMIN` actor and optional same-transaction finalizer. Admin
+  adapters have no router call-through, fabricated tenant session/role or async-local registry. This
+  does not unify FULL manifests or add approval, apply, publication or asset upload.
+- Exact Internal Workspace Guest design reads/updates use the real HUMAN `PLATFORM_ADMIN`, revision
+  CAS and strict audit. They may retain or clear only existing reviewed logo/banner references and
+  show a non-literal style preview. Client UI remains tone-only; no asset upload/review or live guest
+  visual proof was added.
 - A central AI workload configuration registry/resolver and additive persisted control plane model
   provider/model identity, fallback, cost and budget bounds, and platform→workload→client→venue
   precedence with field-level source attribution. Global workload and exact tenant/venue overrides
@@ -467,8 +479,10 @@ mode and assistive-technology evidence remain unverified.
 - No database, Redis, provider, migration-apply, staging, or production operation was executed.
 - Current focused evidence passed: evaluation DB 18, API 11 and dashboard 19 tests; tenant intake API
   5 and the expanded onboarding dashboard set 49 tests; affected AI/DB/worker suites reported 1,177
-  passing with 78 configured skips. Relevant typechecks and lints passed. These focused counts do not
-  replace a new final merged repository gate; no current full-suite or build totals are claimed.
+  passing with 78 configured skips. The reviewed-DRAFT focused set passed 63 tests, the generated
+  tenant boundary passed 78, and focused Guest design plus analytics/helper/worker contracts passed.
+  Relevant typechecks, lints and static boundaries passed. These focused results do not replace a
+  new final merged repository gate; no current full-suite or build totals are claimed.
 
 Live browser visual/E2E evidence is not claimed: the in-app browser had no connected runtime, and
 starting a data-backed application against an unidentified environment would violate the active

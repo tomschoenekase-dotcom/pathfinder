@@ -14,7 +14,7 @@ import {
 
 import { router } from '../../core'
 import { intakeReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
-import { runAdminReviewedDraftOrchestration } from '../../lib/admin-reviewed-draft-orchestration'
+import { createVenuePackageDraftService } from '../venue-package'
 import {
   buildIntakeVenuePackageCandidate,
   isExactIntakeCandidateHandoff,
@@ -139,10 +139,11 @@ export const adminIntakeOperationsRouter = router({
         actorId: ctx.session.userId,
         intakeRunId: input.runId,
       })
-      return runAdminReviewedDraftOrchestration({
-        ctx,
+      return createVenuePackageDraftService({
+        db: ctx.db,
         tenantId: input.tenantId,
-        draft: {
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        input: {
           venueId: input.venueId,
           draftKey,
           payload: candidate.payload,

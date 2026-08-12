@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { onboardingBootstrapInputHash } from '@pathfinder/db'
 
 const reviewedDraft = vi.hoisted(() => ({ orchestrate: vi.fn() }))
-vi.mock('../../lib/admin-reviewed-draft-orchestration', () => ({
-  runAdminReviewedDraftOrchestration: reviewedDraft.orchestrate,
+vi.mock('../venue-package', () => ({
+  createVenuePackageDraftService: reviewedDraft.orchestrate,
 }))
 
 import type { TRPCContext } from '../../context'
@@ -186,7 +186,7 @@ describe('platform admin intake operations', () => {
     expect(reviewedDraft.orchestrate).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-a',
-        draft: expect.objectContaining({
+        input: expect.objectContaining({
           venueId: 'venue-a',
           draftKey: expect.stringMatching(
             /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -326,7 +326,7 @@ describe('platform admin intake operations', () => {
       expectedCandidateHash: preview.candidateHash!,
     })
     expect(reviewedDraft.orchestrate).toHaveBeenCalledWith(
-      expect.objectContaining({ draft: expect.objectContaining({ draftKey }) }),
+      expect.objectContaining({ input: expect.objectContaining({ draftKey }) }),
     )
   })
 

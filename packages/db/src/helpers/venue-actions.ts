@@ -42,9 +42,23 @@ type BaseAction = {
   actor: VenueHumanActor
 }
 
+export type VenueChatDesignActor =
+  | VenueHumanActor
+  | { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
+
 function requireActor(actor: VenueHumanActor): void {
   if (actor.type !== 'HUMAN' || !actor.id || !['OWNER', 'MANAGER'].includes(actor.role)) {
     throw new VenueActionError('INVALID_INPUT', 'A human venue manager is required')
+  }
+}
+
+function requireChatDesignActor(actor: VenueChatDesignActor): void {
+  if (
+    actor.type !== 'HUMAN' ||
+    !actor.id ||
+    !['OWNER', 'MANAGER', 'PLATFORM_ADMIN'].includes(actor.role)
+  ) {
+    throw new VenueActionError('INVALID_INPUT', 'A human venue design operator is required')
   }
 }
 
@@ -330,23 +344,31 @@ function safeChat(value: {
 }
 
 export async function updateVenueChatDesignAction(
-  input: BaseAction & { fields: UpdateVenueChatDesignFields },
+  input: Omit<BaseAction, 'actor'> & {
+    actor: VenueChatDesignActor
+    fields: UpdateVenueChatDesignFields
+  },
   client: VenueActionClient = db,
 ) {
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    await prepare(tx, input)
+    requireChatDesignActor(input.actor)
+    await setContentVersionContext(tx, { actorId: input.actor.id })
+    await lockVenueContentMutation(tx, { tenantId: input.tenantId, venueId: input.venueId })
     const before = await tx.venue.findFirst({
       where: { id: input.venueId, tenantId: input.tenantId },
       select: venueChatDesignSelect,
     })
     if (!before) throw new VenueActionError('NOT_FOUND', 'Venue not found')
+    const requestedEntries = Object.entries(input.fields).filter(([, value]) => value !== undefined)
+    const exactReplay = requestedEntries.every(
+      ([key, value]) => before[key as keyof typeof before] === value,
+    )
+    if (exactReplay) return { ...before, replayed: true as const }
     if (before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime())
       conflict('Venue design changed; refresh and try again.')
     const data = {
-      ...Object.fromEntries(
-        Object.entries(input.fields).filter(([, value]) => value !== undefined),
-      ),
+      ...Object.fromEntries(requestedEntries),
       updatedAt: nextUpdatedAt(before.updatedAt),
     }
     const changed = await tx.venue.updateMany({
@@ -372,7 +394,7 @@ export async function updateVenueChatDesignAction(
       },
       tx,
     )
-    return saved
+    return { ...saved, replayed: false as const }
   })
 }
 

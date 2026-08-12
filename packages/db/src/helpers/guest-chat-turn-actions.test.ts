@@ -729,7 +729,12 @@ describe('guest chat turn actions', () => {
       } as never,
       request,
     })
-    expect(result).toMatchObject({ state: 'COMPLETE', response, replayed: true })
+    expect(result).toMatchObject({
+      state: 'COMPLETE',
+      userMessageId: 'user-1',
+      response,
+      replayed: true,
+    })
     expect(transaction).toHaveBeenCalledTimes(2)
     expect(tx.guestChatTurn.create).not.toHaveBeenCalled()
   })

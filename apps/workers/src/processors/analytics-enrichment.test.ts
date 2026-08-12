@@ -180,11 +180,11 @@ describe('processAnalyticsEnrichmentJob', () => {
     // need to stub a themes-shaped Anthropic response.
     mocks.analyticsFindMany
       .mockResolvedValueOnce([
-        { metadata: { message: 'where is the toilet' } },
-        { metadata: { message: 'what time do you open' } },
+        { userMessage: { content: 'where is the toilet' } },
+        { userMessage: { content: 'what time do you open' } },
       ])
-      .mockResolvedValueOnce([{ metadata: { question: 'is there a helipad' } }])
-      .mockResolvedValueOnce([{ metadata: { message: 'where is the toilet' } }])
+      .mockResolvedValueOnce([{ userMessage: { content: 'is there a helipad' } }])
+      .mockResolvedValueOnce([{ userMessage: { content: 'where is the toilet' } }])
     mocks.generateEmbeddings.mockImplementation(successfulEmbeddingBatch)
     mocks.clusterDeleteMany.mockResolvedValue({})
     mocks.clusterCreateMany.mockResolvedValue({})
@@ -254,6 +254,20 @@ describe('processAnalyticsEnrichmentJob', () => {
     expect(clusterData.some((row) => row.kind === 'content_gap')).toBe(true)
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
+    for (const call of mocks.analyticsFindMany.mock.calls.slice(0, 3)) {
+      expect(call[0]).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: 'tenant_1',
+            venueId: 'venue_1',
+            userMessageId: { not: null },
+            userMessage: { is: { role: 'user' } },
+          }),
+          select: { userMessage: { select: { content: true } } },
+        }),
+      )
+      expect(call[0]).not.toHaveProperty('select.metadata')
+    }
     expect(mocks.aiUsageEventCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         tenantId: 'tenant_1',
@@ -268,6 +282,22 @@ describe('processAnalyticsEnrichmentJob', () => {
     })
   })
 
+  it('skips unattributed legacy events without reading raw question metadata', async () => {
+    mocks.analyticsFindMany.mockReset()
+    mocks.analyticsFindMany
+      .mockResolvedValueOnce([
+        { userMessage: null, metadata: { message: 'legacy private question' } },
+      ])
+      .mockResolvedValueOnce([{ userMessage: null, metadata: { question: 'legacy private gap' } }])
+      .mockResolvedValueOnce([{ userMessage: null, metadata: { message: 'legacy private theme' } }])
+
+    await processAnalyticsEnrichmentJob({ tenantId: 'tenant_1', date: '2026-06-18T00:00:00.000Z' })
+
+    expect(mocks.generateEmbeddings).not.toHaveBeenCalled()
+    expect(mocks.clusterCreateMany).not.toHaveBeenCalled()
+    expect(mocks.themeUpsert).not.toHaveBeenCalled()
+  })
+
   it('synthesizes and upserts weekly themes once there are enough questions', async () => {
     // Replace beforeEach's queued once-values (which include a deliberately
     // thin theme window) with a fresh set for this test's 3 findMany calls,
@@ -275,16 +305,16 @@ describe('processAnalyticsEnrichmentJob', () => {
     mocks.analyticsFindMany.mockReset()
     mocks.analyticsFindMany
       .mockResolvedValueOnce([
-        { metadata: { message: 'where is the toilet' } },
-        { metadata: { message: 'what time do you open' } },
+        { userMessage: { content: 'where is the toilet' } },
+        { userMessage: { content: 'what time do you open' } },
       ])
-      .mockResolvedValueOnce([{ metadata: { question: 'is there a helipad' } }])
+      .mockResolvedValueOnce([{ userMessage: { content: 'is there a helipad' } }])
       .mockResolvedValueOnce([
-        { metadata: { message: 'where is the toilet' } },
-        { metadata: { message: 'what time do you open' } },
-        { metadata: { message: 'is there parking nearby' } },
-        { metadata: { message: 'do you allow dogs' } },
-        { metadata: { message: 'where can I get coffee' } },
+        { userMessage: { content: 'where is the toilet' } },
+        { userMessage: { content: 'what time do you open' } },
+        { userMessage: { content: 'is there parking nearby' } },
+        { userMessage: { content: 'do you allow dogs' } },
+        { userMessage: { content: 'where can I get coffee' } },
       ])
 
     anthropicCreate
@@ -398,7 +428,9 @@ describe('processAnalyticsEnrichmentJob', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(
-        Array.from({ length: 5 }, (_, index) => ({ metadata: { message: `question ${index}` } })),
+        Array.from({ length: 5 }, (_, index) => ({
+          userMessage: { content: `question ${index}` },
+        })),
       )
     mocks.assertGlobalAiAvailable.mockResolvedValueOnce(undefined).mockRejectedValueOnce(error)
 
@@ -469,11 +501,11 @@ describe('processAnalyticsEnrichmentJob', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { metadata: { message: 'where is the toilet' } },
-        { metadata: { message: 'what time do you open' } },
-        { metadata: { message: 'is there parking nearby' } },
-        { metadata: { message: 'do you allow dogs' } },
-        { metadata: { message: 'where can I get coffee' } },
+        { userMessage: { content: 'where is the toilet' } },
+        { userMessage: { content: 'what time do you open' } },
+        { userMessage: { content: 'is there parking nearby' } },
+        { userMessage: { content: 'do you allow dogs' } },
+        { userMessage: { content: 'where can I get coffee' } },
       ])
     anthropicCreate
       .mockResolvedValueOnce({
@@ -515,7 +547,7 @@ describe('processAnalyticsEnrichmentJob', () => {
 
   it('batches clustering embeddings in order and attributes each request', async () => {
     const questions = Array.from({ length: 97 }, (_, index) => ({
-      metadata: { message: `question ${index}` },
+      userMessage: { content: `question ${index}` },
     }))
     mocks.analyticsFindMany.mockReset()
     mocks.analyticsFindMany
@@ -560,7 +592,7 @@ describe('processAnalyticsEnrichmentJob', () => {
 
   it('retains prior batch usage and preserves clusters when a later batch fails', async () => {
     const questions = Array.from({ length: 97 }, (_, index) => ({
-      metadata: { message: `question ${index}` },
+      userMessage: { content: `question ${index}` },
     }))
     mocks.analyticsFindMany.mockReset()
     mocks.analyticsFindMany.mockResolvedValueOnce(questions)

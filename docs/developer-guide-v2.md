@@ -91,8 +91,11 @@ bounded overlap validation, and required audit in one transaction. API adapters 
 authorize before calling the helper; they must not recreate mutations in route code. Intake
 proposal creation, listing, and privacy-safe review evidence live in the neutral DB service so
 tenant and admin adapters share the same scope and privacy rules. Reviewed bootstrap/interview
-package creation is separate canonical API orchestration: it rebuilds the deterministic candidate
-server-side and atomically links only the resulting semantic-complete `DRAFT`.
+package creation calls the ordinary stateless VenuePackage draft service with explicit database,
+tenant, HUMAN `MANAGER`/`OWNER`/`PLATFORM_ADMIN` actor and optional same-transaction finalizer. Tenant
+and admin adapters retain truthful actor roles. Never call a router from another router, fabricate a
+tenant session, or hide finalization in mutable or async-local state. Finalizers atomically link only
+the server-rebuilt semantic-complete `DRAFT`.
 
 Legacy Place and Knowledge compatibility writes now use neutral create, CAS update, and soft-retire
 actions. They lock the exact tenant/venue entity, set content-version context, require strict audit in
@@ -144,6 +147,11 @@ truth and verified webhook synchronization owns local membership persistence. Do
 membership or claim provider/local atomicity in the invitation route. The existing
 `EngagementQuestionsManager` demonstrates revision propagation only; its legacy portal route remains
 redirect-only. Do not cite that dormant component test as evidence of a reachable client control.
+
+Guest design is an exact-scoped Internal Workspace admin boundary with the real HUMAN
+`PLATFORM_ADMIN`, revision CAS and strict audit. Branding assets may only retain the currently
+reviewed reference or clear it; this is not an upload seam. Its style card is deliberately
+non-literal, while the client portal remains tone-only.
 
 ## Adding an intake adapter
 
@@ -297,6 +305,10 @@ session sequence rather than wall-clock timestamps. Public analytics accepts the
 token field only as a lookup credential: the server resolves the exact tenant/venue session and
 persists its internal ID, never the bearer token.
 
+New analytics events may carry an exact internal user-message foreign key. Structural metadata must
+not copy raw guest questions as fallback. Enrichment reads transient text only through the scoped
+relation to a `user` message and skips unattributed legacy events.
+
 Admin answer-analysis and chatlog-review adapters are transport-thin. Durable analysis identity is
 operation-scoped by tenant, kind and UUID; snapshot, dispatch and sanitized audit commit together,
 then queue notification is best effort. Chatlog notes bind a UUID to exact tenant/venue/session,
@@ -348,6 +360,10 @@ The forward-only `20260812000600_evaluation_review_commands` migration adds pair
 UUID/hash columns for historical compatibility and tenant-scoped uniqueness for new review
 commands. It invents no historical values and is intentionally unapplied; local checks are not live
 database evidence.
+
+The forward-only `20260812000700_add_analytics_user_message_attribution` migration adds the exact
+session-scoped user-message relationship and role guard while leaving historical events nullable.
+It is intentionally unapplied; focused schema/helper/analytics/worker checks are local evidence.
 
 ## Required verification
 

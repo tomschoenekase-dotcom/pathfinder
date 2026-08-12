@@ -240,6 +240,7 @@ describe('chat router', () => {
         state: 'COMPLETE',
         turnId: input.turnId,
         sessionId: SESSION_ID,
+        userMessageId: '55555555-5555-4555-8555-555555555555',
         response: input.assistantResponse,
         places: input.replayMetadata.places,
         replayed: false,
@@ -800,6 +801,7 @@ describe('chat router', () => {
 
       expect(result.response).toBe('The elephants are 50m north.')
       expect(result.sessionId).toBe(SESSION_ID)
+      expect(result).not.toHaveProperty('userMessageId')
       expect(aiUsageEventCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -818,12 +820,18 @@ describe('chat router', () => {
         }),
       )
       expect(emitEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: 'message.sent', sessionId: SESSION_ID }),
+        expect.objectContaining({
+          eventType: 'message.sent',
+          sessionId: SESSION_ID,
+          userMessageId: '55555555-5555-4555-8555-555555555555',
+          metadata: { messageLength: sendInput.message.length },
+        }),
       )
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.received',
           sessionId: SESSION_ID,
+          userMessageId: '55555555-5555-4555-8555-555555555555',
           metadata: expect.objectContaining({
             fallback: false,
             retrievalMode: 'semantic',

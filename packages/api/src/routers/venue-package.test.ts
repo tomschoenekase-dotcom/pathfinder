@@ -3,8 +3,6 @@ import { TRPCError } from '@trpc/server'
 import { generateEmbeddings } from '@pathfinder/ai'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { withVenuePackageDraftFinalizer } from '../lib/venue-package-draft-finalizer'
-
 vi.mock('@pathfinder/config', () => ({
   logger: { error: vi.fn() },
 }))
@@ -75,8 +73,8 @@ import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { canonicalVenuePackagePayload } from '../schemas/venue-package'
 import {
+  createVenuePackageDraftService,
   latestTargetVersions,
-  venuePackageDraftAuditRole,
   venuePackageRouter,
 } from './venue-package'
 
@@ -376,13 +374,6 @@ function context(role: 'STAFF' | 'MANAGER' | 'OWNER'): TRPCContext {
 }
 
 describe('venue package router', () => {
-  it('attributes synthetic tenant authorization to the real platform-admin audit role', () => {
-    expect(venuePackageDraftAuditRole({ isPlatformAdmin: true, role: 'MANAGER' })).toBe(
-      'PLATFORM_ADMIN',
-    )
-    expect(venuePackageDraftAuditRole({ isPlatformAdmin: false, role: 'MANAGER' })).toBe('MANAGER')
-  })
-
   beforeEach(() => {
     vi.clearAllMocks()
     venueFindFirst.mockResolvedValue(venueState)
@@ -412,6 +403,19 @@ describe('venue package router', () => {
         .venuePackage.createDraft({ venueId, payload, draftKey }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
     expect(assertGlobalAiAvailable).not.toHaveBeenCalled()
+    expect(mockDb.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on global AI admission before claiming a draft key', async () => {
+    vi.mocked(assertGlobalAiAvailable).mockRejectedValueOnce(
+      new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'AI is unavailable' }),
+    )
+
+    await expect(
+      testRouter
+        .createCaller(context('OWNER'))
+        .venuePackage.createDraft({ venueId, payload, draftKey }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
     expect(mockDb.$transaction).not.toHaveBeenCalled()
   })
 
@@ -534,11 +538,13 @@ describe('venue package router', () => {
     packageCreate.mockResolvedValueOnce(basePackage)
 
     const finalizer = vi.fn().mockResolvedValue({ attached: true })
-    const orchestration = await withVenuePackageDraftFinalizer(finalizer, () =>
-      testRouter
-        .createCaller(context('MANAGER'))
-        .venuePackage.createDraft({ venueId, payload, draftKey }),
-    )
+    const orchestration = await createVenuePackageDraftService({
+      db: mockDb,
+      tenantId: 'tenant_1',
+      actor: { type: 'HUMAN', id: 'user_1', role: 'OWNER' },
+      input: { venueId, payload, draftKey },
+      finalizer,
+    })
     const result = orchestration.value
 
     expect(result).toMatchObject({ id: packageId, status: 'DRAFT', replayed: false })
@@ -588,11 +594,13 @@ describe('venue package router', () => {
       .mockRejectedValue(new TRPCError({ code: 'CONFLICT', message: 'Support request changed' }))
 
     await expect(
-      withVenuePackageDraftFinalizer(finalizer, () =>
-        testRouter
-          .createCaller(context('MANAGER'))
-          .venuePackage.createDraft({ venueId, payload, draftKey }),
-      ),
+      createVenuePackageDraftService({
+        db: mockDb,
+        tenantId: 'tenant_1',
+        actor: { type: 'HUMAN', id: 'user_1', role: 'OWNER' },
+        input: { venueId, payload, draftKey },
+        finalizer,
+      }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(analysisUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -615,6 +623,27 @@ describe('venue package router', () => {
     expect(getVenuePackageSemanticCoverage).not.toHaveBeenCalled()
     expect(generateEmbeddings).not.toHaveBeenCalled()
     expect(analysisCreate).not.toHaveBeenCalled()
+  })
+
+  it('runs an explicit replay finalizer in the package transaction and returns its attachment', async () => {
+    packageFindFirst.mockResolvedValueOnce(basePackage)
+    const finalizer = vi.fn().mockResolvedValue({ linked: true })
+
+    const result = await createVenuePackageDraftService({
+      db: mockDb,
+      tenantId: 'tenant_1',
+      actor: { type: 'HUMAN', id: 'admin_1', role: 'PLATFORM_ADMIN' },
+      input: { venueId, payload, draftKey },
+      finalizer,
+    })
+
+    expect(result.value).toMatchObject({ id: packageId, replayed: true })
+    expect(result.attachment).toEqual({ linked: true })
+    expect(finalizer).toHaveBeenCalledWith(
+      expect.objectContaining({ tx: mockDb, packageId, replayed: true }),
+    )
+    expect(getVenuePackageSemanticCoverage).not.toHaveBeenCalled()
+    expect(generateEmbeddings).not.toHaveBeenCalled()
   })
 
   it('persists incomplete evidence without provider work and blocks approval', async () => {

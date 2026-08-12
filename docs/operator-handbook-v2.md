@@ -51,6 +51,11 @@ same candidate and replay identity inside the canonical final transaction. Never
 into the generic JSON form or attach an unrelated existing draft; those legacy linkage paths are not
 exposed. Website and quarantined-file intake remain proposal/evidence only in this foundation.
 
+Reviewed DRAFT creation uses one stateless package service for tenant managers/owners and exact-scoped
+platform administrators. It records the real HUMAN role; admin creation does not impersonate a
+tenant member. Support/intake linkage is an explicit same-transaction finalizer, not hidden router
+state. A DRAFT still requires separate lifecycle review.
+
 ## Read the client lifecycle
 
 The portal lifecycle is a read model derived from current scoped evidence, not a status operators
@@ -166,6 +171,11 @@ revision, actor or reused command key is a conflict. Existing V1/V2/V3 rollback 
 distinct—do not assume the richer V3 lineage rules apply to legacy packages. These controls do not
 publish, invoke a provider or prove a live deployment.
 
+Use Guest design only from the exact venue's Internal Workspace. It records the real platform
+administrator and requires the displayed revision. You may keep an already reviewed logo/banner or
+clear it, but cannot enter or upload a new reference. The style card is illustrative, not a literal
+guest transcript; clients retain only their simple tone control.
+
 ## AI configuration and budgets
 
 The global incident control and venue admission checks are hard stops. Cost budgets reserve before
@@ -255,10 +265,12 @@ operation UUID for any deliberate resend. Never tell a guest that the old operat
 
 History is ordered by durable session sequence, not client or server clock. Engagement question and
 answer state commits atomically with the visible message pair. Guest analytics resolves the browser
-token to the exact internal venue session before storage; operators should not expect bearer tokens
-in analytics rows or logs. These are locally tested contracts only. Migration
-`20260812000400_add_durable_guest_chat_turns` remains unapplied, and no live provider or database
-behavior was exercised.
+token to the exact internal venue session. New question-derived events reference the exact stored
+user message; metadata has no raw-question fallback. Workers read text transiently through that
+relation and skip unattributed legacy events. Operators should not expect bearer tokens or raw
+questions in analytics rows or logs. Migrations `20260812000400_add_durable_guest_chat_turns` and
+`20260812000700_add_analytics_user_message_attribution` remain unapplied; no live provider or
+database behavior was exercised.
 
 ## Operational updates
 

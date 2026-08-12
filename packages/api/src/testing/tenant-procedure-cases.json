@@ -411,7 +411,7 @@
     }
   },
   {
-    "path": "venuePackage.preview",
+    "path": "venuePackageRead.preview",
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
@@ -425,21 +425,21 @@
     }
   },
   {
-    "path": "venuePackage.list",
+    "path": "venuePackageRead.list",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venue.findFirst",
     "input": { "venueId": "cvenueabc123456789012" }
   },
   {
-    "path": "venuePackage.getById",
+    "path": "venuePackageRead.getById",
     "kind": "query",
     "minimumRole": "MANAGER",
     "firstTouch": "venuePackage.findFirst",
     "input": { "id": "cpackageabc1234567890" }
   },
   {
-    "path": "venuePackage.createDraft",
+    "path": "venuePackageCreate.createDraft",
     "kind": "mutation",
     "minimumRole": "MANAGER",
     "firstTouch": "venuePackage.findFirst",
@@ -454,7 +454,7 @@
     }
   },
   {
-    "path": "venuePackage.approve",
+    "path": "venuePackageLifecycle.approve",
     "kind": "mutation",
     "minimumRole": "OWNER",
     "firstTouch": "venuePackage.findFirst",
@@ -467,7 +467,7 @@
     }
   },
   {
-    "path": "venuePackage.applyPackage",
+    "path": "venuePackageLifecycle.applyPackage",
     "kind": "mutation",
     "minimumRole": "OWNER",
     "firstTouch": "venuePackage.findFirst",
@@ -478,7 +478,7 @@
     }
   },
   {
-    "path": "venuePackage.revertPackage",
+    "path": "venuePackageLifecycle.revertPackage",
     "kind": "mutation",
     "minimumRole": "OWNER",
     "firstTouch": "venuePackage.findFirst",

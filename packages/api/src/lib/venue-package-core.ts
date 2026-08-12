@@ -1062,13 +1062,6 @@ function auditState(pkg: NonNullable<Awaited<ReturnType<typeof findPackage>>>) {
   }
 }
 
-export function venuePackageDraftAuditRole(session: {
-  isPlatformAdmin: boolean
-  role: string | null
-}): string {
-  return session.isPlatformAdmin ? 'PLATFORM_ADMIN' : (session.role ?? 'MANAGER')
-}
-
 async function finalizePackageApply(input: {
   db: DbClient
   tenantId: string

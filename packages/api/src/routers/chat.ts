@@ -878,6 +878,15 @@ export const chatRouter = router({
     } catch (error) {
       guestChatTurnError(error)
     }
+    const userMessageId = finalized.userMessageId
+    if (!userMessageId) {
+      guestChatTurnError(
+        new GuestChatTurnActionError(
+          'CONFLICT',
+          'Committed chat turn is missing user-message evidence.',
+        ),
+      )
+    }
     persistenceMs = elapsedMilliseconds(persistenceStartedAt)
 
     const totalMs = elapsedMilliseconds(requestStartedAt)
@@ -900,6 +909,7 @@ export const chatRouter = router({
           tenantId: venue.tenantId,
           venueId: input.venueId,
           sessionId: session.id,
+          userMessageId,
           eventType: 'message.fallback',
           metadata: {
             failureStage: 'generation',
@@ -917,6 +927,7 @@ export const chatRouter = router({
         tenantId: venue.tenantId,
         venueId: input.venueId,
         sessionId: session.id,
+        userMessageId,
         eventType: 'message.sent',
         metadata: {
           messageLength: trimmedInput.length,
@@ -931,6 +942,7 @@ export const chatRouter = router({
         tenantId: venue.tenantId,
         venueId: input.venueId,
         sessionId: session.id,
+        userMessageId,
         eventType: 'message.received',
         metadata: {
           responseLength: assistantResponse.length,
@@ -987,6 +999,7 @@ export const chatRouter = router({
           tenantId: venue.tenantId,
           venueId: input.venueId,
           sessionId: session.id,
+          userMessageId,
           eventType: 'message.low_confidence',
           metadata: {
             questionLength: trimmedInput.length,

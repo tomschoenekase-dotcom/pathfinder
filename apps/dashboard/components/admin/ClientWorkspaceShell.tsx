@@ -150,6 +150,11 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
           label: 'AI configuration',
           description: 'Effective models and safety defaults',
         },
+        {
+          href: `${venueRoot}/guest-design`,
+          label: 'Guest design',
+          description: 'Branding and responsive preview',
+        },
       ]
     : []
   const venueInsightNavigation: NavigationItem[] = venueRoot

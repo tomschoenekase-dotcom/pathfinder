@@ -226,12 +226,14 @@ async function projectExistingTurn(
     throw new GuestChatTurnActionError('CONFLICT', 'Operation identity is already bound.')
   }
   if (turn.status === 'COMPLETE') {
-    if (!turn.assistantMessageId) {
+    const userMessageId = turn.userMessageId
+    const assistantMessageId = turn.assistantMessageId
+    if (!userMessageId || !assistantMessageId) {
       throw new GuestChatTurnActionError('CONFLICT', 'Terminal chat evidence is inconsistent.')
     }
     const assistant = await tx.message.findFirst({
       where: {
-        id: turn.assistantMessageId,
+        id: assistantMessageId,
         tenantId: turn.tenantId,
         venueId: turn.venueId,
         sessionId: turn.sessionId,
@@ -253,6 +255,7 @@ async function projectExistingTurn(
       state: 'COMPLETE' as const,
       turnId: turn.id,
       sessionId: turn.sessionId,
+      userMessageId,
       response: assistant.content,
       places: metadata.data.places,
       replayed: true,
@@ -1140,6 +1143,7 @@ export async function finalizeGuestChatTurnAction(args: {
           state: 'COMPLETE' as const,
           turnId: turn.id,
           sessionId: turn.sessionId,
+          userMessageId,
           response: input.assistantResponse,
           places: replayMetadata.places,
           replayed: false,

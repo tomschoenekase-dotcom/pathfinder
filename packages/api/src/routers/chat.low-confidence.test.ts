@@ -158,6 +158,7 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
     state: 'COMPLETE',
     turnId: input.turnId,
     sessionId: 'sess_1',
+    userMessageId: '55555555-5555-4555-8555-555555555555',
     response: input.assistantResponse,
     places: input.replayMetadata.places,
     replayed: false,
@@ -197,6 +198,7 @@ describe('chat.send low-confidence flag', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.[0]).toMatchObject({
       eventType: 'message.low_confidence',
+      userMessageId: '55555555-5555-4555-8555-555555555555',
       metadata: { questionLength: 19, score: 0.9 },
     })
   })

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -22,8 +22,8 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
 }))
 
-vi.mock('../../lib/admin-reviewed-draft-orchestration', () => ({
-  runAdminReviewedDraftOrchestration: mocks.orchestrate,
+vi.mock('../venue-package', () => ({
+  createVenuePackageDraftService: mocks.orchestrate,
 }))
 
 vi.mock('../../lib/venue-package-core', () => ({
@@ -94,6 +94,31 @@ describe('admin venue-package operations reads', () => {
     expect(source).not.toMatch(/session:\s*\{[\s\S]{0,200}activeTenantId/)
   })
 
+  it('keeps reviewed-draft adapters free of router call-through and hidden finalizer state', () => {
+    const adapterSources = [
+      './venue-package-operations.ts',
+      './support-reviewed-drafts.ts',
+      './intake-operations.ts',
+    ].map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'))
+    const finalizerSource = readFileSync(
+      new URL('../../lib/venue-package-draft-finalizer.ts', import.meta.url),
+      'utf8',
+    )
+
+    for (const source of adapterSources) {
+      expect(source).not.toContain('createCaller')
+      expect(source).not.toContain('activeTenantId')
+      expect(source).not.toMatch(/role:\s*['"]MANAGER['"]/)
+      expect(source).not.toContain('admin-reviewed-draft-orchestration')
+    }
+    expect(finalizerSource).not.toContain('AsyncLocalStorage')
+    expect(finalizerSource).not.toContain('withVenuePackageDraftFinalizer')
+    expect(finalizerSource).not.toContain('runVenuePackageDraftFinalizer')
+    expect(
+      existsSync(new URL('../../lib/admin-reviewed-draft-orchestration.ts', import.meta.url)),
+    ).toBe(false)
+  })
+
   it.each([
     ['approveVenuePackage', mocks.approve, true],
     ['applyVenuePackage', mocks.apply, false],
@@ -153,7 +178,9 @@ describe('admin venue-package operations reads', () => {
     expect(mocks.orchestrate).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: 'tenant-1',
-        draft: expect.objectContaining({ venueId: 'venue-1', payload }),
+        input: expect.objectContaining({ venueId: 'venue-1', payload }),
+        actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
+        db: expect.anything(),
         finalizer: expect.any(Function),
       }),
     )

@@ -6,7 +6,7 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { standaloneReviewedDraftFinalizer } from '../../lib/admin-reviewed-draft-finalizers'
-import { runAdminReviewedDraftOrchestration } from '../../lib/admin-reviewed-draft-orchestration'
+import { createVenuePackageDraftService } from '../venue-package'
 import {
   canonicalVenuePackagePayload,
   VenuePackagePayload,
@@ -132,10 +132,11 @@ export const adminVenuePackageOperationsRouter = router({
   createReviewedVenuePackageDraft: adminProcedure
     .input(scope.extend({ draftKey: z.string().uuid(), payload: VenuePackagePayload }))
     .mutation(({ ctx, input }) =>
-      runAdminReviewedDraftOrchestration({
-        ctx,
+      createVenuePackageDraftService({
+        db: ctx.db,
         tenantId: input.tenantId,
-        draft: { venueId: input.venueId, draftKey: input.draftKey, payload: input.payload },
+        actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+        input: { venueId: input.venueId, draftKey: input.draftKey, payload: input.payload },
         finalizer: standaloneReviewedDraftFinalizer(ctx.session.userId),
       }),
     ),

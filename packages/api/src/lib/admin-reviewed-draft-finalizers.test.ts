@@ -5,10 +5,6 @@ import {
   standaloneReviewedDraftFinalizer,
   supportReviewedDraftFinalizer,
 } from './admin-reviewed-draft-finalizers'
-import {
-  runVenuePackageDraftFinalizer,
-  withVenuePackageDraftFinalizer,
-} from './venue-package-draft-finalizer'
 
 const completePreview = {
   report: { semanticDuplicateScan: { status: 'COMPLETE' } },
@@ -49,17 +45,6 @@ function harness() {
 }
 
 describe('admin reviewed DRAFT finalizers', () => {
-  it('runs only inside the scoped canonical orchestration context', async () => {
-    const callback = vi.fn().mockResolvedValue({ linked: true })
-    await runVenuePackageDraftFinalizer(harness().base)
-    expect(callback).not.toHaveBeenCalled()
-    const result = await withVenuePackageDraftFinalizer(callback, async () => {
-      await runVenuePackageDraftFinalizer(harness().base)
-      return 'draft-result'
-    })
-    expect(result).toEqual({ value: 'draft-result', attachment: { linked: true } })
-  })
-
   it('requires actor-bound DRAFT identity and semantic COMPLETE evidence', async () => {
     const { base } = harness()
     await expect(standaloneReviewedDraftFinalizer('admin_1')(base)).resolves.toMatchObject({

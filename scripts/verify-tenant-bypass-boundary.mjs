@@ -44,6 +44,8 @@ const approvedCallCounts = new Map([
   // Evaluation comparison uses one additional exact tenant-scoped read.
   ['packages/api/src/routers/admin/evaluation-operations.ts', 3],
   ['packages/api/src/routers/admin/freshness-audit.ts', 1],
+  // Guest design exposes two platform-admin-only, exact tenant+venue scoped operations.
+  ['packages/api/src/routers/admin/guest-design.ts', 2],
   ['packages/api/src/routers/admin/legacy-content.ts', 7],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
   ['packages/api/src/routers/admin/weekly-report-lifecycle.ts', 1],

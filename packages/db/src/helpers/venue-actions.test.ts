@@ -277,6 +277,54 @@ describe('canonical venue actions', () => {
     })
   })
 
+  it('accepts a human platform-admin design adapter and replays an exact desired state', async () => {
+    const design = {
+      chatTheme: 'forest',
+      chatAccentColor: '#245A4A',
+      chatFont: 'inter',
+      chatLogoUrl: 'https://cdn.example.test/reviewed-logo.png',
+      chatBannerUrl: null,
+      updatedAt: new Date(revision.getTime() + 10),
+    }
+    const replay = fixture()
+    replay.tx.venue.findFirst.mockResolvedValueOnce(design)
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: { type: 'HUMAN', id: 'platform-1', role: 'PLATFORM_ADMIN' },
+          fields: {
+            chatTheme: 'forest',
+            chatAccentColor: '#245A4A',
+            chatFont: 'inter',
+            chatLogoUrl: design.chatLogoUrl,
+            chatBannerUrl: null,
+          },
+        },
+        replay.client as never,
+      ),
+    ).resolves.toMatchObject({ replayed: true, updatedAt: design.updatedAt })
+    expect(replay.tx.venue.updateMany).not.toHaveBeenCalled()
+    expect(replay.tx.auditLog.create).not.toHaveBeenCalled()
+
+    const invalid = fixture()
+    await expect(
+      updateVenueChatDesignAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          expectedUpdatedAt: revision,
+          actor: { type: 'SERVICE' as never, id: 'worker', role: 'PLATFORM_ADMIN' },
+          fields: { chatTheme: 'forest' },
+        },
+        invalid.client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(invalid.tx.venue.findFirst).not.toHaveBeenCalled()
+  })
+
   it('enforces OWNER at the delete domain boundary before transaction or audit work', async () => {
     const { tx, client } = fixture()
     await expect(
