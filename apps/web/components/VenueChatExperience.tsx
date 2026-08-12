@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+import type { inferRouterInputs } from '@trpc/server'
+import type { AppRouter } from '@pathfinder/api'
 
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useSession } from '../hooks/useSession'
@@ -21,6 +23,22 @@ type VenueChatExperienceProps = {
   initialDraft?: string
 }
 
+type ChatSendInput = inferRouterInputs<AppRouter>['chat']['send']
+type PendingTurn = {
+  operationId: string
+  input: ChatSendInput
+  epoch: number
+  venueId: string
+  anonymousToken: string
+}
+
+function trpcErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null
+  const candidate = error as { code?: unknown; data?: { code?: unknown } }
+  const code = typeof candidate.code === 'string' ? candidate.code : candidate.data?.code
+  return typeof code === 'string' ? code : null
+}
+
 export function VenueChatExperience({
   venueSlug,
   presentation = 'standalone',
@@ -37,6 +55,7 @@ export function VenueChatExperience({
   const [pageError, setPageError] = useState<string | null>(null)
   const [isVenueUnavailable, setIsVenueUnavailable] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [recoveryMode, setRecoveryMode] = useState<'retry-turn' | 'check-history' | null>(null)
   const [language, setLanguage] = useState<SupportedChatLanguage>(() => {
     const stored = getStoredLanguage()
     return SUPPORTED_LANGUAGES.some((entry) => entry.label === stored)
@@ -46,6 +65,11 @@ export function VenueChatExperience({
   const lastSyncedPosRef = useRef<{ lat: number; lng: number } | null>(null)
   const conversationEpochRef = useRef(0)
   const sendingEpochRef = useRef<number | null>(null)
+  const activeOperationRef = useRef<string | null>(null)
+  const pendingTurnRef = useRef<PendingTurn | null>(null)
+  const currentVenueIdRef = useRef<string | null>(null)
+  const currentAnonymousTokenRef = useRef<string | null>(null)
+  const reconciliationRequiredRef = useRef(false)
   const { lat, lng, permission, refresh } = useGeolocation(
     Boolean(venue && venue.guideMode !== 'non_location'),
   )
@@ -53,6 +77,8 @@ export function VenueChatExperience({
     venue?.id ?? '',
   )
   const visitorId = useVisitorId()
+  currentVenueIdRef.current = venue?.id ?? null
+  currentAnonymousTokenRef.current = anonymousToken
   const { endSession, resetAnalytics, sessionStartedAtRef, trackPlaceEvent, viewedPlaceIdsRef } =
     useVenueChatAnalytics({ venue, anonymousToken, visitorId })
 
@@ -71,7 +97,11 @@ export function VenueChatExperience({
       setIsVenueUnavailable(false)
       setMessages([])
       setSendError(null)
+      setRecoveryMode(null)
+      reconciliationRequiredRef.current = false
       setIsSending(false)
+      activeOperationRef.current = null
+      pendingTurnRef.current = null
       sendingEpochRef.current = null
       lastSyncedPosRef.current = null
       resetAnalytics()
@@ -158,45 +188,188 @@ export function VenueChatExperience({
     }
   }, [anonymousToken, client, lat, lng, setSessionId, venue, visitorId])
 
-  async function handleSend(raw: string) {
-    const message = raw.trim()
-    if (!venue || !anonymousToken || !message || isSending) return
+  function turnScopeIsCurrent(turn: PendingTurn) {
+    return (
+      conversationEpochRef.current === turn.epoch &&
+      currentVenueIdRef.current === turn.venueId &&
+      currentAnonymousTokenRef.current === turn.anonymousToken
+    )
+  }
+
+  function turnIsCurrent(turn: PendingTurn) {
+    return turnScopeIsCurrent(turn) && pendingTurnRef.current?.operationId === turn.operationId
+  }
+
+  function abandonPendingOptimistic() {
+    const abandonedOperationId = pendingTurnRef.current?.operationId
+    if (!abandonedOperationId) return
+    setMessages((current) =>
+      current.filter((message) => message.pendingOperationId !== abandonedOperationId),
+    )
+    pendingTurnRef.current = null
+    setRecoveryMode(null)
     setSendError(null)
-    setIsSending(true)
-    setMessages((current) => [...current, { role: 'user', content: message }])
-    const epoch = conversationEpochRef.current
-    sendingEpochRef.current = epoch
+  }
+
+  async function reconcileTurn(turn: PendingTurn): Promise<boolean> {
     try {
-      const result = await client.chat.send.mutate({
-        venueId: venue.id,
-        anonymousToken,
-        ...(visitorId ? { visitorId } : {}),
-        message,
-        ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
-        ...(language === 'English' ? {} : { language }),
+      const history = await client.chat.history.query({
+        venueId: turn.venueId,
+        anonymousToken: turn.anonymousToken,
       })
-      if (conversationEpochRef.current === epoch) {
-        setMessages((current) => [
-          ...current,
-          { role: 'assistant', content: result.response, places: result.places },
-        ])
-        setSessionId(result.sessionId)
-      }
-    } catch (error) {
-      if (conversationEpochRef.current !== epoch) return
-      if (classifyPublicVenueLookupError(error) === 'temporarily-unavailable')
-        setIsVenueUnavailable(true)
-      else setSendError('That message did not send. Please try again.')
-    } finally {
-      if (sendingEpochRef.current === epoch) {
-        sendingEpochRef.current = null
-        setIsSending(false)
-      }
+      if (!turnIsCurrent(turn)) return false
+      setMessages(history.messages)
+      reconciliationRequiredRef.current = false
+      return true
+    } catch {
+      // Retain the frozen operation. A failed reconciliation must not invent an empty history.
+      return false
     }
   }
 
+  async function dispatchTurn(turn: PendingTurn, addOptimistic: boolean) {
+    if (activeOperationRef.current !== null || !turnIsCurrent(turn)) return
+    activeOperationRef.current = turn.operationId
+    setSendError(null)
+    setRecoveryMode(null)
+    setIsSending(true)
+    if (addOptimistic)
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'user',
+          content: turn.input.message,
+          pendingOperationId: turn.operationId,
+        },
+      ])
+    sendingEpochRef.current = turn.epoch
+    try {
+      const result = await client.chat.send.mutate(turn.input)
+      if (!turnIsCurrent(turn)) return
+      const response = result.response
+      const resultPlaces = result.places
+      if (typeof response !== 'string' || !Array.isArray(resultPlaces)) {
+        throw new Error('The completed chat turn response was incomplete.')
+      }
+      setMessages((current) => [
+        ...current.map((message) =>
+          message.pendingOperationId === turn.operationId
+            ? { role: message.role, content: message.content }
+            : message,
+        ),
+        {
+          role: 'assistant',
+          content: response,
+          places: resultPlaces as NonNullable<ChatMessage['places']>,
+        },
+      ])
+      setSessionId(result.sessionId)
+      pendingTurnRef.current = null
+      setRecoveryMode(null)
+    } catch (error) {
+      if (!turnIsCurrent(turn)) return
+      const code = trpcErrorCode(error)
+      if (code === 'CONFLICT' || code === 'PRECONDITION_FAILED') {
+        const reconciled = await reconcileTurn(turn)
+        if (!turnIsCurrent(turn)) return
+        if (reconciled) {
+          pendingTurnRef.current = null
+          setRecoveryMode(null)
+          setSendError(
+            code === 'PRECONDITION_FAILED'
+              ? 'The original message outcome could not be confirmed and will not be retried. The conversation was refreshed; you may send a new message.'
+              : 'The conversation changed while this message was being checked. Review the refreshed conversation before sending a new message.',
+          )
+        } else {
+          reconciliationRequiredRef.current = true
+          setRecoveryMode('check-history')
+          setSendError(
+            'The conversation changed, but its current history could not be confirmed. Check the conversation before sending a new message.',
+          )
+        }
+      } else if (code === 'BAD_REQUEST' || code === 'NOT_FOUND') {
+        setRecoveryMode(null)
+        setSendError('This message could not be accepted. Review it before sending a new message.')
+      } else {
+        setRecoveryMode('retry-turn')
+        setSendError(
+          code === 'TOO_MANY_REQUESTS'
+            ? 'This message is still being checked. Wait a moment, then retry the same message.'
+            : 'The outcome of this message is not confirmed. Retry the same message safely.',
+        )
+      }
+    } finally {
+      if (sendingEpochRef.current === turn.epoch) sendingEpochRef.current = null
+      if (turnScopeIsCurrent(turn)) setIsSending(false)
+      if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
+    }
+  }
+
+  function handleSend(raw: string) {
+    const message = raw.trim()
+    if (
+      !venue ||
+      !anonymousToken ||
+      !message ||
+      activeOperationRef.current !== null ||
+      reconciliationRequiredRef.current
+    )
+      return
+    abandonPendingOptimistic()
+    const epoch = conversationEpochRef.current
+    const operationId = crypto.randomUUID()
+    const input: ChatSendInput = {
+      operationId,
+      venueId: venue.id,
+      anonymousToken,
+      ...(visitorId ? { visitorId } : {}),
+      message,
+      ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),
+      ...(language === 'English' ? {} : { language }),
+    }
+    const turn = { operationId, input, epoch, venueId: venue.id, anonymousToken }
+    pendingTurnRef.current = turn
+    void dispatchTurn(turn, true)
+  }
+
+  function handleRetry() {
+    const turn = pendingTurnRef.current
+    if (!turn) return
+    if (recoveryMode === 'check-history') {
+      void (async () => {
+        if (activeOperationRef.current !== null) return
+        activeOperationRef.current = turn.operationId
+        setIsSending(true)
+        const reconciled = await reconcileTurn(turn)
+        if (turnIsCurrent(turn)) {
+          setIsSending(false)
+          if (reconciled) {
+            pendingTurnRef.current = null
+            setRecoveryMode(null)
+            setSendError(
+              'Conversation refreshed. The unconfirmed message will not be retried; you may send a new message.',
+            )
+          } else {
+            setSendError('The conversation still could not be confirmed. Try checking again.')
+          }
+        }
+        if (activeOperationRef.current === turn.operationId) activeOperationRef.current = null
+      })()
+    } else if (recoveryMode === 'retry-turn') void dispatchTurn(turn, false)
+  }
+
+  function handleDraftChange() {
+    if (
+      activeOperationRef.current !== null ||
+      !pendingTurnRef.current ||
+      reconciliationRequiredRef.current
+    )
+      return
+    abandonPendingOptimistic()
+  }
+
   function handleNewConversation() {
-    if (!venue || !anonymousToken || isSending) return
+    if (!venue || !anonymousToken || isSending || activeOperationRef.current !== null) return
     if (
       messages.length &&
       !window.confirm(
@@ -212,8 +385,12 @@ export function VenueChatExperience({
     }
     conversationEpochRef.current += 1
     sendingEpochRef.current = null
+    activeOperationRef.current = null
+    pendingTurnRef.current = null
     setMessages([])
     setSendError(null)
+    setRecoveryMode(null)
+    reconciliationRequiredRef.current = false
     lastSyncedPosRef.current = null
     resetAnalytics()
     endSession(venue.id, previousToken, previousStartedAt)
@@ -244,8 +421,11 @@ export function VenueChatExperience({
       initialDraft={initialDraft}
       location={{ lat, lng, permission, refresh }}
       onSend={(message) => {
-        void handleSend(message)
+        handleSend(message)
       }}
+      onDraftChange={handleDraftChange}
+      onRetry={recoveryMode ? handleRetry : null}
+      retryLabel={recoveryMode === 'check-history' ? 'Check conversation' : 'Retry same message'}
       onNewConversation={handleNewConversation}
       onPlaceView={(placeId) => {
         if (!viewedPlaceIdsRef.current.has(placeId)) {

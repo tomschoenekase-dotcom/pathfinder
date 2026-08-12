@@ -211,6 +211,22 @@ resource-bound cursors, explicit safe selects, and output leakage filtering. The
 listener, credential issuance/verification, OAuth, or live authentication path; do not describe the
 bindings as an externally reachable service.
 
+## Guest chat retry and reconciliation
+
+The guest client assigns one operation UUID to an unchanged message and retains the complete input
+for an ambiguous transport retry. A successful replay returns the already committed response without
+another provider call. `TOO_MANY_REQUESTS` and transient unavailability may retain the same frozen
+operation. A terminal `PRECONDITION_FAILED` means provider work could not be safely committed: the
+client removes the unpersisted optimistic turn, reloads authoritative history and requires a new
+operation UUID for any deliberate resend. Never tell a guest that the old operation can still finish.
+
+History is ordered by durable session sequence, not client or server clock. Engagement question and
+answer state commits atomically with the visible message pair. Guest analytics resolves the browser
+token to the exact internal venue session before storage; operators should not expect bearer tokens
+in analytics rows or logs. These are locally tested contracts only. Migration
+`20260812000400_add_durable_guest_chat_turns` remains unapplied, and no live provider or database
+behavior was exercised.
+
 ## Operational updates
 
 Use plain language, explicit venue scope, start and expiry times, and preview. Review current,

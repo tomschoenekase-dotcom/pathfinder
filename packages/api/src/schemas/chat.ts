@@ -62,6 +62,7 @@ export const ChatSessionInput = z
 
 export const ChatSendInput = z
   .object({
+    operationId: z.string().uuid().optional(),
     venueId: z.string().min(1).max(200),
     anonymousToken: z.string().uuid(),
     visitorId: z.string().uuid().optional(),

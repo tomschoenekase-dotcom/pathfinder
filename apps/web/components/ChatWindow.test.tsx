@@ -204,6 +204,28 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect((composer as HTMLTextAreaElement).value).toBe('')
   })
 
+  it('offers an accessible exact retry and reports intentional draft edits', () => {
+    const onRetry = vi.fn()
+    const onDraftChange = vi.fn()
+    render(
+      <ChatWindow
+        messages={[{ role: 'user', content: 'Where is the cafe?' }]}
+        onSend={vi.fn()}
+        onDraftChange={onDraftChange}
+        onRetry={onRetry}
+        isLoading={false}
+        errorMessage="The outcome is not confirmed."
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Retry same message' }))
+    expect(onRetry).toHaveBeenCalledOnce()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ask a question' }), {
+      target: { value: 'Ask a different question' },
+    })
+    expect(onDraftChange).toHaveBeenCalledOnce()
+    expect(screen.getByRole('alert').textContent).toContain('The outcome is not confirmed.')
+  })
+
   it('submits an explicitly rendered assistant choice through the existing send path', () => {
     const onSend = vi.fn()
     render(

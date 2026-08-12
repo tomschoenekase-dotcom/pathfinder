@@ -138,6 +138,8 @@ export async function generateEmbeddings(params: {
   timeoutMs?: number
   maxAttempts?: number
   retryDelayMs?: number
+  invocationId?: string
+  onBeforeFirstDispatch?: () => Promise<void>
 }): Promise<AiEmbeddingResult> {
   if (params.texts.length === 0 || params.texts.some((text) => text.trim().length === 0)) {
     throw new Error('Embedding input must contain nonblank text')
@@ -157,9 +159,10 @@ export async function generateEmbeddings(params: {
     throw new Error('retryDelayMs must be a nonnegative finite number')
   }
   const startedAt = performance.now()
-  const invocationId = createAiInvocationId()
+  const invocationId = params.invocationId ?? createAiInvocationId()
   const budgetGate = params.budgetGate
   let lastError: unknown
+  let dispatchRecorded = false
   const reservedUnits = embeddingAttemptCostCeilingUnits({ spec, texts: params.texts })
   const client = getOpenAiClient()
 
@@ -196,7 +199,27 @@ export async function generateEmbeddings(params: {
       if (reservation) await budgetGate.releaseUndispatched(reservation)
       throw admissionError
     }
-    if (reservation) await budgetGate.markDispatched(reservation)
+    if (!dispatchRecorded) {
+      try {
+        await params.onBeforeFirstDispatch?.()
+      } catch (dispatchFenceError) {
+        if (reservation) await budgetGate.releaseUndispatched(reservation)
+        throw dispatchFenceError
+      }
+      dispatchRecorded = true
+    }
+    if (reservation) {
+      try {
+        await budgetGate.markDispatched(reservation)
+      } catch (accountingError) {
+        try {
+          await budgetGate.releaseUndispatched(reservation)
+        } catch {
+          // Preserve the original pre-provider accounting failure.
+        }
+        throw accountingError
+      }
+    }
     let observedReservation: AiBudgetReservationRef | null = null
     try {
       const raw = await client.embeddings.create(
@@ -304,6 +327,8 @@ export async function generateEmbedding(params: {
   timeoutMs?: number
   maxAttempts?: number
   retryDelayMs?: number
+  invocationId?: string
+  onBeforeFirstDispatch?: () => Promise<void>
 }): Promise<AiEmbeddingResult & { embedding: number[] }> {
   const result = await generateEmbeddings({
     modelKey: params.modelKey,
@@ -314,6 +339,10 @@ export async function generateEmbedding(params: {
     ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
     ...(params.maxAttempts !== undefined ? { maxAttempts: params.maxAttempts } : {}),
     ...(params.retryDelayMs !== undefined ? { retryDelayMs: params.retryDelayMs } : {}),
+    ...(params.invocationId !== undefined ? { invocationId: params.invocationId } : {}),
+    ...(params.onBeforeFirstDispatch !== undefined
+      ? { onBeforeFirstDispatch: params.onBeforeFirstDispatch }
+      : {}),
   })
   return { ...result, embedding: result.embeddings[0]! }
 }

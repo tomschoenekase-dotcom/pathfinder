@@ -18,6 +18,9 @@ type Message = {
 type ChatWindowProps = {
   messages: Message[]
   onSend: (message: string) => void
+  onDraftChange?: () => void
+  onRetry?: () => void
+  retryLabel?: string
   isLoading: boolean
   errorMessage?: string | null
   accentColor?: string
@@ -35,6 +38,9 @@ const RESPONDING_ANNOUNCEMENT = 'PathFinder guide is responding'
 export function ChatWindow({
   messages,
   onSend,
+  onDraftChange,
+  onRetry,
+  retryLabel = 'Retry same message',
   isLoading,
   errorMessage = null,
   accentColor,
@@ -181,12 +187,22 @@ export function ChatWindow({
 
       <div className="border-t border-[var(--chat-border)] bg-[var(--chat-bg)] p-3 sm:p-4">
         {errorMessage ? (
-          <p
+          <div
             className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
             role="alert"
           >
             {errorMessage}
-          </p>
+            {onRetry ? (
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={onRetry}
+                className="ml-2 min-h-11 rounded-full border border-rose-300 bg-white px-4 font-semibold text-rose-800 disabled:opacity-50"
+              >
+                {retryLabel}
+              </button>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="flex items-end gap-3">
@@ -205,6 +221,7 @@ export function ChatWindow({
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value)
+              onDraftChange?.()
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {

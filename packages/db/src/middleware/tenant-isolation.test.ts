@@ -95,6 +95,8 @@ describe('tenantIsolationMiddleware', () => {
       'VenuePackage',
       'VenuePackageDuplicateAnalysis',
       'VisitorSession',
+      'GuestChatTurn',
+      'GuestChatProviderOperation',
       'AiUsageEvent',
       'AiUsageDailyRollup',
       'AiCostBudget',

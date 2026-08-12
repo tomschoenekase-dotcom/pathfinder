@@ -191,14 +191,17 @@ export async function generateText<TParsed = string>(params: {
   admissionGuard: AiAdmissionGuard
   budgetGate: AiBudgetGate
   parseResponse?: (text: string) => TParsed
+  invocationId?: string
+  onBeforeFirstDispatch?: () => Promise<void>
 }): Promise<AiTextResult<TParsed>> {
   const spec = getAiModelSpec(params.modelKey)
   const maxAttempts = params.maxAttempts ?? spec.maxAttempts
   const timeoutMs = params.timeoutMs ?? spec.timeoutMs
   const startedAt = performance.now()
-  const invocationId = createAiInvocationId()
+  const invocationId = params.invocationId ?? createAiInvocationId()
   const budgetGate = params.budgetGate
   let lastError: unknown
+  let dispatchRecorded = false
 
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
     throw new Error('maxAttempts must be a positive integer')
@@ -249,7 +252,27 @@ export async function generateText<TParsed = string>(params: {
       if (reservation) await budgetGate.releaseUndispatched(reservation)
       throw admissionError
     }
-    if (reservation) await budgetGate.markDispatched(reservation)
+    if (!dispatchRecorded) {
+      try {
+        await params.onBeforeFirstDispatch?.()
+      } catch (dispatchFenceError) {
+        if (reservation) await budgetGate.releaseUndispatched(reservation)
+        throw dispatchFenceError
+      }
+      dispatchRecorded = true
+    }
+    if (reservation) {
+      try {
+        await budgetGate.markDispatched(reservation)
+      } catch (accountingError) {
+        try {
+          await budgetGate.releaseUndispatched(reservation)
+        } catch {
+          // Preserve the original pre-provider accounting failure.
+        }
+        throw accountingError
+      }
+    }
     let observedReservation: AiBudgetReservationRef | null = null
     try {
       const raw = await client.messages.create(

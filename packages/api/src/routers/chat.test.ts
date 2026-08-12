@@ -8,15 +8,17 @@ import {
   type OpenAiEmbeddingsClient,
 } from '@pathfinder/ai'
 
+const configLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}))
+
 // Mock @pathfinder/config so env validation doesn't fail in the test environment
 vi.mock('@pathfinder/config', () => ({
   env: { ANTHROPIC_API_KEY: 'test-key' },
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  },
+  logger: configLogger,
 }))
 
 const { emitEvent } = vi.hoisted(() => ({
@@ -34,10 +36,24 @@ const { checkRateLimit } = vi.hoisted(() => ({
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit }))
 
 const semanticSearch = vi.hoisted(() => ({ places: vi.fn(), knowledge: vi.fn() }))
+const guestTurnActions = vi.hoisted(() => ({
+  reserve: vi.fn(),
+  claim: vi.fn(),
+  dispatch: vi.fn(),
+  observe: vi.fn(),
+  fail: vi.fn(),
+  finalize: vi.fn(),
+}))
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
   searchPlacesByEmbedding: semanticSearch.places,
   searchKnowledgeByEmbedding: semanticSearch.knowledge,
+  reserveGuestChatTurnAction: guestTurnActions.reserve,
+  claimGuestChatTurnAction: guestTurnActions.claim,
+  markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+  observeGuestChatProviderOperationAction: guestTurnActions.observe,
+  failGuestChatTurnAction: guestTurnActions.fail,
+  finalizeGuestChatTurnAction: guestTurnActions.finalize,
 }))
 
 import { router } from '../core'
@@ -188,6 +204,47 @@ describe('chat router', () => {
     dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
+    guestTurnActions.reserve.mockImplementation(async () => {
+      const prior = await sessionUpsert({
+        where: {
+          venueId_anonymousToken: { venueId: VENUE_ID, anonymousToken: TOKEN },
+          tenantId: TENANT_ID,
+        },
+        create: { tenantId: TENANT_ID, venueId: VENUE_ID },
+      })
+      return {
+        state: 'RESERVED',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        sessionId: prior?.id ?? SESSION_ID,
+        replayed: false,
+      }
+    })
+    guestTurnActions.claim.mockResolvedValue({
+      state: 'GENERATING',
+      turnId: '11111111-1111-4111-8111-111111111111',
+      sessionId: SESSION_ID,
+      claimId: '22222222-2222-4222-8222-222222222222',
+      providerOperations: [
+        { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
+        { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+      ],
+      replayed: false,
+    })
+    guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
+    guestTurnActions.observe.mockResolvedValue({ observed: true })
+    guestTurnActions.fail.mockResolvedValue({ failed: true })
+    guestTurnActions.finalize.mockImplementation(async ({ input }) => {
+      await messageCreate({ data: { role: 'user', content: input.message } })
+      await messageCreate({ data: { role: 'assistant', content: input.assistantResponse } })
+      return {
+        state: 'COMPLETE',
+        turnId: input.turnId,
+        sessionId: SESSION_ID,
+        response: input.assistantResponse,
+        places: input.replayMetadata.places,
+        replayed: false,
+      }
+    })
     checkRateLimit.mockResolvedValue(true)
   })
 
@@ -414,6 +471,71 @@ describe('chat router', () => {
   // --- chat.send ---
 
   describe('chat.send', () => {
+    it('returns terminal ambiguity from an expired dispatched retry without provider work', async () => {
+      dbQueryRaw.mockResolvedValueOnce([venueRow])
+      guestTurnActions.reserve.mockResolvedValueOnce({
+        state: 'AMBIGUOUS',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        sessionId: SESSION_ID,
+        replayed: true,
+      })
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message:
+          'The original provider outcome could not be committed. Start a new message; the original operation will not be repeated.',
+      })
+      expect(guestTurnActions.claim).not.toHaveBeenCalled()
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+    })
+
+    it('returns a completed exact replay without provider, spend, or persistence work', async () => {
+      dbQueryRaw.mockResolvedValueOnce([venueRow])
+      guestTurnActions.reserve.mockResolvedValueOnce({
+        state: 'COMPLETE',
+        turnId: '11111111-1111-4111-8111-111111111111',
+        sessionId: SESSION_ID,
+        response: 'Previously committed response.',
+        places: [],
+        replayed: true,
+      })
+
+      const result = await caller.chat.send({
+        ...sendInput,
+        operationId: '99999999-9999-4999-8999-999999999999',
+      })
+
+      expect(result).toEqual({
+        response: 'Previously committed response.',
+        sessionId: SESSION_ID,
+        places: [],
+        replayed: true,
+      })
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(guestTurnActions.claim).not.toHaveBeenCalled()
+      expect(guestTurnActions.finalize).not.toHaveBeenCalled()
+    })
+
+    it('passes the client operation UUID into the exact durable reservation', async () => {
+      setupHappyPath('Near the entrance.')
+      const operationId = '99999999-9999-4999-8999-999999999999'
+      await caller.chat.send({ ...sendInput, operationId })
+      expect(guestTurnActions.reserve).toHaveBeenCalledWith(
+        expect.objectContaining({ request: expect.objectContaining({ requestId: operationId }) }),
+      )
+    })
+
+    it('never emits raw message text or the anonymous bearer token in analytics', async () => {
+      setupHappyPath('Near the entrance.')
+      await caller.chat.send(sendInput)
+      const serialized = JSON.stringify(emitEvent.mock.calls)
+      expect(serialized).not.toContain(sendInput.message)
+      expect(serialized).not.toContain(TOKEN)
+      expect(serialized).toContain('messageLength')
+    })
+
     const sendInput = {
       venueId: VENUE_ID,
       anonymousToken: TOKEN,
@@ -625,6 +747,52 @@ describe('chat router', () => {
       return systemBlocks.map((block) => block.text).join('')
     }
 
+    it('links retried embedding and generation receipts to their terminal successful usage events', async () => {
+      setupHappyPath('Recovered response.')
+      embeddingCreate.mockReset()
+      embeddingCreate
+        .mockRejectedValueOnce(Object.assign(new Error('embedding busy'), { status: 503 }))
+        .mockResolvedValueOnce({
+          data: [{ embedding: Array.from({ length: 1_536 }, () => 0.1), index: 0 }],
+          usage: { prompt_tokens: 5, total_tokens: 5 },
+        })
+      anthropicCreate.mockReset()
+      anthropicCreate
+        .mockRejectedValueOnce(Object.assign(new Error('generation busy'), { status: 503 }))
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'Recovered response.' }],
+          usage: { input_tokens: 20, output_tokens: 10 },
+        })
+      aiUsageEventCreate.mockImplementation(async ({ data }) => ({
+        id: `${data.feature}-${data.success ? 'success' : 'failure'}-${data.attempts}`,
+      }))
+
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'Recovered response.',
+      })
+      expect(embeddingCreate).toHaveBeenCalledTimes(2)
+      expect(anthropicCreate).toHaveBeenCalledTimes(2)
+      expect(guestTurnActions.dispatch).toHaveBeenCalledTimes(2)
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'QUERY_EMBEDDING',
+            outcomeCode: 'SUCCEEDED',
+            usageReference: 'guest-chat-query-embedding-success-2',
+          }),
+        }),
+      )
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            outcomeCode: 'SUCCEEDED',
+            usageReference: 'guest-chat-success-2',
+          }),
+        }),
+      )
+    })
+
     it('returns a non-empty response string and sessionId', async () => {
       setupHappyPath('The elephants are 50m north.')
 
@@ -650,12 +818,12 @@ describe('chat router', () => {
         }),
       )
       expect(emitEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: 'message.sent', sessionId: TOKEN }),
+        expect.objectContaining({ eventType: 'message.sent', sessionId: SESSION_ID }),
       )
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.received',
-          sessionId: TOKEN,
+          sessionId: SESSION_ID,
           metadata: expect.objectContaining({
             fallback: false,
             retrievalMode: 'semantic',
@@ -683,10 +851,9 @@ describe('chat router', () => {
 
       await caller.chat.send(sendInput)
 
-      expect(sessionUpsert).toHaveBeenCalledWith(
+      expect(guestTurnActions.reserve).toHaveBeenCalledWith(
         expect.objectContaining({
-          create: expect.objectContaining({ latestLat: null, latestLng: null }),
-          update: expect.objectContaining({ latestLat: null, latestLng: null }),
+          request: expect.objectContaining({ retainLocation: false }),
         }),
       )
     })
@@ -728,10 +895,9 @@ describe('chat router', () => {
           lng: null,
         }),
       ])
-      expect(sessionUpsert).toHaveBeenCalledWith(
+      expect(guestTurnActions.reserve).toHaveBeenCalledWith(
         expect.objectContaining({
-          create: expect.objectContaining({ latestLat: null, latestLng: null }),
-          update: expect.objectContaining({ latestLat: null, latestLng: null }),
+          request: expect.objectContaining({ retainLocation: false }),
         }),
       )
       expect(getConcatenatedSystemPrompt()).toContain('this is a content guide, not a map')
@@ -797,7 +963,7 @@ describe('chat router', () => {
       expect(semanticSearch.places).toHaveBeenCalledWith(
         expect.objectContaining({ userLat: sendInput.lat, userLng: sendInput.lng }),
       )
-      expect(result.places[0]).toMatchObject({ id: 'p1', distanceMeters: 125 })
+      expect(result.places?.[0]).toMatchObject({ id: 'p1', distanceMeters: 125 })
     })
 
     it('falls back to importance without inventing a visitor position when embedding fails', async () => {
@@ -919,7 +1085,7 @@ describe('chat router', () => {
 
       expect(prompt.indexOf('Visitor Habitat')).toBeLessThan(prompt.indexOf('Default Habitat'))
       expect(prompt).toContain('Visitor Habitat (attraction) - right nearby')
-      expect(result.places[0]).toMatchObject({ id: 'near_visitor', distanceMeters: 0 })
+      expect(result.places?.[0]).toMatchObject({ id: 'near_visitor', distanceMeters: 0 })
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.received',
@@ -977,6 +1143,35 @@ describe('chat router', () => {
       expect(embeddingCreate).not.toHaveBeenCalled()
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(messageCreate).not.toHaveBeenCalled()
+    })
+
+    it('durably fails without generation dispatch when generation admission rejects after observed embedding', async () => {
+      setupHappyPath()
+      venueFindFirst
+        .mockResolvedValueOnce({ isActive: true })
+        .mockResolvedValueOnce({ isActive: true })
+        .mockResolvedValueOnce({ isActive: false })
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+      })
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'QUERY_EMBEDDING', outcomeCode: 'SUCCEEDED' }),
+        }),
+      )
+      expect(guestTurnActions.dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'RESPONSE_GENERATION' }),
+        }),
+      )
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'AI_UNAVAILABLE' }),
+        }),
+      )
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(guestTurnActions.finalize).not.toHaveBeenCalled()
     })
 
     it('loads only published, started, active, unexpired updates for the next message', async () => {
@@ -1128,7 +1323,7 @@ describe('chat router', () => {
       expect(emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'message.fallback',
-          sessionId: TOKEN,
+          sessionId: SESSION_ID,
           metadata: expect.objectContaining({
             failureStage: 'generation',
             failureCode: 'provider-error',
@@ -1143,6 +1338,27 @@ describe('chat router', () => {
             fallback: true,
             failureCode: 'provider-error',
           }),
+        }),
+      )
+    })
+
+    it('never logs provider error messages that may contain guest text or bearer tokens', async () => {
+      setupHappyPath()
+      anthropicCreate.mockReset()
+      anthropicCreate.mockRejectedValue(
+        new Error(`private:${sendInput.message}:bearer:${sendInput.anonymousToken}`),
+      )
+
+      await caller.chat.send(sendInput)
+
+      const serialized = JSON.stringify(configLogger.error.mock.calls)
+      expect(serialized).not.toContain(sendInput.message)
+      expect(serialized).not.toContain(sendInput.anonymousToken)
+      expect(configLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'chat.send.ai_failed',
+          failureCode: 'provider-error',
+          errorName: 'AiGatewayError',
         }),
       )
     })
@@ -1413,12 +1629,10 @@ describe('chat router', () => {
       try {
         await caller.chat.send(sendInput)
 
-        expect(sessionUpdateMany).toHaveBeenCalledWith(
+        expect(guestTurnActions.finalize).toHaveBeenCalledWith(
           expect.objectContaining({
-            where: { id: SESSION_ID, tenantId: TENANT_ID },
-            data: expect.objectContaining({
-              pendingEngagementQuestionId: 'question_selected',
-              pendingEngagementAskedMessageId: 'assistant_msg_1',
+            input: expect.objectContaining({
+              nextPending: { kind: 'AUTHORED', questionId: 'question_selected' },
             }),
           }),
         )
@@ -1447,24 +1661,10 @@ describe('chat router', () => {
 
       await caller.chat.send(sendInput)
 
-      expect(engagementQuestionResponseCreate).toHaveBeenCalledWith(
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            engagementQuestionId: 'question_prev',
-            isAiInvented: false,
-            questionText: 'Ask about wayfinding.',
-            askedMessageId: 'assistant_msg_prev',
-            answerMessageId: 'user_msg_new',
-            answerText: sendInput.message,
-          }),
-        }),
-      )
-      expect(sessionUpdateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: SESSION_ID, tenantId: TENANT_ID },
-          data: expect.objectContaining({
-            pendingEngagementQuestionId: null,
-            pendingEngagementAskedMessageId: null,
+          input: expect.objectContaining({
+            message: sendInput.message,
           }),
         }),
       )
@@ -1489,17 +1689,10 @@ describe('chat router', () => {
 
       await caller.chat.send(sendInput)
 
-      expect(engagementQuestionFindFirst).not.toHaveBeenCalled()
-      expect(messageFindFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ id: 'assistant_msg_prev' }) }),
-      )
-      expect(engagementQuestionResponseCreate).toHaveBeenCalledWith(
+      expect(guestTurnActions.finalize).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            engagementQuestionId: null,
-            isAiInvented: true,
-            questionText: 'What was your favorite part of the visit so far?',
-            answerMessageId: 'user_msg_new',
+          input: expect.objectContaining({
+            message: sendInput.message,
           }),
         }),
       )
@@ -1589,7 +1782,7 @@ describe('chat router', () => {
       expect(messageFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { sessionId: SESSION_ID, tenantId: TENANT_ID },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
           take: 40,
         }),
       )

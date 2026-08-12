@@ -16,6 +16,7 @@ const dailyRollupGroupBy = vi.fn()
 const analyticsEventCreate = vi.fn()
 const visitorSessionUpsert = vi.fn()
 const visitorSessionUpdateMany = vi.fn()
+const visitorSessionFindFirst = vi.fn()
 const visitorSessionFindMany = vi.fn()
 const visitorSessionCount = vi.fn()
 const messageCount = vi.fn()
@@ -56,6 +57,7 @@ const mockDb = {
   visitorSession: {
     upsert: visitorSessionUpsert,
     updateMany: visitorSessionUpdateMany,
+    findFirst: visitorSessionFindFirst,
     findMany: visitorSessionFindMany,
     count: visitorSessionCount,
   },
@@ -110,6 +112,8 @@ describe('analytics router', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     checkRateLimitMock.mockResolvedValue(true)
+    visitorSessionUpsert.mockResolvedValue({ id: 'internal_session_1' })
+    visitorSessionFindFirst.mockResolvedValue({ id: 'internal_session_1' })
   })
 
   it('analytics.getLatestDigest returns the latest complete digest for the active tenant', async () => {
@@ -270,7 +274,7 @@ describe('analytics router', () => {
   it('analytics.trackEvent records session activity on VisitorSession', async () => {
     dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
     analyticsEventCreate.mockResolvedValueOnce({})
-    visitorSessionUpsert.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({ id: 'internal_session_1' })
 
     const caller = testRouter.createCaller(anonymousCtx())
     const result = await caller.analytics.trackEvent({
@@ -285,7 +289,7 @@ describe('analytics router', () => {
         data: expect.objectContaining({
           tenantId: 'tenant_1',
           venueId: 'cvenueabc123456789012',
-          sessionId: '00000000-0000-4000-8000-000000000001',
+          sessionId: 'internal_session_1',
           eventType: 'session.started',
         }),
       }),
@@ -473,7 +477,7 @@ describe('analytics router', () => {
   it('analytics.trackEvent accepts but discards the bounded legacy session timestamp', async () => {
     dbQueryRaw.mockResolvedValueOnce([{ id: 'cvenueabc123456789012', tenantId: 'tenant_1' }])
     analyticsEventCreate.mockResolvedValueOnce({})
-    visitorSessionUpsert.mockResolvedValueOnce({})
+    visitorSessionUpsert.mockResolvedValueOnce({ id: 'internal_session_1' })
 
     await testRouter.createCaller(anonymousCtx()).analytics.trackEvent({
       sessionId: '00000000-0000-4000-8000-000000000001',
@@ -668,11 +672,11 @@ describe('analytics router', () => {
 
     expect(visitorSessionUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: {
+        where: expect.objectContaining({
           anonymousToken: '00000000-0000-4000-8000-000000000001',
           tenantId: 'tenant_1',
           venueId: 'cvenueabc123456789012',
-        },
+        }),
       }),
     )
   })

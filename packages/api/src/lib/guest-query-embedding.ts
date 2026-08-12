@@ -11,6 +11,8 @@ export async function generateGuestQueryEmbedding(
   usageSink: AiUsageSink,
   admissionGuard: AiAdmissionGuard,
   budgetGate: AiBudgetGate,
+  invocationId?: string,
+  onBeforeFirstDispatch?: () => Promise<void>,
 ): Promise<number[]> {
   const result = await generateEmbedding({
     modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
@@ -18,6 +20,8 @@ export async function generateGuestQueryEmbedding(
     usageSink,
     admissionGuard,
     budgetGate,
+    ...(invocationId ? { invocationId } : {}),
+    ...(onBeforeFirstDispatch ? { onBeforeFirstDispatch } : {}),
   })
   return result.embedding
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { TRPCError } from '@trpc/server'
 
 import {
@@ -10,10 +12,17 @@ import {
 import { emitEvent } from '@pathfinder/analytics'
 import {
   assertVenueAiAvailable,
+  claimGuestChatTurnAction,
+  failGuestChatTurnAction,
+  finalizeGuestChatTurnAction,
+  GuestChatTurnActionError,
   isAiAdmissionControlError,
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
   resolveEffectivePublishedUniversalContent,
+  markGuestChatProviderDispatchedAction,
+  observeGuestChatProviderOperationAction,
+  reserveGuestChatTurnAction,
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
@@ -45,6 +54,23 @@ function venueUnavailable(): TRPCError {
     code: 'SERVICE_UNAVAILABLE',
     message: 'This venue guide is temporarily unavailable.',
   })
+}
+
+function guestChatTurnError(error: unknown): never {
+  if (!(error instanceof GuestChatTurnActionError)) throw error
+  const code =
+    error.code === 'INVALID_INPUT'
+      ? 'BAD_REQUEST'
+      : error.code === 'IN_PROGRESS'
+        ? 'TOO_MANY_REQUESTS'
+        : error.code === 'UNKNOWN_PROVIDER_OUTCOME'
+          ? 'SERVICE_UNAVAILABLE'
+          : error.code === 'NOT_FOUND'
+            ? 'NOT_FOUND'
+            : error.code === 'FAILED'
+              ? 'PRECONDITION_FAILED'
+              : 'CONFLICT'
+  throw new TRPCError({ code, message: error.message })
 }
 
 // ---------------------------------------------------------------------------
@@ -332,44 +358,80 @@ export const chatRouter = router({
       guideMode === 'location_aware' ? (liveLocation ?? defaultLocation) : null
     const hasLiveLocation = liveLocation !== null
 
-    // 2. Upsert session, update location
-    const sessionLocationData = liveLocation
-      ? { latestLat: liveLocation.lat, latestLng: liveLocation.lng }
-      : { latestLat: null, latestLng: null }
-    const session = await ctx.db.visitorSession.upsert({
-      where: {
-        venueId_anonymousToken: {
+    // 2. Reserve an exact, monotonic session turn before any provider boundary.
+    // Legacy callers may omit operationId, but only an explicit client UUID can be retried safely.
+    const operationId = input.operationId ?? randomUUID()
+    const turnRequest = {
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      anonymousToken: input.anonymousToken,
+      requestId: operationId,
+      visitorId: input.visitorId ?? null,
+      message: trimmedInput,
+      language: input.language ?? null,
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
+      retainLocation: guideMode !== 'non_location',
+    }
+    let reservation: Awaited<ReturnType<typeof reserveGuestChatTurnAction>>
+    try {
+      reservation = await reserveGuestChatTurnAction({ client: ctx.db, request: turnRequest })
+    } catch (error) {
+      guestChatTurnError(error)
+    }
+    if (reservation.state === 'COMPLETE') {
+      return {
+        response: reservation.response,
+        sessionId: reservation.sessionId,
+        places: reservation.places,
+        replayed: true,
+      }
+    }
+    if (reservation.state === 'AMBIGUOUS') {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          'The original provider outcome could not be committed. Start a new message; the original operation will not be repeated.',
+      })
+    }
+    const claimId = randomUUID()
+    let claimed: Awaited<ReturnType<typeof claimGuestChatTurnAction>>
+    try {
+      claimed = await claimGuestChatTurnAction({
+        client: ctx.db,
+        claim: {
+          tenantId: venue.tenantId,
           venueId: input.venueId,
           anonymousToken: input.anonymousToken,
+          requestId: operationId,
+          turnId: reservation.turnId,
+          claimId,
         },
-        tenantId: venue.tenantId,
-      },
-      create: {
-        tenantId: venue.tenantId,
-        venueId: input.venueId,
-        anonymousToken: input.anonymousToken,
-        latestLat: guideMode === 'non_location' ? null : (input.lat ?? null),
-        latestLng: guideMode === 'non_location' ? null : (input.lng ?? null),
-        lastActiveAt: new Date(),
-        ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
-      },
-      update: {
-        ...sessionLocationData,
-        lastActiveAt: new Date(),
-        ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
-      },
-      select: {
-        id: true,
-        pendingEngagementQuestionId: true,
-        pendingEngagementIsInvented: true,
-        pendingEngagementAskedMessageId: true,
-        pendingEngagementAskedAt: true,
-      },
-    })
-    const pendingAnswerSnapshot =
-      session.pendingEngagementQuestionId != null || session.pendingEngagementIsInvented === true
-        ? { ...session }
-        : null
+      })
+    } catch (error) {
+      guestChatTurnError(error)
+    }
+    if (claimed.state === 'COMPLETE') {
+      return {
+        response: claimed.response,
+        sessionId: claimed.sessionId,
+        places: claimed.places,
+        replayed: true,
+      }
+    }
+    if (claimed.state !== 'GENERATING') {
+      throw new TRPCError({ code: 'CONFLICT', message: 'Chat turn claim is incomplete.' })
+    }
+    const session = { id: claimed.sessionId }
+    const embeddingInvocationId = claimed.providerOperations.find(
+      (operation) => operation.kind === 'QUERY_EMBEDDING',
+    )?.invocationId
+    const generationInvocationId = claimed.providerOperations.find(
+      (operation) => operation.kind === 'RESPONSE_GENERATION',
+    )?.invocationId
+    if (!embeddingInvocationId || !generationInvocationId) {
+      throw new TRPCError({ code: 'CONFLICT', message: 'Chat provider evidence is incomplete.' })
+    }
 
     // 3. Embed the user query, load history, and fetch active alerts in parallel.
     //    Embedding may fail (e.g. no OPENAI_API_KEY) — null triggers geo fallback.
@@ -382,6 +444,15 @@ export const chatRouter = router({
       feature: 'guest-chat-query-embedding',
       surface: 'guest-web',
     })
+    const turnOperationBase = {
+      tenantId: venue.tenantId,
+      venueId: input.venueId,
+      anonymousToken: input.anonymousToken,
+      requestId: operationId,
+      turnId: reservation.turnId,
+      claimId,
+    }
+    let embeddingDispatched = false
     const queryEmbeddingPromise = generateGuestQueryEmbedding(
       trimmedInput,
       embeddingAccounting.sink,
@@ -391,9 +462,66 @@ export const chatRouter = router({
           venueId: input.venueId,
         }),
       embeddingAccounting.budgetGate,
+      embeddingInvocationId,
+      async () => {
+        try {
+          await markGuestChatProviderDispatchedAction({
+            client: ctx.db,
+            operation: { ...turnOperationBase, kind: 'QUERY_EMBEDDING' },
+          })
+          embeddingDispatched = true
+        } catch (error) {
+          guestChatTurnError(error)
+        }
+      },
     )
-      .catch((error: unknown) => {
-        if (isAiAdmissionControlError(error)) throw aiUnavailable()
+      .then(async (embedding) => {
+        await observeGuestChatProviderOperationAction({
+          client: ctx.db,
+          operation: {
+            ...turnOperationBase,
+            kind: 'QUERY_EMBEDDING',
+            outcomeCode: 'SUCCEEDED',
+            usageReference: embeddingAccounting.usageEventIds().at(-1) ?? null,
+          },
+        })
+        return embedding
+      })
+      .catch(async (error: unknown) => {
+        if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
+        if (!embeddingDispatched) {
+          await failGuestChatTurnAction({
+            client: ctx.db,
+            claim: {
+              ...turnOperationBase,
+              failureCode: isAiAdmissionControlError(error)
+                ? 'AI_UNAVAILABLE'
+                : 'PRE_DISPATCH_FAILURE',
+            },
+          })
+          if (isAiAdmissionControlError(error)) throw aiUnavailable()
+          throw new TRPCError({
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Chat is temporarily unavailable.',
+          })
+        }
+        await observeGuestChatProviderOperationAction({
+          client: ctx.db,
+          operation: {
+            ...turnOperationBase,
+            kind: 'QUERY_EMBEDDING',
+            outcomeCode: isAiAdmissionControlError(error)
+              ? 'ADMISSION_REJECTED'
+              : 'FAILED_FALLBACK',
+          },
+        })
+        if (isAiAdmissionControlError(error)) {
+          await failGuestChatTurnAction({
+            client: ctx.db,
+            claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
+          })
+          throw aiUnavailable()
+        }
         return null
       })
       .finally(() => {
@@ -406,7 +534,7 @@ export const chatRouter = router({
         queryEmbeddingPromise,
         ctx.db.message.findMany({
           where: { sessionId: session.id, tenantId: venue.tenantId },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
           take: HISTORY_LIMIT,
           select: { role: true, content: true },
         }),
@@ -629,6 +757,7 @@ export const chatRouter = router({
       feature: 'guest-chat',
       surface: 'guest-web',
     })
+    let generationDispatched = false
     try {
       const result = await generateText({
         modelKey: AI_MODEL_KEYS.GUEST_CHAT,
@@ -650,115 +779,106 @@ export const chatRouter = router({
           { role: 'user', content: trimmedInput },
         ],
         usageSink: chatAccounting.sink,
+        invocationId: generationInvocationId,
+        onBeforeFirstDispatch: async () => {
+          try {
+            await markGuestChatProviderDispatchedAction({
+              client: ctx.db,
+              operation: { ...turnOperationBase, kind: 'RESPONSE_GENERATION' },
+            })
+            generationDispatched = true
+          } catch (error) {
+            guestChatTurnError(error)
+          }
+        },
       })
 
       const { cleaned: strippedResponse, markerFound } = stripEngagementMarker(result.text)
       assistantResponse = enforceResponseWordCap(strippedResponse, MAX_RESPONSE_WORDS)
       engagementAskedThisTurn =
         markerFound && (selectedEngagementQuestion !== null || allowAiInventedQuestion)
+      await observeGuestChatProviderOperationAction({
+        client: ctx.db,
+        operation: {
+          ...turnOperationBase,
+          kind: 'RESPONSE_GENERATION',
+          outcomeCode: 'SUCCEEDED',
+          usageReference: chatAccounting.usageEventIds().at(-1) ?? null,
+        },
+      })
     } catch (err) {
-      if (isAiAdmissionControlError(err)) throw aiUnavailable()
+      if (err instanceof GuestChatTurnActionError) guestChatTurnError(err)
+      if (!generationDispatched) {
+        await failGuestChatTurnAction({
+          client: ctx.db,
+          claim: {
+            ...turnOperationBase,
+            failureCode: isAiAdmissionControlError(err) ? 'AI_UNAVAILABLE' : 'PRE_DISPATCH_FAILURE',
+          },
+        })
+        if (isAiAdmissionControlError(err)) throw aiUnavailable()
+        throw new TRPCError({
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Chat is temporarily unavailable.',
+        })
+      }
+      await observeGuestChatProviderOperationAction({
+        client: ctx.db,
+        operation: {
+          ...turnOperationBase,
+          kind: 'RESPONSE_GENERATION',
+          outcomeCode: isAiAdmissionControlError(err) ? 'ADMISSION_REJECTED' : 'FAILED_FALLBACK',
+        },
+      })
+      if (isAiAdmissionControlError(err)) {
+        await failGuestChatTurnAction({
+          client: ctx.db,
+          claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
+        })
+        throw aiUnavailable()
+      }
       fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
       logger.error({
         action: 'chat.send.ai_failed',
         venueId: input.venueId,
-        error: err instanceof Error ? err.message : 'Unknown error',
+        error: 'Guest chat provider generation failed',
+        failureCode: fallbackFailureCode,
+        errorName: err instanceof AiGatewayError ? 'AiGatewayError' : 'UnexpectedError',
       })
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
     } finally {
       modelMs = elapsedMilliseconds(modelStartedAt)
     }
 
-    // 7. Persist messages in two separate statements so they get distinct createdAt
-    //    timestamps. A single $transaction gives both rows the same now() value,
-    //    making orderBy: { createdAt: 'desc' } non-deterministic on the next request.
+    // 7. Commit the entire visible turn and engagement/session transition atomically.
     const persistenceStartedAt = performance.now()
-    const userMessage = await ctx.db.message.create({
-      data: {
-        tenantId: venue.tenantId,
-        sessionId: session.id,
-        role: 'user',
-        content: trimmedInput,
-      },
-      select: { id: true },
+    const mentionedPlaces = buildGuestPlaceCards({
+      assistantResponse,
+      hasLiveLocation,
+      places: relevantPlaces,
     })
-    const assistantMessage = await ctx.db.message.create({
-      data: {
-        tenantId: venue.tenantId,
-        sessionId: session.id,
-        role: 'assistant',
-        content: assistantResponse,
-      },
-      select: { id: true },
-    })
+    let finalized: Awaited<ReturnType<typeof finalizeGuestChatTurnAction>>
+    try {
+      finalized = await finalizeGuestChatTurnAction({
+        client: ctx.db,
+        input: {
+          ...turnRequest,
+          turnId: reservation.turnId,
+          claimId,
+          assistantResponse,
+          replayMetadata: { places: mentionedPlaces },
+          fallbackCode: fallbackFailureCode,
+          nextPending: engagementAskedThisTurn
+            ? selectedEngagementQuestion
+              ? { kind: 'AUTHORED', questionId: selectedEngagementQuestion.id }
+              : { kind: 'INVENTED' }
+            : { kind: 'NONE' },
+        },
+      })
+    } catch (error) {
+      guestChatTurnError(error)
+    }
     persistenceMs = elapsedMilliseconds(persistenceStartedAt)
-
-    if (pendingAnswerSnapshot) {
-      let questionText: string | null = null
-      let answerType: 'OPEN_ENDED' | 'MULTIPLE_CHOICE' = 'OPEN_ENDED'
-
-      if (pendingAnswerSnapshot.pendingEngagementQuestionId) {
-        const question = await ctx.db.engagementQuestion.findFirst({
-          where: {
-            id: pendingAnswerSnapshot.pendingEngagementQuestionId,
-            tenantId: venue.tenantId,
-          },
-          select: { prompt: true, questionType: true },
-        })
-        questionText = question?.prompt ?? null
-        answerType = question?.questionType ?? 'OPEN_ENDED'
-      } else if (pendingAnswerSnapshot.pendingEngagementAskedMessageId) {
-        const askedMessage = await ctx.db.message.findFirst({
-          where: {
-            id: pendingAnswerSnapshot.pendingEngagementAskedMessageId,
-            tenantId: venue.tenantId,
-          },
-          select: { content: true },
-        })
-        questionText = askedMessage?.content ?? null
-      }
-
-      if (questionText && pendingAnswerSnapshot.pendingEngagementAskedMessageId) {
-        await ctx.db.engagementQuestionResponse.create({
-          data: {
-            tenantId: venue.tenantId,
-            venueId: input.venueId,
-            sessionId: session.id,
-            engagementQuestionId: pendingAnswerSnapshot.pendingEngagementQuestionId,
-            isAiInvented: pendingAnswerSnapshot.pendingEngagementIsInvented,
-            answerType,
-            questionText,
-            askedMessageId: pendingAnswerSnapshot.pendingEngagementAskedMessageId,
-            answerMessageId: userMessage.id,
-            answerText: trimmedInput,
-            askedAt: pendingAnswerSnapshot.pendingEngagementAskedAt ?? new Date(),
-            answeredAt: new Date(),
-          },
-        })
-      }
-
-      await ctx.db.visitorSession.updateMany({
-        where: { id: session.id, tenantId: venue.tenantId },
-        data: {
-          pendingEngagementQuestionId: null,
-          pendingEngagementIsInvented: false,
-          pendingEngagementAskedMessageId: null,
-          pendingEngagementAskedAt: null,
-        },
-      })
-    }
-
-    if (engagementAskedThisTurn) {
-      await ctx.db.visitorSession.updateMany({
-        where: { id: session.id, tenantId: venue.tenantId },
-        data: {
-          pendingEngagementQuestionId: selectedEngagementQuestion?.id ?? null,
-          pendingEngagementIsInvented: allowAiInventedQuestion && !selectedEngagementQuestion,
-          pendingEngagementAskedMessageId: assistantMessage.id,
-          pendingEngagementAskedAt: new Date(),
-        },
-      })
-    }
 
     const totalMs = elapsedMilliseconds(requestStartedAt)
     const timingMetadata = {
@@ -774,18 +894,12 @@ export const chatRouter = router({
     // current answer names. Location presentation data is admitted only when the
     // guest supplied a usable live position; descriptive cards remain useful in
     // non-location and location-denied experiences.
-    const mentionedPlaces = buildGuestPlaceCards({
-      assistantResponse,
-      hasLiveLocation,
-      places: relevantPlaces,
-    })
-
     if (fallbackFailureCode) {
       try {
         await emitEvent({
           tenantId: venue.tenantId,
           venueId: input.venueId,
-          sessionId: input.anonymousToken,
+          sessionId: session.id,
           eventType: 'message.fallback',
           metadata: {
             failureStage: 'generation',
@@ -802,10 +916,10 @@ export const chatRouter = router({
       await emitEvent({
         tenantId: venue.tenantId,
         venueId: input.venueId,
-        sessionId: input.anonymousToken,
+        sessionId: session.id,
         eventType: 'message.sent',
         metadata: {
-          message: trimmedInput,
+          messageLength: trimmedInput.length,
         },
       })
     } catch {
@@ -816,7 +930,7 @@ export const chatRouter = router({
       await emitEvent({
         tenantId: venue.tenantId,
         venueId: input.venueId,
-        sessionId: input.anonymousToken,
+        sessionId: session.id,
         eventType: 'message.received',
         metadata: {
           responseLength: assistantResponse.length,
@@ -844,7 +958,7 @@ export const chatRouter = router({
         await emitEvent({
           tenantId: venue.tenantId,
           venueId: input.venueId,
-          sessionId: input.anonymousToken,
+          sessionId: session.id,
           eventType: 'engagement_question.asked',
           metadata: {
             engagementQuestionId: selectedEngagementQuestion?.id ?? null,
@@ -872,10 +986,10 @@ export const chatRouter = router({
         await emitEvent({
           tenantId: venue.tenantId,
           venueId: input.venueId,
-          sessionId: input.anonymousToken,
+          sessionId: session.id,
           eventType: 'message.low_confidence',
           metadata: {
-            question: trimmedInput,
+            questionLength: trimmedInput.length,
             score: topDistance,
           },
         })
@@ -885,9 +999,10 @@ export const chatRouter = router({
     }
 
     return {
-      response: assistantResponse,
-      sessionId: session.id,
-      places: mentionedPlaces,
+      response: finalized.response,
+      sessionId: finalized.sessionId,
+      places: finalized.places,
+      replayed: finalized.replayed,
     }
   }),
 
@@ -952,7 +1067,7 @@ export const chatRouter = router({
 
     const rows = await ctx.db.message.findMany({
       where: { sessionId: session.id, tenantId: session.tenantId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
       take: HISTORY_LOAD_LIMIT,
       select: { role: true, content: true },
     })

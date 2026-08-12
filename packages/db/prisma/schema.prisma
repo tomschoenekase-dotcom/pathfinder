@@ -951,18 +951,24 @@ model VisitorSession {
   startedAt                       DateTime                     @default(now()) @map("started_at")
   lastActiveAt                    DateTime                     @default(now()) @map("last_active_at")
   messageCount                    Int                          @default(0) @map("message_count")
+  nextTurnSequence                Int                          @default(0) @map("next_turn_sequence")
+  nextMessageSequence             Int                          @default(0) @map("next_message_sequence")
   pendingEngagementQuestionId     String?                      @map("pending_engagement_question_id")
   pendingEngagementIsInvented     Boolean                      @default(false) @map("pending_engagement_is_invented")
   pendingEngagementAskedMessageId String?                      @map("pending_engagement_asked_message_id")
   pendingEngagementAskedAt        DateTime?                    @map("pending_engagement_asked_at")
   isNotable                       Boolean                      @default(false) @map("is_notable")
-  venue                           Venue                        @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  venue                           Venue                        @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Cascade)
   messages                        Message[]
+  guestChatTurns                  GuestChatTurn[]
+  pendingEngagementAskedMessage   Message?                     @relation("PendingEngagementAskedMessage", fields: [pendingEngagementAskedMessageId, tenantId, venueId, id], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
   engagementResponses             EngagementQuestionResponse[]
   adminNotes                      AdminChatlogNote[]
   aiUsageEvents                   AiUsageEvent[]
+  analyticsEvents                 AnalyticsEvent[]
 
   @@unique([venueId, anonymousToken])
+  @@unique([id, tenantId, venueId])
   @@index([tenantId])
   @@index([venueId])
   @@index([anonymousToken])
@@ -1446,6 +1452,7 @@ model EngagementQuestionResponse {
   questionText         String                 @map("question_text")
   askedMessageId       String                 @map("asked_message_id")
   answerMessageId      String                 @map("answer_message_id")
+  guestChatTurnId      String?                @map("guest_chat_turn_id") @db.Uuid
   answerText           String                 @map("answer_text")
   askedAt              DateTime               @map("asked_at")
   answeredAt           DateTime               @map("answered_at")
@@ -1455,8 +1462,12 @@ model EngagementQuestionResponse {
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   venue                Venue                  @relation(fields: [venueId], references: [id], onDelete: Restrict)
   session              VisitorSession         @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  guestChatTurn        GuestChatTurn?         @relation(fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  askedMessage         Message                @relation("EngagementAskedMessage", fields: [askedMessageId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  answerMessage        Message?               @relation("EngagementAnswerMessage", fields: [answerMessageId, tenantId, venueId, sessionId, guestChatTurnId], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
   engagementQuestion   EngagementQuestion?    @relation(fields: [engagementQuestionId], references: [id], onDelete: SetNull)
 
+  @@unique([answerMessageId])
   @@index([tenantId, venueId, answeredAt])
   @@index([engagementQuestionId])
   @@index([sessionId])
@@ -1481,21 +1492,127 @@ model AdminChatlogNote {
 }
 
 model Message {
-  id        String         @id @default(cuid())
-  tenantId  String         @map("tenant_id")
-  sessionId String         @map("session_id")
-  role      MessageRole
-  content   String
+  id                        String                       @id @default(cuid())
+  tenantId                  String                       @map("tenant_id")
+  venueId                   String                       @map("venue_id")
+  sessionId                 String                       @map("session_id")
+  guestChatTurnId           String?                      @map("guest_chat_turn_id") @db.Uuid
+  sessionSequence           Int                          @map("session_sequence")
+  turnMessageSequence       Int?                         @map("turn_message_sequence")
+  role                      MessageRole
+  content                   String
   // Fixed-taxonomy topic label, filled nightly by the analytics-enrichment job.
   // Nullable; null means "not yet classified".
-  topic     String?
-  createdAt DateTime       @default(now()) @map("created_at")
-  session   VisitorSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  topic                     String?
+  createdAt                 DateTime                     @default(now()) @map("created_at")
+  session                   VisitorSession               @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  guestChatTurn             GuestChatTurn?               @relation("GuestChatTurnMessages", fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  askedEngagementResponses  EngagementQuestionResponse[] @relation("EngagementAskedMessage")
+  answerEngagementResponses EngagementQuestionResponse[] @relation("EngagementAnswerMessage")
+  pendingForSessions        VisitorSession[]             @relation("PendingEngagementAskedMessage")
+  pendingForGuestChatTurns  GuestChatTurn[]              @relation("GuestChatTurnPendingAskedMessage")
+  userForGuestChatTurn      GuestChatTurn?               @relation("GuestChatTurnUserMessage")
+  assistantForGuestChatTurn GuestChatTurn?               @relation("GuestChatTurnAssistantMessage")
 
-  @@index([tenantId])
+  @@unique([id, tenantId, venueId, sessionId])
+  @@unique([id, tenantId, venueId, sessionId, guestChatTurnId])
+  @@unique([sessionId, sessionSequence])
+  @@unique([guestChatTurnId, turnMessageSequence])
+  @@index([tenantId, venueId])
   @@index([sessionId])
   @@index([topic])
   @@map("messages")
+}
+
+enum GuestChatTurnStatus {
+  RESERVED
+  GENERATING
+  COMPLETE
+  FAILED
+  AMBIGUOUS
+}
+
+enum GuestChatProviderOperationKind {
+  QUERY_EMBEDDING
+  RESPONSE_GENERATION
+}
+
+enum GuestChatProviderOperationStatus {
+  RESERVED
+  DISPATCHED
+  OBSERVED
+  CANCELLED
+  TERMINAL_AMBIGUOUS
+}
+
+model GuestChatTurn {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  tenantId                 String                       @map("tenant_id")
+  venueId                  String                       @map("venue_id")
+  sessionId                String                       @map("session_id")
+  requestId                String                       @map("request_id") @db.Uuid
+  requestHash              String                       @map("request_hash") @db.Char(64)
+  turnSequence             Int                          @map("turn_sequence")
+  userMessageSequence      Int                          @map("user_message_sequence")
+  assistantMessageSequence Int                          @map("assistant_message_sequence")
+  status                   GuestChatTurnStatus          @default(RESERVED)
+  leaseToken               String?                      @map("lease_token") @db.Uuid
+  leaseExpiresAt           DateTime?                    @map("lease_expires_at")
+  claimedAt                DateTime?                    @map("claimed_at")
+  userMessageId            String?                      @map("user_message_id")
+  assistantMessageId       String?                      @map("assistant_message_id")
+  replayMetadata           Json?                        @map("replay_metadata")
+  responseHash             String?                      @map("response_hash") @db.Char(64)
+  fallbackCode             String?                      @map("fallback_code") @db.VarChar(64)
+  failureCode              String?                      @map("failure_code") @db.VarChar(64)
+  pendingQuestionId        String?                      @map("pending_question_id")
+  pendingIsInvented        Boolean                      @default(false) @map("pending_is_invented")
+  pendingAskedMessageId    String?                      @map("pending_asked_message_id")
+  pendingAskedAt           DateTime?                    @map("pending_asked_at")
+  completedAt              DateTime?                    @map("completed_at")
+  failedAt                 DateTime?                    @map("failed_at")
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+  session                  VisitorSession               @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  messages                 Message[]                    @relation("GuestChatTurnMessages")
+  pendingAskedMessage      Message?                     @relation("GuestChatTurnPendingAskedMessage", fields: [pendingAskedMessageId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  providerOperations       GuestChatProviderOperation[]
+  engagementResponses      EngagementQuestionResponse[]
+  userMessage              Message?                     @relation("GuestChatTurnUserMessage", fields: [userMessageId, tenantId, venueId, sessionId, id], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
+  assistantMessage         Message?                     @relation("GuestChatTurnAssistantMessage", fields: [assistantMessageId, tenantId, venueId, sessionId, id], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId, venueId, sessionId])
+  @@unique([userMessageId, tenantId, venueId, sessionId, id])
+  @@unique([assistantMessageId, tenantId, venueId, sessionId, id])
+  @@unique([sessionId, requestId])
+  @@unique([sessionId, turnSequence])
+  @@index([tenantId, venueId, createdAt])
+  @@map("guest_chat_turns")
+}
+
+model GuestChatProviderOperation {
+  id             String                           @id @default(uuid()) @db.Uuid
+  tenantId       String                           @map("tenant_id")
+  venueId        String                           @map("venue_id")
+  sessionId      String                           @map("session_id")
+  turnId         String                           @map("turn_id") @db.Uuid
+  kind           GuestChatProviderOperationKind
+  invocationId   String                           @map("invocation_id") @db.Uuid
+  status         GuestChatProviderOperationStatus @default(RESERVED)
+  leaseToken     String?                          @map("lease_token") @db.Uuid
+  leaseExpiresAt DateTime?                        @map("lease_expires_at")
+  dispatchedAt   DateTime?                        @map("dispatched_at")
+  observedAt     DateTime?                        @map("observed_at")
+  outcomeCode    String?                          @map("outcome_code") @db.VarChar(64)
+  usageReference String?                          @map("usage_reference") @db.VarChar(191)
+  createdAt      DateTime                         @default(now()) @map("created_at")
+  updatedAt      DateTime                         @updatedAt @map("updated_at")
+  turn           GuestChatTurn                    @relation(fields: [turnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([turnId, kind])
+  @@unique([invocationId])
+  @@index([tenantId, venueId, createdAt])
+  @@map("guest_chat_provider_operations")
 }
 
 model OperationalUpdate {
@@ -1541,6 +1658,7 @@ model AnalyticsEvent {
   receivedAt DateTime @default(now()) @map("received_at")
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   venue      Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  session    VisitorSession @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   place      Place?   @relation(fields: [placeId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, venueId, occurredAt])

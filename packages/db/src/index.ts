@@ -1,4 +1,25 @@
 export { db } from './client'
+export {
+  claimGuestChatTurnAction,
+  failGuestChatTurnAction,
+  finalizeGuestChatTurnAction,
+  GUEST_CHAT_REQUEST_HASH_VERSION,
+  GUEST_CHAT_TURN_LEASE_MS,
+  GuestChatReplayMetadata,
+  GuestChatTurnActionError,
+  guestChatRequestHash,
+  markGuestChatProviderDispatchedAction,
+  observeGuestChatProviderOperationAction,
+  reserveGuestChatTurnAction,
+} from './helpers/guest-chat-turn-actions'
+export type {
+  GuestChatClaim,
+  GuestChatFinalize,
+  GuestChatProviderOperationClaim,
+  GuestChatRequest,
+  GuestChatTurnActionClient,
+  GuestChatTurnActionErrorCode,
+} from './helpers/guest-chat-turn-actions'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
@@ -51,7 +72,11 @@ export type {
   ContentHistoryEntityType,
   ContentHistoryHumanActor,
 } from './helpers/content-history-actions'
-export { lockVenueContentMutation, lockVenueReportMutation } from './helpers/venue-content-lock'
+export {
+  lockGuestChatTurnMutation,
+  lockVenueContentMutation,
+  lockVenueReportMutation,
+} from './helpers/venue-content-lock'
 export {
   findTerminalJobRecordEvidence,
   writeJobRecord,

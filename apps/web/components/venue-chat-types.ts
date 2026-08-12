@@ -20,6 +20,8 @@ export type ChatMessage = {
   role: 'user' | 'assistant'
   content: string
   places?: GuestPlaceCard[]
+  /** Client-only identity for an optimistic, not-yet-confirmed guest turn. */
+  pendingOperationId?: string
 }
 
 export type VenueChatPresentation = 'standalone' | 'embed' | 'webview'

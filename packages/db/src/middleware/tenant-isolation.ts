@@ -60,6 +60,8 @@ const AUDIT_LIFECYCLE_MODELS = [
   'SupportRequest',
   'OffboardingPlan',
   'IntakeUpload',
+  'GuestChatTurn',
+  'GuestChatProviderOperation',
 ] as const
 const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']
 const DESTRUCTIVE_ACTIONS = ['delete', 'deleteMany']

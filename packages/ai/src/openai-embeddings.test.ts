@@ -344,4 +344,43 @@ describe('OpenAI embeddings gateway', () => {
     expect(order).toEqual(['admit', 'reserve', 'admit', 'dispatch', 'provider'])
     expect(settleExact).toHaveBeenCalledWith({ id: 'reservation', reservedUnits: 600_000n }, 10n)
   })
+
+  it('releases a reservation exactly once when the durable dispatch fence rejects', async () => {
+    const gate = budgetGate()
+    const fenceError = new Error('dispatch receipt conflict')
+    await expect(
+      generateEmbedding({
+        modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
+        text: 'hello',
+        usageSink,
+        admissionGuard,
+        budgetGate: gate,
+        onBeforeFirstDispatch: vi.fn().mockRejectedValue(fenceError),
+      }),
+    ).rejects.toBe(fenceError)
+    expect(gate.releaseUndispatched).toHaveBeenCalledOnce()
+    expect(gate.markDispatched).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(usageSink).not.toHaveBeenCalled()
+  })
+
+  it('releases a reservation and never calls the provider when dispatch accounting rejects', async () => {
+    const gate = budgetGate({ markDispatched: vi.fn().mockRejectedValue(new Error('cost CAS')) })
+    const fence = vi.fn().mockResolvedValue(undefined)
+    await expect(
+      generateEmbedding({
+        modelKey: AI_EMBEDDING_MODEL_KEYS.GUEST_QUERY,
+        text: 'hello',
+        usageSink,
+        admissionGuard,
+        budgetGate: gate,
+        onBeforeFirstDispatch: fence,
+      }),
+    ).rejects.toThrow('cost CAS')
+    expect(fence).toHaveBeenCalledOnce()
+    expect(gate.markDispatched).toHaveBeenCalledOnce()
+    expect(gate.releaseUndispatched).toHaveBeenCalledOnce()
+    expect(create).not.toHaveBeenCalled()
+    expect(usageSink).not.toHaveBeenCalled()
+  })
 })

@@ -246,6 +246,22 @@ messages, snapshots, errors, signed asset/source URLs, redirects, and secrets re
 
 ## Schema and migrations
 
+Guest chat turns use a client `operationId` UUID and a versioned canonical request hash bound to the
+exact tenant, venue, anonymous session actor, normalized message, language, visitor identity,
+coordinates and effective location-retention policy. Reservation assigns monotonic turn and message
+sequences plus stable embedding and generation invocation receipts before provider work. Claiming
+requires the exact two pristine receipts. Once either provider boundary is durably dispatched it is
+never dispatched again for that operation; expired dispatched or observed-but-unfinalized work is
+reconciled to a terminal ambiguous result, while proven pre-dispatch orphans are failed safely.
+
+Provider calls remain outside database transactions. The final serializable transaction writes the
+ordered user/assistant pair, engagement answer, next pending-question state, session counters and
+schema-validated replay evidence before completing the turn. Exact terminal replay reconstructs the
+safe response from committed messages without provider or spend work. History orders by the durable
+session sequence rather than wall-clock timestamps. Public analytics accepts the legacy browser
+token field only as a lookup credential: the server resolves the exact tenant/venue session and
+persists its internal ID, never the bearer token.
+
 Admin answer-analysis and chatlog-review adapters are transport-thin. Durable analysis identity is
 operation-scoped by tenant, kind and UUID; snapshot, dispatch and sanitized audit commit together,
 then queue notification is best effort. Chatlog notes bind a UUID to exact tenant/venue/session,
@@ -281,6 +297,11 @@ When SQL names differ from Prisma field names, preserve the mapping explicitly w
 foreign keys, cascade behavior, indexes, exact scope, and append-only triggers. Offline
 format/validate/generate may use a syntactically valid dummy loopback URL; it is not permission to
 connect or evidence that any migration was applied.
+
+The forward-only `20260812000400_add_durable_guest_chat_turns` migration adds the turn/receipt state
+machines, composite session/message/analytics scope, sequence backfill, legacy analytics-token
+resolution, role and pending-state constraints, and terminal immutability guards. It is intentionally
+unapplied; local contract tests and loopback Prisma validation are not live migration evidence.
 
 ## Required verification
 

@@ -104,6 +104,19 @@ Section-level evidence and blockers are indexed in
   tenant/venue/session scope, CAS or UUID replay, and strict transactional audit. General audit
   evidence records note length rather than private note text, and the form safely retains or rotates
   its request key across ambiguous retries.
+- Guest chat sends now reserve a durable tenant/venue/session-scoped turn keyed by a client operation
+  UUID and canonical request hash. Exact two-kind provider receipts carry stable invocation identity;
+  completed replay performs no provider/spend work, and dispatched uncertainty never redispatches.
+  Proven expired pre-dispatch orphans fail safely, while dispatched or response-observed orphans
+  reconcile terminally so a reload cannot strand the session.
+- One serializable final transaction writes the sequenced user/assistant pair, engagement response,
+  pending-question/session state and validated replay evidence. History uses monotonic session
+  sequence as authority. The guest UI retains frozen input for ambiguous retry and, on terminal
+  precondition failure, reconciles authoritative history and rotates to a new operation identity.
+- Public analytics now resolves the browser bearer token through exact tenant/venue session scope
+  before persisting the internal session ID; provider error logging and analytics omit guest text and
+  bearer values. Forward migration `20260812000400_add_durable_guest_chat_turns` includes legacy
+  analytics resolution/backfill and exact composite foreign keys, but remains unapplied.
 - Global AI incident-control mutation now uses a neutral HUMAN platform-admin action with validated
   reason/revision input, exact configured-state CAS, same-state replay, malformed-state fail-closed
   repair, first-create collision handling and strict same-transaction audit. The router remains a
@@ -357,7 +370,8 @@ Section-level evidence and blockers are indexed in
   registry and append-only guards. Custom intake index names are explicitly mapped in Prisma; the
   checked migrations are atomic and
   use restrictive exact-scope foreign keys. Offline format/validate/generate and the DB suite passed,
-  but none of these forward migrations was applied or rehearsed against a database.
+  but none of these forward migrations, including durable guest chat turn migration
+  `20260812000400_add_durable_guest_chat_turns`, was applied or rehearsed against a database.
 
 ## Required program work not yet proven complete
 

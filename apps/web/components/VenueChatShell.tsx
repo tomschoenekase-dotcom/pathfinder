@@ -39,6 +39,9 @@ export function VenueChatShell(props: {
     refresh: () => void
   }
   onSend: (message: string) => void
+  onDraftChange?: () => void
+  onRetry?: (() => void) | null
+  retryLabel?: string
   onNewConversation: () => void
   onPlaceView: (placeId: string) => void
   onPlaceClick: (placeId: string) => void
@@ -57,6 +60,9 @@ export function VenueChatShell(props: {
     initialDraft,
     location,
     onSend,
+    onDraftChange,
+    onRetry,
+    retryLabel,
     onNewConversation,
     onPlaceView,
     onPlaceClick,
@@ -134,6 +140,9 @@ export function VenueChatShell(props: {
           <ChatWindow
             messages={messages}
             onSend={onSend}
+            {...(onDraftChange ? { onDraftChange } : {})}
+            {...(onRetry ? { onRetry } : {})}
+            {...(retryLabel ? { retryLabel } : {})}
             isLoading={isSending}
             errorMessage={sendError}
             accentColor={palette.accent}

@@ -7,6 +7,14 @@ import { useTRPCClient } from '../lib/trpc'
 
 type PlaceEvent = 'place_card.viewed' | 'place_card.clicked' | 'directions.opened'
 
+function runBestEffortAnalytics(action: () => Promise<unknown>) {
+  try {
+    void Promise.resolve(action()).catch(() => {})
+  } catch {
+    // Analytics must never interrupt the visitor experience.
+  }
+}
+
 export function useVenueChatAnalytics({
   venue,
   anonymousToken,
@@ -27,29 +35,29 @@ export function useVenueChatAnalytics({
     if (startedSessionKeyRef.current === sessionKey) return
     startedSessionKeyRef.current = sessionKey
     sessionStartedAtRef.current = Date.now()
-    void client.analytics.trackEvent
-      .mutate({
+    runBestEffortAnalytics(() =>
+      client.analytics.trackEvent.mutate({
         venueId: venue.id,
         sessionId: anonymousToken,
         ...(visitorId ? { visitorId } : {}),
         eventType: 'session.started',
-      })
-      .catch(() => {})
+      }),
+    )
   }, [anonymousToken, client, venue, visitorId])
 
   const endSession = useCallback(
     (venueId: string, token: string, startedAt: number | null) => {
       const durationSeconds =
         startedAt === null ? 0 : Math.max(0, Math.round((Date.now() - startedAt) / 1000))
-      void client.analytics.trackEvent
-        .mutate({
+      runBestEffortAnalytics(() =>
+        client.analytics.trackEvent.mutate({
           venueId,
           sessionId: token,
           ...(visitorId ? { visitorId } : {}),
           eventType: 'session.ended',
           metadata: { durationSeconds },
-        })
-        .catch(() => {})
+        }),
+      )
     },
     [client, visitorId],
   )
@@ -67,15 +75,15 @@ export function useVenueChatAnalytics({
   const trackPlaceEvent = useCallback(
     (eventType: PlaceEvent, placeId: string) => {
       if (!venue || !anonymousToken) return
-      void client.analytics.trackEvent
-        .mutate({
+      runBestEffortAnalytics(() =>
+        client.analytics.trackEvent.mutate({
           venueId: venue.id,
           sessionId: anonymousToken,
           ...(visitorId ? { visitorId } : {}),
           eventType,
           placeId,
-        })
-        .catch(() => {})
+        }),
+      )
     },
     [anonymousToken, client, venue, visitorId],
   )

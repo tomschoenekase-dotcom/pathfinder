@@ -16,7 +16,16 @@ const { searchKnowledgeByEmbedding, searchPlacesByEmbedding } = vi.hoisted(() =>
   searchKnowledgeByEmbedding: vi.fn(),
   searchPlacesByEmbedding: vi.fn(),
 }))
+const guestTurnActions = vi.hoisted(() => ({
+  reserve: vi.fn(),
+  claim: vi.fn(),
+  dispatch: vi.fn(),
+  observe: vi.fn(),
+  fail: vi.fn(),
+  finalize: vi.fn(),
+}))
 vi.mock('@pathfinder/db', () => ({
+  GuestChatTurnActionError: class GuestChatTurnActionError extends Error {},
   assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
   assertVenueAiAvailable: vi.fn().mockResolvedValue(undefined),
   isAiAdmissionControlError: (error: unknown) =>
@@ -31,6 +40,12 @@ vi.mock('@pathfinder/db', () => ({
   releaseUndispatchedAiCostAttempt: vi.fn(),
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
+  reserveGuestChatTurnAction: guestTurnActions.reserve,
+  claimGuestChatTurnAction: guestTurnActions.claim,
+  markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+  observeGuestChatProviderOperationAction: guestTurnActions.observe,
+  failGuestChatTurnAction: guestTurnActions.fail,
+  finalizeGuestChatTurnAction: guestTurnActions.finalize,
 }))
 
 // Force an embedding to exist so chat.send takes the semantic branch.
@@ -106,7 +121,10 @@ function place(distance: number) {
 function setup(places: ReturnType<typeof place>[], reply: string) {
   dbQueryRaw.mockResolvedValueOnce([venueRow])
   sessionUpsert.mockResolvedValueOnce({ id: 'sess_1' })
-  generateEmbedding.mockResolvedValueOnce([0.1, 0.2, 0.3])
+  generateEmbedding.mockImplementationOnce(async (...args: unknown[]) => {
+    await (args[5] as (() => Promise<void>) | undefined)?.()
+    return [0.1, 0.2, 0.3]
+  })
   messageFindMany.mockResolvedValueOnce([])
   searchPlacesByEmbedding.mockResolvedValueOnce(places)
   searchKnowledgeByEmbedding.mockResolvedValueOnce([])
@@ -117,6 +135,33 @@ function setup(places: ReturnType<typeof place>[], reply: string) {
     usage: { input_tokens: 20, output_tokens: 10 },
   })
   messageCreate.mockResolvedValue({})
+  guestTurnActions.reserve.mockResolvedValue({
+    state: 'RESERVED',
+    turnId: '11111111-1111-4111-8111-111111111111',
+    sessionId: 'sess_1',
+    replayed: false,
+  })
+  guestTurnActions.claim.mockResolvedValue({
+    state: 'GENERATING',
+    turnId: '11111111-1111-4111-8111-111111111111',
+    sessionId: 'sess_1',
+    claimId: '22222222-2222-4222-8222-222222222222',
+    providerOperations: [
+      { kind: 'QUERY_EMBEDDING', invocationId: '33333333-3333-4333-8333-333333333333' },
+      { kind: 'RESPONSE_GENERATION', invocationId: '44444444-4444-4444-8444-444444444444' },
+    ],
+    replayed: false,
+  })
+  guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
+  guestTurnActions.observe.mockResolvedValue({ observed: true })
+  guestTurnActions.finalize.mockImplementation(async ({ input }) => ({
+    state: 'COMPLETE',
+    turnId: input.turnId,
+    sessionId: 'sess_1',
+    response: input.assistantResponse,
+    places: input.replayMetadata.places,
+    replayed: false,
+  }))
 }
 
 function lowConfidenceCalls() {
@@ -152,7 +197,7 @@ describe('chat.send low-confidence flag', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.[0]).toMatchObject({
       eventType: 'message.low_confidence',
-      metadata: { question: 'Is there a helipad?', score: 0.9 },
+      metadata: { questionLength: 19, score: 0.9 },
     })
   })
 
@@ -177,6 +222,10 @@ describe('chat.send low-confidence flag', () => {
           attempts: number
           success: boolean
         }) => Promise<void>,
+        _guard?: unknown,
+        _budget?: unknown,
+        _invocation?: string,
+        onDispatch?: () => Promise<void>,
       ) => {
         await sink({
           provider: 'openai',
@@ -193,6 +242,7 @@ describe('chat.send low-confidence flag', () => {
           attempts: 1,
           success: true,
         })
+        await onDispatch?.()
         return [0.1, 0.2, 0.3]
       },
     )
@@ -239,6 +289,10 @@ describe('chat.send low-confidence flag', () => {
           success: boolean
           errorCode: string
         }) => Promise<void>,
+        _guard?: unknown,
+        _budget?: unknown,
+        _invocation?: string,
+        onDispatch?: () => Promise<void>,
       ) => {
         await sink({
           provider: 'openai',
@@ -256,6 +310,7 @@ describe('chat.send low-confidence flag', () => {
           success: false,
           errorCode: 'provider-http-503',
         })
+        await onDispatch?.()
         throw new Error('embedding unavailable')
       },
     )

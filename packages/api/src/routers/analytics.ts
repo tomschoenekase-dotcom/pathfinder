@@ -157,7 +157,7 @@ async function syncVisitorSession(
   const visitorIdData = params.visitorId !== undefined ? { visitorId: params.visitorId } : {}
 
   if (params.eventType === 'session.started') {
-    await db.visitorSession.upsert({
+    const session = await db.visitorSession.upsert({
       where: {
         venueId_anonymousToken: {
           venueId: params.venueId,
@@ -175,32 +175,31 @@ async function syncVisitorSession(
         lastActiveAt: new Date(),
         ...visitorIdData,
       },
+      select: { id: true },
     })
-
-    return
+    return session.id
   }
 
-  if (params.eventType === 'session.ended') {
-    await db.visitorSession.updateMany({
-      where: {
-        anonymousToken: params.sessionId,
-        tenantId: params.tenantId,
-        venueId: params.venueId,
-      },
-      data: { lastActiveAt: new Date() },
-    })
-
-    return
-  }
+  const session = await db.visitorSession.findFirst({
+    where: {
+      anonymousToken: params.sessionId,
+      tenantId: params.tenantId,
+      venueId: params.venueId,
+    },
+    select: { id: true },
+  })
+  if (!session) return null
 
   await db.visitorSession.updateMany({
     where: {
+      id: session.id,
       anonymousToken: params.sessionId,
       tenantId: params.tenantId,
       venueId: params.venueId,
     },
     data: { lastActiveAt: new Date() },
   })
+  return session.id
 }
 
 export const analyticsRouter = router({
@@ -282,24 +281,25 @@ export const analyticsRouter = router({
         ? input.metadata
         : undefined
 
-    await ctx.db.analyticsEvent.create({
-      data: {
-        tenantId: venue.tenantId,
-        venueId: venue.id,
-        sessionId: input.sessionId,
-        eventType: input.eventType,
-        occurredAt,
-        ...('placeId' in input ? { placeId: input.placeId } : {}),
-        ...(metadata !== undefined ? { metadata } : {}),
-      },
-    })
-
-    await syncVisitorSession(ctx.db, {
+    const internalSessionId = await syncVisitorSession(ctx.db, {
       eventType: input.eventType,
       sessionId: input.sessionId,
       tenantId: venue.tenantId,
       venueId: venue.id,
       ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
+    })
+    if (!internalSessionId) return { ok: false as const }
+
+    await ctx.db.analyticsEvent.create({
+      data: {
+        tenantId: venue.tenantId,
+        venueId: venue.id,
+        sessionId: internalSessionId,
+        eventType: input.eventType,
+        occurredAt,
+        ...('placeId' in input ? { placeId: input.placeId } : {}),
+        ...(metadata !== undefined ? { metadata } : {}),
+      },
     })
 
     return { ok: true as const }

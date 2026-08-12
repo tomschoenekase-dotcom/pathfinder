@@ -23,3 +23,16 @@ export async function lockVenueReportMutation(
   const lockKey = `venue-report:${input.tenantId}:${input.venueId}`
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`
 }
+
+/** Serializes one public guest session/turn lifecycle without exposing its bearer token. */
+export async function lockGuestChatTurnMutation(
+  tx: TransactionClient,
+  input: { tenantId: string; lockId: string },
+): Promise<void> {
+  await tx.$executeRaw`
+    SELECT pg_advisory_xact_lock(
+      hashtext('pathfinder:guest-chat:' || ${input.tenantId}),
+      hashtext(${input.lockId})
+    )
+  `
+}

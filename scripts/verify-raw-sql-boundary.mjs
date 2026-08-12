@@ -42,6 +42,7 @@ const approvedPolicies = new Set([
   'tenant-intake-upload-request-lock',
   'tenant-intake-proposal-request-lock',
   'tenant-support-operation-lock',
+  'tenant-guest-chat-turn-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -76,6 +77,12 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '7b8ca4a6794c0a66b50f6096cb4eca5ed1930726090adfc8c90126ad74693adf',
     policy: 'tenant-venue-content-mutation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/venue-content-lock.ts',
+    method: '$executeRaw',
+    hash: 'd75c7b3a8cb2ab2686d582a8007e702694bf8a1da158d671f801631a0d6f6617',
+    policy: 'tenant-guest-chat-turn-lock',
   },
   {
     file: 'packages/db/src/helpers/content-version-context.ts',
