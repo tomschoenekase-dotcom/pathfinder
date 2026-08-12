@@ -14,11 +14,13 @@ const requestUpdateMany = vi.fn()
 const messageCreate = vi.fn()
 const auditEventCreate = vi.fn()
 const auditLogCreate = vi.fn()
+const membershipFindFirst = vi.fn()
 
 const mockDb = {
   $executeRaw: vi.fn(),
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   venue: { findFirst: venueFindFirst },
+  tenantMembership: { findFirst: membershipFindFirst },
   intakeUpload: { findMany: uploadFindMany },
   supportRequest: {
     findMany: requestFindMany,
@@ -56,6 +58,12 @@ const requestRow = {
   subject: 'Please update the visitor information',
   missingInformation: [],
   version: 1,
+  clientVersion: 1,
+  clientActivityAt: createdAt,
+  createdByKind: 'CLIENT' as const,
+  requesterUserId: 'user_client',
+  requesterMembership: { status: 'ACTIVE' as const },
+  participants: [],
   statusChangedAt: createdAt,
   createdAt,
   updatedAt: createdAt,
@@ -78,6 +86,7 @@ describe('client support router', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     venueFindFirst.mockResolvedValue({ id: venueId })
+    membershipFindFirst.mockResolvedValue({ id: 'membership_1' })
     requestCreate.mockResolvedValue(requestRow)
     messageCreate.mockResolvedValue(messageRow)
     auditEventCreate.mockResolvedValue({ id: 'support_event_1' })
@@ -89,14 +98,64 @@ describe('client support router', () => {
 
     const result = await testRouter.createCaller(tenantCtx).support.listRequests({ venueId })
 
-    expect(result.items).toEqual([requestRow])
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        id: requestId,
+        requesterIsCurrentUser: true,
+        participantIsCurrentUser: false,
+        canReply: true,
+      }),
+    ])
+    expect(JSON.stringify(result.items)).not.toMatch(/requesterUserId|createdById|participants/)
     expect(requestFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { tenantId: 'tenant_assigned', venueId },
+        where: expect.objectContaining({ tenantId: 'tenant_assigned', venueId }),
         take: 21,
       }),
     )
+    const where = requestFindMany.mock.calls[0]?.[0]?.where
+    expect(where).toMatchObject({
+      createdByKind: 'CLIENT',
+      OR: [
+        {
+          requesterUserId: 'user_client',
+          requesterMembership: { is: { status: 'ACTIVE' } },
+        },
+        {
+          participants: {
+            some: {
+              userId: 'user_client',
+              revokedAt: null,
+              membership: { is: { status: 'ACTIVE' } },
+            },
+          },
+        },
+      ],
+    })
   })
+
+  it.each(['STAFF', 'MANAGER', 'OWNER'] as const)(
+    'uses the same requester-or-active-participant ACL for %s',
+    async (role) => {
+      requestFindMany.mockResolvedValue([])
+      await testRouter
+        .createCaller({
+          ...tenantCtx,
+          session: {
+            userId: 'user_client',
+            activeTenantId: 'tenant_assigned',
+            isPlatformAdmin: false,
+            role,
+          },
+        })
+        .support.listRequests({ venueId })
+      expect(requestFindMany.mock.calls[0]?.[0]?.where).toMatchObject({
+        createdByKind: 'CLIENT',
+        OR: expect.any(Array),
+      })
+      expect(requestFindMany.mock.calls[0]?.[0]?.where).not.toHaveProperty('role')
+    },
+  )
 
   it('lists only requester-owned transport-verified attachment metadata without provenance secrets', async () => {
     uploadFindMany.mockResolvedValue([
@@ -196,9 +255,11 @@ describe('client support router', () => {
     })
 
     expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]).toMatchObject({ authorIsCurrentUser: false })
+    expect(JSON.stringify(result.messages)).not.toMatch(/authorId|visibility|INTERNAL_ONLY/)
     expect(requestFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: requestId, tenantId: 'tenant_assigned', venueId },
+        where: expect.objectContaining({ id: requestId, tenantId: 'tenant_assigned', venueId }),
         select: expect.objectContaining({
           messages: expect.objectContaining({
             where: {
@@ -299,19 +360,20 @@ describe('client support router', () => {
         operationId,
         venueId,
         requestId: 'request_other_tenant',
-        expectedVersion: 1,
+        expectedClientVersion: 1,
         body: 'Trying another request.',
       }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'NOT_FOUND' }))
 
-    expect(requestFindFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'request_other_tenant',
-        tenantId: 'tenant_assigned',
-        venueId,
-      },
-      select: { id: true, status: true, version: true },
-    })
+    expect(requestFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'request_other_tenant',
+          tenantId: 'tenant_assigned',
+          venueId,
+        },
+      }),
+    )
     expect(requestUpdateMany).not.toHaveBeenCalled()
     expect(messageCreate).not.toHaveBeenCalled()
   })

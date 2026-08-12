@@ -400,6 +400,11 @@ vi.mock('@pathfinder/db', async () => {
         }),
     ),
     SupportActionError: class SupportActionError extends Error {},
+    tenantSupportRequestAccessWhere: vi.fn((actor: { actorId: string }) => ({
+      createdByKind: 'CLIENT',
+      requesterUserId: actor.actorId,
+    })),
+    canTenantActorAccessSupportRequest: vi.fn(() => true),
     appendSupportMessageAction: vi.fn(
       (
         input: { requestId: string; tenantId: string; venueId: string },
@@ -432,6 +437,36 @@ vi.mock('@pathfinder/db', async () => {
           tx.venue.findFirst({
             where: { id: input.venueId, tenantId: input.tenantId },
             select: { id: true },
+          }),
+        ),
+    ),
+    grantSupportRequestParticipantAction: vi.fn(
+      (
+        input: { requestId: string; tenantId: string; venueId: string },
+        client: LegacyHarnessClient,
+      ) =>
+        client.$transaction((tx) =>
+          (
+            tx as unknown as {
+              supportRequest: { findFirst: (args: unknown) => unknown }
+            }
+          ).supportRequest.findFirst({
+            where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
+    revokeSupportRequestParticipantAction: vi.fn(
+      (
+        input: { requestId: string; tenantId: string; venueId: string },
+        client: LegacyHarnessClient,
+      ) =>
+        client.$transaction((tx) =>
+          (
+            tx as unknown as {
+              supportRequest: { findFirst: (args: unknown) => unknown }
+            }
+          ).supportRequest.findFirst({
+            where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
           }),
         ),
     ),

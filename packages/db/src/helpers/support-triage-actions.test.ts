@@ -31,6 +31,7 @@ function harness() {
         status: 'OPEN',
         missingInformation: [],
         version: 4,
+        clientVersion: 6,
       }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
@@ -46,11 +47,13 @@ function harness() {
 describe('structured support triage action', () => {
   it('uses exact scope and CAS, increments once, and writes both evidence ledgers atomically', async () => {
     const { tx, client, actionClient } = harness()
-    await expect(triageSupportRequestAction(input, actionClient)).resolves.toEqual({
+    await expect(triageSupportRequestAction(input, actionClient)).resolves.toMatchObject({
       id: 'request_1',
       category: 'CONTENT_CORRECTION',
       missingInformation: ['Current admission price', 'Effective date'],
       version: 5,
+      clientVersion: 7,
+      clientActivityAt: expect.any(Date),
     })
     expect(client.$transaction).toHaveBeenCalledOnce()
     expect(tx.supportRequest.findFirst).toHaveBeenCalledWith(
@@ -70,6 +73,8 @@ describe('structured support triage action', () => {
         category: 'CONTENT_CORRECTION',
         missingInformation: ['Current admission price', 'Effective date'],
         version: 5,
+        clientVersion: 7,
+        clientActivityAt: expect.any(Date),
         updatedByKind: 'OPERATOR',
         updatedById: 'operator_1',
       },

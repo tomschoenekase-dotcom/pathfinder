@@ -22,7 +22,9 @@ const input = {
 function harness() {
   const tx = {
     supportRequest: {
-      findFirst: vi.fn().mockResolvedValue({ id: 'request_1', status: 'IN_REVIEW', version: 2 }),
+      findFirst: vi
+        .fn()
+        .mockResolvedValue({ id: 'request_1', status: 'IN_REVIEW', version: 2, clientVersion: 4 }),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     supportRequestAuditEvent: { create: vi.fn().mockResolvedValue({ id: 'event_1' }) },
@@ -55,6 +57,8 @@ describe('support status transition domain action', () => {
         status: 'PATCH_DRAFTED',
         statusChangedAt: changedAt,
         version: 3,
+        clientVersion: 5,
+        clientActivityAt: changedAt,
         updatedByKind: 'OPERATOR',
         updatedById: 'admin_1',
       },

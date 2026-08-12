@@ -63,7 +63,12 @@ const now = new Date('2030-01-01T00:00:00.000Z')
 describe('admin support operations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    requestFindFirst.mockResolvedValue({ id: requestId, status: 'OPEN', version: 1 })
+    requestFindFirst.mockResolvedValue({
+      id: requestId,
+      status: 'OPEN',
+      version: 1,
+      clientVersion: 3,
+    })
     messageFindMany.mockResolvedValue([])
     requestUpdateMany.mockResolvedValue({ count: 1 })
     messageCreate.mockResolvedValue({
@@ -212,6 +217,7 @@ describe('admin support operations', () => {
       status: 'OPEN',
       missingInformation: [],
       version: 1,
+      clientVersion: 4,
     })
     await expect(
       testRouter.createCaller(context(true)).admin.triageSupportRequest({
@@ -226,6 +232,8 @@ describe('admin support operations', () => {
       id: requestId,
       category: 'CONTENT_CORRECTION',
       version: 2,
+      clientVersion: 5,
+      clientActivityAt: expect.any(Date),
     })
     expect(requestUpdateMany).toHaveBeenCalledWith({
       where: {
@@ -239,6 +247,8 @@ describe('admin support operations', () => {
         category: 'CONTENT_CORRECTION',
         missingInformation: ['Current admission price', 'Effective date'],
         version: 2,
+        clientVersion: 5,
+        clientActivityAt: expect.any(Date),
         updatedByKind: 'OPERATOR',
         updatedById: 'platform_admin',
       },
@@ -316,12 +326,19 @@ describe('admin support operations', () => {
   })
 
   it('records an allowed status transition with server-owned operator and exact CAS scope', async () => {
-    await testRouter.createCaller(context(true)).admin.transitionSupportRequestStatus({
-      tenantId,
-      venueId,
-      requestId,
-      expectedVersion: 1,
-      toStatus: 'IN_REVIEW',
+    await expect(
+      testRouter.createCaller(context(true)).admin.transitionSupportRequestStatus({
+        tenantId,
+        venueId,
+        requestId,
+        expectedVersion: 1,
+        toStatus: 'IN_REVIEW',
+      }),
+    ).resolves.toMatchObject({
+      id: requestId,
+      version: 2,
+      clientVersion: 4,
+      clientActivityAt: expect.any(Date),
     })
     expect(requestUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -329,6 +346,8 @@ describe('admin support operations', () => {
         data: expect.objectContaining({
           status: 'IN_REVIEW',
           version: 2,
+          clientVersion: 4,
+          clientActivityAt: expect.any(Date),
           updatedByKind: 'OPERATOR',
           updatedById: 'platform_admin',
         }),

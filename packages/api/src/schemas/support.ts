@@ -14,7 +14,7 @@ export const SupportAttachmentDraftInput = SupportAttachmentReference
 
 export const SupportCursorInput = z
   .object({
-    updatedAt: z.string().datetime({ offset: true }),
+    clientActivityAt: z.string().datetime({ offset: true }),
     id: z.string().min(1),
   })
   .strict()
@@ -58,9 +58,15 @@ export const GetSupportRequestInput = SupportRequestRefInput.extend({
 
 export const AddClientSupportMessageInput = SupportRequestRefInput.extend({
   operationId: z.string().uuid(),
-  expectedVersion: z.number().int().positive(),
+  expectedClientVersion: z.number().int().positive(),
   body: z.string().trim().min(1).max(20_000),
   attachments: SupportAttachmentReferences.default([]),
+}).strict()
+
+export const ManageSupportParticipantInput = SupportRequestRefInput.extend({
+  operationId: z.string().uuid(),
+  userId: z.string().trim().min(1).max(191),
+  expectedClientVersion: z.number().int().positive(),
 }).strict()
 
 export const EligibleSupportAttachmentsInput = z

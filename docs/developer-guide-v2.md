@@ -57,6 +57,20 @@ UUID and canonical actor/scope/content/attachment hash across ambiguous retries;
 checked before reply-version CAS. Safe projections omit upload/run/hash/storage identities, and
 strict audit records only attachment count. This boundary does not authorize reading file bytes.
 
+Tenant Support access is request-scoped, not role-wide. The immutable requester and any unrevoked
+explicit participant must still have an `ACTIVE` membership; `STAFF`, `MANAGER`, and `OWNER` use the
+same requester-or-participant predicate and no role implicitly grants access to another member's
+request. Only the requester-facing canonical actions may grant or revoke an active member, with an
+actor-bound UUID/hash and `clientVersion` CAS. The requester can never become a participant, and
+grant evidence is retained when access is revoked. Client-visible mutations advance
+`clientVersion`/`clientActivityAt`; global `version` and internal activity remain the operator
+concurrency/history boundary and must not reorder the client queue. Client projections expose only
+current-user requester/participant booleans and safe messages, while the UI labels an authorized
+non-requester as `Your team`; they never disclose the requester or participant directory. Participant
+access does not transfer upload ownership: each client actor may attach only that actor's own eligible
+quarantined upload. Platform-admin Support reads and mutations remain a separate admin procedure with
+exact tenant/venue/request scope, not a path through the tenant ACL.
+
 Approved-preview feedback is a separate canonical support action. Session tenant and HUMAN client
 identity are authoritative. Inside one `RepeatableRead` transaction it revalidates the same current
 eligible `APPROVED` preview, then creates the Support request, immutable message, trusted attachment
@@ -302,6 +316,12 @@ The forward-only `20260812000400_add_durable_guest_chat_turns` migration adds th
 machines, composite session/message/analytics scope, sequence backfill, legacy analytics-token
 resolution, role and pending-state constraints, and terminal immutability guards. It is intentionally
 unapplied; local contract tests and loopback Prisma validation are not live migration evidence.
+
+The forward-only `20260812000500_support_requester_isolation` migration backfills and then guards the
+immutable requester membership, adds append-only grant/revocation evidence for explicit participants,
+and separates client-visible version/activity from global operator history. It rejects unresolved
+historical client requesters rather than inventing identity. It is intentionally unapplied; schema,
+migration-contract, domain, API, UI and static checks remain local evidence only.
 
 ## Required verification
 

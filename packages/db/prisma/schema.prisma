@@ -128,6 +128,7 @@ model Tenant {
   supportAuditEvents            SupportRequestAuditEvent[]
   supportPackageHandoffs        SupportPackageHandoff[]
   supportPreviewFeedback        SupportPreviewFeedback[]
+  supportRequestParticipants    SupportRequestParticipant[]
   offboardingPlans              OffboardingPlan[]
   offboardingVenueTargets       OffboardingVenueTarget[]
   offboardingRevocationEvidence OffboardingRevocationEvidence[]
@@ -151,21 +152,23 @@ model Tenant {
 }
 
 model TenantMembership {
-  id                           String           @id @default(cuid())
-  tenantId                     String           @map("tenant_id")
-  userId                       String           @map("user_id")
+  id                           String                      @id @default(cuid())
+  tenantId                     String                      @map("tenant_id")
+  userId                       String                      @map("user_id")
   role                         TenantRole
-  status                       MembershipStatus @default(ACTIVE)
-  invitedBy                    String?          @map("invited_by")
-  joinedAt                     DateTime?        @map("joined_at")
-  clerkEventTimestamp          BigInt           @default(dbgenerated("(FLOOR(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000))::BIGINT")) @map("clerk_event_timestamp")
-  clerkCursorIsCutoverBaseline Boolean          @default(true) @map("clerk_cursor_is_cutover_baseline")
-  welcomeEmailAttemptedAt      DateTime?        @map("welcome_email_attempted_at")
-  welcomeEmailDeliveredAt      DateTime?        @map("welcome_email_delivered_at")
-  createdAt                    DateTime         @default(now()) @map("created_at")
-  updatedAt                    DateTime         @updatedAt @map("updated_at")
-  tenant                       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user                         User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status                       MembershipStatus            @default(ACTIVE)
+  invitedBy                    String?                     @map("invited_by")
+  joinedAt                     DateTime?                   @map("joined_at")
+  clerkEventTimestamp          BigInt                      @default(dbgenerated("(FLOOR(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000))::BIGINT")) @map("clerk_event_timestamp")
+  clerkCursorIsCutoverBaseline Boolean                     @default(true) @map("clerk_cursor_is_cutover_baseline")
+  welcomeEmailAttemptedAt      DateTime?                   @map("welcome_email_attempted_at")
+  welcomeEmailDeliveredAt      DateTime?                   @map("welcome_email_delivered_at")
+  createdAt                    DateTime                    @default(now()) @map("created_at")
+  updatedAt                    DateTime                    @updatedAt @map("updated_at")
+  tenant                       Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user                         User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  supportRequesters            SupportRequest[]            @relation("support_request_requester_membership")
+  supportRequestParticipations SupportRequestParticipant[]
 
   @@unique([tenantId, userId])
   @@index([tenantId])
@@ -348,6 +351,7 @@ model Venue {
   supportAuditEvents            SupportRequestAuditEvent[]
   supportPackageHandoffs        SupportPackageHandoff[]
   supportPreviewFeedback        SupportPreviewFeedback[]
+  supportRequestParticipants    SupportRequestParticipant[]
   offboardingTargets            OffboardingVenueTarget[]
   contentModuleIdentities       ContentModuleIdentity[]
   contentModuleRevisions        ContentModuleRevision[]
@@ -760,35 +764,35 @@ enum IntakeUploadStatus {
 /// Quarantined transport metadata only. Object bytes remain outside the database
 /// and cannot become an IntakeRun until their generation, MIME, size, and hash are verified.
 model IntakeUpload {
-  id                    String             @id @default(cuid())
-  tenantId              String             @map("tenant_id")
-  venueId               String             @map("venue_id")
-  requestId             String             @map("request_id") @db.Uuid
-  requestHash           String             @map("request_hash") @db.Char(64)
-  displayName           String             @map("display_name") @db.VarChar(255)
-  fileName              String             @map("file_name") @db.VarChar(255)
-  mimeType              String             @map("mime_type") @db.VarChar(64)
-  byteSize              Int                @map("byte_size")
-  sha256                String             @db.Char(64)
-  objectKey             String             @unique(map: "intake_uploads_object_key_key") @map("object_key") @db.VarChar(255)
-  objectGeneration      String             @map("object_generation") @db.Uuid
-  storageVersionId      String?            @map("storage_version_id") @db.VarChar(1024)
-  status                IntakeUploadStatus @default(RESERVED)
-  verificationClaimId   String?            @map("verification_claim_id") @db.Uuid
-  verificationClaimedAt DateTime?          @map("verification_claimed_at")
-  verificationLeaseUntil DateTime?         @map("verification_lease_until")
-  verifiedAt            DateTime?          @map("verified_at")
-  rejectedAt            DateTime?          @map("rejected_at")
-  rejectionCode         String?            @map("rejection_code") @db.VarChar(64)
-  intakeRunId           String?            @map("intake_run_id")
-  requestedBy           String             @map("requested_by") @db.VarChar(191)
-  requestedByRole       String             @map("requested_by_role") @db.VarChar(32)
-  createdAt             DateTime           @default(now()) @map("created_at")
-  updatedAt             DateTime           @updatedAt @map("updated_at")
-  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  intakeRun             IntakeRun?         @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  supportAttachments    SupportMessageAttachment[]
+  id                     String                     @id @default(cuid())
+  tenantId               String                     @map("tenant_id")
+  venueId                String                     @map("venue_id")
+  requestId              String                     @map("request_id") @db.Uuid
+  requestHash            String                     @map("request_hash") @db.Char(64)
+  displayName            String                     @map("display_name") @db.VarChar(255)
+  fileName               String                     @map("file_name") @db.VarChar(255)
+  mimeType               String                     @map("mime_type") @db.VarChar(64)
+  byteSize               Int                        @map("byte_size")
+  sha256                 String                     @db.Char(64)
+  objectKey              String                     @unique(map: "intake_uploads_object_key_key") @map("object_key") @db.VarChar(255)
+  objectGeneration       String                     @map("object_generation") @db.Uuid
+  storageVersionId       String?                    @map("storage_version_id") @db.VarChar(1024)
+  status                 IntakeUploadStatus         @default(RESERVED)
+  verificationClaimId    String?                    @map("verification_claim_id") @db.Uuid
+  verificationClaimedAt  DateTime?                  @map("verification_claimed_at")
+  verificationLeaseUntil DateTime?                  @map("verification_lease_until")
+  verifiedAt             DateTime?                  @map("verified_at")
+  rejectedAt             DateTime?                  @map("rejected_at")
+  rejectionCode          String?                    @map("rejection_code") @db.VarChar(64)
+  intakeRunId            String?                    @map("intake_run_id")
+  requestedBy            String                     @map("requested_by") @db.VarChar(191)
+  requestedByRole        String                     @map("requested_by_role") @db.VarChar(32)
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
+  tenant                 Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  intakeRun              IntakeRun?                 @relation(fields: [intakeRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportAttachments     SupportMessageAttachment[]
 
   @@unique([tenantId, requestId], map: "intake_uploads_tenant_request_key")
   @@unique([intakeRunId, tenantId, venueId], map: "intake_uploads_run_scope_key")
@@ -1647,19 +1651,19 @@ model OperationalUpdate {
 }
 
 model AnalyticsEvent {
-  id         String   @id @default(cuid())
-  tenantId   String   @map("tenant_id")
-  venueId    String   @map("venue_id")
-  sessionId  String   @map("session_id")
-  eventType  String   @map("event_type")
-  placeId    String?  @map("place_id")
+  id         String         @id @default(cuid())
+  tenantId   String         @map("tenant_id")
+  venueId    String         @map("venue_id")
+  sessionId  String         @map("session_id")
+  eventType  String         @map("event_type")
+  placeId    String?        @map("place_id")
   metadata   Json?
-  occurredAt DateTime @map("occurred_at")
-  receivedAt DateTime @default(now()) @map("received_at")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue      Venue    @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  occurredAt DateTime       @map("occurred_at")
+  receivedAt DateTime       @default(now()) @map("received_at")
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue      Venue          @relation(fields: [venueId], references: [id], onDelete: Restrict)
   session    VisitorSession @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  place      Place?   @relation(fields: [placeId], references: [id], onDelete: Restrict)
+  place      Place?         @relation(fields: [placeId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, venueId, occurredAt])
   @@index([sessionId])
@@ -2347,54 +2351,89 @@ enum ApprovalDecisionOutcome {
 }
 
 model SupportRequest {
-  id                 String                     @id @default(cuid())
-  tenantId           String                     @map("tenant_id")
-  venueId            String                     @map("venue_id")
-  category           SupportRequestCategory
-  status             SupportRequestStatus       @default(OPEN)
-  subject            String                     @db.VarChar(200)
-  missingInformation String[]                   @default([]) @map("missing_information")
-  artifacts          Json                       @default("{}")
-  version            Int                        @default(1)
-  statusChangedAt    DateTime                   @default(now()) @map("status_changed_at")
-  createdByKind      SupportParticipantKind     @map("created_by_kind")
-  createdById        String                     @map("created_by_id") @db.VarChar(191)
-  updatedByKind      SupportParticipantKind     @map("updated_by_kind")
-  updatedById        String                     @map("updated_by_id") @db.VarChar(191)
-  createdAt          DateTime                   @default(now()) @map("created_at")
-  updatedAt          DateTime                   @updatedAt @map("updated_at")
-  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue              Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  messages           SupportMessage[]
-  auditEvents        SupportRequestAuditEvent[]
-  packageHandoffs    SupportPackageHandoff[]
-  previewFeedback    SupportPreviewFeedback[]
+  id                  String                      @id @default(cuid())
+  tenantId            String                      @map("tenant_id")
+  venueId             String                      @map("venue_id")
+  category            SupportRequestCategory
+  status              SupportRequestStatus        @default(OPEN)
+  subject             String                      @db.VarChar(200)
+  missingInformation  String[]                    @default([]) @map("missing_information")
+  artifacts           Json                        @default("{}")
+  version             Int                         @default(1)
+  clientVersion       Int                         @default(1) @map("client_version")
+  clientActivityAt    DateTime                    @default(now()) @map("client_activity_at")
+  statusChangedAt     DateTime                    @default(now()) @map("status_changed_at")
+  createdByKind       SupportParticipantKind      @map("created_by_kind")
+  createdById         String                      @map("created_by_id") @db.VarChar(191)
+  requesterUserId     String?                     @map("requester_user_id")
+  updatedByKind       SupportParticipantKind      @map("updated_by_kind")
+  updatedById         String                      @map("updated_by_id") @db.VarChar(191)
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
+  tenant              Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  messages            SupportMessage[]
+  auditEvents         SupportRequestAuditEvent[]
+  packageHandoffs     SupportPackageHandoff[]
+  previewFeedback     SupportPreviewFeedback[]
+  requesterMembership TenantMembership?           @relation("support_request_requester_membership", fields: [tenantId, requesterUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+  participants        SupportRequestParticipant[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, updatedAt, id])
+  @@index([tenantId, venueId, createdByKind, createdById, updatedAt, id], map: "support_requests_requester_updated_idx")
+  @@index([tenantId, venueId, requesterUserId, clientActivityAt, id], map: "support_requests_requester_activity_idx")
   @@index([tenantId, status, updatedAt])
   @@map("support_requests")
+}
+
+model SupportRequestParticipant {
+  id                  String                  @id @default(cuid())
+  tenantId            String                  @map("tenant_id")
+  venueId             String                  @map("venue_id")
+  supportRequestId    String                  @map("support_request_id")
+  userId              String                  @map("user_id")
+  grantOperationId    String                  @map("grant_operation_id") @db.Uuid
+  grantOperationHash  String                  @map("grant_operation_hash") @db.Char(64)
+  grantedByKind       SupportParticipantKind  @map("granted_by_kind")
+  grantedById         String                  @map("granted_by_id") @db.VarChar(191)
+  grantedAt           DateTime                @default(now()) @map("granted_at")
+  revokedAt           DateTime?               @map("revoked_at")
+  revokedByKind       SupportParticipantKind? @map("revoked_by_kind")
+  revokedById         String?                 @map("revoked_by_id") @db.VarChar(191)
+  revokeOperationId   String?                 @map("revoke_operation_id") @db.Uuid
+  revokeOperationHash String?                 @map("revoke_operation_hash") @db.Char(64)
+  tenant              Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  request             SupportRequest          @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  membership          TenantMembership        @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, grantOperationId], map: "support_request_participants_grant_operation_key")
+  @@unique([tenantId, revokeOperationId], map: "support_request_participants_revoke_operation_key")
+  @@index([tenantId, userId, revokedAt, supportRequestId], map: "support_request_participants_user_active_idx")
+  @@map("support_request_participants")
 }
 
 /// Immutable message content. Corrections are new messages so the support
 /// conversation remains reviewable and client/internal visibility is durable.
 model SupportMessage {
-  id               String                     @id @default(cuid())
-  tenantId         String                     @map("tenant_id")
-  venueId          String                     @map("venue_id")
-  supportRequestId String                     @map("support_request_id")
-  authorKind       SupportParticipantKind     @map("author_kind")
-  authorId         String                     @map("author_id") @db.VarChar(191)
-  visibility       SupportMessageVisibility   @default(CLIENT_VISIBLE)
-  body             String
-  submissionRequestId String?                  @map("submission_request_id") @db.Uuid
-  submissionInputHash String?                  @map("submission_input_hash") @db.Char(64)
-  createdAt        DateTime                   @default(now()) @map("created_at")
-  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue            Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  supportRequest   SupportRequest             @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  attachments      SupportMessageAttachment[]
-  previewFeedback  SupportPreviewFeedback?
+  id                  String                     @id @default(cuid())
+  tenantId            String                     @map("tenant_id")
+  venueId             String                     @map("venue_id")
+  supportRequestId    String                     @map("support_request_id")
+  authorKind          SupportParticipantKind     @map("author_kind")
+  authorId            String                     @map("author_id") @db.VarChar(191)
+  visibility          SupportMessageVisibility   @default(CLIENT_VISIBLE)
+  body                String
+  submissionRequestId String?                    @map("submission_request_id") @db.Uuid
+  submissionInputHash String?                    @map("submission_input_hash") @db.Char(64)
+  clientVersion       Int?                       @map("client_version")
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  tenant              Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest      SupportRequest             @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  attachments         SupportMessageAttachment[]
+  previewFeedback     SupportPreviewFeedback?
 
   @@unique([id, tenantId, venueId, supportRequestId])
   @@unique([tenantId, submissionRequestId], map: "support_messages_tenant_submission_request_key")
@@ -2421,8 +2460,8 @@ model SupportMessageAttachment {
   supportMessage   SupportMessage @relation(fields: [supportMessageId, tenantId, venueId, supportRequestId], references: [id, tenantId, venueId, supportRequestId], onDelete: Restrict, onUpdate: Restrict)
   intakeUpload     IntakeUpload?  @relation(fields: [intakeUploadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
-  @@index([tenantId, venueId, supportRequestId, supportMessageId])
   @@unique([supportMessageId, tenantId, venueId, intakeUploadId], map: "support_message_attachments_message_upload_key")
+  @@index([tenantId, venueId, supportRequestId, supportMessageId])
   @@map("support_message_attachments")
 }
 

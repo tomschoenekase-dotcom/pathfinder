@@ -30,6 +30,7 @@ const message = {
   authorId: 'client_1',
   visibility: 'CLIENT_VISIBLE',
   body: 'Help',
+  clientVersion: 2,
   createdAt: now,
   attachments: [],
 }
@@ -55,7 +56,7 @@ const appendInput = {
   tenantId: 'tenant_1',
   venueId: 'venue_1',
   requestId: 'request_1',
-  expectedVersion: 1,
+  expectedClientVersion: 1,
   visibility: 'CLIENT_VISIBLE' as const,
   body: 'message',
   attachments: [],
@@ -96,11 +97,21 @@ function harness() {
   const tx = {
     $executeRaw: vi.fn().mockResolvedValue(0),
     venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue_1' }) },
+    tenantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'membership_1' }) },
     venuePackage: { findFirst: vi.fn().mockResolvedValue({ id: 'package_1' }) },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([]) },
     supportRequest: {
       findUnique: vi.fn().mockResolvedValue(null),
-      findFirst: vi.fn().mockResolvedValue({ id: 'request_1', status: 'OPEN', version: 1 }),
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'request_1',
+        status: 'OPEN',
+        version: 1,
+        clientVersion: 1,
+        createdByKind: 'CLIENT',
+        requesterUserId: 'client_1',
+        requesterMembership: { status: 'ACTIVE' },
+        participants: [],
+      }),
       create: vi.fn().mockResolvedValue(request),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
@@ -320,7 +331,7 @@ describe('support domain actions', () => {
           tenantId: 'tenant_1',
           venueId: 'venue_1',
           requestId: 'request_1',
-          expectedVersion: 1,
+          expectedClientVersion: 1,
           visibility: 'INTERNAL_ONLY',
           body: 'hidden',
           attachments: [],
@@ -410,6 +421,16 @@ describe('support domain actions', () => {
           data: expect.objectContaining({ eventType, actorKind: actor.participantKind }),
         }),
       )
+      const requestUpdate = tx.supportRequest.updateMany.mock.calls[0]?.[0]?.data
+      if (visibility === 'CLIENT_VISIBLE') {
+        expect(requestUpdate).toMatchObject({
+          clientVersion: 2,
+          clientActivityAt: expect.any(Date),
+        })
+      } else {
+        expect(requestUpdate).not.toHaveProperty('clientVersion')
+        expect(requestUpdate).not.toHaveProperty('clientActivityAt')
+      }
     },
   )
 
@@ -419,6 +440,11 @@ describe('support domain actions', () => {
       id: 'request_1',
       status: 'OPEN',
       version: 2,
+      clientVersion: 2,
+      createdByKind: 'CLIENT',
+      requesterUserId: 'client_1',
+      requesterMembership: { status: 'ACTIVE' },
+      participants: [],
     })
     await expect(
       appendSupportMessageAction(
@@ -427,7 +453,7 @@ describe('support domain actions', () => {
           tenantId: 'tenant_1',
           venueId: 'venue_other',
           requestId: 'request_1',
-          expectedVersion: 1,
+          expectedClientVersion: 1,
           visibility: 'CLIENT_VISIBLE',
           body: 'message',
           attachments: [],
@@ -441,10 +467,11 @@ describe('support domain actions', () => {
         actionClient,
       ),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
-    expect(tx.supportRequest.findFirst).toHaveBeenCalledWith({
-      where: { id: 'request_1', tenantId: 'tenant_1', venueId: 'venue_other' },
-      select: { id: true, status: true, version: true },
-    })
+    expect(tx.supportRequest.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'request_1', tenantId: 'tenant_1', venueId: 'venue_other' },
+      }),
+    )
     expect(tx.supportRequest.updateMany).not.toHaveBeenCalled()
   })
 
@@ -508,6 +535,16 @@ describe('support domain actions', () => {
     await appendSupportMessageAction(appendInput, first.actionClient)
     const inputHash = first.tx.supportMessage.create.mock.calls[0]?.[0]?.data.submissionInputHash
     const replay = harness()
+    replay.tx.supportRequest.findFirst.mockResolvedValue({
+      id: 'request_1',
+      status: 'OPEN',
+      version: 9,
+      clientVersion: 7,
+      createdByKind: 'CLIENT',
+      requesterUserId: 'client_1',
+      requesterMembership: { status: 'ACTIVE' },
+      participants: [],
+    })
     replay.tx.supportMessage.findFirst.mockResolvedValue({
       ...message,
       body: appendInput.body,
@@ -518,17 +555,19 @@ describe('support domain actions', () => {
     await expect(
       appendSupportMessageAction(appendInput, replay.actionClient),
     ).resolves.toMatchObject({
-      requestVersion: 2,
+      clientVersion: 2,
       replayed: true,
     })
     expect(replay.tx.supportRequest.updateMany).not.toHaveBeenCalled()
     expect(replay.tx.supportRequestAuditEvent.create).not.toHaveBeenCalled()
+    replay.tx.supportMessage.findFirst.mockClear()
     await expect(
       appendSupportMessageAction(
         { ...appendInput, actor: { ...clientActor, actorId: 'other' } },
         replay.actionClient,
       ),
-    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(replay.tx.supportMessage.findFirst).not.toHaveBeenCalled()
   })
 
   it.each(['create', 'append'] as const)(
@@ -657,7 +696,13 @@ describe('support domain actions', () => {
     tx.intakeUpload.findMany.mockResolvedValue([verifiedUpload({ requestedBy: 'someone_else' })])
     await appendSupportMessageAction(
       {
-        ...appendInput,
+        operationId,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestId: 'request_1',
+        expectedVersion: 1,
+        visibility: 'CLIENT_VISIBLE',
+        body: 'message',
         attachments: [{ intakeUploadId: 'upload_1' }],
         actor: {
           actorType: 'HUMAN',

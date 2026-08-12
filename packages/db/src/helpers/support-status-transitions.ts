@@ -49,7 +49,7 @@ export async function transitionSupportRequestStatusAction(
   return client.$transaction(async (tx) => {
     const request = await tx.supportRequest.findFirst({
       where: { id: input.requestId, tenantId: input.tenantId, venueId: input.venueId },
-      select: { id: true, status: true, version: true },
+      select: { id: true, status: true, version: true, clientVersion: true },
     })
     if (!request) throw new SupportStatusTransitionError('NOT_FOUND', 'Support request not found')
     if (request.version !== input.expectedVersion) {
@@ -76,6 +76,8 @@ export async function transitionSupportRequestStatusAction(
         status: input.toStatus,
         statusChangedAt,
         version: nextVersion,
+        clientVersion: request.clientVersion + 1,
+        clientActivityAt: statusChangedAt,
         updatedByKind: 'OPERATOR',
         updatedById: input.actor.actorId,
       },
@@ -116,6 +118,13 @@ export async function transitionSupportRequestStatusAction(
       },
       tx,
     )
-    return { id: request.id, status: input.toStatus, version: nextVersion, statusChangedAt }
+    return {
+      id: request.id,
+      status: input.toStatus,
+      version: nextVersion,
+      clientVersion: request.clientVersion + 1,
+      clientActivityAt: statusChangedAt,
+      statusChangedAt,
+    }
   })
 }

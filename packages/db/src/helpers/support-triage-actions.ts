@@ -81,6 +81,7 @@ export async function triageSupportRequestAction(
         status: true,
         missingInformation: true,
         version: true,
+        clientVersion: true,
       },
     })
     if (!request) throw new SupportActionError('NOT_FOUND', 'Support request not found')
@@ -92,6 +93,7 @@ export async function triageSupportRequestAction(
     }
 
     const nextVersion = request.version + 1
+    const clientActivityAt = new Date()
     const changed = await tx.supportRequest.updateMany({
       where: {
         id: request.id,
@@ -104,6 +106,8 @@ export async function triageSupportRequestAction(
         category: category.data,
         missingInformation,
         version: nextVersion,
+        clientVersion: request.clientVersion + 1,
+        clientActivityAt,
         updatedByKind: 'OPERATOR',
         updatedById: input.actor.actorId,
       },
@@ -158,6 +162,8 @@ export async function triageSupportRequestAction(
       category: category.data,
       missingInformation,
       version: nextVersion,
+      clientVersion: request.clientVersion + 1,
+      clientActivityAt,
     }
   })
 }

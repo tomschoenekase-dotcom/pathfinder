@@ -15,11 +15,18 @@ import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contr
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { canTenantActorAccessSupportRequest } from './support-request-access'
 
 export type SupportActionActor =
   | {
       actorType: 'HUMAN'
-      participantKind: 'CLIENT' | 'OPERATOR'
+      participantKind: 'CLIENT'
+      actorId: string
+      auditRole: string
+    }
+  | {
+      actorType: 'HUMAN'
+      participantKind: 'OPERATOR'
       actorId: string
       auditRole: string
     }
@@ -31,13 +38,21 @@ type SupportActionClient = Pick<typeof db, '$transaction'>
 
 const scopedId = z.string().trim().min(1).max(191)
 const auditRole = z.string().trim().min(1).max(64)
-const supportActionActor = z.discriminatedUnion('actorType', [
+const supportActionActor = z.union([
   z
     .object({
       actorType: z.literal('HUMAN'),
-      participantKind: z.enum(['CLIENT', 'OPERATOR']),
+      participantKind: z.literal('CLIENT'),
       actorId: scopedId,
-      auditRole,
+      auditRole: z.enum(['STAFF', 'MANAGER', 'OWNER']),
+    })
+    .strict(),
+  z
+    .object({
+      actorType: z.literal('HUMAN'),
+      participantKind: z.literal('OPERATOR'),
+      actorId: scopedId,
+      auditRole: z.literal('PLATFORM_ADMIN'),
     })
     .strict(),
   z
@@ -75,13 +90,24 @@ const appendSupportMessageActionInput = z
     tenantId: scopedId,
     venueId: scopedId,
     requestId: scopedId,
-    expectedVersion: z.number().int().positive(),
+    expectedVersion: z.number().int().positive().optional(),
+    expectedClientVersion: z.number().int().positive().optional(),
     visibility: SupportMessageVisibilitySchema,
     body: z.string().trim().min(1).max(20_000),
     attachments: SupportAttachmentReferences,
     actor: supportActionActor,
   })
   .strict()
+  .superRefine((value, context) => {
+    const isClient = value.actor.participantKind === 'CLIENT'
+    if (
+      (isClient && value.expectedClientVersion === undefined) ||
+      (!isClient && value.expectedVersion === undefined) ||
+      (isClient && value.expectedVersion !== undefined) ||
+      (!isClient && value.expectedClientVersion !== undefined)
+    )
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid support version field' })
+  })
 const createPreviewFeedbackRequestActionInput = z
   .object({
     operationId: z.string().uuid(),
@@ -95,7 +121,7 @@ const createPreviewFeedbackRequestActionInput = z
         actorType: z.literal('HUMAN'),
         participantKind: z.literal('CLIENT'),
         actorId: scopedId,
-        auditRole,
+        auditRole: z.enum(['STAFF', 'MANAGER', 'OWNER']),
       })
       .strict(),
   })
@@ -119,6 +145,8 @@ const requestSelect = {
   subject: true,
   missingInformation: true,
   version: true,
+  clientVersion: true,
+  clientActivityAt: true,
   statusChangedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -132,6 +160,7 @@ const messageSelect = {
   authorId: true,
   visibility: true,
   body: true,
+  clientVersion: true,
   createdAt: true,
   attachments: {
     select: {
@@ -182,6 +211,14 @@ async function lockSupportOperation(
   operationId: string,
 ) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-operation:${tenantId}:${operationId}`}, 0))`
+}
+
+async function lockSupportRequest(
+  tx: Parameters<Parameters<SupportActionClient['$transaction']>[0]>[0],
+  tenantId: string,
+  requestId: string,
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-request:${tenantId}:${requestId}`}, 0))`
 }
 
 function canonicalJson(value: unknown): string {
@@ -418,6 +455,17 @@ async function createSupportRequestActionOnce(
     } as const
     let existing = await tx.supportMessage.findFirst(replayQuery)
     await lockSupportOperation(tx, parsed.tenantId, parsed.operationId)
+    if (parsed.actor.participantKind === 'CLIENT') {
+      const membership = await tx.tenantMembership.findFirst({
+        where: {
+          tenantId: parsed.tenantId,
+          userId: parsed.actor.actorId,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      })
+      if (!membership) throw new SupportActionError('NOT_FOUND', 'Venue not found')
+    }
     if (!existing) existing = await tx.supportMessage.findFirst(replayQuery)
     if (existing) {
       if (
@@ -452,6 +500,7 @@ async function createSupportRequestActionOnce(
         artifacts: {},
         createdByKind: parsed.actor.participantKind,
         createdById: parsed.actor.actorId,
+        requesterUserId: parsed.actor.participantKind === 'CLIENT' ? parsed.actor.actorId : null,
         updatedByKind: parsed.actor.participantKind,
         updatedById: parsed.actor.actorId,
       },
@@ -468,6 +517,7 @@ async function createSupportRequestActionOnce(
         body: parsed.body,
         submissionRequestId: parsed.operationId,
         submissionInputHash,
+        clientVersion: 1,
         attachments: {
           create: attachmentCreates(attachments, {
             tenantId: parsed.tenantId,
@@ -586,6 +636,16 @@ async function createPreviewFeedbackRequestActionOnce(
       } as const
       let existing = await tx.supportMessage.findFirst(replayQuery)
       await lockSupportOperation(tx, parsed.tenantId, parsed.operationId)
+      const membership = await tx.tenantMembership.findFirst({
+        where: {
+          tenantId: parsed.tenantId,
+          userId: parsed.actor.actorId,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      })
+      if (!membership)
+        throw new SupportActionError('NOT_FOUND', 'Approved client preview not found')
       if (!existing) existing = await tx.supportMessage.findFirst(replayQuery)
       if (existing) {
         if (
@@ -635,6 +695,7 @@ async function createPreviewFeedbackRequestActionOnce(
           artifacts: {},
           createdByKind: 'CLIENT',
           createdById: parsed.actor.actorId,
+          requesterUserId: parsed.actor.actorId,
           updatedByKind: 'CLIENT',
           updatedById: parsed.actor.actorId,
         },
@@ -651,6 +712,7 @@ async function createPreviewFeedbackRequestActionOnce(
           body: parsed.body,
           submissionRequestId: parsed.operationId,
           submissionInputHash,
+          clientVersion: 1,
           attachments: {
             create: attachmentCreates(attachments, {
               tenantId: parsed.tenantId,
@@ -744,7 +806,8 @@ async function appendSupportMessageActionOnce(
     operationId: string
     venueId: string
     requestId: string
-    expectedVersion: number
+    expectedVersion?: number
+    expectedClientVersion?: number
     visibility: SupportMessageVisibility
     body: string
     attachments: SupportAttachmentDraft[]
@@ -761,7 +824,10 @@ async function appendSupportMessageActionOnce(
     tenantId: parsed.tenantId,
     venueId: parsed.venueId,
     requestId: parsed.requestId,
-    expectedVersion: parsed.expectedVersion,
+    expectedVersion:
+      parsed.actor.participantKind === 'CLIENT'
+        ? parsed.expectedClientVersion
+        : parsed.expectedVersion,
     visibility: parsed.visibility,
     body: parsed.body,
     intakeUploadIds: parsed.attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
@@ -771,9 +837,38 @@ async function appendSupportMessageActionOnce(
       where: { tenantId: parsed.tenantId, submissionRequestId: parsed.operationId },
       select: replayMessageSelect,
     } as const
-    let existingMessage = await tx.supportMessage.findFirst(replayQuery)
     await lockSupportOperation(tx, parsed.tenantId, parsed.operationId)
-    if (!existingMessage) existingMessage = await tx.supportMessage.findFirst(replayQuery)
+    await lockSupportRequest(tx, parsed.tenantId, parsed.requestId)
+    const request = await tx.supportRequest.findFirst({
+      where: { id: parsed.requestId, tenantId: parsed.tenantId, venueId: parsed.venueId },
+      select: {
+        id: true,
+        status: true,
+        version: true,
+        clientVersion: true,
+        createdByKind: true,
+        requesterUserId: true,
+        requesterMembership: { select: { status: true } },
+        participants: {
+          where: { userId: parsed.actor.actorId },
+          select: {
+            userId: true,
+            revokedAt: true,
+            membership: { select: { status: true } },
+          },
+        },
+      },
+    })
+    if (!request) throw new SupportActionError('NOT_FOUND', 'Support request not found')
+    if (
+      parsed.actor.participantKind === 'CLIENT' &&
+      !canTenantActorAccessSupportRequest(
+        { actorId: parsed.actor.actorId, role: parsed.actor.auditRole },
+        request,
+      )
+    )
+      throw new SupportActionError('NOT_FOUND', 'Support request not found')
+    const existingMessage = await tx.supportMessage.findFirst(replayQuery)
     if (existingMessage) {
       if (
         existingMessage.venueId !== parsed.venueId ||
@@ -788,21 +883,25 @@ async function appendSupportMessageActionOnce(
       }
       return {
         message: safeReplayMessage(existingMessage),
-        requestVersion: parsed.expectedVersion + 1,
+        requestVersion:
+          parsed.actor.participantKind === 'CLIENT' ? request.version : parsed.expectedVersion! + 1,
+        clientVersion:
+          parsed.actor.participantKind === 'CLIENT'
+            ? existingMessage.clientVersion!
+            : request.clientVersion,
         replayed: true as const,
       }
     }
-    const request = await tx.supportRequest.findFirst({
-      where: { id: parsed.requestId, tenantId: parsed.tenantId, venueId: parsed.venueId },
-      select: { id: true, status: true, version: true },
-    })
-    if (!request) throw new SupportActionError('NOT_FOUND', 'Support request not found')
     if (
       parsed.actor.participantKind !== 'OPERATOR' &&
       (request.status === 'COMPLETED' || request.status === 'CANCELLED')
     )
       throw new SupportActionError('CONFLICT', 'This support request is closed')
-    if (request.version !== parsed.expectedVersion)
+    if (
+      (parsed.actor.participantKind === 'CLIENT' &&
+        request.clientVersion !== parsed.expectedClientVersion) ||
+      (parsed.actor.participantKind !== 'CLIENT' && request.version !== parsed.expectedVersion)
+    )
       throw new SupportActionError('CONFLICT', 'Support request changed; refresh it')
     const attachments = await resolveAttachments(tx, parsed, parsed.attachments)
     const nextVersion = request.version + 1
@@ -811,10 +910,15 @@ async function appendSupportMessageActionOnce(
         id: request.id,
         tenantId: parsed.tenantId,
         venueId: parsed.venueId,
-        version: parsed.expectedVersion,
+        ...(parsed.actor.participantKind === 'CLIENT'
+          ? { clientVersion: parsed.expectedClientVersion!, version: request.version }
+          : { version: parsed.expectedVersion! }),
       },
       data: {
         version: nextVersion,
+        ...(parsed.visibility === 'CLIENT_VISIBLE'
+          ? { clientVersion: request.clientVersion + 1, clientActivityAt: new Date() }
+          : {}),
         updatedByKind: parsed.actor.participantKind,
         updatedById: parsed.actor.actorId,
       },
@@ -832,6 +936,7 @@ async function appendSupportMessageActionOnce(
         body: parsed.body,
         submissionRequestId: parsed.operationId,
         submissionInputHash,
+        clientVersion: parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : null,
         attachments: {
           create: attachmentCreates(attachments, {
             tenantId: parsed.tenantId,
@@ -874,7 +979,13 @@ async function appendSupportMessageActionOnce(
       },
       tx,
     )
-    return { message, requestVersion: nextVersion, replayed: false as const }
+    return {
+      message,
+      requestVersion: nextVersion,
+      clientVersion:
+        parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : request.clientVersion,
+      replayed: false as const,
+    }
   })
 }
 

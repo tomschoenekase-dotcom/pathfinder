@@ -483,7 +483,7 @@
     "path": "support.listEligibleAttachments",
     "kind": "query",
     "minimumRole": "STAFF",
-    "firstTouch": "intakeUpload.findMany",
+    "firstTouch": "tenantMembership.findFirst",
     "input": { "venueId": "cvenueabc123456789012" }
   },
   {
@@ -525,8 +525,34 @@
       "operationId": "a9c3c094-8807-43f4-b7da-5d38982930cc",
       "venueId": "cvenueabc123456789012",
       "requestId": "csupportabc1234567890",
-      "expectedVersion": 1,
+      "expectedClientVersion": 1,
       "body": "Here is the requested clarification."
+    }
+  },
+  {
+    "path": "support.grantParticipant",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "supportRequest.findFirst",
+    "input": {
+      "operationId": "b9c3c094-8807-43f4-b7da-5d38982930cc",
+      "venueId": "cvenueabc123456789012",
+      "requestId": "csupportabc1234567890",
+      "userId": "cuserabc12345678901234",
+      "expectedClientVersion": 1
+    }
+  },
+  {
+    "path": "support.revokeParticipant",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "supportRequest.findFirst",
+    "input": {
+      "operationId": "c9c3c094-8807-43f4-b7da-5d38982930cc",
+      "venueId": "cvenueabc123456789012",
+      "requestId": "csupportabc1234567890",
+      "userId": "cuserabc12345678901234",
+      "expectedClientVersion": 1
     }
   },
   {

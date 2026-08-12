@@ -44,6 +44,13 @@ Section-level evidence and blockers are indexed in
 - Structured support-workflow contracts plus tenant/venue-scoped request, immutable message,
   attachment metadata, and append-only audit persistence. Client APIs cannot read or create internal
   notes; admin APIs use explicit scope, pagination, and version-CAS message mutations.
+- Client Support authorization is now an immutable requester plus explicit active-participant ACL.
+  `STAFF`, `MANAGER`, and `OWNER` have equal requester-or-participant access and no implicit role-wide
+  visibility; requester and participant membership must remain active. Requester-only, actor-bound
+  grant/revoke actions retain append-only evidence and use `clientVersion` CAS. Client-safe
+  projections expose only current-user booleans and `Your team` UI copy, not member identities.
+  Platform-admin Support remains a separate exact-scoped admin surface. The API actions are present,
+  but there is no client participant-management UI yet.
 - Support creation and message append are the first canonical domain actions shared below route
   adapters. They require trusted HUMAN/AGENT/SYSTEM actor context, enforce visibility and scope,
   and transactionally couple version CAS, content evidence, support audit, and platform audit.
@@ -52,7 +59,12 @@ Section-level evidence and blockers are indexed in
   server derives the attachment snapshot, client reuse is uploader-bound, and durable operation
   UUID/hash replay converges ambiguous create/reply outcomes before request-version CAS. The UI
   truthfully exposes transport verification and review status only; it provides no file preview,
-  download, malware-safety, approval or publication claim. The additive migration is unapplied.
+  download, malware-safety, approval or publication claim. Explicit participants still may attach
+  only their own uploads. The additive migrations are unapplied.
+- Client-visible Support mutations advance a dedicated `clientVersion` and `clientActivityAt`, while
+  the global request version and internal activity remain separate operator concurrency/history
+  evidence. Client lists sort on client activity, so internal-only work neither leaks nor resurfaces a
+  request. Client read models return only authorized requests and `CLIENT_VISIBLE` messages.
 - A normalized support-to-package handoff can link an exact support request version to an existing
   same-tenant, same-venue `DRAFT` VenuePackage. The append-only handoff is HUMAN-operator attributed,
   version-CAS guarded, strictly audited, and makes zero package lifecycle writes. Its forward-only
@@ -253,8 +265,9 @@ Section-level evidence and blockers are indexed in
 - Ultra-Simple Client Portal reconstruction: no analytics, responsive calm navigation, lifecycle
   status, single-venue-first home, unobtrusive multi-venue switching, operational updates, simple
   tone controls, real venue-scoped support requests/replies with conflict-safe draft retention, and
-  requester-owned quarantined-evidence attachment selection, plus platform-admin-only links back to
-  internal tools.
+  per-request requester/participant isolation with uploader-owned quarantined-evidence attachment
+  selection, plus platform-admin-only links back to internal tools. The Support UI safely labels an
+  authorized non-requester as `Your team`; participant grant/revoke is API-only in this build.
 - Client lifecycle is derived, not stored as a new mutable claim. The browser-safe resolver and
   tenant-scoped read model map existing venue, intake, package and offboarding evidence to the ten
   packet states and show only client-required tasks and human milestones.
@@ -311,7 +324,8 @@ Section-level evidence and blockers are indexed in
 - Internal Support Operations console separates client-visible replies from internal notes, exposes
   append-only request evidence and package lineage, and limits verified operator mutation to
   conflict-safe messages/notes, closed-graph status transitions and the bounded existing-DRAFT
-  handoff described above.
+  handoff described above. Its platform-admin authorization and explicit scope remain independent of
+  tenant requester/participant membership.
 - Default-off flags for richer guest components, generalized capabilities, onboarding automation,
   autonomous support actions, MCP writes, partner API, and SDK release.
 - MCP v0 contracts and a transport-neutral adapter registry targeting official protocol revision
@@ -371,7 +385,8 @@ Section-level evidence and blockers are indexed in
   checked migrations are atomic and
   use restrictive exact-scope foreign keys. Offline format/validate/generate and the DB suite passed,
   but none of these forward migrations, including durable guest chat turn migration
-  `20260812000400_add_durable_guest_chat_turns`, was applied or rehearsed against a database.
+  `20260812000400_add_durable_guest_chat_turns` and requester-isolation migration
+  `20260812000500_support_requester_isolation`, was applied or rehearsed against a database.
 
 ## Required program work not yet proven complete
 
@@ -383,7 +398,8 @@ Section-level evidence and blockers are indexed in
 - New account/workspace mutation surfaces must continue to use the canonical actions; the current
   production routers contain no direct Tenant, User, or TenantMembership writes outside those seams.
 - Support workflow beyond verified status transitions and reviewed-DRAFT creation/linkage,
-  including any later automated approval, apply, completion or agent orchestration.
+  including a client participant-management UI and any later automated approval, apply, completion
+  or agent orchestration.
 - Agent execution adapters and protected enable/run/retry controls; staged identity configuration
   does not activate an agent.
 - MCP transport/authentication, credential issuance/verification/lifecycle, write bindings, and any

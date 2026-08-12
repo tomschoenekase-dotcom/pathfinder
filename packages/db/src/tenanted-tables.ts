@@ -45,6 +45,7 @@ export const TENANTED_TABLES = [
   'ApprovalRequest',
   'ApprovalDecision',
   'SupportRequest',
+  'SupportRequestParticipant',
   'SupportMessage',
   'SupportMessageAttachment',
   'SupportRequestAuditEvent',

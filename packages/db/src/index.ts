@@ -199,6 +199,19 @@ export type {
   SupportAttachmentDraft,
 } from './helpers/support-actions'
 export {
+  canTenantActorAccessSupportRequest,
+  tenantSupportRequestAccessWhere,
+} from './helpers/support-request-access'
+export {
+  grantSupportRequestParticipantAction,
+  revokeSupportRequestParticipantAction,
+} from './helpers/support-participant-actions'
+export type {
+  SupportRequesterIdentity,
+  TenantSupportActor,
+  TenantSupportRole,
+} from './helpers/support-request-access'
+export {
   normalizeSupportMissingInformation,
   SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX,
   SUPPORT_TRIAGE_MISSING_INFORMATION_MAX,

@@ -77,6 +77,12 @@ describe('support request draft-package handoff', () => {
         data: expect.objectContaining({ eventType: 'PACKAGE_DRAFT_LINKED', requestVersion: 4 }),
       }),
     )
+    expect(tx.supportRequest.updateMany.mock.calls[0]?.[0]?.data).not.toHaveProperty(
+      'clientVersion',
+    )
+    expect(tx.supportRequest.updateMany.mock.calls[0]?.[0]?.data).not.toHaveProperty(
+      'clientActivityAt',
+    )
     expect(tx.auditLog.create).toHaveBeenCalledOnce()
     expect(tx.venuePackage).not.toHaveProperty('create')
     expect(tx.venuePackage).not.toHaveProperty('update')

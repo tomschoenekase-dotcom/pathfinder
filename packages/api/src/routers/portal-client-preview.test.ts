@@ -175,7 +175,20 @@ describe('package-bound client preview read', () => {
         packageId: input.packageId,
       })
       return {
-        request: { id: 'request_1' },
+        request: {
+          id: 'request_1',
+          venueId: 'venue_1',
+          category: 'EXPERIENCE_BEHAVIOR',
+          status: 'OPEN',
+          subject: 'Feedback on approved preview',
+          missingInformation: [],
+          version: 9,
+          clientVersion: 1,
+          clientActivityAt: approvedAt,
+          statusChangedAt: approvedAt,
+          createdAt: approvedAt,
+          updatedAt: approvedAt,
+        },
         message: {
           id: 'message_1',
           authorKind: 'CLIENT',
@@ -212,6 +225,17 @@ describe('package-bound client preview read', () => {
       db,
     )
     expect(result.message.attachments[0]?.byteSize).toBe('42')
+    expect(result.request).toMatchObject({
+      clientVersion: 1,
+      requesterIsCurrentUser: true,
+      participantIsCurrentUser: false,
+      canReply: true,
+    })
+    expect(result.request).not.toHaveProperty('version')
+    expect(result.request).not.toHaveProperty('updatedAt')
+    expect(result.request).not.toHaveProperty('requesterUserId')
+    expect(result.request).not.toHaveProperty('createdById')
+    expect(result.request).not.toHaveProperty('participants')
   })
 
   it('rejects raw caller-authored attachment metadata', async () => {

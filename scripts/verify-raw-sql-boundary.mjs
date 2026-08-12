@@ -289,6 +289,18 @@ const approvedOperations = [
     policy: 'tenant-support-operation-lock',
   },
   {
+    file: 'packages/db/src/helpers/support-actions.ts',
+    method: '$executeRaw',
+    hash: '9a55ebe92ba434f21b836c16d41ce54bd9c7c28b8f0b4f2bf6b7d10cc26963f9',
+    policy: 'tenant-support-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/support-participant-actions.ts',
+    method: '$executeRaw',
+    hash: '22fdd4471306219d371c62e8c50eda90105555479bd2c322b8668bced4d8e70c',
+    policy: 'tenant-support-operation-lock',
+  },
+  {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',
     method: '$queryRaw',
     hash: 'a925e18ada96c0708399943037bf1131d99e9debefa92a74b8300a24b84a4b93',

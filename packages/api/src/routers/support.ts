@@ -2,16 +2,23 @@ import { TRPCError } from '@trpc/server'
 
 import {
   appendSupportMessageAction,
+  canTenantActorAccessSupportRequest,
   createSupportRequestAction,
+  grantSupportRequestParticipantAction,
+  revokeSupportRequestParticipantAction,
   SupportActionError,
+  tenantSupportRequestAccessWhere,
+  type TenantSupportRole,
 } from '@pathfinder/db'
 
 import { router } from '../core'
+import type { TRPCContext } from '../context'
 import {
   AddClientSupportMessageInput,
   CreateSupportRequestInput,
   EligibleSupportAttachmentsInput,
   GetSupportRequestInput,
+  ManageSupportParticipantInput,
   SupportPageInput,
 } from '../schemas/support'
 import { tenantProcedure } from '../trpc'
@@ -24,15 +31,26 @@ const clientRequestSelect = {
   status: true,
   subject: true,
   missingInformation: true,
-  version: true,
+  clientVersion: true,
+  clientActivityAt: true,
   statusChangedAt: true,
   createdAt: true,
-  updatedAt: true,
+  createdByKind: true,
+  requesterUserId: true,
+  requesterMembership: { select: { status: true } },
+  participants: {
+    select: {
+      userId: true,
+      revokedAt: true,
+      membership: { select: { status: true } },
+    },
+  },
 } as const
 
 const clientMessageSelect = {
   id: true,
   authorKind: true,
+  authorId: true,
   visibility: true,
   body: true,
   createdAt: true,
@@ -47,21 +65,18 @@ const clientMessageSelect = {
   },
 } as const
 
-function cursorWhere(cursor: { updatedAt: string; id: string } | undefined) {
+function cursorWhere(cursor: { clientActivityAt: string; id: string } | undefined) {
   if (!cursor) return {}
-  const updatedAt = new Date(cursor.updatedAt)
+  const clientActivityAt = new Date(cursor.clientActivityAt)
   return {
-    AND: [{ OR: [{ updatedAt: { lt: updatedAt } }, { updatedAt, id: { lt: cursor.id } }] }],
-  }
-}
-
-function serializeMessage<T extends { attachments: Array<{ byteSize: bigint }> }>(message: T) {
-  return {
-    ...message,
-    attachments: message.attachments.map((attachment) => ({
-      ...attachment,
-      byteSize: attachment.byteSize.toString(),
-    })),
+    AND: [
+      {
+        OR: [
+          { clientActivityAt: { lt: clientActivityAt } },
+          { clientActivityAt, id: { lt: cursor.id } },
+        ],
+      },
+    ],
   }
 }
 
@@ -69,6 +84,7 @@ function serializeClientMessage<
   T extends {
     id: string
     authorKind: string
+    authorId: string
     visibility: string
     body: string
     createdAt: Date
@@ -79,11 +95,11 @@ function serializeClientMessage<
       byteSize: bigint
     }>
   },
->(message: T) {
+>(message: T, currentUserId: string) {
   return {
     id: message.id,
     authorKind: message.authorKind,
-    visibility: message.visibility,
+    authorIsCurrentUser: message.authorId === currentUserId,
     body: message.body,
     createdAt: message.createdAt,
     attachments: message.attachments.map((attachment) => ({
@@ -92,6 +108,44 @@ function serializeClientMessage<
       mediaType: attachment.mediaType,
       byteSize: attachment.byteSize.toString(),
     })),
+  }
+}
+
+function tenantActor(session: TRPCContext['session']): {
+  actorId: string
+  role: TenantSupportRole
+} {
+  if (!session.role) throw new TRPCError({ code: 'FORBIDDEN', message: 'Tenant role required' })
+  return { actorId: session.userId, role: session.role }
+}
+
+function serializeClientRequest<
+  T extends {
+    status: string
+    createdByKind: string
+    requesterUserId: string | null
+    requesterMembership: { status: string } | null
+    participants: Array<{
+      userId: string
+      revokedAt: Date | null
+      membership: { status: string }
+    }>
+  },
+>(request: T, actor: { actorId: string; role: TenantSupportRole }) {
+  const { createdByKind, requesterUserId, requesterMembership, participants, ...safe } = request
+  const authorized = canTenantActorAccessSupportRequest(actor, {
+    createdByKind,
+    requesterUserId,
+    requesterMembership,
+    participants,
+  })
+  return {
+    ...safe,
+    requesterIsCurrentUser: createdByKind === 'CLIENT' && requesterUserId === actor.actorId,
+    participantIsCurrentUser: participants.some(
+      (participant) => participant.userId === actor.actorId && participant.revokedAt === null,
+    ),
+    canReply: authorized && request.status !== 'COMPLETED' && request.status !== 'CANCELLED',
   }
 }
 
@@ -108,6 +162,16 @@ export const supportRouter = router({
   listEligibleAttachments: tenantProcedure
     .input(EligibleSupportAttachmentsInput)
     .query(async ({ ctx, input }) => {
+      const membership = await ctx.db.tenantMembership.findFirst({
+        where: {
+          tenantId: ctx.session.activeTenantId,
+          userId: ctx.session.userId,
+          status: 'ACTIVE',
+        },
+        select: { id: true },
+      })
+      if (!membership)
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Eligible attachments not found' })
       const rows = await ctx.db.intakeUpload.findMany({
         where: {
           tenantId: ctx.session.activeTenantId,
@@ -204,33 +268,63 @@ export const supportRouter = router({
 
   listRequests: tenantProcedure.input(SupportPageInput).query(async ({ ctx, input }) => {
     const tenantId = ctx.session.activeTenantId
+    const actor = tenantActor(ctx.session)
     const rows = await ctx.db.supportRequest.findMany({
       where: {
         tenantId,
         venueId: input.venueId,
+        ...tenantSupportRequestAccessWhere(actor),
         ...cursorWhere(input.cursor),
       },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ clientActivityAt: 'desc' }, { id: 'desc' }],
       take: input.limit + 1,
-      select: clientRequestSelect,
+      select: {
+        ...clientRequestSelect,
+        participants: {
+          where: { userId: actor.actorId },
+          take: 1,
+          select: {
+            userId: true,
+            revokedAt: true,
+            membership: { select: { status: true } },
+          },
+        },
+      },
     })
-    const items = rows.slice(0, input.limit)
+    const items = rows
+      .slice(0, input.limit)
+      .map((request) => serializeClientRequest(request, actor))
     const last = items.at(-1)
     return {
       items,
       nextCursor:
         rows.length > input.limit && last
-          ? { updatedAt: last.updatedAt.toISOString(), id: last.id }
+          ? { clientActivityAt: last.clientActivityAt.toISOString(), id: last.id }
           : null,
     }
   }),
 
   getRequest: tenantProcedure.input(GetSupportRequestInput).query(async ({ ctx, input }) => {
     const tenantId = ctx.session.activeTenantId
+    const actor = tenantActor(ctx.session)
     const request = await ctx.db.supportRequest.findFirst({
-      where: { id: input.requestId, tenantId, venueId: input.venueId },
+      where: {
+        id: input.requestId,
+        tenantId,
+        venueId: input.venueId,
+        ...tenantSupportRequestAccessWhere(actor),
+      },
       select: {
         ...clientRequestSelect,
+        participants: {
+          where: { userId: actor.actorId },
+          take: 1,
+          select: {
+            userId: true,
+            revokedAt: true,
+            membership: { select: { status: true } },
+          },
+        },
         messages: {
           where: {
             tenantId,
@@ -259,11 +353,13 @@ export const supportRouter = router({
       },
     })
     if (!request) throw new TRPCError({ code: 'NOT_FOUND', message: 'Support request not found' })
-    const messages = request.messages.slice(0, input.messageLimit)
-    const last = messages.at(-1)
+    const pageMessages = request.messages.slice(0, input.messageLimit)
+    const last = pageMessages.at(-1)
+    const { messages: allMessages, ...requestWithoutMessages } = request
+    void allMessages
     return {
-      ...request,
-      messages: messages.map(serializeMessage),
+      ...serializeClientRequest(requestWithoutMessages, actor),
+      messages: pageMessages.map((message) => serializeClientMessage(message, actor.actorId)),
       nextMessageCursor:
         request.messages.length > input.messageLimit && last
           ? { createdAt: last.createdAt.toISOString(), id: last.id }
@@ -275,6 +371,7 @@ export const supportRouter = router({
     .input(CreateSupportRequestInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
+      const actor = tenantActor(ctx.session)
       try {
         const result = await createSupportRequestAction(
           {
@@ -288,15 +385,24 @@ export const supportRouter = router({
             actor: {
               actorType: 'HUMAN',
               participantKind: 'CLIENT',
-              actorId: ctx.session.userId,
-              auditRole: ctx.session.role ?? 'STAFF',
+              actorId: actor.actorId,
+              auditRole: actor.role,
             },
           },
           ctx.db,
         )
+        const { version, updatedAt, ...clientRequest } = result.request
+        void version
+        void updatedAt
         return {
-          request: result.request,
-          message: serializeClientMessage(result.message),
+          request: {
+            ...clientRequest,
+            requesterIsCurrentUser: true,
+            participantIsCurrentUser: false,
+            canReply:
+              result.request.status !== 'COMPLETED' && result.request.status !== 'CANCELLED',
+          },
+          message: serializeClientMessage(result.message, actor.actorId),
           replayed: result.replayed,
         }
       } catch (error) {
@@ -308,6 +414,7 @@ export const supportRouter = router({
     .input(AddClientSupportMessageInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
+      const actor = tenantActor(ctx.session)
       try {
         const result = await appendSupportMessageAction(
           {
@@ -315,22 +422,78 @@ export const supportRouter = router({
             tenantId,
             venueId: input.venueId,
             requestId: input.requestId,
-            expectedVersion: input.expectedVersion,
+            expectedClientVersion: input.expectedClientVersion,
             visibility: 'CLIENT_VISIBLE',
             body: input.body,
             attachments: input.attachments,
             actor: {
               actorType: 'HUMAN',
               participantKind: 'CLIENT',
-              actorId: ctx.session.userId,
-              auditRole: ctx.session.role ?? 'STAFF',
+              actorId: actor.actorId,
+              auditRole: actor.role,
             },
           },
           ctx.db,
         )
         return {
-          message: serializeClientMessage(result.message),
-          requestVersion: result.requestVersion,
+          message: serializeClientMessage(result.message, actor.actorId),
+          clientVersion: result.clientVersion,
+          replayed: result.replayed,
+        }
+      } catch (error) {
+        return supportActionError(error)
+      }
+    }),
+
+  grantParticipant: tenantProcedure
+    .input(ManageSupportParticipantInput)
+    .mutation(async ({ ctx, input }) => {
+      const actor = tenantActor(ctx.session)
+      try {
+        const result = await grantSupportRequestParticipantAction(
+          {
+            ...input,
+            tenantId: ctx.session.activeTenantId,
+            actor: {
+              actorType: 'HUMAN',
+              participantKind: 'CLIENT',
+              actorId: actor.actorId,
+              auditRole: actor.role,
+            },
+          },
+          ctx.db,
+        )
+        return {
+          clientVersion: result.clientVersion,
+          active: result.active,
+          replayed: result.replayed,
+        }
+      } catch (error) {
+        return supportActionError(error)
+      }
+    }),
+
+  revokeParticipant: tenantProcedure
+    .input(ManageSupportParticipantInput)
+    .mutation(async ({ ctx, input }) => {
+      const actor = tenantActor(ctx.session)
+      try {
+        const result = await revokeSupportRequestParticipantAction(
+          {
+            ...input,
+            tenantId: ctx.session.activeTenantId,
+            actor: {
+              actorType: 'HUMAN',
+              participantKind: 'CLIENT',
+              actorId: actor.actorId,
+              auditRole: actor.role,
+            },
+          },
+          ctx.db,
+        )
+        return {
+          clientVersion: result.clientVersion,
+          active: result.active,
           replayed: result.replayed,
         }
       } catch (error) {

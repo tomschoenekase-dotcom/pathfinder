@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -47,15 +48,18 @@ const request = {
   status: 'OPEN',
   subject: 'Update our opening time',
   missingInformation: [],
-  version: 4,
+  clientVersion: 4,
+  clientActivityAt: '2026-08-10T15:00:00.000Z',
+  requesterIsCurrentUser: true,
+  participantIsCurrentUser: false,
+  canReply: true,
   statusChangedAt: '2026-08-10T14:00:00.000Z',
   createdAt: '2026-08-10T14:00:00.000Z',
-  updatedAt: '2026-08-10T15:00:00.000Z',
 }
 const clientMessage = {
   id: 'message_1',
   authorKind: 'CLIENT',
-  visibility: 'CLIENT_VISIBLE' as const,
+  authorIsCurrentUser: true,
   body: 'We now open at nine.',
   createdAt: '2026-08-10T14:00:00.000Z',
   attachments: [],
@@ -132,7 +136,7 @@ describe('SupportWorkspace', () => {
   })
 
   it('loads paginated requests with the exact active venue scope', async () => {
-    const cursor = { updatedAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }
+    const cursor = { clientActivityAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }
     renderWorkspace({ initialNextCursor: cursor })
 
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
@@ -189,7 +193,7 @@ describe('SupportWorkspace', () => {
         operationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         venueId: venue.id,
         requestId: request.id,
-        expectedVersion: 4,
+        expectedClientVersion: 4,
         body: 'The revised wording looks right.',
         attachments: [],
       }),
@@ -214,7 +218,7 @@ describe('SupportWorkspace', () => {
 
   it('shows success and clears a reply only after the write resolves', async () => {
     const pending = deferred<{
-      requestVersion: number
+      clientVersion: number
       message: typeof clientMessage
     }>()
     mocks.addMessage.mockReturnValueOnce(pending.promise)
@@ -227,7 +231,7 @@ describe('SupportWorkspace', () => {
 
     await act(async () =>
       pending.resolve({
-        requestVersion: 5,
+        clientVersion: 5,
         message: { ...clientMessage, id: 'message_2', body: 'Thank you.' },
       }),
     )
@@ -293,7 +297,7 @@ describe('SupportWorkspace', () => {
   it('fences conversation and venue navigation while a reply result is unresolved', async () => {
     const pending = deferred<{
       message: typeof clientMessage
-      requestVersion: number
+      clientVersion: number
       replayed: boolean
     }>()
     mocks.addMessage.mockReturnValueOnce(pending.promise)
@@ -301,7 +305,7 @@ describe('SupportWorkspace', () => {
       ...request,
       id: 'request_2',
       subject: 'Second request',
-      version: 1,
+      clientVersion: 1,
     }
     renderWorkspace({ venues: [venue, otherVenue], initialRequests: [request, secondRequest] })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Pending reply' } })
@@ -316,7 +320,7 @@ describe('SupportWorkspace', () => {
     await act(async () =>
       pending.resolve({
         message: { ...clientMessage, id: 'message_reply' },
-        requestVersion: 5,
+        clientVersion: 5,
         replayed: false,
       }),
     )
@@ -329,8 +333,8 @@ describe('SupportWorkspace', () => {
   it('purges hidden reply state and identity when a same-request refresh becomes terminal', async () => {
     mocks.addMessage.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
     mocks.getRequest
-      .mockResolvedValueOnce({ ...detail, status: 'COMPLETED', version: 5 })
-      .mockResolvedValueOnce({ ...detail, status: 'OPEN', version: 5 })
+      .mockResolvedValueOnce({ ...detail, status: 'COMPLETED', clientVersion: 5, canReply: false })
+      .mockResolvedValueOnce({ ...detail, status: 'OPEN', clientVersion: 5 })
     mocks.addMessage.mockRejectedValueOnce(new Error('Unknown outcome'))
     renderWorkspace({ initialEligibleAttachments: eligible })
     fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Old hidden reply' } })
@@ -382,5 +386,197 @@ describe('SupportWorkspace', () => {
       }),
     )
     expect(await screen.findByRole('option', { name: /map\.png/i })).toBeTruthy()
+  })
+
+  it('uses safe server identity flags for requester and message labels and suppresses replies without authority', () => {
+    const teammateRequest = {
+      ...request,
+      requesterIsCurrentUser: false,
+      participantIsCurrentUser: true,
+      canReply: false,
+    }
+    renderWorkspace({
+      initialRequests: [teammateRequest],
+      initialDetail: {
+        ...detail,
+        ...teammateRequest,
+        messages: [{ ...clientMessage, authorIsCurrentUser: false, body: 'A teammate update.' }],
+      },
+    })
+
+    expect(screen.getAllByText(/Your team/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/^You ·/)).toBeNull()
+    expect(
+      screen.getByText('You no longer have access to reply to this conversation.'),
+    ).toBeTruthy()
+    expect(screen.queryByLabelText('Reply')).toBeNull()
+  })
+
+  it('ignores a late detail response after a newer conversation has opened', async () => {
+    const first = deferred<typeof detail>()
+    const secondRequest = {
+      ...request,
+      id: 'request_2',
+      subject: 'Second request',
+      clientVersion: 1,
+    }
+    const secondDetail = {
+      ...detail,
+      ...secondRequest,
+      messages: [{ ...clientMessage, id: 'message_2', body: 'Second conversation.' }],
+    }
+    mocks.getRequest.mockImplementation(({ requestId }: { requestId: string }) =>
+      requestId === request.id ? first.promise : Promise.resolve(secondDetail),
+    )
+    renderWorkspace({ initialRequests: [request, secondRequest] })
+
+    fireEvent.click(screen.getAllByText(request.subject)[0]!.closest('button')!)
+    fireEvent.click(screen.getByText(secondRequest.subject).closest('button')!)
+    expect(await screen.findByText('Second conversation.')).toBeTruthy()
+
+    await act(async () => first.resolve(detail))
+    expect(screen.getByText('Second conversation.')).toBeTruthy()
+    expect(screen.queryByText(clientMessage.body)).toBeNull()
+  })
+
+  it('never merges a late message page from one conversation into another', async () => {
+    const page = deferred<typeof detail>()
+    const cursor = { createdAt: '2026-08-10T15:00:00.000Z', id: 'message_1' }
+    const firstDetail = { ...detail, nextMessageCursor: cursor }
+    const secondRequest = {
+      ...request,
+      id: 'request_2',
+      subject: 'Second request',
+      clientVersion: 1,
+    }
+    const secondDetail = {
+      ...detail,
+      ...secondRequest,
+      messages: [{ ...clientMessage, id: 'message_2', body: 'Second conversation.' }],
+      nextMessageCursor: null,
+    }
+    mocks.getRequest.mockImplementation(
+      ({ requestId, messageCursor }: { requestId: string; messageCursor?: unknown }) =>
+        messageCursor
+          ? page.promise
+          : Promise.resolve(requestId === request.id ? firstDetail : secondDetail),
+    )
+    renderWorkspace({ initialRequests: [request, secondRequest], initialDetail: firstDetail })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+    fireEvent.click(screen.getByText(secondRequest.subject).closest('button')!)
+    expect(await screen.findByText('Second conversation.')).toBeTruthy()
+    await act(async () =>
+      page.resolve({
+        ...firstDetail,
+        messages: [{ ...clientMessage, id: 'late_message', body: 'Late private page.' }],
+        nextMessageCursor: null,
+      }),
+    )
+
+    expect(screen.queryByText('Late private page.')).toBeNull()
+    expect(screen.getByText('Second conversation.')).toBeTruthy()
+  })
+
+  it('purges the thread and scoped reply state when access is revoked during message pagination', async () => {
+    const cursor = { createdAt: '2026-08-10T15:00:00.000Z', id: 'message_1' }
+    mocks.getRequest.mockRejectedValueOnce({ data: { code: 'NOT_FOUND' } })
+    renderWorkspace({
+      initialDetail: { ...detail, nextMessageCursor: cursor },
+      initialEligibleAttachments: eligible,
+    })
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Private page draft.' } })
+    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+      target: { value: 'upload_alpha' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more messages' }))
+
+    expect(await screen.findByText('This conversation is not available.')).toBeTruthy()
+    expect(screen.queryByText(request.subject)).toBeNull()
+    expect(screen.queryByText('Private page draft.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove visitor-hours.pdf' })).toBeNull()
+    expect(screen.queryByLabelText('Reply')).toBeNull()
+  })
+
+  it('does not let older request pagination clear a newer detail loading state', async () => {
+    const listPage = deferred<{ items: never[]; nextCursor: null }>()
+    const nextDetail = deferred<typeof detail>()
+    const cursor = { clientActivityAt: '2026-08-09T15:00:00.000Z', id: 'request_0' }
+    const secondRequest = {
+      ...request,
+      id: 'request_2',
+      subject: 'Second request',
+      clientVersion: 1,
+    }
+    mocks.listRequests.mockReturnValueOnce(listPage.promise)
+    mocks.getRequest.mockReturnValueOnce(nextDetail.promise)
+    renderWorkspace({ initialRequests: [request, secondRequest], initialNextCursor: cursor })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    fireEvent.click(screen.getByText(secondRequest.subject).closest('button')!)
+    expect(screen.getByText('Opening conversation…')).toBeTruthy()
+
+    await act(async () => listPage.resolve({ items: [], nextCursor: null }))
+    expect(screen.getByText('Opening conversation…')).toBeTruthy()
+
+    await act(async () =>
+      nextDetail.resolve({
+        ...detail,
+        ...secondRequest,
+        messages: [{ ...clientMessage, id: 'message_2', body: 'Newest detail.' }],
+      }),
+    )
+    expect(await screen.findByText('Newest detail.')).toBeTruthy()
+  })
+
+  it('clears scoped reply state on nondisclosing access loss', async () => {
+    mocks.getRequest.mockRejectedValueOnce({ data: { code: 'NOT_FOUND' } })
+    renderWorkspace({ initialEligibleAttachments: eligible })
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Private draft.' } })
+    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+      target: { value: 'upload_alpha' },
+    })
+
+    fireEvent.click(screen.getAllByText(request.subject)[0]!.closest('button')!)
+    expect(await screen.findByText('This conversation is not available.')).toBeTruthy()
+    expect(screen.queryByLabelText('Reply')).toBeNull()
+    expect(screen.queryByText('Private draft.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove visitor-hours.pdf' })).toBeNull()
+    expect(screen.queryByText(request.subject)).toBeNull()
+  })
+
+  it('purges conversation drafts and server-provided files when the venue scope changes', async () => {
+    const rendered = renderWorkspace({
+      venues: [venue, otherVenue],
+      initialEligibleAttachments: eligible,
+    })
+    fireEvent.change(screen.getByLabelText('Reply'), { target: { value: 'Venue-only draft.' } })
+    fireEvent.change(screen.getByLabelText('Choose one of your recent files'), {
+      target: { value: 'upload_alpha' },
+    })
+
+    rendered.rerender(
+      <SupportWorkspace
+        venues={[venue, otherVenue]}
+        activeVenue={otherVenue}
+        initialRequests={[]}
+        initialNextCursor={null}
+        initialDetail={null}
+        initialEligibleAttachments={[]}
+        initialEligibleAttachmentsNextCursor={null}
+      />,
+    )
+
+    await waitFor(() => expect(screen.queryByText(request.subject)).toBeNull())
+    expect(screen.queryByText('Venue-only draft.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove visitor-hours.pdf' })).toBeNull()
+    expect(screen.getByText('You have no support conversations yet.')).toBeTruthy()
+  })
+
+  it('has no automated accessibility violations for a populated participant thread', async () => {
+    const { container } = renderWorkspace({ initialEligibleAttachments: eligible })
+    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    expect(result.violations.map(({ id }) => id)).toEqual([])
   })
 })

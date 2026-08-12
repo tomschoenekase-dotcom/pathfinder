@@ -58,6 +58,7 @@ const AUDIT_LIFECYCLE_MODELS = [
   'EvalRun',
   'EvalRunCostReservation',
   'SupportRequest',
+  'SupportRequestParticipant',
   'OffboardingPlan',
   'IntakeUpload',
   'GuestChatTurn',

@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useId, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
@@ -30,10 +30,13 @@ type RequestSummary = {
   status: string
   subject: string
   missingInformation: string[]
-  version: number
+  clientVersion: number
+  clientActivityAt: Date | string
+  requesterIsCurrentUser: boolean
+  participantIsCurrentUser: boolean
+  canReply: boolean
   statusChangedAt: Date | string
   createdAt: Date | string
-  updatedAt: Date | string
 }
 type Attachment = {
   id: string
@@ -44,7 +47,7 @@ type Attachment = {
 type ClientMessage = {
   id: string
   authorKind: string
-  visibility: string
+  authorIsCurrentUser: boolean
   body: string
   createdAt: Date | string
   attachments: Attachment[]
@@ -58,7 +61,7 @@ type SupportWorkspaceProps = {
   venues: VenueOption[]
   activeVenue: VenueOption
   initialRequests: RequestSummary[]
-  initialNextCursor: { updatedAt: string; id: string } | null
+  initialNextCursor: { clientActivityAt: string; id: string } | null
   initialDetail: RequestDetail | null
   initialEligibleAttachments: EligibleAttachment[]
   initialEligibleAttachmentsNextCursor: EligibleAttachmentCursor | null
@@ -110,10 +113,22 @@ function isConflict(error: unknown) {
   )
 }
 
+function isNotFound(error: unknown) {
+  return (
+    (error as { data?: { code?: unknown } } | null)?.data?.code === 'NOT_FOUND' ||
+    (error as { shape?: { data?: { code?: unknown } } } | null)?.shape?.data?.code === 'NOT_FOUND'
+  )
+}
+
 function fileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isSafeClientMessage(message: ClientMessage) {
+  const visibility = (message as ClientMessage & { visibility?: unknown }).visibility
+  return visibility !== 'INTERNAL' && visibility !== 'INTERNAL_ONLY'
 }
 
 function AttachmentPicker({
@@ -232,8 +247,55 @@ export function SupportWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [conflict, setConflict] = useState(false)
   const writeInFlight = useRef(false)
+  const scopeRef = useRef(activeVenue.id)
+  const detailRequestRef = useRef(initialDetail?.id ?? null)
+  const detailReadGeneration = useRef(0)
+  const requestReadGeneration = useRef(0)
+  const attachmentReadGeneration = useRef(0)
+  const messageReadInFlight = useRef(false)
+  const requestReadInFlight = useRef(false)
+  const attachmentReadInFlight = useRef(false)
+  const nextBusyOwner = useRef(0)
+  const activeBusyOwner = useRef<number | null>(null)
   const createOperationId = useRef(crypto.randomUUID())
   const replyOperationId = useRef(crypto.randomUUID())
+
+  useEffect(() => {
+    scopeRef.current = activeVenue.id
+    detailReadGeneration.current += 1
+    requestReadGeneration.current += 1
+    attachmentReadGeneration.current += 1
+    detailRequestRef.current = initialDetail?.id ?? null
+    messageReadInFlight.current = false
+    requestReadInFlight.current = false
+    attachmentReadInFlight.current = false
+    activeBusyOwner.current = null
+    setBusy(null)
+    setRequests(initialRequests)
+    setNextCursor(initialNextCursor)
+    setDetail(initialDetail)
+    setEligibleAttachments(initialEligibleAttachments)
+    setEligibleAttachmentsNextCursor(initialEligibleAttachmentsNextCursor)
+    setView(initialDetail ? 'conversation' : 'create')
+    setSubject('')
+    setCategory('GENERAL')
+    setRequestBody('')
+    setCreateAttachments([])
+    setReplyBody('')
+    setReplyAttachments([])
+    createOperationId.current = crypto.randomUUID()
+    replyOperationId.current = crypto.randomUUID()
+    setNotice(null)
+    setError(null)
+    setConflict(false)
+  }, [
+    activeVenue.id,
+    initialDetail,
+    initialEligibleAttachments,
+    initialEligibleAttachmentsNextCursor,
+    initialNextCursor,
+    initialRequests,
+  ])
 
   function changeCreateDraft(change: () => void) {
     change()
@@ -250,16 +312,58 @@ export function SupportWorkspace({
     setConflict(false)
   }
 
+  function startBusy(kind: string) {
+    const owner = ++nextBusyOwner.current
+    activeBusyOwner.current = owner
+    setBusy(kind)
+    return owner
+  }
+
+  function finishBusy(owner: number) {
+    if (activeBusyOwner.current !== owner) return
+    activeBusyOwner.current = null
+    setBusy(null)
+  }
+
+  function purgeRequest(requestId: string) {
+    detailReadGeneration.current += 1
+    detailRequestRef.current = null
+    messageReadInFlight.current = false
+    setDetail(null)
+    setRequests((current) => current.filter((request) => request.id !== requestId))
+    setReplyBody('')
+    setReplyAttachments([])
+    replyOperationId.current = crypto.randomUUID()
+    setView('conversation')
+    setConflict(false)
+    setError('This conversation is not available.')
+  }
+
   async function openRequest(requestId: string) {
     if (writeInFlight.current) return
+    const scope = activeVenue.id
+    const generation = ++detailReadGeneration.current
+    detailRequestRef.current = requestId
+    messageReadInFlight.current = false
     clearFeedback()
-    setBusy('detail')
+    const busyOwner = startBusy('detail')
     try {
       const next = await client.support.getRequest.query({
         venueId: activeVenue.id,
         requestId,
       })
-      if (detail?.id !== requestId || next.status === 'COMPLETED' || next.status === 'CANCELLED') {
+      if (
+        scopeRef.current !== scope ||
+        detailReadGeneration.current !== generation ||
+        detailRequestRef.current !== requestId
+      )
+        return
+      if (
+        detail?.id !== requestId ||
+        !next.canReply ||
+        next.status === 'COMPLETED' ||
+        next.status === 'CANCELLED'
+      ) {
         setReplyBody('')
         setReplyAttachments([])
       }
@@ -267,22 +371,38 @@ export function SupportWorkspace({
       replyOperationId.current = crypto.randomUUID()
       setView('conversation')
     } catch (loadError) {
-      setError(errorText(loadError))
+      if (
+        scopeRef.current !== scope ||
+        detailReadGeneration.current !== generation ||
+        detailRequestRef.current !== requestId
+      )
+        return
+      if (isNotFound(loadError)) {
+        purgeRequest(requestId)
+      } else {
+        detailRequestRef.current = detail?.id ?? null
+        setError(errorText(loadError))
+      }
     } finally {
-      setBusy(null)
+      finishBusy(busyOwner)
     }
   }
 
   async function loadMoreEligibleAttachments() {
-    if (!eligibleAttachmentsNextCursor || busy) return
+    if (!eligibleAttachmentsNextCursor || busy || attachmentReadInFlight.current) return
+    attachmentReadInFlight.current = true
+    const scope = activeVenue.id
+    const cursor = eligibleAttachmentsNextCursor
+    const generation = ++attachmentReadGeneration.current
     clearFeedback()
-    setBusy('attachments')
+    const busyOwner = startBusy('attachments')
     try {
       const next = await client.support.listEligibleAttachments.query({
         venueId: activeVenue.id,
         limit: 20,
-        cursor: eligibleAttachmentsNextCursor,
+        cursor,
       })
+      if (scopeRef.current !== scope || attachmentReadGeneration.current !== generation) return
       setEligibleAttachments((current) => [
         ...current,
         ...next.items.filter(
@@ -291,52 +411,100 @@ export function SupportWorkspace({
       ])
       setEligibleAttachmentsNextCursor(next.nextCursor)
     } catch (loadError) {
-      setError(errorText(loadError))
+      if (scopeRef.current === scope && attachmentReadGeneration.current === generation)
+        setError(errorText(loadError))
     } finally {
-      setBusy(null)
+      if (scopeRef.current === scope && attachmentReadGeneration.current === generation)
+        attachmentReadInFlight.current = false
+      finishBusy(busyOwner)
     }
   }
 
   async function loadMoreRequests() {
-    if (!nextCursor || busy) return
-    setBusy('requests')
+    if (!nextCursor || busy || requestReadInFlight.current) return
+    requestReadInFlight.current = true
+    const scope = activeVenue.id
+    const cursor = nextCursor
+    const generation = ++requestReadGeneration.current
+    const busyOwner = startBusy('requests')
     setError(null)
     try {
       const page = await client.support.listRequests.query({
         venueId: activeVenue.id,
-        cursor: nextCursor,
+        cursor,
       })
-      setRequests((current) => [...current, ...(page.items as RequestSummary[])])
+      if (scopeRef.current !== scope || requestReadGeneration.current !== generation) return
+      setRequests((current) => [
+        ...current,
+        ...(page.items as RequestSummary[]).filter(
+          (row) => !current.some((existing) => existing.id === row.id),
+        ),
+      ])
       setNextCursor(page.nextCursor)
     } catch (loadError) {
-      setError(errorText(loadError))
+      if (scopeRef.current === scope && requestReadGeneration.current === generation)
+        setError(errorText(loadError))
     } finally {
-      setBusy(null)
+      if (scopeRef.current === scope && requestReadGeneration.current === generation) {
+        requestReadInFlight.current = false
+      }
+      finishBusy(busyOwner)
     }
   }
 
   async function loadMoreMessages() {
-    if (!detail?.nextMessageCursor || busy) return
-    setBusy('messages')
+    if (!detail?.nextMessageCursor || busy || messageReadInFlight.current) return
+    messageReadInFlight.current = true
+    const scope = activeVenue.id
+    const requestId = detail.id
+    const cursor = detail.nextMessageCursor
+    const generation = detailReadGeneration.current
+    const busyOwner = startBusy('messages')
     setError(null)
     try {
       const next = (await client.support.getRequest.query({
         venueId: activeVenue.id,
-        requestId: detail.id,
-        messageCursor: detail.nextMessageCursor,
+        requestId,
+        messageCursor: cursor,
       })) as RequestDetail
+      if (
+        scopeRef.current !== scope ||
+        detailReadGeneration.current !== generation ||
+        detailRequestRef.current !== requestId ||
+        next.id !== requestId
+      )
+        return
       setDetail((current) =>
-        current
+        current?.id === requestId
           ? {
               ...next,
-              messages: [...current.messages, ...next.messages],
+              messages: [
+                ...current.messages,
+                ...next.messages.filter(
+                  (message) => !current.messages.some((existing) => existing.id === message.id),
+                ),
+              ],
             }
-          : next,
+          : current,
       )
     } catch (loadError) {
-      setError(errorText(loadError))
+      if (
+        scopeRef.current === scope &&
+        detailReadGeneration.current === generation &&
+        detailRequestRef.current === requestId
+      ) {
+        if (isNotFound(loadError)) purgeRequest(requestId)
+        else setError(errorText(loadError))
+      }
     } finally {
-      setBusy(null)
+      if (
+        scopeRef.current === scope &&
+        detailReadGeneration.current === generation &&
+        detailRequestRef.current === requestId
+      ) {
+        messageReadInFlight.current = false
+      }
+      finishBusy(busyOwner)
     }
   }
 
@@ -345,7 +513,7 @@ export function SupportWorkspace({
     if (writeInFlight.current) return
     writeInFlight.current = true
     clearFeedback()
-    setBusy('create')
+    const busyOwner = startBusy('create')
     try {
       const created = await client.support.createRequest.mutate({
         operationId: createOperationId.current,
@@ -360,8 +528,12 @@ export function SupportWorkspace({
         messages: [created.message as ClientMessage],
         nextMessageCursor: null,
       }
-      setRequests((current) => [created.request as RequestSummary, ...current])
+      setRequests((current) => [
+        created.request as RequestSummary,
+        ...current.filter((request) => request.id !== created.request.id),
+      ])
       setDetail(nextDetail)
+      detailRequestRef.current = nextDetail.id
       setSubject('')
       setRequestBody('')
       setCreateAttachments([])
@@ -372,23 +544,23 @@ export function SupportWorkspace({
       setError(writeErrorText(createError))
     } finally {
       writeInFlight.current = false
-      setBusy(null)
+      finishBusy(busyOwner)
     }
   }
 
   async function sendReply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!detail || writeInFlight.current) return
+    if (!detail || !detail.canReply || writeInFlight.current) return
     writeInFlight.current = true
     clearFeedback()
-    setBusy('reply')
+    const busyOwner = startBusy('reply')
     const submittedRequestId = detail.id
     try {
       const result = await client.support.addMessage.mutate({
         operationId: replyOperationId.current,
         venueId: activeVenue.id,
         requestId: submittedRequestId,
-        expectedVersion: detail.version,
+        expectedClientVersion: detail.clientVersion,
         body: replyBody,
         attachments: replyAttachments.map((intakeUploadId) => ({ intakeUploadId })),
       })
@@ -396,7 +568,7 @@ export function SupportWorkspace({
         current?.id === submittedRequestId
           ? {
               ...current,
-              version: result.requestVersion,
+              clientVersion: result.clientVersion,
               messages: [...current.messages, result.message as ClientMessage],
             }
           : current,
@@ -404,7 +576,7 @@ export function SupportWorkspace({
       setRequests((current) =>
         current.map((request) =>
           request.id === submittedRequestId
-            ? { ...request, version: result.requestVersion }
+            ? { ...request, clientVersion: result.clientVersion }
             : request,
         ),
       )
@@ -413,6 +585,10 @@ export function SupportWorkspace({
       replyOperationId.current = crypto.randomUUID()
       setNotice('Your message and selected files were submitted for review. Nothing was published.')
     } catch (replyError) {
+      if (isNotFound(replyError)) {
+        purgeRequest(submittedRequestId)
+        return
+      }
       setConflict(isConflict(replyError))
       setError(
         isConflict(replyError)
@@ -421,7 +597,7 @@ export function SupportWorkspace({
       )
     } finally {
       writeInFlight.current = false
-      setBusy(null)
+      finishBusy(busyOwner)
     }
   }
 
@@ -446,9 +622,13 @@ export function SupportWorkspace({
                 aria-label="Venue"
                 value={activeVenue.id}
                 disabled={busy === 'create' || busy === 'reply'}
-                onChange={(event) =>
+                onChange={(event) => {
+                  if (writeInFlight.current) return
+                  detailReadGeneration.current += 1
+                  requestReadGeneration.current += 1
+                  attachmentReadGeneration.current += 1
                   router.replace(`/support?venue=${encodeURIComponent(event.target.value)}`)
-                }
+                }}
                 className="mt-2 block min-h-11 rounded-xl border border-pf-light bg-white px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
               >
                 {venues.map((venue) => (
@@ -467,6 +647,12 @@ export function SupportWorkspace({
               type="button"
               disabled={busy === 'create' || busy === 'reply'}
               onClick={() => {
+                if (writeInFlight.current) return
+                detailReadGeneration.current += 1
+                detailRequestRef.current = null
+                setReplyBody('')
+                setReplyAttachments([])
+                replyOperationId.current = crypto.randomUUID()
                 clearFeedback()
                 setView('create')
               }}
@@ -503,7 +689,8 @@ export function SupportWorkspace({
                         </span>
                         <span className="mt-1 block text-xs text-pf-deep/60">
                           {statusLabels[request.status] ?? 'In progress'} ·{' '}
-                          {dateLabel(request.updatedAt)}
+                          {dateLabel(request.clientActivityAt)}
+                          {!request.requesterIsCurrentUser ? ' · Your team' : ''}
                         </span>
                       </span>
                       <ChevronRight
@@ -676,36 +863,36 @@ export function SupportWorkspace({
                 </div>
 
                 <div className="flex-1 space-y-4 py-6" aria-live="polite">
-                  {detail.messages
-                    .filter((message) => message.visibility === 'CLIENT_VISIBLE')
-                    .map((message) => {
-                      const fromClient = message.authorKind === 'CLIENT'
-                      return (
-                        <article
-                          key={message.id}
-                          className={`max-w-[92%] rounded-2xl px-4 py-3 sm:max-w-[78%] ${
-                            fromClient
-                              ? 'ml-auto bg-pf-primary text-white'
-                              : 'border border-pf-light bg-pf-surface text-pf-deep'
-                          }`}
-                        >
-                          <p className="text-xs font-semibold opacity-75">
-                            {fromClient ? 'You' : 'PathFinder Support'} ·{' '}
-                            {dateLabel(message.createdAt)}
-                          </p>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                            {message.body}
-                          </p>
-                          {message.attachments.length > 0 ? (
-                            <ul className="mt-3 space-y-1 text-xs">
-                              {message.attachments.map((attachment) => (
-                                <li key={attachment.id}>{attachment.filename}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </article>
-                      )
-                    })}
+                  {detail.messages.filter(isSafeClientMessage).map((message) => {
+                    const fromClient = message.authorKind === 'CLIENT'
+                    return (
+                      <article
+                        key={message.id}
+                        className={`max-w-[92%] rounded-2xl px-4 py-3 sm:max-w-[78%] ${
+                          fromClient
+                            ? 'ml-auto bg-pf-primary text-white'
+                            : 'border border-pf-light bg-pf-surface text-pf-deep'
+                        }`}
+                      >
+                        <p className="text-xs font-semibold opacity-75">
+                          {fromClient
+                            ? message.authorIsCurrentUser
+                              ? 'You'
+                              : 'Your team'
+                            : 'PathFinder Support'}{' '}
+                          · {dateLabel(message.createdAt)}
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
+                        {message.attachments.length > 0 ? (
+                          <ul className="mt-3 space-y-1 text-xs">
+                            {message.attachments.map((attachment) => (
+                              <li key={attachment.id}>{attachment.filename}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </article>
+                    )
+                  })}
                   {detail.nextMessageCursor ? (
                     <button
                       type="button"
@@ -718,9 +905,13 @@ export function SupportWorkspace({
                   ) : null}
                 </div>
 
-                {detail.status === 'COMPLETED' || detail.status === 'CANCELLED' ? (
+                {!detail.canReply ||
+                detail.status === 'COMPLETED' ||
+                detail.status === 'CANCELLED' ? (
                   <p className="rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/70">
-                    This conversation is closed. Start a new request if you need anything else.
+                    {detail.status === 'COMPLETED' || detail.status === 'CANCELLED'
+                      ? 'This conversation is closed. Start a new request if you need anything else.'
+                      : 'You no longer have access to reply to this conversation.'}
                   </p>
                 ) : (
                   <form onSubmit={sendReply} className="border-t border-pf-light pt-5">

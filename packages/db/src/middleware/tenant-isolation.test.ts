@@ -126,6 +126,7 @@ describe('tenantIsolationMiddleware', () => {
       'ApprovalRequest',
       'ApprovalDecision',
       'SupportRequest',
+      'SupportRequestParticipant',
       'SupportMessage',
       'SupportMessageAttachment',
       'SupportRequestAuditEvent',
@@ -239,9 +240,14 @@ describe('tenantIsolationMiddleware', () => {
   })
 
   it.each(
-    ['AgentRun', 'EvalRun', 'SupportRequest', 'OffboardingPlan', 'IntakeUpload'].flatMap((model) =>
-      ['delete', 'deleteMany'].map((action) => [model, action]),
-    ),
+    [
+      'AgentRun',
+      'EvalRun',
+      'SupportRequest',
+      'SupportRequestParticipant',
+      'OffboardingPlan',
+      'IntakeUpload',
+    ].flatMap((model) => ['delete', 'deleteMany'].map((action) => [model, action])),
   )('rejects %s %s while preserving lifecycle updates', async (model, action) => {
     const next = vi.fn(async (params) => params)
 

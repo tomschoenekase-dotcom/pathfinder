@@ -106,6 +106,14 @@ Client-visible messages and internal notes are separate visibility classes. Neve
 internal evidence into the client thread. A support request may result in a package patch, but the
 patch still follows validation, evaluation, preview, approval, and apply boundaries.
 
+A tenant role does not open every request. `STAFF`, `MANAGER`, and `OWNER` have identical client-side
+access: a person must be the immutable requester or an explicitly granted, unrevoked participant,
+and their tenant membership must still be active. An authorized teammate is labeled `Your team`;
+the client projection does not expose requester or participant identities. The requester-facing API
+has conflict-safe grant/revoke actions for active tenant members, but this build has no participant
+manager in the Support UI. Do not promise that teammates can be added from the visible portal yet.
+Revocation removes future access without deleting the durable grant/revocation record.
+
 The verified package-lineage action can attach an exact support request version to an existing
 same-client, same-venue `DRAFT` package. Confirm both scopes, request version and target package
 before linking. The link is append-only and auditable; it neither changes package status nor marks
@@ -119,9 +127,18 @@ Support file references remain quarantined evidence. Upload verification confirm
 version, declared MIME, size and checksum; it does not establish readability, format safety or
 malware safety. Do not preview, download, approve or reuse the bytes as content from the Support
 surface. Client pickers show only that user's exact-venue uploads awaiting PathFinder review;
-operators may select exact-venue eligible evidence. On an ambiguous send result, retry the unchanged
-draft so its retained operation identity can converge. Edit the message or selection only when you
-intend to start a new operation.
+participants do not inherit the requester's uploads, and each teammate may attach only their own
+eligible evidence. Operators may select exact-venue eligible evidence through the separately
+authorized Internal Support surface. On an ambiguous send result, retry the unchanged draft so its
+retained operation identity can converge. Edit the message or selection only when you intend to start
+a new operation.
+
+Client-visible replies, participant changes, and client-authored messages use the displayed
+`clientVersion` and update client activity ordering. Internal-only notes and operator workflow use the
+separate global request version and must not make an old request look newly active to the client.
+Refresh after a conflict rather than substituting one version for the other. Platform administrators
+can inspect both visibility classes only through the exact-scoped Internal Support console; tenant
+membership or a tenant role is not a substitute for that admin boundary.
 
 Feedback submitted from an approved package preview creates a Support request with immutable lineage
 to that exact tenant, venue and package. Reuse its operation UUID after an ambiguous result only

@@ -212,7 +212,18 @@ function mapSupportActionError(error: unknown): never {
 
 function serializeFeedbackResult<
   T extends {
-    request: object
+    request: {
+      id: string
+      venueId: string
+      category: string
+      status: string
+      subject: string
+      missingInformation: unknown
+      clientVersion: number
+      clientActivityAt: Date
+      statusChangedAt: Date
+      createdAt: Date
+    }
     message: {
       id: string
       authorKind: string
@@ -232,7 +243,21 @@ function serializeFeedbackResult<
   },
 >(result: T) {
   return {
-    request: result.request,
+    request: {
+      id: result.request.id,
+      venueId: result.request.venueId,
+      category: result.request.category,
+      status: result.request.status,
+      subject: result.request.subject,
+      missingInformation: result.request.missingInformation,
+      clientVersion: result.request.clientVersion,
+      clientActivityAt: result.request.clientActivityAt,
+      statusChangedAt: result.request.statusChangedAt,
+      createdAt: result.request.createdAt,
+      requesterIsCurrentUser: true,
+      participantIsCurrentUser: false,
+      canReply: result.request.status !== 'COMPLETED' && result.request.status !== 'CANCELLED',
+    },
     message: {
       id: result.message.id,
       authorKind: result.message.authorKind,
