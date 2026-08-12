@@ -2,6 +2,15 @@ export { db } from './client'
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
+  AgentRunCancellationError,
+  requestAgentRunCancellationAction,
+} from './helpers/agent-run-cancellation-actions'
+export type {
+  AgentRunCancellationActor,
+  AgentRunCancellationClient,
+  AgentRunCancellationErrorCode,
+} from './helpers/agent-run-cancellation-actions'
+export {
   AnswerAnalysisRequestActionError,
   answerAnalysisRequestHash,
   requestAnswerAnalysisAction,
@@ -554,3 +563,15 @@ export type {
   EffectivePublishedUniversalContent,
   UniversalContentPublicationResult,
 } from './helpers/universal-content-publication-actions'
+export {
+  getOnboardingBootstrapSubmission,
+  listOnboardingBootstrapDetails,
+  onboardingBootstrapSubmissionInput,
+  OnboardingBootstrapError,
+  submitOnboardingBootstrapAction,
+} from './helpers/onboarding-bootstrap-actions'
+export type {
+  OnboardingBootstrapActor,
+  OnboardingBootstrapClient,
+  OnboardingBootstrapSubmission,
+} from './helpers/onboarding-bootstrap-actions'

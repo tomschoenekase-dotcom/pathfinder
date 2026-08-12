@@ -149,6 +149,7 @@ describe('agent operations views', () => {
     expect(screen.getByText('Prepared a bounded draft.')).toBeTruthy()
     expect(screen.getByText('Approval requested.')).toBeTruthy()
     expect(screen.getByText('PENDING')).toBeTruthy()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Request cancellation' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /enable|run agent|retry|approve/i })).toBeNull()
   })
 })

@@ -3,9 +3,11 @@ import { z } from 'zod'
 
 import {
   IntakeActionError,
+  OnboardingBootstrapError,
   createIntakeProposal,
   interviewProposalInput,
   linkIntakePackageDraft,
+  listOnboardingBootstrapDetails,
   listIntakeProposals,
   websiteProposalInput,
 } from '@pathfinder/db'
@@ -20,7 +22,7 @@ const createInput = z.discriminatedUnion('kind', [
 ])
 
 function mapActionError(error: unknown): never {
-  if (error instanceof IntakeActionError) {
+  if (error instanceof IntakeActionError || error instanceof OnboardingBootstrapError) {
     throw new TRPCError({
       code:
         error.code === 'INVALID_INPUT'
@@ -35,6 +37,18 @@ function mapActionError(error: unknown): never {
 }
 
 export const adminIntakeOperationsRouter = router({
+  listOnboardingBootstrapDetails: adminProcedure
+    .input(
+      z.object({ ...adminScope, limit: z.number().int().min(1).max(100).default(25) }).strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      try {
+        return await listOnboardingBootstrapDetails({ client: ctx.db, ...input })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
   listIntakeProposals: adminProcedure
     .input(
       z.object({ ...adminScope, limit: z.number().int().min(1).max(100).default(25) }).strict(),

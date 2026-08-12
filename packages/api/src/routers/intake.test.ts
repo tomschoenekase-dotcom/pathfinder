@@ -8,20 +8,25 @@ import { intakeRouter } from './intake'
 
 const mocks = vi.hoisted(() => ({
   venue: vi.fn(),
+  venueCreate: vi.fn(),
   runCreate: vi.fn(),
   runFind: vi.fn(),
   evidenceCreate: vi.fn(),
   eventCreate: vi.fn(),
   draftFind: vi.fn(),
   handoffCreate: vi.fn(),
+  auditCreate: vi.fn(),
+  executeRaw: vi.fn(),
 }))
 const db = {
-  venue: { findFirst: mocks.venue },
+  venue: { findFirst: mocks.venue, create: mocks.venueCreate },
   intakeRun: { create: mocks.runCreate, findMany: vi.fn(), findFirst: mocks.runFind },
   intakeEvidenceRecord: { create: mocks.evidenceCreate },
   intakeRunEvent: { create: mocks.eventCreate },
   venuePackage: { findFirst: mocks.draftFind },
   intakePackageHandoff: { create: mocks.handoffCreate },
+  auditLog: { create: mocks.auditCreate },
+  $executeRaw: mocks.executeRaw,
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
 } as unknown as TRPCContext['db']
 
@@ -38,6 +43,7 @@ describe('intake draft proposals', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.venue.mockResolvedValue({ id: 'venue-a' })
+    mocks.executeRaw.mockResolvedValue(1)
     mocks.runCreate.mockResolvedValue({
       id: 'run-1',
       venueId: 'venue-a',
@@ -46,6 +52,48 @@ describe('intake draft proposals', () => {
       displayName: 'Interview',
       createdAt: new Date(),
     })
+  })
+
+  it('adapts an owner onboarding submission to an inactive empty shell and review-only run', async () => {
+    mocks.venue.mockResolvedValueOnce(null)
+    mocks.venueCreate.mockResolvedValue({
+      id: 'venue-a',
+      name: 'Museum',
+      slug: 'museum',
+      category: null,
+      guideMode: 'non_location',
+      isActive: false,
+      updatedAt: new Date(),
+      places: [],
+      knowledgeEntries: [],
+    })
+    mocks.runCreate.mockResolvedValue({
+      id: 'run-1',
+      venueId: 'venue-a',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Museum onboarding information',
+      submissionInputHash: 'a'.repeat(64),
+      createdAt: new Date(),
+      venue: { id: 'venue-a', name: 'Museum', slug: 'museum' },
+    })
+    const result = await caller.createCaller(context()).intake.submitOnboardingBootstrap({
+      requestId: '5d1a79a1-93e0-4af2-88f7-f6cb974a92a4',
+      venue: { name: 'Museum', slug: 'museum', guideMode: 'non_location' },
+      rawContent: {
+        kind: 'knowledge',
+        value: { title: 'Hours', category: 'HOURS', content: 'Candidate information.' },
+      },
+    })
+    expect(result).toMatchObject({ status: 'AWAITING_REVIEW', published: false, autoApply: false })
+    expect(mocks.venueCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tenantId: 'tenant-a', isActive: false }),
+      }),
+    )
+    expect(mocks.runCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ requestedBy: 'user-1' }) }),
+    )
   })
 
   it('persists public text but only hashes classified internal answers', async () => {

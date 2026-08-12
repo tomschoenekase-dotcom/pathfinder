@@ -80,6 +80,13 @@ uses a durable pre-provider intent: commit `PROVIDER_STARTED` before Clerk I/O, 
 and reconcile only after revalidating the exact organization, owner-equivalent membership, and email.
 The intent/event migration enforces its state machine and append-only evidence; it remains unapplied.
 
+Internal weekly-report history must remain an exact tenant/venue safe-select with a bounded
+`(weekStart, id)` descending cursor. Route query parsing is fail-safe: canonical calendar dates and
+complete cursors are accepted; malformed, reversed or partial inputs render the recent/newest state
+with accessible warning copy. A terminal failed-report retry adds the failed report ID only to the
+client idempotency fingerprint, guaranteeing a fresh first retry while retaining that retry's UUID
+across an ambiguous response. The retry seed is not sent to or persisted by the server.
+
 Tenant engagement policy is also a canonical DB action. Pass the server-resolved tenant, HUMAN
 `OWNER`/`MANAGER`, and the tenant revision loaded with settings; propagate the returned `updatedAt`
 before the next edit. A matching revision/mode is an idempotent no-op, while stale revisions fail

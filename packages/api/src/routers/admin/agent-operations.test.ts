@@ -15,9 +15,19 @@ const mocks = vi.hoisted(() => ({
   createIdentity: vi.fn(),
   editIdentity: vi.fn(),
   disableIdentity: vi.fn(),
+  requestCancellation: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
+  AgentRunCancellationError: class AgentRunCancellationError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  requestAgentRunCancellationAction: mocks.requestCancellation,
   AgentIdentityConfigurationError: class AgentIdentityConfigurationError extends Error {
     constructor(
       readonly code: string,
@@ -59,12 +69,14 @@ import type { TRPCContext } from '../../context'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentOperationsRouter } from './agent-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
+import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
 
 const testRouter = router({
   agentOperations: mergeRouters(
     adminAgentOperationsRouter,
     adminAgentIdentityConfigurationRouter,
     adminAgentApprovalDecisionsRouter,
+    adminAgentRunCancellationRouter,
   ),
 })
 
@@ -92,6 +104,78 @@ describe('admin agent operations router', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
     expect(mocks.bypass).not.toHaveBeenCalled()
     expect(mocks.agentRunFindMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects cancellation by a non-admin before bypass or action dispatch', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).agentOperations.requestAgentRunCancellation({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentRunId: 'run_1',
+        reason: 'Stop requested',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.bypass).not.toHaveBeenCalled()
+    expect(mocks.requestCancellation).not.toHaveBeenCalled()
+  })
+
+  it('delegates exact run scope and session-derived human admin cancellation intent', async () => {
+    const requestedAt = new Date('2026-08-11T20:00:00.000Z')
+    mocks.requestCancellation.mockResolvedValue({
+      id: 'run_1',
+      status: 'RUNNING',
+      cancelRequestedAt: requestedAt,
+      outcome: 'REQUESTED',
+    })
+    const result = await testRouter
+      .createCaller(context())
+      .agentOperations.requestAgentRunCancellation({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentRunId: 'run_1',
+        reason: '  Stop requested  ',
+      })
+    expect(mocks.requestCancellation).toHaveBeenCalledWith(
+      {
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentRunId: 'run_1',
+        reason: 'Stop requested',
+        actor: { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' },
+      },
+      expect.anything(),
+    )
+    expect(result).toEqual({
+      id: 'run_1',
+      status: 'RUNNING',
+      cancelRequestedAt: requestedAt,
+      outcome: 'REQUESTED',
+    })
+  })
+
+  it('maps scoped cancellation failures without provider or retry behavior', async () => {
+    const ErrorClass = (await import('@pathfinder/db')).AgentRunCancellationError
+    mocks.requestCancellation.mockRejectedValueOnce(
+      new ErrorClass('NOT_FOUND', 'Agent run not found.'),
+    )
+    await expect(
+      testRouter.createCaller(context()).agentOperations.requestAgentRunCancellation({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentRunId: 'run_other',
+        reason: 'Stop requested',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    mocks.requestCancellation.mockRejectedValueOnce(new ErrorClass('CONFLICT', 'Run changed.'))
+    await expect(
+      testRouter.createCaller(context()).agentOperations.requestAgentRunCancellation({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentRunId: 'run_1',
+        reason: 'Stop requested',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(mocks.requestCancellation).toHaveBeenCalledTimes(2)
   })
 
   it('rejects staged identity creation by a non-admin before bypass or action dispatch', async () => {

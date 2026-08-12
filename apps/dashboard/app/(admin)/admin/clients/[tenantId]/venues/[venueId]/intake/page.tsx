@@ -9,8 +9,14 @@ export default async function AdminIntakePage({ params }: PageProps) {
   const { tenantId, venueId } = await params
   const caller = await createAdminCaller()
   let proposals
+  let onboardingDetails
   try {
     proposals = await caller.admin.listIntakeProposals({ tenantId, venueId, limit: 50 })
+    onboardingDetails = await caller.admin.listOnboardingBootstrapDetails({
+      tenantId,
+      venueId,
+      limit: 50,
+    })
   } catch {
     return (
       <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6" role="alert">
@@ -32,12 +38,38 @@ export default async function AdminIntakePage({ params }: PageProps) {
           Guided intake proposals
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-          Record a website address without fetching it, or collect consented structured staff
-          answers. Every result remains an append-only draft awaiting package review; nothing is
-          approved, applied, or published here.
+          Review client-submitted starting information, record a website address without fetching
+          it, or collect consented structured staff answers. Every result remains an append-only
+          proposal awaiting package review; nothing is approved, applied, or published here.
         </p>
       </header>
       <IntakeProposalWorkspace adminTenantId={tenantId} venueId={venueId} proposals={proposals} />
+      {onboardingDetails.length > 0 ? (
+        <section
+          className="rounded-2xl border border-pf-light bg-white p-5"
+          aria-labelledby="bootstrap-review-title"
+        >
+          <h3 id="bootstrap-review-title" className="font-semibold text-pf-deep">
+            Onboarding information awaiting review
+          </h3>
+          <p className="mt-1 text-sm text-pf-deep/75">
+            Private raw proposals only. These values have not been added to the visitor guide.
+          </p>
+          <ul className="mt-4 space-y-4">
+            {onboardingDetails.map((detail) => (
+              <li key={detail.id} className="rounded-xl border border-pf-light p-4">
+                <p className="font-medium text-pf-deep">{detail.displayName}</p>
+                <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/60">
+                  {detail.status.replaceAll('_', ' ')}
+                </p>
+                <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
+                  {JSON.stringify(detail.structuredBootstrap, null, 2)}
+                </pre>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   )
 }

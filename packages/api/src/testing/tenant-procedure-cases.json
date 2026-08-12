@@ -510,6 +510,35 @@
     }
   },
   {
+    "path": "intake.submitOnboardingBootstrap",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "intakeRun.findFirst",
+    "input": {
+      "requestId": "5d1a79a1-93e0-4af2-88f7-f6cb974a92a4",
+      "venue": {
+        "name": "Visitor Center",
+        "slug": "visitor-center",
+        "guideMode": "non_location"
+      },
+      "rawContent": {
+        "kind": "knowledge",
+        "value": {
+          "title": "Opening hours",
+          "category": "visitor-information",
+          "content": "Staff will review the submitted hours."
+        }
+      }
+    }
+  },
+  {
+    "path": "intake.getOnboardingBootstrap",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "intakeRun.findFirst",
+    "input": { "requestId": "5d1a79a1-93e0-4af2-88f7-f6cb974a92a4" }
+  },
+  {
     "path": "intake.listProposals",
     "kind": "query",
     "minimumRole": "STAFF",

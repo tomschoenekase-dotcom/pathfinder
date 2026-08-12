@@ -37,6 +37,8 @@ const approvedPolicies = new Set([
   'platform-client-create-id-lock',
   'platform-client-create-request-lock',
   'tenant-offboarding-request-lock',
+  'tenant-onboarding-request-lock',
+  'tenant-onboarding-venue-slug-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -245,6 +247,18 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '211bb4b0b718d6cecab4a4c0a7268098075d7fa68cb01b3d19b5207dfa5a915d',
     policy: 'tenant-offboarding-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
+    method: '$executeRaw',
+    hash: '5ee40398a3024504c858f238560e4cdf3f1a30d0a7b855cb621a3d8414314b60',
+    policy: 'tenant-onboarding-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/onboarding-bootstrap-actions.ts',
+    method: '$executeRaw',
+    hash: '9ec9ca659853101e04b88da0b648f6244f3ebb97dbfd3d110ef695db80c408db',
+    policy: 'tenant-onboarding-venue-slug-lock',
   },
   {
     file: 'packages/db/src/helpers/embedding-dispatches.ts',

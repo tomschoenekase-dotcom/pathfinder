@@ -3,10 +3,14 @@ import { z } from 'zod'
 
 import {
   IntakeActionError,
+  OnboardingBootstrapError,
   createIntakeProposal,
+  getOnboardingBootstrapSubmission,
   interviewProposalInput,
   linkIntakePackageDraft,
   listIntakeProposals,
+  onboardingBootstrapSubmissionInput,
+  submitOnboardingBootstrapAction,
   websiteProposalInput,
 } from '@pathfinder/db'
 
@@ -21,7 +25,7 @@ const createInput = z.discriminatedUnion('kind', [
 ])
 
 function mapActionError(error: unknown): never {
-  if (error instanceof IntakeActionError) {
+  if (error instanceof IntakeActionError || error instanceof OnboardingBootstrapError) {
     throw new TRPCError({
       code:
         error.code === 'INVALID_INPUT'
@@ -36,6 +40,40 @@ function mapActionError(error: unknown): never {
 }
 
 export const intakeRouter = router({
+  submitOnboardingBootstrap: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(onboardingBootstrapSubmissionInput)
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await submitOnboardingBootstrapAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          actor: {
+            type: 'HUMAN',
+            id: ctx.session.userId,
+            role: ctx.session.role as 'OWNER' | 'MANAGER',
+          },
+          submission: input,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  getOnboardingBootstrap: tenantProcedure
+    .input(z.object({ requestId: z.string().uuid() }).strict())
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getOnboardingBootstrapSubmission({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          requestId: input.requestId,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
   createProposal: tenantProcedure
     .use(requireRole('MANAGER'))
     .input(createInput)

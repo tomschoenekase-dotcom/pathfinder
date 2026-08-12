@@ -6,11 +6,12 @@ import { adminIntakeOperationsRouter } from './intake-operations'
 
 const venueFindFirst = vi.fn()
 const runFindMany = vi.fn()
+const runFindFirst = vi.fn()
 const runCreate = vi.fn()
 const eventCreate = vi.fn()
 const db = {
   venue: { findFirst: venueFindFirst },
-  intakeRun: { findMany: runFindMany, create: runCreate },
+  intakeRun: { findMany: runFindMany, findFirst: runFindFirst, create: runCreate },
   intakeRunEvent: { create: eventCreate },
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(db)),
 } as unknown as TRPCContext['db']
@@ -30,6 +31,7 @@ describe('platform admin intake operations', () => {
     vi.clearAllMocks()
     venueFindFirst.mockResolvedValue({ id: 'venue-a' })
     runFindMany.mockResolvedValue([])
+    runFindFirst.mockResolvedValue({ id: 'run-1' })
     runCreate.mockResolvedValue({
       id: 'run-1',
       venueId: 'venue-a',
@@ -82,5 +84,38 @@ describe('platform admin intake operations', () => {
       }),
     )
     expect(result).toMatchObject({ autoApprove: false, autoApply: false })
+  })
+
+  it('exposes private onboarding payload only through exact platform review scope', async () => {
+    runFindMany.mockResolvedValue([
+      {
+        id: 'run-1',
+        venueId: 'venue-a',
+        status: 'AWAITING_REVIEW',
+        displayName: 'Museum onboarding information',
+        structuredBootstrap: { version: 1, content: { kind: 'knowledge' } },
+        createdAt: new Date(),
+      },
+    ])
+    const result = await testRouter
+      .createCaller(context())
+      .operations.listOnboardingBootstrapDetails({
+        tenantId: 'tenant-a',
+        venueId: 'venue-a',
+        limit: 10,
+      })
+    expect(runFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-a',
+          venueId: 'venue-a',
+          sourceKind: 'STRUCTURED_BOOTSTRAP',
+        },
+      }),
+    )
+    expect(result[0]?.structuredBootstrap).toEqual({
+      version: 1,
+      content: { kind: 'knowledge' },
+    })
   })
 })

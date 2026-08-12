@@ -203,6 +203,12 @@ the deterministic digest ID and confirms concurrent queue state. If durable prep
 confirmation fails, record the failure and do not manufacture success. No live scheduler, Redis,
 worker, delivery channel, or provider run is claimed by the local evidence.
 
+Weekly-report history is bounded and cursor-paginated. Invalid date or cursor parameters fall back
+to the recent range and newest page with a visible warning instead of failing the route. When a
+report is terminal `FAILED`, use its detail-page retry control: it creates a new request identity
+bound to that failed report and never mutates the failed evidence. If that new retry's outcome is
+uncertain, retry unchanged from the same control so its new identity is reused safely.
+
 ## Offboarding
 
 Create a requested plan only after confirming venues and required revocation targets. Current local

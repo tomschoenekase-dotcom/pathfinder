@@ -653,6 +653,10 @@ model IntakeRun {
   interviewPublicAnswers   Json?                  @map("interview_public_answers")
   interviewAnswerManifest  Json?                  @map("interview_answer_manifest")
   interviewConsentTextHash String?                @map("interview_consent_text_hash") @db.Char(64)
+  /// Raw, private candidate content submitted during managed onboarding. It is never applied or published directly.
+  structuredBootstrap      Json?                  @map("structured_bootstrap")
+  submissionRequestId      String?                @map("submission_request_id") @db.Uuid
+  submissionInputHash      String?                @map("submission_input_hash") @db.Char(64)
   requestedBy              String                 @map("requested_by") @db.VarChar(191)
   createdAt                DateTime               @default(now()) @map("created_at")
   tenant                   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -663,6 +667,7 @@ model IntakeRun {
 
   @@unique([id, tenantId, venueId], map: "intake_runs_scope_key")
   @@unique([id, tenantId, venueId, sourceKind], map: "intake_runs_scope_kind_key")
+  @@unique([tenantId, submissionRequestId], map: "intake_runs_tenant_submission_request_key")
   @@index([tenantId, venueId, createdAt], map: "intake_runs_scope_created_idx")
   @@map("intake_runs")
 }
@@ -726,6 +731,7 @@ model IntakePackageHandoff {
 enum IntakeSourceKind {
   WEBSITE
   INTERVIEW
+  STRUCTURED_BOOTSTRAP
 }
 
 enum IntakeRunStatus {

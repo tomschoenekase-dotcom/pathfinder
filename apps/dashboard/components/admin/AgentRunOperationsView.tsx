@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { formatE8Usd } from './AgentOperationsOverview'
+import { AgentRunCancellationControl } from './AgentRunCancellationControl'
 
 type Cursor = { createdAt: string; id: string } | null
 type Run = {
@@ -107,10 +108,19 @@ export function AgentRunOperationsView({
           </span>
         </div>
         <p className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
-          Read-only run evidence. Raw inputs, outputs, artifacts, and scope snapshots are not
-          exposed here.
+          Lifecycle evidence is read-only except for the cancellation-intent control. Raw inputs,
+          outputs, artifacts, and scope snapshots are not exposed here; requesting cancellation
+          records intent only.
         </p>
       </header>
+
+      <AgentRunCancellationControl
+        tenantId={tenantId}
+        venueId={venueId}
+        agentRunId={run.id}
+        status={run.status}
+        cancelRequestedAt={run.cancelRequestedAt}
+      />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Run summary">
         <Summary label="Cost" value={formatE8Usd(run.costE8Usd)} />

@@ -5,17 +5,16 @@ import Link from 'next/link'
 import { AdminGenerateWeeklyReportButton } from '../../../../../../../../components/admin/AdminGenerateWeeklyReportButton'
 import { AdminVenueReportConfiguration } from '../../../../../../../../components/admin/AdminVenueReportConfiguration'
 import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
+import { resolveAdminReportRouteInput } from '../../../../../../../../lib/admin-report-route-input'
 
 type AdminReportsPageProps = {
   params: Promise<{ tenantId: string; venueId: string }>
-  searchParams: Promise<{ weekStart?: string; weekEnd?: string }>
-}
-
-function defaultRangeStart() {
-  const date = new Date()
-  date.setUTCDate(date.getUTCDate() - 6)
-  date.setUTCHours(0, 0, 0, 0)
-  return date
+  searchParams: Promise<{
+    weekStart?: string
+    weekEnd?: string
+    cursorWeekStart?: string
+    cursorId?: string
+  }>
 }
 
 function toInputDate(date: Date) {
@@ -33,15 +32,32 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
   const { tenantId, venueId } = await params
   const query = await searchParams
   const caller = await createAdminCaller()
-  const [reports, reportConfiguration] = await Promise.all([
-    caller.admin.listWeeklyReports({ tenantId, venueId }),
+  const resolvedInput = resolveAdminReportRouteInput(query)
+  const hasCompleteCursor = resolvedInput.cursor !== null
+  const [reportPage, reportConfiguration] = await Promise.all([
+    caller.admin.listWeeklyReports({
+      tenantId,
+      venueId,
+      limit: 25,
+      ...(hasCompleteCursor
+        ? {
+            cursorWeekStart: resolvedInput.cursor!.weekStart,
+            cursorId: resolvedInput.cursor!.id,
+          }
+        : {}),
+    }),
     caller.admin.getVenueReportConfiguration({ tenantId, venueId }),
   ])
-  const fallbackStart = defaultRangeStart()
-  const weekStartDate = query.weekStart
-    ? new Date(`${query.weekStart}T00:00:00.000Z`)
-    : fallbackStart
-  const weekEndDate = query.weekEnd ? new Date(`${query.weekEnd}T23:59:59.999Z`) : new Date()
+  const weekStartDate = resolvedInput.weekStart
+  const weekEndDate = resolvedInput.weekEnd
+  const nextHref = reportPage.nextCursor
+    ? `/admin/clients/${tenantId}/venues/${venueId}/reports?${new URLSearchParams({
+        weekStart: toInputDate(weekStartDate),
+        weekEnd: toInputDate(weekEndDate),
+        cursorWeekStart: reportPage.nextCursor.weekStart,
+        cursorId: reportPage.nextCursor.id,
+      }).toString()}`
+    : null
 
   return (
     <div className="space-y-8">
@@ -58,6 +74,15 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
           Generate, edit, and publish client-facing reports for any date range.
         </p>
       </header>
+
+      {resolvedInput.warning ? (
+        <p
+          role="alert"
+          className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          {resolvedInput.warning}
+        </p>
+      ) : null}
 
       <AdminVenueReportConfiguration
         tenantId={tenantId}
@@ -102,8 +127,15 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
         />
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-pf-light bg-pf-white shadow-sm">
-        <table className="w-full text-left text-sm">
+      <section
+        aria-labelledby="report-history-heading"
+        className="overflow-x-auto rounded-2xl border border-pf-light bg-pf-white shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+        tabIndex={0}
+      >
+        <h2 id="report-history-heading" className="sr-only">
+          Report history
+        </h2>
+        <table className="min-w-[42rem] w-full text-left text-sm">
           <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
             <tr>
               <th className="px-4 py-3 font-semibold">Date range</th>
@@ -113,14 +145,14 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
             </tr>
           </thead>
           <tbody>
-            {reports.length === 0 ? (
+            {reportPage.items.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-pf-deep/60">
                   No reports yet.
                 </td>
               </tr>
             ) : (
-              reports.map((report) => (
+              reportPage.items.map((report) => (
                 <tr key={report.id} className="border-b border-pf-light/60 last:border-0">
                   <td className="px-4 py-3">
                     <Link
@@ -140,6 +172,29 @@ export default async function AdminReportsPage({ params, searchParams }: AdminRe
           </tbody>
         </table>
       </section>
+      <nav aria-label="Report history pages" className="flex items-center justify-between gap-3">
+        {hasCompleteCursor ? (
+          <Link
+            href={`/admin/clients/${tenantId}/venues/${venueId}/reports?${new URLSearchParams({
+              weekStart: toInputDate(weekStartDate),
+              weekEnd: toInputDate(weekEndDate),
+            }).toString()}`}
+            className="inline-flex min-h-10 items-center rounded-full border border-pf-light bg-white px-4 text-sm font-semibold text-pf-primary"
+          >
+            Back to newest
+          </Link>
+        ) : (
+          <span />
+        )}
+        {nextHref ? (
+          <Link
+            href={nextHref}
+            className="inline-flex min-h-10 items-center rounded-full bg-pf-primary px-4 text-sm font-semibold text-white"
+          >
+            Older reports
+          </Link>
+        ) : null}
+      </nav>
     </div>
   )
 }

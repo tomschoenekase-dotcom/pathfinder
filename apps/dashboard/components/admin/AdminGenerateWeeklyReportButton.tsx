@@ -16,6 +16,7 @@ type AdminGenerateWeeklyReportButtonProps = {
   weekStart: string
   weekEnd: string
   enabled: boolean
+  retrySeed?: string
 }
 
 function errorCode(error: unknown): string | null {
@@ -31,6 +32,7 @@ export function AdminGenerateWeeklyReportButton({
   weekStart,
   weekEnd,
   enabled,
+  retrySeed,
 }: AdminGenerateWeeklyReportButtonProps) {
   const router = useRouter()
   const client = useTRPCClient()
@@ -59,7 +61,7 @@ export function AdminGenerateWeeklyReportButton({
     setTitle('')
     setPending(false)
     setErrorMessage(null)
-  }, [tenantId, venueId, weekStart, weekEnd, enabled])
+  }, [tenantId, venueId, weekStart, weekEnd, enabled, retrySeed])
 
   function isCurrentAction(action: { token: number; scope: number }) {
     return (
@@ -88,6 +90,7 @@ export function AdminGenerateWeeklyReportButton({
       rangeStart: target.weekStart,
       rangeEnd: target.weekEnd,
       ...(target.trimmedTitle ? { title: target.trimmedTitle } : {}),
+      ...(retrySeed ? { retrySeed } : {}),
     }
 
     try {

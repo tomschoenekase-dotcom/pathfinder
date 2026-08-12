@@ -27,6 +27,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
   ['packages/api/src/routers/admin/attention-console.ts', 1],
   ['packages/api/src/routers/admin/agent-operations.ts', 8],
+  ['packages/api/src/routers/admin/agent-run-cancellation.ts', 1],
   ['packages/api/src/routers/admin/agent-identity-configuration.ts', 3],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   ['packages/api/src/routers/admin/chatlogs.ts', 4],

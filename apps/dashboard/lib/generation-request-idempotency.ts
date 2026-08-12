@@ -10,6 +10,7 @@ export type GenerationRequestFingerprintInput = {
   rangeStart: string
   rangeEnd: string
   title?: string
+  retrySeed?: string
 }
 
 type AttemptStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -47,6 +48,7 @@ export async function generationRequestFingerprint(
     new Date(input.rangeStart).toISOString(),
     new Date(input.rangeEnd).toISOString(),
     input.title?.trim() ?? '',
+    input.retrySeed ?? '',
   ])
   const digest = await globalThis.crypto.subtle.digest(
     'SHA-256',

@@ -177,6 +177,27 @@ describe('weekly report capability controls', () => {
     expect(mocks.generateReport).not.toHaveBeenCalled()
   })
 
+  it('binds a failed-report retry seed into a fresh idempotency scope', async () => {
+    mocks.generateReport.mockRejectedValueOnce(new Error('transport unavailable'))
+    render(
+      <AdminGenerateWeeklyReportButton
+        tenantId="tenant_1"
+        venueId="venue_1"
+        weekStart="2026-08-01T00:00:00.000Z"
+        weekEnd="2026-08-07T23:59:59.999Z"
+        enabled
+        retrySeed="failed-report:report_1"
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Report Draft' }))
+    await screen.findByRole('alert')
+    expect(mocks.getAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ retrySeed: 'failed-report:report_1' }),
+      null,
+    )
+  })
+
   it('publishes only the exact report revision shown to the reviewer', async () => {
     mocks.publishReport.mockResolvedValueOnce({ ok: true })
     render(

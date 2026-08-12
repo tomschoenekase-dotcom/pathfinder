@@ -71,6 +71,23 @@ describe('generation request idempotency', () => {
     expect(JSON.stringify([...storage.values.values()])).not.toContain('Board draft')
   })
 
+  it('creates a fresh identity for a terminal retry seed and retains that retry on ambiguity', async () => {
+    const storage = memoryStorage()
+    const report = { ...analysisInput, kind: 'weekly-report' as const }
+    const original = await getOrCreateGenerationRequestAttempt(report, null, storage)
+    const retryInput = { ...report, retrySeed: 'failed-report:report_1' }
+    const terminalRetry = await getOrCreateGenerationRequestAttempt(retryInput, null, storage)
+    const ambiguousRetry = await getOrCreateGenerationRequestAttempt(
+      retryInput,
+      terminalRetry,
+      storage,
+    )
+
+    expect(terminalRetry.requestId).not.toBe(original.requestId)
+    expect(ambiguousRetry).toEqual(terminalRetry)
+    expect(JSON.stringify([...storage.values.values()])).not.toContain('failed-report:report_1')
+  })
+
   it('clears only the matching confirmed attempt', async () => {
     const storage = memoryStorage()
     const attempt = await getOrCreateGenerationRequestAttempt(analysisInput, null, storage)

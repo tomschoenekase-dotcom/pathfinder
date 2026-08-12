@@ -6,15 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const mocks = vi.hoisted(() => ({
-  createVenue: vi.fn(),
+  submitBootstrap: vi.fn(),
   push: vi.fn(),
   refresh: vi.fn(),
   client: {
-    venue: { create: { mutate: vi.fn() } },
+    intake: { submitOnboardingBootstrap: { mutate: vi.fn() } },
   },
 }))
 
-mocks.client.venue.create.mutate = mocks.createVenue
+mocks.client.intake.submitOnboardingBootstrap.mutate = mocks.submitBootstrap
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.push, refresh: mocks.refresh }),
@@ -55,9 +55,7 @@ async function advanceToContentChoice(guideMode: GuideMode) {
     expect(await screen.findByRole('heading', { name: 'Set your location' })).toBeTruthy()
     fillLocation()
   }
-  expect(
-    await screen.findByRole('group', { name: 'Choose your first public content' }),
-  ).toBeTruthy()
+  expect(await screen.findByRole('group', { name: 'Choose starting information' })).toBeTruthy()
 }
 
 function chooseContent(kind: ContentKind) {
@@ -90,7 +88,10 @@ function fillKnowledge(
 describe('mode- and content-aware onboarding setup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.createVenue.mockResolvedValue({ id: 'venue-created' })
+    mocks.submitBootstrap.mockResolvedValue({
+      venue: { id: 'venue-created' },
+      status: 'AWAITING_REVIEW',
+    })
   })
 
   afterEach(cleanup)
@@ -123,13 +124,13 @@ describe('mode- and content-aware onboarding setup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     const alert = await screen.findByRole('alert')
-    const group = screen.getByRole('group', { name: 'Choose your first public content' })
+    const group = screen.getByRole('group', { name: 'Choose starting information' })
     expect(alert.textContent).toBe('Choose a content type to continue.')
     expect(group.getAttribute('aria-invalid')).toBe('true')
     expect(group.getAttribute('aria-required')).toBe('true')
     expect(group.getAttribute('aria-describedby')).toBe(alert.id)
     expect(document.activeElement).toBe(screen.getByRole('radio', { name: /Place or guide item/ }))
-    expect(mocks.createVenue).not.toHaveBeenCalled()
+    expect(mocks.submitBootstrap).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -158,14 +159,19 @@ describe('mode- and content-aware onboarding setup', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
 
-    await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledOnce())
-    expect(mocks.createVenue).toHaveBeenCalledWith({
-      name: 'Harbor Museum',
-      slug: 'harbor-museum',
-      category: 'museum',
-      guideMode,
-      ...(guideMode === 'location_aware' ? { defaultCenterLat: 40.7, defaultCenterLng: -74 } : {}),
-      initialContent:
+    await waitFor(() => expect(mocks.submitBootstrap).toHaveBeenCalledOnce())
+    expect(mocks.submitBootstrap).toHaveBeenCalledWith({
+      requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      venue: {
+        name: 'Harbor Museum',
+        slug: 'harbor-museum',
+        category: 'museum',
+        guideMode,
+        ...(guideMode === 'location_aware'
+          ? { defaultCenterLat: 40.7, defaultCenterLng: -74 }
+          : {}),
+      },
+      rawContent:
         contentKind === 'place'
           ? {
               kind: 'place',
@@ -173,8 +179,6 @@ describe('mode- and content-aware onboarding setup', () => {
                 name: 'Main entrance',
                 type: 'OTHER',
                 shortDescription: 'The central visitor entrance.',
-                tags: [],
-                importanceScore: 0,
               },
             }
           : {
@@ -186,7 +190,8 @@ describe('mode- and content-aware onboarding setup', () => {
               },
             },
     })
-    expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
+    expect(await screen.findByText('Your starting information is awaiting review.')).toBeTruthy()
+    expect(mocks.submitBootstrap.mock.calls[0]?.[0]).not.toHaveProperty('initialContent')
     expect(screen.queryByText(/Your venue is live/i)).toBeNull()
   })
 
@@ -235,7 +240,7 @@ describe('mode- and content-aware onboarding setup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('heading', { name: 'Set your location' })
     fillLocation()
-    await screen.findByRole('group', { name: 'Choose your first public content' })
+    await screen.findByRole('group', { name: 'Choose starting information' })
 
     expect(
       (screen.getByRole('radio', { name: /Venue knowledge/ }) as HTMLInputElement).checked,
@@ -266,7 +271,7 @@ describe('mode- and content-aware onboarding setup', () => {
 
     fireEvent.click(await screen.findByRole('radio', { name: /Guide without visitor location/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByRole('group', { name: 'Choose your first public content' })
+    await screen.findByRole('group', { name: 'Choose starting information' })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect((screen.getByLabelText('Guide item name') as HTMLInputElement).value).toBe('')
@@ -274,14 +279,14 @@ describe('mode- and content-aware onboarding setup', () => {
     fillPlace('Visitor desk', 'Ask here for visitor assistance.')
     fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
 
-    await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledOnce())
-    const payload = mocks.createVenue.mock.calls[0]?.[0]
+    await waitFor(() => expect(mocks.submitBootstrap).toHaveBeenCalledOnce())
+    const payload = mocks.submitBootstrap.mock.calls[0]?.[0]?.venue
     expect(payload).not.toHaveProperty('defaultCenterLat')
     expect(payload).not.toHaveProperty('defaultCenterLng')
   })
 
   it('retains the selected knowledge draft and submits the exact same payload on retry', async () => {
-    mocks.createVenue.mockRejectedValueOnce(new Error('Setup could not be saved'))
+    mocks.submitBootstrap.mockRejectedValueOnce(new Error('Setup could not be saved'))
     render(<OnboardingSetupPage />)
     await advanceToContentChoice('non_location')
     chooseContent('knowledge')
@@ -296,16 +301,34 @@ describe('mode- and content-aware onboarding setup', () => {
     expect(mocks.push).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
-    await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledTimes(2))
-    expect(mocks.createVenue.mock.calls[1]).toEqual(mocks.createVenue.mock.calls[0])
-    expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
+    await waitFor(() => expect(mocks.submitBootstrap).toHaveBeenCalledTimes(2))
+    expect(mocks.submitBootstrap.mock.calls[1]).toEqual(mocks.submitBootstrap.mock.calls[0])
+    expect(await screen.findByText('Your starting information is awaiting review.')).toBeTruthy()
+  })
+
+  it('rotates the submission key when raw information changes after a failed attempt', async () => {
+    mocks.submitBootstrap.mockRejectedValueOnce(new Error('Connection lost'))
+    render(<OnboardingSetupPage />)
+    await advanceToContentChoice('non_location')
+    chooseContent('knowledge')
+    fillKnowledge()
+    fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
+    await screen.findByRole('alert')
+    const firstRequestId = mocks.submitBootstrap.mock.calls[0]?.[0]?.requestId
+
+    fireEvent.change(screen.getByLabelText('Knowledge content'), {
+      target: { value: 'Updated raw candidate information.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create venue' }))
+    await waitFor(() => expect(mocks.submitBootstrap).toHaveBeenCalledTimes(2))
+    expect(mocks.submitBootstrap.mock.calls[1]?.[0]?.requestId).not.toBe(firstRequestId)
   })
 
   it('blocks duplicate writes while the first atomic mutation is unresolved', async () => {
-    let resolveCreate: ((value: { id: string }) => void) | undefined
-    mocks.createVenue.mockImplementationOnce(
+    let resolveCreate: ((value: { venue: { id: string }; status: string }) => void) | undefined
+    mocks.submitBootstrap.mockImplementationOnce(
       () =>
-        new Promise<{ id: string }>((resolve) => {
+        new Promise<{ venue: { id: string }; status: string }>((resolve) => {
           resolveCreate = resolve
         }),
     )
@@ -318,13 +341,13 @@ describe('mode- and content-aware onboarding setup', () => {
     fireEvent.click(createButton)
     fireEvent.click(createButton)
 
-    await waitFor(() => expect(mocks.createVenue).toHaveBeenCalledOnce())
+    await waitFor(() => expect(mocks.submitBootstrap).toHaveBeenCalledOnce())
     expect(createButton.textContent).toMatch(/Receiving your information/i)
     expect(screen.getByText(/Nothing goes live from this step/i)).toBeTruthy()
-    resolveCreate?.({ id: 'venue-created' })
-    expect(await screen.findByText('Your venue setup is ready for review.')).toBeTruthy()
+    resolveCreate?.({ venue: { id: 'venue-created' }, status: 'AWAITING_REVIEW' })
+    expect(await screen.findByText('Your starting information is awaiting review.')).toBeTruthy()
     expect(screen.getByText('Information received')).toBeTruthy()
-    expect(screen.getByText('Building your workspace')).toBeTruthy()
+    expect(screen.getByText('PathFinder review pending')).toBeTruthy()
     expect(screen.getByText('First preview')).toBeTruthy()
   })
 })

@@ -176,7 +176,7 @@ function getSetupSteps(
     ...(guideMode === 'location_aware'
       ? [{ id: 'location', label: 'Visitor arrival', title: 'Set the venue center' }]
       : []),
-    { id: 'content-kind', label: 'Starting point', title: 'Choose your first public content' },
+    { id: 'content-kind', label: 'Starting point', title: 'Choose starting information' },
     {
       id: 'content',
       label: 'Share a detail',
@@ -185,7 +185,7 @@ function getSetupSteps(
           ? 'Add venue knowledge'
           : contentKind === 'place'
             ? 'Add a place or guide item'
-            : 'Add your first public content',
+            : 'Share starting information for review',
     },
     { id: 'done', label: 'Received', title: 'Information received' },
   ]
@@ -562,7 +562,7 @@ function ContentKindStep({
         aria-invalid={showError}
         aria-required="true"
       >
-        <legend className="sr-only">Choose your first public content</legend>
+        <legend className="sr-only">Choose starting information</legend>
         <div>
           <p className={styles.eyebrow}>One useful starting point</p>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
@@ -937,6 +937,7 @@ export default function OnboardingSetupPage() {
   const [isComplete, setIsComplete] = useState(false)
   const [completedVenueId, setCompletedVenueId] = useState<string | null>(null)
   const submissionInFlightRef = useRef(false)
+  const submissionIdentityRef = useRef<{ requestId: string; fingerprint: string } | null>(null)
   const totalSteps = getSetupSteps(setupState.venue.guideMode, setupState.contentKind).length
 
   useEffect(() => {
@@ -961,7 +962,18 @@ export default function OnboardingSetupPage() {
     setIsSubmitting(true)
 
     try {
-      const venue = await client.venue.create.mutate({
+      const rawContent =
+        initialContent.kind === 'place'
+          ? {
+              kind: 'place' as const,
+              value: {
+                name: initialContent.value.name,
+                type: initialContent.value.type,
+                shortDescription: initialContent.value.shortDescription,
+              },
+            }
+          : initialContent
+      const venue = {
         name: setupState.venue.name,
         slug: setupState.venue.slug,
         ...(setupState.venue.category?.trim()
@@ -974,11 +986,19 @@ export default function OnboardingSetupPage() {
               defaultCenterLng: setupState.venue.defaultCenterLng!,
             }
           : {}),
-        initialContent,
+      }
+      const fingerprint = JSON.stringify({ venue, rawContent })
+      if (submissionIdentityRef.current?.fingerprint !== fingerprint) {
+        submissionIdentityRef.current = { requestId: crypto.randomUUID(), fingerprint }
+      }
+      const result = await client.intake.submitOnboardingBootstrap.mutate({
+        requestId: submissionIdentityRef.current.requestId,
+        venue,
+        rawContent,
       })
 
       setIsComplete(true)
-      setCompletedVenueId(venue.id)
+      setCompletedVenueId(result.venue.id)
     } catch (error) {
       submissionInFlightRef.current = false
       setFormError(getErrorMessage(error))
@@ -997,11 +1017,11 @@ export default function OnboardingSetupPage() {
             Step {totalSteps} of {totalSteps} - Information received
           </p>
           <h1 id="received-title" className={styles.completeTitle}>
-            Your venue setup is ready for review.
+            Your starting information is awaiting review.
           </h1>
           <p className={styles.completeCopy}>
-            We&apos;ve safely received your starting information. Nothing is public yet; you&apos;ll
-            review everything before visitors see it.
+            We&apos;ve created a private venue shell and saved your information as a review
+            proposal. No guide content was created, applied, or published.
           </p>
           <ol className={styles.buildMilestones} aria-label="What happens next">
             <li className={styles.milestoneComplete}>
@@ -1014,8 +1034,8 @@ export default function OnboardingSetupPage() {
             <li className={styles.milestoneActive}>
               <LoaderCircle className="h-4 w-4" aria-hidden="true" />
               <span>
-                <strong>Building your workspace</strong>
-                <small>Preparing the next step for you.</small>
+                <strong>PathFinder review pending</strong>
+                <small>Your raw information has not been added to the visitor guide.</small>
               </span>
             </li>
             <li>

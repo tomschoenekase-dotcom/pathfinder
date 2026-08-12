@@ -57,6 +57,40 @@ type LegacyHarnessClient = {
 vi.mock('@pathfinder/db', async () => {
   const { z } = await import('zod')
   return {
+    onboardingBootstrapSubmissionInput: z
+      .object({
+        requestId: z.string().uuid(),
+        venue: z.object({
+          name: z.string(),
+          slug: z.string(),
+          guideMode: z.enum(['location_aware', 'non_location']),
+        }),
+        rawContent: z.object({ kind: z.string(), value: z.record(z.string(), z.unknown()) }),
+      })
+      .passthrough(),
+    OnboardingBootstrapError: class OnboardingBootstrapError extends Error {},
+    submitOnboardingBootstrapAction: vi.fn(
+      (input: { tenantId: string; client: LegacyHarnessClient }) =>
+        input.client.$transaction((tx) =>
+          (
+            tx as unknown as {
+              intakeRun: { findFirst: (args: unknown) => unknown }
+            }
+          ).intakeRun.findFirst({ where: { tenantId: input.tenantId } }),
+        ),
+    ),
+    getOnboardingBootstrapSubmission: vi.fn(
+      (input: { tenantId: string; requestId: string; client: LegacyHarnessClient }) =>
+        input.client.$transaction((tx) =>
+          (
+            tx as unknown as {
+              intakeRun: { findFirst: (args: unknown) => unknown }
+            }
+          ).intakeRun.findFirst({
+            where: { tenantId: input.tenantId, submissionRequestId: input.requestId },
+          }),
+        ),
+    ),
     contentHistoryVersionSelect: { id: true, tenantId: true },
     ContentHistoryActionError: class ContentHistoryActionError extends Error {},
     revertContentHistoryAction: vi.fn(

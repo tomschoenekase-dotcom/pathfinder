@@ -179,6 +179,10 @@ Section-level evidence and blockers are indexed in
 - Operational exception triage for AI incident state, failed/retryable jobs, evaluation lifecycle,
   pending/expired approvals, support workflow attention, recent agent runs, suspended clients, and
   setup accounts. Every queue is bounded, cursor-paginated, read-only, and omits sensitive payloads.
+- Weekly-report operations use a bounded stable cursor over report history, preserve date filters
+  across pages, and recover malformed bookmarked filters/cursors to an accessible newest-page
+  state. A failed report remains immutable evidence; its retry is namespaced to that terminal report
+  so the first retry is a fresh durable request and an ambiguous retry reuses only that new identity.
 - Recent work, operational status, compact recent operations, a separate client directory, and a
   dedicated operations view. The directory now uses server search and stable cursor pagination;
   the legacy all-client procedure is compatibility-bounded.
@@ -222,9 +226,11 @@ Section-level evidence and blockers are indexed in
   transaction. The admin form records evidence only and explicitly cannot execute proposed work.
 - Tenant/venue-scoped, paginated admin read APIs for agent identities, runs, actions, timelines, and
   approvals; raw action payloads and artifacts are intentionally excluded.
-- Read-only venue Agent Operations views separating access scope from autonomy and exposing runs,
-  lifecycle timelines, action/version summaries, fixed-point cost, and approval state without
-  enable/run/retry/cancel/approve controls.
+- Venue Agent Operations views separate access scope from autonomy and expose runs, lifecycle
+  timelines, action/version summaries, fixed-point cost, and approval state. A human platform admin
+  can record cancellation intent for an exact cancellable run with conflict-safe replay, append-only
+  timeline evidence, and strict sanitized audit in one transaction; this control does not call a
+  provider, change run status, enable an identity, run/retry work, or execute an approval.
 - Read-only Evaluation Operations API and venue console separating operational failures from scored
   quality outcomes and showing frozen model, prompt, content, package, and corpus identities plus
   bounded human conclusions.
