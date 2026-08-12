@@ -127,6 +127,7 @@ model Tenant {
   supportAttachments            SupportMessageAttachment[]
   supportAuditEvents            SupportRequestAuditEvent[]
   supportPackageHandoffs        SupportPackageHandoff[]
+  supportPreviewFeedback        SupportPreviewFeedback[]
   offboardingPlans              OffboardingPlan[]
   offboardingVenueTargets       OffboardingVenueTarget[]
   offboardingRevocationEvidence OffboardingRevocationEvidence[]
@@ -346,6 +347,7 @@ model Venue {
   supportAttachments            SupportMessageAttachment[]
   supportAuditEvents            SupportRequestAuditEvent[]
   supportPackageHandoffs        SupportPackageHandoff[]
+  supportPreviewFeedback        SupportPreviewFeedback[]
   offboardingTargets            OffboardingVenueTarget[]
   contentModuleIdentities       ContentModuleIdentity[]
   contentModuleRevisions        ContentModuleRevision[]
@@ -884,6 +886,7 @@ model VenuePackage {
   sourcedKnowledgeEntries VenueKnowledgeEntry[]
   intakeHandoffs          IntakePackageHandoff[]
   supportHandoffs         SupportPackageHandoff[]
+  supportPreviewFeedback  SupportPreviewFeedback[]
 
   @@unique([id, tenantId, venueId])
   @@unique([tenantId, venueId, draftKey])
@@ -2247,6 +2250,7 @@ model SupportRequest {
   messages           SupportMessage[]
   auditEvents        SupportRequestAuditEvent[]
   packageHandoffs    SupportPackageHandoff[]
+  previewFeedback    SupportPreviewFeedback[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, updatedAt, id])
@@ -2272,6 +2276,7 @@ model SupportMessage {
   venue            Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   supportRequest   SupportRequest             @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   attachments      SupportMessageAttachment[]
+  previewFeedback  SupportPreviewFeedback?
 
   @@unique([id, tenantId, venueId, supportRequestId])
   @@unique([tenantId, submissionRequestId], map: "support_messages_tenant_submission_request_key")
@@ -2348,6 +2353,31 @@ model SupportPackageHandoff {
   @@unique([venuePackageId, tenantId, venueId], map: "support_package_handoffs_package_scope_key")
   @@index([tenantId, venueId, supportRequestId, createdAt, id], map: "support_package_handoffs_request_created_idx")
   @@map("support_package_handoffs")
+}
+
+/// Immutable lineage for a client support request about one exact, currently
+/// eligible APPROVED package preview. It never advances package lifecycle.
+model SupportPreviewFeedback {
+  id               String                 @id @default(cuid())
+  tenantId         String                 @map("tenant_id")
+  venueId          String                 @map("venue_id")
+  supportRequestId String                 @map("support_request_id")
+  supportMessageId String                 @map("support_message_id")
+  venuePackageId   String                 @map("venue_package_id")
+  createdByKind    SupportParticipantKind @default(CLIENT) @map("created_by_kind")
+  createdById      String                 @map("created_by_id") @db.VarChar(191)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue            Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest   SupportRequest         @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportMessage   SupportMessage         @relation(fields: [supportMessageId, tenantId, venueId, supportRequestId], references: [id, tenantId, venueId, supportRequestId], onDelete: Restrict, onUpdate: Restrict)
+  venuePackage     VenuePackage           @relation(fields: [venuePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId, venueId], map: "support_preview_feedback_id_scope_key")
+  @@unique([supportRequestId, tenantId, venueId], map: "support_preview_feedback_request_scope_key")
+  @@unique([supportMessageId, tenantId, venueId, supportRequestId], map: "support_preview_feedback_message_scope_key")
+  @@index([tenantId, venueId, venuePackageId, createdAt, id], map: "support_preview_feedback_package_created_idx")
+  @@map("support_preview_feedback")
 }
 
 enum ExternalCredentialKind {

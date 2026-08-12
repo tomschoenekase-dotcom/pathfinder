@@ -47,6 +47,7 @@ import {
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { canonicalVenuePackageWarningCodes } from '../lib/client-package-preview'
 import { applyVenuePackageV3ContentEffects } from '../lib/venue-package-v3-content-effects'
 import {
   runVenuePackageDraftFinalizer,
@@ -590,7 +591,7 @@ function duplicateWarnings(
   return sortVenuePackageIssues(warnings)
 }
 
-async function latestTargetVersions(
+export async function latestTargetVersions(
   db: DbClient,
   tenantId: string,
   venueId: string,
@@ -600,27 +601,40 @@ async function latestTargetVersions(
 ) {
   if (!includeVenue && placeIds.length === 0 && knowledgeIds.length === 0)
     return new Map<string, string>()
+  const targetWhere = {
+    tenantId,
+    venueId,
+    OR: [
+      ...(includeVenue ? [{ entityType: 'VENUE' as const, entityId: venueId }] : []),
+      ...(placeIds.length > 0
+        ? [{ entityType: 'PLACE' as const, entityId: { in: placeIds } }]
+        : []),
+      ...(knowledgeIds.length > 0
+        ? [{ entityType: 'KNOWLEDGE_ENTRY' as const, entityId: { in: knowledgeIds } }]
+        : []),
+    ],
+  }
+  const latestTargets = await db.contentVersion.groupBy({
+    by: ['entityType', 'entityId'],
+    where: targetWhere,
+    _max: { sequence: true },
+  })
+  const latestSequences = latestTargets.flatMap((row) =>
+    row._max.sequence === null ? [] : [row._max.sequence],
+  )
+  if (latestSequences.length === 0) return new Map<string, string>()
   const versions = await db.contentVersion.findMany({
     where: {
       tenantId,
       venueId,
-      OR: [
-        ...(includeVenue ? [{ entityType: 'VENUE', entityId: venueId }] : []),
-        ...(placeIds.length > 0 ? [{ entityType: 'PLACE', entityId: { in: placeIds } }] : []),
-        ...(knowledgeIds.length > 0
-          ? [{ entityType: 'KNOWLEDGE_ENTRY', entityId: { in: knowledgeIds } }]
-          : []),
-      ],
+      sequence: { in: latestSequences },
     },
     select: { id: true, entityType: true, entityId: true },
-    orderBy: { sequence: 'desc' },
+    take: latestSequences.length,
   })
-  const latest = new Map<string, string>()
-  for (const version of versions) {
-    const key = `${version.entityType}:${version.entityId}`
-    if (!latest.has(key)) latest.set(key, version.id)
-  }
-  return latest
+  return new Map(
+    versions.map((version) => [`${version.entityType}:${version.entityId}`, version.id]),
+  )
 }
 
 async function placeDeleteDependencies(
@@ -649,7 +663,7 @@ async function placeDeleteDependencies(
   return result
 }
 
-async function buildPreview(
+export async function buildVenuePackagePreview(
   db: DbClient,
   tenantId: string,
   venueId: string,
@@ -999,7 +1013,7 @@ async function buildPreview(
 }
 
 function withSemanticEvidence(
-  preview: Awaited<ReturnType<typeof buildPreview>>,
+  preview: Awaited<ReturnType<typeof buildVenuePackagePreview>>,
   semantic: {
     scan: VenuePackageValidationReport['semanticDuplicateScan']
     errors?: VenuePackageIssue[]
@@ -1018,7 +1032,7 @@ function withSemanticEvidence(
   })
 }
 
-function parseStoredPreview(pkg: {
+export function parseStoredVenuePackagePreview(pkg: {
   schemaVersion: number
   payloadHash: string
   baseDigest: string
@@ -1046,14 +1060,20 @@ function isSemanticIssue(issue: VenuePackageIssue): boolean {
   return issue.code.startsWith('SEMANTIC_')
 }
 
-function assertStoredEvidenceCurrent(params: {
+export class VenuePackageApprovedBaseStaleError extends TRPCError {
+  constructor() {
+    super({ code: 'CONFLICT', message: 'Venue content changed; create a new preview' })
+  }
+}
+
+export function assertStoredVenuePackageEvidenceCurrent(params: {
   stored: VenuePackageStoredPreview
-  deterministic: Awaited<ReturnType<typeof buildPreview>>
+  deterministic: Awaited<ReturnType<typeof buildVenuePackagePreview>>
 }): void {
-  if (
-    params.stored.payloadHash !== params.deterministic.payloadHash ||
-    params.stored.baseDigest !== params.deterministic.baseDigest
-  ) {
+  if (params.stored.baseDigest !== params.deterministic.baseDigest) {
+    throw new VenuePackageApprovedBaseStaleError()
+  }
+  if (params.stored.payloadHash !== params.deterministic.payloadHash) {
     conflict('Venue content changed; create a new preview')
   }
   const storedExactErrors = params.stored.report.errors.filter((issue) => !isSemanticIssue(issue))
@@ -1676,7 +1696,7 @@ export const venuePackageRouter = router({
     .use(requireRole('MANAGER'))
     .input(VenuePackagePreviewInput)
     .mutation(({ ctx, input }) =>
-      buildPreview(ctx.db, ctx.session.activeTenantId, input.venueId, input.payload),
+      buildVenuePackagePreview(ctx.db, ctx.session.activeTenantId, input.venueId, input.payload),
     ),
 
   list: tenantProcedure
@@ -1691,7 +1711,7 @@ export const venuePackageRouter = router({
         take: 100,
       })
       return packages.map((pkg) => {
-        const preview = parseStoredPreview(pkg)
+        const preview = parseStoredVenuePackagePreview(pkg)
         return { ...pkg, validationReport: preview.report, previewPlan: preview }
       })
     }),
@@ -1702,7 +1722,7 @@ export const venuePackageRouter = router({
     .query(async ({ ctx, input }) => {
       const pkg = await findPackage(ctx.db, ctx.session.activeTenantId, input.id)
       if (!pkg) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found' })
-      const preview = parseStoredPreview(pkg)
+      const preview = parseStoredVenuePackagePreview(pkg)
       return { ...pkg, validationReport: preview.report, previewPlan: preview }
     }),
 
@@ -1732,7 +1752,7 @@ export const venuePackageRouter = router({
           if (existingPackage.payloadHash !== requestedPayloadHash) {
             conflict('Draft key was already used for different venue-package content')
           }
-          const existingPreview = parseStoredPreview(existingPackage)
+          const existingPreview = parseStoredVenuePackagePreview(existingPackage)
           await runVenuePackageDraftFinalizer({
             tx: transaction as DbClient,
             packageId: existingPackage.id,
@@ -1751,7 +1771,7 @@ export const venuePackageRouter = router({
           }
         }
 
-        const preview = await buildPreview(
+        const preview = await buildVenuePackagePreview(
           transaction as DbClient,
           tenantId,
           input.venueId,
@@ -1947,7 +1967,7 @@ export const venuePackageRouter = router({
       try {
         const finalized = await ctx.db.$transaction(async (transaction) => {
           await lockVenueContentMutation(transaction, { tenantId, venueId: input.venueId })
-          const preview = await buildPreview(
+          const preview = await buildVenuePackagePreview(
             transaction as DbClient,
             tenantId,
             input.venueId,
@@ -2117,7 +2137,7 @@ export const venuePackageRouter = router({
     .input(VenuePackageApprovalInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
-      let evidence: ReturnType<typeof parseStoredPreview> | undefined
+      let evidence: ReturnType<typeof parseStoredVenuePackagePreview> | undefined
       try {
         return await approveVenuePackageAction(
           {
@@ -2130,14 +2150,14 @@ export const venuePackageRouter = router({
             auditState,
             validate: async (tx, existing) => {
               const payload = parsePayload(existing.payload, existing.schemaVersion)
-              const deterministic = await buildPreview(
+              const deterministic = await buildVenuePackagePreview(
                 tx as DbClient,
                 tenantId,
                 existing.venueId,
                 payload,
               )
-              evidence = parseStoredPreview(existing)
-              assertStoredEvidenceCurrent({ stored: evidence, deterministic })
+              evidence = parseStoredVenuePackagePreview(existing)
+              assertStoredVenuePackageEvidenceCurrent({ stored: evidence, deterministic })
               if (
                 evidence.report.errors.length > 0 ||
                 evidence.report.semanticDuplicateScan.status !== 'COMPLETE'
@@ -2168,7 +2188,7 @@ export const venuePackageRouter = router({
               return {
                 approvalWarningDigest: evidence.warningDigest,
                 approvedWarningCodes: jsonValue(
-                  [...new Set(evidence.report.warnings.map((warning) => warning.code))].sort(),
+                  canonicalVenuePackageWarningCodes(evidence.report.warnings),
                 ),
               }
             },
@@ -2196,9 +2216,14 @@ export const venuePackageRouter = router({
         conflict('Only an approved venue package can be applied')
       }
       const payload = parsePayload(existing.payload, existing.schemaVersion)
-      const deterministic = await buildPreview(ctx.db, tenantId, existing.venueId, payload)
-      const stored = parseStoredPreview(existing)
-      assertStoredEvidenceCurrent({ stored, deterministic })
+      const deterministic = await buildVenuePackagePreview(
+        ctx.db,
+        tenantId,
+        existing.venueId,
+        payload,
+      )
+      const stored = parseStoredVenuePackagePreview(existing)
+      assertStoredVenuePackageEvidenceCurrent({ stored, deterministic })
       if (
         stored.report.errors.length > 0 ||
         stored.report.semanticDuplicateScan.status !== 'COMPLETE'

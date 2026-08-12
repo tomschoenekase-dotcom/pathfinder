@@ -7,7 +7,12 @@ import { ArrowUpRight, CircleHelp, Megaphone, MessageCircle, Sparkles } from 'lu
 import type { ClientPortalLifecycleView } from '@pathfinder/contracts/client-portal-lifecycle'
 
 type DashboardOverviewProps = {
-  venue: { id: string; name: string; lifecycle: ClientPortalLifecycleView }
+  venue: {
+    id: string
+    name: string
+    lifecycle: ClientPortalLifecycleView
+    clientPreview?: { state: 'AVAILABLE' | 'SUPERSEDED' | 'UNAVAILABLE'; id: string | null }
+  }
   venues: Array<{ id: string; name: string }>
   activeUpdates: number
   chatUrl?: string | null
@@ -24,7 +29,13 @@ export function DashboardOverview({
   const { organization } = useOrganization()
   const orgName = impersonatedTenantName ?? organization?.name ?? venue.name
   const lifecycle = venue.lifecycle
+  const clientPreview = venue.clientPreview ?? { state: 'UNAVAILABLE' as const, id: null }
   const showLiveTools = lifecycle.state === 'LIVE' || lifecycle.state === 'PAUSED'
+  const publicGuestLinkAvailable = lifecycle.state === 'READY' || lifecycle.state === 'LIVE'
+  const previewHref =
+    lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state === 'AVAILABLE' && clientPreview.id
+      ? `/venues/${encodeURIComponent(venue.id)}/preview/${encodeURIComponent(clientPreview.id)}`
+      : null
   const action =
     lifecycle.clientAction === 'CONTINUE_INTAKE'
       ? { href: `/venues/${encodeURIComponent(venue.id)}/intake`, label: 'Continue setup' }
@@ -63,14 +74,14 @@ export function DashboardOverview({
               </nav>
             ) : null}
           </div>
-          {chatUrl && ['CLIENT_PREVIEW', 'READY', 'LIVE'].includes(lifecycle.state) ? (
+          {chatUrl && publicGuestLinkAvailable ? (
             <a
               href={chatUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-pf-deep px-6 text-sm font-semibold text-white"
             >
-              Open PathFinder <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+              Open visitor experience <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
             </a>
           ) : null}
         </header>
@@ -110,7 +121,8 @@ export function DashboardOverview({
           </div>
         </section>
 
-        {lifecycle.clientActionRequired ? (
+        {lifecycle.clientActionRequired ||
+        (lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state !== 'AVAILABLE') ? (
           <section
             aria-labelledby="next-step-heading"
             className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8"
@@ -122,14 +134,39 @@ export function DashboardOverview({
                 : lifecycle.headline}
             </h2>
             <p className="mt-2 text-sm leading-6 text-pf-deep/75">{lifecycle.summary}</p>
-            {lifecycle.clientAction === 'OPEN_PREVIEW' && chatUrl ? (
+            {lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state === 'SUPERSEDED' ? (
+              <p
+                className="mt-4 rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/75"
+                role="status"
+              >
+                An updated exact preview is being prepared. We will make it available here when it
+                is ready.
+              </p>
+            ) : lifecycle.state === 'CLIENT_PREVIEW' && clientPreview.state === 'UNAVAILABLE' ? (
+              <p
+                className="mt-4 rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/75"
+                role="status"
+              >
+                This preview is temporarily unavailable. PathFinder will make a reviewed preview
+                available here when it is ready.
+              </p>
+            ) : lifecycle.state === 'CLIENT_PREVIEW' && previewHref ? (
+              <Link
+                href={previewHref}
+                className="mt-4 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white"
+              >
+                Open preview
+              </Link>
+            ) : lifecycle.state !== 'CLIENT_PREVIEW' &&
+              lifecycle.clientAction === 'OPEN_PREVIEW' &&
+              chatUrl ? (
               <a
                 href={chatUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-4 inline-flex min-h-11 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white"
               >
-                Open preview
+                Open visitor experience
               </a>
             ) : action ? (
               <Link

@@ -74,7 +74,11 @@ import {
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { canonicalVenuePackagePayload } from '../schemas/venue-package'
-import { venuePackageDraftAuditRole, venuePackageRouter } from './venue-package'
+import {
+  latestTargetVersions,
+  venuePackageDraftAuditRole,
+  venuePackageRouter,
+} from './venue-package'
 
 const venueFindFirst = vi.fn()
 const venueUpdateMany = vi.fn()
@@ -136,6 +140,43 @@ const payload = {
     { title: 'Accessibility', category: 'FAQ', content: 'Step-free entry.', isEnabled: true },
   ],
 }
+
+describe('bounded latest target version lookup', () => {
+  it('aggregates latest sequences in the database and fetches only the bounded winners', async () => {
+    const groupBy = vi.fn().mockResolvedValue([
+      { entityType: 'PLACE', entityId: 'place_1', _max: { sequence: 11n } },
+      { entityType: 'KNOWLEDGE_ENTRY', entityId: 'knowledge_1', _max: { sequence: 22n } },
+    ])
+    const findMany = vi.fn().mockResolvedValue([
+      { id: 'version_1', entityType: 'PLACE', entityId: 'place_1' },
+      { id: 'version_2', entityType: 'KNOWLEDGE_ENTRY', entityId: 'knowledge_1' },
+    ])
+    const result = await latestTargetVersions(
+      { contentVersion: { groupBy, findMany } } as never,
+      'tenant_1',
+      venueId,
+      ['place_1'],
+      ['knowledge_1'],
+      false,
+    )
+    expect(groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: ['entityType', 'entityId'],
+        where: expect.objectContaining({ tenantId: 'tenant_1', venueId }),
+        _max: { sequence: true },
+      }),
+    )
+    expect(findMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant_1', venueId, sequence: { in: [11n, 22n] } },
+      select: { id: true, entityType: true, entityId: true },
+      take: 2,
+    })
+    expect([...result]).toEqual([
+      ['PLACE:place_1', 'version_1'],
+      ['KNOWLEDGE_ENTRY:knowledge_1', 'version_2'],
+    ])
+  })
+})
 
 const venueState = {
   id: venueId,

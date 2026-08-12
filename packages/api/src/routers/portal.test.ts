@@ -8,16 +8,18 @@ const venueFindMany = vi.fn()
 const intakeGroupBy = vi.fn()
 const mediaGroupBy = vi.fn()
 const packageGroupBy = vi.fn()
+const packageFindMany = vi.fn()
 const historyFindMany = vi.fn()
 const offboardingFindMany = vi.fn()
 
 const app = router({ portal: portalRouter })
 const ctx = {
   db: {
+    $transaction: vi.fn(async (callback: (db: unknown) => unknown) => callback(ctx.db)),
     venue: { findMany: venueFindMany },
     intakeRun: { groupBy: intakeGroupBy },
     mediaIngestionProject: { groupBy: mediaGroupBy },
-    venuePackage: { groupBy: packageGroupBy },
+    venuePackage: { groupBy: packageGroupBy, findMany: packageFindMany },
     contentVersion: { findMany: historyFindMany },
     offboardingVenueTarget: { findMany: offboardingFindMany },
   } as unknown as TRPCContext['db'],
@@ -31,6 +33,28 @@ const ctx = {
 }
 
 describe('client portal lifecycle read model', () => {
+  it('uses UNAVAILABLE rather than false staleness when CLIENT_PREVIEW has no eligible candidate', async () => {
+    venueFindMany.mockResolvedValue([
+      {
+        id: 'venue-1',
+        name: 'Museum',
+        isActive: false,
+        _count: { places: 0, knowledgeEntries: 0 },
+      },
+    ])
+    intakeGroupBy.mockResolvedValue([])
+    mediaGroupBy.mockResolvedValue([])
+    packageGroupBy.mockResolvedValue([
+      { venueId: 'venue-1', status: 'APPROVED', _count: { _all: 1 } },
+    ])
+    packageFindMany.mockResolvedValue([])
+    historyFindMany.mockResolvedValue([])
+    offboardingFindMany.mockResolvedValue([])
+    await expect(app.createCaller(ctx).portal.getVenueLifecycles()).resolves.toMatchObject([
+      { lifecycle: { state: 'CLIENT_PREVIEW' }, clientPreview: { state: 'UNAVAILABLE', id: null } },
+    ])
+  })
+
   it('derives per-venue milestones with exact tenant filters and no internal evidence payload', async () => {
     venueFindMany.mockResolvedValue([
       { id: 'venue-1', name: 'Museum', isActive: true, _count: { places: 2, knowledgeEntries: 1 } },
@@ -41,10 +65,14 @@ describe('client portal lifecycle read model', () => {
       { venueId: 'venue-2', status: 'ANALYZING', _count: { _all: 1 } },
     ])
     packageGroupBy.mockResolvedValue([])
+    packageFindMany.mockResolvedValue([])
     historyFindMany.mockResolvedValue([])
     offboardingFindMany.mockResolvedValue([])
 
     const result = await app.createCaller(ctx).portal.getVenueLifecycles()
+    expect(ctx.db.$transaction).toHaveBeenLastCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    })
     expect(result.map(({ venueId, lifecycle }) => [venueId, lifecycle.state])).toEqual([
       ['venue-1', 'LIVE'],
       ['venue-2', 'PROCESSING'],
@@ -69,6 +97,7 @@ describe('client portal lifecycle read model', () => {
     intakeGroupBy.mockResolvedValue([])
     mediaGroupBy.mockResolvedValue([])
     packageGroupBy.mockResolvedValue([])
+    packageFindMany.mockResolvedValue([])
     historyFindMany.mockResolvedValue([])
     offboardingFindMany.mockResolvedValue([{ venueId: 'venue-1' }])
 

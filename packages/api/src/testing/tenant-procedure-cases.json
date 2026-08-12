@@ -379,6 +379,29 @@
     "input": null
   },
   {
+    "path": "portal.getClientPreview",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venuePackage.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "packageId": "cpackageabc1234567890"
+    }
+  },
+  {
+    "path": "portal.createPreviewFeedbackRequest",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "supportMessage.findFirst",
+    "input": {
+      "operationId": "00000000-0000-4000-8000-000000000099",
+      "venueId": "cvenueabc123456789012",
+      "packageId": "cpackageabc1234567890",
+      "body": "Preview feedback",
+      "attachments": []
+    }
+  },
+  {
     "path": "venuePackage.preview",
     "kind": "mutation",
     "minimumRole": "MANAGER",

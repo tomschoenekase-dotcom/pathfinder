@@ -21,6 +21,7 @@
     "./partner-read-api": "./src/partner-read-api.ts",
     "./retention-policy": "./src/retention-policy.ts",
     "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts",
+    "./client-package-preview": "./src/client-package-preview.ts",
     "./universal-content-actions": "./src/universal-content-actions.ts"
   },
   "types": "./src/index.ts",

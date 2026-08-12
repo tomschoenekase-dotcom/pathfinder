@@ -30,6 +30,7 @@ const APPEND_ONLY_MODELS = [
   'SupportMessageAttachment',
   'SupportRequestAuditEvent',
   'SupportPackageHandoff',
+  'SupportPreviewFeedback',
   'ExternalCredentialRotation',
   'ExternalCredentialRevocation',
   'OffboardingVenueTarget',

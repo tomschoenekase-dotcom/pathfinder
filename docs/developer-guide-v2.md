@@ -27,6 +27,14 @@ single optimistic flag. New client portal pages must fit the approved simple fun
 internal legacy routes retain URL compatibility through a server redirect and need a route test that
 proves the internal component cannot render.
 
+`CLIENT_PREVIEW` is an authenticated, package-bound static read, not the ordinary guest slug. The
+lifecycle read exposes an exact eligible `APPROVED` package ID only while retained review evidence
+and the current base agree. Exact base drift is `SUPERSEDED`; missing, corrupt, incomplete or safely
+unrepresentable evidence is `UNAVAILABLE`. The `RepeatableRead` detail returns a bounded effective
+V1/V2/V3 visitor candidate: public branding, versioned guide tone, coordinates, active Places and
+enabled Knowledge. It omits internal entity IDs, hashes, item keys, provenance, validation details,
+guide notes and raw instructions. It does not publish, apply, call a provider or become guest-public.
+
 ## Adding a domain action
 
 Define an explicit actor (`HUMAN`, `AGENT`, or `SYSTEM`), exact tenant/venue scope, input contract,
@@ -48,6 +56,13 @@ transport evidence and one matching FILE_UPLOAD evidence row. Create and reply o
 UUID and canonical actor/scope/content/attachment hash across ambiguous retries; replay must be
 checked before reply-version CAS. Safe projections omit upload/run/hash/storage identities, and
 strict audit records only attachment count. This boundary does not authorize reading file bytes.
+
+Approved-preview feedback is a separate canonical support action. Session tenant and HUMAN client
+identity are authoritative. Inside one `RepeatableRead` transaction it revalidates the same current
+eligible `APPROVED` preview, then creates the Support request, immutable message, trusted attachment
+links, append-only exact package-feedback lineage, support event and strict sanitized audit. Its
+replay hash binds actor, scope, package, normalized text and sorted attachment IDs and converges
+P2002 races. It never changes package status/content or invokes AI, a provider, apply or publish.
 
 Operational updates are another canonical-action reference: HUMAN manager/owner authorization,
 exact tenant/venue/place scope, content-version entity and capacity locks, expected `updatedAt` CAS,

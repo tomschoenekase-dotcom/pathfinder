@@ -160,6 +160,19 @@ Section-level evidence and blockers are indexed in
   revalidates the stored payload schema and venue-bound canonical hash, plus preview schema,
   payload/base/warning digests and validation-report identity, before displaying evidence. It does
   not create, approve, apply, revert or link a package.
+- The authenticated Client Portal has an exact package-bound static preview for an eligible
+  `APPROVED` Venue Package. A shared `RepeatableRead` predicate distinguishes exact base drift
+  (`SUPERSEDED`) from missing, corrupt, incomplete or safely unrepresentable evidence
+  (`UNAVAILABLE`) and returns a bounded full-effective V1/V2/V3 visitor projection with public
+  branding, versioned tone, coordinates, active Places and enabled Knowledge. It exposes no internal
+  entity IDs, hashes, validation/provenance evidence, guide instructions or guest-public URL and
+  performs no apply, publish or provider work.
+- Preview feedback is a distinct replay-safe HUMAN-client Support action. It revalidates that same
+  exact current approved preview and atomically persists the Support request/message, trusted
+  quarantined-upload references, append-only tenant/venue/package lineage, support event and strict
+  sanitized platform audit. It has no package lifecycle/content side effects. Forward-only migration
+  `20260812000300_add_support_preview_feedback` is unapplied; local schema and focused tests are not
+  live database or deployment evidence.
 - Deliberate platform-admin controls can create a reviewed Venue Package DRAFT through the existing
   globally and venue-gated, budgeted semantic-analysis pipeline. Standalone, support-request and
   intake-review variants require complete semantic evidence; support/intake linkage, strict audit,

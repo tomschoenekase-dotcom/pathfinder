@@ -56,15 +56,79 @@ describe('DashboardOverview client portal', () => {
       />,
     )
     expect(screen.getByText('Live')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /Open PathFinder/ }).getAttribute('href')).toBe(
-      'https://guest.example/riverside',
-    )
+    expect(
+      screen
+        .getAllByRole('link', { name: /Open visitor experience/ })
+        .every((link) => link.getAttribute('href') === 'https://guest.example/riverside'),
+    ).toBe(true)
     expect(screen.getByText('1 visitor update live')).toBeTruthy()
     expect(screen.getByText('PathFinder tone')).toBeTruthy()
     expect(screen.getByText('PathFinder Support')).toBeTruthy()
     expect(screen.queryByText(/analytics/i)).toBeNull()
     expect(screen.queryByText(/sessions/i)).toBeNull()
     expect(screen.queryByText(/1 venue/i)).toBeNull()
+  })
+
+  it('withholds stale preview and distinguishes a ready public visitor link', () => {
+    const previewLifecycle = lifecycleFrom({
+      packageCounts: { draft: 0, approved: 1, applied: 0, reverted: 0 },
+    })
+    const { rerender } = render(
+      <DashboardOverview
+        venue={{
+          id: 'riverside',
+          name: 'Riverside',
+          lifecycle: previewLifecycle,
+          clientPreview: { state: 'SUPERSEDED', id: null },
+        }}
+        venues={[{ id: 'riverside', name: 'Riverside' }]}
+        activeUpdates={0}
+        chatUrl="https://guest.example/riverside"
+      />,
+    )
+    expect(screen.getByText(/updated exact preview is being prepared/i)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /open preview|visitor experience/i })).toBeNull()
+
+    rerender(
+      <DashboardOverview
+        venue={{
+          id: 'riverside',
+          name: 'Riverside',
+          lifecycle: lifecycleFrom({
+            publicContentCount: 1,
+            packageCounts: { draft: 0, approved: 0, applied: 1, reverted: 0 },
+          }),
+        }}
+        venues={[{ id: 'riverside', name: 'Riverside' }]}
+        activeUpdates={0}
+        chatUrl="https://guest.example/riverside"
+      />,
+    )
+    expect(
+      screen
+        .getAllByRole('link', { name: /Open visitor experience/ })
+        .every((link) => link.getAttribute('href') === 'https://guest.example/riverside'),
+    ).toBe(true)
+  })
+
+  it('never falls back to public guest content when client preview is unavailable', () => {
+    render(
+      <DashboardOverview
+        venue={{
+          id: 'riverside',
+          name: 'Riverside',
+          lifecycle: lifecycleFrom({
+            packageCounts: { draft: 0, approved: 1, applied: 0, reverted: 0 },
+          }),
+          clientPreview: { state: 'UNAVAILABLE', id: null },
+        }}
+        venues={[{ id: 'riverside', name: 'Riverside' }]}
+        activeUpdates={0}
+        chatUrl="https://guest.example/riverside"
+      />,
+    )
+    expect(screen.getByText(/preview is temporarily unavailable/i)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /open preview|visitor experience/i })).toBeNull()
   })
 
   it('explains the onboarding state without making clients configure the system', () => {
@@ -120,6 +184,7 @@ describe('DashboardOverview client portal', () => {
           lifecycle: lifecycleFrom({
             packageCounts: { draft: 0, approved: 1, applied: 0, reverted: 0 },
           }),
+          clientPreview: { state: 'AVAILABLE', id: 'package-approved' },
         }}
         venues={[{ id: 'riverside', name: 'Riverside' }]}
         activeUpdates={3}
@@ -129,8 +194,9 @@ describe('DashboardOverview client portal', () => {
 
     expect(screen.getAllByText('Your next step')).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'Open preview' }).getAttribute('href')).toBe(
-      'https://guest.example/riverside',
+      '/venues/riverside/preview/package-approved',
     )
+    expect(screen.queryByRole('link', { name: 'Open visitor experience' })).toBeNull()
     expect(screen.queryByText('The essentials')).toBeNull()
     expect(screen.queryByText(/visitor updates live/i)).toBeNull()
     expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)

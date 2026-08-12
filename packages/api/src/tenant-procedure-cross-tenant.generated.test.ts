@@ -435,6 +435,24 @@ vi.mock('@pathfinder/db', async () => {
           }),
         ),
     ),
+    createPreviewFeedbackRequestAction: vi.fn(
+      (
+        input: { tenantId: string; venueId: string },
+        _options: unknown,
+        client: {
+          $transaction: (
+            callback: (tx: {
+              supportMessage: { findFirst: (args: unknown) => unknown }
+            }) => unknown,
+          ) => unknown
+        },
+      ) =>
+        client.$transaction((tx) =>
+          tx.supportMessage.findFirst({
+            where: { tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
     db: harness.db,
     lockContentVersionEntity: vi.fn().mockResolvedValue(undefined),
     lockOperationalUpdateCapacity: vi.fn().mockResolvedValue(undefined),

@@ -164,10 +164,15 @@ export {
 export { isAiAdmissionControlError } from './helpers/ai-admission-control'
 export {
   appendSupportMessageAction,
+  createPreviewFeedbackRequestAction,
   createSupportRequestAction,
   SupportActionError,
 } from './helpers/support-actions'
-export type { SupportActionActor, SupportAttachmentDraft } from './helpers/support-actions'
+export type {
+  PreviewFeedbackEligibilityAssertion,
+  SupportActionActor,
+  SupportAttachmentDraft,
+} from './helpers/support-actions'
 export {
   normalizeSupportMissingInformation,
   SUPPORT_TRIAGE_MISSING_INFORMATION_ITEM_MAX,

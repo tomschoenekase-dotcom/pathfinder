@@ -87,6 +87,13 @@ locations as well as legacy text and place cards. Reject unknown block types. Im
 must be HTTPS and must not contain credential- or secret-like parameters. A safely rendered block
 is still only a preview; it does not prove that a remote asset is approved, durable, or live.
 
+For **Client preview**, open the authenticated package preview rather than the ordinary guest URL.
+It is bound to one exact `APPROVED` package and shows a bounded effective V1/V2/V3 visitor candidate:
+public branding and guide tone, Places with public coordinates, and Knowledge. **Superseded** means
+the venue base changed after approval; **Unavailable** means no eligible package exists or retained
+evidence cannot be represented safely. Neither state publishes, applies or exposes the preview
+publicly. Do not describe this static view as the live guest experience.
+
 ## Rollback
 
 Use versioned package or content-history rollback controls. Confirm the target version, venue, actor,
@@ -115,6 +122,12 @@ surface. Client pickers show only that user's exact-venue uploads awaiting PathF
 operators may select exact-venue eligible evidence. On an ambiguous send result, retry the unchanged
 draft so its retained operation identity can converge. Edit the message or selection only when you
 intend to start a new operation.
+
+Feedback submitted from an approved package preview creates a Support request with immutable lineage
+to that exact tenant, venue and package. Reuse its operation UUID after an ambiguous result only
+while package, text and selected verified attachments are unchanged. The server rechecks that the
+preview remains current before recording it. Feedback never edits or advances the package and cannot
+approve, apply, publish or trigger provider work.
 
 Use support triage to assign a category and a concise missing-information checklist before changing
 workflow state. Triage requires the displayed request version, retains selections on a conflict,

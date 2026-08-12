@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   appendSupportMessageAction,
+  createPreviewFeedbackRequestAction,
   createSupportRequestAction,
   SupportActionError,
 } from './support-actions'
@@ -95,6 +96,7 @@ function harness() {
   const tx = {
     $executeRaw: vi.fn().mockResolvedValue(0),
     venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue_1' }) },
+    venuePackage: { findFirst: vi.fn().mockResolvedValue({ id: 'package_1' }) },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([]) },
     supportRequest: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -111,6 +113,9 @@ function harness() {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({ id: 'event_1' }),
     },
+    supportPreviewFeedback: {
+      create: vi.fn().mockResolvedValue({ venuePackageId: 'package_1', createdAt: now }),
+    },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
   }
   const client = {
@@ -121,6 +126,160 @@ function harness() {
 
 describe('support domain actions', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('atomically creates exact approved-preview feedback with sanitized evidence', async () => {
+    const { tx, actionClient } = harness()
+    const assertEligible = vi.fn().mockResolvedValue(undefined)
+    const result = await createPreviewFeedbackRequestAction(
+      {
+        operationId,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        packageId: 'package_1',
+        body: 'Please make this clearer',
+        attachments: [],
+        actor: clientActor,
+      },
+      { assertEligible },
+      actionClient,
+    )
+    expect(assertEligible).toHaveBeenCalledWith(tx, {
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      packageId: 'package_1',
+    })
+    expect(tx.supportRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ category: 'EXPERIENCE_BEHAVIOR' }),
+      }),
+    )
+    expect(tx.supportPreviewFeedback.create).toHaveBeenCalledOnce()
+    expect(tx.supportRequestAuditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ eventType: 'PREVIEW_FEEDBACK_REQUEST_CREATED' }),
+      }),
+    )
+    const audit = tx.auditLog.create.mock.calls[0]?.[0]
+    expect(JSON.stringify(audit)).not.toMatch(/clearer|filename|submission|hash/iu)
+    expect(result.replayed).toBe(false)
+  })
+
+  it('fails malformed/non-client feedback before transaction and propagates eligibility outages', async () => {
+    const malformed = harness()
+    await expect(
+      createPreviewFeedbackRequestAction(
+        {
+          operationId,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          packageId: 'package_1',
+          body: 'feedback',
+          attachments: [],
+          actor: { ...clientActor, participantKind: 'OPERATOR' } as never,
+        },
+        { assertEligible: vi.fn() },
+        malformed.actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(malformed.client.$transaction).not.toHaveBeenCalled()
+
+    const outage = harness()
+    const infrastructureError = new Error('database offline')
+    await expect(
+      createPreviewFeedbackRequestAction(
+        {
+          operationId,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          packageId: 'package_1',
+          body: 'feedback',
+          attachments: [],
+          actor: clientActor,
+        },
+        { assertEligible: vi.fn().mockRejectedValue(infrastructureError) },
+        outage.actionClient,
+      ),
+    ).rejects.toBe(infrastructureError)
+    expect(outage.tx.supportRequest.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects operation replay missing the immutable preview relation', async () => {
+    const { tx, actionClient } = harness()
+    tx.supportMessage.findFirst.mockResolvedValue({
+      ...message,
+      submissionRequestId: operationId,
+      submissionInputHash: expect.anything,
+      supportRequest: request,
+      previewFeedback: null,
+    })
+    await expect(
+      createPreviewFeedbackRequestAction(
+        {
+          operationId,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          packageId: 'package_1',
+          body: 'feedback',
+          attachments: [],
+          actor: clientActor,
+        },
+        { assertEligible: vi.fn() },
+        actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('exactly replays preview feedback and converges its P2002 race without duplicate writes', async () => {
+    const input = {
+      operationId,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      packageId: 'package_1',
+      body: 'feedback',
+      attachments: [],
+      actor: clientActor,
+    }
+    const seed = harness()
+    await createPreviewFeedbackRequestAction(
+      input,
+      { assertEligible: vi.fn().mockResolvedValue(undefined) },
+      seed.actionClient,
+    )
+    const inputHash = seed.tx.supportMessage.create.mock.calls[0]?.[0]?.data.submissionInputHash
+    const replay = harness()
+    replay.tx.supportMessage.findFirst.mockResolvedValue({
+      ...message,
+      body: input.body,
+      submissionRequestId: operationId,
+      submissionInputHash: inputHash,
+      attachments: [],
+      supportRequest: request,
+      previewFeedback: {
+        id: 'feedback_1',
+        venuePackageId: 'package_1',
+        createdAt: now,
+        createdById: 'client_1',
+      },
+    })
+    const originalTransaction = replay.client.$transaction.getMockImplementation()!
+    replay.client.$transaction
+      .mockRejectedValueOnce({ code: 'P2002' })
+      .mockImplementation(originalTransaction)
+    await expect(
+      createPreviewFeedbackRequestAction(input, { assertEligible: vi.fn() }, replay.actionClient),
+    ).resolves.toMatchObject({ replayed: true, feedback: { packageId: 'package_1' } })
+    expect(replay.tx.supportRequest.create).not.toHaveBeenCalled()
+    expect(replay.tx.supportPreviewFeedback.create).not.toHaveBeenCalled()
+    expect(replay.tx.supportRequestAuditEvent.create).not.toHaveBeenCalled()
+
+    await expect(
+      createPreviewFeedbackRequestAction(
+        { ...input, body: 'changed' },
+        { assertEligible: vi.fn() },
+        replay.actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
 
   it('creates the request, first message, support event, and platform audit in one scoped transaction', async () => {
     const { tx, actionClient } = harness()

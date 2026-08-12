@@ -82,6 +82,24 @@ const appendSupportMessageActionInput = z
     actor: supportActionActor,
   })
   .strict()
+const createPreviewFeedbackRequestActionInput = z
+  .object({
+    operationId: z.string().uuid(),
+    tenantId: scopedId,
+    venueId: scopedId,
+    packageId: scopedId,
+    body: z.string().trim().min(1).max(20_000),
+    attachments: SupportAttachmentReferences,
+    actor: z
+      .object({
+        actorType: z.literal('HUMAN'),
+        participantKind: z.literal('CLIENT'),
+        actorId: scopedId,
+        auditRole,
+      })
+      .strict(),
+  })
+  .strict()
 
 export class SupportActionError extends Error {
   constructor(
@@ -510,6 +528,208 @@ export async function createSupportRequestAction(
     if (!isUniqueConflict(error)) throw error
     try {
       return await createSupportRequestActionOnce(input, client)
+    } catch (replayError) {
+      if (isUniqueConflict(replayError))
+        throw new SupportActionError('CONFLICT', 'Support operation could not be reconciled')
+      throw replayError
+    }
+  }
+}
+
+type SupportTransaction = Parameters<Parameters<SupportActionClient['$transaction']>[0]>[0]
+
+export type PreviewFeedbackEligibilityAssertion = (
+  tx: SupportTransaction,
+  scope: { tenantId: string; venueId: string; packageId: string },
+) => Promise<void>
+
+async function createPreviewFeedbackRequestActionOnce(
+  input: {
+    operationId: string
+    tenantId: string
+    venueId: string
+    packageId: string
+    body: string
+    attachments: SupportAttachmentDraft[]
+    actor: {
+      actorType: 'HUMAN'
+      participantKind: 'CLIENT'
+      actorId: string
+      auditRole: string
+    }
+  },
+  assertEligible: PreviewFeedbackEligibilityAssertion,
+  client: SupportActionClient,
+) {
+  const parsed = parseActionInput(createPreviewFeedbackRequestActionInput, input)
+  const submissionInputHash = supportSubmissionHash({
+    kind: 'CREATE_APPROVED_PREVIEW_FEEDBACK_REQUEST',
+    actorKind: parsed.actor.participantKind,
+    actorId: parsed.actor.actorId,
+    tenantId: parsed.tenantId,
+    venueId: parsed.venueId,
+    packageId: parsed.packageId,
+    body: parsed.body,
+    intakeUploadIds: parsed.attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
+  })
+  return client.$transaction(
+    async (tx) => {
+      const replayQuery = {
+        where: { tenantId: parsed.tenantId, submissionRequestId: parsed.operationId },
+        select: {
+          ...replayMessageSelect,
+          supportRequest: { select: requestSelect },
+          previewFeedback: {
+            select: { id: true, venuePackageId: true, createdAt: true, createdById: true },
+          },
+        },
+      } as const
+      let existing = await tx.supportMessage.findFirst(replayQuery)
+      await lockSupportOperation(tx, parsed.tenantId, parsed.operationId)
+      if (!existing) existing = await tx.supportMessage.findFirst(replayQuery)
+      if (existing) {
+        if (
+          existing.venueId !== parsed.venueId ||
+          existing.submissionInputHash !== submissionInputHash ||
+          existing.authorKind !== 'CLIENT' ||
+          existing.authorId !== parsed.actor.actorId ||
+          existing.visibility !== 'CLIENT_VISIBLE' ||
+          existing.previewFeedback?.venuePackageId !== parsed.packageId ||
+          existing.previewFeedback.createdById !== parsed.actor.actorId ||
+          !sameAttachmentReferences(parsed.attachments, existing.attachments)
+        )
+          throw new SupportActionError('CONFLICT', 'Support operation ID was already used')
+        const { supportRequest, previewFeedback, ...message } = existing
+        return {
+          request: supportRequest,
+          message: safeReplayMessage(message),
+          feedback: {
+            packageId: previewFeedback.venuePackageId,
+            createdAt: previewFeedback.createdAt,
+          },
+          replayed: true as const,
+        }
+      }
+      const pkg = await tx.venuePackage.findFirst({
+        where: {
+          id: parsed.packageId,
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          status: 'APPROVED',
+        },
+        select: { id: true },
+      })
+      if (!pkg) throw new SupportActionError('NOT_FOUND', 'Approved client preview not found')
+      await assertEligible(tx, {
+        tenantId: parsed.tenantId,
+        venueId: parsed.venueId,
+        packageId: parsed.packageId,
+      })
+      const attachments = await resolveAttachments(tx, parsed, parsed.attachments)
+      const request = await tx.supportRequest.create({
+        data: {
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          category: 'EXPERIENCE_BEHAVIOR',
+          subject: 'Feedback on approved preview',
+          artifacts: {},
+          createdByKind: 'CLIENT',
+          createdById: parsed.actor.actorId,
+          updatedByKind: 'CLIENT',
+          updatedById: parsed.actor.actorId,
+        },
+        select: requestSelect,
+      })
+      const message = await tx.supportMessage.create({
+        data: {
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          supportRequestId: request.id,
+          authorKind: 'CLIENT',
+          authorId: parsed.actor.actorId,
+          visibility: 'CLIENT_VISIBLE',
+          body: parsed.body,
+          submissionRequestId: parsed.operationId,
+          submissionInputHash,
+          attachments: {
+            create: attachmentCreates(attachments, {
+              tenantId: parsed.tenantId,
+              venueId: parsed.venueId,
+              requestId: request.id,
+            }),
+          },
+        },
+        select: messageSelect,
+      })
+      const feedback = await tx.supportPreviewFeedback.create({
+        data: {
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          supportRequestId: request.id,
+          supportMessageId: message.id,
+          venuePackageId: parsed.packageId,
+          createdByKind: 'CLIENT',
+          createdById: parsed.actor.actorId,
+        },
+        select: { venuePackageId: true, createdAt: true },
+      })
+      await tx.supportRequestAuditEvent.create({
+        data: {
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          supportRequestId: request.id,
+          requestVersion: request.version,
+          eventType: 'PREVIEW_FEEDBACK_REQUEST_CREATED',
+          actorKind: 'CLIENT',
+          actorId: parsed.actor.actorId,
+          fromStatus: null,
+          toStatus: null,
+        },
+        select: { id: true },
+      })
+      await writeAuditLogStrict(
+        {
+          tenantId: parsed.tenantId,
+          actorId: parsed.actor.actorId,
+          actorRole: parsed.actor.auditRole,
+          action: 'support-request.preview-feedback-created',
+          targetType: 'SupportRequest',
+          targetId: request.id,
+          afterState: {
+            venueId: request.venueId,
+            venuePackageId: parsed.packageId,
+            category: request.category,
+            status: request.status,
+            version: request.version,
+            attachmentCount: attachments.length,
+          },
+        },
+        tx,
+      )
+      return {
+        request,
+        message,
+        feedback: { packageId: feedback.venuePackageId, createdAt: feedback.createdAt },
+        replayed: false as const,
+      }
+    },
+    { isolationLevel: 'RepeatableRead' },
+  )
+}
+
+export async function createPreviewFeedbackRequestAction(
+  input: Parameters<typeof createPreviewFeedbackRequestActionOnce>[0],
+  options: { assertEligible: PreviewFeedbackEligibilityAssertion },
+  client: SupportActionClient = db,
+) {
+  if (!options || typeof options.assertEligible !== 'function')
+    throw new SupportActionError('INVALID_INPUT', 'Preview eligibility assertion is required')
+  try {
+    return await createPreviewFeedbackRequestActionOnce(input, options.assertEligible, client)
+  } catch (error) {
+    if (!isUniqueConflict(error)) throw error
+    try {
+      return await createPreviewFeedbackRequestActionOnce(input, options.assertEligible, client)
     } catch (replayError) {
       if (isUniqueConflict(replayError))
         throw new SupportActionError('CONFLICT', 'Support operation could not be reconciled')

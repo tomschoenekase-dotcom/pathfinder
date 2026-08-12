@@ -59,6 +59,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
         id: selectedVenue!.id,
         name: selectedVenue!.name,
         lifecycle: selectedLifecycle.lifecycle,
+        clientPreview: selectedLifecycle.clientPreview,
       }}
       venues={venues.map((venue) => ({ id: venue.id, name: venue.name }))}
       activeUpdates={activeAlerts}
