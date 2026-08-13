@@ -6,7 +6,7 @@ import type { AnalyticsEventType } from './events'
 export type EmitEventParams = {
   tenantId: string
   venueId: string
-  sessionId: string
+  sessionId?: string
   userMessageId?: string
   eventType: AnalyticsEventType
   placeId?: string
@@ -20,7 +20,7 @@ export async function emitEvent(params: EmitEventParams): Promise<void> {
       data: {
         tenantId: params.tenantId,
         venueId: params.venueId,
-        sessionId: params.sessionId,
+        ...(params.sessionId !== undefined ? { sessionId: params.sessionId } : {}),
         ...(params.userMessageId !== undefined ? { userMessageId: params.userMessageId } : {}),
         eventType: params.eventType,
         occurredAt: params.occurredAt ?? new Date(),

@@ -3,8 +3,8 @@
 **Status date:** 2026-08-13 America/Chicago
 
 **Release baseline:** `0d5a1ca9c715eb4a54d8ceffb24e9354a114a23d`
-**Current status:** production read-only assessment complete; clean 52-migration pre-V2 ledger;
-backup, representative production-lineage rehearsal, staging, and production blocked
+**Current status:** verified logical backup and PostgreSQL 17.6 production-lineage migration and
+recovery rehearsals complete; deployed staging and production cutover remain blocked
 
 ## Blocking control
 
@@ -12,9 +12,10 @@ The active stop in `docs/database-incident-stop.md` forbids every external datab
 migration, seed, rollback, and remediation command. Tom authorized and supplied an authenticated
 browser surface for the bounded read-only assessment of Supabase ref `zpacmfkomonxeqdiadtz`.
 Read-only SQL and dashboard inspection established the ledger, relevant schema state, and recovery
-posture described below. No external write or deployment command ran. The stop remains active
-because the Free-plan project has no provider backup or PITR and no production-lineage staging
-rehearsal has occurred.
+posture described below. Tom then authorized a password-prompted logical backup and isolated local
+rehearsal. The external database remained read-only: no production migration, schema/data write,
+password reset, paid upgrade, add-on, or deployment command ran. The stop remains active pending a
+separate evidence-backed production cutover approval.
 
 ## Repository starting state
 
@@ -59,6 +60,14 @@ without Anthropic or OpenAI keys. A disposable loopback Redis smoke then started
 entrypoint with database, Clerk, Anthropic, and OpenAI variables absent, reported zero queues, shut
 down cleanly, and left no container behind.
 
+The PostgreSQL 17.6 production-lineage rehearsal exposed one additional data-shape incompatibility:
+18 historical `venue.updated` analytics events intentionally used an empty session identifier
+because the old schema required a guest session for all analytics. The guest-chat migration
+previously rejected those truthful non-guest events. It now preserves them while converting only
+that exact event/empty-session shape to a nullable session reference, retains fail-closed rejection
+for every other unresolved event, and application writers no longer invent an empty guest-session
+identity for venue administration events.
+
 ## Local migration and recovery evidence
 
 - Runtime: PostgreSQL 16.14 with pgvector 0.8.6 in an exact-loopback disposable Docker target.
@@ -76,8 +85,40 @@ down cleanly, and left no container behind.
 - Redis integration: recovery, dispatch, terminal-redrive, and media-admission suites each passed
   2/2 against an exact-loopback disposable Redis container; cleanup was verified.
 
-This is a structurally representative fallback rehearsal, not a production clone. The packet's
-preferred production-lineage rehearsal remains blocked until the incident stop is lifted.
+This fallback evidence is now supplemented by the exact production-lineage rehearsal below.
+
+## Production-lineage backup, migration, and recovery evidence
+
+- Source: Supabase project `zpacmfkomonxeqdiadtz`, PostgreSQL 17.6/vector 0.8.0, accessed through
+  the free IPv4 session pooler with SSL required. The existing password was entered directly into
+  `pg_dump`'s interactive prompt; it was not placed in chat, command arguments, environment
+  variables, repository files, or captured output.
+- Backup: PostgreSQL custom archive, 3,732,162 bytes, SHA-256
+  `c2e34a10aae5063e60377493d7ca8f1e51bd949af6e2709e6b0c64ce095fca7a`; `pg_restore --list`
+  passed. The archive, listing, manifest, and row-count evidence are retained outside the
+  repository under `C:\Users\tomsc\Downloads\PathFinder-backups` and must be treated as
+  production-sensitive.
+- Exact isolated runtime: `pgvector/pgvector:0.8.0-pg17`, image digest
+  `sha256:40b404964359299eefdd5f8518facf1886c562848cf4de13b6eaf91cb70c2b87`, PostgreSQL 17.6,
+  vector 0.8.0, bound only to `127.0.0.1:55440` in the exact-name disposable container.
+- Pre-state restore: 43 public tables, 3,707 rows across 22 non-empty tables, 52/52 finished
+  migrations, zero failed/rolled-back/logged ledger rows, zero invalid indexes, and zero
+  unvalidated constraints.
+- First rehearsal: correctly stopped at `20260812000400_add_durable_guest_chat_turns`; 18
+  `venue.updated` events with the historical empty-session sentinel were the only unresolved rows.
+  The failed migration rolled back transactionally and no production state changed.
+- Repaired rehearsal: all 38 pending migrations applied in 2.200 seconds. The result has 90/90
+  finished ledger rows, zero failed/rolled-back/logged rows, 99 public tables, 443 public indexes,
+  597 public constraints, 199 public functions, 201 public trigger rows, zero invalid indexes, and
+  zero unvalidated constraints. The second guarded deploy reported no pending migrations and
+  Prisma reported the schema up to date.
+- Data preservation: all 42 pre-existing business-table counts were unchanged. Only the migration
+  ledger grew from 52 to 90. All 18 non-guest `venue.updated` events were preserved with a null
+  session; no non-null analytics session remains unresolved.
+- Recovery rehearsal: the original pre-migration archive was restored again into the distinct
+  `pathfinder_disposable_prod_recovery` database. All 43 pre-migration table counts matched and its
+  ledger returned exactly 52/52 finished migrations.
+- Cost: $0. No plan, add-on, branch, hosted staging resource, or purchase was created.
 
 ## Local verification
 
@@ -122,32 +163,29 @@ preserved files. They were not rewritten.
 - Recovery posture: the project is on the Free plan. The dashboard reports no scheduled backups;
   scheduled backups require Pro, and PITR is an additional paid add-on. No provider recovery point
   is available.
-- Version gap: local fallback rehearsal used PostgreSQL 16.14/vector 0.8.6, while production uses
-  PostgreSQL 17.6/vector 0.8.0. A matching production-lineage rehearsal is still required.
+- Version gap closed locally: the earlier fallback used PostgreSQL 16.14/vector 0.8.6; the exact
+  production-lineage rehearsal used PostgreSQL 17.6/vector 0.8.0.
 
 ## External work not performed
 
 The following are unproven and block production promotion:
 
 - actual non-database production provider and service inventory;
-- verified pre-migration backup artifact and restore test;
 - isolated Railway/Supabase/Redis/storage/Clerk staging resources;
 - deployed staging Guest, dashboard, worker, storage, browser, security, and performance evidence;
 - production cutover and post-cutover smoke evidence.
 
 ## Human action required
 
-Tom must now approve or reject the next bounded phase: prepare and verify a pre-migration logical
-backup, then create/use isolated staging for a PostgreSQL 17.6 production-lineage rehearsal of the
-38 pending migrations. This phase must not run production migrations or make production schema/data
-writes, and it must stop before any paid plan, add-on, or other purchase.
+Tom must now review the completed backup, rehearsal, repair, and recovery evidence and separately
+approve or reject a production cutover plan. No production write is implied by the rehearsal
+authorization.
 
-Exact approval response in this Codex task:
+Exact approval response in this Codex task, if Tom chooses to authorize the next phase after review:
 
-> I approve preparation of a verified pre-migration logical backup of Supabase project
-> zpacmfkomonxeqdiadtz and creation/use of isolated staging for a PostgreSQL 17.6 production-lineage
-> rehearsal. No production migrations or production schema/data writes are authorized. Stop before
-> any paid plan, add-on, or purchase and report any cost.
+> I approve the reviewed PathFinder V2 production cutover plan for Supabase project
+> zpacmfkomonxeqdiadtz, including only the exact production writes and stop conditions stated in
+> that plan. Do not proceed until the plan is presented to me and I approve it.
 
 After the rehearsal, Tom must separately approve or reject the evidence-backed production cutover
 plan and every production write it proposes. Only then may the incident stop and its static safety
@@ -163,10 +201,10 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 | Reality inventory              | Partial                | Repository structure, deployment configuration, environment contracts, Dockerfiles, health routes, queues, storage boundaries, authentication, analytics, and CI were inspected. Actual provider inventory and production state require external read-only access.                                                                                                                                       |
 | Baseline verification          | Complete locally       | Starting branch/commit/worktree were recorded. Frozen install, tests, typecheck, lint, builds, browser-foundation, accessibility, Prisma, client-bundle, and static inventories passed.                                                                                                                                                                                                                  |
 | Migration audit                | Partial                | All 90 repository migrations were ordered and executed locally. Production has 52 finished rows through `20260809150000`, zero failed/rolled-back/logged rows, and zero checksum mismatches; the 38 later migrations and sampled post-ledger artifacts are absent. Staging rehearsal and full schema/data parity remain blocked.                                                                         |
-| Production backup preparation  | Blocked                | The identified 26.48 MB Free-plan project has no scheduled backup and no PITR. No verified logical backup artifact or restore proof exists. Any paid upgrade/add-on, backup creation, or restore requires new approval.                                                                                                                                                                                  |
-| Representative target          | Partial fallback proof | The populated legacy fixture is the packet's allowed last-resort fallback. It built the 43-migration pre-`20260809070000` schema and preserved one tenant, venue, and venue package through the remaining chain. It does not approximate production-lineage breadth.                                                                                                                                     |
-| Migration rehearsal            | Partial fallback proof | The remaining chain passed from the populated fixture; a second guarded deploy had no pending migrations. A fresh empty target passed all 90 migrations and sampled V2 tables/triggers. Pre-state breadth, timings, provider logs, full object parity, null/data distribution, application queries, and production-lineage behavior remain unproven.                                                     |
-| Restore rehearsal              | Partial local smoke    | A post-migration custom-format dump restored into a separate database and matched the source at 90 finished migrations, one venue package, and 99 public tables. This proves round-trip mechanics, not pre-migration rollback recovery or provider-native restoration.                                                                                                                                   |
+| Production backup preparation  | Complete logical proof | A 3,732,162-byte custom-format archive was created with an interactive password prompt, verified by archive listing and SHA-256, retained outside the repository, and restored twice locally. Provider-native scheduled backup/PITR remains absent on the Free plan.                                                                                                                                     |
+| Representative target          | Complete local lineage | The verified production archive restored into isolated PostgreSQL 17.6/vector 0.8.0 with 43 tables, 3,707 rows, 22 non-empty tables, and the exact 52-migration ledger. This is exact local production lineage, not hosted deployed staging.                                                                                                                                                             |
+| Migration rehearsal            | Complete local lineage | The first run exposed the 18-event legacy sentinel conflict. After a scoped repair, all 38 pending migrations passed in 2.200 seconds; all 90 ledger rows finished, object-validity checks passed, existing business-table counts were preserved, and the second deploy had no pending work.                                                                                                             |
+| Restore rehearsal              | Complete local logical | The pre-migration archive restored into a distinct recovery database after the migrated clone existed; all 43 pre-migration table counts and all 52 finished ledger rows matched. Provider-native recovery remains unavailable.                                                                                                                                                                          |
 | Permanent isolated staging     | Blocked                | No external PostgreSQL, Redis, storage, Guest, dashboard, worker, scheduler, logging, auth, or analytics resource was created.                                                                                                                                                                                                                                                                           |
 | Deterministic staging fixtures | Blocked                | Venue A/B/C fixtures were not seeded because no authorized isolated staging target exists.                                                                                                                                                                                                                                                                                                               |
 | Deployed end-to-end validation | Blocked                | No real staging URL or deployed service exists. Local unit, contract, and integration tests cannot substitute for deployed HTTP evidence.                                                                                                                                                                                                                                                                |
@@ -175,7 +213,7 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 | Storage proof                  | Blocked                | Code contracts are covered locally, but no staging object store was configured or exercised.                                                                                                                                                                                                                                                                                                             |
 | Security/isolation smoke       | Partial                | Tenant registries, procedure coverage, bypass inventory, public-surface inventory, raw-SQL inventory, bundle-secret scan, disabled external-credential boundary, and non-destructive offboarding contracts passed. Deployed cross-tenant and staging/production separation require staging.                                                                                                              |
 | Performance sanity             | Blocked                | No representative deployed endpoint exists from which to record latency, query, memory, or worker evidence.                                                                                                                                                                                                                                                                                              |
-| Production-cutover gate        | Not met                | Local baseline/fallback rehearsal and production ledger reconciliation are green. A verified production backup, PostgreSQL 17.6 production-lineage staging rehearsal, deployed workflows, real-browser proof, storage proof, and production health remain missing.                                                                                                                                       |
+| Production-cutover gate        | Not met                | Backup, ledger reconciliation, PostgreSQL 17.6 production-lineage rehearsal, and logical recovery are green. Hosted staging workflows, real-browser proof, storage/provider proof, exact production service inventory, and production health/cutover authorization remain missing.                                                                                                                       |
 | Production cutover             | Not authorized         | The incident stop supersedes the packet's cutover intent. No production database or application action ran.                                                                                                                                                                                                                                                                                              |
 | Documentation                  | Partial                | The repository contains staging, incident-stop, disposable migration, and execution-status documentation. Actual environment topology, identifiers, URLs, provider workflows, and production recovery commands cannot be finalized without the inventory.                                                                                                                                                |
 | Independent audits             | Partial                | Three independent Codex reviewers audited migration safety, packet fidelity, and staging controls. Hermes/DeepSeek was unavailable. Findings drove seed/resource-identity hardening, receipt serialization, enum idempotency, and corrected evidence claims. Staging-isolation, cutover, and post-deploy audits remain blocked.                                                                          |
@@ -185,8 +223,8 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 
 ### A. Final status
 
-**Staging blocked.** The local fallback migration and restore rehearsal is complete. External staging
-and production are blocked by the active database incident stop.
+**Local production-lineage rehearsal complete; deployed staging blocked.** Production remains
+blocked by the active database incident stop and requires a separate reviewed cutover approval.
 
 ### B. Repository
 
@@ -200,11 +238,12 @@ and production are blocked by the active database incident stop.
 
 ### C. Infrastructure
 
-No staging or production infrastructure was created or changed. A public HTTPS reachability check
+No hosted staging or production infrastructure was created or changed. A public HTTPS reachability check
 to the explicitly authorized Supabase ref returned `401`; it used no credential and read no database
-or control-plane state. Local proof used Docker Desktop with disposable `pgvector/pgvector:pg16` and
-Redis containers bound to loopback. Those containers, their databases, and the rehearsal dump were
-removed after verification.
+or control-plane state. Local proof used Docker Desktop with disposable PostgreSQL 16 fallback,
+PostgreSQL 17.6/vector 0.8.0 lineage/recovery, and Redis targets bound to loopback. The PostgreSQL
+17 disposable target is retained temporarily for evidence review; unrelated Odysseus containers
+were not modified.
 
 The affected provider/project is Supabase organization `PathFinder`, project display name
 `tomschoenekase-dotcom's Project`, ref `zpacmfkomonxeqdiadtz`, production branch `main`, region
@@ -223,19 +262,21 @@ identities and actual staging/production separation remain unknown.
   tables, 129 public routines, and 33 public triggers.
 - Repository state before repair: 86 migrations.
 - Repository state after repair: 90 migrations.
-- Rehearsal target: PostgreSQL 16.14 with pgvector 0.8.6, plus the populated legacy venue-package
-  fixture.
+- Rehearsal target: exact PostgreSQL 17.6 with vector 0.8.0 restored from the production logical
+  archive; PostgreSQL 16.14/vector 0.8.6 remains fallback evidence.
 - Migration set: 90 directories, from `001_identity_foundation` through
   `20260812001700_add_offboarding_export_finalization`.
-- Ordered name/file-SHA manifest hash:
-  `68d86d71f3dadc578c187dd37b5208bcd608387a4016687dcc1d2902798e9cc8`.
+- Ordered name/file-SHA manifest hash (SHA-256 of newline-terminated, name-space-file-SHA rows):
+  `eab9578d000d7c0d2526404cf15cdc6ea32bb167c2028ca1e17664e61660ff83`.
 - Migrations applied: full 90-migration chain on the fresh target; the populated fixture applied the
   chain after its 43-migration legacy baseline.
-- Issues found and fixed: four unsafe enum-add/use transactions and two invalid PL/pgSQL functions.
-- Rehearsal result: passed; second application reported no pending migrations.
+- Issues found and fixed: four unsafe enum-add/use transactions, two invalid PL/pgSQL functions,
+  and one production-lineage analytics sentinel incompatibility.
+- Rehearsal result: 38 pending migrations passed in 2.200 seconds; second application reported no
+  pending migrations.
 - Production migration result: not run; only authorized read-only queries were executed.
-- Exact migration duration was not retained; this must be captured during the production-lineage
-  rehearsal and cutover.
+- Exact production-lineage duration was 2.200 seconds on the local disposable target. This is not a
+  production downtime forecast; production timing and lock behavior still require the cutover gate.
 - Full production constraint/index/function parity, legacy/null distribution, application queries,
   and worker/report/content-resolution behavior remain unproven.
 - Commit `2ea64b9` inserted four predecessor enum migrations and edited six historical migrations.
@@ -250,6 +291,18 @@ identities and actual staging/production separation remain unknown.
 
 ### E. Backup and restore evidence
 
+- Production logical mechanism: PostgreSQL 17 `pg_dump` custom format over SSL through Supabase's
+  free IPv4 session pooler, with the password entered only into the interactive client prompt.
+- Production artifact: 3,732,162 bytes; SHA-256
+  `c2e34a10aae5063e60377493d7ca8f1e51bd949af6e2709e6b0c64ce095fca7a`.
+- Archive verification: `pg_restore --list` passed; manifest hash recheck matched.
+- Recovery verification: a separate pre-migration recovery restore matched all 43 table counts and
+  52/52 finished ledger rows.
+- Retention: the production-sensitive archive, listing, manifest, and row-count CSVs are outside
+  the repository in `C:\Users\tomsc\Downloads\PathFinder-backups`.
+- Recovery procedure: create an isolated PostgreSQL 17.6/vector 0.8.0 database, pre-create vector
+  in `public`, restore with owner/ACL replay disabled, compare every pre-migration table count, and
+  require exactly 52 finished ledger rows. Never restore over production without separate approval.
 - Local mechanism: PostgreSQL custom-format `pg_dump` and restore into a distinct disposable
   database.
 - Local artifact: 760,039 bytes; SHA-256
@@ -259,10 +312,8 @@ identities and actual staging/production separation remain unknown.
 - Cleanup: the disposable artifact and databases were removed and are not recoverable.
 - Production provider posture: Supabase Free plan, no scheduled backups and no PITR. The dashboard
   states scheduled backups require Pro and PITR is a paid add-on.
-- No production logical-backup artifact, snapshot identity, verification, restore test, or recovery
-  instructions exist.
-- No retained local rollback command sequence exists; rebuild local proof from the guarded disposable
-  runbook. The archived external runbook is inert under the incident stop.
+- Provider-native backups and PITR remain unavailable; the logical archive is the verified recovery
+  point. No provider restore was attempted.
 
 ### F. End-to-end evidence
 
@@ -314,7 +365,8 @@ mandatory.
 - `NATIVE_CORE_V1` intentionally excludes ITEM; native ITEM deployment and `NATIVE_CORE_V2` are
   absent.
 - Payments are absent.
-- Production-lineage migration compatibility, staging behavior, and live performance are unproven.
+- Local production-lineage migration compatibility is proven; hosted staging behavior, production
+  lock timing, and live performance remain unproven.
 - Provider-disabled workers now have a connectivity-only mode that requires Redis but creates no
   BullMQ queues, consumers, or schedulers and requires no outbound-provider key. This is only a
   per-process guarantee; staging still must prove old replicas are drained and only the reviewed SHA
@@ -322,21 +374,20 @@ mandatory.
 
 ### K. Human actions remaining
 
-1. **P0 — incident assessment complete.** The identified production ledger is a clean 52-migration
-   pre-V2-chain candidate with matching checksums and no sampled partial artifacts. The provider has
-   no backup or PITR, and production PostgreSQL/vector versions differ from the local rehearsal.
-2. **P0 — approve or reject backup plus isolated rehearsal.** Use the exact bounded response in
-   `Human action required`. It authorizes no production schema/data write and stops before cost.
-3. **P0 — separately review the rehearsal.** Approve or reject the resulting production cutover
-   plan and each production write it proposes.
+1. **P0 — incident assessment complete.** The production ledger is a clean 52-migration pre-V2
+   candidate with matching checksums and no sampled partial artifacts.
+2. **P0 — review the completed logical backup, PostgreSQL 17.6 lineage rehearsal, scoped analytics
+   repair, and recovery restore.** No cost was incurred.
+3. **P0 — separately approve or reject a presented production cutover plan.** The prior approval
+   authorizes no production migration or schema/data write.
 4. **P1 — provide provider access through an approved operator surface.** After the stop is lifted,
    connect or operate the actual hosting/provider accounts needed to inventory production and create
    isolated staging. Credentials must remain in provider secret stores, not repository files.
 
 ### L. Readiness judgment
 
-**Not ready for real venue QA/onboarding.** The repaired migration chain has strong local fallback
-evidence, but the packet explicitly requires isolated deployed staging, real network/browser proof,
-production ledger reconciliation, a verified production backup, and a successful production cutover.
-Those requirements remain blocked by the active external database incident, absent production
-backup, and unavailable PostgreSQL 17.6 production-lineage staging rehearsal.
+**Not ready for real venue QA/onboarding.** Ledger reconciliation, a verified logical backup,
+PostgreSQL 17.6 production-lineage migration rehearsal, and a separate recovery restore are now
+complete. The packet still requires isolated deployed staging, real network/browser/storage/provider
+proof, exact service inventory, and an explicitly approved successful production cutover. Those
+requirements remain blocked by the active external database incident stop.

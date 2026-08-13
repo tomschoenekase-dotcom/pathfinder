@@ -506,7 +506,6 @@ export const venueRouter = router({
         await emitEvent({
           tenantId,
           venueId: input.venueId,
-          sessionId: '',
           eventType: 'venue.updated',
         })
       } catch {
@@ -537,7 +536,6 @@ export const venueRouter = router({
         await emitEvent({
           tenantId,
           venueId: input.venueId,
-          sessionId: '',
           eventType: 'venue.updated',
         })
       } catch {

@@ -28,7 +28,9 @@ BEGIN
       ON token_session."anonymous_token" = a."session_id"
      AND token_session."tenant_id" = a."tenant_id"
      AND token_session."venue_id" = a."venue_id"
-    WHERE exact_session."id" IS NULL AND token_session."id" IS NULL
+    WHERE exact_session."id" IS NULL
+      AND token_session."id" IS NULL
+      AND NOT (a."event_type" = 'venue.updated' AND a."session_id" = '')
   ) THEN
     RAISE EXCEPTION 'legacy analytics event session scope is unresolved';
   END IF;
@@ -84,6 +86,15 @@ ALTER TABLE "messages"
   ADD COLUMN "session_sequence" INTEGER,
   ADD COLUMN "turn_message_sequence" INTEGER;
 ALTER TABLE "engagement_question_responses" ADD COLUMN "guest_chat_turn_id" UUID;
+
+-- Venue administration events historically used the empty string because the
+-- analytics schema required a guest session even for non-guest activity. Keep
+-- those events, but represent their lack of a visitor session truthfully before
+-- adding the exact guest-session foreign key.
+ALTER TABLE "analytics_events" ALTER COLUMN "session_id" DROP NOT NULL;
+UPDATE "analytics_events"
+SET "session_id" = NULL
+WHERE "event_type" = 'venue.updated' AND "session_id" = '';
 
 UPDATE "messages" m
 SET "venue_id" = s."venue_id"

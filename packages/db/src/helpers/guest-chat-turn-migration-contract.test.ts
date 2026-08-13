@@ -18,10 +18,17 @@ describe('durable guest chat turn migration contract', () => {
     expect(migration).toContain('legacy message tenant/session scope mismatch')
     expect(migration).toContain('legacy visitor session tenant/venue scope mismatch')
     expect(migration).toContain('legacy analytics event session scope is unresolved')
+    expect(migration).toContain(
+      'NOT (a."event_type" = \'venue.updated\' AND a."session_id" = \'\')',
+    )
+    expect(migration).toContain(
+      'ALTER TABLE "analytics_events" ALTER COLUMN "session_id" DROP NOT NULL',
+    )
+    expect(migration).toContain('SET "session_id" = NULL')
     expect(migration).toContain('SET "session_id" = s."id"')
     expect(migration).toContain('analytics_events_session_scope_fkey')
     expect(schema).toMatch(
-      /model AnalyticsEvent \{[\s\S]*?session\s+VisitorSession\s+@relation\(fields: \[sessionId, tenantId, venueId\]/u,
+      /model AnalyticsEvent \{[\s\S]*?sessionId\s+String\?[\s\S]*?session\s+VisitorSession\?\s+@relation\(fields: \[sessionId, tenantId, venueId\]/u,
     )
     expect(migration).toMatch(
       /JOIN "venues" v ON v\."id" = s\."venue_id"[\s\S]*WHERE s\."tenant_id" <> v\."tenant_id"/u,

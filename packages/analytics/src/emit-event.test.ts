@@ -35,14 +35,14 @@ describe('emitEvent', () => {
     })
   })
 
-  it('keeps non-chat analytics callers backward compatible without an attribution field', async () => {
+  it('persists non-chat analytics without inventing a guest-session identity', async () => {
     await emitEvent({
       tenantId: 'tenant_1',
       venueId: 'venue_1',
-      sessionId: 'session_1',
-      eventType: 'place_card.viewed',
+      eventType: 'venue.updated',
     })
 
+    expect(mocks.create.mock.calls[0]?.[0]?.data).not.toHaveProperty('sessionId')
     expect(mocks.create.mock.calls[0]?.[0]?.data).not.toHaveProperty('userMessageId')
   })
 })
