@@ -4,7 +4,8 @@
 
 **Release baseline:** `0d5a1ca9c715eb4a54d8ceffb24e9354a114a23d`
 **Current status:** verified logical backup and PostgreSQL 17.6 production-lineage migration and
-recovery rehearsals complete; deployed staging and production cutover remain blocked
+recovery rehearsals complete; an isolated empty Railway staging environment exists, but deployed
+staging resources and production cutover remain blocked
 
 ## Blocking control
 
@@ -124,7 +125,8 @@ This fallback evidence is now supplemented by the exact production-lineage rehea
   history prevented the clean-database teardown assumptions. The normal package suites, focused
   migration contracts, and lineage assertions above remain green. These optional suites require
   isolated per-suite databases before they can be used as populated-clone application proof.
-- Cost: $0. No plan, add-on, branch, hosted staging resource, or purchase was created.
+- Cost for the Supabase backup/rehearsal phase: $0. No plan, add-on, branch, hosted database, or
+  purchase was created.
 
 ## Local verification
 
@@ -172,20 +174,47 @@ preserved files. They were not rewritten.
 - Version gap closed locally: the earlier fallback used PostgreSQL 16.14/vector 0.8.6; the exact
   production-lineage rehearsal used PostgreSQL 17.6/vector 0.8.0.
 
+## Railway inventory and staging control
+
+- Workspace/project: `tomschoenekase-dotcom's Projects` / `serene-inspiration`, project ID
+  `8621111a-4ac8-4d88-9566-4627c8a02059`.
+- Existing production environment ID: `ad140532-61bb-4355-a7e3-ebb2a54d743f`.
+- Production inventory: managed Redis with a persistent volume; web service `sweet-luck` with
+  public Railway domain; workers service `reliable-education` with no public domain; dashboard
+  service `pathfinder` with a public Railway domain. Each application service is connected to
+  `tomschoenekase-dotcom/pathfinder`, branch `master`, and configured for one EU West replica.
+- The observed production deployment revision was repository commit
+  `5b299872c1bb3b328cc0c8a3cfac5a66c939e6d0`. The web and worker services use
+  `railway.web.json` and `railway.workers.json`; the dashboard service uses `railway.json`.
+- An **empty** Railway environment named `staging`, ID
+  `a7a394fc-aa4e-4a45-bd3c-904419a67818`, was created through the approved operator surface.
+  The safe empty-environment path was used instead of Railway's production-duplication path, so no
+  production services, variables, configuration, volume, or data were copied.
+- The staging environment contains zero services, databases, volumes, domains, and deployments.
+  No variable or secret value was opened or copied, and production was not changed.
+- Billing posture observed before resource creation: existing Hobby usage-based subscription,
+  `$0.20` current workspace usage against `$5.00` included usage for the Aug 11-Sep 11 period;
+  `serene-inspiration` showed `$0.2023` current cost. Creating compute, Redis, a volume, or another
+  hosted database would begin usage-based billing. Work stopped before creating any such resource.
+- Incremental cost from creating the empty environment: no charge was displayed and no billable
+  resource was created. Exact future staging cost is unproven until resource sizes and lifetimes are
+  selected; that selection requires Tom's explicit cost approval.
+
 ## External work not performed
 
 The following are unproven and block production promotion:
 
-- actual non-database production provider and service inventory;
-- isolated Railway/Supabase/Redis/storage/Clerk staging resources;
+- production variable values and backing-resource identities (not opened during this inventory);
+- isolated Supabase/PostgreSQL, Redis, storage, Clerk, and Railway application staging resources;
 - deployed staging Guest, dashboard, worker, storage, browser, security, and performance evidence;
 - production cutover and post-cutover smoke evidence.
 
 ## Human action required
 
-Tom must now review the completed backup, rehearsal, repair, and recovery evidence and separately
-approve or reject a production cutover plan. No production write is implied by the rehearsal
-authorization.
+Tom must now approve or reject usage-based staging resource creation after reviewing the Railway
+billing posture. The empty staging environment can remain without services while that decision is
+pending. A separate production cutover plan and approval are still required; no production write is
+implied by the rehearsal or staging authorization.
 
 Exact approval response in this Codex task, if Tom chooses to authorize the next phase after review:
 
@@ -204,14 +233,14 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 
 | Packet requirement             | Status                 | Authoritative evidence or missing proof                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------------ | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reality inventory              | Partial                | Repository structure, deployment configuration, environment contracts, Dockerfiles, health routes, queues, storage boundaries, authentication, analytics, and CI were inspected. Actual provider inventory and production state require external read-only access.                                                                                                                                       |
+| Reality inventory              | Partial                | Repository structure and Supabase/Railway identities were inspected. Railway production contains web, dashboard, workers, and Redis services; source/config/revision/region/replicas were captured without opening variables. Exact variable values and backing-resource identities remain unproven.                                                                                                     |
 | Baseline verification          | Complete locally       | Starting branch/commit/worktree were recorded. Frozen install, tests, typecheck, lint, builds, browser-foundation, accessibility, Prisma, client-bundle, and static inventories passed.                                                                                                                                                                                                                  |
 | Migration audit                | Partial                | All 90 repository migrations were ordered and executed locally. Production has 52 finished rows through `20260809150000`, zero failed/rolled-back/logged rows, and zero checksum mismatches; the 38 later migrations and sampled post-ledger artifacts are absent. Staging rehearsal and full schema/data parity remain blocked.                                                                         |
 | Production backup preparation  | Complete logical proof | A 3,732,162-byte custom-format archive was created with an interactive password prompt, verified by archive listing and SHA-256, retained outside the repository, and restored twice locally. Provider-native scheduled backup/PITR remains absent on the Free plan.                                                                                                                                     |
 | Representative target          | Complete local lineage | The verified production archive restored into isolated PostgreSQL 17.6/vector 0.8.0 with 43 tables, 3,707 rows, 22 non-empty tables, and the exact 52-migration ledger. This is exact local production lineage, not hosted deployed staging.                                                                                                                                                             |
 | Migration rehearsal            | Complete local lineage | The first run exposed the 18-event legacy sentinel conflict. After a scoped repair, all 38 pending migrations passed in 2.200 seconds; all 90 ledger rows finished, object-validity checks passed, existing business-table counts were preserved, and the second deploy had no pending work.                                                                                                             |
 | Restore rehearsal              | Complete local logical | The pre-migration archive restored into a distinct recovery database after the migrated clone existed; all 43 pre-migration table counts and all 52 finished ledger rows matched. Provider-native recovery remains unavailable.                                                                                                                                                                          |
-| Permanent isolated staging     | Blocked                | No external PostgreSQL, Redis, storage, Guest, dashboard, worker, scheduler, logging, auth, or analytics resource was created.                                                                                                                                                                                                                                                                           |
+| Permanent isolated staging     | Partial / cost-blocked | An isolated empty Railway `staging` environment exists with zero copied configuration or resources. PostgreSQL, Redis, storage, Guest, dashboard, worker, scheduler, logging, auth, and analytics resources were not created because they would begin usage-based billing.                                                                                                                               |
 | Deterministic staging fixtures | Blocked                | Venue A/B/C fixtures were not seeded because no authorized isolated staging target exists.                                                                                                                                                                                                                                                                                                               |
 | Deployed end-to-end validation | Blocked                | No real staging URL or deployed service exists. Local unit, contract, and integration tests cannot substitute for deployed HTTP evidence.                                                                                                                                                                                                                                                                |
 | Real-browser validation        | Blocked                | The 164 browser-foundation tests passed in jsdom, and six axe tests passed. No Chromium, mobile viewport, or WebKit run against deployed staging occurred.                                                                                                                                                                                                                                               |
@@ -219,7 +248,7 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 | Storage proof                  | Blocked                | Code contracts are covered locally, but no staging object store was configured or exercised.                                                                                                                                                                                                                                                                                                             |
 | Security/isolation smoke       | Partial                | Tenant registries, procedure coverage, bypass inventory, public-surface inventory, raw-SQL inventory, bundle-secret scan, disabled external-credential boundary, and non-destructive offboarding contracts passed. Deployed cross-tenant and staging/production separation require staging.                                                                                                              |
 | Performance sanity             | Blocked                | No representative deployed endpoint exists from which to record latency, query, memory, or worker evidence.                                                                                                                                                                                                                                                                                              |
-| Production-cutover gate        | Not met                | Backup, ledger reconciliation, PostgreSQL 17.6 production-lineage rehearsal, and logical recovery are green. Hosted staging workflows, real-browser proof, storage/provider proof, exact production service inventory, and production health/cutover authorization remain missing.                                                                                                                       |
+| Production-cutover gate        | Not met                | Backup, ledger reconciliation, PostgreSQL 17.6 production-lineage rehearsal, logical recovery, and non-secret Railway service inventory are green. Hosted staging workflows, real-browser proof, storage/provider proof, exact resource identity, and production health/cutover authorization remain missing.                                                                                            |
 | Production cutover             | Not authorized         | The incident stop supersedes the packet's cutover intent. No production database or application action ran.                                                                                                                                                                                                                                                                                              |
 | Documentation                  | Partial                | The repository contains staging, incident-stop, disposable migration, and execution-status documentation. Actual environment topology, identifiers, URLs, provider workflows, and production recovery commands cannot be finalized without the inventory.                                                                                                                                                |
 | Independent audits             | Partial                | Three independent Codex reviewers audited migration safety, packet fidelity, and staging controls. Hermes/DeepSeek was unavailable. Findings drove seed/resource-identity hardening, receipt serialization, enum idempotency, and corrected evidence claims. Staging-isolation, cutover, and post-deploy audits remain blocked.                                                                          |
@@ -229,32 +258,39 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 
 ### A. Final status
 
-**Local production-lineage rehearsal complete; deployed staging blocked.** Production remains
-blocked by the active database incident stop and requires a separate reviewed cutover approval.
+**Local production-lineage rehearsal complete; empty staging control plane created; deployed
+staging is cost-blocked.** Production remains blocked by the active database incident stop and
+requires a separate reviewed cutover approval.
 
 ### B. Repository
 
 - Starting commit: `0d5a1ca9c715eb4a54d8ceffb24e9354a114a23d`.
-- Last committed implementation before this continuation:
-  `c75135a fix: harden V2 staging and migration admission`.
-- Earlier migration repair commit: `2ea64b9 fix: make V2 migration chain executable`.
-- Provider-disabled worker and incident-identity hardening: this commit.
+- Latest completed local implementation before the Railway inventory:
+  `8f9c4c0 docs: record lineage test limitation`.
+- Earlier migration and staging hardening commits include `2ea64b9`, `c75135a`, `d0c0ef7`,
+  `7d248b0`, `89cfad0`, and `9b18d34`.
+- Railway inventory and empty-staging handoff: this commit.
 - Preserved dirty entries: modified `.claude/settings.local.json`; untracked
   `build-report-s1b-task3.md` and `docs/PATHFINDER_CURRENT_ARCHITECTURE.md`.
 
 ### C. Infrastructure
 
-No hosted staging or production infrastructure was created or changed. A public HTTPS reachability check
-to the explicitly authorized Supabase ref returned `401`; it used no credential and read no database
-or control-plane state. Local proof used Docker Desktop with disposable PostgreSQL 16 fallback,
+An empty Railway staging environment was created; it contains no service, database, volume, domain,
+deployment, variable, or copied production configuration. No production infrastructure was changed.
+A public HTTPS reachability check to the explicitly authorized Supabase ref returned `401`; it used
+no credential and read no database or control-plane state. Local proof used Docker Desktop with
+disposable PostgreSQL 16 fallback,
 PostgreSQL 17.6/vector 0.8.0 lineage/recovery, and Redis targets bound to loopback. The PostgreSQL
 17 disposable container and its derivative databases were removed after verification; they are
 recoverable from the retained archive. Unrelated Odysseus containers were not modified.
 
 The affected provider/project is Supabase organization `PathFinder`, project display name
 `tomschoenekase-dotcom's Project`, ref `zpacmfkomonxeqdiadtz`, production branch `main`, region
-`us-east-2`. Its database dashboard was healthy during the read-only assessment. Other provider
-identities and actual staging/production separation remain unknown.
+`us-east-2`. Its database dashboard was healthy during the read-only assessment. Railway project
+`serene-inspiration` contains production web (`sweet-luck`), workers
+(`reliable-education`), dashboard (`pathfinder`), and Redis services. Its empty `staging`
+environment is control-plane isolated, but resource separation cannot be proven until separately
+identified staging resources exist. Other provider identities remain unknown.
 
 ### D. Migration evidence
 
@@ -386,14 +422,19 @@ mandatory.
    repair, and recovery restore.** No cost was incurred.
 3. **P0 — separately approve or reject a presented production cutover plan.** The prior approval
    authorizes no production migration or schema/data write.
-4. **P1 — provide provider access through an approved operator surface.** After the stop is lifted,
-   connect or operate the actual hosting/provider accounts needed to inventory production and create
-   isolated staging. Credentials must remain in provider secret stores, not repository files.
+4. **P0 — approve or reject usage-based staging resources in this Codex task.** Railway is already
+   on Hobby usage billing (`$0.20` observed workspace usage against `$5.00` included; project cost
+   `$0.2023`). Reply with an explicit maximum incremental staging spend and lifetime if approved.
+   No compute, Redis, volume, or hosted PostgreSQL resource will be created without that approval.
+5. **P1 — provide remaining provider surfaces only when requested.** Clerk, object storage, and any
+   other staging identities must be configured through approved operator surfaces. Credentials must
+   remain in provider secret stores, not repository files.
 
 ### L. Readiness judgment
 
 **Not ready for real venue QA/onboarding.** Ledger reconciliation, a verified logical backup,
 PostgreSQL 17.6 production-lineage migration rehearsal, and a separate recovery restore are now
-complete. The packet still requires isolated deployed staging, real network/browser/storage/provider
-proof, exact service inventory, and an explicitly approved successful production cutover. Those
-requirements remain blocked by the active external database incident stop.
+complete, and the empty Railway staging environment plus non-secret production service inventory
+now exist. The packet still requires funded isolated staging resources, real
+network/browser/storage/provider proof, and an explicitly approved successful production cutover.
+Production requirements remain blocked by the active external database incident stop.
