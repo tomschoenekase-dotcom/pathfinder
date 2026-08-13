@@ -1,0 +1,62 @@
+import { checkProviderDisabledRedis } from './lib/provider-disabled-redis'
+import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
+import { resolveWorkerStartupPolicy } from './lib/worker-startup-policy'
+
+function assertRequiredEnvironment(keys: string[]): void {
+  const missing = keys.filter((key) => !process.env[key])
+  if (missing.length > 0) {
+    throw new Error(`Missing required worker environment variables: ${missing.join(', ')}`)
+  }
+}
+
+function registerProviderDisabledShutdown(shutdown: () => Promise<void>): void {
+  let shuttingDown = false
+  const handleSignal = () => {
+    if (shuttingDown) process.exit(1)
+    shuttingDown = true
+    void shutdown().catch(() => {
+      process.exitCode = 1
+    })
+  }
+  process.on('SIGINT', handleSignal)
+  process.on('SIGTERM', handleSignal)
+}
+
+export async function bootstrapWorkers() {
+  const policy = resolveWorkerStartupPolicy(process.env)
+  assertRequiredEnvironment(policy.requiredEnvironmentKeys)
+
+  if (policy.mode === 'provider-disabled') {
+    const redisUrl = process.env.REDIS_URL!
+    const runtime = await startProviderDisabledRuntime({
+      checkConnection: () => checkProviderDisabledRedis(redisUrl, 5_000),
+      closeConnection: async () => undefined,
+      onConnectionError: () =>
+        process.stderr.write(
+          `${JSON.stringify({ action: 'workers.runtime.error', errorCode: 'redis-unreachable' })}\n`,
+        ),
+    })
+    process.stdout.write(
+      `${JSON.stringify({
+        action: 'workers.started',
+        mode: runtime.mode,
+        outboundProviderWorkersEnabled: false,
+        queues: runtime.queues,
+      })}\n`,
+    )
+    registerProviderDisabledShutdown(runtime.shutdown)
+    return runtime
+  }
+
+  const { startWorkers } = await import('./index.js')
+  return startWorkers()
+}
+
+if (require.main === module) {
+  void bootstrapWorkers().catch(() => {
+    process.stderr.write(
+      `${JSON.stringify({ action: 'workers.start.failed', errorCode: 'startup-rejected' })}\n`,
+    )
+    process.exitCode = 1
+  })
+}

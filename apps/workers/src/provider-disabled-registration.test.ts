@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(resolve(__dirname, 'index.ts'), 'utf8')
+const bootstrap = readFileSync(resolve(__dirname, 'bootstrap.ts'), 'utf8')
 
 describe('provider-disabled worker registration boundary', () => {
   it('returns through the connectivity-only runtime before constructing any queue', () => {
@@ -21,18 +22,23 @@ describe('provider-disabled worker registration boundary', () => {
     expect(disabledReturn).toBeLessThan(firstWorker)
   })
 
-  it('uses worker-only startup policy before asserting environment keys', () => {
-    const entryPoint = source.indexOf('if (require.main === module)')
-    const policy = source.indexOf('resolveWorkerStartupPolicy(process.env)', entryPoint)
-    const assertion = source.indexOf(
-      "assertServerEnv(policy.requiredEnvironmentKeys, 'workers')",
+  it('chooses dormant mode before importing the provider-enabled worker graph', () => {
+    const entryPoint = bootstrap.indexOf('export async function bootstrapWorkers()')
+    const policy = bootstrap.indexOf('resolveWorkerStartupPolicy(process.env)', entryPoint)
+    const assertion = bootstrap.indexOf(
+      'assertRequiredEnvironment(policy.requiredEnvironmentKeys)',
       entryPoint,
     )
-    const startup = source.indexOf('await startWorkers()', entryPoint)
+    const disabledBranch = bootstrap.indexOf("if (policy.mode === 'provider-disabled')", assertion)
+    const disabledReturn = bootstrap.indexOf('return', disabledBranch)
+    const providerImport = bootstrap.indexOf("await import('./index.js')", disabledReturn)
 
     expect(entryPoint).toBeGreaterThanOrEqual(0)
     expect(policy).toBeGreaterThan(entryPoint)
     expect(assertion).toBeGreaterThan(policy)
-    expect(startup).toBeGreaterThan(assertion)
+    expect(disabledBranch).toBeGreaterThan(assertion)
+    expect(disabledReturn).toBeGreaterThan(disabledBranch)
+    expect(providerImport).toBeGreaterThan(disabledReturn)
+    expect(bootstrap).not.toContain('@pathfinder/config')
   })
 })

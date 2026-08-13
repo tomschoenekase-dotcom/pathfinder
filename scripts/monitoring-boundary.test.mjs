@@ -49,10 +49,10 @@ test('worker monitoring is preloaded before the bundled entry', async () => {
     read('apps/workers/tsup.config.ts'),
   ])
 
-  assert.match(packageJson, /node --require \.\/dist\/sentry\.js dist\/index\.js/)
+  assert.match(packageJson, /node --require \.\/dist\/sentry\.js dist\/bootstrap\.js/)
   assert.match(
     dockerfile,
-    /CMD \["node", "--require", "\.\/apps\/workers\/dist\/sentry\.js", "apps\/workers\/dist\/index\.js"\]/,
+    /CMD \["node", "--require", "\.\/apps\/workers\/dist\/sentry\.js", "apps\/workers\/dist\/bootstrap\.js"\]/,
   )
-  assert.match(tsupConfig, /'src\/index\.ts', 'src\/sentry\.ts'/)
+  assert.match(tsupConfig, /'src\/bootstrap\.ts', 'src\/index\.ts', 'src\/sentry\.ts'/)
 })

@@ -57,9 +57,10 @@ normally do not need every worker-only outbound credential.
 
 Start a newly provisioned staging worker with `OUTBOUND_PROVIDER_WORKERS_ENABLED=false` and every
 other worker execution flag set to `false`. In this mode the process requires only `REDIS_URL`,
-pings Redis, and remains connectivity-only: it creates no BullMQ queues, consumers, or schedulers
-and requires no Anthropic or OpenAI key. A subordinate execution flag set to `true` while this mode
-is disabled is a startup error.
+pings Redis, and remains connectivity-only: its bootstrap does not import the provider-enabled
+application graph, it creates no BullMQ queues, consumers, or schedulers, and it requires no
+database, Clerk, Anthropic, or OpenAI variable. A subordinate execution flag set to `true` while
+this mode is disabled is a startup error.
 
 This is a per-process guarantee. Before calling staging provider-disabled, scale down and drain every
 older worker replica and prove that only the reviewed release SHA remains; an older replica could

@@ -77,10 +77,10 @@ describe('worker error monitoring bootstrap', () => {
       readFile(resolve(process.cwd(), 'tsup.config.ts'), 'utf8'),
     ])
 
-    expect(packageJson).toContain('node --require ./dist/sentry.js dist/index.js')
+    expect(packageJson).toContain('node --require ./dist/sentry.js dist/bootstrap.js')
     expect(dockerfile).toContain(
-      'CMD ["node", "--require", "./apps/workers/dist/sentry.js", "apps/workers/dist/index.js"]',
+      'CMD ["node", "--require", "./apps/workers/dist/sentry.js", "apps/workers/dist/bootstrap.js"]',
     )
-    expect(tsupConfig).toContain("'src/index.ts', 'src/sentry.ts'")
+    expect(tsupConfig).toContain("'src/bootstrap.ts', 'src/index.ts', 'src/sentry.ts'")
   })
 })

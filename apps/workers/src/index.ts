@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
-import { assertServerEnv, env, logger } from '@pathfinder/config'
+import { env, logger } from '@pathfinder/config'
 import {
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
@@ -93,7 +93,6 @@ import {
 } from './lib/media-job-cancellation'
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
-import { resolveWorkerStartupPolicy } from './lib/worker-startup-policy'
 import {
   createEscalatingShutdownHandler,
   createShutdownCoordinator,
@@ -1037,24 +1036,4 @@ export async function startWorkers() {
     weeklyDigestWorker,
     shutdown,
   }
-}
-
-if (require.main === module) {
-  void (async () => {
-    try {
-      // Worker-only policy stays outside the shared application schema so
-      // service-scoped Railway variables cannot break web or dashboard startup.
-      const policy = resolveWorkerStartupPolicy(process.env)
-      assertServerEnv(policy.requiredEnvironmentKeys, 'workers')
-      await startWorkers()
-    } catch (error: unknown) {
-      logger.error({
-        action: 'workers.start.failed',
-        error: error instanceof Error ? error.message : 'Unknown worker startup error',
-        ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
-      })
-
-      process.exitCode = 1
-    }
-  })()
 }
