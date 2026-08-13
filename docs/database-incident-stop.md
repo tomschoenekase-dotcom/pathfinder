@@ -4,9 +4,10 @@
 
 An earlier command unintentionally applied pending Prisma migrations through an externally
 configured Supabase connection. Tom has since identified the affected project and authorized a
-bounded read-only assessment, but no authenticated ledger, schema, or recovery evidence has been
-collected. No external database write, migration, seed, rollback, or remediation command may run;
-inspection remains limited to that authorized assessment.
+bounded read-only assessment. That assessment found a clean 52-migration production ledger with no
+failed rows or checksum divergence, but the project has no provider backup or PITR. No external
+database write, migration, seed, rollback, or remediation command may run; inspection remains
+limited to the completed authorized assessment.
 
 This stop supersedes every migration or seed instruction in older PathFinder plans, handoffs,
 backlogs, and runbooks. Historical documents remain useful design evidence, but they are not
@@ -20,10 +21,12 @@ for any external host.
 
 ## Conditions for lifting the stop
 
-As of 2026-08-13, Tom identified project `PathFinder` (non-secret ref
-`zpacmfkomonxeqdiadtz`) and authorized the bounded read-only assessment. Conditions 1 and 2 below
-are satisfied. The endpoint is reachable, but no authenticated ledger, schema, or backup evidence
-has been collected; the stop remains active.
+As of 2026-08-13, Tom identified Supabase ref `zpacmfkomonxeqdiadtz` and authorized the bounded
+read-only assessment. The dashboard identifies organization `PathFinder` and project display name
+`tomschoenekase-dotcom's Project`. Conditions 1 and 2 below are satisfied. The assessment established
+the ledger and relevant schema state, but the Free-plan project has neither scheduled backups nor
+PITR. Condition 3 remains unsatisfied until Tom approves a backup and production-lineage staging
+plan; the stop remains active.
 
 1. Tom identifies the affected external project/environment.
 2. Tom authorizes a bounded read-only assessment plan.
