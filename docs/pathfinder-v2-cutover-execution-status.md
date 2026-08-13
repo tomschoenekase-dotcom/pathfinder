@@ -222,10 +222,10 @@ The following are unproven and block production promotion:
 
 ## Human action required
 
-The reviewed local repository is 187 commits ahead of `origin/master`. Railway production
-auto-deploys `master`, so pushing that branch would change production and is forbidden. Application
-staging requires a dedicated remote branch containing local commit `7d237cf` or later. The exact
-human command is:
+Before this handoff commit, the reviewed local repository was 187 commits ahead of `origin/master`.
+Railway production auto-deploys `master`, so pushing that branch would change production and is
+forbidden. Application staging requires a dedicated remote branch containing the current local
+`HEAD`. The exact human command is:
 
 ```powershell
 git -C C:\Users\tomsc\Downloads\PathFinder push origin HEAD:refs/heads/codex/pathfinder-v2-staging
@@ -448,7 +448,8 @@ mandatory.
    authorizes no production migration or schema/data write.
 4. **P0 — publish only the dedicated staging branch.** From the PathFinder repository, run
    `git push origin HEAD:refs/heads/codex/pathfinder-v2-staging`. Do not push `master`; Railway
-   production auto-deploys it. The remote staging branch must contain `7d237cf` or later.
+   production auto-deploys it. Verify the remote staging branch resolves to the current local
+   `HEAD`.
 5. **P1 — provide remaining provider surfaces only when requested.** Clerk, object storage, and any
    other staging identities must be configured through approved operator surfaces. Credentials must
    remain in provider secret stores, not repository files.
