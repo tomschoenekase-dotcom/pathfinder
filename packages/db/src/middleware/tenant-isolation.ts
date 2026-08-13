@@ -70,6 +70,7 @@ const AUDIT_LIFECYCLE_MODELS = [
   'SupportRequest',
   'SupportRequestParticipant',
   'OffboardingPlan',
+  'OffboardingExportOperation',
   'IntakeUpload',
   'GuestChatTurn',
   'GuestChatProviderOperation',

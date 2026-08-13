@@ -18,6 +18,7 @@
     "./mcp-v0": "./src/mcp-v0.ts",
     "./offboarding": "./src/offboarding.ts",
     "./offboarding-export-preview": "./src/offboarding-export-preview.ts",
+    "./offboarding-export-finalization": "./src/offboarding-export-finalization.ts",
     "./partner-read-api": "./src/partner-read-api.ts",
     "./retention-policy": "./src/retention-policy.ts",
     "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts",

@@ -68,6 +68,7 @@ export const TENANTED_TABLES = [
   'OffboardingVenueTarget',
   'OffboardingRevocationEvidence',
   'OffboardingExportArtifact',
+  'OffboardingExportOperation',
   'ContentModuleIdentity',
   'ContentModuleRevision',
   'ItemContent',

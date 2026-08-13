@@ -149,6 +149,7 @@ describe('tenantIsolationMiddleware', () => {
       'OffboardingVenueTarget',
       'OffboardingRevocationEvidence',
       'OffboardingExportArtifact',
+      'OffboardingExportOperation',
       'ContentModuleIdentity',
       'ContentModuleRevision',
       'ItemContent',
@@ -261,6 +262,7 @@ describe('tenantIsolationMiddleware', () => {
       'SupportRequest',
       'SupportRequestParticipant',
       'OffboardingPlan',
+      'OffboardingExportOperation',
       'IntakeUpload',
     ].flatMap((model) => ['delete', 'deleteMany'].map((action) => [model, action])),
   )('rejects %s %s while preserving lifecycle updates', async (model, action) => {

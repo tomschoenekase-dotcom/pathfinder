@@ -142,6 +142,7 @@ model Tenant {
   offboardingVenueTargets        OffboardingVenueTarget[]
   offboardingRevocationEvidence  OffboardingRevocationEvidence[]
   offboardingExportArtifacts     OffboardingExportArtifact[]
+  offboardingExportOperations    OffboardingExportOperation[]
   contentModuleIdentities        ContentModuleIdentity[]
   contentModuleRevisions         ContentModuleRevision[]
   contentModuleEvidence          ContentModuleEvidence[]
@@ -3074,20 +3075,25 @@ model ExternalCredentialRevocation {
 /// Reviewable offboarding intent only. This model does not execute revocations,
 /// delete data, enforce retention, or prove completion.
 model OffboardingPlan {
-  id                String                        @id @default(cuid())
-  tenantId          String                        @map("tenant_id")
-  requestId         String                        @map("request_id") @db.Uuid
-  requestHash       String                        @map("request_hash") @db.Char(64)
-  status            OffboardingPlanStatus         @default(REQUESTED)
-  revocationTargets OffboardingRevocationTarget[] @map("revocation_targets")
-  exportKinds       OffboardingExportKind[]       @default([]) @map("export_kinds")
-  effectiveAt       DateTime?                     @map("effective_at")
-  requestedBy       String                        @map("requested_by") @db.VarChar(191)
-  requestedAt       DateTime                      @default(now()) @map("requested_at")
-  createdAt         DateTime                      @default(now()) @map("created_at")
-  updatedAt         DateTime                      @updatedAt @map("updated_at")
-  tenant            Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venueTargets      OffboardingVenueTarget[]
+  id                        String                        @id @default(cuid())
+  tenantId                  String                        @map("tenant_id")
+  requestId                 String                        @map("request_id") @db.Uuid
+  requestHash               String                        @map("request_hash") @db.Char(64)
+  status                    OffboardingPlanStatus         @default(REQUESTED)
+  revocationTargets         OffboardingRevocationTarget[] @map("revocation_targets")
+  exportKinds               OffboardingExportKind[]       @default([]) @map("export_kinds")
+  effectiveAt               DateTime?                     @map("effective_at")
+  requestedBy               String                        @map("requested_by") @db.VarChar(191)
+  requestedAt               DateTime                      @default(now()) @map("requested_at")
+  createdAt                 DateTime                      @default(now()) @map("created_at")
+  updatedAt                 DateTime                      @updatedAt @map("updated_at")
+  exportReviewOperationId   String?                       @unique(map: "offboarding_plans_export_review_operation_key") @map("export_review_operation_id") @db.Uuid
+  exportReviewOperationHash String?                       @map("export_review_operation_hash") @db.Char(64)
+  exportReviewedBy          String?                       @map("export_reviewed_by") @db.VarChar(191)
+  exportReviewedAt          DateTime?                     @map("export_reviewed_at")
+  exportReviewAuditId       String?                       @unique(map: "offboarding_plans_export_review_audit_key") @map("export_review_audit_id")
+  tenant                    Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venueTargets              OffboardingVenueTarget[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, requestId], map: "offboarding_plans_tenant_request_key")
@@ -3107,6 +3113,7 @@ model OffboardingVenueTarget {
   plan               OffboardingPlan                 @relation(fields: [planId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   revocationEvidence OffboardingRevocationEvidence[]
   exportArtifacts    OffboardingExportArtifact[]
+  exportOperations   OffboardingExportOperation[]
 
   @@unique([planId, tenantId, venueId])
   @@index([tenantId, venueId, createdAt])
@@ -3136,21 +3143,63 @@ model OffboardingRevocationEvidence {
 
 /// Append-only export metadata. Artifact bytes remain in the existing storage boundary.
 model OffboardingExportArtifact {
-  id                String                 @id @default(cuid())
-  tenantId          String                 @map("tenant_id")
-  venueId           String                 @map("venue_id")
-  planId            String                 @map("plan_id")
+  id                String                      @id @default(cuid())
+  tenantId          String                      @map("tenant_id")
+  venueId           String                      @map("venue_id")
+  planId            String                      @map("plan_id")
   kind              OffboardingExportKind
-  artifactReference String                 @map("artifact_reference") @db.VarChar(500)
-  contentHash       String                 @map("content_hash") @db.Char(64)
-  createdBy         String                 @map("created_by") @db.VarChar(191)
-  createdAt         DateTime               @default(now()) @map("created_at")
-  tenant            Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venueTarget       OffboardingVenueTarget @relation(fields: [planId, tenantId, venueId], references: [planId, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  artifactReference String                      @map("artifact_reference") @db.VarChar(500)
+  contentHash       String                      @map("content_hash") @db.Char(64)
+  createdBy         String                      @map("created_by") @db.VarChar(191)
+  createdAt         DateTime                    @default(now()) @map("created_at")
+  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venueTarget       OffboardingVenueTarget      @relation(fields: [planId, tenantId, venueId], references: [planId, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  operation         OffboardingExportOperation? @relation(fields: [operationId, tenantId, venueId, planId], references: [id, tenantId, venueId, planId], onDelete: Restrict, onUpdate: Restrict)
+  operationId       String?                     @map("operation_id") @db.Uuid
 
   @@unique([id, tenantId, venueId, planId])
+  @@unique([operationId, tenantId, venueId, planId], map: "offboarding_export_artifacts_operation_scope_key")
+  @@unique([operationId], map: "offboarding_export_artifacts_operation_key")
   @@index([tenantId, planId, venueId, createdAt, id])
   @@map("offboarding_export_artifacts")
+}
+
+/// Durable reservation and settlement evidence for one deterministic export object.
+/// Canonical bytes are frozen before storage dispatch; no row performs revocation or deletion.
+model OffboardingExportOperation {
+  id                    String                           @id @db.Uuid
+  tenantId              String                           @map("tenant_id")
+  venueId               String                           @map("venue_id")
+  planId                String                           @map("plan_id")
+  kind                  OffboardingExportKind
+  operationHash         String                           @map("operation_hash") @db.Char(64)
+  status                OffboardingExportOperationStatus @default(RESERVED)
+  canonicalManifest     Json                             @map("canonical_manifest")
+  canonicalBytes        String                           @map("canonical_bytes")
+  contentHash           String                           @map("content_hash") @db.Char(64)
+  byteLength            Int                              @map("byte_length")
+  objectKey             String                           @map("object_key") @db.VarChar(500)
+  expectedPlanUpdatedAt DateTime                         @map("expected_plan_updated_at")
+  requestedBy           String                           @map("requested_by") @db.VarChar(191)
+  requestedAt           DateTime                         @map("requested_at")
+  storedVersionId       String?                          @map("stored_version_id") @db.VarChar(500)
+  storedAt              DateTime?                        @map("stored_at")
+  settledAt             DateTime?                        @map("settled_at")
+  settlementAuditId     String?                          @unique(map: "offboarding_export_operations_settlement_audit_key") @map("settlement_audit_id")
+  tenant                Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venueTarget           OffboardingVenueTarget           @relation(fields: [planId, tenantId, venueId], references: [planId, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  artifact              OffboardingExportArtifact?
+
+  @@unique([id, tenantId, venueId, planId])
+  @@unique([tenantId, planId, venueId, kind], map: "offboarding_export_operations_tuple_key")
+  @@index([tenantId, planId, status, requestedAt, id])
+  @@map("offboarding_export_operations")
+}
+
+enum OffboardingExportOperationStatus {
+  RESERVED
+  STORED
+  SETTLED
 }
 
 enum OffboardingPlanStatus {

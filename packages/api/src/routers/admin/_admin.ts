@@ -23,6 +23,7 @@ import { adminGuestDesignRouter } from './guest-design'
 import { adminOverviewRouter } from './overview'
 import { adminOffboardingPlansRouter } from './offboarding-plans'
 import { adminOffboardingExportPreviewRouter } from './offboarding-export-preview'
+import { adminOffboardingExportFinalizationRouter } from './offboarding-export-finalization'
 import { adminIncidentControlRouter } from './incident-control'
 import { adminIntakeOperationsRouter } from './intake-operations'
 import { adminIntakeUploadReviewRouter } from './intake-upload-review'
@@ -46,6 +47,7 @@ export const adminRouter = mergeRouters(
   adminAttentionConsoleRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
+  adminOffboardingExportFinalizationRouter,
   adminAgentOperationsRouter,
   adminAgentIdentityConfigurationRouter,
   adminAgentApprovalDecisionsRouter,

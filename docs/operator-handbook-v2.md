@@ -413,6 +413,15 @@ version/history identifiers, package IDs/hashes/status, and normalized module/ev
 it excludes raw content, private support notes, guest conversations, source locators, assets, and
 secrets. Preview creates no artifact and performs no export, storage, revocation, or deletion.
 
+The reviewed export controls are distinct from that preview. Review freezes the exact declared
+venue-by-kind matrix. Generate only a server-enabled remaining artifact using the displayed plan
+version; the server creates a bounded reference-only manifest and records durable storage and audit
+evidence. The UI deliberately hides object locators, hashes, storage versions, manifest content, and
+actors. `EXPORT_READY` means every declared target and kind has recorded artifact evidence only. It
+does not deliver an export, revoke access, complete offboarding, delete data, or decide retention.
+Migration `20260812001700_add_offboarding_export_finalization` remains unapplied, so local injected-
+storage tests are not live storage or delivery evidence.
+
 ## External credentials
 
 The credential console manages only disabled MCP and Partner Read API credential records. A true

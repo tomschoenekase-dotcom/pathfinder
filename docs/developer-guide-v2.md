@@ -466,6 +466,18 @@ and requesting actor, and writes no second audit event. The additive migration r
 identity for unexpected historical plans; the original foundation is still unapplied under the
 database incident stop.
 
+Non-deleting export finalization is a separate reviewed operation. Freeze each declared
+venue-target/export-kind manifest as strict bounded reference-only canonical bytes inside a
+`RepeatableRead` snapshot, then persist its UUID/hash reservation and deterministic private object
+key before invoking storage. The injected storage adapter must perform a create-only exact-byte put
+and reconcile an existing version only when hash and length match. Settle the immutable artifact and
+strict audit atomically; exact retries resume `RESERVED` or `STORED` evidence rather than rebuilding
+or overwriting bytes. Only a complete target-by-kind matrix may move `REVIEWED` to `EXPORT_READY`.
+That status does not mean delivered, revoked, completed, deleted, or retained under an approved
+policy. Browser DTOs expose only server-derived action gates, expected plan version, remaining counts
+and kinds. Migration `20260812001700_add_offboarding_export_finalization` is unapplied, performs no
+backfill, and supplies no live database or storage-delivery evidence.
+
 Use additive, forward-only migrations with exact tenant/venue composite keys, lifecycle checks, and
 append-only guards where evidence is immutable. Add static migration-contract tests. During the
 active incident stop, do not inspect, apply, rollback, seed, or rehearse against an external database.

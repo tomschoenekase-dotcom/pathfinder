@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { OffboardingDraftForm } from '../../../../../../components/admin/OffboardingDraftForm'
+import { OffboardingExportFinalizer } from '../../../../../../components/admin/OffboardingExportFinalizer'
 import { OffboardingExportManifestPreview } from '../../../../../../components/admin/OffboardingExportManifestPreview'
 import { createAdminCaller } from '../../../../../../lib/admin-caller'
 
@@ -12,6 +13,19 @@ function label(value: string): string {
     .split('_')
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(' ')
+}
+
+function revocationOutcome(value: string): string {
+  switch (value) {
+    case 'COMPLETE':
+      return 'Action recorded'
+    case 'FAILED':
+      return 'Action needs review'
+    case 'SKIPPED':
+      return 'Action not required'
+    default:
+      return 'Outcome unavailable'
+  }
 }
 
 function dateTime(value: Date): string {
@@ -26,7 +40,13 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
     caller.admin.listOffboardingPlans({ tenantId, limit: 25 }),
   ])
   const plans = await Promise.all(
-    summaries.items.map((plan) => caller.admin.getOffboardingPlan({ tenantId, planId: plan.id })),
+    summaries.items.map(async (plan) => {
+      const detail = await caller.admin.getOffboardingPlan({ tenantId, planId: plan.id })
+      const finalization = await caller.admin
+        .getOffboardingExportFinalization({ tenantId, planId: plan.id })
+        .catch(() => null)
+      return { detail, finalization }
+    }),
   )
   const venueNames = new Map(client.venues.map((venue) => [venue.id, venue.name]))
 
@@ -97,7 +117,7 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
             No offboarding plans have been recorded for this client.
           </p>
         ) : (
-          plans.map((plan) => (
+          plans.map(({ detail: plan, finalization }) => (
             <article
               key={plan.id}
               className="rounded-2xl border border-pf-light bg-white p-5 sm:p-6"
@@ -114,6 +134,18 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
                   {label(plan.status)}
                 </span>
               </div>
+
+              {finalization ? (
+                <OffboardingExportFinalizer
+                  tenantId={tenantId}
+                  projection={finalization}
+                  venueNames={Object.fromEntries(venueNames)}
+                />
+              ) : (
+                <p className="mt-5 rounded-xl bg-pf-surface p-3 text-sm text-pf-deep/75">
+                  Export artifact actions are unavailable for this plan.
+                </p>
+              )}
 
               <div className="mt-5 grid gap-5 xl:grid-cols-2">
                 <div>
@@ -172,10 +204,9 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
                         {target.revocationEvidence.map((evidence) => (
                           <li key={evidence.id} className="text-xs leading-5 text-pf-deep/75">
                             <span className="font-semibold text-pf-deep">
-                              {label(evidence.target)} · {label(evidence.outcome)}
+                              {label(evidence.target)} · {revocationOutcome(evidence.outcome)}
                             </span>{' '}
-                            — evidence {evidence.evidenceReference}
-                            {evidence.errorCode ? ` · error ${evidence.errorCode}` : ''}
+                            — evidence reference recorded
                           </li>
                         ))}
                       </ul>
@@ -187,7 +218,7 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
                             <span className="font-semibold text-pf-deep">
                               {label(artifact.kind)} · metadata recorded
                             </span>{' '}
-                            — artifact {artifact.artifactReference} · SHA-256 {artifact.contentHash}
+                            — stored {dateTime(artifact.createdAt)}
                           </li>
                         ))}
                       </ul>

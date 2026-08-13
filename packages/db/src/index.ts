@@ -638,6 +638,16 @@ export type {
   OffboardingPlanHumanActor,
 } from './helpers/offboarding-plan-actions'
 export {
+  finalizeOffboardingExportAction,
+  reviewOffboardingPlanForExportAction,
+  OffboardingExportFinalizationError,
+} from './helpers/offboarding-export-finalization-actions'
+export type {
+  FinalizeOffboardingExportActionInput,
+  FrozenOffboardingExportManifest,
+  OffboardingExportStorage,
+} from './helpers/offboarding-export-finalization-actions'
+export {
   publishUniversalContentAction,
   resolveEffectivePublishedUniversalContent,
   UniversalContentResolverError,

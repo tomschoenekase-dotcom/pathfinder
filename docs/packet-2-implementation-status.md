@@ -312,6 +312,14 @@ Section-level evidence and blockers are indexed in
   content IDs, history, package hashes/status, and PUBLIC/CLIENT normalized-content lineage. It
   omits bodies, snapshots, private support/guest data, source locators, assets and secrets, and
   creates or stores no export artifact.
+- A separate HUMAN platform-admin review/finalize path now freezes each declared venue-target and
+  export-kind as strict bounded reference-only canonical bytes under `RepeatableRead`. Durable
+  UUID/hash reservation precedes the injected create-only storage boundary; exact retries reconcile
+  matching immutable bytes and resume `RESERVED` or `STORED` evidence before atomic artifact and
+  strict-audit settlement. Only the complete target-by-kind matrix may advance `REVIEWED` to
+  `EXPORT_READY`. Safe UI projections expose authoritative action gates/version and remaining counts
+  and kinds, never manifest content, locators, hashes, storage versions or actors. No action delivers
+  an export, revokes access, completes offboarding, deletes data or establishes retention policy.
 - AA-aware guest accent/text contrast selection and reduced-motion-safe reveal behavior. The
   browser-safe structured response envelope now includes bounded choices, HTTPS-only image/gallery,
   event and location blocks in addition to text, callouts, actions, citations and places. Unknown
@@ -530,6 +538,9 @@ Section-level evidence and blockers are indexed in
   preserves legacy run identity and provides no live database, provider or admission evidence.
   Universal Item migration `20260812001600_add_universal_item_content` is likewise unapplied and
   unrehearsed, performs no backfill, and is not live publication or guest evidence.
+  Offboarding export-finalization migration `20260812001700_add_offboarding_export_finalization` is
+  likewise unapplied and unrehearsed, performs no backfill, and is not live database, storage or
+  delivery evidence.
 
 ## Required program work not yet proven complete
 
