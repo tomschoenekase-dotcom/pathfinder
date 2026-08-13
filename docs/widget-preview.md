@@ -57,6 +57,9 @@ pnpm verify:staging-widget -- \
   --expected-revision "$RELEASE_SHA" \
   --confirm-environment staging \
   --confirm-host pathfinder-staging.example.com \
+  --expected-database-resource <non-secret-staging-database-id> \
+  --expected-redis-resource <non-secret-staging-redis-id> \
+  --expected-storage-resource <non-secret-staging-storage-id-or-disabled> \
   --venue-slug museum-slug \
   --expected-frame-origins-json '["https://www.museum.example"]' \
   --unlisted-venue-slug widget-admission-unlisted

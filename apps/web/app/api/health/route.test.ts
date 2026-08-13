@@ -41,6 +41,11 @@ describe('health route', () => {
     expect(body.deployment).toEqual({
       environment: expect.any(String),
       revision: expect.any(String),
+      resources: {
+        database: expect.any(String),
+        redis: expect.any(String),
+        storage: expect.any(String),
+      },
     })
     expect(dependencyMocks.checkDatabase).toHaveBeenCalledWith(2_000)
     expect(dependencyMocks.checkQueue).toHaveBeenCalledWith(2_000)
@@ -99,7 +104,8 @@ describe('health route', () => {
   it('exposes deployment identity without leaking unrelated environment data', async () => {
     const body = await (await GET()).json()
 
-    expect(Object.keys(body.deployment).sort()).toEqual(['environment', 'revision'])
+    expect(Object.keys(body.deployment).sort()).toEqual(['environment', 'resources', 'revision'])
+    expect(Object.keys(body.deployment.resources).sort()).toEqual(['database', 'redis', 'storage'])
     expect(JSON.stringify(body)).not.toContain('DATABASE_URL')
     expect(JSON.stringify(body)).not.toContain('REDIS_URL')
   })

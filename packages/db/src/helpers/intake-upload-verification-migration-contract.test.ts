@@ -19,12 +19,17 @@ const sql = readFileSync(
 
 describe('intake upload verification receipt migration', () => {
   it('is forward-only and does not invent legacy scan evidence', () => {
-    expect(enumSql).toContain("ADD VALUE 'PRECHECK_PASSED'")
+    expect(enumSql).toContain("ADD VALUE IF NOT EXISTS 'PRECHECK_PASSED'")
     expect(enumSql).not.toContain('BEGIN;')
     expect(enumSql).toContain('Existing uploads are intentionally not')
     expect(sql).not.toContain("ADD VALUE 'PRECHECK_PASSED'")
     expect(sql).toContain('BEGIN;')
     expect(sql).not.toMatch(/INSERT INTO "intake_upload_verification_receipts"\s+SELECT/u)
+  })
+
+  it('serializes receipt evidence with verification claim and status changes', () => {
+    expect(sql).toContain('FOR UPDATE;')
+    expect(sql).not.toContain('FOR KEY SHARE;')
   })
 
   it('binds separate precheck and malware receipts to exact immutable object evidence', () => {

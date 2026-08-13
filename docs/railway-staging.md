@@ -99,6 +99,15 @@ proved resource identity, migration result, synthetic-data boundary, service rev
 rollback evidence. The public verifier below is retained as a post-resolution reference only; it
 does not authorize a deployment or database action.
 
+The synthetic seed does not trust the `staging` label alone. After the stop is lifted and before an
+authorized seed, independently read the non-secret pooled host, direct host, and database name from
+the staging provider. The operator must set `PATHFINDER_ALLOW_STAGING_SEED=1` and exact values for
+`PATHFINDER_CONFIRM_STAGING_DATABASE_HOST`,
+`PATHFINDER_CONFIRM_STAGING_DIRECT_DATABASE_HOST`, and
+`PATHFINDER_CONFIRM_STAGING_DATABASE_NAME`. The seed refuses before its first mutation unless
+`RAILWAY_ENVIRONMENT=staging`, both PostgreSQL URLs match the confirmed hosts and same confirmed
+database, and the explicit opt-in is present. Never record URL credentials.
+
 After an authorized deployment, admit the independently identified public staging web hostname
 with the checked-in verifier:
 
@@ -107,7 +116,10 @@ pnpm verify:staging-health -- \
   --url https://pathfinder-staging.example.com/api/health \
   --expected-revision "$RELEASE_SHA" \
   --confirm-environment staging \
-  --confirm-host pathfinder-staging.example.com
+  --confirm-host pathfinder-staging.example.com \
+  --expected-database-resource <non-secret-staging-database-id> \
+  --expected-redis-resource <non-secret-staging-redis-id> \
+  --expected-storage-resource <non-secret-staging-storage-id-or-disabled>
 ```
 
 Replace the example hostname in both arguments with the same confirmed
@@ -129,6 +141,9 @@ pnpm verify:staging-widget -- \
   --expected-revision "$RELEASE_SHA" \
   --confirm-environment staging \
   --confirm-host pathfinder-staging.example.com \
+  --expected-database-resource <non-secret-staging-database-id> \
+  --expected-redis-resource <non-secret-staging-redis-id> \
+  --expected-storage-resource <non-secret-staging-storage-id-or-disabled> \
   --venue-slug museum-slug \
   --expected-frame-origins-json '["https://www.museum.example"]' \
   --unlisted-venue-slug widget-admission-unlisted

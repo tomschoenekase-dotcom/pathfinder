@@ -14,6 +14,11 @@ import {
 const SHA = 'a'.repeat(40)
 const HOST = 'pathfinder-staging.example.test'
 const URL = `https://${HOST}/api/health`
+const RESOURCES = {
+  database: 'db-staging-example',
+  redis: 'redis-staging-example',
+  storage: 'storage-disabled',
+}
 
 function response(
   payload,
@@ -28,7 +33,7 @@ function response(
 function healthyPayload(overrides = {}) {
   return {
     ok: true,
-    deployment: { environment: 'staging', revision: SHA },
+    deployment: { environment: 'staging', revision: SHA, resources: RESOURCES },
     deps: { db: 'up', queue: 'up' },
     ...overrides,
   }
@@ -40,6 +45,7 @@ function verification(overrides = {}) {
     expectedRevision: SHA,
     confirmEnvironment: 'staging',
     confirmHost: HOST,
+    expectedResources: RESOURCES,
     fetchImpl: async () => response(healthyPayload()),
     ...overrides,
   }
@@ -61,6 +67,7 @@ test('admits only an exact healthy staging revision and uses a bounded non-cache
     ok: true,
     environment: 'staging',
     revision: SHA,
+    resources: RESOURCES,
     deps: { db: 'up', queue: 'up' },
   })
   assert.equal(request[0], URL)
@@ -75,28 +82,41 @@ test('rejects wrong environment, wrong revision, and degraded dependencies', () 
   assert.throws(
     () =>
       validateStagingHealthPayload(
-        healthyPayload({ deployment: { environment: 'production', revision: SHA } }),
+        healthyPayload({
+          deployment: { environment: 'production', revision: SHA, resources: RESOURCES },
+        }),
         SHA,
+        RESOURCES,
       ),
     /environment-mismatch/u,
   )
   assert.throws(
-    () => validateStagingHealthPayload(healthyPayload(), 'b'.repeat(40)),
+    () => validateStagingHealthPayload(healthyPayload(), 'b'.repeat(40), RESOURCES),
     /revision-mismatch/u,
   )
   assert.throws(
-    () => validateStagingHealthPayload(healthyPayload({ deps: { db: 'up', queue: 'down' } }), SHA),
+    () =>
+      validateStagingHealthPayload(
+        healthyPayload({ deps: { db: 'up', queue: 'down' } }),
+        SHA,
+        RESOURCES,
+      ),
     /dependency-not-ready/u,
   )
 })
 
 test('requires an exact response schema', () => {
   assert.throws(
-    () => validateStagingHealthPayload({ ...healthyPayload(), extra: true }, SHA),
+    () => validateStagingHealthPayload({ ...healthyPayload(), extra: true }, SHA, RESOURCES),
     /invalid-health-payload/u,
   )
   assert.throws(
-    () => validateStagingHealthPayload({ ok: true, deployment: healthyPayload().deployment }, SHA),
+    () =>
+      validateStagingHealthPayload(
+        { ok: true, deployment: healthyPayload().deployment },
+        SHA,
+        RESOURCES,
+      ),
     /invalid-health-payload/u,
   )
   assert.throws(
@@ -104,6 +124,7 @@ test('requires an exact response schema', () => {
       validateStagingHealthPayload(
         healthyPayload({ deployment: { ...healthyPayload().deployment, tag: 'latest' } }),
         SHA,
+        RESOURCES,
       ),
     /invalid-deployment-identity/u,
   )
@@ -112,8 +133,17 @@ test('requires an exact response schema', () => {
       validateStagingHealthPayload(
         healthyPayload({ deps: { ...healthyPayload().deps, storage: 'up' } }),
         SHA,
+        RESOURCES,
       ),
     /invalid-dependency-status/u,
+  )
+  assert.throws(
+    () =>
+      validateStagingHealthPayload(healthyPayload(), SHA, {
+        ...RESOURCES,
+        database: 'other-database',
+      }),
+    /resource-identity-mismatch/u,
   )
 })
 
@@ -234,12 +264,19 @@ test('CLI parser rejects unknown, duplicate, missing, and incomplete options', (
     'staging',
     '--confirm-host',
     HOST,
+    '--expected-database-resource',
+    RESOURCES.database,
+    '--expected-redis-resource',
+    RESOURCES.redis,
+    '--expected-storage-resource',
+    RESOURCES.storage,
   ]
   assert.deepEqual(parseStagingHealthArgs(required), {
     healthUrl: URL,
     expectedRevision: SHA,
     confirmEnvironment: 'staging',
     confirmHost: HOST,
+    expectedResources: RESOURCES,
     timeoutMs: 5_000,
   })
   assert.throws(() => parseStagingHealthArgs([...required, '--other', 'x']), /unknown-option/u)
@@ -273,6 +310,12 @@ test('CLI wiring fails with a code-only error and never echoes URL credentials',
       'staging',
       '--confirm-host',
       HOST,
+      '--expected-database-resource',
+      RESOURCES.database,
+      '--expected-redis-resource',
+      RESOURCES.redis,
+      '--expected-storage-resource',
+      RESOURCES.storage,
     ],
     { encoding: 'utf8' },
   )

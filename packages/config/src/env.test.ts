@@ -22,6 +22,13 @@ const requiredEnvironment = {
   CLERK_SECRET_KEY: 'test-secret',
   CLERK_PUBLISHABLE_KEY: 'test-publishable',
   REDIS_URL: 'redis://example.test:6379',
+  DATABASE_RESOURCE_ID: 'db-staging-example',
+  REDIS_RESOURCE_ID: 'redis-staging-example',
+}
+
+const stagingResourceIdentity = {
+  DATABASE_RESOURCE_ID: 'db-staging-example',
+  REDIS_RESOURCE_ID: 'redis-staging-example',
 }
 
 afterEach(() => {
@@ -32,7 +39,9 @@ describe('RAILWAY_ENVIRONMENT', () => {
   it('defaults to staging outside production', () => {
     process.env.NODE_ENV = 'test'
 
-    expect(envSchema.parse(requiredEnvironment).RAILWAY_ENVIRONMENT).toBe('staging')
+    expect(
+      envSchema.parse({ ...requiredEnvironment, ...stagingResourceIdentity }).RAILWAY_ENVIRONMENT,
+    ).toBe('staging')
   })
 
   it('is required in production', () => {
@@ -46,7 +55,11 @@ describe('RAILWAY_ENVIRONMENT', () => {
 
     for (const RAILWAY_ENVIRONMENT of ['production', 'staging', 'preview']) {
       expect(
-        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).RAILWAY_ENVIRONMENT,
+        envSchema.parse({
+          ...requiredEnvironment,
+          ...(RAILWAY_ENVIRONMENT === 'staging' ? stagingResourceIdentity : {}),
+          RAILWAY_ENVIRONMENT,
+        }).RAILWAY_ENVIRONMENT,
       ).toBe(RAILWAY_ENVIRONMENT)
     }
   })
@@ -69,11 +82,34 @@ describe('RAILWAY_ENVIRONMENT', () => {
       process.env.NODE_ENV = 'production'
 
       expect(
-        envSchema.parse({ ...requiredEnvironment, REDIS_URL: undefined, RAILWAY_ENVIRONMENT })
-          .REDIS_URL,
+        envSchema.parse({
+          ...requiredEnvironment,
+          ...(RAILWAY_ENVIRONMENT === 'staging' ? stagingResourceIdentity : {}),
+          REDIS_URL: undefined,
+          RAILWAY_ENVIRONMENT,
+        }).REDIS_URL,
       ).toBeUndefined()
     },
   )
+
+  it('requires non-secret database and Redis resource identities in staging', () => {
+    process.env.NODE_ENV = 'production'
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        DATABASE_RESOURCE_ID: undefined,
+        REDIS_RESOURCE_ID: undefined,
+        RAILWAY_ENVIRONMENT: 'staging',
+      }),
+    ).toThrow('DATABASE_RESOURCE_ID is required in staging')
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        ...stagingResourceIdentity,
+        RAILWAY_ENVIRONMENT: 'staging',
+      }),
+    ).toMatchObject(stagingResourceIdentity)
+  })
 })
 
 describe('error monitoring environment', () => {

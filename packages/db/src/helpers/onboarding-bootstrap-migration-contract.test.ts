@@ -20,7 +20,7 @@ const migration = readFileSync(
 
 describe('onboarding bootstrap intake migration contract', () => {
   it('commits the enum separately before enforcing exact source shape and request identity', () => {
-    expect(enumMigration).toContain("ADD VALUE 'STRUCTURED_BOOTSTRAP'")
+    expect(enumMigration).toContain("ADD VALUE IF NOT EXISTS 'STRUCTURED_BOOTSTRAP'")
     expect(enumMigration).not.toContain('BEGIN;')
     expect(migration).not.toContain("ADD VALUE 'STRUCTURED_BOOTSTRAP'")
     expect(migration).toContain('BEGIN;')

@@ -12,6 +12,21 @@ const rawEnvSchema = z
     // required when NODE_ENV=production and defaults to staging for development.
     RAILWAY_ENVIRONMENT: railwayEnvironmentSchema,
 
+    // Non-secret, operator-confirmed resource identities. Staging requires
+    // these so an environment label alone cannot admit a deployment.
+    DATABASE_RESOURCE_ID: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u)
+      .optional(),
+    REDIS_RESOURCE_ID: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u)
+      .optional(),
+    STORAGE_RESOURCE_ID: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u)
+      .optional(),
+
     // Recurring jobs should only be registered by production workers unless an
     // environment explicitly opts in or out. Queue consumers run independently.
     WORKER_SCHEDULERS_ENABLED: z.enum(['true', 'false']).optional(),
@@ -92,6 +107,17 @@ const rawEnvSchema = z
         path: ['REDIS_URL'],
         message: 'REDIS_URL is required in production',
       })
+    }
+    if (values.RAILWAY_ENVIRONMENT === 'staging' && process.env.NODE_ENV === 'production') {
+      for (const field of ['DATABASE_RESOURCE_ID', 'REDIS_RESOURCE_ID'] as const) {
+        if (!values[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required in staging`,
+          })
+        }
+      }
     }
   })
 

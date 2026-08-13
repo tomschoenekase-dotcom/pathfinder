@@ -19,6 +19,11 @@ const HEALTH_URL = `https://${HOST}/api/health`
 const VENUE_SLUG = 'museum-slug'
 const UNLISTED_SLUG = 'widget-admission-unlisted'
 const FRAME_ORIGINS = ['https://museum.example', 'https://www.museum.example']
+const RESOURCES = {
+  database: 'db-staging-example',
+  redis: 'redis-staging-example',
+  storage: 'storage-disabled',
+}
 const WIDGET_SOURCE = '(function () { "use strict" })()\n'
 const WIDGET_STYLES = ':host { position: fixed; }\n'
 
@@ -33,7 +38,7 @@ function healthResponse(overrides = {}) {
   return response(
     {
       ok: true,
-      deployment: { environment: 'staging', revision: SHA },
+      deployment: { environment: 'staging', revision: SHA, resources: RESOURCES },
       deps: { db: 'up', queue: 'up' },
       ...overrides,
     },
@@ -118,6 +123,7 @@ function verification(overrides = {}) {
     expectedRevision: SHA,
     confirmEnvironment: 'staging',
     confirmHost: HOST,
+    expectedResources: RESOURCES,
     venueSlug: VENUE_SLUG,
     expectedFrameOriginsJson: JSON.stringify(FRAME_ORIGINS.slice().reverse()),
     unlistedVenueSlug: UNLISTED_SLUG,
@@ -183,7 +189,11 @@ test('stops before widget requests when the first health admission fails', async
         fetchImpl: async () => {
           requests += 1
           return healthResponse({
-            deployment: { environment: 'staging', revision: 'b'.repeat(40) },
+            deployment: {
+              environment: 'staging',
+              revision: 'b'.repeat(40),
+              resources: RESOURCES,
+            },
           })
         },
       }),
@@ -196,7 +206,7 @@ test('stops before widget requests when the first health admission fails', async
 test('fails when the deployment changes during the health sandwich', async () => {
   const responses = successfulResponses()
   responses[8] = healthResponse({
-    deployment: { environment: 'staging', revision: 'b'.repeat(40) },
+    deployment: { environment: 'staging', revision: 'b'.repeat(40), resources: RESOURCES },
   })
   await assert.rejects(
     verifyStagingWidget(verification({ fetchImpl: async () => responses.shift() })),
@@ -441,6 +451,12 @@ test('validates exact arguments, slugs, origins, and explicit confirmations', ()
     'staging',
     '--confirm-host',
     HOST,
+    '--expected-database-resource',
+    RESOURCES.database,
+    '--expected-redis-resource',
+    RESOURCES.redis,
+    '--expected-storage-resource',
+    RESOURCES.storage,
     '--venue-slug',
     VENUE_SLUG,
     '--expected-frame-origins-json',
@@ -562,6 +578,12 @@ test('CLI rejects unsafe input with a code only and never echoes URL credentials
       'staging',
       '--confirm-host',
       HOST,
+      '--expected-database-resource',
+      RESOURCES.database,
+      '--expected-redis-resource',
+      RESOURCES.redis,
+      '--expected-storage-resource',
+      RESOURCES.storage,
       '--venue-slug',
       VENUE_SLUG,
       '--expected-frame-origins-json',

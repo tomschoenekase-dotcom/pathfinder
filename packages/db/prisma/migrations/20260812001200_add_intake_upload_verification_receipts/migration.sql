@@ -53,7 +53,7 @@ BEGIN
     INTO upload_record
     FROM "intake_uploads"
    WHERE "id" = NEW."upload_id" AND "tenant_id" = NEW."tenant_id" AND "venue_id" = NEW."venue_id"
-   FOR KEY SHARE;
+   FOR UPDATE;
   IF NOT FOUND OR upload_record."status" <> 'VERIFYING' OR
      upload_record."verification_claim_id" IS DISTINCT FROM NEW."claim_id" OR
      upload_record."verification_lease_until" IS NULL OR

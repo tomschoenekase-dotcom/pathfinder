@@ -88,6 +88,9 @@ export function parseStagingHealthArgs(args) {
     '--expected-revision',
     '--confirm-environment',
     '--confirm-host',
+    '--expected-database-resource',
+    '--expected-redis-resource',
+    '--expected-storage-resource',
     '--timeout-ms',
   ])
   const values = new Map()
@@ -106,6 +109,9 @@ export function parseStagingHealthArgs(args) {
     '--expected-revision',
     '--confirm-environment',
     '--confirm-host',
+    '--expected-database-resource',
+    '--expected-redis-resource',
+    '--expected-storage-resource',
   ]) {
     if (!values.has(required)) fail('missing-required-option')
   }
@@ -115,6 +121,11 @@ export function parseStagingHealthArgs(args) {
     expectedRevision: values.get('--expected-revision'),
     confirmEnvironment: values.get('--confirm-environment'),
     confirmHost: values.get('--confirm-host'),
+    expectedResources: {
+      database: values.get('--expected-database-resource'),
+      redis: values.get('--expected-redis-resource'),
+      storage: values.get('--expected-storage-resource'),
+    },
     timeoutMs: values.has('--timeout-ms') ? Number(values.get('--timeout-ms')) : 5_000,
   }
 }
@@ -160,16 +171,29 @@ export function validateReleaseSha(value) {
   return value
 }
 
-export function validateStagingHealthPayload(payload, expectedRevision) {
+export function validateStagingHealthPayload(payload, expectedRevision, expectedResources) {
   validateReleaseSha(expectedRevision)
 
   if (!hasExactKeys(payload, ['ok', 'deployment', 'deps'])) fail('invalid-health-payload')
   if (payload.ok !== true) fail('health-not-ready')
-  if (!hasExactKeys(payload.deployment, ['environment', 'revision'])) {
+  if (!hasExactKeys(payload.deployment, ['environment', 'resources', 'revision'])) {
     fail('invalid-deployment-identity')
   }
   if (payload.deployment.environment !== 'staging') fail('environment-mismatch')
   if (payload.deployment.revision !== expectedRevision) fail('revision-mismatch')
+  if (!hasExactKeys(payload.deployment.resources, ['database', 'redis', 'storage'])) {
+    fail('invalid-resource-identity')
+  }
+  if (!hasExactKeys(expectedResources, ['database', 'redis', 'storage'])) {
+    fail('missing-resource-confirmation')
+  }
+  for (const resource of ['database', 'redis', 'storage']) {
+    const expected = expectedResources[resource]
+    if (typeof expected !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u.test(expected)) {
+      fail('invalid-resource-confirmation')
+    }
+    if (payload.deployment.resources[resource] !== expected) fail('resource-identity-mismatch')
+  }
   if (!hasExactKeys(payload.deps, ['db', 'queue'])) fail('invalid-dependency-status')
   if (payload.deps.db !== 'up' || payload.deps.queue !== 'up') fail('dependency-not-ready')
 
@@ -177,6 +201,7 @@ export function validateStagingHealthPayload(payload, expectedRevision) {
     ok: true,
     environment: 'staging',
     revision: expectedRevision,
+    resources: expectedResources,
     deps: { db: 'up', queue: 'up' },
   }
 }
@@ -186,6 +211,7 @@ export async function verifyStagingHealth({
   expectedRevision,
   confirmEnvironment,
   confirmHost,
+  expectedResources,
   timeoutMs = 5_000,
   fetchImpl = globalThis.fetch,
 }) {
@@ -239,6 +265,6 @@ export async function verifyStagingHealth({
 
   return {
     host,
-    ...validateStagingHealthPayload(payload, expectedRevision),
+    ...validateStagingHealthPayload(payload, expectedRevision, expectedResources),
   }
 }

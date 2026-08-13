@@ -20,7 +20,7 @@ const migration = readFileSync(
 
 describe('quarantined intake upload migration contract', () => {
   it('commits FILE_UPLOAD separately and leaves prior migration immutable', () => {
-    expect(enumMigration).toContain("ADD VALUE 'FILE_UPLOAD'")
+    expect(enumMigration).toContain("ADD VALUE IF NOT EXISTS 'FILE_UPLOAD'")
     expect(enumMigration).not.toContain('BEGIN;')
     expect(migration).not.toContain("ADD VALUE 'FILE_UPLOAD'")
     expect(migration).toContain('BEGIN;')
