@@ -1,5 +1,3 @@
-ALTER TYPE "IntakeSourceKind" ADD VALUE 'STRUCTURED_BOOTSTRAP';
-
 BEGIN;
 
 ALTER TABLE "intake_runs"

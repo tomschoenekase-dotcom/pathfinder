@@ -270,7 +270,7 @@ CREATE UNIQUE INDEX "content_module_publications_native_scope_key" ON "content_m
 ALTER TABLE "native_venue_deployment_publication_lineages" ADD CONSTRAINT "native_publication_lineage_publication_fk" FOREIGN KEY ("publication_id","tenant_id","venue_id","request_id") REFERENCES "content_module_publications"("id","tenant_id","venue_id","request_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 CREATE FUNCTION guard_native_publication_lineage() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
-DECLARE effect public.native_venue_deployment_effects%ROWTYPE; publication public.content_module_publications%ROWTYPE; expected_action text; release_status "NativeVenueDeploymentReleaseStatus";
+DECLARE effect public.native_venue_deployment_effects%ROWTYPE; publication public.content_module_publications%ROWTYPE; expected_action text; expected_revision text; release_status "NativeVenueDeploymentReleaseStatus";
 BEGIN
   IF TG_OP<>'INSERT' THEN RAISE EXCEPTION 'native publication lineage is append-only'; END IF;
   SELECT * INTO effect FROM public.native_venue_deployment_effects WHERE id=NEW.effect_id AND tenant_id=NEW.tenant_id AND venue_id=NEW.venue_id;
@@ -279,7 +279,8 @@ BEGIN
   IF (NEW.phase='APPLY' AND release_status<>'APPROVED') OR (NEW.phase='REVERT' AND release_status<>'APPLIED') THEN RAISE EXCEPTION 'native publication lineage phase disagrees with lifecycle'; END IF;
   IF effect.kind<>'GENERALIZED_PUBLICATION' OR publication.tenant_id IS DISTINCT FROM NEW.tenant_id OR publication.venue_id IS DISTINCT FROM NEW.venue_id OR publication.module_id IS DISTINCT FROM effect.target_id OR publication.request_id IS DISTINCT FROM NEW.request_id THEN RAISE EXCEPTION 'native publication lineage scope disagrees'; END IF;
   expected_action:=CASE WHEN NEW.phase='APPLY' THEN CASE WHEN (effect.after_state->>'present')::boolean THEN 'PUBLISH' ELSE 'WITHDRAW' END ELSE CASE WHEN (effect.before_state->>'present')::boolean THEN 'PUBLISH' ELSE 'WITHDRAW' END END;
-  IF publication.action::text IS DISTINCT FROM expected_action OR publication.revision_id IS DISTINCT FROM CASE WHEN NEW.phase='APPLY' THEN COALESCE(effect.after_state->'value'->>'revisionId',effect.before_state->'value'->>'revisionId') ELSE COALESCE(effect.before_state->'value'->>'revisionId',effect.after_state->'value'->>'revisionId') END THEN RAISE EXCEPTION 'native publication lineage outcome disagrees'; END IF;
+  expected_revision:=CASE WHEN NEW.phase='APPLY' THEN COALESCE(effect.after_state->'value'->>'revisionId',effect.before_state->'value'->>'revisionId') ELSE COALESCE(effect.before_state->'value'->>'revisionId',effect.after_state->'value'->>'revisionId') END;
+  IF publication.action::text IS DISTINCT FROM expected_action OR publication.revision_id IS DISTINCT FROM expected_revision THEN RAISE EXCEPTION 'native publication lineage outcome disagrees'; END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER native_publication_lineage_guard BEFORE INSERT OR UPDATE OR DELETE ON "native_venue_deployment_publication_lineages" FOR EACH ROW EXECUTE FUNCTION guard_native_publication_lineage();

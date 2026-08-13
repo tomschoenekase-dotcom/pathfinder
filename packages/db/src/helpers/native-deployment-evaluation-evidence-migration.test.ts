@@ -20,6 +20,9 @@ describe('native deployment evaluation evidence migration', () => {
     expect(sql).toContain('"content_snapshot_ref" IS NULL')
     expect(sql).toContain('"content_snapshot_version" > 0')
     expect(sql).toContain("rel.plan->'priorHead'->>'revision'")
+    expect(sql).toContain(
+      'eval.content_snapshot_version IS DISTINCT FROM expected_snapshot_version',
+    )
     expect(sql).toContain("eval.content_snapshot_kind IS DISTINCT FROM 'NATIVE_CORE_V1'")
     expect(sql).toContain(
       "eval.identity_snapshot->>'version' IS DISTINCT FROM 'pathfinder-eval-run-identity-v3'",
@@ -43,6 +46,9 @@ describe('native deployment evaluation evidence migration', () => {
     expect(sql).toContain('"actor_role" = \'PLATFORM_ADMIN\'')
     expect(sql).toContain('native deployment evaluation operation hash mismatch')
     expect(sql).toContain('pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(')
+    expect(sql).toContain(
+      'expected_disposition public."NativeVenueDeploymentEvaluationDisposition"',
+    )
     expect(sql).not.toContain('public.digest(')
     expect(sql).toContain('native_deployment_evaluations_audit_guard')
     expect(sql).toContain("a.action = 'native_venue_deployment.evaluation-evidence-recorded'")

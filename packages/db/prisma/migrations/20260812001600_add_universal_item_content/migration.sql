@@ -1,6 +1,4 @@
--- Add the missing typed ITEM member to universal content without rewriting legacy rows.
-ALTER TYPE "NormalizedContentModuleKind" ADD VALUE IF NOT EXISTS 'ITEM' BEFORE 'SERVICE';
-
+-- Add strict typed ITEM content without rewriting legacy rows.
 CREATE TABLE "item_content" (
   "revision_id" TEXT NOT NULL,
   "tenant_id" TEXT NOT NULL,

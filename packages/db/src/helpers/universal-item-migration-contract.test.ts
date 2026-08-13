@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+const enumMigration = readFileSync(
+  resolve(process.cwd(), 'prisma/migrations/20260812001550_add_universal_item_kind/migration.sql'),
+  'utf8',
+)
+
 const migration = readFileSync(
   resolve(
     process.cwd(),
@@ -11,13 +16,13 @@ const migration = readFileSync(
 )
 
 describe('universal ITEM migration contract', () => {
-  it('adds the enum member before creating one strict typed sidecar without data rewrites', () => {
-    expect(
-      migration.indexOf(`ALTER TYPE "NormalizedContentModuleKind" ADD VALUE IF NOT EXISTS 'ITEM'`),
-    ).toBeGreaterThanOrEqual(0)
-    expect(migration.indexOf('CREATE TABLE "item_content"')).toBeGreaterThan(
-      migration.indexOf(`ADD VALUE IF NOT EXISTS 'ITEM'`),
+  it('commits the enum separately before creating one strict typed sidecar without data rewrites', () => {
+    expect(enumMigration).toContain(
+      `ALTER TYPE "NormalizedContentModuleKind" ADD VALUE IF NOT EXISTS 'ITEM'`,
     )
+    expect(enumMigration).not.toContain('CREATE TABLE')
+    expect(migration).not.toContain(`ADD VALUE IF NOT EXISTS 'ITEM'`)
+    expect(migration).toContain('CREATE TABLE "item_content"')
     expect(migration).toContain('"kind" "NormalizedContentModuleKind" NOT NULL DEFAULT \'ITEM\'')
     expect(migration).toContain('CHECK ("kind" = \'ITEM\')')
     expect(migration).not.toMatch(/^\s*(?:INSERT INTO|UPDATE\s+|DELETE FROM)\b/im)

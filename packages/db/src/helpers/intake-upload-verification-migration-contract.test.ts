@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
+const enumSql = readFileSync(
+  new URL(
+    '../../prisma/migrations/20260812001150_add_precheck_passed_upload_status/migration.sql',
+    import.meta.url,
+  ),
+  'utf8',
+)
+
 const sql = readFileSync(
   new URL(
     '../../prisma/migrations/20260812001200_add_intake_upload_verification_receipts/migration.sql',
@@ -11,8 +19,11 @@ const sql = readFileSync(
 
 describe('intake upload verification receipt migration', () => {
   it('is forward-only and does not invent legacy scan evidence', () => {
-    expect(sql).toContain("ADD VALUE 'PRECHECK_PASSED'")
-    expect(sql).toContain('Existing uploads are intentionally not')
+    expect(enumSql).toContain("ADD VALUE 'PRECHECK_PASSED'")
+    expect(enumSql).not.toContain('BEGIN;')
+    expect(enumSql).toContain('Existing uploads are intentionally not')
+    expect(sql).not.toContain("ADD VALUE 'PRECHECK_PASSED'")
+    expect(sql).toContain('BEGIN;')
     expect(sql).not.toMatch(/INSERT INTO "intake_upload_verification_receipts"\s+SELECT/u)
   })
 

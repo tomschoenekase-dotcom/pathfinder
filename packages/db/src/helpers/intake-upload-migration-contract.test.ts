@@ -2,6 +2,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+const enumMigration = readFileSync(
+  resolve(
+    process.cwd(),
+    'prisma/migrations/20260811235955_add_file_upload_source_kind/migration.sql',
+  ),
+  'utf8',
+)
+
 const migration = readFileSync(
   resolve(
     process.cwd(),
@@ -11,8 +19,11 @@ const migration = readFileSync(
 )
 
 describe('quarantined intake upload migration contract', () => {
-  it('adds FILE_UPLOAD before the transaction and leaves prior migration immutable', () => {
-    expect(migration.indexOf("ADD VALUE 'FILE_UPLOAD'")).toBeLessThan(migration.indexOf('BEGIN;'))
+  it('commits FILE_UPLOAD separately and leaves prior migration immutable', () => {
+    expect(enumMigration).toContain("ADD VALUE 'FILE_UPLOAD'")
+    expect(enumMigration).not.toContain('BEGIN;')
+    expect(migration).not.toContain("ADD VALUE 'FILE_UPLOAD'")
+    expect(migration).toContain('BEGIN;')
     expect(migration).toContain('CREATE TABLE "intake_uploads"')
     expect(migration).toContain('DROP CONSTRAINT "intake_runs_source_shape_check"')
     expect(migration).toContain('"source_kind" = \'FILE_UPLOAD\'')

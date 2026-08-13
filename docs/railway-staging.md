@@ -102,43 +102,43 @@ does not authorize a deployment or database action.
 After an authorized deployment, admit the independently identified public staging web hostname
 with the checked-in verifier:
 
-   ```bash
-   pnpm verify:staging-health -- \
-     --url https://pathfinder-staging.example.com/api/health \
-     --expected-revision "$RELEASE_SHA" \
-     --confirm-environment staging \
-     --confirm-host pathfinder-staging.example.com
-   ```
+```bash
+pnpm verify:staging-health -- \
+  --url https://pathfinder-staging.example.com/api/health \
+  --expected-revision "$RELEASE_SHA" \
+  --confirm-environment staging \
+  --confirm-host pathfinder-staging.example.com
+```
 
-   Replace the example hostname in both arguments with the same confirmed
-   staging host. The verifier rejects credentials, query strings, fragments,
-   redirects, cacheable responses, non-JSON or oversized bodies, degraded
-   dependencies, and any revision other than the full expected SHA. Its CI
-   test validates the contract without contacting staging; only this explicit
-   operator invocation performs a live request. Passing proves the public web
-   health response only. It does not prove dashboard or worker revisions, or
-   database, Redis, storage, identity-provider, and outbound-provider isolation;
-   retain the manual evidence for those boundaries.
+Replace the example hostname in both arguments with the same confirmed
+staging host. The verifier rejects credentials, query strings, fragments,
+redirects, cacheable responses, non-JSON or oversized bodies, degraded
+dependencies, and any revision other than the full expected SHA. Its CI
+test validates the contract without contacting staging; only this explicit
+operator invocation performs a live request. Passing proves the public web
+health response only. It does not prove dashboard or worker revisions, or
+database, Redis, storage, identity-provider, and outbound-provider isolation;
+retain the manual evidence for those boundaries.
 
-   If the release includes the default-off website-widget preview, run the
-   exact-revision widget admission from a checkout that contains `RELEASE_SHA`:
+If the release includes the default-off website-widget preview, run the
+exact-revision widget admission from a checkout that contains `RELEASE_SHA`:
 
-   ```bash
-   pnpm verify:staging-widget -- \
-     --url https://pathfinder-staging.example.com/api/health \
-     --expected-revision "$RELEASE_SHA" \
-     --confirm-environment staging \
-     --confirm-host pathfinder-staging.example.com \
-     --venue-slug museum-slug \
-     --expected-frame-origins-json '["https://www.museum.example"]' \
-     --unlisted-venue-slug widget-admission-unlisted
-   ```
+```bash
+pnpm verify:staging-widget -- \
+  --url https://pathfinder-staging.example.com/api/health \
+  --expected-revision "$RELEASE_SHA" \
+  --confirm-environment staging \
+  --confirm-host pathfinder-staging.example.com \
+  --venue-slug museum-slug \
+  --expected-frame-origins-json '["https://www.museum.example"]' \
+  --unlisted-venue-slug widget-admission-unlisted
+```
 
-   Confirm that the negative-control slug is not a real venue and is absent
-   from the server-owned widget policy. Passing binds the reviewed loader bytes
-   and each revision-bearing frame-policy response to a healthy deployment that
-   reports the requested revision. It is an HTTP admission prerequisite, not browser execution proof,
-   production authorization, or M4 approval.
+Confirm that the negative-control slug is not a real venue and is absent
+from the server-owned widget policy. Passing binds the reviewed loader bytes
+and each revision-bearing frame-policy response to a healthy deployment that
+reports the requested revision. It is an HTTP admission prerequisite, not browser execution proof,
+production authorization, or M4 approval.
 
 ## Post-resolution external exercise archive — INERT, DO NOT EXECUTE
 
@@ -379,7 +379,8 @@ and immutability guards, a tenant relation, and tenant-scoped draft/command idem
 
 1. Confirm the target with the disposable-migration guard and record the release SHA. No external
    migration is authorized while the `DIRECT_DATABASE_URL` incident remains unresolved.
-2. Apply all migrations to a populated disposable clone. Confirm 42 finished migrations, then run
+2. Apply all migrations to a populated disposable clone. Confirm the finished migration count exactly
+   matches the current repository migration directory count, then run
    the guarded deploy again and require `No pending migrations to apply`.
 3. Verify the draft/approval/application/revert command-key indexes,
    `venue_packages_lifecycle_check`, `venue_packages_revision_guard`, and

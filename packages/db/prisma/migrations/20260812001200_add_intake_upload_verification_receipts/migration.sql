@@ -1,7 +1,3 @@
--- Forward-only verification evidence. Existing uploads are intentionally not
--- inferred or backfilled; legacy AWAITING_REVIEW rows retain unknown scan truth.
-ALTER TYPE "IntakeUploadStatus" ADD VALUE 'PRECHECK_PASSED' BEFORE 'AWAITING_REVIEW';
-
 BEGIN;
 
 CREATE TYPE "IntakeUploadVerificationKind" AS ENUM ('PRECHECK', 'RESOURCE_SAFETY', 'MALWARE');

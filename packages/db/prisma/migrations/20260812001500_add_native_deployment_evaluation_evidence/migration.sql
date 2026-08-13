@@ -75,7 +75,8 @@ DECLARE
   rel record;
   eval record;
   expected record;
-  expected_disposition "NativeVenueDeploymentEvaluationDisposition";
+  expected_disposition public."NativeVenueDeploymentEvaluationDisposition";
+  expected_snapshot_version integer;
 BEGIN
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(NEW.run_id::text, 1500));
   SELECT r.id, r.status, r.artifact_id, r.manifest_hash, r.desired_state_hash, r.plan
@@ -89,6 +90,12 @@ BEGIN
      rel.desired_state_hash IS DISTINCT FROM NEW.desired_state_hash THEN
     RAISE EXCEPTION 'native deployment evaluation release mismatch';
   END IF;
+  expected_snapshot_version := CASE
+    WHEN rel.plan->'priorHead' = 'null'::jsonb THEN 1
+    WHEN jsonb_typeof(rel.plan->'priorHead'->'revision') = 'number'
+      THEN (rel.plan->'priorHead'->>'revision')::integer + 1
+    ELSE NULL
+  END;
 
   SELECT r.id, r.identity_hash, r.status, r.completed_at, r.content_snapshot_kind,
          r.content_snapshot_ref, r.content_snapshot_version, r.content_snapshot_hash,
@@ -106,11 +113,7 @@ BEGIN
      eval.completed_at IS DISTINCT FROM NEW.run_completed_at OR
      eval.content_snapshot_kind IS DISTINCT FROM 'NATIVE_CORE_V1' OR
      eval.content_snapshot_ref IS DISTINCT FROM NEW.release_id::text OR
-     eval.content_snapshot_version IS DISTINCT FROM
-       CASE WHEN rel.plan->'priorHead' = 'null'::jsonb THEN 1
-            WHEN jsonb_typeof(rel.plan->'priorHead'->'revision') = 'number'
-              THEN (rel.plan->'priorHead'->>'revision')::bigint + 1
-            ELSE NULL END OR
+     eval.content_snapshot_version IS DISTINCT FROM expected_snapshot_version OR
      eval.content_snapshot_hash IS DISTINCT FROM NEW.desired_state_hash OR
      eval.package_snapshot_ref IS DISTINCT FROM ('native-core-v1:' || NEW.release_id::text) OR
      eval.package_snapshot_hash IS DISTINCT FROM NEW.manifest_hash OR
