@@ -118,6 +118,12 @@ This fallback evidence is now supplemented by the exact production-lineage rehea
 - Recovery rehearsal: the original pre-migration archive was restored again into the distinct
   `pathfinder_disposable_prod_recovery` database. All 43 pre-migration table counts matched and its
   ledger returned exactly 52/52 finished migrations.
+- An exploratory run that enabled every optional database integration suite against one shared
+  populated clone was not accepted as evidence: five assertions and seven teardown suites failed
+  because global worker selectors observed pre-existing production-lineage rows and immutable audit
+  history prevented the clean-database teardown assumptions. The normal package suites, focused
+  migration contracts, and lineage assertions above remain green. These optional suites require
+  isolated per-suite databases before they can be used as populated-clone application proof.
 - Cost: $0. No plan, add-on, branch, hosted staging resource, or purchase was created.
 
 ## Local verification
@@ -242,8 +248,8 @@ No hosted staging or production infrastructure was created or changed. A public 
 to the explicitly authorized Supabase ref returned `401`; it used no credential and read no database
 or control-plane state. Local proof used Docker Desktop with disposable PostgreSQL 16 fallback,
 PostgreSQL 17.6/vector 0.8.0 lineage/recovery, and Redis targets bound to loopback. The PostgreSQL
-17 disposable target is retained temporarily for evidence review; unrelated Odysseus containers
-were not modified.
+17 disposable container and its derivative databases were removed after verification; they are
+recoverable from the retained archive. Unrelated Odysseus containers were not modified.
 
 The affected provider/project is Supabase organization `PathFinder`, project display name
 `tomschoenekase-dotcom's Project`, ref `zpacmfkomonxeqdiadtz`, production branch `main`, region
