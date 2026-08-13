@@ -24,6 +24,12 @@ const requiredEnvironment = {
   REDIS_URL: 'redis://example.test:6379',
   DATABASE_RESOURCE_ID: 'db-staging-example',
   REDIS_RESOURCE_ID: 'redis-staging-example',
+  WORKER_SCHEDULERS_ENABLED: 'false',
+  OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+  EMBEDDING_DISPATCH_ENABLED: 'false',
+  GENERATION_DISPATCH_ENABLED: 'false',
+  GENERATION_RECOVERY_ENABLED: 'false',
+  EVALUATION_RUNNER_ENABLED: 'false',
 }
 
 const stagingResourceIdentity = {
@@ -128,13 +134,16 @@ describe('error monitoring environment', () => {
 })
 
 describe('WORKER_SCHEDULERS_ENABLED', () => {
-  it('defaults to enabled in production', () => {
+  it('never defaults background work on in the shared schema', () => {
     process.env.NODE_ENV = 'production'
 
     expect(
-      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'production' })
-        .WORKER_SCHEDULERS_ENABLED,
-    ).toBe(true)
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'production',
+        WORKER_SCHEDULERS_ENABLED: undefined,
+      }).WORKER_SCHEDULERS_ENABLED,
+    ).toBe(false)
   })
 
   it.each(['staging', 'preview'] as const)('defaults to disabled in %s', (RAILWAY_ENVIRONMENT) => {
@@ -159,6 +168,8 @@ describe('WORKER_SCHEDULERS_ENABLED', () => {
           ...requiredEnvironment,
           RAILWAY_ENVIRONMENT,
           WORKER_SCHEDULERS_ENABLED,
+          OUTBOUND_PROVIDER_WORKERS_ENABLED:
+            WORKER_SCHEDULERS_ENABLED === 'true' ? 'true' : 'false',
         }).WORKER_SCHEDULERS_ENABLED,
       ).toBe(expected)
     },
@@ -177,12 +188,47 @@ describe('WORKER_SCHEDULERS_ENABLED', () => {
   })
 })
 
-describe('EMBEDDING_DISPATCH_ENABLED', () => {
-  it('defaults to enabled in production', () => {
+describe('OUTBOUND_PROVIDER_WORKERS_ENABLED', () => {
+  it.each(['production', 'staging', 'preview'] as const)(
+    'defaults disabled in the shared schema for %s',
+    (RAILWAY_ENVIRONMENT) => {
+      expect(
+        envSchema.parse({
+          ...requiredEnvironment,
+          RAILWAY_ENVIRONMENT,
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: undefined,
+        }).OUTBOUND_PROVIDER_WORKERS_ENABLED,
+      ).toBe(false)
+    },
+  )
+
+  it('accepts only an exact explicit enable value', () => {
     expect(
-      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'production' })
-        .EMBEDDING_DISPATCH_ENABLED,
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
+      }).OUTBOUND_PROVIDER_WORKERS_ENABLED,
     ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
+describe('EMBEDDING_DISPATCH_ENABLED', () => {
+  it('never defaults enabled in the shared schema', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'production',
+        EMBEDDING_DISPATCH_ENABLED: undefined,
+      }).EMBEDDING_DISPATCH_ENABLED,
+    ).toBe(false)
   })
 
   it.each(['staging', 'preview'] as const)('defaults to disabled in %s', (RAILWAY_ENVIRONMENT) => {
@@ -195,6 +241,7 @@ describe('EMBEDDING_DISPATCH_ENABLED', () => {
     const parsed = envSchema.parse({
       ...requiredEnvironment,
       RAILWAY_ENVIRONMENT: 'staging',
+      OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
       EMBEDDING_DISPATCH_ENABLED: 'true',
     })
     expect(parsed.EMBEDDING_DISPATCH_ENABLED).toBe(true)
@@ -227,6 +274,7 @@ describe('GENERATION_RECOVERY_ENABLED', () => {
     const parsed = envSchema.parse({
       ...requiredEnvironment,
       RAILWAY_ENVIRONMENT: 'staging',
+      OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
       GENERATION_RECOVERY_ENABLED: 'true',
     })
     expect(parsed.GENERATION_RECOVERY_ENABLED).toBe(true)
@@ -259,6 +307,7 @@ describe('EVALUATION_RUNNER_ENABLED', () => {
       envSchema.parse({
         ...requiredEnvironment,
         RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
         EVALUATION_RUNNER_ENABLED: 'true',
       }).EVALUATION_RUNNER_ENABLED,
     ).toBe(true)
@@ -273,11 +322,14 @@ describe('EVALUATION_RUNNER_ENABLED', () => {
 })
 
 describe('GENERATION_DISPATCH_ENABLED', () => {
-  it('defaults to enabled in production', () => {
+  it('never defaults enabled in the shared schema', () => {
     expect(
-      envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT: 'production' })
-        .GENERATION_DISPATCH_ENABLED,
-    ).toBe(true)
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'production',
+        GENERATION_DISPATCH_ENABLED: undefined,
+      }).GENERATION_DISPATCH_ENABLED,
+    ).toBe(false)
   })
 
   it.each(['staging', 'preview'] as const)('defaults to disabled in %s', (RAILWAY_ENVIRONMENT) => {
@@ -290,6 +342,7 @@ describe('GENERATION_DISPATCH_ENABLED', () => {
     const parsed = envSchema.parse({
       ...requiredEnvironment,
       RAILWAY_ENVIRONMENT: 'staging',
+      OUTBOUND_PROVIDER_WORKERS_ENABLED: 'true',
       GENERATION_DISPATCH_ENABLED: 'true',
     })
     expect(parsed.GENERATION_DISPATCH_ENABLED).toBe(true)

@@ -63,8 +63,10 @@ must happen before/at merge: (1) open + merge the PR, (2) apply the DB migration
 - **Services:** `dashboard`, `web`, `workers`, `redis`. Build configs in repo
   (`railway.json`, `apps/dashboard/railway.json`, `nixpacks.toml`, `Dockerfile`) all build/run the
   dashboard; the other services are configured in the Railway UI.
-- **Workers fail-fast env:** `apps/workers/src/index.ts` asserts `REDIS_URL`, `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY` at startup and exits if any is missing.
+- **Workers fail-fast env (historical note):** provider-enabled workers assert `REDIS_URL`,
+  `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY`. A reviewed provider-disabled runtime now requires only
+  Redis and creates no queues, consumers, or schedulers. Production workers must explicitly declare
+  every execution flag; omission never enables work.
 - **Resolved this session:** the workers service was crash-looping with
   `Missing required environment variable(s) for workers: OPENAI_API_KEY`. Cause: the earlier
   "worker env fail-fast" commit on `master` (not the analytics branch) plus the workers Railway

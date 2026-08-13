@@ -10,6 +10,7 @@ import {
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
   ANALYTICS_ENRICHMENT_SCHEDULER_JOB,
+  checkBullMQConnection,
   closeBullMQConnection,
   closeJobQueues,
   configureMediaIngestionGlobalConcurrency,
@@ -91,6 +92,8 @@ import {
   cancelMediaJobsAfterLockRenewalFailure,
 } from './lib/media-job-cancellation'
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
+import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
+import { resolveWorkerStartupPolicy } from './lib/worker-startup-policy'
 import {
   createEscalatingShutdownHandler,
   createShutdownCoordinator,
@@ -104,6 +107,37 @@ const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
 const EMBEDDING_DISPATCH_CRON = '* * * * *'
 const GENERATION_DISPATCH_CRON = '* * * * *'
 const GENERATION_RECOVERY_CRON = '* * * * *'
+
+function registerShutdownSignals(shutdown: () => Promise<void>): void {
+  const handleShutdownSignal = createEscalatingShutdownHandler(
+    shutdown,
+    (error) => {
+      logger.error({
+        action: 'workers.shutdown.failed',
+        error: error instanceof Error ? error.message : 'Unknown worker shutdown error',
+        ...(error instanceof AggregateError
+          ? {
+              failures: error.errors.map((failure) =>
+                failure instanceof Error ? failure.message : 'Unknown resource close error',
+              ),
+            }
+          : {}),
+      })
+      process.exitCode = 1
+    },
+    () => {
+      logger.error({
+        action: 'workers.shutdown.forced',
+        error: 'Forced worker shutdown after a second termination signal.',
+        reason: 'second-signal',
+      })
+      process.exit(1)
+    },
+  )
+
+  process.once('SIGINT', handleShutdownSignal)
+  process.once('SIGTERM', handleShutdownSignal)
+}
 
 function getWeeklyDigestBackoffDelay(attemptsMade: number): number {
   switch (attemptsMade) {
@@ -456,6 +490,23 @@ async function handleEvaluationRunQueueJob(
 }
 
 export async function startWorkers() {
+  if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
+    const runtime = await startProviderDisabledRuntime({
+      checkConnection: () => checkBullMQConnection(5_000),
+      closeConnection: closeBullMQConnection,
+      onConnectionError: (error) =>
+        logger.error({ action: 'workers.runtime.error', queueName: null, error: error.message }),
+    })
+    logger.info({
+      action: 'workers.started',
+      mode: runtime.mode,
+      outboundProviderWorkersEnabled: false,
+      queues: runtime.queues,
+    })
+    registerShutdownSignals(runtime.shutdown)
+    return runtime
+  }
+
   const connection = getBullMQConnection()
   const weeklyDigestQueue = new Queue(WEEKLY_DIGEST_QUEUE, { connection })
   const dailyRollupQueue = new Queue(DAILY_ROLLUP_QUEUE, { connection })
@@ -911,6 +962,8 @@ export async function startWorkers() {
 
   logger.info({
     action: 'workers.started',
+    mode: 'provider-enabled',
+    outboundProviderWorkersEnabled: true,
     recurringSchedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
     embeddingDispatchEnabled: env.EMBEDDING_DISPATCH_ENABLED,
     generationDispatchEnabled: env.GENERATION_DISPATCH_ENABLED,
@@ -955,34 +1008,7 @@ export async function startWorkers() {
     ],
   })
 
-  const handleShutdownSignal = createEscalatingShutdownHandler(
-    shutdown,
-    (error) => {
-      logger.error({
-        action: 'workers.shutdown.failed',
-        error: error instanceof Error ? error.message : 'Unknown worker shutdown error',
-        ...(error instanceof AggregateError
-          ? {
-              failures: error.errors.map((failure) =>
-                failure instanceof Error ? failure.message : 'Unknown resource close error',
-              ),
-            }
-          : {}),
-      })
-      process.exitCode = 1
-    },
-    () => {
-      logger.error({
-        action: 'workers.shutdown.forced',
-        error: 'Forced worker shutdown after a second termination signal.',
-        reason: 'second-signal',
-      })
-      process.exit(1)
-    },
-  )
-
-  process.once('SIGINT', handleShutdownSignal)
-  process.once('SIGTERM', handleShutdownSignal)
+  registerShutdownSignals(shutdown)
 
   return {
     analyticsEnrichmentQueue,
@@ -1016,9 +1042,10 @@ export async function startWorkers() {
 if (require.main === module) {
   void (async () => {
     try {
-      // Fail fast on deploy if a key this process needs is missing, rather than
-      // letting a scheduled job silently break hours later.
-      assertServerEnv(['REDIS_URL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'], 'workers')
+      // Worker-only policy stays outside the shared application schema so
+      // service-scoped Railway variables cannot break web or dashboard startup.
+      const policy = resolveWorkerStartupPolicy(process.env)
+      assertServerEnv(policy.requiredEnvironmentKeys, 'workers')
       await startWorkers()
     } catch (error: unknown) {
       logger.error({

@@ -3,9 +3,10 @@
 > **Incident state: ACTIVE. External database commands are not authorized.**
 
 An earlier command unintentionally applied pending Prisma migrations through an externally
-configured Supabase connection whose environment has not been identified. No external database,
-migration, seed, inspection, rollback, or remediation command may run until Tom identifies the
-environment and explicitly approves a read-only incident-assessment plan.
+configured Supabase connection. Tom has since identified the affected project and authorized a
+bounded read-only assessment, but no authenticated ledger, schema, or recovery evidence has been
+collected. No external database write, migration, seed, rollback, or remediation command may run;
+inspection remains limited to that authorized assessment.
 
 This stop supersedes every migration or seed instruction in older PathFinder plans, handoffs,
 backlogs, and runbooks. Historical documents remain useful design evidence, but they are not
@@ -18,6 +19,11 @@ or proxy. That local contract is documented in `docs/railway-staging.md`; it is 
 for any external host.
 
 ## Conditions for lifting the stop
+
+As of 2026-08-13, Tom identified project `PathFinder` (non-secret ref
+`zpacmfkomonxeqdiadtz`) and authorized the bounded read-only assessment. Conditions 1 and 2 below
+are satisfied. The endpoint is reachable, but no authenticated ledger, schema, or backup evidence
+has been collected; the stop remains active.
 
 1. Tom identifies the affected external project/environment.
 2. Tom authorizes a bounded read-only assessment plan.

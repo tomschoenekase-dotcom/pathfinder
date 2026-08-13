@@ -53,6 +53,26 @@ independent from production:
 Give the least privilege needed to each service. The dashboard and web services
 normally do not need every worker-only outbound credential.
 
+### Dormant worker admission
+
+Start a newly provisioned staging worker with `OUTBOUND_PROVIDER_WORKERS_ENABLED=false` and every
+other worker execution flag set to `false`. In this mode the process requires only `REDIS_URL`,
+pings Redis, and remains connectivity-only: it creates no BullMQ queues, consumers, or schedulers
+and requires no Anthropic or OpenAI key. A subordinate execution flag set to `true` while this mode
+is disabled is a startup error.
+
+This is a per-process guarantee. Before calling staging provider-disabled, scale down and drain every
+older worker replica and prove that only the reviewed release SHA remains; an older replica could
+continue consuming queued work during a rolling deploy. Dormant mode does not drain or delete old
+jobs or scheduler definitions. Never use broad Redis deletion as cleanup.
+
+For production workers, all six controls must be explicitly set to `true` or `false`:
+`OUTBOUND_PROVIDER_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
+`EMBEDDING_DISPATCH_ENABLED`, `GENERATION_DISPATCH_ENABLED`,
+`GENERATION_RECOVERY_ENABLED`, and `EVALUATION_RUNNER_ENABLED`. Omission is a startup failure, not
+implicit authorization. Scheduler flags do not by themselves freeze ordinary consumers; a cutover
+freeze still requires stopped/drained worker replicas and inspected queues.
+
 ## Release procedure
 
 Local destructive migration proofs must use the disposable-only wrapper, never a raw migration
@@ -169,9 +189,11 @@ than executing this archive verbatim.
 Start the workers with `EMBEDDING_DISPATCH_ENABLED=false`. Confirm the new `EmbeddingDispatch`
 table and content triggers exist, then make one synthetic place or knowledge edit and verify a
 single coalesced dispatch row is committed. Only after that proof, set
-`EMBEDDING_DISPATCH_ENABLED=true` and restart the staging worker. This flag is independent of
-`WORKER_SCHEDULERS_ENABLED`. Run the archived smoke tests afterward; any failure would block a
-future production promotion and require a new reviewed commit and complete same-SHA rerun.
+`OUTBOUND_PROVIDER_WORKERS_ENABLED=true` and `EMBEDDING_DISPATCH_ENABLED=true`, then restart the
+staging worker with bounded test-provider credentials. The embedding flag is independent of
+`WORKER_SCHEDULERS_ENABLED`, but it is rejected unless outbound-provider workers are enabled. Run
+the archived smoke tests afterward; any failure would block a future production promotion and
+require a new reviewed commit and complete same-SHA rerun.
 
 ### Clerk webhook receipt canary
 
@@ -232,9 +254,10 @@ an automatic rollback step.
 Answer-analysis and weekly-report requests now commit the domain row, request receipt, and audit
 entry in one transaction. A dispatcher publishes the durable receipt to BullMQ, and the target
 worker consumes the receipt only when it acquires the exact database execution claim. API kick
-jobs are consumed on every worker deployment; `GENERATION_DISPATCH_ENABLED` controls only the
-once-per-minute fallback scan that repairs a lost kick or an older `GENERATING` row with both
-lease fields null.
+jobs are consumed only by provider-enabled worker deployments with
+`OUTBOUND_PROVIDER_WORKERS_ENABLED=true`; `GENERATION_DISPATCH_ENABLED` controls only the
+once-per-minute fallback scan that repairs a lost kick or an older `GENERATING` row with both lease
+fields null.
 
 Run this canary before generation recovery and only against independently verified staging
 PostgreSQL and Redis resources:

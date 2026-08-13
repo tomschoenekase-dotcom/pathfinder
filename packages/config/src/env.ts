@@ -28,16 +28,21 @@ const rawEnvSchema = z
       .optional(),
 
     // Recurring jobs should only be registered by production workers unless an
-    // environment explicitly opts in or out. Queue consumers run independently.
+    // environment explicitly opts in or out. Production must declare this
+    // explicitly; omission is never authority for background side effects.
     WORKER_SCHEDULERS_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Starts consumers that can reach AI, email, or media providers. Staging
+    // defaults off so its worker remains connectivity-only without provider
+    // credentials, queues, consumers, schedulers, or accidental outbound calls.
+    OUTBOUND_PROVIDER_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Mutation dispatch is correctness infrastructure, separate from business
-    // cron. Production defaults on; staging/preview require explicit rollout.
+    // cron. Every worker environment requires explicit rollout authority.
     EMBEDDING_DISPATCH_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Durable generation request publication is correctness infrastructure.
-    // Production defaults on after the additive outbox migration; non-production
-    // environments require an explicit canary opt-in.
+    // No environment gets implicit rollout authority.
     GENERATION_DISPATCH_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Expired generation recovery is correctness infrastructure, separate from
@@ -123,18 +128,10 @@ const rawEnvSchema = z
 
 export const envSchema = rawEnvSchema.transform((values) => ({
   ...values,
-  WORKER_SCHEDULERS_ENABLED:
-    values.WORKER_SCHEDULERS_ENABLED === undefined
-      ? values.RAILWAY_ENVIRONMENT === 'production'
-      : values.WORKER_SCHEDULERS_ENABLED === 'true',
-  EMBEDDING_DISPATCH_ENABLED:
-    values.EMBEDDING_DISPATCH_ENABLED === undefined
-      ? values.RAILWAY_ENVIRONMENT === 'production'
-      : values.EMBEDDING_DISPATCH_ENABLED === 'true',
-  GENERATION_DISPATCH_ENABLED:
-    values.GENERATION_DISPATCH_ENABLED === undefined
-      ? values.RAILWAY_ENVIRONMENT === 'production'
-      : values.GENERATION_DISPATCH_ENABLED === 'true',
+  WORKER_SCHEDULERS_ENABLED: values.WORKER_SCHEDULERS_ENABLED === 'true',
+  OUTBOUND_PROVIDER_WORKERS_ENABLED: values.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true',
+  EMBEDDING_DISPATCH_ENABLED: values.EMBEDDING_DISPATCH_ENABLED === 'true',
+  GENERATION_DISPATCH_ENABLED: values.GENERATION_DISPATCH_ENABLED === 'true',
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
   EVALUATION_RUNNER_ENABLED: values.EVALUATION_RUNNER_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',
