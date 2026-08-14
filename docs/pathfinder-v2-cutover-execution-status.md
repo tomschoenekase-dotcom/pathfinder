@@ -236,10 +236,12 @@ preserved files. They were not rewritten.
   execution controls are explicitly `false`; the worker has Redis only and no database, Clerk, or
   provider credential. Non-secret resource fingerprints identify the staging PostgreSQL and Redis
   service IDs, with storage explicitly marked `disabled`.
-- The PostgreSQL console offers a private container file-upload surface, but the controlled browser
-  file-chooser did not emit an upload event and the browser-control session reset. No dump bytes
-  were transmitted and no hosted database restore or migration ran. The service remains private;
-  no TCP proxy or temporary database credential was created.
+- Computer Use successfully selected the verified production-lineage archive through the Windows
+  file picker. Railway uploaded `pathfinder-zpacmfkomonxeqdiadtz-20260813T222746Z.dump` into the
+  private PostgreSQL container root and displayed it as 3.6 MB. The authenticated browser-control
+  connection could not remain attached to Railway's live terminal, and Computer Use policy forbids
+  typing terminal commands, so no hosted restore or migration ran. The service remains private; no
+  TCP proxy or temporary database credential was created.
 - These are persistent, usage-billed staging resources. They are reversible and isolated, but they
   are not disposable until explicitly removed. Production services, variables, data, deployments,
   and `master` remain unchanged.
@@ -470,6 +472,11 @@ mandatory.
 - Payments are absent.
 - Local production-lineage migration compatibility is proven; hosted staging behavior, production
   lock timing, and live performance remain unproven.
+- The verified lineage archive is present in the private staging PostgreSQL container, but the
+  hosted restore and migration rehearsal have not run. They require a real Railway terminal
+  session: browser control could not retain the live terminal connection, while Computer Use is
+  intentionally prohibited from entering terminal commands. This is a tooling limitation, not an
+  authorization gap.
 - Provider-disabled workers now have a connectivity-only mode that requires Redis but creates no
   BullMQ queues, consumers, or schedulers and requires no outbound-provider key. This is only a
   per-process guarantee; staging still must prove old replicas are drained and only the reviewed SHA
@@ -479,13 +486,18 @@ mandatory.
 
 1. **P0 — incident assessment complete.** The production ledger is a clean 52-migration pre-V2
    candidate with matching checksums and no sampled partial artifacts.
-2. **P0 — review the completed logical backup, PostgreSQL 17.6 lineage rehearsal, scoped analytics
-   repair, and recovery restore.** No cost was incurred.
-3. **P0 — separately approve or reject a presented production cutover plan.** The prior approval
+2. **P0 — complete the hosted staging rehearsal.** In Railway's `pgvector` service terminal,
+   restore the already-uploaded verified archive into the isolated PostgreSQL 17.6 database, then
+   run the reviewed migration and validation procedure. Do not target production. This step could
+   not be automated because the authenticated browser terminal connection repeatedly reset and
+   Computer Use may not type terminal commands.
+3. **P0 — review the completed local logical backup, PostgreSQL 17.6 lineage rehearsal, scoped
+   analytics repair, and recovery restore.** No backup or provider add-on cost was incurred.
+4. **P0 — separately approve or reject a presented production cutover plan.** The prior approval
    authorizes no production migration or schema/data write.
-4. **P0 — keep staging isolated.** The dedicated branch is published and connected. Do not merge
+5. **P0 — keep staging isolated.** The dedicated branch is published and connected. Do not merge
    or push it to `master`; Railway production auto-deploys that branch.
-5. **P1 — provide remaining provider surfaces only when requested.** Clerk, object storage, and any
+6. **P1 — provide remaining provider surfaces only when requested.** Clerk, object storage, and any
    other staging identities must be configured through approved operator surfaces. Credentials must
    remain in provider secret stores, not repository files.
 
