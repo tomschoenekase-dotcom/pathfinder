@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   EXPECTED,
+  VERIFIED_BASELINE_CHECKSUMS,
   assertApprovedTarget,
   assertFrozenManifest,
   ledgerState,
@@ -55,6 +56,11 @@ test('ledger accepts only exact finished baseline or final states', async () => 
   }))
   assert.equal(ledgerState(rows.slice(0, EXPECTED.baselineCount), manifest), 'baseline')
   assert.equal(ledgerState(rows, manifest), 'complete')
+  const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
+    ...row,
+    checksum: VERIFIED_BASELINE_CHECKSUMS[row.migration_name] ?? row.checksum,
+  }))
+  assert.equal(ledgerState(verifiedBaselineRows, manifest), 'baseline')
   assert.throws(() => ledgerState(rows.slice(0, 53), manifest), /unexpected ledger row count/u)
   assert.throws(
     () =>

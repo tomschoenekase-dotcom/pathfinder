@@ -20,6 +20,19 @@ const EXPECTED = Object.freeze({
   finalPublicTableCount: 99,
 })
 
+// These are the exact checksums preserved by the verified 52-row production
+// ledger. The latter two differ from the canonical SQL only by CRLF line
+// endings. The weekly-digest artifact is no longer present in Git history, so
+// its resulting schema is fingerprinted before any later migration can run.
+const VERIFIED_BASELINE_CHECKSUMS = Object.freeze({
+  '20260413120000_add_weekly_digest':
+    '88e85794d89206b53ed0d6d9a915ebd7a0393afb05dbfda6e19f19941e509e70',
+  '20260413130000_add_job_records':
+    'bf7604b3b637b44b79d0a707f1634a6b77166047835e61de8f47ea878f1da5bc',
+  '20260619010000_analytics_rework':
+    'ea926dcdbb82a6fcec63eb5d5fedca2bb4fd68380de5b20ac049975cef494156',
+})
+
 function fail(message) {
   throw new Error(`staging-migration-stop: ${message}`)
 }
@@ -113,7 +126,11 @@ function ledgerState(rows, manifest) {
     const expectedName = expectedNames[index]
     if (row.migration_name !== expectedName) fail('ledger migration ordering/name mismatch')
     const expectedChecksum = manifest.checksums.get(expectedName)
-    if (row.checksum.toLowerCase() !== expectedChecksum)
+    const verifiedBaselineChecksum = VERIFIED_BASELINE_CHECKSUMS[expectedName]
+    if (
+      row.checksum.toLowerCase() !== expectedChecksum &&
+      row.checksum.toLowerCase() !== verifiedBaselineChecksum
+    )
       checksumMismatches.push(`${expectedName}:${row.checksum.toLowerCase()}:${expectedChecksum}`)
     if (row.finished_at === null) fail(`unfinished migration ${expectedName}`)
     if (row.rolled_back_at !== null) fail(`rolled-back migration ${expectedName}`)
@@ -125,6 +142,45 @@ function ledgerState(rows, manifest) {
     fail(`ledger checksum mismatches ${checksumMismatches.join(',')}`)
   }
   return rows.length === EXPECTED.baselineCount ? 'baseline' : 'complete'
+}
+
+async function assertVerifiedBaselineSchema(database, rows) {
+  const weeklyRow = rows.find(
+    ({ migration_name }) => migration_name === '20260413120000_add_weekly_digest',
+  )
+  if (
+    !weeklyRow ||
+    weeklyRow.checksum.toLowerCase() !==
+      VERIFIED_BASELINE_CHECKSUMS['20260413120000_add_weekly_digest']
+  ) {
+    return
+  }
+
+  const enumRows = await database.$queryRawUnsafe(
+    "SELECT e.enumlabel FROM pg_catalog.pg_enum e JOIN pg_catalog.pg_type t ON t.oid = e.enumtypid JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname = 'public' AND t.typname = 'WeeklyDigestStatus' ORDER BY e.enumsortorder",
+  )
+  const labels = enumRows.map(({ enumlabel }) => enumlabel).join(',')
+  if (labels !== 'PENDING,PROCESSING,COMPLETE,FAILED') {
+    fail('weekly digest enum fingerprint mismatch')
+  }
+
+  const [{ column_count: columnCount, required_columns: requiredColumns }] =
+    await database.$queryRawUnsafe(
+      "SELECT count(*)::int AS column_count, count(*) FILTER (WHERE column_name IN ('id','tenant_id','week_start','week_end','status','session_count','message_count','insights','generated_at','created_at'))::int AS required_columns FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'weekly_digests'",
+    )
+  if (columnCount !== 10 || requiredColumns !== 10) {
+    fail('weekly digest column fingerprint mismatch')
+  }
+
+  const [{ constraint_count: constraintCount }] = await database.$queryRawUnsafe(
+    "SELECT count(*)::int AS constraint_count FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class r ON r.oid = c.conrelid JOIN pg_catalog.pg_namespace n ON n.oid = r.relnamespace WHERE n.nspname = 'public' AND r.relname = 'weekly_digests' AND ((c.contype = 'p' AND c.conname = 'weekly_digests_pkey') OR (c.contype = 'f' AND c.conname = 'weekly_digests_tenant_id_fkey'))",
+  )
+  if (constraintCount !== 2) fail('weekly digest constraint fingerprint mismatch')
+
+  const [{ index_count: indexCount }] = await database.$queryRawUnsafe(
+    "SELECT count(*)::int AS index_count FROM pg_catalog.pg_indexes WHERE schemaname = 'public' AND tablename = 'weekly_digests' AND indexname IN ('weekly_digests_tenant_id_week_start_idx','weekly_digests_tenant_id_week_start_key')",
+  )
+  if (indexCount !== 2) fail('weekly digest index fingerprint mismatch')
 }
 
 async function ledgerRows(database) {
@@ -197,6 +253,7 @@ async function main() {
   try {
     const initialLedger = await ledgerRows(database)
     const initialState = ledgerState(initialLedger, manifest)
+    await assertVerifiedBaselineSchema(database, initialLedger)
     console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
     if (initialState === 'complete') {
       await assertPostMigrationIntegrity(database, manifest)
@@ -236,4 +293,4 @@ if (isMain) {
   })
 }
 
-export { EXPECTED, ledgerState }
+export { EXPECTED, VERIFIED_BASELINE_CHECKSUMS, ledgerState }
