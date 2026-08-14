@@ -181,16 +181,19 @@ function runPrismaDeploy(cli, schema, environment) {
 
 async function main() {
   assertApprovedTarget(process.env)
+  console.log('staging-migration: exact Railway target identity accepted')
   const prismaDirectory = process.env.PATHFINDER_PRISMA_DIR ?? '/migration/prisma'
   const prismaCli = process.env.PATHFINDER_PRISMA_CLI ?? '/migration/node_modules/.bin/prisma'
   const manifest = await readMigrationManifest(prismaDirectory)
   assertFrozenManifest(manifest)
+  console.log('staging-migration: frozen 90-file manifest accepted')
 
   const { PrismaClient } = await import('@prisma/client')
   const database = new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })
   try {
     const initialLedger = await ledgerRows(database)
     const initialState = ledgerState(initialLedger, manifest)
+    console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
     if (initialState === 'complete') {
       await assertPostMigrationIntegrity(database, manifest)
       console.log('staging-migration: already complete (90/90); integrity checks passed')
@@ -220,10 +223,11 @@ async function main() {
 const isMain =
   process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
 if (isMain) {
-  main().catch((error) => {
+  main().catch(async (error) => {
     console.error(
       error instanceof Error ? error.message : 'staging-migration-stop: unknown failure',
     )
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
     process.exitCode = 1
   })
 }

@@ -12,6 +12,7 @@ COPY --from=installer /app ./
 RUN pnpm --filter @pathfinder/db exec prisma generate
 RUN pnpm --filter @pathfinder/web build
 RUN pnpm --filter @pathfinder/db deploy /migration
+RUN cd /migration && pnpm exec prisma generate --schema ./prisma/schema.prisma
 
 FROM base AS runner
 WORKDIR /app
