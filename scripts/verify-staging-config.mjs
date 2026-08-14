@@ -7,8 +7,9 @@ const services = [
   {
     name: 'web',
     config: 'railway.staging.web.json',
-    dockerfile: 'Dockerfile.web',
+    dockerfile: 'Dockerfile.web.staging',
     healthcheckPath: '/api/health',
+    preDeployCommand: ['node /migration/scripts/run-staging-migration-predeploy.mjs'],
   },
   {
     name: 'dashboard',
@@ -41,6 +42,13 @@ for (const service of services) {
     config.deploy?.healthcheckPath !== service.healthcheckPath
   ) {
     throw new Error(`${service.config}: expected healthcheckPath=${service.healthcheckPath}`)
+  }
+
+  if (
+    service.preDeployCommand !== undefined &&
+    JSON.stringify(config.deploy?.preDeployCommand) !== JSON.stringify(service.preDeployCommand)
+  ) {
+    throw new Error(`${service.config}: unexpected preDeployCommand`)
   }
 
   if (config.deploy?.restartPolicyType !== 'ON_FAILURE') {
