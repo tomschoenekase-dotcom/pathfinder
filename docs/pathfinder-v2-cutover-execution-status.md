@@ -251,8 +251,11 @@ preserved files. They were not rewritten.
   migrations and reported `90/90 ledger and integrity checks passed`; all pre-existing business
   table counts were unchanged, 99 public tables remained, and there were no invalid indexes or
   unvalidated constraints. Revision `765f231f3b40d0a97dd14007bf80ad69455f5298` became active.
+- Follow-up deployment `0bc9ac93-06ad-490e-b55f-125a39cd9d14` admitted the exact completed
+  90-row ledger, reported `already complete (90/90); integrity checks passed`, applied nothing,
+  and activated revision `672dfdd95e6c3b9cdbbbe4a9532b338f05620ea2`.
 - The active public health response is HTTP 200 with `ok: true`, exact staging environment/database/
-  Redis fingerprints, database and queue `up`, storage `disabled`, and revision `765f231`. The
+  Redis fingerprints, database and queue `up`, storage `disabled`, and revision `672dfdd`. The
   landing page plus `/riverside-aquarium` and `/riverside-aquarium/chat` returned HTTP 200; the
   default-disabled embed surface returned 404 as configured. No production endpoint was invoked.
 - These are persistent, usage-billed staging resources. They are reversible and isolated, but they
@@ -262,6 +265,9 @@ preserved files. They were not rewritten.
   usage and `$0.2076` current cost for `serene-inspiration`. Relative to the `$0.2023` pre-staging
   project observation, the displayed increase is `$0.0053`, well below the approved `$5` limit.
   No paid plan change, add-on, or purchase was created.
+- After the restore, migration builds, and repeat deployment, project usage was `$0.41` with a
+  `$1.59` estimate. The current increase from the `$0.2023` pre-staging observation is `$0.2077`;
+  even the displayed estimate remains below the approved `$5` incremental ceiling.
 
 ## External work not performed
 
@@ -341,7 +347,8 @@ cutover approval.
 - Earlier migration and staging hardening commits include `2ea64b9`, `c75135a`, `d0c0ef7`,
   `7d248b0`, `89cfad0`, and `9b18d34`.
 - Hosted Railway PostgreSQL/Redis, production-lineage runner, and dedicated-branch application
-  staging commits through `765f231`.
+  staging commits through deployed revision `672dfdd`; the final evidence-only documentation
+  commit is intentionally retained locally to avoid triggering another application deployment.
 - Preserved dirty entries: modified `.claude/settings.local.json`; untracked
   `build-report-s1b-task3.md` and `docs/PATHFINDER_CURRENT_ARCHITECTURE.md`.
 
@@ -394,7 +401,8 @@ unproven. Other provider identities remain unknown.
   and one production-lineage analytics sentinel incompatibility.
 - Rehearsal result: locally, 38 pending migrations passed in 2.200 seconds and a second application
   reported no pending work. Hosted staging then applied the same 38 migrations and passed the
-  90-row ledger, 99-table, index, constraint, and row-count-preservation gates.
+  90-row ledger, 99-table, index, constraint, and row-count-preservation gates. A subsequent hosted
+  pre-deploy run accepted the completed 90-row ledger, reran integrity checks, and applied nothing.
 - Production migration result: not run; only authorized read-only queries were executed.
 - Exact production-lineage duration was 2.200 seconds on the local disposable target. This is not a
   production downtime forecast; production timing and lock behavior still require the cutover gate.
@@ -442,8 +450,8 @@ unproven. Other provider identities remain unknown.
 
 ### F. End-to-end evidence
 
-Deployed health plus landing, restored venue, and chat route reachability passed on revision
-`765f231`. This is not a full end-to-end workflow: authentication, venue setup, generalized content,
+Deployed health plus landing, restored venue, and chat route reachability passed; the final health
+check used revision `672dfdd`. This is not a full end-to-end workflow: authentication, venue setup, generalized content,
 Guest message generation, Support, upload intake, Weekly Reports, native deployment, compatibility
 packages, evaluation, and offboarding still require functional staging providers and browser runs.
 
@@ -502,7 +510,8 @@ mandatory.
 1. **P0 — incident assessment complete.** The production ledger is a clean 52-migration pre-V2
    candidate with three reconciled historical checksum differences and no sampled partial artifacts.
 2. **P0 — review the completed hosted staging rehearsal.** The exact archive restored successfully,
-   all 38 pending migrations applied only to the isolated clone, and revision `765f231` is healthy.
+   all 38 pending migrations applied only to the isolated clone, the repeat pre-deploy applied
+   nothing, and revision `672dfdd` is healthy.
 3. **P0 — review the completed local logical backup, PostgreSQL 17.6 lineage rehearsal, scoped
    analytics repair, and recovery restore.** No backup or provider add-on cost was incurred.
 4. **P0 — separately approve or reject a presented production cutover plan.** The prior approval
