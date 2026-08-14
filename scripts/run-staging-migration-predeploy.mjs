@@ -107,18 +107,22 @@ function ledgerState(rows, manifest) {
     fail(`unexpected ledger row count ${rows.length}`)
   }
   const expectedNames = manifest.names.slice(0, rows.length)
+  const checksumMismatches = []
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]
     const expectedName = expectedNames[index]
     if (row.migration_name !== expectedName) fail('ledger migration ordering/name mismatch')
-    if (row.checksum.toLowerCase() !== manifest.checksums.get(expectedName)) {
-      fail(`ledger checksum mismatch for ${expectedName}`)
-    }
+    const expectedChecksum = manifest.checksums.get(expectedName)
+    if (row.checksum.toLowerCase() !== expectedChecksum)
+      checksumMismatches.push(`${expectedName}:${row.checksum.toLowerCase()}:${expectedChecksum}`)
     if (row.finished_at === null) fail(`unfinished migration ${expectedName}`)
     if (row.rolled_back_at !== null) fail(`rolled-back migration ${expectedName}`)
     if (typeof row.logs === 'string' && row.logs.trim() !== '') {
       fail(`migration logs are non-empty for ${expectedName}`)
     }
+  }
+  if (checksumMismatches.length > 0) {
+    fail(`ledger checksum mismatches ${checksumMismatches.join(',')}`)
   }
   return rows.length === EXPECTED.baselineCount ? 'baseline' : 'complete'
 }
