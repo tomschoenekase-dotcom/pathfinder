@@ -150,7 +150,14 @@ export async function revertContentHistoryAction(
       const isDirectProvenanceSnapshot =
         target.snapshotSchemaVersion === 2 &&
         (target.entityType === 'PLACE' || target.entityType === 'KNOWLEDGE_ENTRY')
-      if (target.snapshotSchemaVersion !== 1 && !isDirectProvenanceSnapshot) invalidSnapshot()
+      const isVersionedVenueSnapshot =
+        target.snapshotSchemaVersion === 2 && target.entityType === 'VENUE'
+      if (
+        target.snapshotSchemaVersion !== 1 &&
+        !isDirectProvenanceSnapshot &&
+        !isVersionedVenueSnapshot
+      )
+        invalidSnapshot()
       const targetState = input.snapshotSide === 'BEFORE' ? target.beforeState : target.afterState
 
       if (target.entityType === 'VENUE') {

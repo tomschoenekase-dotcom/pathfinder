@@ -5,6 +5,7 @@ import {
   failGuestChatTurnAction,
   guestChatRequestHash,
   markGuestChatProviderDispatchedAction,
+  observeGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
 } from './guest-chat-turn-actions'
 
@@ -58,6 +59,33 @@ describe('guest chat turn actions', () => {
     expect(
       (client as unknown as { $transaction: ReturnType<typeof vi.fn> }).$transaction,
     ).not.toHaveBeenCalled()
+  })
+
+  it('records a strict provider observation with its outcome evidence', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const operation = {
+      tenantId: request.tenantId,
+      venueId: request.venueId,
+      anonymousToken: request.anonymousToken,
+      requestId: request.requestId,
+      turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      kind: 'QUERY_EMBEDDING' as const,
+      outcomeCode: 'SUCCEEDED',
+      usageReference: null,
+    }
+
+    await expect(
+      observeGuestChatProviderOperationAction({
+        client: { guestChatProviderOperation: { updateMany } } as never,
+        operation,
+      }),
+    ).resolves.toEqual({ observed: true })
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ outcomeCode: 'SUCCEEDED', usageReference: null }),
+      }),
+    )
   })
 
   it('reserves monotonic turn/message sequences and two stable provider receipts atomically', async () => {

@@ -132,7 +132,7 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
     })
     expect(rows.map((row) => row.entityType)).toEqual(['VENUE', 'PLACE', 'KNOWLEDGE_ENTRY'])
     expect(rows.every((row) => row.operation === 'CREATE' && row.actorId === actorId)).toBe(true)
-    expect(rows.map((row) => row.snapshotSchemaVersion)).toEqual([1, 2, 2])
+    expect(rows.map((row) => row.snapshotSchemaVersion)).toEqual([2, 2, 2])
     expect(rows[0]!.sequence < rows[1]!.sequence && rows[1]!.sequence < rows[2]!.sequence).toBe(
       true,
     )
@@ -363,9 +363,16 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
       }),
     ).toBe(beforeCount)
 
-    await testRouter
-      .createCaller(ctx('MANAGER'))
-      .place.update({ id: placeId, name: 'Changed place' })
+    const placeBeforeUpdate = await db.place.findFirstOrThrow({
+      where: { id: placeId, tenantId },
+      select: { venueId: true, updatedAt: true },
+    })
+    await testRouter.createCaller(ctx('MANAGER')).place.update({
+      id: placeId,
+      venueId: placeBeforeUpdate.venueId,
+      expectedUpdatedAt: placeBeforeUpdate.updatedAt,
+      name: 'Changed place',
+    })
     const latest = await db.contentVersion.findFirstOrThrow({
       where: { tenantId, entityType: 'PLACE', entityId: placeId },
       orderBy: { sequence: 'desc' },
@@ -393,7 +400,16 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
       db.place.findFirstOrThrow({ where: { id: placeId, tenantId } }),
     ).resolves.toMatchObject({ name: 'Original place' })
 
-    await caller.place.update({ id: placeId, name: 'Intervening edit' })
+    const placeBeforeInterveningEdit = await db.place.findFirstOrThrow({
+      where: { id: placeId, tenantId },
+      select: { venueId: true, updatedAt: true },
+    })
+    await caller.place.update({
+      id: placeId,
+      venueId: placeBeforeInterveningEdit.venueId,
+      expectedUpdatedAt: placeBeforeInterveningEdit.updatedAt,
+      name: 'Intervening edit',
+    })
     await expect(
       caller.contentHistory.revert({
         versionId: original.id,
@@ -579,7 +595,15 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
 
   it('restores a deleted knowledge entry and keeps deletion in immutable history', async () => {
     const caller = testRouter.createCaller(ctx('MANAGER'))
-    await caller.knowledge.delete({ id: knowledgeId })
+    const knowledgeBeforeDelete = await db.venueKnowledgeEntry.findFirstOrThrow({
+      where: { id: knowledgeId, tenantId },
+      select: { venueId: true, updatedAt: true },
+    })
+    await caller.knowledge.delete({
+      id: knowledgeId,
+      venueId: knowledgeBeforeDelete.venueId,
+      expectedUpdatedAt: knowledgeBeforeDelete.updatedAt,
+    })
     const deleted = (
       await caller.contentHistory.list({ entityType: 'KNOWLEDGE_ENTRY', entityId: knowledgeId })
     )[0]!
