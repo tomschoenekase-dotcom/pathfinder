@@ -1,11 +1,11 @@
 # Railway staging configuration
 
-For the active day-to-day feature and promotion path, see
-[`staging-release-workflow.md`](staging-release-workflow.md).
-
 > **Migration instruction status: INCIDENT STOP — DO NOT EXECUTE EXTERNAL DATABASE COMMANDS.**
 > The active stop in [`database-incident-stop.md`](database-incident-stop.md) supersedes every
 > external migration, seed, and database-write step in this runbook.
+
+For the active day-to-day feature and promotion path, see
+[`staging-release-workflow.md`](staging-release-workflow.md).
 
 This runbook creates a staging release boundary for PathFinder. It does not
 authorize access to an account, provision resources, change credentials, or
