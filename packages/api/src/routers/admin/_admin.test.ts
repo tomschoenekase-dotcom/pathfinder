@@ -526,6 +526,17 @@ describe('admin router', () => {
     expect(visitorSessionFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         distinct: ['visitorId'],
+        where: expect.objectContaining({ experienceScope: 'PUBLIC' }),
+      }),
+    )
+    expect(visitorSessionCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ experienceScope: 'PUBLIC' }),
+      }),
+    )
+    expect(messageCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ session: { experienceScope: 'PUBLIC' } }),
       }),
     )
   })

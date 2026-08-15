@@ -223,25 +223,25 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: 'dfe095d1ca9373227d2238a089b4b13f473d096e5b8438cef4e891b9ca1ef70b',
+    hash: '4324b44a2ae2990f0f9f93dc9a44176f786e5ee93ee59f2d08cc4a8dc51f6fa4',
     policy: 'public-venue-id',
   },
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '53ee21670e01df2748f02d1fffcf03f8aa0653ace9f7626fc4634625fd48f6d1',
+    hash: '10d43fc1b577cb2d44e86cdf5259dfb5fa1190447ef037c8e861b5a1204d7ea1',
     policy: 'public-venue-id',
   },
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '38686c2c51decea761d384847af32cc2488abb5da04e6a264d587a27887c76bb',
+    hash: 'a0b3e2a9d6e5dd6aa9c9a3f948ce6732c7d1c5933274d3bf3521cf14b997b07f',
     policy: 'public-venue-session-token',
   },
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: 'cc5671a14c3ec0d63578dcd44f80726777597378603178bce1388ea9f0d93a64',
+    hash: '4f405b4207389854cdc15e07ffe078329dcfd1681845f27e7b70997c9f459f34',
     policy: 'public-venue-slug',
   },
   {
@@ -465,7 +465,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '078f87ab5b3961b369533d7182e91722f3aa9d45db444748597842670d2bc1f3',
+    hash: '80267ca4cc54cc7a3c2c57c621a999d7dd87ec119af9398c3a6bf6425518b7fd',
     policy: 'tenant-and-venue',
   },
   {

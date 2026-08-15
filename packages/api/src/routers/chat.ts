@@ -30,6 +30,7 @@ import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
 import { router } from '../core'
+import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
@@ -117,6 +118,29 @@ type PublicChatVenue = {
   defaultCenterLat: number | null
   defaultCenterLng: number | null
   isActive: boolean
+  secondLayerEnabled: boolean
+  secondLayerLabel: string
+  secondLayerAccessKey: string | null
+}
+
+type ChatExperienceScope = 'PUBLIC' | 'SECOND_LAYER'
+
+function authorizeChatExperience(
+  venue: Pick<PublicChatVenue, 'tenantId' | 'secondLayerEnabled' | 'secondLayerAccessKey'>,
+  session: TRPCContext['session'],
+  secondLayerKey?: string,
+): ChatExperienceScope {
+  if (secondLayerKey === undefined) return 'PUBLIC'
+  if (
+    !venue.secondLayerEnabled ||
+    venue.secondLayerAccessKey !== secondLayerKey ||
+    session.userId === null ||
+    session.activeTenantId !== venue.tenantId ||
+    session.role === null
+  ) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue experience not found' })
+  }
+  return 'SECOND_LAYER'
 }
 
 function elapsedMilliseconds(startedAt: number): number {
@@ -166,6 +190,9 @@ const admittedChatSendProcedure = publicProcedure
              default_center_lat AS "defaultCenterLat",
              default_center_lng AS "defaultCenterLng",
              is_active AS "isActive"
+             ,second_layer_enabled AS "secondLayerEnabled"
+             ,second_layer_label AS "secondLayerLabel"
+             ,second_layer_access_key AS "secondLayerAccessKey"
       FROM venues WHERE id = ${input.venueId} LIMIT 1
     `
 
@@ -174,7 +201,9 @@ const admittedChatSendProcedure = publicProcedure
     }
     if (!chatVenue.isActive) throw venueUnavailable()
 
-    return next({ ctx: { ...ctx, chatVenue } })
+    const experienceScope = authorizeChatExperience(chatVenue, ctx.session, input.secondLayerKey)
+
+    return next({ ctx: { ...ctx, chatVenue, experienceScope } })
   })
   .use(async ({ ctx, input, next }) => {
     const ingressAllowed = await checkRateLimit(
@@ -285,12 +314,21 @@ export const chatRouter = router({
     // only knows the venueId, not the tenantId. No tenant_id bind needed in the
     // WHERE because we are resolving the tenant FROM this row, not filtering by it.
     const [venue] = await ctx.db.$queryRaw<
-      { id: string; tenantId: string; guideMode: string | null; isActive: boolean }[]
+      {
+        id: string
+        tenantId: string
+        guideMode: string | null
+        isActive: boolean
+        secondLayerEnabled: boolean
+        secondLayerAccessKey: string | null
+      }[]
     >`
       SELECT id,
              tenant_id AS "tenantId",
              guide_mode AS "guideMode",
              is_active AS "isActive"
+             ,second_layer_enabled AS "secondLayerEnabled"
+             ,second_layer_access_key AS "secondLayerAccessKey"
       FROM venues WHERE id = ${input.venueId} LIMIT 1
     `
 
@@ -298,6 +336,7 @@ export const chatRouter = router({
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
     }
     if (!venue.isActive) throw venueUnavailable()
+    const experienceScope = authorizeChatExperience(venue, ctx.session, input.secondLayerKey)
 
     const isNonLocation = venue.guideMode === 'non_location'
     const updateData: Record<string, unknown> = {
@@ -319,14 +358,19 @@ export const chatRouter = router({
         tenantId: venue.tenantId,
         venueId: input.venueId,
         anonymousToken: input.anonymousToken,
+        experienceScope,
         latestLat: isNonLocation ? null : (input.lat ?? null),
         latestLng: isNonLocation ? null : (input.lng ?? null),
         lastActiveAt: new Date(),
         ...(input.visitorId !== undefined ? { visitorId: input.visitorId } : {}),
       },
       update: updateData,
-      select: { id: true },
+      select: { id: true, experienceScope: true },
     })
+
+    if ((session.experienceScope ?? 'PUBLIC') !== experienceScope) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Chat session not found' })
+    }
 
     return { sessionId: session.id }
   }),
@@ -343,6 +387,7 @@ export const chatRouter = router({
     let persistenceMs = 0
     const trimmedInput = input.message
     const venue = ctx.chatVenue
+    const includeSecondLayer = ctx.experienceScope === 'SECOND_LAYER'
 
     const guideMode = venue.guideMode ?? 'location_aware'
     const callerLocation =
@@ -372,6 +417,7 @@ export const chatRouter = router({
       lat: input.lat ?? null,
       lng: input.lng ?? null,
       retainLocation: guideMode !== 'non_location',
+      experienceScope: ctx.experienceScope,
     }
     let reservation: Awaited<ReturnType<typeof reserveGuestChatTurnAction>>
     try {
@@ -546,6 +592,11 @@ export const chatRouter = router({
             isActive: true,
             startsAt: { lte: operationalNow },
             expiresAt: { gt: operationalNow },
+            ...(includeSecondLayer
+              ? {}
+              : {
+                  OR: [{ placeId: null }, { place: { visibility: 'PUBLIC' } }],
+                }),
           },
           select: {
             updateType: true,
@@ -591,12 +642,14 @@ export const chatRouter = router({
           userLat: rankingLocation?.lat ?? null,
           userLng: rankingLocation?.lng ?? null,
           limit: NEAREST_PLACES_LIMIT,
+          includeSecondLayer,
         }),
         searchKnowledgeByEmbedding({
           queryEmbedding,
           venueId: input.venueId,
           tenantId: venue.tenantId,
           limit: KNOWLEDGE_ENTRIES_LIMIT,
+          includeSecondLayer,
         }).catch(() => []),
       ])
       relevantPlaces = hasLiveLocation
@@ -609,7 +662,12 @@ export const chatRouter = router({
     } else {
       relevantKnowledgeEntries = []
       const fallbackPlaces = await ctx.db.place.findMany({
-        where: { venueId: input.venueId, tenantId: venue.tenantId, isActive: true },
+        where: {
+          venueId: input.venueId,
+          tenantId: venue.tenantId,
+          isActive: true,
+          ...(includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
+        },
         select: {
           id: true,
           name: true,
@@ -666,6 +724,7 @@ export const chatRouter = router({
             venueId: input.venueId,
             tenantId: venue.tenantId,
             isActive: true,
+            ...(includeSecondLayer ? {} : { visibility: 'PUBLIC' }),
           },
           select: {
             name: true,
@@ -687,7 +746,8 @@ export const chatRouter = router({
 
     // 5. Build context — history arrives newest-first, reverse to oldest-first for Claude
     const engagementMode = tenantEngagement?.engagementMode ?? 'STOIC'
-    const engagementGatePassed = rollEngagementGate(engagementMode)
+    const engagementGatePassed =
+      ctx.experienceScope === 'PUBLIC' && rollEngagementGate(engagementMode)
     const selectedEngagementQuestion = engagementGatePassed
       ? selectAuthoredQuestion(engagementQuestions)
       : null
@@ -903,111 +963,125 @@ export const chatRouter = router({
     // current answer names. Location presentation data is admitted only when the
     // guest supplied a usable live position; descriptive cards remain useful in
     // non-location and location-denied experiences.
-    if (fallbackFailureCode) {
+    // Employee conversations remain distinguishable through VisitorSession.experienceScope,
+    // but must not feed visitor analytics, engagement prompts, content-gap rollups, or customer
+    // weekly reports until those products have an explicit employee scope.
+    if (ctx.experienceScope === 'PUBLIC') {
+      if (fallbackFailureCode) {
+        try {
+          await emitEvent({
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            sessionId: session.id,
+            userMessageId,
+            eventType: 'message.fallback',
+            metadata: {
+              failureStage: 'generation',
+              failureCode: fallbackFailureCode,
+              ...timingMetadata,
+            },
+          })
+        } catch {
+          // Reliability analytics are best-effort and must not break guest chat.
+        }
+      }
+
       try {
         await emitEvent({
           tenantId: venue.tenantId,
           venueId: input.venueId,
           sessionId: session.id,
           userMessageId,
-          eventType: 'message.fallback',
+          eventType: 'message.sent',
           metadata: {
-            failureStage: 'generation',
-            failureCode: fallbackFailureCode,
+            messageLength: trimmedInput.length,
+          },
+        })
+      } catch {
+        // Interaction analytics are best-effort and must not break guest chat.
+      }
+
+      try {
+        await emitEvent({
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          sessionId: session.id,
+          userMessageId,
+          eventType: 'message.received',
+          metadata: {
+            responseLength: assistantResponse.length,
+            placesReturned: mentionedPlaces.length,
+            fallback: fallbackFailureCode !== null,
+            retrievalMode: queryEmbedding
+              ? hasLiveLocation
+                ? 'semantic'
+                : 'semantic-without-live-location'
+              : hasLiveLocation
+                ? 'geo'
+                : rankingLocation
+                  ? 'default-center-without-live-location'
+                  : 'importance-without-location',
+            ...(fallbackFailureCode ? { failureCode: fallbackFailureCode } : {}),
             ...timingMetadata,
           },
         })
       } catch {
-        // Reliability analytics are best-effort and must not break guest chat.
+        // Response analytics are best-effort and must not break guest chat.
       }
-    }
 
-    try {
-      await emitEvent({
-        tenantId: venue.tenantId,
-        venueId: input.venueId,
-        sessionId: session.id,
-        userMessageId,
-        eventType: 'message.sent',
-        metadata: {
-          messageLength: trimmedInput.length,
-        },
-      })
-    } catch {
-      // Interaction analytics are best-effort and must not break guest chat.
-    }
-
-    try {
-      await emitEvent({
-        tenantId: venue.tenantId,
-        venueId: input.venueId,
-        sessionId: session.id,
-        userMessageId,
-        eventType: 'message.received',
-        metadata: {
-          responseLength: assistantResponse.length,
-          placesReturned: mentionedPlaces.length,
-          fallback: fallbackFailureCode !== null,
-          retrievalMode: queryEmbedding
-            ? hasLiveLocation
-              ? 'semantic'
-              : 'semantic-without-live-location'
-            : hasLiveLocation
-              ? 'geo'
-              : rankingLocation
-                ? 'default-center-without-live-location'
-                : 'importance-without-location',
-          ...(fallbackFailureCode ? { failureCode: fallbackFailureCode } : {}),
-          ...timingMetadata,
-        },
-      })
-    } catch {
-      // Response analytics are best-effort and must not break guest chat.
-    }
-
-    if (selectedEngagementQuestion || allowAiInventedQuestion) {
-      try {
-        await emitEvent({
-          tenantId: venue.tenantId,
-          venueId: input.venueId,
-          sessionId: session.id,
-          eventType: 'engagement_question.asked',
-          metadata: {
-            engagementQuestionId: selectedEngagementQuestion?.id ?? null,
-            intensity: selectedEngagementQuestion?.intensity ?? null,
-            aiInventionAllowed: allowAiInventedQuestion,
-            mode: engagementMode,
-          },
-        })
-      } catch {
-        // Engagement analytics are best-effort and must not break guest chat.
+      if (selectedEngagementQuestion || allowAiInventedQuestion) {
+        try {
+          await emitEvent({
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            sessionId: session.id,
+            eventType: 'engagement_question.asked',
+            metadata: {
+              engagementQuestionId: selectedEngagementQuestion?.id ?? null,
+              intensity: selectedEngagementQuestion?.intensity ?? null,
+              aiInventionAllowed: allowAiInventedQuestion,
+              mode: engagementMode,
+            },
+          })
+        } catch {
+          // Engagement analytics are best-effort and must not break guest chat.
+        }
       }
-    }
 
-    // Backend-only low-confidence detection (decision E). Invisible to the guest —
-    // the reply above already projected confidence; this only feeds content-gap
-    // analytics. No extra model call: reuse the retrieval distance, or fall back to
-    // a zero-token reply heuristic when the geo path ran (no semantic score).
-    const topDistance = queryEmbedding ? (relevantPlaces[0]?.distance ?? null) : null
-    const isLowConfidence = queryEmbedding
-      ? topDistance === null || topDistance > LOW_CONFIDENCE_DISTANCE_THRESHOLD
-      : NO_INFO_REPLY_PATTERN.test(assistantResponse)
+      // Backend-only low-confidence detection (decision E). Invisible to the guest —
+      // the reply above already projected confidence; this only feeds content-gap
+      // analytics. No extra model call: reuse the retrieval distance, or fall back to
+      // a zero-token reply heuristic when the geo path ran (no semantic score).
+      const retrievalDistances = [
+        relevantPlaces[0]?.distance,
+        relevantKnowledgeEntries[0]?.distance,
+      ].filter((distance): distance is number => typeof distance === 'number')
+      const topDistance = queryEmbedding
+        ? retrievalDistances.length > 0
+          ? Math.min(...retrievalDistances)
+          : null
+        : null
+      const isLowConfidence =
+        NO_INFO_REPLY_PATTERN.test(assistantResponse) ||
+        (queryEmbedding !== null &&
+          (topDistance === null || topDistance > LOW_CONFIDENCE_DISTANCE_THRESHOLD))
 
-    if (isLowConfidence) {
-      try {
-        await emitEvent({
-          tenantId: venue.tenantId,
-          venueId: input.venueId,
-          sessionId: session.id,
-          userMessageId,
-          eventType: 'message.low_confidence',
-          metadata: {
-            questionLength: trimmedInput.length,
-            score: topDistance,
-          },
-        })
-      } catch {
-        // Low-confidence analytics are best-effort and must not break guest chat.
+      if (isLowConfidence) {
+        try {
+          await emitEvent({
+            tenantId: venue.tenantId,
+            venueId: input.venueId,
+            sessionId: session.id,
+            userMessageId,
+            eventType: 'message.low_confidence',
+            metadata: {
+              questionLength: trimmedInput.length,
+              score: topDistance,
+            },
+          })
+        } catch {
+          // Low-confidence analytics are best-effort and must not break guest chat.
+        }
       }
     }
 
@@ -1056,12 +1130,23 @@ export const chatRouter = router({
     // venue-scoped session identity. Browser tokens are generated per venue, and
     // this lookup must never select a session from another venue.
     const [session] = await ctx.db.$queryRaw<
-      { id: string | null; venueId: string; tenantId: string; isActive: boolean }[]
+      {
+        id: string | null
+        venueId: string
+        tenantId: string
+        isActive: boolean
+        experienceScope: string | null
+        secondLayerEnabled: boolean
+        secondLayerAccessKey: string | null
+      }[]
     >`
         SELECT visitor_sessions.id,
                venues.id AS "venueId",
                venues.tenant_id AS "tenantId",
                venues.is_active AS "isActive"
+               ,visitor_sessions.experience_scope AS "experienceScope"
+               ,venues.second_layer_enabled AS "secondLayerEnabled"
+               ,venues.second_layer_access_key AS "secondLayerAccessKey"
         FROM venues
         LEFT JOIN visitor_sessions
           ON visitor_sessions.venue_id = venues.id
@@ -1074,7 +1159,11 @@ export const chatRouter = router({
     // No session yet — fresh visitor, return empty history
     if (!session) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
     if (!session.isActive) throw venueUnavailable()
+    const experienceScope = authorizeChatExperience(session, ctx.session, input.secondLayerKey)
     if (!session.id) {
+      return { messages: [] }
+    }
+    if ((session.experienceScope ?? 'PUBLIC') !== experienceScope) {
       return { messages: [] }
     }
 

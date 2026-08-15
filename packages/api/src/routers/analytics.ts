@@ -564,6 +564,7 @@ export const analyticsRouter = router({
       ctx.db.visitorSession.findMany({
         where: {
           tenantId: ctx.session.activeTenantId,
+          experienceScope: 'PUBLIC',
           visitorId: { not: null },
           startedAt: { gte: startDate },
         },
@@ -572,6 +573,7 @@ export const analyticsRouter = router({
       ctx.db.visitorSession.count({
         where: {
           tenantId: ctx.session.activeTenantId,
+          experienceScope: 'PUBLIC',
           startedAt: { gte: startDate },
         },
       }),
@@ -581,6 +583,7 @@ export const analyticsRouter = router({
       ctx.db.message.count({
         where: {
           tenantId: ctx.session.activeTenantId,
+          session: { experienceScope: 'PUBLIC' },
           createdAt: { gte: startDate },
         },
       }),

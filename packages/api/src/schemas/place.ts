@@ -7,6 +7,7 @@ const ItemTypeInput = PlaceInput.shape.itemType
 
 export const CreatePlaceInput = PlaceInput.extend({
   venueId: z.string().cuid(),
+  visibility: z.enum(['PUBLIC', 'SECOND_LAYER']).default('PUBLIC'),
 }).strict()
 
 export const UpdatePlaceInput = z
@@ -30,6 +31,7 @@ export const UpdatePlaceInput = z
       .optional()
       .transform((v) => (!v || v === '' ? null : v)),
     isActive: z.boolean().optional(),
+    visibility: z.enum(['PUBLIC', 'SECOND_LAYER']).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

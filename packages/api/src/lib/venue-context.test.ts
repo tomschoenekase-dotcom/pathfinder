@@ -41,7 +41,7 @@ const relevantPlaces = [
 
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v3')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v4')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -184,6 +184,11 @@ describe('formatDistance', () => {
 })
 
 describe('buildVenueSystemPrompt', () => {
+  it('requires a graceful unknown instead of inferring missing venue facts', () => {
+    const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: null, userLng: null })
+    expect(prompt).toContain('Never infer a missing policy, hour, location, accessibility detail')
+    expect(prompt).toContain('Do not fabricate an answer to appear helpful')
+  })
   it('contains the venue name', () => {
     const prompt = buildVenueSystemPrompt({ venue, relevantPlaces, userLat: 40.7, userLng: -74.0 })
     expect(prompt).toContain('City Zoo')

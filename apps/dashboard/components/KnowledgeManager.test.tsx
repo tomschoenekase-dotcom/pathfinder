@@ -83,6 +83,7 @@ describe('KnowledgeManager', () => {
         category: 'Visitor Etiquette',
         content: 'Please keep voices low after six.',
         isEnabled: true,
+        visibility: 'PUBLIC',
       }),
     )
     expect(mocks.refresh).toHaveBeenCalledOnce()

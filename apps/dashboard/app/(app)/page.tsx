@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { DashboardOverview, type ClientPortalTask } from '../../components/DashboardOverview'
-import { buildGuestChatUrl } from '../../lib/guest-chat-url'
+import { buildGuestChatUrl, buildSecondLayerChatUrl } from '../../lib/guest-chat-url'
 import { createDashboardCaller } from '../../lib/server-caller'
 
 type DashboardIndexPageProps = {
@@ -37,7 +37,10 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0] ?? null
   const selectedLifecycle = lifecycleRows.find((row) => row.venueId === selectedVenue?.id)
   if (!selectedLifecycle) throw new Error('Portal lifecycle evidence is unavailable')
-  const taskEvidence = await caller.portal.getVenueTaskEvidence({ venueId: selectedVenue!.id })
+  const [taskEvidence, secondLayer] = await Promise.all([
+    caller.portal.getVenueTaskEvidence({ venueId: selectedVenue!.id }),
+    caller.venue.getSecondLayer({ venueId: selectedVenue!.id }),
+  ])
   type OperationalUpdateItem = (typeof operationalUpdates)[number]
   const now = new Date()
   const activeAlerts = operationalUpdates.filter(
@@ -133,6 +136,19 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       activeUpdates={activeAlerts}
       chatUrl={chatUrl}
       tasks={tasks.slice(0, 6)}
+      secondLayer={{
+        enabled: secondLayer.secondLayerEnabled,
+        label: secondLayer.secondLayerLabel,
+        updatedAt: secondLayer.updatedAt.toISOString(),
+        url: secondLayer.secondLayerEnabled
+          ? buildSecondLayerChatUrl(
+              process.env.NEXT_PUBLIC_WEB_URL,
+              secondLayer.slug,
+              secondLayer.secondLayerAccessKey,
+              { allowLoopbackHttp: process.env.NODE_ENV === 'development' },
+            )
+          : null,
+      }}
       {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
     />
   )

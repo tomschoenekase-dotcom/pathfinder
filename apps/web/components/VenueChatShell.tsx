@@ -114,6 +114,13 @@ export function VenueChatShell(props: {
             >
               {guideName}
             </h1>
+            {venue.experienceLabel ? (
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${banner ? 'bg-white/20 text-white' : 'bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)]'}`}
+              >
+                {venue.experienceLabel}
+              </span>
+            ) : null}
           </div>
           <div className="mt-2 flex items-center justify-between gap-3">
             <LanguagePicker value={language} onChange={setLanguage} />

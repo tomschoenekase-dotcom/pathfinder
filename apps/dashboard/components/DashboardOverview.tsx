@@ -5,6 +5,7 @@ import { useOrganization } from '@clerk/nextjs'
 import { ArrowUpRight, CircleHelp, Megaphone, MessageCircle, Sparkles } from 'lucide-react'
 
 import type { ClientPortalLifecycleView } from '@pathfinder/contracts/client-portal-lifecycle'
+import { SecondLayerSettings } from './SecondLayerSettings'
 
 type DashboardOverviewProps = {
   venue: {
@@ -18,6 +19,12 @@ type DashboardOverviewProps = {
   chatUrl?: string | null
   impersonatedTenantName?: string
   tasks?: ClientPortalTask[]
+  secondLayer?: {
+    enabled: boolean
+    label: string
+    url: string | null
+    updatedAt: string
+  }
 }
 
 export type ClientPortalTask = {
@@ -37,6 +44,7 @@ export function DashboardOverview({
   chatUrl,
   impersonatedTenantName,
   tasks,
+  secondLayer,
 }: DashboardOverviewProps) {
   const { organization } = useOrganization()
   const orgName = impersonatedTenantName ?? organization?.name ?? venue.name
@@ -130,6 +138,16 @@ export function DashboardOverview({
             </a>
           ) : null}
         </header>
+
+        {secondLayer?.enabled ? (
+          <SecondLayerSettings
+            venueId={venue.id}
+            enabled={secondLayer.enabled}
+            initialLabel={secondLayer.label}
+            initialUrl={secondLayer.url}
+            initialUpdatedAt={secondLayer.updatedAt}
+          />
+        ) : null}
 
         <section className="overflow-hidden rounded-[2rem] bg-pf-deep text-white shadow-sm">
           <div className="grid gap-8 px-6 py-8 sm:px-9 sm:py-10 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">

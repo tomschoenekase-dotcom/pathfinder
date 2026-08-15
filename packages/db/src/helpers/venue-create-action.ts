@@ -33,6 +33,8 @@ export const venueListSelect = {
   chatLogoUrl: true,
   chatBannerUrl: true,
   isActive: true,
+  secondLayerEnabled: true,
+  secondLayerLabel: true,
   createdAt: true,
   updatedAt: true,
   _count: { select: { places: true } },

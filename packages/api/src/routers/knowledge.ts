@@ -56,6 +56,7 @@ const knowledgeEntrySelect = {
   category: true,
   content: true,
   isEnabled: true,
+  visibility: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -72,6 +73,20 @@ async function assertVenueBelongsToTenant(
 
   if (!venue) {
     throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+  }
+}
+
+async function assertSecondLayerEnabled(db: Db, venueId: string, tenantId: string): Promise<void> {
+  const venue = await db.venue.findFirst({
+    where: { id: venueId, tenantId },
+    select: { id: true, secondLayerEnabled: true },
+  })
+  if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+  if (!venue.secondLayerEnabled) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'The employee experience is not enabled for this venue.',
+    })
   }
 }
 
@@ -96,6 +111,10 @@ export const knowledgeRouter = router({
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
 
+      if (input.visibility === 'SECOND_LAYER') {
+        await assertSecondLayerEnabled(ctx.db, input.venueId, tenantId)
+      }
+
       try {
         return await createLegacyKnowledgeAction(
           {
@@ -107,6 +126,7 @@ export const knowledgeRouter = router({
               category: input.category,
               content: input.content,
               isEnabled: input.isEnabled,
+              visibility: input.visibility,
             },
           },
           ctx.db,
@@ -157,6 +177,10 @@ export const knowledgeRouter = router({
       const tenantId = ctx.session.activeTenantId
       const { id, venueId, expectedUpdatedAt, ...raw } = input
       const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
+
+      if (input.visibility === 'SECOND_LAYER') {
+        await assertSecondLayerEnabled(ctx.db, venueId, tenantId)
+      }
 
       try {
         return await updateLegacyKnowledgeAction(

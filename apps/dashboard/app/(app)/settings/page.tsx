@@ -363,7 +363,7 @@ function PendingInvitationsTable({
             <tr key={invitation.id} className="border-b border-pf-light/60 last:border-0">
               <td className="px-4 py-3 font-medium text-pf-deep">{invitation.emailAddress}</td>
               <td className="px-4 py-3 text-pf-deep/60">
-                {invitation.role === 'org:admin' ? 'Manager' : 'Staff'}
+                {invitation.role === 'org:admin' ? 'Owner' : 'Staff'}
               </td>
               <td className="px-4 py-3">
                 <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
@@ -396,6 +396,7 @@ export default function SettingsPage() {
     try {
       const settings = await client.tenant.getSettings.query()
       setData(settings)
+      if (settings.canManageTeam) void loadInvitations()
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -414,7 +415,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     void loadSettings()
-    void loadInvitations()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -486,9 +486,16 @@ export default function SettingsPage() {
         <section className="rounded-3xl border border-pf-primary/10 bg-white p-6 shadow-sm">
           <SectionHeader icon={Users} title="Team" />
 
-          <InviteForm client={client} onInvited={loadInvitations} />
-
-          <PendingInvitationsTable invitations={invitations} />
+          {data?.canManageTeam ? (
+            <>
+              <InviteForm client={client} onInvited={loadInvitations} />
+              <PendingInvitationsTable invitations={invitations} />
+            </>
+          ) : data ? (
+            <p className="text-sm leading-6 text-pf-deep/60">
+              Owners manage invitations. You can still see who currently has access.
+            </p>
+          ) : null}
 
           {loading ? (
             <p className="mt-6 text-sm text-pf-deep/50">Loading team members...</p>

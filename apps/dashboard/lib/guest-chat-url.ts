@@ -66,3 +66,17 @@ export function buildGuideItemEntryUrl(
     return null
   }
 }
+
+export function buildSecondLayerChatUrl(
+  configuredOrigin: string | null | undefined,
+  venueSlug: string,
+  accessKey: string | null | undefined,
+  options: GuestChatUrlOptions = {},
+): string | null {
+  const guestUrl = buildGuestChatUrl(configuredOrigin, venueSlug, options)
+  const key = accessKey?.trim()
+  if (!guestUrl || !key || !/^[0-9a-f-]{36}$/iu.test(key)) return null
+  const url = new URL(guestUrl)
+  url.pathname = `/${encodeURIComponent(venueSlug.trim())}/layer/${encodeURIComponent(key)}/chat`
+  return url.toString()
+}

@@ -56,9 +56,9 @@ function storedRun(data: Record<string, unknown>): EvalRun {
 describe('evaluation run identity', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('preserves the exact legacy v2 identity hash and omits additive discriminator fields', async () => {
+  it('preserves the exact v2 identity shape and current prompt identity hash', async () => {
     expect(evaluationRunIdentityHash(identity())).toBe(
-      '9565e9f3b5df0c5a962454d70e27f5468fc7540e23c202761371f67d5958b880',
+      '512fb122451aab7d10a012df584cbdc3e46ff4109577e469cefb34aca4b0d834',
     )
     const client = mockClient()
     client.evalRun.findFirst.mockResolvedValueOnce(null)

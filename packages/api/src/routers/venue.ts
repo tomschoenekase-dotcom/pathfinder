@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -134,6 +134,8 @@ const venueListSelect = {
   chatLogoUrl: true,
   chatBannerUrl: true,
   isActive: true,
+  secondLayerEnabled: true,
+  secondLayerLabel: true,
   createdAt: true,
   updatedAt: true,
   _count: { select: { places: true } },
@@ -168,7 +170,14 @@ const venueAiConfigSelect = {
 
 export const venueRouter = router({
   getBySlug: publicProcedure
-    .input(z.object({ slug: z.string().min(1).max(200) }).strict())
+    .input(
+      z
+        .object({
+          slug: z.string().min(1).max(200),
+          secondLayerKey: z.string().uuid().optional(),
+        })
+        .strict(),
+    )
     .query(async ({ ctx, input }) => {
       const globallyAllowed = await checkRateLimit(
         'ratelimit:venue-lookup:ingress:global',
@@ -188,6 +197,7 @@ export const venueRouter = router({
       const [venue] = await ctx.db.$queryRaw<
         {
           id: string
+          tenantId: string
           name: string
           description: string | null
           category: string | null
@@ -201,9 +211,12 @@ export const venueRouter = router({
           chatLogoUrl: string | null
           chatBannerUrl: string | null
           isActive: boolean
+          secondLayerEnabled: boolean
+          secondLayerLabel: string
+          secondLayerAccessKey: string | null
         }[]
       >`
-        SELECT id, name, description, category,
+        SELECT id, tenant_id AS "tenantId", name, description, category,
                guide_mode            AS "guideMode",
                default_center_lat    AS "defaultCenterLat",
                default_center_lng    AS "defaultCenterLng",
@@ -214,6 +227,9 @@ export const venueRouter = router({
                chat_logo_url         AS "chatLogoUrl",
                chat_banner_url       AS "chatBannerUrl",
                is_active             AS "isActive"
+               ,second_layer_enabled AS "secondLayerEnabled"
+               ,second_layer_label AS "secondLayerLabel"
+               ,second_layer_access_key AS "secondLayerAccessKey"
         FROM venues WHERE slug = ${input.slug} LIMIT 1
       `
 
@@ -223,7 +239,37 @@ export const venueRouter = router({
       const { isActive, ...publicVenue } = venue
       if (!isActive) throw publicVenueUnavailable()
 
-      return publicVenue
+      const isSecondLayer = input.secondLayerKey !== undefined
+      if (
+        isSecondLayer &&
+        (!venue.secondLayerEnabled ||
+          venue.secondLayerAccessKey !== input.secondLayerKey ||
+          ctx.session.userId === null ||
+          ctx.session.activeTenantId !== venue.tenantId ||
+          ctx.session.role === null)
+      ) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue experience not found' })
+      }
+
+      const {
+        secondLayerAccessKey: _secret,
+        secondLayerEnabled: _enabled,
+        secondLayerLabel: _label,
+        tenantId: _tenantId,
+        ...safeVenue
+      } = publicVenue
+      void _secret
+      void _enabled
+      void _label
+      void _tenantId
+
+      return isSecondLayer
+        ? {
+            ...safeVenue,
+            experienceScope: 'SECOND_LAYER' as const,
+            experienceLabel: venue.secondLayerLabel,
+          }
+        : safeVenue
     }),
 
   list: tenantProcedure.query(async ({ ctx }) => {
@@ -247,6 +293,97 @@ export const venueRouter = router({
       }
 
       return venue
+    }),
+
+  getSecondLayer: tenantProcedure
+    .input(z.object({ venueId: z.string().cuid() }).strict())
+    .query(async ({ ctx, input }) => {
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId: ctx.session.activeTenantId },
+        select: {
+          id: true,
+          slug: true,
+          secondLayerEnabled: true,
+          secondLayerLabel: true,
+          secondLayerAccessKey: true,
+          updatedAt: true,
+        },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      return venue
+    }),
+
+  updateSecondLayer: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+          label: z.string().trim().min(1).max(40),
+          rotateLink: z.boolean().default(false),
+          expectedUpdatedAt: z.coerce.date(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: {
+          id: true,
+          secondLayerEnabled: true,
+          secondLayerLabel: true,
+          secondLayerAccessKey: true,
+          updatedAt: true,
+        },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      if (!venue.secondLayerEnabled) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'The premium second layer is not enabled for this venue.',
+        })
+      }
+      const accessKey = input.rotateLink ? randomUUID() : venue.secondLayerAccessKey
+      if (!accessKey)
+        throw new TRPCError({ code: 'CONFLICT', message: 'Second layer link missing' })
+      const nextUpdatedAt = new Date(Math.max(Date.now(), venue.updatedAt.getTime() + 1))
+      await ctx.db.$transaction(async (tx) => {
+        const changed = await tx.venue.updateMany({
+          where: { id: input.venueId, tenantId, updatedAt: input.expectedUpdatedAt },
+          data: {
+            secondLayerLabel: input.label,
+            secondLayerAccessKey: accessKey,
+            updatedAt: nextUpdatedAt,
+          },
+        })
+        if (changed.count !== 1) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Employee assistant settings changed; refresh and try again.',
+          })
+        }
+        await tx.auditLog.create({
+          data: {
+            tenantId,
+            actorId: ctx.session.userId!,
+            actorRole: ctx.session.role ?? 'MANAGER',
+            action: input.rotateLink
+              ? 'venue.second-layer.link-rotated'
+              : 'venue.second-layer.updated',
+            targetType: 'Venue',
+            targetId: input.venueId,
+            beforeState: { label: venue.secondLayerLabel },
+            afterState: { label: input.label, linkRotated: input.rotateLink },
+          },
+        })
+      })
+      return {
+        enabled: true as const,
+        label: input.label,
+        accessKey,
+        updatedAt: nextUpdatedAt,
+      }
     }),
 
   getAiConfig: tenantProcedure

@@ -124,8 +124,17 @@ export async function searchPlacesByEmbedding(params: {
   userLat: number | null
   userLng: number | null
   limit?: number
+  includeSecondLayer?: boolean
 }): Promise<SemanticPlace[]> {
-  const { queryEmbedding, venueId, tenantId, userLat, userLng, limit = DEFAULT_LIMIT } = params
+  const {
+    queryEmbedding,
+    venueId,
+    tenantId,
+    userLat,
+    userLng,
+    limit = DEFAULT_LIMIT,
+    includeSecondLayer = false,
+  } = params
 
   const vectorStr = `[${queryEmbedding.join(',')}]`
   const limitSafe = Math.max(1, Math.min(50, Math.floor(limit)))
@@ -149,6 +158,7 @@ export async function searchPlacesByEmbedding(params: {
     WHERE venue_id     = ${venueId}
       AND tenant_id    = ${tenantId}
       AND is_active    = true
+      AND (${includeSecondLayer} = true OR visibility = 'PUBLIC')
       AND embedding    IS NOT NULL
     ORDER BY embedding <=> ${vectorStr}::vector
     LIMIT ${limitSafe}
@@ -239,8 +249,15 @@ export async function searchKnowledgeByEmbedding(params: {
   venueId: string
   tenantId: string
   limit?: number
+  includeSecondLayer?: boolean
 }): Promise<SemanticKnowledgeEntry[]> {
-  const { queryEmbedding, venueId, tenantId, limit = KNOWLEDGE_DEFAULT_LIMIT } = params
+  const {
+    queryEmbedding,
+    venueId,
+    tenantId,
+    limit = KNOWLEDGE_DEFAULT_LIMIT,
+    includeSecondLayer = false,
+  } = params
 
   const vectorStr = `[${queryEmbedding.join(',')}]`
   const limitSafe = Math.max(1, Math.min(20, Math.floor(limit)))
@@ -256,6 +273,7 @@ export async function searchKnowledgeByEmbedding(params: {
     WHERE venue_id   = ${venueId}
       AND tenant_id  = ${tenantId}
       AND is_enabled = true
+      AND (${includeSecondLayer} = true OR visibility = 'PUBLIC')
       AND embedding  IS NOT NULL
     ORDER BY embedding <=> ${vectorStr}::vector
     LIMIT ${limitSafe}

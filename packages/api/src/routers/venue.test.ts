@@ -342,6 +342,78 @@ describe('venue router', () => {
     )
   })
 
+  it('venue.getBySlug admits the employee layer only for an authenticated same-tenant member with its exact key', async () => {
+    const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        id: 'cuid1234567890abcdef',
+        tenantId: 'tenant_1',
+        name: 'City Zoo',
+        description: null,
+        category: 'zoo',
+        isActive: true,
+        secondLayerEnabled: true,
+        secondLayerLabel: 'Team',
+        secondLayerAccessKey: secondLayerKey,
+      },
+    ])
+    const caller = testRouter.createCaller(ownerCtx())
+
+    await expect(
+      caller.venue.getBySlug({ slug: 'city-zoo', secondLayerKey }),
+    ).resolves.toMatchObject({
+      experienceScope: 'SECOND_LAYER',
+      experienceLabel: 'Team',
+    })
+  })
+
+  it('venue.getBySlug denies an anonymous caller even when the employee key is exact', async () => {
+    const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        id: 'cuid1234567890abcdef',
+        tenantId: 'tenant_1',
+        name: 'City Zoo',
+        isActive: true,
+        secondLayerEnabled: true,
+        secondLayerLabel: 'Team',
+        secondLayerAccessKey: secondLayerKey,
+      },
+    ])
+    const caller = testRouter.createCaller({
+      ...baseCtx,
+      session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+    })
+
+    await expect(
+      caller.venue.getBySlug({ slug: 'city-zoo', secondLayerKey }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('venue.getBySlug hides the premium layer behind a generic not-found boundary', async () => {
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        id: 'cuid1234567890abcdef',
+        name: 'City Zoo',
+        isActive: true,
+        secondLayerEnabled: true,
+        secondLayerLabel: 'Team',
+        secondLayerAccessKey: '123e4567-e89b-42d3-a456-426614174999',
+      },
+    ])
+    const caller = testRouter.createCaller({
+      ...baseCtx,
+      session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+    })
+
+    await expect(
+      caller.venue.getBySlug({
+        slug: 'city-zoo',
+        secondLayerKey: '123e4567-e89b-42d3-a456-426614174998',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
   it('venue.getBySlug returns temporary unavailability for an inactive venue after fixed admission', async () => {
     dbQueryRaw.mockResolvedValueOnce([{ isActive: false }])
 

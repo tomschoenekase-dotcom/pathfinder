@@ -24,6 +24,7 @@ const requestObjectSchema = scopeSchema
     lat: z.number().finite().min(-90).max(90).nullable(),
     lng: z.number().finite().min(-180).max(180).nullable(),
     retainLocation: z.boolean(),
+    experienceScope: z.enum(['PUBLIC', 'SECOND_LAYER']).default('PUBLIC'),
   })
   .strict()
 
@@ -96,10 +97,10 @@ export type GuestChatTurnActionClient = Pick<
   '$transaction' | 'guestChatTurn' | 'guestChatProviderOperation'
 >
 
-export type GuestChatRequest = z.infer<typeof requestSchema>
+export type GuestChatRequest = z.input<typeof requestSchema>
 export type GuestChatClaim = z.infer<typeof claimSchema>
 export type GuestChatProviderOperationClaim = z.infer<typeof providerOperationSchema>
-export type GuestChatFinalize = z.infer<typeof finalizeSchema>
+export type GuestChatFinalize = z.input<typeof finalizeSchema>
 
 export type GuestChatTurnActionErrorCode =
   | 'INVALID_INPUT'
@@ -147,6 +148,7 @@ function hashParsedGuestChatRequest(value: z.infer<typeof requestObjectSchema>):
         lat: value.lat,
         lng: value.lng,
         retainLocation: value.retainLocation,
+        experienceScope: value.experienceScope ?? 'PUBLIC',
       }),
     )
     .digest('hex')
@@ -303,6 +305,7 @@ export async function reserveGuestChatTurnAction(args: {
   now?: Date
 }) {
   const request = parse(requestSchema, args?.request)
+  const experienceScope = request.experienceScope ?? 'PUBLIC'
   const requestHash = guestChatRequestHash(request)
   const client = args.client ?? db
   const now = args.now ?? new Date()
@@ -330,6 +333,7 @@ export async function reserveGuestChatTurnAction(args: {
             pendingEngagementIsInvented: true,
             pendingEngagementAskedMessageId: true,
             pendingEngagementAskedAt: true,
+            experienceScope: true,
           },
         })
         if (!session && !replayOnly) {
@@ -341,6 +345,7 @@ export async function reserveGuestChatTurnAction(args: {
               visitorId: request.visitorId,
               latestLat: request.retainLocation ? request.lat : null,
               latestLng: request.retainLocation ? request.lng : null,
+              experienceScope,
             },
             select: {
               id: true,
@@ -352,6 +357,7 @@ export async function reserveGuestChatTurnAction(args: {
               pendingEngagementIsInvented: true,
               pendingEngagementAskedMessageId: true,
               pendingEngagementAskedAt: true,
+              experienceScope: true,
             },
           })
         }
@@ -360,6 +366,9 @@ export async function reserveGuestChatTurnAction(args: {
             'CONFLICT',
             'Operation identity could not be resolved.',
           )
+        }
+        if ((session.experienceScope ?? 'PUBLIC') !== experienceScope) {
+          throw new GuestChatTurnActionError('NOT_FOUND', 'Chat session not found.')
         }
 
         const existing = await tx.guestChatTurn.findFirst({

@@ -36,6 +36,7 @@ export const adminChatlogsRouter = router({
         dateFrom: z.string().datetime().optional(),
         dateTo: z.string().datetime().optional(),
         notableOnly: z.boolean().optional(),
+        experienceScope: z.enum(['PUBLIC', 'SECOND_LAYER']).optional(),
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(100).default(25),
       }),
@@ -46,6 +47,7 @@ export const adminChatlogsRouter = router({
           where: {
             tenantId: input.tenantId,
             venueId: input.venueId,
+            ...(input.experienceScope ? { experienceScope: input.experienceScope } : {}),
             ...(input.notableOnly ? { isNotable: true } : {}),
             ...(input.dateFrom || input.dateTo
               ? {
@@ -64,6 +66,7 @@ export const adminChatlogsRouter = router({
             startedAt: true,
             lastActiveAt: true,
             isNotable: true,
+            experienceScope: true,
             _count: {
               select: {
                 messages: { where: { role: 'user' } },
@@ -104,6 +107,7 @@ export const adminChatlogsRouter = router({
             startedAt: true,
             lastActiveAt: true,
             isNotable: true,
+            experienceScope: true,
             venue: { select: { name: true } },
             messages: {
               orderBy: { createdAt: 'asc' },

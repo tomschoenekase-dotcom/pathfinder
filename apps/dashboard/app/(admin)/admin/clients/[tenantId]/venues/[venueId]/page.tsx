@@ -4,6 +4,7 @@ import Link from 'next/link'
 
 import { createAdminCaller } from '../../../../../../../lib/admin-caller'
 import { VenueAvailabilityControl } from '../../../../../../../components/VenueAvailabilityControl'
+import { SecondLayerEntitlementControl } from '../../../../../../../components/admin/SecondLayerEntitlementControl'
 
 type AdminVenueDetailPageProps = {
   params: Promise<{ tenantId: string; venueId: string }>
@@ -38,13 +39,18 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
   let availability: Awaited<
     ReturnType<Awaited<ReturnType<typeof createAdminCaller>>['admin']['getVenueAvailability']>
   >
+  let secondLayer: Awaited<
+    ReturnType<Awaited<ReturnType<typeof createAdminCaller>>['admin']['getSecondLayerEntitlement']>
+  >
   try {
     const results = await Promise.all([
       caller.admin.getClientVenue({ tenantId, venueId }),
       caller.admin.getVenueAvailability({ tenantId, venueId }),
+      caller.admin.getSecondLayerEntitlement({ tenantId, venueId }),
     ])
     data = results[0]
     availability = results[1]
+    secondLayer = results[2]
   } catch {
     return (
       <div className="space-y-6">
@@ -117,6 +123,14 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
           isActive: availability.isActive,
           updatedAt: availability.updatedAt.toISOString(),
         }}
+      />
+
+      <SecondLayerEntitlementControl
+        tenantId={tenantId}
+        venueId={venueId}
+        venueName={venue.name}
+        initialEnabled={secondLayer.secondLayerEnabled}
+        initialUpdatedAt={secondLayer.updatedAt.toISOString()}
       />
 
       <section

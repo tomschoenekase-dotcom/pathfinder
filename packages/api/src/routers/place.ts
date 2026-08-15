@@ -70,6 +70,7 @@ const placeSelect = {
   hours: true,
   photoUrl: true,
   isActive: true,
+  visibility: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -127,11 +128,64 @@ export const placeRouter = router({
       return place
     }),
 
+  setVisibility: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          id: z.string().cuid(),
+          venueId: z.string().cuid(),
+          visibility: z.enum(['PUBLIC', 'SECOND_LAYER']),
+          expectedUpdatedAt: z.coerce.date(),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: { id: true, secondLayerEnabled: true },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      if (input.visibility === 'SECOND_LAYER' && !venue.secondLayerEnabled) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'The premium second layer is disabled.' })
+      }
+      try {
+        return await updateLegacyPlaceAction(
+          {
+            tenantId,
+            venueId: input.venueId,
+            id: input.id,
+            expectedUpdatedAt: input.expectedUpdatedAt,
+            actor: actionActor(ctx.session),
+            fields: { visibility: input.visibility },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
   create: tenantProcedure
     .use(requireRole('MANAGER'))
     .input(CreatePlaceInput)
     .mutation(async ({ ctx, input }) => {
       const tenantId = ctx.session.activeTenantId
+
+      if (input.visibility === 'SECOND_LAYER') {
+        const venue = await ctx.db.venue.findFirst({
+          where: { id: input.venueId, tenantId },
+          select: { id: true, secondLayerEnabled: true },
+        })
+        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+        if (!venue.secondLayerEnabled) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'The employee experience is disabled.',
+          })
+        }
+      }
 
       try {
         return await createLegacyPlaceAction(
@@ -156,6 +210,7 @@ export const placeRouter = router({
               ...(input.areaName !== undefined ? { areaName: input.areaName } : {}),
               ...(input.hours !== undefined ? { hours: input.hours } : {}),
               ...(input.photoUrl !== undefined ? { photoUrl: input.photoUrl } : {}),
+              visibility: input.visibility,
             },
           },
           ctx.db,
@@ -174,6 +229,20 @@ export const placeRouter = router({
       const { id, venueId, expectedUpdatedAt, ...raw } = input
       // Strip undefined — exactOptionalPropertyTypes requires no undefined values in Prisma data
       const data = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined))
+
+      if (input.visibility === 'SECOND_LAYER') {
+        const venue = await ctx.db.venue.findFirst({
+          where: { id: venueId, tenantId },
+          select: { id: true, secondLayerEnabled: true },
+        })
+        if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+        if (!venue.secondLayerEnabled) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'The employee experience is disabled.',
+          })
+        }
+      }
 
       // updateMany accepts tenantId in where; update does not (Prisma unique-key constraint)
       try {
@@ -249,6 +318,7 @@ export const placeRouter = router({
               ...(p.areaName !== undefined ? { areaName: p.areaName } : {}),
               ...(p.hours !== undefined ? { hours: p.hours } : {}),
               ...(p.photoUrl !== undefined ? { photoUrl: p.photoUrl } : {}),
+              visibility: 'PUBLIC',
             })),
           },
           ctx.db,

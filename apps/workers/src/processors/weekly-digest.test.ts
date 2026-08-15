@@ -280,6 +280,7 @@ describe('processWeeklyDigestJob', () => {
     expect(mocks.sessionFindMany).toHaveBeenCalledWith({
       where: {
         tenantId: 'tenant_1',
+        experienceScope: 'PUBLIC',
         messages: {
           some: {
             tenantId: 'tenant_1',

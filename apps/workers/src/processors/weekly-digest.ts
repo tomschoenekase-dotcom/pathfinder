@@ -205,6 +205,7 @@ async function loadPromptSessions(payload: WeeklyDigestJobPayload) {
     const sessions = await db.visitorSession.findMany({
       where: {
         tenantId: payload.tenantId,
+        experienceScope: 'PUBLIC',
         messages: {
           some: {
             tenantId: payload.tenantId,

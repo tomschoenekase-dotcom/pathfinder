@@ -396,7 +396,7 @@ async function enrichVenue(params: {
       role: 'user',
       topic: null,
       createdAt: { gte: dayStart, lt: dayEnd },
-      session: { venueId },
+      session: { venueId, experienceScope: 'PUBLIC' },
     },
     select: { id: true, content: true },
   })
@@ -444,7 +444,7 @@ async function enrichVenue(params: {
       role: 'user',
       topic: { not: null },
       createdAt: { gte: dayStart, lt: dayEnd },
-      session: { venueId },
+      session: { venueId, experienceScope: 'PUBLIC' },
     },
     _count: { _all: true },
   })
@@ -487,6 +487,7 @@ async function enrichVenue(params: {
     where: {
       tenantId,
       venueId,
+      experienceScope: 'PUBLIC',
       visitorId: { not: null },
       startedAt: { gte: dayStart, lt: dayEnd },
     },
