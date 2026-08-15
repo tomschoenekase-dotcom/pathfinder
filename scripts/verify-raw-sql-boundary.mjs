@@ -241,7 +241,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: '4f405b4207389854cdc15e07ffe078329dcfd1681845f27e7b70997c9f459f34',
+    hash: 'eef1877ddcdd859bf942fbc200da7ae510544e0c19d163d78880598c679377e4',
     policy: 'public-venue-slug',
   },
   {
@@ -483,7 +483,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '86c45e1fb58daaf4ee5320549fa21008b76f1984fb96c010fde2f3442bfa510c',
+    hash: '531d881c910f52622ce1d8df88593e09077817bba661d80e0eebe7b994692954',
     policy: 'tenant-and-venue',
   },
   {

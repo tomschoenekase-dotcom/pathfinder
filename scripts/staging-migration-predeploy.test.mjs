@@ -36,7 +36,7 @@ test('accepts only the exact private Railway staging target', () => {
   }
 })
 
-test('repository migration manifest remains frozen at the reviewed 90-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 91-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
@@ -55,6 +55,7 @@ test('ledger accepts only exact finished baseline or final states', async () => 
     logs: null,
   }))
   assert.equal(ledgerState(rows.slice(0, EXPECTED.baselineCount), manifest), 'baseline')
+  assert.equal(ledgerState(rows.slice(0, EXPECTED.priorCompleteCount), manifest), 'prior-complete')
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,

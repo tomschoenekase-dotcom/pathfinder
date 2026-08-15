@@ -52,6 +52,15 @@ describe('guest chat turn actions', () => {
     }
   })
 
+  it('treats an omitted experience scope as public and binds second-layer requests', () => {
+    expect(guestChatRequestHash(request)).toBe(
+      guestChatRequestHash({ ...request, experienceScope: 'PUBLIC' }),
+    )
+    expect(guestChatRequestHash({ ...request, experienceScope: 'SECOND_LAYER' })).not.toBe(
+      guestChatRequestHash(request),
+    )
+  })
+
   it('rejects malformed direct input before opening a transaction', async () => {
     const client = transactionClient({})
     await expect(

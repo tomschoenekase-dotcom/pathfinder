@@ -5,18 +5,21 @@ import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
 const EXPECTED = Object.freeze({
-  approval: 'pathfinder-v2-lineage-52-to-90-20260813',
+  approval: 'pathfinder-v2-lineage-to-91-20260815',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 90,
+  migrationCount: 91,
   baselineCount: 52,
   baselinePublicTableCount: 43,
+  priorCompleteCount: 90,
+  priorCompletePublicTableCount: 99,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
-  finalMigration: '20260812001700_add_offboarding_export_finalization',
-  manifestHash: '0a1fa6265665304dbdfdf190e9fbefe9fd275ce72052d022ccef042a554b0583',
+  priorFinalMigration: '20260812001700_add_offboarding_export_finalization',
+  finalMigration: '20260814120000_add_premium_second_layer',
+  manifestHash: 'f24924c250e9e45716810813480842937d603f69a3dfa51b1b99f21801cd6444',
   finalPublicTableCount: 99,
 })
 
@@ -112,11 +115,18 @@ export function assertFrozenManifest(manifest) {
   if (manifest.names[EXPECTED.baselineCount - 1] !== EXPECTED.baselineLastMigration) {
     fail('verified baseline boundary changed')
   }
+  if (manifest.names[EXPECTED.priorCompleteCount - 1] !== EXPECTED.priorFinalMigration) {
+    fail('prior complete boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
 function ledgerState(rows, manifest) {
-  if (rows.length !== EXPECTED.baselineCount && rows.length !== EXPECTED.migrationCount) {
+  if (
+    rows.length !== EXPECTED.baselineCount &&
+    rows.length !== EXPECTED.priorCompleteCount &&
+    rows.length !== EXPECTED.migrationCount
+  ) {
     fail(`unexpected ledger row count ${rows.length}`)
   }
   const expectedNames = manifest.names.slice(0, rows.length)
@@ -141,7 +151,9 @@ function ledgerState(rows, manifest) {
   if (checksumMismatches.length > 0) {
     fail(`ledger checksum mismatches ${checksumMismatches.join(',')}`)
   }
-  return rows.length === EXPECTED.baselineCount ? 'baseline' : 'complete'
+  if (rows.length === EXPECTED.baselineCount) return 'baseline'
+  if (rows.length === EXPECTED.priorCompleteCount) return 'prior-complete'
+  return 'complete'
 }
 
 async function assertVerifiedBaselineSchema(database, rows) {
@@ -246,7 +258,7 @@ async function main() {
   const prismaCli = process.env.PATHFINDER_PRISMA_CLI ?? '/migration/node_modules/.bin/prisma'
   const manifest = await readMigrationManifest(prismaDirectory)
   assertFrozenManifest(manifest)
-  console.log('staging-migration: frozen 90-file manifest accepted')
+  console.log('staging-migration: frozen 91-file manifest accepted')
 
   const { PrismaClient } = await import('@prisma/client')
   const database = new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })
@@ -257,13 +269,17 @@ async function main() {
     console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
     if (initialState === 'complete') {
       await assertPostMigrationIntegrity(database, manifest)
-      console.log('staging-migration: already complete (90/90); integrity checks passed')
+      console.log('staging-migration: already complete (91/91); integrity checks passed')
       return
     }
 
     const beforeCounts = await publicTableCounts(database)
-    if (beforeCounts.size !== EXPECTED.baselinePublicTableCount) {
-      fail(`unexpected baseline public table count ${beforeCounts.size}`)
+    const expectedInitialTableCount =
+      initialState === 'baseline'
+        ? EXPECTED.baselinePublicTableCount
+        : EXPECTED.priorCompletePublicTableCount
+    if (beforeCounts.size !== expectedInitialTableCount) {
+      fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
     await runPrismaDeploy(prismaCli, path.join(prismaDirectory, 'schema.prisma'), process.env)
     await assertPostMigrationIntegrity(database, manifest)
@@ -274,7 +290,7 @@ async function main() {
         fail(`row count changed for pre-existing table ${table}`)
     }
     console.log(
-      'staging-migration: applied 38 migrations; 90/90 ledger and integrity checks passed',
+      `staging-migration: applied ${EXPECTED.migrationCount - initialLedger.length} migrations; 91/91 ledger and integrity checks passed`,
     )
   } finally {
     await database.$disconnect()

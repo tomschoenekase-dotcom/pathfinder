@@ -10,8 +10,12 @@ const migrationPath = path.join(
   'packages/db/prisma/migrations/20260809040000_complete_operational_updates/migration.sql',
 )
 
+async function readMigration() {
+  return (await readFile(migrationPath, 'utf8')).replace(/\r\n/gu, '\n')
+}
+
 test('operational update migration preserves existing visibility and closes the history gap', async () => {
-  const sql = await readFile(migrationPath, 'utf8')
+  const sql = await readMigration()
   const sourceLock = sql.indexOf('LOCK TABLE "operational_updates" IN SHARE ROW EXCLUSIVE MODE')
   const historyLock = sql.indexOf('LOCK TABLE "content_versions" IN ACCESS EXCLUSIVE MODE')
   const backfill = sql.indexOf('UPDATE "operational_updates"')
@@ -30,7 +34,7 @@ test('operational update migration preserves existing visibility and closes the 
 })
 
 test('operational update migration blocks legacy states that would be truncated', async () => {
-  const sql = await readFile(migrationPath, 'utf8')
+  const sql = await readMigration()
   const sourceLock = sql.indexOf('LOCK TABLE "operational_updates" IN SHARE ROW EXCLUSIVE MODE')
   const capacityGuard = sql.indexOf('HAVING count(*) > 20')
   const schemaMutation = sql.indexOf('CREATE TYPE "OperationalUpdatePriority"')
@@ -43,7 +47,7 @@ test('operational update migration blocks legacy states that would be truncated'
 })
 
 test('operational update migration enforces lifecycle, schedule, and immutable history fields', async () => {
-  const sql = await readFile(migrationPath, 'utf8')
+  const sql = await readMigration()
 
   assert.match(sql, /OperationalUpdateStatus" AS ENUM \('DRAFT', 'PUBLISHED'\)/u)
   assert.match(sql, /OperationalUpdatePriority" AS ENUM \('LOW', 'NORMAL', 'HIGH', 'URGENT'\)/u)

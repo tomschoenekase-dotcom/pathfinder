@@ -134,7 +134,7 @@ function isP2002(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
-function hashParsedGuestChatRequest(value: z.infer<typeof requestObjectSchema>): string {
+function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
