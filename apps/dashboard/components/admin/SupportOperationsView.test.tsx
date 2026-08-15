@@ -442,7 +442,7 @@ describe('support operations UI', () => {
         toStatus: 'PATCH_DRAFTED',
       }),
     )
-    expect(screen.getByText(/No package action was run/)).toBeTruthy()
+    expect(await screen.findByText(/No package action was run/)).toBeTruthy()
   })
 
   it('atomically requests exact client information with CAS, replay identity, and same-tick fencing', async () => {
