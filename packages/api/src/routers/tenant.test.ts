@@ -123,7 +123,7 @@ describe('tenant router', () => {
     const caller = testRouter.createCaller(tenantCtx())
     const result = await caller.tenant.getSettings()
 
-    expect(result).toEqual({ tenant, members })
+    expect(result).toEqual({ tenant, members, canManageTeam: true })
     expect(tenantFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'tenant_1' },
@@ -138,6 +138,24 @@ describe('tenant router', () => {
         }),
       }),
     )
+  })
+
+  it('tenant.getSettings tells staff they cannot manage invitations', async () => {
+    tenantFindUnique.mockResolvedValueOnce({
+      id: 'tenant_1',
+      name: 'Pathfinder Demo',
+      slug: 'pathfinder-demo',
+      planTier: 'free',
+      status: 'ACTIVE',
+      nextPaymentDue: null,
+      engagementMode: 'STOIC',
+      updatedAt: new Date('2026-08-14T00:00:00.000Z'),
+    })
+    tenantMembershipFindMany.mockResolvedValueOnce([])
+
+    await expect(testRouter.createCaller(staffCtx()).tenant.getSettings()).resolves.toMatchObject({
+      canManageTeam: false,
+    })
   })
 
   it('tenant.getSettings throws NOT_FOUND when the tenant is missing', async () => {

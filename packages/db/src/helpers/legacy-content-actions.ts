@@ -35,6 +35,7 @@ export const legacyPlaceSelect = {
   hours: true,
   photoUrl: true,
   isActive: true,
+  visibility: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -46,6 +47,7 @@ export const legacyKnowledgeSelect = {
   category: true,
   content: true,
   isEnabled: true,
+  visibility: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -64,8 +66,15 @@ type PlaceFields = {
   hours?: string | null
   photoUrl?: string | null
   isActive?: boolean
+  visibility?: 'PUBLIC' | 'SECOND_LAYER'
 }
-type KnowledgeFields = { title: string; category: string; content: string; isEnabled: boolean }
+type KnowledgeFields = {
+  title: string
+  category: string
+  content: string
+  isEnabled: boolean
+  visibility?: 'PUBLIC' | 'SECOND_LAYER'
+}
 
 function actor(actor: LegacyContentActor): void {
   if (
@@ -107,6 +116,7 @@ function placeAudit(value: {
   tags: string[]
   importanceScore: number
   isActive: boolean
+  visibility: string
   updatedAt: Date
 }) {
   return {
@@ -118,6 +128,7 @@ function placeAudit(value: {
     tags: value.tags,
     importanceScore: value.importanceScore,
     isActive: value.isActive,
+    visibility: value.visibility,
     updatedAt: value.updatedAt.toISOString(),
   }
 }
@@ -127,6 +138,7 @@ function knowledgeAudit(value: {
   title: string
   category: string
   isEnabled: boolean
+  visibility: string
   updatedAt: Date
 }) {
   return {
@@ -135,6 +147,7 @@ function knowledgeAudit(value: {
     title: value.title,
     category: value.category,
     isEnabled: value.isEnabled,
+    visibility: value.visibility,
     updatedAt: value.updatedAt.toISOString(),
   }
 }

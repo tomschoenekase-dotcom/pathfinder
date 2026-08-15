@@ -11,6 +11,7 @@ export const CreateKnowledgeEntryInput = z.object({
   category: z.string().min(1).max(100),
   content: z.string().min(1).max(5000),
   isEnabled: z.boolean().default(true),
+  visibility: z.enum(['PUBLIC', 'SECOND_LAYER']).default('PUBLIC'),
 })
 
 export const BulkCreateKnowledgeEntriesInput = z
@@ -29,6 +30,7 @@ export const UpdateKnowledgeEntryInput = z
     category: z.string().min(1).max(100).optional(),
     content: z.string().min(1).max(5000).optional(),
     isEnabled: z.boolean().optional(),
+    visibility: z.enum(['PUBLIC', 'SECOND_LAYER']).optional(),
   })
   .superRefine((value, ctx) => {
     if (!value.venueId)

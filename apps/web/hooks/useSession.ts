@@ -43,7 +43,7 @@ function generateAnonymousToken() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-export function useSession(venueId: string): SessionHookState {
+export function useSession(venueId: string, experienceScope = 'public'): SessionHookState {
   const [anonymousSession, setAnonymousSession] = useState({ venueId: '', token: '' })
   const [sessionId, setSessionIdState] = useState<string | null>(null)
   const [identityUnavailable, setIdentityUnavailable] = useState(false)
@@ -57,7 +57,10 @@ export function useSession(venueId: string): SessionHookState {
       return
     }
 
-    const storageKey = `pathfinder_session_${venueId}`
+    const storageKey =
+      experienceScope === 'public'
+        ? `pathfinder_session_${venueId}`
+        : `pathfinder_session_${venueId}_${experienceScope}`
     let existing: string | null = null
     try {
       existing = window.sessionStorage.getItem(storageKey)
@@ -83,7 +86,7 @@ export function useSession(venueId: string): SessionHookState {
     setAnonymousSession({ venueId, token: nextToken })
     setSessionIdState(null)
     setIdentityUnavailable(!nextToken)
-  }, [venueId])
+  }, [experienceScope, venueId])
 
   const setSessionId = useCallback((id: string | null) => {
     setSessionIdState(id)
@@ -101,7 +104,11 @@ export function useSession(venueId: string): SessionHookState {
     }
 
     try {
-      window.sessionStorage.setItem(`pathfinder_session_${venueId}`, nextToken)
+      const storageKey =
+        experienceScope === 'public'
+          ? `pathfinder_session_${venueId}`
+          : `pathfinder_session_${venueId}_${experienceScope}`
+      window.sessionStorage.setItem(storageKey, nextToken)
     } catch {
       // Continue with the new in-memory UUID when storage is unavailable.
     }
@@ -109,7 +116,7 @@ export function useSession(venueId: string): SessionHookState {
     setSessionIdState(null)
     setIdentityUnavailable(false)
     return true
-  }, [venueId])
+  }, [experienceScope, venueId])
 
   return {
     anonymousToken,

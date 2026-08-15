@@ -250,6 +250,7 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
           where: {
             tenantId: payload.tenantId,
             venueId: venue.id,
+            experienceScope: 'PUBLIC',
             startedAt: {
               gte: date,
               lt: nextDate,
@@ -265,6 +266,7 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
             },
             session: {
               venueId: venue.id,
+              experienceScope: 'PUBLIC',
             },
           },
         }),
@@ -277,6 +279,7 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
             },
             session: {
               venueId: venue.id,
+              experienceScope: 'PUBLIC',
             },
           },
           select: {
@@ -288,6 +291,7 @@ async function buildTenantRollups(payload: DailyRollupJobPayload): Promise<Rollu
             tenantId: payload.tenantId,
             venueId: venue.id,
             isActive: true,
+            visibility: 'PUBLIC',
           },
           select: {
             id: true,

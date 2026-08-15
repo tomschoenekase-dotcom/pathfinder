@@ -153,6 +153,48 @@ describe('knowledge semantic search helpers', () => {
     expect(haversineDistanceMeters).toHaveBeenCalledWith(40.6, -73.9, 40.7, -74)
   })
 
+  it('binds the second-layer admission decision into semantic place retrieval', async () => {
+    queryRaw.mockResolvedValue([])
+
+    await searchPlacesByEmbedding({
+      queryEmbedding: [0.1],
+      venueId: 'venue_1',
+      tenantId: 'tenant_1',
+      userLat: null,
+      userLng: null,
+    })
+    await searchPlacesByEmbedding({
+      queryEmbedding: [0.1],
+      venueId: 'venue_1',
+      tenantId: 'tenant_1',
+      userLat: null,
+      userLng: null,
+      includeSecondLayer: true,
+    })
+
+    expect(queryRaw.mock.calls[0]).toContain(false)
+    expect(queryRaw.mock.calls[1]).toContain(true)
+  })
+
+  it('defaults knowledge retrieval to public content and only includes employee content explicitly', async () => {
+    queryRaw.mockResolvedValue([])
+
+    await searchKnowledgeByEmbedding({
+      queryEmbedding: [0.1],
+      venueId: 'venue_1',
+      tenantId: 'tenant_1',
+    })
+    await searchKnowledgeByEmbedding({
+      queryEmbedding: [0.1],
+      venueId: 'venue_1',
+      tenantId: 'tenant_1',
+      includeSecondLayer: true,
+    })
+
+    expect(queryRaw.mock.calls[0]).toContain(false)
+    expect(queryRaw.mock.calls[1]).toContain(true)
+  })
+
   it('binds place writes to scope, revision, and every captured source field', async () => {
     await expect(
       storePlaceEmbeddingForScope({

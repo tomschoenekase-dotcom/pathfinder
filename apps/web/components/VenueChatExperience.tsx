@@ -21,6 +21,7 @@ type VenueChatExperienceProps = {
   venueSlug: string
   presentation?: VenueChatPresentation
   initialDraft?: string
+  secondLayerKey?: string
 }
 
 type ChatSendInput = inferRouterInputs<AppRouter>['chat']['send']
@@ -43,6 +44,7 @@ export function VenueChatExperience({
   venueSlug,
   presentation = 'standalone',
   initialDraft = '',
+  secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
   const [venueState, setVenueState] = useState<{ slug: string; venue: VenueSummary | null } | null>(
@@ -73,14 +75,20 @@ export function VenueChatExperience({
   const { lat, lng, permission, refresh } = useGeolocation(
     Boolean(venue && venue.guideMode !== 'non_location'),
   )
+  const experienceStorageScope = secondLayerKey ? `second-layer:${secondLayerKey}` : 'public'
   const { anonymousToken, identityUnavailable, setSessionId, startNewConversation } = useSession(
     venue?.id ?? '',
+    experienceStorageScope,
   )
   const visitorId = useVisitorId()
   currentVenueIdRef.current = venue?.id ?? null
   currentAnonymousTokenRef.current = anonymousToken
   const { endSession, resetAnalytics, sessionStartedAtRef, trackPlaceEvent, viewedPlaceIdsRef } =
-    useVenueChatAnalytics({ venue, anonymousToken, visitorId })
+    useVenueChatAnalytics({
+      venue: secondLayerKey ? null : venue,
+      anonymousToken: secondLayerKey ? null : anonymousToken,
+      visitorId,
+    })
 
   useEffect(() => {
     if (venue && identityUnavailable)
@@ -106,12 +114,19 @@ export function VenueChatExperience({
       lastSyncedPosRef.current = null
       resetAnalytics()
       try {
-        const result = await client.venue.getBySlug.query({ slug: venueSlug })
+        const result = await client.venue.getBySlug.query({
+          slug: venueSlug,
+          ...(secondLayerKey ? { secondLayerKey } : {}),
+        })
         if (disposed || conversationEpochRef.current !== epoch) return
         setVenueState({ slug: venueSlug, venue: result })
         let token: string | null = null
         try {
-          token = window.sessionStorage.getItem(`pathfinder_session_${result.id}`)
+          token = window.sessionStorage.getItem(
+            experienceStorageScope === 'public'
+              ? `pathfinder_session_${result.id}`
+              : `pathfinder_session_${result.id}_${experienceStorageScope}`,
+          )
         } catch {
           // The session hook retains its in-memory privacy boundary.
         }
@@ -120,6 +135,7 @@ export function VenueChatExperience({
             const history = await client.chat.history.query({
               venueId: result.id,
               anonymousToken: token,
+              ...(secondLayerKey ? { secondLayerKey } : {}),
             })
             if (!disposed && conversationEpochRef.current === epoch && history.messages.length)
               setMessages(history.messages)
@@ -146,7 +162,7 @@ export function VenueChatExperience({
     return () => {
       disposed = true
     }
-  }, [client, resetAnalytics, venueSlug])
+  }, [client, experienceStorageScope, resetAnalytics, secondLayerKey, venueSlug])
 
   useEffect(() => {
     let disposed = false
@@ -165,6 +181,7 @@ export function VenueChatExperience({
         const result = await client.chat.session.mutate({
           venueId: venue.id,
           anonymousToken,
+          ...(secondLayerKey ? { secondLayerKey } : {}),
           ...(visitorId ? { visitorId } : {}),
           ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null
             ? { lat, lng }
@@ -186,7 +203,7 @@ export function VenueChatExperience({
     return () => {
       disposed = true
     }
-  }, [anonymousToken, client, lat, lng, setSessionId, venue, visitorId])
+  }, [anonymousToken, client, lat, lng, secondLayerKey, setSessionId, venue, visitorId])
 
   function turnScopeIsCurrent(turn: PendingTurn) {
     return (
@@ -216,6 +233,7 @@ export function VenueChatExperience({
       const history = await client.chat.history.query({
         venueId: turn.venueId,
         anonymousToken: turn.anonymousToken,
+        ...(secondLayerKey ? { secondLayerKey } : {}),
       })
       if (!turnIsCurrent(turn)) return false
       setMessages(history.messages)
@@ -322,6 +340,7 @@ export function VenueChatExperience({
       operationId,
       venueId: venue.id,
       anonymousToken,
+      ...(secondLayerKey ? { secondLayerKey } : {}),
       ...(visitorId ? { visitorId } : {}),
       message,
       ...(venue.guideMode !== 'non_location' && lat !== null && lng !== null ? { lat, lng } : {}),

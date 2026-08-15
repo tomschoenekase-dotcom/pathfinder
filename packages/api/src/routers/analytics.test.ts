@@ -695,6 +695,21 @@ describe('analytics router', () => {
 
     expect(result).toEqual({ uniqueVisitors: 2, totalMessages: 42, totalSessions: 5 })
     expect(result).not.toHaveProperty('returningVisitors')
+    expect(visitorSessionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ experienceScope: 'PUBLIC' }),
+      }),
+    )
+    expect(visitorSessionCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ experienceScope: 'PUBLIC' }),
+      }),
+    )
+    expect(messageCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ session: { experienceScope: 'PUBLIC' } }),
+      }),
+    )
   })
 
   it('analytics.getVisitorStats throws UNAUTHORIZED without a session', async () => {

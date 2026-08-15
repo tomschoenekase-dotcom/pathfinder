@@ -40,6 +40,7 @@ type PlaceFormValues = {
   hours: string | undefined
   photoUrl: string | undefined
   isActive: boolean | undefined
+  visibility?: 'PUBLIC' | 'SECOND_LAYER'
 }
 
 type PlaceFormProps = {
@@ -49,6 +50,7 @@ type PlaceFormProps = {
   placeId?: string
   initialValues?: PlaceFormValues
   expectedUpdatedAt?: string | Date
+  secondLayer?: { enabled: boolean; label: string }
 }
 
 const LOCATION_AWARE_CATEGORY_OPTIONS: { value: string; label: string; hint: string }[] = [
@@ -128,6 +130,7 @@ function hasAdvancedFields(
     | 'areaName'
     | 'hours'
     | 'photoUrl'
+    | 'visibility'
   >,
   venueGuideMode: VenueGuideMode,
 ): boolean {
@@ -139,7 +142,8 @@ function hasAdvancedFields(
     values.importanceScore !== 0 ||
     values.areaName ||
     values.hours ||
-    values.photoUrl,
+    values.photoUrl ||
+    values.visibility === 'SECOND_LAYER',
   )
 }
 
@@ -161,6 +165,7 @@ function mapPlaceToValues(
     | 'hours'
     | 'photoUrl'
     | 'isActive'
+    | 'visibility'
   >,
 ): PlaceFormValues {
   return {
@@ -179,6 +184,7 @@ function mapPlaceToValues(
     hours: place.hours ?? '',
     photoUrl: place.photoUrl ?? '',
     isActive: place.isActive,
+    visibility: place.visibility === 'SECOND_LAYER' ? 'SECOND_LAYER' : 'PUBLIC',
   }
 }
 
@@ -193,6 +199,7 @@ export function PlaceForm({
   placeId,
   initialValues,
   expectedUpdatedAt,
+  secondLayer = { enabled: false, label: 'Employee' },
 }: PlaceFormProps) {
   const router = useRouter()
   const client = useTRPCClient()
@@ -238,6 +245,7 @@ export function PlaceForm({
       hours: '',
       photoUrl: '',
       isActive: true,
+      visibility: 'PUBLIC',
     },
   })
 
@@ -348,6 +356,10 @@ export function PlaceForm({
       areaName: values.areaName?.trim() || undefined,
       hours: values.hours?.trim() || undefined,
       photoUrl: values.photoUrl?.trim() || undefined,
+      visibility:
+        secondLayer.enabled && values.visibility === 'SECOND_LAYER'
+          ? ('SECOND_LAYER' as const)
+          : ('PUBLIC' as const),
     }
 
     try {
@@ -770,6 +782,27 @@ export function PlaceForm({
                   </label>
                 )}
               />
+
+              {secondLayer.enabled ? (
+                <Controller
+                  control={control}
+                  name="visibility"
+                  render={({ field }) => (
+                    <label className="flex items-center gap-3 rounded-2xl border border-pf-light px-4 py-3 text-sm text-pf-deep/70 sm:col-span-2">
+                      <input
+                        className="h-4 w-4"
+                        type="checkbox"
+                        disabled={isMutating}
+                        checked={field.value === 'SECOND_LAYER'}
+                        onChange={(event) =>
+                          field.onChange(event.target.checked ? 'SECOND_LAYER' : 'PUBLIC')
+                        }
+                      />
+                      Only show this item in the {secondLayer.label} layer
+                    </label>
+                  )}
+                />
+              ) : null}
             </div>
           </details>
 

@@ -41,6 +41,7 @@ import { adminWeeklyReportsRouter } from './weekly-reports'
 import { adminWeeklyReportLifecycleRouter } from './weekly-report-lifecycle'
 import { adminVenueAvailabilityRouter } from './venue-availability'
 import { adminVenuePackageOperationsRouter } from './venue-package-operations'
+import { adminSecondLayerRouter } from './second-layer'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -80,6 +81,7 @@ export const adminRouter = mergeRouters(
   adminReportConfigurationRouter,
   adminVenueAvailabilityRouter,
   adminVenuePackageOperationsRouter,
+  adminSecondLayerRouter,
   adminWeeklyReportsRouter,
   adminWeeklyReportLifecycleRouter,
   adminDigestRouter,

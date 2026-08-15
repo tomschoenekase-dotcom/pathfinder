@@ -355,6 +355,64 @@ describe('chat router', () => {
       )
     })
 
+    it('denies an anonymous employee-session caller even with the exact access key', async () => {
+      const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
+      dbQueryRaw.mockResolvedValueOnce([
+        {
+          id: VENUE_ID,
+          tenantId: TENANT_ID,
+          isActive: true,
+          secondLayerEnabled: true,
+          secondLayerAccessKey: secondLayerKey,
+        },
+      ])
+
+      await expect(
+        caller.chat.session({
+          venueId: VENUE_ID,
+          anonymousToken: TOKEN,
+          secondLayerKey,
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      expect(sessionUpsert).not.toHaveBeenCalled()
+    })
+
+    it('creates an employee session for an authenticated same-tenant member', async () => {
+      const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
+      const memberCaller = testRouter.createCaller({
+        ...ctx,
+        session: {
+          userId: 'user_1',
+          activeTenantId: TENANT_ID,
+          role: 'STAFF',
+          isPlatformAdmin: false,
+        },
+      })
+      dbQueryRaw.mockResolvedValueOnce([
+        {
+          id: VENUE_ID,
+          tenantId: TENANT_ID,
+          isActive: true,
+          secondLayerEnabled: true,
+          secondLayerAccessKey: secondLayerKey,
+        },
+      ])
+      sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID, experienceScope: 'SECOND_LAYER' })
+
+      await expect(
+        memberCaller.chat.session({
+          venueId: VENUE_ID,
+          anonymousToken: TOKEN,
+          secondLayerKey,
+        }),
+      ).resolves.toEqual({ sessionId: SESSION_ID })
+      expect(sessionUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ experienceScope: 'SECOND_LAYER' }),
+        }),
+      )
+    })
+
     it('calling session twice with same token returns same session (upsert idempotency)', async () => {
       dbQueryRaw.mockResolvedValue([{ id: VENUE_ID, tenantId: TENANT_ID, isActive: true }])
       sessionUpsert.mockResolvedValue({ id: SESSION_ID })
@@ -612,6 +670,23 @@ describe('chat router', () => {
       expect(aiUsageEventCreate).not.toHaveBeenCalled()
     })
 
+    it('denies an anonymous employee-chat caller even with the exact access key', async () => {
+      const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
+      dbQueryRaw.mockResolvedValueOnce([
+        {
+          ...venueRow,
+          secondLayerEnabled: true,
+          secondLayerAccessKey: secondLayerKey,
+        },
+      ])
+
+      await expect(caller.chat.send({ ...sendInput, secondLayerKey })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      })
+      expect(sessionUpsert).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+    })
+
     it('denies an exhausted session after bounded ingress without consuming the spend bucket', async () => {
       checkRateLimit
         .mockResolvedValueOnce(true)
@@ -718,9 +793,10 @@ describe('chat router', () => {
     function setupHappyPath(
       assistantText = 'The elephants are 50m north.',
       venue: Record<string, unknown> = venueRow,
+      experienceScope: 'PUBLIC' | 'SECOND_LAYER' = 'PUBLIC',
     ) {
       dbQueryRaw.mockResolvedValueOnce([venue])
-      sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
+      sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID, experienceScope })
       placeFindMany.mockResolvedValueOnce(placeRows)
       messageFindMany.mockResolvedValueOnce([])
       tenantFindUnique.mockResolvedValueOnce({ engagementMode: 'STOIC' })
@@ -751,6 +827,54 @@ describe('chat router', () => {
 
       return systemBlocks.map((block) => block.text).join('')
     }
+
+    it('admits employee-only knowledge for a same-tenant member without emitting visitor analytics', async () => {
+      const secondLayerKey = '123e4567-e89b-42d3-a456-426614174999'
+      const memberCaller = testRouter.createCaller({
+        ...ctx,
+        session: {
+          userId: 'user_1',
+          activeTenantId: TENANT_ID,
+          role: 'STAFF',
+          isPlatformAdmin: false,
+        },
+      })
+      setupHappyPath(
+        'Use the internal blue-door procedure.',
+        {
+          ...venueRow,
+          secondLayerEnabled: true,
+          secondLayerLabel: 'Team',
+          secondLayerAccessKey: secondLayerKey,
+        },
+        'SECOND_LAYER',
+      )
+      semanticSearch.knowledge.mockResolvedValueOnce([
+        {
+          id: 'knowledge_internal_1',
+          title: 'Blue-door procedure',
+          category: 'Operations',
+          content: 'INTERNAL_CANARY_BLUE_DOOR',
+          distance: 0.05,
+        },
+      ])
+
+      await memberCaller.chat.send({ ...sendInput, secondLayerKey })
+
+      expect(semanticSearch.places).toHaveBeenCalledWith(
+        expect.objectContaining({ includeSecondLayer: true }),
+      )
+      expect(semanticSearch.knowledge).toHaveBeenCalledWith(
+        expect.objectContaining({ includeSecondLayer: true }),
+      )
+      expect(getConcatenatedSystemPrompt()).toContain('INTERNAL_CANARY_BLUE_DOOR')
+      expect(emitEvent).not.toHaveBeenCalled()
+      expect(operationalUpdateFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.not.objectContaining({ OR: expect.anything() }),
+        }),
+      )
+    })
 
     it('continues chat without generalized content when bounded head resolution fails', async () => {
       setupHappyPath('The core venue context is still available.')
@@ -1236,6 +1360,7 @@ describe('chat router', () => {
           isActive: boolean
           startsAt: { lte: Date }
           expiresAt: { gt: Date }
+          OR: Array<{ placeId: null } | { place: { visibility: string } }>
         }
         orderBy: unknown
         take: number
@@ -1247,6 +1372,7 @@ describe('chat router', () => {
         isActive: true,
       })
       expect(query.where.startsAt.lte).toBe(query.where.expiresAt.gt)
+      expect(query.where.OR).toEqual([{ placeId: null }, { place: { visibility: 'PUBLIC' } }])
       expect(query.orderBy).toEqual([{ priority: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }])
       expect(query.take).toBe(20)
       expect(getConcatenatedSystemPrompt()).toContain(
@@ -1835,6 +1961,25 @@ describe('chat router', () => {
     it('does not load messages when no venue-scoped session exists', async () => {
       dbQueryRaw.mockResolvedValueOnce([
         { id: null, venueId: VENUE_ID, tenantId: TENANT_ID, isActive: true },
+      ])
+
+      await expect(
+        caller.chat.history({ venueId: VENUE_ID, anonymousToken: TOKEN }),
+      ).resolves.toEqual({ messages: [] })
+      expect(messageFindMany).not.toHaveBeenCalled()
+    })
+
+    it('does not expose second-layer history through the public experience', async () => {
+      dbQueryRaw.mockResolvedValueOnce([
+        {
+          id: SESSION_ID,
+          venueId: VENUE_ID,
+          tenantId: TENANT_ID,
+          isActive: true,
+          experienceScope: 'SECOND_LAYER',
+          secondLayerEnabled: true,
+          secondLayerAccessKey: '123e4567-e89b-42d3-a456-426614174999',
+        },
       ])
 
       await expect(

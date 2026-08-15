@@ -14,6 +14,8 @@ export type VenueSummary = {
   chatFont: string | null
   chatLogoUrl: string | null
   chatBannerUrl: string | null
+  experienceScope?: 'PUBLIC' | 'SECOND_LAYER'
+  experienceLabel?: string | null
 }
 
 export type ChatMessage = {

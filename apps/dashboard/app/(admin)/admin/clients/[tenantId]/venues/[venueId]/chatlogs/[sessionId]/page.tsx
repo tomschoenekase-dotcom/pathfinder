@@ -33,6 +33,9 @@ export default async function AdminChatlogDetailPage({ params }: AdminChatlogDet
             Started {session.startedAt.toLocaleString()} - last active{' '}
             {session.lastActiveAt.toLocaleString()}
           </p>
+          <span className="mt-3 inline-flex rounded-full bg-pf-surface px-3 py-1 text-xs font-semibold text-pf-deep/70">
+            {session.experienceScope === 'SECOND_LAYER' ? 'Employee chat' : 'Guest chat'}
+          </span>
           {session.isNotable ? (
             <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
               Notable

@@ -34,14 +34,23 @@ export const adminClientAnalyticsRouter = router({
             select: { id: true, name: true, slug: true },
           }),
           db.visitorSession.count({
-            where: { tenantId: input.tenantId, startedAt: { gte: startDate } },
+            where: {
+              tenantId: input.tenantId,
+              experienceScope: 'PUBLIC',
+              startedAt: { gte: startDate },
+            },
           }),
           db.message.count({
-            where: { tenantId: input.tenantId, createdAt: { gte: startDate } },
+            where: {
+              tenantId: input.tenantId,
+              session: { experienceScope: 'PUBLIC' },
+              createdAt: { gte: startDate },
+            },
           }),
           db.visitorSession.findMany({
             where: {
               tenantId: input.tenantId,
+              experienceScope: 'PUBLIC',
               startedAt: { gte: startDate },
               visitorId: { not: null },
             },
@@ -49,7 +58,11 @@ export const adminClientAnalyticsRouter = router({
             distinct: ['visitorId'],
           }),
           db.visitorSession.findMany({
-            where: { tenantId: input.tenantId, startedAt: { gte: startDate } },
+            where: {
+              tenantId: input.tenantId,
+              experienceScope: 'PUBLIC',
+              startedAt: { gte: startDate },
+            },
             orderBy: { startedAt: 'desc' },
             take: 20,
             select: {

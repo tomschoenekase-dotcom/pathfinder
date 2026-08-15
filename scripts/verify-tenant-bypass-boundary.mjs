@@ -71,6 +71,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/support-agent-run-lineage.ts', 1],
   ['packages/api/src/routers/admin/weekly-reports.ts', 5],
   ['packages/api/src/routers/admin/venue-availability.ts', 2],
+  ['packages/api/src/routers/admin/second-layer.ts', 2],
   ['packages/db/src/helpers/job-records.ts', 4],
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],

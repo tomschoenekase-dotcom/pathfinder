@@ -6,7 +6,12 @@ import { createAdminCaller } from '../../../../../../../../lib/admin-caller'
 
 type AdminChatlogsPageProps = {
   params: Promise<{ tenantId: string; venueId: string }>
-  searchParams: Promise<{ from?: string; to?: string; notable?: string }>
+  searchParams: Promise<{
+    from?: string
+    to?: string
+    notable?: string
+    scope?: 'PUBLIC' | 'SECOND_LAYER'
+  }>
 }
 
 function toStartIso(value?: string) {
@@ -27,6 +32,7 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
     dateFrom: toStartIso(query.from),
     dateTo: toEndIso(query.to),
     notableOnly: query.notable === 'on',
+    experienceScope: query.scope,
   })
 
   return (
@@ -68,6 +74,18 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
           <input type="checkbox" name="notable" defaultChecked={query.notable === 'on'} />
           Notable only
         </label>
+        <label className="grid gap-2 text-sm font-medium text-pf-deep">
+          Experience
+          <select
+            name="scope"
+            defaultValue={query.scope ?? ''}
+            className="min-h-10 rounded-2xl border border-pf-light bg-pf-surface px-4"
+          >
+            <option value="">All chats</option>
+            <option value="PUBLIC">Guest</option>
+            <option value="SECOND_LAYER">Employee</option>
+          </select>
+        </label>
         <button
           type="submit"
           className="inline-flex min-h-10 items-center rounded-full bg-pf-primary px-5 text-sm font-semibold text-white"
@@ -81,6 +99,7 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
           <thead className="border-b border-pf-light text-xs uppercase tracking-wider text-pf-deep/40">
             <tr>
               <th className="px-4 py-3 font-semibold">Started</th>
+              <th className="px-4 py-3 font-semibold">Experience</th>
               <th className="px-4 py-3 font-semibold">Messages</th>
               <th className="px-4 py-3 font-semibold">Answers</th>
               <th className="px-4 py-3 font-semibold">Notes</th>
@@ -90,7 +109,7 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
           <tbody>
             {result.sessions.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-pf-deep/60">
+                <td colSpan={6} className="px-4 py-8 text-center text-pf-deep/60">
                   No sessions found.
                 </td>
               </tr>
@@ -107,6 +126,11 @@ export default async function AdminChatlogsPage({ params, searchParams }: AdminC
                     <p className="mt-1 text-xs text-pf-deep/50">
                       Last active {session.lastActiveAt.toLocaleString()}
                     </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full bg-pf-surface px-3 py-1 text-xs font-semibold text-pf-deep/70">
+                      {session.experienceScope === 'SECOND_LAYER' ? 'Employee' : 'Guest'}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-pf-deep/70">{session.messageCount}</td>
                   <td className="px-4 py-3 text-pf-deep/70">

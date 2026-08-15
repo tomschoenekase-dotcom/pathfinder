@@ -78,7 +78,11 @@ export const tenantRouter = router({
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Tenant not found' })
     }
 
-    return { tenant, members }
+    return {
+      tenant,
+      members,
+      canManageTeam: ctx.session.isPlatformAdmin || ctx.session.role === 'OWNER',
+    }
   }),
 
   /**

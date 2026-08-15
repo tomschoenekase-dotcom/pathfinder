@@ -66,7 +66,8 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
             Client overview
           </h2>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-pf-deep/55">
-            Account health, venue readiness, access, and commercial controls in one operator view.
+            Account health, guest access, venue activity, and commercial controls in one operator
+            view.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -96,11 +97,12 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
       ) : (
         <section
           className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3"
-          aria-label="Client readiness"
+          aria-label="Guest access status"
         >
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" aria-hidden="true" />
           <p className="text-sm font-medium text-emerald-950">
-            All {venues.length} venue{venues.length === 1 ? '' : 's'} available to guests.
+            Guest access is enabled for all {venues.length} venue
+            {venues.length === 1 ? '' : 's'}. Content readiness still requires review.
           </p>
         </section>
       )}
@@ -141,7 +143,7 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
                   <span
                     className={`inline-flex rounded-full px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wider ${venue.isActive ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}
                   >
-                    {venue.isActive ? 'Live' : 'Paused'}
+                    {venue.isActive ? 'Guest access enabled' : 'Guest access paused'}
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-3 text-xs text-pf-deep/50">

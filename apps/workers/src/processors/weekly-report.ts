@@ -205,6 +205,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
         where: {
           tenantId: payload.tenantId,
           venueId: payload.venueId,
+          experienceScope: 'PUBLIC',
           messages: { some: { createdAt: { gte: weekStart, lte: weekEnd } } },
         },
       }),
@@ -212,7 +213,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
         where: {
           tenantId: payload.tenantId,
           createdAt: { gte: weekStart, lte: weekEnd },
-          session: { venueId: payload.venueId },
+          session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
         },
       }),
       db.engagementQuestionResponse.findMany({
@@ -220,6 +221,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
           tenantId: payload.tenantId,
           venueId: payload.venueId,
           answeredAt: { gte: weekStart, lte: weekEnd },
+          session: { experienceScope: 'PUBLIC' },
         },
         orderBy: { answeredAt: 'asc' },
         select: { questionText: true, answerText: true, isAiInvented: true },
@@ -234,7 +236,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
           tenantId: payload.tenantId,
           venueId: payload.venueId,
           createdAt: { gte: weekStart, lte: weekEnd },
-          session: { isNotable: true },
+          session: { isNotable: true, experienceScope: 'PUBLIC' },
         },
         orderBy: { createdAt: 'asc' },
         select: { note: true },
@@ -247,7 +249,7 @@ async function loadReportData(payload: WeeklyReportJobPayload) {
           tenantId: payload.tenantId,
           role: 'user',
           createdAt: { gte: weekStart, lte: weekEnd },
-          session: { venueId: payload.venueId },
+          session: { venueId: payload.venueId, experienceScope: 'PUBLIC' },
         },
         orderBy: { createdAt: 'asc' },
         take: MAX_GENERAL_MESSAGES,

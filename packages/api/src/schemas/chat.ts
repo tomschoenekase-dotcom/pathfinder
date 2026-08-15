@@ -55,6 +55,7 @@ export const ChatSessionInput = z
     venueId: z.string().min(1).max(200),
     anonymousToken: z.string().uuid(),
     visitorId: z.string().uuid().optional(),
+    secondLayerKey: z.string().uuid().optional(),
     ...guestCoordinatesShape,
   })
   .strict()
@@ -66,6 +67,7 @@ export const ChatSendInput = z
     venueId: z.string().min(1).max(200),
     anonymousToken: z.string().uuid(),
     visitorId: z.string().uuid().optional(),
+    secondLayerKey: z.string().uuid().optional(),
     message: z.string().trim().min(1).max(1000),
     ...guestCoordinatesShape,
     language: SupportedChatLanguageInput.optional(),
@@ -77,5 +79,6 @@ export const ChatHistoryInput = z
   .object({
     venueId: z.string().min(1).max(200),
     anonymousToken: z.string().uuid(),
+    secondLayerKey: z.string().uuid().optional(),
   })
   .strict()
