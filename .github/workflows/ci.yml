@@ -72,7 +72,21 @@ jobs:
       - run: pnpm verify:docker-context:effective
       - run: pnpm --dir packages/db db:generate
       - name: Apply migrations through the disposable-target guard
-        run: pnpm db:migrate:disposable -- --database pathfinder_disposable_ci --confirm-database pathfinder_disposable_ci
+        run: |
+          set -o pipefail
+          migration_log="$(mktemp)"
+          if ! pnpm db:migrate:disposable -- \
+            --database pathfinder_disposable_ci \
+            --confirm-database pathfinder_disposable_ci 2>&1 | tee "$migration_log"
+          then
+            while IFS= read -r line; do
+              safe_line="${line//'%'/'%25'}"
+              safe_line="${safe_line//$'\r'/'%0D'}"
+              safe_line="${safe_line//$'\n'/'%0A'}"
+              echo "::error title=Disposable migration failed::$safe_line"
+            done < <(tail -n 30 "$migration_log")
+            exit 1
+          fi
         env:
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
           PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
