@@ -93,6 +93,14 @@ integrationDescribe(
           },
         ],
       })
+      await db.venueReportConfiguration.create({
+        data: {
+          tenantId,
+          venueId,
+          enabled: true,
+          updatedBy: actorId,
+        },
+      })
     })
 
     beforeEach(async () => {
@@ -111,7 +119,8 @@ integrationDescribe(
       await db.weeklyReport.deleteMany({ where: { tenantId } })
       await db.auditLog.deleteMany({ where: { tenantId } })
       await db.venue.deleteMany({ where: { tenantId } })
-      await db.tenant.deleteMany({ where: { id: tenantId } })
+      // ContentVersion is append-only and restricts tenant deletion. The unique
+      // test tenant is intentionally retained until the disposable database exits.
       await db.$disconnect()
     })
 
