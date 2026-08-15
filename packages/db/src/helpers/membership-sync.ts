@@ -55,6 +55,7 @@ type OrgMembershipData = {
     first_name: string | null
     last_name: string | null
     image_url?: string
+    identifier?: string
     email_addresses?: Array<{ email_address: string }>
   }
   role: string
@@ -71,6 +72,16 @@ export type ClerkWebhookEvent =
 export type ClerkWebhookProcessingResult = {
   replayed: boolean
   welcomeEmailDeliveryId: string | null
+}
+
+export function getClerkMembershipEmail(
+  publicUserData: OrgMembershipData['public_user_data'],
+): string | undefined {
+  const structuredEmail = publicUserData.email_addresses?.[0]?.email_address.trim()
+  if (structuredEmail) return structuredEmail
+
+  const identifier = publicUserData.identifier?.trim()
+  return identifier && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(identifier) ? identifier : undefined
 }
 
 function validateVerifiedIdentity(
@@ -351,7 +362,7 @@ async function upsertClerkUser(
   data: OrgMembershipData,
 ): Promise<void> {
   const userId = data.public_user_data.user_id
-  const email = data.public_user_data.email_addresses?.[0]?.email_address
+  const email = getClerkMembershipEmail(data.public_user_data)
   const fullName =
     [data.public_user_data.first_name, data.public_user_data.last_name].filter(Boolean).join(' ') ||
     null
