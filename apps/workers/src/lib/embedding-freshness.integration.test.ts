@@ -81,8 +81,8 @@ integrationDescribe('embedding freshness audit (PostgreSQL integration)', () => 
     await db.place.deleteMany({ where: { tenantId: otherTenantId } })
     await db.venue.deleteMany({ where: { tenantId } })
     await db.venue.deleteMany({ where: { tenantId: otherTenantId } })
-    await db.tenant.delete({ where: { id: tenantId } })
-    await db.tenant.delete({ where: { id: otherTenantId } })
+    // ContentVersion is append-only and restricts tenant deletion. The unique
+    // test tenants are intentionally retained until the disposable database exits.
     await db.$disconnect()
   })
 
