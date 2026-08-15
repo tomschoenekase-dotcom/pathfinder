@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   claimGuestChatTurnAction,
   failGuestChatTurnAction,
+  finalizeGuestChatTurnAction,
   guestChatRequestHash,
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
@@ -86,6 +87,33 @@ describe('guest chat turn actions', () => {
         data: expect.objectContaining({ outcomeCode: 'SUCCEEDED', usageReference: null }),
       }),
     )
+  })
+
+  it('hashes only the reserved request fields while validating finalization', async () => {
+    const tx = {
+      $executeRaw: vi.fn(),
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue({ requestHash: '0'.repeat(64) }),
+      },
+    }
+
+    await expect(
+      finalizeGuestChatTurnAction({
+        client: transactionClient(tx),
+        input: {
+          ...request,
+          turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          assistantResponse: 'The cafe is downstairs.',
+          replayMetadata: { places: [] },
+          fallbackCode: null,
+          nextPending: { kind: 'NONE' },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Finalization request does not match reservation.',
+    })
   })
 
   it('reserves monotonic turn/message sequences and two stable provider receipts atomically', async () => {

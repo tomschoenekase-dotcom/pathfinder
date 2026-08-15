@@ -133,8 +133,7 @@ function isP2002(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
-export function guestChatRequestHash(input: unknown): string {
-  const value = parse(requestSchema, input)
+function hashParsedGuestChatRequest(value: z.infer<typeof requestObjectSchema>): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -151,6 +150,10 @@ export function guestChatRequestHash(input: unknown): string {
       }),
     )
     .digest('hex')
+}
+
+export function guestChatRequestHash(input: unknown): string {
+  return hashParsedGuestChatRequest(parse(requestSchema, input))
 }
 
 const turnSelect = {
@@ -984,7 +987,7 @@ export async function finalizeGuestChatTurnAction(args: {
           select: { ...turnSelect, userMessageSequence: true, assistantMessageSequence: true },
         })
         if (!turn) throw new GuestChatTurnActionError('NOT_FOUND', 'Chat turn not found.')
-        if (turn.requestHash !== guestChatRequestHash(input)) {
+        if (turn.requestHash !== hashParsedGuestChatRequest(input)) {
           throw new GuestChatTurnActionError(
             'CONFLICT',
             'Finalization request does not match reservation.',
