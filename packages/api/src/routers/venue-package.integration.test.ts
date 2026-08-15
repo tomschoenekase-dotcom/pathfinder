@@ -923,7 +923,16 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
     )
     const { caller, applied } = await applyVersionThree(targetVenue.id, payload)
 
-    await caller.place.update({ id: original.id, hours: 'Open late by manual review' })
+    const currentPlace = await db.place.findFirstOrThrow({
+      where: { id: original.id, tenantId, venueId: targetVenue.id },
+      select: { updatedAt: true },
+    })
+    await caller.place.update({
+      id: original.id,
+      venueId: targetVenue.id,
+      expectedUpdatedAt: currentPlace.updatedAt,
+      hours: 'Open late by manual review',
+    })
     const manualVersion = await db.contentVersion.findFirstOrThrow({
       where: {
         tenantId,
@@ -1099,7 +1108,6 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       data: {
         tenantId,
         venueId: targetVenue.id,
-        sessionId: `session-${randomUUID()}`,
         eventType: 'place_viewed',
         placeId: place.id,
         occurredAt: new Date(),
@@ -1174,7 +1182,6 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       data: {
         tenantId,
         venueId: targetVenue.id,
-        sessionId: `session-${randomUUID()}`,
         eventType: 'place_viewed',
         placeId,
         occurredAt: new Date(),
@@ -1226,7 +1233,16 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       'Overlap package name',
     )
     const { caller, applied } = await applyVersionThree(targetVenue.id, payload)
-    await caller.place.update({ id: original.id, name: 'Later overlapping manual name' })
+    const currentPlace = await db.place.findFirstOrThrow({
+      where: { id: original.id, tenantId, venueId: targetVenue.id },
+      select: { updatedAt: true },
+    })
+    await caller.place.update({
+      id: original.id,
+      venueId: targetVenue.id,
+      expectedUpdatedAt: currentPlace.updatedAt,
+      name: 'Later overlapping manual name',
+    })
     const versionsBefore = await db.contentVersion.count({
       where: { tenantId, venueId: targetVenue.id, entityType: 'PLACE', entityId: original.id },
     })
@@ -1606,8 +1622,22 @@ integrationDescribe('venue packages (disposable PostgreSQL integration)', () => 
       acknowledgedPayloadHash: draft.payloadHash,
     })
 
-    await caller.place.update({ id: original.id, name: 'Intervening place state' })
-    await caller.place.update({ id: original.id, name: original.name })
+    const currentPlace = await db.place.findFirstOrThrow({
+      where: { id: original.id, tenantId, venueId: targetVenue.id },
+      select: { updatedAt: true },
+    })
+    const intervening = await caller.place.update({
+      id: original.id,
+      venueId: targetVenue.id,
+      expectedUpdatedAt: currentPlace.updatedAt,
+      name: 'Intervening place state',
+    })
+    await caller.place.update({
+      id: original.id,
+      venueId: targetVenue.id,
+      expectedUpdatedAt: intervening.updatedAt,
+      name: original.name,
+    })
     const latestVersion = await db.contentVersion.findFirstOrThrow({
       where: { tenantId, venueId: targetVenue.id, entityType: 'PLACE', entityId: original.id },
       orderBy: { sequence: 'desc' },
