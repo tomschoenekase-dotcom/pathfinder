@@ -359,7 +359,9 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(mocks.client.chat.send.mutate).toHaveBeenCalledOnce()
     fireEvent.click(check)
     expect(await screen.findByText('Messages: 1')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Check conversation' })).toBeNull()
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Check conversation' })).toBeNull(),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
     await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledTimes(2))
   })
