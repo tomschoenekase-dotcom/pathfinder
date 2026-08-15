@@ -226,6 +226,14 @@ preserved files. They were not rewritten.
 
 - Dedicated remote branch `codex/pathfinder-v2-staging` was created from commit `2023553`; the
   production branch `master` was not updated.
+- Web, dashboard, and workers all track only `codex/pathfinder-v2-staging`, retain automatic GitHub
+  deploys, and now have Railway `Wait for CI` enabled. Future branch pushes must finish their GitHub
+  Actions successfully before Railway starts those service deployments.
+- Checked-in release automation adds an exact-revision post-CI staging admission workflow and a
+  production-promotion pull-request gate that accepts only the dedicated staging branch and its
+  exact healthy deployed SHA. The post-CI `workflow_run` trigger becomes automatic after its file is
+  present on the default branch; until the first reviewed promotion, exact staging admission remains
+  the documented one-command operator check.
 - Staging web service `9fec9bdb-1915-4bee-8213-f6c3d434baa1`, dashboard service
   `b2f6989e-a7bc-4ad9-8ed4-a39dd67b947f`, and workers service
   `7c551d35-b2d4-4ab0-917f-9680ccdee86a` are connected only to that dedicated branch. Their
