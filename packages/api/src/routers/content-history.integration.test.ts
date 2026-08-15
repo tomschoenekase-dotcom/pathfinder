@@ -13,7 +13,19 @@ vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn().mockResolvedValue(u
 vi.mock('@pathfinder/jobs', () => ({ enqueueEmbedPlace: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: vi.fn().mockResolvedValue(true) }))
 vi.mock('../lib/guest-query-embedding', () => ({
-  generateGuestQueryEmbedding: vi.fn().mockResolvedValue(null),
+  generateGuestQueryEmbedding: vi.fn(
+    async (
+      _text: string,
+      _usageSink: unknown,
+      _admissionGuard: unknown,
+      _budgetGate: unknown,
+      _invocationId: string | undefined,
+      onBeforeFirstDispatch: (() => Promise<void>) | undefined,
+    ) => {
+      await onBeforeFirstDispatch?.()
+      return null
+    },
+  ),
 }))
 
 import { db, setContentVersionContext } from '@pathfinder/db'
@@ -593,7 +605,7 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
     expect(latest.afterState).toMatchObject({ name: 'Concurrent edit' })
   }, 15_000)
 
-  it('restores a deleted knowledge entry and keeps deletion in immutable history', async () => {
+  it('restores a retired knowledge entry and keeps retirement in immutable history', async () => {
     const caller = testRouter.createCaller(ctx('MANAGER'))
     const knowledgeBeforeDelete = await db.venueKnowledgeEntry.findFirstOrThrow({
       where: { id: knowledgeId, tenantId },
@@ -607,7 +619,8 @@ integrationDescribe('content history (disposable PostgreSQL integration)', () =>
     const deleted = (
       await caller.contentHistory.list({ entityType: 'KNOWLEDGE_ENTRY', entityId: knowledgeId })
     )[0]!
-    expect(deleted.operation).toBe('DELETE')
+    expect(deleted).toMatchObject({ operation: 'UPDATE' })
+    expect(deleted.afterState).toMatchObject({ isEnabled: false })
 
     await caller.contentHistory.revert({
       versionId: deleted.id,
