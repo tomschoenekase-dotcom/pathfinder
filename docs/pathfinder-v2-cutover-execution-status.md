@@ -351,7 +351,9 @@ preserved files. They were not rewritten.
   actual React state transition; each test now awaits the visible enabled/reset state. The final
   local run passed all 23 package test tasks; examples include
   database 921 passed/77 integration-skipped, API 1011/47 skipped, dashboard 627, workers 354/one
-  skipped, and web 282. Separately, 151 script contracts passed with one intentional skip. All 23
+  skipped, and web 282. The subsequent admin and guest regression additions bring the focused
+  dashboard suite to 629 and web suite to 284. Separately, 151 script contracts passed with one
+  intentional skip. All 23
   typecheck tasks and all 13 lint tasks passed; lint retained one nonblocking existing image-
   optimization warning.
 - GitHub CI run `31971168890` passed every gate in 8 minutes 20 seconds on exact commit
