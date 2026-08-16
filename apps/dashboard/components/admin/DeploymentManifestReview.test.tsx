@@ -132,7 +132,7 @@ describe('DeploymentManifestReview', () => {
     expect(
       await screen.findByText(/atomically creates or replays its linked compatibility DRAFT/iu),
     ).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Record artifact and linked DRAFT' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Record artifact and linked DRAFT' }))
     expect(
       await screen.findByText(/artifact and linked compatibility DRAFT created atomically/iu),
     ).toBeTruthy()
