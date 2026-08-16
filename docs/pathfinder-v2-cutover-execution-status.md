@@ -377,6 +377,10 @@ preserved files. They were not rewritten.
   organization and venue display names still contain `PathFinder Staging QA`; these are staging
   fixture data, not shipped product copy. Their stable slug and IDs were not changed during this
   validation.
+- A follow-up mobile guest-chat check found that the visible `Torchico` footer still linked to the
+  legacy production domain `pathfinder.app`. It now links to the current application root, keeping
+  staging users on staging and production users on their own origin. The visible-brand contract now
+  rejects both unreviewed `PathFinder` copy and the legacy public domain across shipped surfaces.
 - Admin navigation is bidirectional and test-protected: a `PLATFORM_ADMIN` sees `Admin console` in
   the client portal plus `Open admin console` while viewing a client; Torchico OS exposes
   `Open client portal`.

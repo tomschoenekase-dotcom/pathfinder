@@ -201,9 +201,9 @@ export function VenueChatShell(props: {
           <p className="text-[10px] text-[var(--chat-text-muted)]">
             Powered by{' '}
             {presentation === 'standalone' ? (
-              <a href="https://pathfinder.app" className="hover:text-[var(--chat-accent)]">
+              <Link href="/" className="hover:text-[var(--chat-accent)]">
                 Torchico
-              </a>
+              </Link>
             ) : (
               <span>Torchico</span>
             )}

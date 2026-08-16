@@ -85,7 +85,7 @@ test('visible product copy uses Torchico while legacy technical contracts remain
     const source = await readFile(path.join(repositoryRoot, relativePath), 'utf8')
     const allowed = technicalAllowlist.get(relativePath) ?? new Set()
     source.split(/\r?\n/u).forEach((line, index) => {
-      if (!line.includes('PathFinder')) return
+      if (!line.includes('PathFinder') && !line.includes('pathfinder.app')) return
       const trimmed = line.trim()
       if (allowed.has(trimmed)) return
       violations.push(`${relativePath}:${index + 1}: ${trimmed}`)
@@ -95,6 +95,6 @@ test('visible product copy uses Torchico while legacy technical contracts remain
   assert.deepEqual(
     violations,
     [],
-    `Old visible brand copy remains outside the technical allowlist:\n${violations.join('\n')}`,
+    `Old visible brand or domain remains outside the technical allowlist:\n${violations.join('\n')}`,
   )
 })

@@ -413,9 +413,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     expect(await screen.findByText('Back')).toBeTruthy()
     expect(screen.getByText('Back').closest('a')?.getAttribute('href')).toBe('/museum')
-    expect(screen.getByText('Torchico').closest('a')?.getAttribute('href')).toBe(
-      'https://pathfinder.app',
-    )
+    expect(screen.getByText('Torchico').closest('a')?.getAttribute('href')).toBe('/')
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(
