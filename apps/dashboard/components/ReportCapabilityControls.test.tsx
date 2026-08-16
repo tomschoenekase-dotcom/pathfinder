@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   getReport: vi.fn(),
   getAttempt: vi.fn(),
   clearAttempt: vi.fn(),
+  isPlatformAdmin: false,
 }))
 
 vi.mock('next/navigation', () => ({
@@ -27,7 +28,11 @@ vi.mock('next/navigation', () => ({
 vi.mock('@clerk/nextjs', () => ({
   SignOutButton: ({ children }: { children: React.ReactNode }) => children,
   useOrganization: () => ({ organization: { name: 'Test Tenant' } }),
-  useUser: () => ({ user: { publicMetadata: {} } }),
+  useUser: () => ({
+    user: {
+      publicMetadata: mocks.isPlatformAdmin ? { platform_role: 'PLATFORM_ADMIN' } : {},
+    },
+  }),
 }))
 
 vi.mock('@pathfinder/ui', () => ({ TorchicoBrand: () => <div>Torchico</div> }))
@@ -76,6 +81,7 @@ describe('weekly report capability controls', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.pathname = '/'
+    mocks.isPlatformAdmin = false
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.getAttempt.mockResolvedValue(requestAttempt)
   })
@@ -109,6 +115,18 @@ describe('weekly report capability controls', () => {
     expect(reportLinks.every((link) => link.getAttribute('href') === '/weekly-reports')).toBe(true)
     expect(reportLinks.every((link) => link.getAttribute('aria-current') === 'page')).toBe(true)
     expect(screen.queryByText('Analytics')).toBeNull()
+  })
+
+  it('gives platform admins a direct, obvious route into the admin console', () => {
+    mocks.isPlatformAdmin = true
+    render(
+      <DashboardShell>
+        <div>content</div>
+      </DashboardShell>,
+    )
+
+    expect(screen.getByRole('link', { name: 'Admin console' }).getAttribute('href')).toBe('/admin')
+    expect(screen.getByRole('button', { name: 'Open admin console' })).toBeTruthy()
   })
 
   it('sends an exact configuration revision and refreshes after enabling', async () => {
