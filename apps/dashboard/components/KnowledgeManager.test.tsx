@@ -86,9 +86,11 @@ describe('KnowledgeManager', () => {
         visibility: 'PUBLIC',
       }),
     )
-    expect(mocks.refresh).toHaveBeenCalledOnce()
-    expect(screen.getByLabelText<HTMLInputElement>('Title').value).toBe('')
-    expect(screen.getByLabelText<HTMLInputElement>('Category').value).toBe('FAQ')
+    await waitFor(() => {
+      expect(mocks.refresh).toHaveBeenCalledOnce()
+      expect(screen.getByLabelText<HTMLInputElement>('Title').value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('Category').value).toBe('FAQ')
+    })
   })
 
   it('preserves a custom category and submits the exact edit payload without venue authority', async () => {
@@ -113,8 +115,8 @@ describe('KnowledgeManager', () => {
         isEnabled: false,
       }),
     )
+    expect(await screen.findByRole('heading', { name: 'Create entry' })).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalledOnce()
-    expect(screen.getByRole('heading', { name: 'Create entry' })).toBeTruthy()
   })
 
   it('fences duplicate enabled-state writes while the first update is pending', async () => {
