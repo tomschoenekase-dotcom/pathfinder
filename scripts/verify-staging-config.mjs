@@ -35,7 +35,27 @@ for (const service of services) {
     throw new Error(`${service.config}: expected dockerfilePath=${service.dockerfile}`)
   }
 
-  await access(resolve(root, service.dockerfile))
+  const dockerfilePath = resolve(root, service.dockerfile)
+  await access(dockerfilePath)
+
+  if (service.name === 'web') {
+    const dockerfile = await readFile(dockerfilePath, 'utf8')
+    const builderStart = dockerfile.indexOf('FROM base AS builder')
+    const runnerStart = dockerfile.indexOf('FROM base AS runner')
+    const builderStage = dockerfile.slice(builderStart, runnerStart)
+
+    if (
+      builderStart < 0 ||
+      runnerStart <= builderStart ||
+      !builderStage.includes('ARG NEXT_PUBLIC_WEB_URL') ||
+      builderStage.indexOf('ARG NEXT_PUBLIC_WEB_URL') >
+        builderStage.indexOf('RUN pnpm --filter @pathfinder/web build')
+    ) {
+      throw new Error(
+        `${service.dockerfile}: NEXT_PUBLIC_WEB_URL must be declared in the builder stage before the web build`,
+      )
+    }
+  }
 
   if (
     service.healthcheckPath !== undefined &&
