@@ -132,8 +132,8 @@ describe('weekly report capability controls', () => {
         expectedUpdatedAt: null,
       }),
     )
+    expect(await screen.findByText('Current state: Enabled')).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalledOnce()
-    expect(screen.getByText('Current state: Enabled')).toBeTruthy()
     expect((await screen.findByRole('status')).textContent).toContain('updated')
   })
 
