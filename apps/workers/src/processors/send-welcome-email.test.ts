@@ -71,7 +71,7 @@ describe('processSendWelcomeEmailJob', () => {
     expect(mocks.send).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'operator@example.com',
-        subject: 'Welcome to PathFinder',
+        subject: 'Welcome to Torchico',
         html: expect.stringContaining('Ada Venues'),
       }),
       { idempotencyKey: providerKey },

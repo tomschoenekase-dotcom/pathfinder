@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-const roots = ['apps/dashboard', 'apps/web', 'packages/ui', 'packages/contracts']
+const roots = ['apps/dashboard', 'apps/web', 'apps/workers', 'packages/ui', 'packages/contracts']
 
 const explicitFiles = [
   'packages/api/src/lib/generation-request-identity.ts',
@@ -64,6 +64,7 @@ async function sourceFiles(relativeRoot) {
   const entries = await readdir(absoluteRoot, { withFileTypes: true })
   const files = []
   for (const entry of entries) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue
     const relativePath = path.posix.join(relativeRoot, entry.name)
     if (entry.isDirectory()) {
       files.push(...(await sourceFiles(relativePath)))
