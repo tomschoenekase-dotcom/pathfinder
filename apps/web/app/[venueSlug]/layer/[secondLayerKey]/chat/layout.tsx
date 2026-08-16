@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import type { Metadata, Viewport } from 'next'
+import { auth } from '@clerk/nextjs/server'
 import { headers } from 'next/headers'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 import { VenueTemporarilyUnavailable } from '../../../../../components/VenueTemporarilyUnavailable'
@@ -50,6 +51,16 @@ export async function generateMetadata({ params }: Omit<Props, 'children'>): Pro
 
 export default async function SecondLayerChatLayout({ children, params }: Props) {
   const { venueSlug, secondLayerKey } = await params
+  const returnPath = `/${encodeURIComponent(venueSlug)}/layer/${encodeURIComponent(secondLayerKey)}/chat`
+  const authState = await auth()
+
+  if (!authState.userId) {
+    redirect(`/sign-in?redirect_url=${encodeURIComponent(returnPath)}`)
+  }
+  if (!authState.orgId) {
+    redirect(`/select-organization?redirect_url=${encodeURIComponent(returnPath)}`)
+  }
+
   try {
     await getVenue(venueSlug, secondLayerKey)
   } catch (error) {

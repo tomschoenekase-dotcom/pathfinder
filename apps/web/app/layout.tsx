@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { ClerkProvider } from '@clerk/nextjs'
 import {
   DM_Sans,
   Inter,
@@ -96,7 +97,7 @@ export const metadata: Metadata = {
 }
 
 export default function RootLayout({ children }: RootLayoutProps) {
-  return (
+  const document = (
     <html lang="en" className={chatFontVariables}>
       <head>
         <meta name="theme-color" content="#1F4E8C" />
@@ -109,5 +110,14 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <ServiceWorkerRegistration enabled={process.env.NEXT_PUBLIC_PWA_ENABLED !== 'false'} />
       </body>
     </html>
+  )
+
+  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  return publishableKey ? (
+    <ClerkProvider publishableKey={publishableKey} afterSignOutUrl="/">
+      {document}
+    </ClerkProvider>
+  ) : (
+    document
   )
 }
