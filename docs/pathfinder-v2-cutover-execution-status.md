@@ -1,12 +1,16 @@
-# PathFinder V2 cutover execution status
+# PathFinder V2 / Torchico cutover execution status
 
-**Status date:** 2026-08-15 America/Chicago
+`PathFinder V2` remains the historical packet and repository identifier. The current customer-facing
+product name is `Torchico`; lower-case package names, routes, deployment identifiers, protocol
+headers, and historical migration evidence remain unchanged compatibility identifiers.
+
+**Status date:** 2026-08-16 America/Chicago
 
 **Release baseline:** `0d5a1ca9c715eb4a54d8ceffb24e9354a114a23d`
 **Current status:** verified logical backup, local recovery rehearsal, and isolated hosted
 PostgreSQL 17.6 production-lineage migration rehearsal complete; Railway PostgreSQL, Redis,
-dashboard, staging web, dormant provider-disabled workers, isolated Clerk authentication, and
-basic isolated object storage are online; production cutover remains blocked
+dashboard, Torchico staging web, dormant provider-disabled workers, isolated Clerk authentication,
+and basic isolated object storage are online; production cutover remains blocked
 
 ## Blocking control
 
@@ -333,13 +337,44 @@ preserved files. They were not rewritten.
   `$1.59` estimate. The current increase from the `$0.2023` pre-staging observation is `$0.2077`;
   even the displayed estimate remains below the approved `$5` incremental ceiling.
 
+### 2026-08-16 Torchico staging validation update
+
+- Customer-visible web, dashboard, shared UI, worker-generated reports/prompts, and welcome-email
+  copy now use `Torchico`. Exact capitalized `PathFinder` is retained only in reviewed compatibility
+  identifiers and the legacy weekly-report idempotency input. A source contract scans all visible
+  application surfaces, including workers, and fails on an unreviewed old-brand string.
+- Forward migration `20260816000000_rebrand_weekly_reports_torchico` changed the database default
+  and exact legacy default-title rows to `Torchico Weekly Report`. The staging pre-deploy gate is
+  frozen to the exact 92-file manifest. GitHub CI run `31965154635` applied all 92 migrations to its
+  disposable target and passed in 10 minutes 32 seconds.
+- Two previously latent dashboard timing races were reproduced and repaired by awaiting the actual
+  React state transition. The final local run passed all 23 package test tasks; examples include
+  database 921 passed/77 integration-skipped, API 1011/47 skipped, dashboard 627, workers 354/one
+  skipped, and web 282. Separately, 150 script contracts passed with one intentional skip. All 23
+  typecheck tasks and all 13 lint tasks passed; lint retained one nonblocking existing image-
+  optimization warning.
+- Railway activated exact commit `d5f3eaa81b4f77ac0c9dae99e653c50e27591133` on staging web,
+  dashboard, and provider-disabled workers. The checked-in exact-revision health admission passed
+  with `environment: staging`, database/Redis/storage resource IDs matching the isolated services,
+  and database plus queue `up`.
+- A real in-app browser loaded the Torchico landing page, synthetic venue entry, guest chat, and the
+  authenticated client Home, Visitor updates, Tone, Support, and Account routes. The landing title,
+  public marketing copy, powered-by copy, dashboard brand, and Support copy rendered as Torchico.
+  The synthetic Clerk organization and venue display names still contain `PathFinder Staging QA`;
+  these are staging fixture data, not shipped product copy. Their stable slug and IDs were not
+  changed during this validation.
+- Admin navigation is bidirectional and test-protected: a `PLATFORM_ADMIN` sees `Admin console` in
+  the client portal plus `Open admin console` while viewing a client; Torchico OS exposes
+  `Open client portal`. The disposable Clerk staging user does not yet have `PLATFORM_ADMIN`
+  metadata, so deployed `/admin` browser validation remains an explicit permission-gated action.
+
 ## External work not performed
 
 The following are unproven and block production promotion:
 
 - production variable values and backing-resource identities (not opened during this inventory);
 - versioning-capable quarantine storage;
-- deployed staging Guest, worker consumption, broad browser, security, and
+- deployed guest message generation, worker consumption, broad browser, security, and
   performance evidence;
 - production cutover and post-cutover smoke evidence.
 
@@ -399,8 +434,9 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 
 ### A. Final status
 
-**Hosted production-lineage migration rehearsal complete; isolated PostgreSQL, Redis, web,
-dashboard, and dormant workers are online and healthy.**
+**Hosted production-lineage migration rehearsal and Torchico staging release are complete;
+isolated PostgreSQL, Redis, web, dashboard, and dormant workers are online and healthy at exact
+revision `d5f3eaa81b4f77ac0c9dae99e653c50e27591133`.**
 Production remains blocked by the active database incident stop and requires a separate reviewed
 cutover approval.
 
@@ -412,7 +448,7 @@ cutover approval.
 - Earlier migration and staging hardening commits include `2ea64b9`, `c75135a`, `d0c0ef7`,
   `7d248b0`, `89cfad0`, and `9b18d34`.
 - Hosted Railway PostgreSQL/Redis, production-lineage runner, and dedicated-branch application
-  staging commits through admitted code revision `cc4cd35`. The isolated runner worktree was clean
+  staging commits through admitted code revision `d5f3eaa`. The isolated runner worktree was clean
   after that push; this evidence update is the only subsequent local change at the time recorded.
 - Preserved dirty entries: modified `.claude/settings.local.json`; untracked
   `build-report-s1b-task3.md` and `docs/PATHFINDER_CURRENT_ARCHITECTURE.md`.
@@ -548,8 +584,8 @@ and offboarding still require functional staging providers and broader browser r
 - Disposable Redis: four suites passed, two tests per suite.
 - Deployed worker: online after storage configuration and reported provider-disabled mode,
   outbound providers false, and zero queues. All three application services track the same
-  CI-gated staging branch; an exact post-`cc4cd35` worker log/revision observation was not repeated.
-  Scheduler-enabled behavior remains untested.
+  CI-gated staging branch. Railway showed web, dashboard, and workers active at exact revision
+  `d5f3eaa81b4f77ac0c9dae99e653c50e27591133`. Scheduler-enabled behavior remains untested.
 - Object storage: isolated Railway bucket passed application-style PUT, HEAD metadata verification,
   GET, DELETE, and post-delete absence. It returned no version ID; Railway documents object
   versioning as unsupported, so immutable intake quarantine is not admitted.
@@ -627,15 +663,22 @@ treated as satisfying the stronger immutable-intake storage authority.
    object storage is configured, but a versioning-capable private provider is required before
    quarantine intake. Any further credentials must remain in provider secret stores, not repository
    files.
+8. **P1 — enable deployed admin QA when Tom is present.** In the Clerk staging application, set only
+   Tom's disposable staging user public metadata `platform_role` to `PLATFORM_ADMIN`, then open
+   `/admin` and exercise Command center, Client directory, Operations, Operator guide, New client,
+   client impersonation, and the return-to-client-portal link. This is a staging permission change
+   and must not be silently applied while the user is away.
 
 ### L. Readiness judgment
 
 **Ready for limited public-route and authenticated-onboarding staging QA, but not production
 cutover.** Ledger reconciliation, verified logical backup, hosted PostgreSQL 17.6
 production-lineage migration, and separate recovery restore are complete. Isolated PostgreSQL,
-Redis, web, dashboard, and provider-disabled workers are online and the public health endpoint is
-green. Disposable-user Clerk sign-up, organization selection, complete private venue onboarding, and
-signed organization/membership synchronization are green. Versioning-capable quarantine storage,
-broader browser/provider flows, performance evidence, and production cutover approval remain
-required. The active production database incident
+Redis, web, dashboard, and provider-disabled workers are online at exact revision `d5f3eaa`, and
+the public health endpoint is green. Torchico public marketing, guest entry/chat, authenticated
+client navigation, and bidirectional admin navigation contracts are green. Disposable-user Clerk
+sign-up, organization selection, complete private venue onboarding, and signed organization/
+membership synchronization are green. Deployed admin-role QA, versioning-capable quarantine
+storage, broader browser/provider flows, performance evidence, and production cutover approval
+remain required. The active production database incident
 stop remains in force.
