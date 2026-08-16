@@ -6,7 +6,10 @@ export default function AdminNewClientPage() {
   return (
     <div className="mx-auto max-w-xl space-y-8">
       <header className="space-y-2">
-        <Link href="/admin" className="text-sm font-medium text-pf-deep/50 hover:text-pf-primary">
+        <Link
+          href="/admin/directory"
+          className="text-sm font-medium text-pf-deep/50 hover:text-pf-primary"
+        >
           ← Clients
         </Link>
         <p className="text-xs font-semibold uppercase tracking-widest text-pf-accent">

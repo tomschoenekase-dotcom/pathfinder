@@ -45,6 +45,20 @@ describe('VenueAvailabilityControl', () => {
     vi.restoreAllMocks()
   })
 
+  it('renders the server revision in a deterministic UTC format', () => {
+    render(
+      <VenueAvailabilityControl
+        scope="tenant"
+        venueName="Harbor Museum"
+        venueId="venue_1"
+        initialState={initialState}
+      />,
+    )
+
+    const revision = screen.getByText('Aug 8, 2026, 8:00 PM UTC')
+    expect(revision.getAttribute('datetime')).toBe(initialState.updatedAt)
+  })
+
   it('requires confirmation and submits the exact tenant revision and trimmed reason', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.tenantMutate.mockResolvedValueOnce({

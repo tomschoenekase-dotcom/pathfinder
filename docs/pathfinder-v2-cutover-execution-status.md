@@ -379,8 +379,19 @@ preserved files. They were not rewritten.
   validation.
 - Admin navigation is bidirectional and test-protected: a `PLATFORM_ADMIN` sees `Admin console` in
   the client portal plus `Open admin console` while viewing a client; Torchico OS exposes
-  `Open client portal`. The disposable Clerk staging user does not yet have `PLATFORM_ADMIN`
-  metadata, so deployed `/admin` browser validation remains an explicit permission-gated action.
+  `Open client portal`.
+- Tom explicitly authorized the staging-only role change. The Clerk development user for
+  `tomschoenekase@gmail.com` now has public metadata `platform_role: PLATFORM_ADMIN`. The staging
+  session template now includes only the public-metadata object under the claim name already used
+  by the application; no private or unsafe metadata was added. A fresh sign-in proved `/admin`
+  admission and the client-portal return path.
+- Real-browser admin QA passed Command center, Client directory, Operations, Operator guide, New
+  client, one client workspace, portfolio analytics, offboarding, external credentials, and nine
+  venue workflow routes. The sweep found no route errors outside one deterministic hydration defect
+  on Venue overview: server and browser locale time formatting disagreed on the availability
+  revision. The fix uses a fixed UTC rendering and includes a regression test. The New client
+  screen's `Clients` back-link now returns to Client directory instead of Command center. Mobile
+  navigation at 390 by 844 exposed every top-level operator route and both portal transitions.
 
 ## External work not performed
 
@@ -677,22 +688,20 @@ treated as satisfying the stronger immutable-intake storage authority.
    object storage is configured, but a versioning-capable private provider is required before
    quarantine intake. Any further credentials must remain in provider secret stores, not repository
    files.
-8. **P1 — enable deployed admin QA when Tom is present.** In the Clerk staging application, set only
-   Tom's disposable staging user public metadata `platform_role` to `PLATFORM_ADMIN`, then open
-   `/admin` and exercise Command center, Client directory, Operations, Operator guide, New client,
-   client impersonation, and the return-to-client-portal link. This is a staging permission change
-   and must not be silently applied while the user is away.
+8. **Complete — staging admin QA.** Tom's staging user has the exact `PLATFORM_ADMIN` public
+   metadata, the narrow session claim is configured, and the deployed admin/client navigation and
+   read-only workspace sweep passed. Keep this claim confined to the Clerk development instance.
 
 ### L. Readiness judgment
 
 **Ready for limited public-route and authenticated-onboarding staging QA, but not production
 cutover.** Ledger reconciliation, verified logical backup, hosted PostgreSQL 17.6
 production-lineage migration, and separate recovery restore are complete. Isolated PostgreSQL,
-Redis, web, dashboard, and provider-disabled workers are online at exact revision `68a31a8`, and
+Redis, web, dashboard, and provider-disabled workers are online at an admitted staging revision, and
 the public health endpoint is green. Torchico public marketing, guest entry/chat, authenticated
 client navigation, and bidirectional admin navigation contracts are green. Disposable-user Clerk
 sign-up, organization selection, complete private venue onboarding, and signed organization/
-membership synchronization are green. Deployed admin-role QA, versioning-capable quarantine
-storage, broader browser/provider flows, performance evidence, and production cutover approval
+membership synchronization are green. Deployed admin-role QA is green; versioning-capable
+quarantine storage, outbound-provider flows, performance evidence, and production cutover approval
 remain required. The active production database incident
 stop remains in force.

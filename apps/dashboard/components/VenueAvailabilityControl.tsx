@@ -31,6 +31,14 @@ function errorCode(error: unknown): string | null {
 
 type Feedback = { kind: 'error' | 'success'; text: string }
 
+function formatRevisionTimestamp(value: string): string {
+  return `${new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(value))} UTC`
+}
+
 export function VenueAvailabilityControl(props: VenueAvailabilityControlProps) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -228,7 +236,8 @@ export function VenueAvailabilityControl(props: VenueAvailabilityControlProps) {
           {pending ? 'Saving...' : state.isActive ? 'Pause this venue' : 'Resume this venue'}
         </button>
         <p className="text-xs text-pf-deep/50">
-          Revision from {new Date(state.updatedAt).toLocaleString()}
+          Revision from{' '}
+          <time dateTime={state.updatedAt}>{formatRevisionTimestamp(state.updatedAt)}</time>
         </p>
       </div>
 
