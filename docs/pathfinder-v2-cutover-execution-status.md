@@ -350,19 +350,32 @@ preserved files. They were not rewritten.
 - Two previously latent dashboard timing races were reproduced and repaired by awaiting the actual
   React state transition. The final local run passed all 23 package test tasks; examples include
   database 921 passed/77 integration-skipped, API 1011/47 skipped, dashboard 627, workers 354/one
-  skipped, and web 282. Separately, 150 script contracts passed with one intentional skip. All 23
+  skipped, and web 282. Separately, 151 script contracts passed with one intentional skip. All 23
   typecheck tasks and all 13 lint tasks passed; lint retained one nonblocking existing image-
   optimization warning.
-- Railway activated exact commit `d5f3eaa81b4f77ac0c9dae99e653c50e27591133` on staging web,
+- GitHub CI run `31971168890` passed every gate in 8 minutes 20 seconds on exact commit
+  `510f8732a9c5706a67ad69ea3a32ae4dd3ec1dd3`. Railway then activated that commit on staging web,
   dashboard, and provider-disabled workers. The checked-in exact-revision health admission passed
   with `environment: staging`, database/Redis/storage resource IDs matching the isolated services,
   and database plus queue `up`.
+- A deployed route sweep caught two release-boundary defects without exposing production: the
+  marketing privacy link had fallen through to the dynamic venue route, and static social metadata
+  still used the production fallback origin. `/privacy` is now a dedicated 200 route with an honest
+  evaluation-stage notice. Web metadata uses `NEXT_PUBLIC_WEB_URL`; the staging Docker builder now
+  declares that public value before the Next.js build, and both the staging verifier and a script
+  contract fail if that build-time boundary is removed.
+- GitHub CI run `31971897997` passed every gate in 10 minutes 25 seconds on exact commit
+  `68a31a8f003c9192cf1117f3edcf378da9fb001a`. Railway activated that commit on all three staging
+  application services. Exact-revision health again admitted the isolated database, Redis, and
+  storage IDs with database and queue `up`; the deployed landing HTML contained the staging origin
+  in its Open Graph metadata and contained no production-origin reference.
 - A real in-app browser loaded the Torchico landing page, synthetic venue entry, guest chat, and the
   authenticated client Home, Visitor updates, Tone, Support, and Account routes. The landing title,
   public marketing copy, powered-by copy, dashboard brand, and Support copy rendered as Torchico.
-  The synthetic Clerk organization and venue display names still contain `PathFinder Staging QA`;
-  these are staging fixture data, not shipped product copy. Their stable slug and IDs were not
-  changed during this validation.
+  The Clerk development application itself is now named `Torchico Staging`. The synthetic Clerk
+  organization and venue display names still contain `PathFinder Staging QA`; these are staging
+  fixture data, not shipped product copy. Their stable slug and IDs were not changed during this
+  validation.
 - Admin navigation is bidirectional and test-protected: a `PLATFORM_ADMIN` sees `Admin console` in
   the client portal plus `Open admin console` while viewing a client; Torchico OS exposes
   `Open client portal`. The disposable Clerk staging user does not yet have `PLATFORM_ADMIN`
@@ -421,7 +434,7 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 | Deployed end-to-end validation | Partial                 | CI passed and health admitted exact revision `cc4cd3574add15bdd16a94b0ea63cb257d57b028` with database/queue `up` and exact database/Redis/storage fingerprints. Landing, Riverside Aquarium venue, and chat routes returned 200; dashboard root redirected to `/sign-in` and the sign-in route returned 200. A disposable real-browser Clerk user was created and verified, the `PathFinder Staging QA` organization and membership synchronized, and the complete onboarding flow created a private synthetic venue shell/review proposal without publishing guide content. Authenticated Home, Visitor updates, Tone, Support, and Account routes loaded in the same tenant scope. Application-style storage PUT/HEAD/GET/DELETE passed with cleanup. Browser upload and outbound-provider flows remain unrun. |
 | Real-browser validation        | Partial                 | The 164 browser-foundation tests and six axe tests passed. A real in-app browser completed deployed Clerk sign-up and development verification, selected `PathFinder Staging QA`, completed all four onboarding steps, and reached its authenticated review home. Engine/version and exact viewport were not independently reported; no mobile or WebKit flow ran.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Worker/Redis/scheduler proof   | Partial                 | Disposable Redis suites passed 2/2 each. The hosted staging worker is online and logged provider-disabled mode, outbound providers false, and zero queues without AI keys. This proves the reviewed process is dormant, but scheduler-enabled behavior, outage recovery, and provider cancellation remain unproven.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Storage proof                  | Partial                 | Isolated Railway storage passed application-style PUT, HEAD metadata, GET byte equality, DELETE, and post-delete 404 with cleanup. Exact health identity is green. Railway does not support object versioning, so PathFinder's immutable quarantine intake rejects this provider; CORS, presigned browser upload, multipart, and worker consumption remain unproven.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Storage proof                  | Partial                 | Isolated Railway storage passed application-style PUT, HEAD metadata, GET byte equality, DELETE, and post-delete 404 with cleanup. Exact health identity is green. Railway does not support object versioning, so Torchico's immutable quarantine intake rejects this provider; CORS, presigned browser upload, multipart, and worker consumption remain unproven.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Security/isolation smoke       | Partial                 | Tenant registries, procedure coverage, bypass inventory, public-surface inventory, raw-SQL inventory, bundle-secret scan, disabled external-credential boundary, and non-destructive offboarding contracts passed. A real-browser alternate-organization visibility probe exposed no QA venue name/ID and restored the QA scope cleanly. Negative deployed API/mutation probes and staging/production separation evidence remain incomplete.                                                                                                                                                                                                                                                                                                                                                                     |
 | Performance sanity             | Partial                 | Hosted health and public route reachability passed, but no representative latency distribution, query plan, memory profile, or active-worker load evidence was recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Production-cutover gate        | Not met                 | Backup, ledger reconciliation, hosted PostgreSQL 17.6 lineage migration, logical recovery, exact staging resource identity, real-user Clerk authentication and onboarding, basic S3 storage, and deployed reachability are green. Versioning-capable quarantine storage, broader browser/provider, performance, production health, and explicit cutover authorization remain missing.                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -436,7 +449,7 @@ This audit is against the 50,277-byte implementation packet last modified on 202
 
 **Hosted production-lineage migration rehearsal and Torchico staging release are complete;
 isolated PostgreSQL, Redis, web, dashboard, and dormant workers are online and healthy at exact
-revision `d5f3eaa81b4f77ac0c9dae99e653c50e27591133`.**
+revision `68a31a8f003c9192cf1117f3edcf378da9fb001a`.**
 Production remains blocked by the active database incident stop and requires a separate reviewed
 cutover approval.
 
@@ -448,7 +461,7 @@ cutover approval.
 - Earlier migration and staging hardening commits include `2ea64b9`, `c75135a`, `d0c0ef7`,
   `7d248b0`, `89cfad0`, and `9b18d34`.
 - Hosted Railway PostgreSQL/Redis, production-lineage runner, and dedicated-branch application
-  staging commits through admitted code revision `d5f3eaa`. The isolated runner worktree was clean
+  staging commits through admitted code revision `68a31a8`. The isolated runner worktree was clean
   after that push; this evidence update is the only subsequent local change at the time recorded.
 - Preserved dirty entries: modified `.claude/settings.local.json`; untracked
   `build-report-s1b-task3.md` and `docs/PATHFINDER_CURRENT_ARCHITECTURE.md`.
@@ -647,7 +660,7 @@ treated as satisfying the stronger immutable-intake storage authority.
    candidate with three reconciled historical checksum differences and no sampled partial artifacts.
 2. **P0 — review the completed hosted staging rehearsal.** The exact archive restored successfully,
    all 38 pending migrations applied only to the isolated clone, the repeat pre-deploy applied
-   nothing, and revision `672dfdd` is healthy.
+   nothing, and revision `68a31a8` is healthy.
 3. **P0 — review the completed local logical backup, PostgreSQL 17.6 lineage rehearsal, scoped
    analytics repair, and recovery restore.** No backup or provider add-on cost was incurred.
 4. **P0 — separately approve or reject a presented production cutover plan.** The prior approval
@@ -674,7 +687,7 @@ treated as satisfying the stronger immutable-intake storage authority.
 **Ready for limited public-route and authenticated-onboarding staging QA, but not production
 cutover.** Ledger reconciliation, verified logical backup, hosted PostgreSQL 17.6
 production-lineage migration, and separate recovery restore are complete. Isolated PostgreSQL,
-Redis, web, dashboard, and provider-disabled workers are online at exact revision `d5f3eaa`, and
+Redis, web, dashboard, and provider-disabled workers are online at exact revision `68a31a8`, and
 the public health endpoint is green. Torchico public marketing, guest entry/chat, authenticated
 client navigation, and bidirectional admin navigation contracts are green. Disposable-user Clerk
 sign-up, organization selection, complete private venue onboarding, and signed organization/
