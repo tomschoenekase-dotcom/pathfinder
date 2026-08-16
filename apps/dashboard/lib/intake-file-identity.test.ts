@@ -10,14 +10,14 @@ import {
 
 describe('intake file identity', () => {
   it('returns the exact full-file SHA-256 in hex and base64', async () => {
-    const bytes = new TextEncoder().encode('PathFinder quarantine evidence')
+    const bytes = new TextEncoder().encode('Torchico quarantine evidence')
     const file = new File([bytes], 'evidence.pdf', { type: 'application/pdf' })
     const identity = await identifyIntakeFile(file)
     expect(identity).toEqual({
       sha256Hex: createHash('sha256').update(bytes).digest('hex'),
       sha256Base64: createHash('sha256').update(bytes).digest('base64'),
     })
-    expect(intakeFileFingerprint(file, identity)).not.toContain('PathFinder quarantine evidence')
+    expect(intakeFileFingerprint(file, identity)).not.toContain('Torchico quarantine evidence')
   })
 
   it('allows only PDF and safe raster formats within the exact size bound', () => {

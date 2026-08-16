@@ -1,8 +1,8 @@
-type PathFinderIconProps = {
+type TorchicoIconProps = {
   className?: string
 }
 
-type PathFinderBrandProps = {
+type TorchicoBrandProps = {
   className?: string
   iconClassName?: string
   textClassName?: string
@@ -10,7 +10,7 @@ type PathFinderBrandProps = {
   gapClassName?: string
 }
 
-export function PathFinderIcon({ className = 'h-7 w-7' }: PathFinderIconProps) {
+export function TorchicoIcon({ className = 'h-7 w-7' }: TorchicoIconProps) {
   return (
     <svg
       className={className}
@@ -28,18 +28,18 @@ export function PathFinderIcon({ className = 'h-7 w-7' }: PathFinderIconProps) {
   )
 }
 
-export function PathFinderBrand({
+export function TorchicoBrand({
   className = '',
   iconClassName = 'h-7 w-7 flex-shrink-0',
   textClassName = '',
   textSizeClassName = 'text-lg',
   gapClassName = 'gap-2.5',
-}: PathFinderBrandProps) {
+}: TorchicoBrandProps) {
   return (
     <div className={`flex items-center ${gapClassName} ${className}`}>
-      <PathFinderIcon className={iconClassName} />
+      <TorchicoIcon className={iconClassName} />
       <span className={`${textSizeClassName} font-semibold tracking-tight ${textClassName}`}>
-        PathFinder
+        Torchico
       </span>
     </div>
   )

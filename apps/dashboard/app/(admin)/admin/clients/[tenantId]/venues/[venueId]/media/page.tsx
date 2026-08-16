@@ -34,7 +34,7 @@ export default async function AdminVenueMediaPage({
         </h1>
         <p className="max-w-3xl text-sm leading-6 text-pf-deep/60">
           Upload once, preserve the evidence trail, answer only the questions that matter, and
-          review import-ready PathFinder JSON before anything reaches the venue.
+          review import-ready Torchico JSON before anything reaches the venue.
         </p>
       </header>
       <MediaIngestionWorkbench

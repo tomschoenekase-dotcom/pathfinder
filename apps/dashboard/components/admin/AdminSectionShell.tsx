@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 
-import { PathFinderBrand } from '@pathfinder/ui'
+import { TorchicoBrand } from '@pathfinder/ui'
 
 import { AdminCommandPalette } from './AdminCommandPalette'
 
@@ -80,10 +80,10 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
   const sidebar = (
     <div className="flex h-full flex-col bg-slate-950 text-slate-100">
       <div className="border-b border-slate-800 px-5 py-5">
-        <PathFinderBrand textClassName="text-white" textSizeClassName="text-base" />
+        <TorchicoBrand textClassName="text-white" textSizeClassName="text-base" />
         <div className="mt-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-          PathFinder OS
+          Torchico OS
         </div>
       </div>
 
@@ -91,7 +91,7 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
         <AdminCommandPalette />
       </div>
 
-      <nav className="flex-1 space-y-1 px-3" aria-label="PathFinder OS navigation">
+      <nav className="flex-1 space-y-1 px-3" aria-label="Torchico OS navigation">
         {navigationItems.map((item) => {
           const active = isActivePath(pathname, item.href, 'exact' in item ? item.exact : false)
           const Icon = item.icon
@@ -127,7 +127,7 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
           href="/"
           className="flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-400 transition hover:bg-slate-900 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
-          Client portal
+          Open client portal
           <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
       </div>

@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { PathFinderBrand } from '@pathfinder/ui'
+import { TorchicoBrand } from '@pathfinder/ui'
 
 type DashboardShellProps = {
   children: ReactNode
@@ -130,7 +130,7 @@ export function DashboardShell({
             className="mt-4 flex min-h-11 items-center gap-3 border-t border-white/10 px-3.5 pt-5 text-sm font-medium text-pf-light/90 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
           >
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-            Admin
+            Admin console
           </Link>
         ) : null}
       </nav>
@@ -149,7 +149,7 @@ export function DashboardShell({
   return (
     <div className="min-h-screen bg-pf-surface text-pf-deep">
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-pf-light bg-pf-deep px-4 text-white lg:hidden">
-        <PathFinderBrand
+        <TorchicoBrand
           gapClassName="gap-2"
           textClassName="text-white"
           textSizeClassName="text-base"
@@ -184,7 +184,7 @@ export function DashboardShell({
       >
         <div className="border-b border-white/10 pb-6">
           <div className="hidden lg:block">
-            <PathFinderBrand
+            <TorchicoBrand
               gapClassName="gap-2"
               textClassName="text-white"
               textSizeClassName="text-base"
@@ -206,7 +206,7 @@ export function DashboardShell({
               onClick={exitClientView}
               className="min-h-11 shrink-0 rounded-lg px-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 hover:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
             >
-              Back to Admin
+              Open admin console
             </button>
           </div>
         ) : null}

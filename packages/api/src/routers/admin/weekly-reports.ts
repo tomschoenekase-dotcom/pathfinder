@@ -18,6 +18,7 @@ import { router } from '../../core'
 import {
   effectiveWeeklyReportTitle,
   generationRequestHash,
+  LEGACY_DEFAULT_WEEKLY_REPORT_TITLE,
 } from '../../lib/generation-request-identity'
 import { findVenueReportConfiguration } from '../../lib/venue-report-configuration'
 import { adminAiProcedure, adminProcedure } from '../../trpc'
@@ -73,6 +74,15 @@ export const adminWeeklyReportsRouter = router({
         rangeEnd: weekEnd,
         title,
       })
+      const legacyRequestHash = input.title?.trim()
+        ? null
+        : generationRequestHash({
+            kind: 'WEEKLY_REPORT',
+            venueId: input.venueId,
+            rangeStart: weekStart,
+            rangeEnd: weekEnd,
+            title: LEGACY_DEFAULT_WEEKLY_REPORT_TITLE,
+          })
       const createOrReplay = () =>
         withTenantIsolationBypass(() =>
           db.$transaction(async (transaction) => {
@@ -100,7 +110,10 @@ export const adminWeeklyReportsRouter = router({
               select: { id: true, recordId: true, requestHash: true, status: true },
             })
             if (existing) {
-              if (existing.requestHash !== requestHash) {
+              if (
+                existing.requestHash !== requestHash &&
+                existing.requestHash !== legacyRequestHash
+              ) {
                 throw new TRPCError({
                   code: 'CONFLICT',
                   message: 'Request ID was already used for different report input.',

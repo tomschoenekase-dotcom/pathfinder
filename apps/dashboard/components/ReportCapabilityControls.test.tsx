@@ -30,7 +30,7 @@ vi.mock('@clerk/nextjs', () => ({
   useUser: () => ({ user: { publicMetadata: {} } }),
 }))
 
-vi.mock('@pathfinder/ui', () => ({ PathFinderBrand: () => <div>PathFinder</div> }))
+vi.mock('@pathfinder/ui', () => ({ TorchicoBrand: () => <div>Torchico</div> }))
 
 vi.mock('../lib/generation-request-idempotency', () => ({
   getOrCreateGenerationRequestAttempt: mocks.getAttempt,

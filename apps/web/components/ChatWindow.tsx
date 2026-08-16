@@ -33,7 +33,7 @@ type ChatWindowProps = {
   onDirectionsClick?: (placeId: string) => void
 }
 
-const RESPONDING_ANNOUNCEMENT = 'PathFinder guide is responding'
+const RESPONDING_ANNOUNCEMENT = 'Torchico guide is responding'
 
 export function ChatWindow({
   messages,
@@ -176,7 +176,7 @@ export function ChatWindow({
         ) : liveAnnouncement?.kind === 'response' ? (
           <>
             <span lang="en" dir="ltr">
-              PathFinder guide:{' '}
+              Torchico guide:{' '}
             </span>
             <span lang="" dir="auto">
               {liveAnnouncement.content}

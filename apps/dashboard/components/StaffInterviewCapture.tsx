@@ -124,7 +124,7 @@ export function StaffInterviewCapture({
         </legend>
         <p className="text-sm leading-6 text-pf-deep/75">
           {clientFacing
-            ? 'Written answers help the PathFinder team understand your venue. Choose how each answer may be used; skipped or redacted answers retain no text. This form does not accept recordings.'
+            ? 'Written answers help the Torchico team understand your venue. Choose how each answer may be used; skipped or redacted answers retain no text. This form does not accept recordings.'
             : 'Public-candidate text may be reviewed. Internal and private text is converted to evidence hashes only; skipped and redacted answers retain no text. No recording, audio, or video is accepted.'}
         </p>
         <label className="block text-sm font-medium text-pf-deep">
@@ -236,7 +236,7 @@ export function StaffInterviewCapture({
                               ? option === 'PUBLIC_CANDIDATE'
                                 ? 'May be used for visitors'
                                 : option === 'INTERNAL_CONTEXT'
-                                  ? 'PathFinder team only'
+                                  ? 'Torchico team only'
                                   : 'Private—do not retain the text'
                               : option.replaceAll('_', ' ')}
                           </option>

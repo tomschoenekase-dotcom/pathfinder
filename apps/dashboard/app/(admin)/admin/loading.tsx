@@ -1,6 +1,6 @@
 export default function AdminLoading() {
   return (
-    <div className="space-y-6" role="status" aria-label="Loading PathFinder operations">
+    <div className="space-y-6" role="status" aria-label="Loading Torchico operations">
       <div className="space-y-3 border-b border-slate-200 pb-7">
         <div className="h-3 w-28 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
         <div className="h-10 w-full max-w-lg animate-pulse rounded-lg bg-slate-200 motion-reduce:animate-none" />
@@ -14,7 +14,7 @@ export default function AdminLoading() {
         <div className="h-52 animate-pulse rounded-2xl border border-slate-200 bg-white motion-reduce:animate-none xl:col-span-2" />
         <div className="h-52 animate-pulse rounded-2xl border border-slate-200 bg-white motion-reduce:animate-none" />
       </div>
-      <span className="sr-only">Loading PathFinder operations…</span>
+      <span className="sr-only">Loading Torchico operations…</span>
     </div>
   )
 }

@@ -385,7 +385,7 @@ export type PathfinderMcpToolName =
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
   {
     name: 'pathfinder.read',
-    title: 'Read PathFinder data',
+    title: 'Read Torchico data',
     description:
       'Read an authorized client or venue resource. Tenant authority comes only from the verified credential.',
     inputSchema: strictObject(

@@ -16,12 +16,12 @@ export default async function IntakePage({ params }: { params: Promise<{ venueId
       <div className="mx-auto max-w-4xl space-y-6">
         <header>
           <p className="text-xs font-bold uppercase tracking-wider text-pf-primary">
-            Build your PathFinder
+            Build your Torchico
           </p>
           <h1 className="mt-1 text-3xl font-semibold text-pf-deep">Share what you already have</h1>
           <p className="mt-2 text-sm leading-6 text-pf-deep/75">
             Websites, written staff knowledge, documents, and images are all useful. Rough source
-            material is welcome—the PathFinder team reviews everything before it becomes part of the
+            material is welcome—the Torchico team reviews everything before it becomes part of the
             visitor experience. This page shows your 25 most recently shared files.
           </p>
         </header>

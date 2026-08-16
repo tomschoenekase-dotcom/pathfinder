@@ -223,7 +223,7 @@ export function ClientPackagePreview({ preview }: Props) {
             </span>
             <div>
               <p className="text-sm text-pf-deep/60">
-                {venue.guide.name ?? 'PathFinder guide'}
+                {venue.guide.name ?? 'Torchico guide'}
                 {` · ${venue.guide.tone.preset} voice`}
               </p>
               <h2 id="answers-heading" className="text-2xl font-semibold text-pf-deep">
@@ -263,8 +263,8 @@ export function ClientPackagePreview({ preview }: Props) {
             Does this feel ready for your visitors?
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-pf-deep/70">
-            Send corrections or questions to PathFinder Support. This preview cannot publish or
-            change the visitor experience.
+            Send corrections or questions to Torchico Support. This preview cannot publish or change
+            the visitor experience.
           </p>
           <form
             onSubmit={(event) => void submitFeedback(event)}
@@ -310,7 +310,7 @@ export function ClientPackagePreview({ preview }: Props) {
               role="status"
               className="mt-4 max-w-2xl rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"
             >
-              <p>Your feedback was sent to PathFinder Support. Nothing was published.</p>
+              <p>Your feedback was sent to Torchico Support. Nothing was published.</p>
               <Link
                 href={supportHref}
                 className="mt-2 inline-flex font-semibold underline underline-offset-2"

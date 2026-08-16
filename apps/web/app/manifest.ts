@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'PathFinder',
-    short_name: 'PathFinder',
+    name: 'Torchico',
+    short_name: 'Torchico',
     description: 'Your venue guide',
     start_url: '/',
     scope: '/',

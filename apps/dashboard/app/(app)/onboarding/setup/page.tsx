@@ -358,7 +358,7 @@ function VenueBasicsStep({
 
           <fieldset className="space-y-3 sm:col-span-2">
             <legend className="text-sm font-medium text-pf-deep/70">
-              How will visitors usually use PathFinder?
+              How will visitors usually use Torchico?
             </legend>
             <label className={styles.choiceCard}>
               <input type="radio" value="location_aware" {...register('guideMode')} />
@@ -500,7 +500,7 @@ function VenueLocationStep({
               )}
             />
             <p id="venue-lng-help" className="mt-1 text-xs text-pf-deep/70">
-              PathFinder only uses this venue location; it is not a visitor&apos;s live location.
+              Torchico only uses this venue location; it is not a visitor&apos;s live location.
             </p>
             {errors.defaultCenterLng ? (
               <p id="venue-lng-error" role="alert" className="mt-2 text-sm text-rose-700">
@@ -566,7 +566,7 @@ function ContentKindStep({
         <div>
           <p className={styles.eyebrow}>One useful starting point</p>
           <h2 className="text-2xl font-semibold tracking-tight text-pf-deep">
-            What should PathFinder learn first?
+            What should Torchico learn first?
           </h2>
         </div>
         <p className="text-sm leading-6 text-pf-deep/75">
@@ -695,7 +695,7 @@ function FirstPlaceStep({
               {...register('name')}
             />
             <p id="place-name-help" className="mt-1 text-xs text-pf-deep/70">
-              Don&apos;t worry about perfect wording. PathFinder will organize and refine it for
+              Don&apos;t worry about perfect wording. Torchico will organize and refine it for
               review.
             </p>
             {errors.name ? (
@@ -780,7 +780,7 @@ function FirstPlaceStep({
             </>
           ) : (
             <>
-              Send to PathFinder <Sparkles className="ml-2 h-4 w-4" aria-hidden="true" />
+              Send to Torchico <Sparkles className="ml-2 h-4 w-4" aria-hidden="true" />
             </>
           )}
         </button>
@@ -918,7 +918,7 @@ function FirstKnowledgeStep({
             </>
           ) : (
             <>
-              Send to PathFinder <Sparkles className="ml-2 h-4 w-4" aria-hidden="true" />
+              Send to Torchico <Sparkles className="ml-2 h-4 w-4" aria-hidden="true" />
             </>
           )}
         </button>
@@ -1034,7 +1034,7 @@ export default function OnboardingSetupPage() {
             <li className={styles.milestoneActive}>
               <LoaderCircle className="h-4 w-4" aria-hidden="true" />
               <span>
-                <strong>PathFinder review pending</strong>
+                <strong>Torchico review pending</strong>
                 <small>Your raw information has not been added to the visitor guide.</small>
               </span>
             </li>
@@ -1047,7 +1047,7 @@ export default function OnboardingSetupPage() {
             </li>
           </ol>
           <p className={styles.redirectNote} aria-live="polite">
-            Taking you to your PathFinder...
+            Taking you to your Torchico...
           </p>
         </section>
       </main>
@@ -1071,7 +1071,7 @@ export default function OnboardingSetupPage() {
           <h1>
             Give us the raw details.
             <br />
-            <span>We&apos;ll build the PathFinder.</span>
+            <span>We&apos;ll build the Torchico.</span>
           </h1>
           <p className={styles.heroCopy}>
             No chatbot configuration and no perfect copy required. Start with what you know; our
@@ -1106,7 +1106,7 @@ export default function OnboardingSetupPage() {
               <li>
                 <Sparkles aria-hidden="true" />
                 <span>
-                  <strong>PathFinder does the assembly</strong>
+                  <strong>Torchico does the assembly</strong>
                   <small>We organize, refine, and prepare the visitor experience.</small>
                 </span>
               </li>

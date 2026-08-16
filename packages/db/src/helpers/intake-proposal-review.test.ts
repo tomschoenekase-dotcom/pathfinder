@@ -30,7 +30,7 @@ describe('staff interview review projection', () => {
     expect(db.intakeRun.findFirst).not.toHaveBeenCalled()
   })
 
-  it('returns public text and safe private/redacted summaries without hashes or raw private text', async () => {
+  it('preserves pre-rename consent evidence while returning privacy-safe review detail', async () => {
     const db = client({
       id: 'run-1',
       sourceKind: 'INTERVIEW',

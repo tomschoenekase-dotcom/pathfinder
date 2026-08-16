@@ -40,8 +40,8 @@ export type ClientPortalLifecycleView = {
 const VIEWS: Record<ClientPortalLifecycle, Omit<ClientPortalLifecycleView, 'version' | 'state'>> = {
   SETUP_REQUESTED: {
     label: 'Setup requested',
-    headline: 'Let’s start building your PathFinder.',
-    summary: 'Share the information you already have. The PathFinder team will handle the setup.',
+    headline: 'Let’s start building your Torchico.',
+    summary: 'Share the information you already have. The Torchico team will handle the setup.',
     clientAction: 'CONTINUE_INTAKE',
     clientActionRequired: true,
   },
@@ -60,15 +60,15 @@ const VIEWS: Record<ClientPortalLifecycle, Omit<ClientPortalLifecycleView, 'vers
     clientActionRequired: false,
   },
   INTERNAL_REVIEW: {
-    label: 'PathFinder review',
-    headline: 'Your PathFinder is being carefully reviewed.',
+    label: 'Torchico review',
+    headline: 'Your Torchico is being carefully reviewed.',
     summary: 'We’ll let you know if we need anything or when a visitor preview is ready.',
     clientAction: 'NONE',
     clientActionRequired: false,
   },
   CLIENT_PREVIEW: {
     label: 'Preview ready',
-    headline: 'Your PathFinder is ready for you to preview.',
+    headline: 'Your Torchico is ready for you to preview.',
     summary: 'See what visitors will experience and send any requested changes through Support.',
     clientAction: 'OPEN_PREVIEW',
     clientActionRequired: true,
@@ -83,14 +83,14 @@ const VIEWS: Record<ClientPortalLifecycle, Omit<ClientPortalLifecycleView, 'vers
   },
   READY: {
     label: 'Ready to launch',
-    headline: 'Your PathFinder is ready for a final look.',
-    summary: 'Preview the visitor experience. The PathFinder team will coordinate launch timing.',
+    headline: 'Your Torchico is ready for a final look.',
+    summary: 'Preview the visitor experience. The Torchico team will coordinate launch timing.',
     clientAction: 'OPEN_PREVIEW',
     clientActionRequired: true,
   },
   LIVE: {
     label: 'Live',
-    headline: 'Your visitors can explore with PathFinder now.',
+    headline: 'Your visitors can explore with Torchico now.',
     summary:
       'Use this portal for timely visitor updates, tone preferences, and help from our team.',
     clientAction: 'NONE',
@@ -98,7 +98,7 @@ const VIEWS: Record<ClientPortalLifecycle, Omit<ClientPortalLifecycleView, 'vers
   },
   PAUSED: {
     label: 'Paused',
-    headline: 'Your PathFinder is currently paused.',
+    headline: 'Your Torchico is currently paused.',
     summary:
       'Visitors cannot open it right now. Contact Support if you need help or expected it live.',
     clientAction: 'CONTACT_SUPPORT',
@@ -106,8 +106,8 @@ const VIEWS: Record<ClientPortalLifecycle, Omit<ClientPortalLifecycleView, 'vers
   },
   OFFBOARDING: {
     label: 'Closing service',
-    headline: 'Your PathFinder service is being closed carefully.',
-    summary: 'The PathFinder team will keep you informed about access and any requested handoff.',
+    headline: 'Your Torchico service is being closed carefully.',
+    summary: 'The Torchico team will keep you informed about access and any requested handoff.',
     clientAction: 'NONE',
     clientActionRequired: false,
   },

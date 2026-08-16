@@ -62,8 +62,8 @@ describe('DashboardOverview client portal', () => {
         .every((link) => link.getAttribute('href') === 'https://guest.example/riverside'),
     ).toBe(true)
     expect(screen.getByText('1 visitor update live')).toBeTruthy()
-    expect(screen.getByText('PathFinder tone')).toBeTruthy()
-    expect(screen.getByText('PathFinder Support')).toBeTruthy()
+    expect(screen.getByText('Torchico tone')).toBeTruthy()
+    expect(screen.getByText('Torchico Support')).toBeTruthy()
     expect(screen.queryByText(/analytics/i)).toBeNull()
     expect(screen.queryByText(/sessions/i)).toBeNull()
     expect(screen.queryByText(/1 venue/i)).toBeNull()
@@ -230,7 +230,7 @@ describe('DashboardOverview client portal', () => {
         .getByRole('link', { name: /Contact Support Action needed Visitors cannot open/iu })
         .getAttribute('href'),
     ).toBe('/support')
-    expect(screen.queryByRole('link', { name: /Open PathFinder|Open preview/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /Open Torchico|Open preview/ })).toBeNull()
     expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)
   })
 
@@ -254,7 +254,7 @@ describe('DashboardOverview client portal', () => {
           {
             id: 'missing:request-1',
             title: 'Updated admission details',
-            description: 'PathFinder Support is waiting for the details below.',
+            description: 'Torchico Support is waiting for the details below.',
             href: '/support?venue=riverside&request=request-1',
             required: true,
             items: ['Current price', 'Effective date'],
@@ -269,7 +269,7 @@ describe('DashboardOverview client portal', () => {
           {
             id: 'report',
             title: 'July review',
-            description: 'A published PathFinder report is available to read.',
+            description: 'A published Torchico report is available to read.',
             href: '/weekly-reports/report-1?venue=riverside',
             required: false,
           },
@@ -277,12 +277,12 @@ describe('DashboardOverview client portal', () => {
       />,
     )
 
-    const tasks = screen.getByRole('list', { name: 'PathFinder tasks' })
+    const tasks = screen.getByRole('list', { name: 'Torchico tasks' })
     const links = Array.from(tasks.querySelectorAll('a'))
     expect(links.every((link) => link.getAttribute('aria-label') === null)).toBe(true)
     expect(
       screen.getByRole('link', {
-        name: /Updated admission details Action needed PathFinder Support is waiting.*Current price.*Effective date.*Open/iu,
+        name: /Updated admission details Action needed Torchico Support is waiting.*Current price.*Effective date.*Open/iu,
       }),
     ).toBeTruthy()
     expect(screen.getByText('Current price')).toBeTruthy()
@@ -302,7 +302,7 @@ describe('DashboardOverview client portal', () => {
         tasks={[]}
       />,
     )
-    expect(screen.queryByRole('list', { name: 'PathFinder tasks' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Torchico tasks' })).toBeNull()
     expect(screen.queryByText(/Your next step/)).toBeNull()
   })
 })

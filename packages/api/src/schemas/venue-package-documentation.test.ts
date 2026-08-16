@@ -12,7 +12,7 @@ import {
 const documentationPath = fileURLToPath(
   new URL('../../../../docs/venue-package-format.md', import.meta.url),
 )
-const documentation = readFileSync(documentationPath, 'utf8')
+const documentation = readFileSync(documentationPath, 'utf8').replaceAll('\r\n', '\n')
 
 function documentedExample(version: 1 | 2 | 3): unknown {
   const marker = `<!-- venue-package-example:v${version} -->`

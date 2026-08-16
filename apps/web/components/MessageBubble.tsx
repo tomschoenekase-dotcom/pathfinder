@@ -28,7 +28,7 @@ export function MessageBubble({
   onChoiceSelect,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
-  const speaker = isUser ? 'You' : 'PathFinder guide'
+  const speaker = isUser ? 'You' : 'Torchico guide'
 
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>

@@ -111,10 +111,10 @@ describe('classic third-party staging widget launcher', () => {
 
     expect(widget.host?.hidden).toBe(false)
     expect(widget.host?.getAttribute('data-pathfinder-widget')).toBe('')
-    expect(widget.launcher()?.textContent).toBe('Ask PathFinder')
+    expect(widget.launcher()?.textContent).toBe('Ask Torchico')
     expect(widget.launcher()?.type).toBe('button')
     expect(widget.launcher()?.getAttribute('aria-expanded')).toBe('false')
-    expect(widget.launcher()?.getAttribute('aria-label')).toBe('Open PathFinder venue guide')
+    expect(widget.launcher()?.getAttribute('aria-label')).toBe('Open Torchico venue guide')
     expect(widget.panel()?.hidden).toBe(true)
     expect(widget.frame()).toBeNull()
     expect(widget.script.dataset.pathfinderMounted).toBe('true')
@@ -141,7 +141,7 @@ describe('classic third-party staging widget launcher', () => {
     const frame = widget.frame()
 
     expect(frame?.src).toBe('https://guide.example/embed/museum')
-    expect(frame?.title).toBe('PathFinder venue guide')
+    expect(frame?.title).toBe('Torchico venue guide')
     expect(frame?.loading).toBe('eager')
     expect(frame?.referrerPolicy).toBe('no-referrer')
     expect(frame?.getAttribute('sandbox')).toBe(
@@ -175,7 +175,7 @@ describe('classic third-party staging widget launcher', () => {
     dispatchReady(frame)
     expect(widget.panel()?.hidden).toBe(false)
     expect(widget.launcher()?.hidden).toBe(true)
-    expect(widget.close()?.getAttribute('aria-label')).toBe('Close PathFinder venue guide')
+    expect(widget.close()?.getAttribute('aria-label')).toBe('Close Torchico venue guide')
     expect(widget.shadow?.activeElement).toBe(widget.close())
   })
 

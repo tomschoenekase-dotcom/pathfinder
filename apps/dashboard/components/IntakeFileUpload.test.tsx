@@ -85,7 +85,7 @@ describe('quarantined intake file upload', () => {
   it('uses the exact signed PUT headers and reports transport verification without safety claims', async () => {
     const file = renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting Torchico review')
 
     expect(reserve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -123,7 +123,7 @@ describe('quarantined intake file upload', () => {
     const uploadButton = screen.getByRole('button', { name: 'Upload' })
     fireEvent.click(uploadButton)
     fireEvent.click(uploadButton)
-    await screen.findByText('PathFinder could not confirm this file. Please try again.')
+    await screen.findByText('Torchico could not confirm this file. Please try again.')
     expect(document.body.textContent).not.toMatch(/storage-signature-secret|raw-provider-detail/iu)
     expect(reserve).toHaveBeenCalledOnce()
 
@@ -141,7 +141,7 @@ describe('quarantined intake file upload', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
 
     expect(
-      await screen.findByText('PathFinder could not confirm this file. Please try again.'),
+      await screen.findByText('Torchico could not confirm this file. Please try again.'),
     ).toBeTruthy()
     expect(document.body.textContent).not.toMatch(
       /signed-object-key|private\/raw-map|provider request/iu,
@@ -166,7 +166,7 @@ describe('quarantined intake file upload', () => {
     })
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting Torchico review')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(verify).toHaveBeenCalledWith({
       venueId: 'venue-a',
@@ -181,7 +181,7 @@ describe('quarantined intake file upload', () => {
     )
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('PathFinder could not confirm this file. Please try again.')
+    await screen.findByText('Torchico could not confirm this file. Please try again.')
     expect(document.body.textContent).not.toMatch(/internal-verification-claim|secret/iu)
     const firstRequestId = reserve.mock.calls[0]?.[0]?.requestId
     const firstClaimId = verify.mock.calls[0]?.[0]?.claimId
@@ -200,7 +200,7 @@ describe('quarantined intake file upload', () => {
       uploadRequest: null,
     })
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting Torchico review')
     expect(reserve.mock.calls[1]?.[0]?.requestId).toBe(firstRequestId)
     expect(verify.mock.calls[1]?.[0]?.claimId).toBe(firstClaimId)
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -210,7 +210,7 @@ describe('quarantined intake file upload', () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 412 })
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting Torchico review')
     expect(verify).toHaveBeenCalledOnce()
   })
 

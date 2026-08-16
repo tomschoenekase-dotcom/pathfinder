@@ -20,9 +20,9 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
         <div className="mx-auto max-w-6xl space-y-8">
           <section className="rounded-[2rem] bg-pf-deep px-8 py-10 text-white shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">Tone</p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight">PathFinder tone</h1>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight">Torchico tone</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/90">
-              Choose how PathFinder speaks with your visitors.
+              Choose how Torchico speaks with your visitors.
             </p>
           </section>
 
@@ -56,7 +56,7 @@ export default async function AiControlsPage({ searchParams }: AiControlsPagePro
       <div className="mx-auto max-w-6xl space-y-8">
         <section className="rounded-[2rem] bg-pf-deep px-8 py-10 text-white shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-widest text-pf-light">
-            Your PathFinder
+            Your Torchico
           </p>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">Choose its tone</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-light/90">

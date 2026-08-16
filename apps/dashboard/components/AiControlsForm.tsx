@@ -89,7 +89,7 @@ export function AiControlsForm({ initialVenueId, initialConfig }: AiControlsForm
     <form className="space-y-6" onSubmit={handleSubmit} aria-busy={isSaving}>
       <section className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8">
         <h2 id="tone-heading" className="text-2xl font-semibold tracking-tight text-pf-deep">
-          How should PathFinder sound?
+          How should Torchico sound?
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-pf-deep/75">
           Choose the voice that best fits your visitors. Safety and factual guidance stay the same.

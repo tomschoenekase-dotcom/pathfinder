@@ -15,7 +15,7 @@ export default function ClientPortalLoading() {
             />
           ))}
         </div>
-        <span className="sr-only">Loading your PathFinder portal…</span>
+        <span className="sr-only">Loading your Torchico portal…</span>
       </div>
     </div>
   )

@@ -65,7 +65,7 @@ export function ServiceWorkerRegistration({ enabled = true }: { enabled?: boolea
       }
 
       if (retirementFailed) {
-        reportUnavailable('PathFinder offline support retirement failed')
+        reportUnavailable('Torchico offline support retirement failed')
       } else if (active) {
         document.documentElement.setAttribute(OFFLINE_SUPPORT_ATTRIBUTE, 'retired')
       }
@@ -80,7 +80,7 @@ export function ServiceWorkerRegistration({ enabled = true }: { enabled?: boolea
           document.documentElement.setAttribute(OFFLINE_SUPPORT_ATTRIBUTE, 'registered')
         }
       } catch {
-        reportUnavailable('PathFinder offline support registration failed')
+        reportUnavailable('Torchico offline support registration failed')
       }
     }
 

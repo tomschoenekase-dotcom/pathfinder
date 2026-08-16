@@ -99,7 +99,7 @@ describe('VenueChatLayout availability boundary', () => {
     await expect(
       generateMetadata({ params: Promise.resolve({ venueSlug: 'museum' }) }),
     ).resolves.toEqual({
-      title: 'City Museum — PathFinder',
+      title: 'City Museum — Torchico',
       description: 'Explore the collection.',
     })
     expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: 'museum' })
@@ -110,6 +110,6 @@ describe('VenueChatLayout availability boundary', () => {
 
     await expect(
       generateMetadata({ params: Promise.resolve({ venueSlug: 'museum' }) }),
-    ).resolves.toEqual({ title: 'PathFinder' })
+    ).resolves.toEqual({ title: 'Torchico' })
   })
 })

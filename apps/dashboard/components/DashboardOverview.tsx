@@ -199,7 +199,7 @@ export function DashboardOverview({
             </p>
             <h2 id="next-step-heading" className="mt-1 text-xl font-semibold text-pf-deep">
               {requiredTaskCount === 0
-                ? 'More from PathFinder'
+                ? 'More from Torchico'
                 : visibleTasks.length > 1
                   ? 'What we need from you'
                   : (visibleTasks[0]?.title ?? lifecycle.headline)}
@@ -217,11 +217,11 @@ export function DashboardOverview({
                 className="mt-4 rounded-2xl bg-pf-surface p-4 text-sm text-pf-deep/75"
                 role="status"
               >
-                This preview is temporarily unavailable. PathFinder will make a reviewed preview
+                This preview is temporarily unavailable. Torchico will make a reviewed preview
                 available here when it is ready.
               </p>
             ) : visibleTasks.length > 0 ? (
-              <ol className="mt-5 space-y-3" aria-label="PathFinder tasks">
+              <ol className="mt-5 space-y-3" aria-label="Torchico tasks">
                 {visibleTasks.map((task, index) => {
                   const external = /^https?:\/\//u.test(task.href)
                   const content = (
@@ -303,14 +303,14 @@ export function DashboardOverview({
                 },
                 {
                   href: '/ai-controls',
-                  title: 'PathFinder tone',
+                  title: 'Torchico tone',
                   body: 'Choose a simple voice that feels right for your visitors.',
                   Icon: Sparkles,
                 },
                 {
                   href: '/support',
-                  title: 'PathFinder Support',
-                  body: 'Ask a question or request a change from the PathFinder team.',
+                  title: 'Torchico Support',
+                  body: 'Ask a question or request a change from the Torchico team.',
                   Icon: MessageCircle,
                 },
               ].map(({ href, title, body, Icon }) => (

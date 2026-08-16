@@ -41,7 +41,7 @@ import { DashboardShell } from './DashboardShell'
 async function expectNoAutomatedViolations(container: HTMLElement) {
   expect(document.body.contains(container)).toBe(true)
   document.documentElement.lang = 'en'
-  document.title = 'PathFinder accessibility contract'
+  document.title = 'Torchico accessibility contract'
   const result = await axe.run(document, {
     rules: {
       // jsdom has no layout or computed pixel colors. Real-browser contrast remains a separate gate.
