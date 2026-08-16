@@ -193,8 +193,8 @@ describe('KnowledgeManager', () => {
         expectedUpdatedAt: entry.updatedAt,
       }),
     )
+    expect(await screen.findByRole('heading', { name: 'Create entry' })).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalledOnce()
-    expect(screen.getByRole('heading', { name: 'Create entry' })).toBeTruthy()
     expect(screen.queryByText(/KNOWLEDGE_ENTRY:/u)).toBeNull()
   })
 

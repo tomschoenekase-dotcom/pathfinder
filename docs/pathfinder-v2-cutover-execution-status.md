@@ -347,8 +347,9 @@ preserved files. They were not rewritten.
   and exact legacy default-title rows to `Torchico Weekly Report`. The staging pre-deploy gate is
   frozen to the exact 92-file manifest. GitHub CI run `31965154635` applied all 92 migrations to its
   disposable target and passed in 10 minutes 32 seconds.
-- Two previously latent dashboard timing races were reproduced and repaired by awaiting the actual
-  React state transition. The final local run passed all 23 package test tasks; examples include
+- Full-suite CI exposed three asynchronous dashboard test patterns that could assert before the
+  actual React state transition; each test now awaits the visible enabled/reset state. The final
+  local run passed all 23 package test tasks; examples include
   database 921 passed/77 integration-skipped, API 1011/47 skipped, dashboard 627, workers 354/one
   skipped, and web 282. Separately, 151 script contracts passed with one intentional skip. All 23
   typecheck tasks and all 13 lint tasks passed; lint retained one nonblocking existing image-
