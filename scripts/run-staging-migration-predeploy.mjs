@@ -5,21 +5,21 @@ import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
 const EXPECTED = Object.freeze({
-  approval: 'pathfinder-v2-lineage-to-91-20260815',
+  approval: 'pathfinder-v2-lineage-to-92-20260816',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 91,
+  migrationCount: 92,
   baselineCount: 52,
   baselinePublicTableCount: 43,
-  priorCompleteCount: 90,
+  priorCompleteCount: 91,
   priorCompletePublicTableCount: 99,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
-  priorFinalMigration: '20260812001700_add_offboarding_export_finalization',
-  finalMigration: '20260814120000_add_premium_second_layer',
-  manifestHash: 'f24924c250e9e45716810813480842937d603f69a3dfa51b1b99f21801cd6444',
+  priorFinalMigration: '20260814120000_add_premium_second_layer',
+  finalMigration: '20260816000000_rebrand_weekly_reports_torchico',
+  manifestHash: '554586a7cdd809df02a03a546994d94f47a80a9a94428988e844818401a0da47',
   finalPublicTableCount: 99,
 })
 

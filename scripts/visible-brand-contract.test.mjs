@@ -11,6 +11,7 @@ const roots = ['apps/dashboard', 'apps/web', 'apps/workers', 'packages/ui', 'pac
 const explicitFiles = [
   'packages/api/src/lib/generation-request-identity.ts',
   'packages/api/src/mcp/registry.ts',
+  'packages/db/prisma/schema.prisma',
 ]
 
 const technicalAllowlist = new Map([
@@ -64,7 +65,8 @@ async function sourceFiles(relativeRoot) {
   const entries = await readdir(absoluteRoot, { withFileTypes: true })
   const files = []
   for (const entry of entries) {
-    if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist') continue
+    if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'dist')
+      continue
     const relativePath = path.posix.join(relativeRoot, entry.name)
     if (entry.isDirectory()) {
       files.push(...(await sourceFiles(relativePath)))
