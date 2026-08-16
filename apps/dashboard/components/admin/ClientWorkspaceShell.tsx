@@ -325,7 +325,9 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
             </div>
           </aside>
 
-          <main className="min-w-0 p-5 sm:p-7 lg:p-8">{children}</main>
+          <section aria-labelledby="workspace-title" className="min-w-0 p-5 sm:p-7 lg:p-8">
+            {children}
+          </section>
         </div>
       </div>
     </div>

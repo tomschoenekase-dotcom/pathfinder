@@ -390,8 +390,10 @@ preserved files. They were not rewritten.
   venue workflow routes. The sweep found no route errors outside one deterministic hydration defect
   on Venue overview: server and browser locale time formatting disagreed on the availability
   revision. The fix uses a fixed UTC rendering and includes a regression test. The New client
-  screen's `Clients` back-link now returns to Client directory instead of Command center. Mobile
-  navigation at 390 by 844 exposed every top-level operator route and both portal transitions.
+  screen's `Clients` back-link now returns to Client directory instead of Command center. The
+  client workspace content is now a labelled region inside the single application `main` landmark,
+  instead of an invalid nested `main`. Mobile navigation at 390 by 844 exposed every top-level
+  operator route and both portal transitions.
 
 ## External work not performed
 
