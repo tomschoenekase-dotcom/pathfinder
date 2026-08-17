@@ -61,6 +61,11 @@ origin for that environment, and workers' `DASHBOARD_URL` must equal its dashboa
 Railway custom-domain changes are additive and do not authorize a production deployment, migration,
 or database write.
 
+Registering a production hostname in Railway is not permission to activate its DNS. Keep the apex,
+`www`, and production `app` DNS records absent until the exact staging revision has passed promotion
+and the production schema is compatible with that revision. Staging DNS may be activated
+independently because it targets the isolated staging services and resources listed above.
+
 The `workflow_run` admission becomes automatic after this workflow file is present on GitHub's
 default branch. Before that first reviewed production promotion, run the same checked-in
 `verify:staging-health` command from `railway-staging.md` after Railway reports the staging deployment
