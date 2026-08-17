@@ -309,6 +309,43 @@ describe('client support router', () => {
     expect(JSON.stringify(result)).not.toMatch(/sha256|version|locator|runId|sourceId/u)
   })
 
+  it('lets a platform admin preview an attachment-empty client portal without tenant membership', async () => {
+    uploadFindMany.mockResolvedValueOnce([])
+
+    const result = await testRouter
+      .createCaller({
+        ...tenantCtx,
+        session: {
+          userId: 'platform_admin',
+          activeTenantId: 'tenant_assigned',
+          role: 'OWNER',
+          isPlatformAdmin: true,
+        },
+      })
+      .support.listEligibleAttachments({ venueId })
+
+    expect(membershipFindFirst).not.toHaveBeenCalled()
+    expect(uploadFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_assigned',
+          venueId,
+          requestedBy: 'platform_admin',
+        }),
+      }),
+    )
+    expect(result).toEqual({ items: [], nextCursor: null })
+  })
+
+  it('keeps attachment discovery closed for a tenant user without active membership', async () => {
+    membershipFindFirst.mockResolvedValueOnce(null)
+
+    await expect(
+      testRouter.createCaller(tenantCtx).support.listEligibleAttachments({ venueId }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(uploadFindMany).not.toHaveBeenCalled()
+  })
+
   it('continues pagination after a full window of inconsistent evidence rows', async () => {
     uploadFindMany.mockResolvedValue(
       ['upload_bad_1', 'upload_bad_2'].map((id, index) => ({
