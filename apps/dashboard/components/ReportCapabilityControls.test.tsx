@@ -35,7 +35,7 @@ vi.mock('@clerk/nextjs', () => ({
   }),
 }))
 
-vi.mock('@pathfinder/ui', () => ({ TorchicoBrand: () => <div>Torchico</div> }))
+vi.mock('@pathfinder/ui', () => ({ TorchikoBrand: () => <div>Torchiko</div> }))
 
 vi.mock('../lib/generation-request-idempotency', () => ({
   getOrCreateGenerationRequestAttempt: mocks.getAttempt,

@@ -198,7 +198,7 @@ export function SupportMessageComposer({
               Internal only
             </span>
             <span className="mt-1 block text-xs leading-5 text-pf-deep/65">
-              Visible only inside Torchico operations.
+              Visible only inside Torchiko operations.
             </span>
           </label>
           <label
@@ -232,10 +232,10 @@ export function SupportMessageComposer({
         </label>
         <fieldset className="mt-4 rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
           <legend className="px-1 text-sm font-semibold text-pf-deep">
-            Files for Torchico review (optional)
+            Files for Torchiko review (optional)
           </legend>
           <p id="admin-support-file-help" className="mt-1 text-xs leading-5 text-pf-deep/70">
-            Files stay in quarantine for Torchico review. Only files whose required checks are
+            Files stay in quarantine for Torchiko review. Only files whose required checks are
             complete can be selected here. A completed scanner result is not a guarantee that a file
             is safe, readable, or malware-free. Files cannot be previewed or downloaded here.
           </p>
@@ -279,7 +279,7 @@ export function SupportMessageComposer({
                     <span>
                       <strong className="block text-pf-deep">{row.fileName}</strong>
                       <span className="text-xs text-pf-deep/65">
-                        {row.mimeType} · {fileSize(row.byteSize)} · Awaiting Torchico review
+                        {row.mimeType} · {fileSize(row.byteSize)} · Awaiting Torchiko review
                       </span>
                     </span>
                     <button

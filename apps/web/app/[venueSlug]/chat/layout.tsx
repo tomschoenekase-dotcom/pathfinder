@@ -41,12 +41,12 @@ export async function generateMetadata({ params }: VenueChatMetadataProps): Prom
   try {
     const venue = await getPublicVenue(venueSlug)
     return {
-      title: `${venue.name} — Torchico`,
+      title: `${venue.name} — Torchiko`,
       ...(venue.description ? { description: venue.description } : {}),
     }
   } catch {
     return {
-      title: 'Torchico',
+      title: 'Torchiko',
     }
   }
 }

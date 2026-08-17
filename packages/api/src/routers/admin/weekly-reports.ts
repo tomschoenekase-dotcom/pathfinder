@@ -18,7 +18,7 @@ import { router } from '../../core'
 import {
   effectiveWeeklyReportTitle,
   generationRequestHash,
-  LEGACY_DEFAULT_WEEKLY_REPORT_TITLE,
+  LEGACY_DEFAULT_WEEKLY_REPORT_TITLES,
 } from '../../lib/generation-request-identity'
 import { findVenueReportConfiguration } from '../../lib/venue-report-configuration'
 import { adminAiProcedure, adminProcedure } from '../../trpc'
@@ -74,15 +74,17 @@ export const adminWeeklyReportsRouter = router({
         rangeEnd: weekEnd,
         title,
       })
-      const legacyRequestHash = input.title?.trim()
-        ? null
-        : generationRequestHash({
-            kind: 'WEEKLY_REPORT',
-            venueId: input.venueId,
-            rangeStart: weekStart,
-            rangeEnd: weekEnd,
-            title: LEGACY_DEFAULT_WEEKLY_REPORT_TITLE,
-          })
+      const legacyRequestHashes = input.title?.trim()
+        ? []
+        : LEGACY_DEFAULT_WEEKLY_REPORT_TITLES.map((legacyTitle) =>
+            generationRequestHash({
+              kind: 'WEEKLY_REPORT',
+              venueId: input.venueId,
+              rangeStart: weekStart,
+              rangeEnd: weekEnd,
+              title: legacyTitle,
+            }),
+          )
       const createOrReplay = () =>
         withTenantIsolationBypass(() =>
           db.$transaction(async (transaction) => {
@@ -112,7 +114,7 @@ export const adminWeeklyReportsRouter = router({
             if (existing) {
               if (
                 existing.requestHash !== requestHash &&
-                existing.requestHash !== legacyRequestHash
+                !legacyRequestHashes.some((hash) => hash === existing.requestHash)
               ) {
                 throw new TRPCError({
                   code: 'CONFLICT',

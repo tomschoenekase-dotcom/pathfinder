@@ -235,7 +235,7 @@ function buildPrompt(params: {
   generalMessages: string[]
 }): string {
   return [
-    'You are analyzing visitor feedback signal from Torchico guest conversations.',
+    'You are analyzing visitor feedback signal from Torchiko guest conversations.',
     `Venue: ${params.venueName}`,
     `Range start (UTC): ${params.rangeStart}`,
     `Range end (UTC): ${params.rangeEnd}`,

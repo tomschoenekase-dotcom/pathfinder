@@ -229,14 +229,14 @@ async function main() {
   await db.tenant.upsert({
     where: { id: DEMO_TENANT_ID },
     update: {
-      name: 'Torchico Demo',
-      slug: 'pathfinder-demo',
+      name: 'Torchiko Demo',
+      slug: 'torchiko-demo',
       status: 'ACTIVE',
     },
     create: {
       id: DEMO_TENANT_ID,
-      name: 'Torchico Demo',
-      slug: 'pathfinder-demo',
+      name: 'Torchiko Demo',
+      slug: 'torchiko-demo',
       status: 'ACTIVE',
     },
   })

@@ -16,8 +16,8 @@ describe('Packet 2 authenticated surface route states', () => {
   it('announces responsive Admin OS loading without exposing fake operational data', () => {
     render(<AdminLoading />)
 
-    const status = screen.getByRole('status', { name: 'Loading Torchico operations' })
-    expect(status.textContent).toContain('Loading Torchico operations')
+    const status = screen.getByRole('status', { name: 'Loading Torchiko operations' })
+    expect(status.textContent).toContain('Loading Torchiko operations')
     expect(status.querySelectorAll('.motion-reduce\\:animate-none').length).toBeGreaterThan(0)
     expect(document.body.textContent).not.toMatch(/client-|incident-|failed job/iu)
   })
@@ -29,7 +29,7 @@ describe('Packet 2 authenticated surface route states', () => {
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toContain('No client, job, incident, or agent state was changed.')
     expect(document.activeElement).toBe(
-      screen.getByRole('heading', { name: 'Torchico OS is temporarily unavailable' }),
+      screen.getByRole('heading', { name: 'Torchiko OS is temporarily unavailable' }),
     )
     expect(alert.textContent).not.toContain('hidden detail')
     fireEvent.click(screen.getByRole('button', { name: 'Try loading again' }))
@@ -55,7 +55,7 @@ describe('Packet 2 authenticated surface route states', () => {
     render(<ClientPortalLoading />)
 
     const status = screen.getByRole('status')
-    expect(status.textContent).toContain('Loading your Torchico portal')
+    expect(status.textContent).toContain('Loading your Torchiko portal')
     expect(status.className).toContain('sm:px-6')
     expect(status.className).toContain('lg:px-10')
     expect(document.body.textContent).not.toMatch(/analytics|queue|worker|agent|package/iu)

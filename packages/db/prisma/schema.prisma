@@ -1311,7 +1311,7 @@ model VisitorSession {
   tenantId                        String                       @map("tenant_id")
   venueId                         String                       @map("venue_id")
   anonymousToken                  String                       @unique @map("anonymous_token")
-  experienceScope                String                       @default("PUBLIC") @map("experience_scope")
+  experienceScope                 String                       @default("PUBLIC") @map("experience_scope")
   // Persistent per-browser identity (localStorage), distinct from the per-visit
   // anonymousToken (sessionStorage). Drives unique/returning visitor counts.
   // Optional so older clients that don't send it keep working.
@@ -2234,7 +2234,7 @@ model WeeklyReport {
   weekStart                 DateTime                   @map("week_start")
   weekEnd                   DateTime                   @map("week_end")
   status                    WeeklyReportStatus         @default(GENERATING)
-  title                     String                     @default("Torchico Weekly Report")
+  title                     String                     @default("Torchiko Weekly Report")
   content                   String?
   answerCount               Int                        @default(0) @map("answer_count")
   sessionCount              Int                        @default(0) @map("session_count")
@@ -2349,7 +2349,7 @@ enum GenerationDispatchStatus {
 }
 
 /// Admin-only workspace for turning a venue media archive into reviewed,
-/// import-ready Torchico JSON. Raw media stays in object storage; the DB
+/// import-ready Torchiko JSON. Raw media stays in object storage; the DB
 /// contains only orchestration state, evidence, questions, and drafts.
 model MediaIngestionProject {
   id                         String                @id @default(cuid())

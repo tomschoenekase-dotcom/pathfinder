@@ -59,7 +59,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
   const tasks: ClientPortalTask[] = taskEvidence.missingInformation.map((request) => ({
     id: `missing-information:${request.requestId}`,
     title: request.subject,
-    description: 'Torchico Support is waiting for the details below.',
+    description: 'Torchiko Support is waiting for the details below.',
     href: `/support?venue=${encodeURIComponent(selectedVenue!.id)}&request=${encodeURIComponent(request.requestId)}`,
     required: true,
     items: request.items,
@@ -118,7 +118,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
     tasks.push({
       id: `report:${taskEvidence.latestReport.id}`,
       title: taskEvidence.latestReport.title,
-      description: 'A published Torchico report is available to read.',
+      description: 'A published Torchiko report is available to read.',
       href: `/weekly-reports/${encodeURIComponent(taskEvidence.latestReport.id)}?venue=${encodeURIComponent(selectedVenue!.id)}`,
       required: false,
     })

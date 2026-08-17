@@ -70,30 +70,30 @@ const publicWebUrl = new URL(
 
 export const metadata: Metadata = {
   metadataBase: publicWebUrl,
-  title: 'Torchico — The AI guide built for your venue',
+  title: 'Torchiko — The AI guide built for your venue',
   description:
-    'Guests ask questions. Torchico answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
+    'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
   openGraph: {
-    title: 'Torchico — The AI guide built for your venue',
+    title: 'Torchiko — The AI guide built for your venue',
     description:
-      'Guests ask questions. Torchico answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
+      'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
     url: publicWebUrl,
-    siteName: 'Torchico',
+    siteName: 'Torchiko',
     type: 'website',
     images: [
       {
         url: '/og-image.png',
         width: 1200,
         height: 630,
-        alt: 'Torchico — The AI guide built for your venue',
+        alt: 'Torchiko — The AI guide built for your venue',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Torchico — The AI guide built for your venue',
+    title: 'Torchiko — The AI guide built for your venue',
     description:
-      'Guests ask questions. Torchico answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
+      'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
     images: ['/og-image.png'],
   },
 }

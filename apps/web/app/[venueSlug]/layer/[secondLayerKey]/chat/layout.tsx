@@ -42,7 +42,7 @@ export async function generateMetadata({ params }: Omit<Props, 'children'>): Pro
     }
   } catch {
     return {
-      title: 'Torchico',
+      title: 'Torchiko',
       robots: { index: false, follow: false },
       referrer: 'no-referrer',
     }

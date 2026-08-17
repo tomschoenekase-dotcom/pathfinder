@@ -54,7 +54,7 @@ export default function DashboardOnboardingPage() {
           <span className={styles.loadingIcon}>
             <LoaderCircle aria-hidden="true" />
           </span>
-          <p className={styles.eyebrow}>Torchico</p>
+          <p className={styles.eyebrow}>Torchiko</p>
           <h1 id="loading-title">Opening your workspace</h1>
           <p>Bringing your venue and latest progress into view.</p>
           <SignOutButton>
@@ -77,13 +77,13 @@ export default function DashboardOnboardingPage() {
             <span>
               <Compass aria-hidden="true" />
             </span>{' '}
-            PATHFINDER
+            TORCHIKO
           </div>
           <p className={styles.kicker}>Your venue, thoughtfully translated</p>
           <h1>A remarkable visitor guide starts with what you already have.</h1>
           <p className={styles.storyCopy}>
             Share the essentials, then add links, documents, photos, videos, and staff knowledge.
-            Torchico handles the difficult work and prepares a first preview for your approval.
+            Torchiko handles the difficult work and prepares a first preview for your approval.
           </p>
           <ul className={styles.promiseList}>
             <li>
@@ -103,7 +103,7 @@ export default function DashboardOnboardingPage() {
             <Sparkles aria-hidden="true" />
           </span>
           <p className={styles.eyebrow}>Welcome</p>
-          <h2 id="welcome-title">Let&apos;s build your Torchico.</h2>
+          <h2 id="welcome-title">Let&apos;s build your Torchiko.</h2>
           <p className={styles.actionCopy}>
             {hasMemberships
               ? 'Choose the organization you want to continue with.'

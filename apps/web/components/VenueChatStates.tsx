@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { TorchicoIcon } from '@pathfinder/ui'
+import { TorchikoIcon } from '@pathfinder/ui'
 
 import type { VenueChatPresentation } from './venue-chat-types'
 
@@ -7,7 +7,7 @@ export function VenueChatSkeleton() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-pf-surface px-6" role="status">
       <div className="flex flex-col items-center gap-5 text-center">
-        <TorchicoIcon className="h-10 w-10 animate-pulse motion-reduce:animate-none" />
+        <TorchikoIcon className="h-10 w-10 animate-pulse motion-reduce:animate-none" />
         <p className="text-sm font-medium text-pf-deep/75">Loading your guide...</p>
       </div>
     </main>

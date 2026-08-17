@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import manifest from './manifest'
 
 describe('web app manifest', () => {
-  it('exposes the installable Torchico contract from the Metadata API route', () => {
+  it('exposes the installable Torchiko contract from the Metadata API route', () => {
     expect(manifest()).toEqual({
-      name: 'Torchico',
-      short_name: 'Torchico',
+      name: 'Torchiko',
+      short_name: 'Torchiko',
       description: 'Your venue guide',
       start_url: '/',
       scope: '/',

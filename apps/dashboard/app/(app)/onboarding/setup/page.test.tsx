@@ -96,11 +96,11 @@ describe('mode- and content-aware onboarding setup', () => {
 
   afterEach(cleanup)
 
-  it('frames onboarding as a managed Torchico build instead of DIY configuration', () => {
+  it('frames onboarding as a managed Torchiko build instead of DIY configuration', () => {
     render(<OnboardingSetupPage />)
 
     expect(screen.getByRole('heading', { name: /Give us the raw details/i })).toBeTruthy()
-    expect(screen.getByText(/Torchico does the assembly/i)).toBeTruthy()
+    expect(screen.getByText(/Torchiko does the assembly/i)).toBeTruthy()
     expect(screen.getByText(/Review the preview before anything is published/i)).toBeTruthy()
     expect(screen.queryByText(/configure your chatbot/i)).toBeNull()
 
@@ -347,7 +347,7 @@ describe('mode- and content-aware onboarding setup', () => {
     resolveCreate?.({ venue: { id: 'venue-created' }, status: 'AWAITING_REVIEW' })
     expect(await screen.findByText('Your starting information is awaiting review.')).toBeTruthy()
     expect(screen.getByText('Information received')).toBeTruthy()
-    expect(screen.getByText('Torchico review pending')).toBeTruthy()
+    expect(screen.getByText('Torchiko review pending')).toBeTruthy()
     expect(screen.getByText('First preview')).toBeTruthy()
   })
 })

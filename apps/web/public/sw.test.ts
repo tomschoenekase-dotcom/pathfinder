@@ -79,7 +79,7 @@ describe('offline service worker lifecycle', () => {
     expect(completed).toBe(true)
   })
 
-  it('deletes only older Torchico offline caches before claiming clients', async () => {
+  it('deletes only older Torchiko offline caches before claiming clients', async () => {
     keys.mockResolvedValueOnce([
       'pathfinder-offline-v1',
       'pathfinder-offline-v2',

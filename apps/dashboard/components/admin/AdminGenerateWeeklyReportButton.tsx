@@ -139,7 +139,7 @@ export function AdminGenerateWeeklyReportButton({
             setTitle(event.target.value)
             setErrorMessage(null)
           }}
-          placeholder="Torchico Weekly Report"
+          placeholder="Torchiko Weekly Report"
           className="min-h-10 w-full max-w-md rounded-2xl border border-pf-light bg-pf-surface px-4 text-sm text-pf-deep outline-none transition focus:border-pf-primary disabled:opacity-60"
         />
       </label>

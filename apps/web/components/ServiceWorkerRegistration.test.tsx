@@ -99,7 +99,7 @@ describe('ServiceWorkerRegistration', () => {
     expect(mocks.captureException).toHaveBeenCalledOnce()
     const captured = mocks.captureException.mock.calls[0]?.[0]
     expect(captured).toBeInstanceOf(Error)
-    expect((captured as Error).message).toBe('Torchico offline support registration failed')
+    expect((captured as Error).message).toBe('Torchiko offline support registration failed')
   })
 
   it('ignores a late registration result after unmount', async () => {

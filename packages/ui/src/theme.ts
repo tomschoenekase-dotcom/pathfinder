@@ -19,7 +19,7 @@ export const CHAT_THEME_PRESETS: {
   accent: string
   surface: string
 }[] = [
-  { value: 'default', label: 'Torchico Blue', accent: '#3A7BD5', surface: '#F2F5F9' },
+  { value: 'default', label: 'Torchiko Blue', accent: '#3A7BD5', surface: '#F2F5F9' },
   { value: 'forest', label: 'Forest', accent: '#2D6A4F', surface: '#F0F7F4' },
   { value: 'sunset', label: 'Sunset', accent: '#E07B39', surface: '#FBF4EF' },
   { value: 'midnight', label: 'Midnight', accent: '#4361EE', surface: '#EEF0F8' },

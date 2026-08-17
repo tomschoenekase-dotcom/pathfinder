@@ -116,7 +116,7 @@ describe('IntakeProposalWorkspace', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Information shared' })).toBeTruthy()
-    expect(screen.getByText(/Prepared for Torchico review/)).toBeTruthy()
+    expect(screen.getByText(/Prepared for Torchiko review/)).toBeTruthy()
     expect(screen.getByLabelText('Website name')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(
       /package-secret-id|intake-secret-id|draft package|handoff|proposal history|evidence record/iu,

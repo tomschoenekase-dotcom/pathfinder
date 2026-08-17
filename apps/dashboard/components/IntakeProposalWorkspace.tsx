@@ -59,7 +59,7 @@ function WebsiteProposalCapture({
         </legend>
         <p className="mt-1 text-sm text-pf-deep/75">
           {clientFacing
-            ? 'Add a website address for the Torchico team to review. Nothing is published from this step.'
+            ? 'Add a website address for the Torchiko team to review. Nothing is published from this step.'
             : 'Record an address for later review. This form does not fetch or crawl it.'}
         </p>
         <label className="mt-4 block text-sm font-medium text-pf-deep">
@@ -155,13 +155,13 @@ export function IntakeProposalWorkspace({
       }
       setMessage(
         clientFacing
-          ? 'Information received. The Torchico team will review it before use.'
+          ? 'Information received. The Torchiko team will review it before use.'
           : 'Draft proposal recorded for review. Nothing was approved, applied, or published.',
       )
       router.refresh()
     } catch (error) {
       const failure = clientFacing
-        ? 'Torchico could not receive this information.'
+        ? 'Torchiko could not receive this information.'
         : error instanceof Error
           ? error.message
           : 'The proposal was not recorded.'
@@ -248,7 +248,7 @@ export function IntakeProposalWorkspace({
                   {clientFacing ? (
                     <>
                       {proposal.sourceKind === 'INTERVIEW' ? 'Staff answers' : 'Website'} ·{' '}
-                      {proposal.packageHandoff ? 'Prepared for Torchico review' : 'Review pending'}
+                      {proposal.packageHandoff ? 'Prepared for Torchiko review' : 'Review pending'}
                     </>
                   ) : (
                     <>

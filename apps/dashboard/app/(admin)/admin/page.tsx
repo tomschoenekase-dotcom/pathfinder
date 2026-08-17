@@ -113,7 +113,7 @@ export default async function AdminOverviewPage() {
       <header className="flex flex-col gap-5 border-b border-slate-200 pb-7 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-            Torchico OS
+            Torchiko OS
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
             What needs attention?

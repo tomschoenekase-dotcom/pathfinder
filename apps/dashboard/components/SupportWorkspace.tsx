@@ -73,7 +73,7 @@ const categories = [
   ['CONTENT_CORRECTION', 'Correct visitor information'],
   ['OPERATIONAL_UPDATE', 'Temporary visitor update'],
   ['BRANDING', 'Branding or appearance'],
-  ['EXPERIENCE_BEHAVIOR', 'Torchico behavior'],
+  ['EXPERIENCE_BEHAVIOR', 'Torchiko behavior'],
   ['ACCESSIBILITY', 'Accessibility'],
 ] as const
 
@@ -84,7 +84,7 @@ const statusLabels: Record<string, string> = {
   PATCH_DRAFTED: 'Preparing an update',
   VALIDATING: 'Checking the update',
   AWAITING_APPROVAL: 'Awaiting approval',
-  APPLYING: 'Updating Torchico',
+  APPLYING: 'Updating Torchiko',
   COMPLETED: 'Completed',
   CANCELLED: 'Closed',
 }
@@ -151,7 +151,7 @@ function AttachmentPicker({
     <fieldset className="rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
       <legend className="px-1 text-sm font-semibold text-pf-deep">{label}</legend>
       <p id={`${id}-help`} className="mt-1 text-xs leading-5 text-pf-deep/70">
-        Choose a file you already shared after its required checks are complete. Torchico still
+        Choose a file you already shared after its required checks are complete. Torchiko still
         reviews every file before using it; attaching a file here never publishes it. Files cannot
         be previewed or downloaded from Support.
       </p>
@@ -784,7 +784,7 @@ export function SupportWorkspace({
       <div className="mx-auto max-w-6xl">
         <header className="flex flex-col gap-5 border-b border-pf-light pb-7 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-pf-primary">Torchico Support</p>
+            <p className="text-sm font-medium text-pf-primary">Torchiko Support</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep sm:text-4xl">
               How can we help?
             </h1>
@@ -988,7 +988,7 @@ export function SupportWorkspace({
                   available={eligibleAttachments}
                   selected={createAttachments}
                   disabled={busy === 'create'}
-                  label="Files for Torchico review (optional)"
+                  label="Files for Torchiko review (optional)"
                   onChange={(ids) => changeCreateDraft(() => setCreateAttachments(ids))}
                 />
                 {eligibleAttachmentsNextCursor ? (
@@ -1099,7 +1099,7 @@ export function SupportWorkspace({
                             ? message.authorIsCurrentUser
                               ? 'You'
                               : 'Your team'
-                            : 'Torchico Support'}{' '}
+                            : 'Torchiko Support'}{' '}
                           · {dateLabel(message.createdAt)}
                         </p>
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
@@ -1217,7 +1217,7 @@ export function SupportWorkspace({
                         available={eligibleAttachments}
                         selected={replyAttachments}
                         disabled={busy === 'reply'}
-                        label="Files for Torchico review (optional)"
+                        label="Files for Torchiko review (optional)"
                         onChange={(ids) => changeReplyDraft(() => setReplyAttachments(ids))}
                       />
                       {eligibleAttachmentsNextCursor ? (

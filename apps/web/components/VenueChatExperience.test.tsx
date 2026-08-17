@@ -60,7 +60,7 @@ vi.mock('@pathfinder/ui', () => ({
     text: '#111111',
     textMuted: '#666666',
   }),
-  TorchicoIcon: () => <span>Icon</span>,
+  TorchikoIcon: () => <span>Icon</span>,
 }))
 vi.mock('./ChatWindow', () => ({
   ChatWindow: ({
@@ -189,7 +189,7 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(mocks.geolocationEnabled).not.toHaveBeenCalledWith(true)
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
-    expect(screen.getByText('Torchico').closest('a')).toBeNull()
+    expect(screen.getByText('Torchiko').closest('a')).toBeNull()
   })
 
   it('creates one UUID operation and fences same-tick duplicate submission', async () => {
@@ -381,7 +381,7 @@ describe('VenueChatExperience presentation boundary', () => {
     },
   )
 
-  it('suppresses the Torchico footer in native web-view presentation', async () => {
+  it('suppresses the Torchiko footer in native web-view presentation', async () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="webview" />)
 
@@ -413,7 +413,7 @@ describe('VenueChatExperience presentation boundary', () => {
 
     expect(await screen.findByText('Back')).toBeTruthy()
     expect(screen.getByText('Back').closest('a')?.getAttribute('href')).toBe('/museum')
-    expect(screen.getByText('Torchico').closest('a')?.getAttribute('href')).toBe('/')
+    expect(screen.getByText('Torchiko').closest('a')?.getAttribute('href')).toBe('/')
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(

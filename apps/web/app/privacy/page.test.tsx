@@ -13,7 +13,7 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-vi.mock('@pathfinder/ui', () => ({ TorchicoBrand: () => <div>Torchico</div> }))
+vi.mock('@pathfinder/ui', () => ({ TorchikoBrand: () => <div>Torchiko</div> }))
 
 import PrivacyPage, { metadata } from './page'
 
@@ -23,12 +23,12 @@ describe('privacy notice', () => {
   it('provides an honest staging notice and a working route home', () => {
     render(<PrivacyPage />)
 
-    expect(metadata.title).toBe('Privacy notice — Torchico')
+    expect(metadata.title).toBe('Privacy notice — Torchiko')
     expect(screen.getByRole('heading', { name: 'Use staging safely' })).toBeTruthy()
     expect(
       screen.getByText(/reviewed production privacy policy has not yet been published/u),
     ).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Back to Torchico' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Back to Torchiko' }).getAttribute('href')).toBe('/')
     expect(screen.getByRole('link', { name: /tomschoenekase@gmail.com/u })).toBeTruthy()
   })
 })

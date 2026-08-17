@@ -393,7 +393,7 @@ export function VenueChatExperience({
     if (
       messages.length &&
       !window.confirm(
-        'Start a new conversation? The current chat will leave this screen, but it will not be deleted from Torchico records.',
+        'Start a new conversation? The current chat will leave this screen, but it will not be deleted from Torchiko records.',
       )
     )
       return

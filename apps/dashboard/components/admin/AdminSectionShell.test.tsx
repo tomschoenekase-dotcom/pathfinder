@@ -27,7 +27,7 @@ describe('AdminSectionShell browser foundation', () => {
     pathname = '/admin'
   })
 
-  it('exposes the Torchico OS landmarks and marks the exact active route', () => {
+  it('exposes the Torchiko OS landmarks and marks the exact active route', () => {
     pathname = '/admin/operations'
     render(
       <AdminSectionShell>
@@ -35,7 +35,7 @@ describe('AdminSectionShell browser foundation', () => {
       </AdminSectionShell>,
     )
 
-    const navigations = screen.getAllByRole('navigation', { name: 'Torchico OS navigation' })
+    const navigations = screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })
     expect(navigations).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'Operations' }).getAttribute('aria-current')).toBe(
       'page',
@@ -59,7 +59,7 @@ describe('AdminSectionShell browser foundation', () => {
     fireEvent.click(trigger)
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getAllByRole('navigation', { name: 'Torchico OS navigation' })).toHaveLength(2)
+    expect(screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })).toHaveLength(2)
     expect(document.body.style.overflow).toBe('hidden')
     expect(document.activeElement).toBe(
       screen.getAllByRole('button', { name: 'Close navigation' })[1],
@@ -69,7 +69,7 @@ describe('AdminSectionShell browser foundation', () => {
 
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open navigation' }))
     expect(document.body.style.overflow).toBe('')
-    expect(screen.getAllByRole('navigation', { name: 'Torchico OS navigation' })).toHaveLength(1)
+    expect(screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })).toHaveLength(1)
   })
 
   it('keeps keyboard focus inside responsive navigation in both directions', () => {

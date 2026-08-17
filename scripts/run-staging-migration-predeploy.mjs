@@ -10,16 +10,16 @@ const EXPECTED = Object.freeze({
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 92,
+  migrationCount: 93,
   baselineCount: 52,
   baselinePublicTableCount: 43,
-  priorCompleteCount: 91,
+  priorCompleteCount: 92,
   priorCompletePublicTableCount: 99,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
-  priorFinalMigration: '20260814120000_add_premium_second_layer',
-  finalMigration: '20260816000000_rebrand_weekly_reports_torchico',
-  manifestHash: '554586a7cdd809df02a03a546994d94f47a80a9a94428988e844818401a0da47',
+  priorFinalMigration: '20260816000000_rebrand_weekly_reports_torchico',
+  finalMigration: '20260817000000_rebrand_torchiko',
+  manifestHash: '7c333993db3104a8e226d9d3edffb350790a4107beb2cda5b229c74d954d12c1',
   finalPublicTableCount: 99,
 })
 
@@ -258,7 +258,7 @@ async function main() {
   const prismaCli = process.env.PATHFINDER_PRISMA_CLI ?? '/migration/node_modules/.bin/prisma'
   const manifest = await readMigrationManifest(prismaDirectory)
   assertFrozenManifest(manifest)
-  console.log('staging-migration: frozen 91-file manifest accepted')
+  console.log('staging-migration: frozen 93-file manifest accepted')
 
   const { PrismaClient } = await import('@prisma/client')
   const database = new PrismaClient({ datasourceUrl: process.env.DIRECT_DATABASE_URL })
@@ -269,7 +269,7 @@ async function main() {
     console.log(`staging-migration: exact ${initialLedger.length}-row ledger accepted`)
     if (initialState === 'complete') {
       await assertPostMigrationIntegrity(database, manifest)
-      console.log('staging-migration: already complete (91/91); integrity checks passed')
+      console.log('staging-migration: already complete (93/93); integrity checks passed')
       return
     }
 
@@ -290,7 +290,7 @@ async function main() {
         fail(`row count changed for pre-existing table ${table}`)
     }
     console.log(
-      `staging-migration: applied ${EXPECTED.migrationCount - initialLedger.length} migrations; 91/91 ledger and integrity checks passed`,
+      `staging-migration: applied ${EXPECTED.migrationCount - initialLedger.length} migrations; 93/93 ledger and integrity checks passed`,
     )
   } finally {
     await database.$disconnect()

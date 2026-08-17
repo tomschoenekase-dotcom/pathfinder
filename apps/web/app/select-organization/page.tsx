@@ -20,7 +20,7 @@ export default async function SelectEmployeeOrganizationPage({ searchParams }: P
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <section className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-500">Torchico employee access</p>
+        <p className="text-sm font-semibold text-slate-500">Torchiko employee access</p>
         <h1 className="mt-2 text-2xl font-semibold text-slate-900">Choose your organization</h1>
         <p className="mb-6 mt-2 text-sm leading-6 text-slate-600">
           Select the organization that owns this private chatbot.

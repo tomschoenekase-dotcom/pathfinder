@@ -46,7 +46,7 @@ export default function AdminHelpPage() {
           Operator guide
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-          Run Torchico safely
+          Run Torchiko safely
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
           Start with scope, preserve evidence, preview client-visible changes, and use the approval

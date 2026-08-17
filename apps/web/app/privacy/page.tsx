@@ -1,18 +1,18 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 
-import { TorchicoBrand } from '@pathfinder/ui'
+import { TorchikoBrand } from '@pathfinder/ui'
 
 export const metadata: Metadata = {
-  title: 'Privacy notice — Torchico',
-  description: 'Privacy and safe-use information for the Torchico evaluation service.',
+  title: 'Privacy notice — Torchiko',
+  description: 'Privacy and safe-use information for the Torchiko evaluation service.',
 }
 
 export default function PrivacyPage() {
   return (
     <main className="min-h-screen bg-pf-surface px-6 py-12 text-pf-deep sm:py-16">
       <article className="mx-auto max-w-2xl rounded-3xl border border-pf-light bg-pf-white p-7 shadow-sm sm:p-10">
-        <TorchicoBrand textSizeClassName="text-lg" />
+        <TorchikoBrand textSizeClassName="text-lg" />
         <p className="mt-10 text-xs font-semibold uppercase tracking-[0.18em] text-pf-primary/60">
           Privacy notice
         </p>
@@ -26,7 +26,7 @@ export default function PrivacyPage() {
             Do not submit passwords, payment details, health information, government identifiers, or
             other sensitive personal information. Questions and feedback entered in a venue guide
             may be retained for testing and may be visible to that venue&apos;s authorized operators
-            and Torchico administrators.
+            and Torchiko administrators.
           </p>
           <p>
             Browser location is optional and is requested only when you choose a location-aware
@@ -35,7 +35,7 @@ export default function PrivacyPage() {
           <p>
             For a privacy question or a request concerning information you submitted, email{' '}
             <a
-              href="mailto:tomschoenekase@gmail.com?subject=Torchico%20privacy%20request"
+              href="mailto:tomschoenekase@gmail.com?subject=Torchiko%20privacy%20request"
               className="font-semibold text-pf-primary underline decoration-pf-accent/50 underline-offset-4 hover:text-pf-accent"
             >
               tomschoenekase@gmail.com
@@ -47,7 +47,7 @@ export default function PrivacyPage() {
           href="/"
           className="mt-10 inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-semibold text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
         >
-          Back to Torchico
+          Back to Torchiko
         </Link>
       </article>
     </main>

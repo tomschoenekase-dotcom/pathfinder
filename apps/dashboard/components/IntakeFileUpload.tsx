@@ -77,7 +77,7 @@ const CLIENT_PHASE_LABELS: Record<QueueItem['phase'], string> = {
   uploading: 'Sending file',
   'checking-format': 'Checking file format',
   'security-pending': 'Security check pending',
-  'awaiting-review': 'Checks complete — awaiting Torchico review',
+  'awaiting-review': 'Checks complete — awaiting Torchiko review',
   rejected: 'Could not be accepted',
   error: 'Needs attention',
 }
@@ -274,7 +274,7 @@ export function IntakeFileUpload({
           item.localId,
           {
             phase: 'rejected',
-            error: 'Torchico could not accept this file. Remove it and select the file again.',
+            error: 'Torchiko could not accept this file. Remove it and select the file again.',
           },
           submittedScope,
           generation,
@@ -283,7 +283,7 @@ export function IntakeFileUpload({
         return
       }
       throw new ClientIntakeFileError(
-        'Torchico could not confirm the latest check. Please try again.',
+        'Torchiko could not confirm the latest check. Please try again.',
       )
     } catch (error) {
       if (isCurrent()) {
@@ -294,7 +294,7 @@ export function IntakeFileUpload({
             error:
               error instanceof ClientIntakeFileError
                 ? error.message
-                : 'Torchico could not confirm this file. Please try again.',
+                : 'Torchiko could not confirm this file. Please try again.',
           },
           submittedScope,
           generation,
@@ -314,7 +314,7 @@ export function IntakeFileUpload({
         Share documents and images
       </h2>
       <p className="mt-1 text-sm leading-6 text-pf-deep/75">
-        Add PDFs or supported images for the Torchico team to review. A completed upload confirms
+        Add PDFs or supported images for the Torchiko team to review. A completed upload confirms
         that the file arrived as sent; the team still reviews it before use. Nothing is published
         from this page.
       </p>

@@ -71,7 +71,7 @@ function buildEmailHtml(
 <!DOCTYPE html>
 <html>
 <body style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 16px;color:#1a1a2e;">
-  <h1 style="font-size:24px;font-weight:600;margin-bottom:8px;">Welcome to Torchico</h1>
+  <h1 style="font-size:24px;font-weight:600;margin-bottom:8px;">Welcome to Torchiko</h1>
   <p style="margin:0 0 16px;">${greeting}</p>
   <p style="margin:0 0 16px;">
     <strong>${escapedOrgName}</strong> is set up and ready. Head to your dashboard to create your first
@@ -83,7 +83,7 @@ function buildEmailHtml(
     Open dashboard →
   </a>
   <p style="margin:32px 0 0;font-size:12px;color:#6b7280;">
-    You're receiving this because you just created a Torchico account.
+    You're receiving this because you just created a Torchiko account.
   </p>
 </body>
 </html>`.trim()
@@ -155,9 +155,9 @@ export async function processSendWelcomeEmailJob(
 
     const response = await resend.emails.send(
       {
-        from: `Torchico <${fromEmail}>`,
+        from: `Torchiko <${fromEmail}>`,
         to: payload.to,
-        subject: 'Welcome to Torchico',
+        subject: 'Welcome to Torchiko',
         html: buildEmailHtml(payload.recipientName, payload.orgName, dashboardUrl),
       },
       { idempotencyKey: providerIdempotencyKey(payload) },

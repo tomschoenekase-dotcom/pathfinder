@@ -124,7 +124,7 @@ export function IntakeProposalReview({
       )}
       <p className="mt-2 text-sm font-medium text-pf-deep">
         {clientFacing
-          ? 'Your answers are available to the Torchico team for review.'
+          ? 'Your answers are available to the Torchiko team for review.'
           : adminReview!.structuredSummary.handoffReady
             ? 'Ready for an operator to create a separate reviewed draft handoff.'
             : 'Not handoff-ready: resolve reviewer flags, consent, or missing public candidate fields.'}
@@ -157,7 +157,7 @@ export function IntakeProposalReview({
                   {answer.privacy === 'PUBLIC_CANDIDATE'
                     ? 'May be used for visitors'
                     : answer.privacy === 'INTERNAL_CONTEXT'
-                      ? 'Torchico team only'
+                      ? 'Torchiko team only'
                       : 'Private'}
                 </>
               ) : (

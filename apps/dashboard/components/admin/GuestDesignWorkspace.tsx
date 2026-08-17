@@ -7,7 +7,7 @@ import {
   CHAT_THEME_PRESETS,
   getChatPalette,
   isHexColor,
-  TorchicoIcon,
+  TorchikoIcon,
 } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../../lib/trpc'
@@ -300,7 +300,7 @@ export function GuestDesignWorkspace({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={logoUrl} alt="" className="h-9 w-9 rounded-lg object-contain" />
               ) : (
-                <TorchicoIcon className="h-8 w-8" />
+                <TorchikoIcon className="h-8 w-8" />
               )}
               <h3 className="text-xl font-semibold">{guideName}</h3>
             </div>

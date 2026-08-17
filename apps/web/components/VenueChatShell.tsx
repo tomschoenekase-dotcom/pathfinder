@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
-import { CHAT_FONT_OPTIONS, getChatPalette, TorchicoIcon } from '@pathfinder/ui'
+import { CHAT_FONT_OPTIONS, getChatPalette, TorchikoIcon } from '@pathfinder/ui'
 
 import { ChatWindow } from './ChatWindow'
 import {
@@ -107,7 +107,7 @@ export function VenueChatShell(props: {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
             ) : (
-              <TorchicoIcon className="h-7 w-7 flex-shrink-0" />
+              <TorchikoIcon className="h-7 w-7 flex-shrink-0" />
             )}
             <h1
               className={`text-2xl font-semibold tracking-tight ${banner ? 'text-white drop-shadow-sm' : 'text-[var(--chat-text)]'}`}
@@ -202,10 +202,10 @@ export function VenueChatShell(props: {
             Powered by{' '}
             {presentation === 'standalone' ? (
               <Link href="/" className="hover:text-[var(--chat-accent)]">
-                Torchico
+                Torchiko
               </Link>
             ) : (
-              <span>Torchico</span>
+              <span>Torchiko</span>
             )}
           </p>
         ) : null}

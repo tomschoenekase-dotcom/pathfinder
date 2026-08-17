@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { TorchicoBrand } from '@pathfinder/ui'
+import { TorchikoBrand } from '@pathfinder/ui'
 
 type DashboardShellProps = {
   children: ReactNode
@@ -149,7 +149,7 @@ export function DashboardShell({
   return (
     <div className="min-h-screen bg-pf-surface text-pf-deep">
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-pf-light bg-pf-deep px-4 text-white lg:hidden">
-        <TorchicoBrand
+        <TorchikoBrand
           gapClassName="gap-2"
           textClassName="text-white"
           textSizeClassName="text-base"
@@ -184,7 +184,7 @@ export function DashboardShell({
       >
         <div className="border-b border-white/10 pb-6">
           <div className="hidden lg:block">
-            <TorchicoBrand
+            <TorchikoBrand
               gapClassName="gap-2"
               textClassName="text-white"
               textSizeClassName="text-base"

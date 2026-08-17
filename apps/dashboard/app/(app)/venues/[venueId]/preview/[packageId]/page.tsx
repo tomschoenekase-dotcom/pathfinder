@@ -63,7 +63,7 @@ function PreviewUnavailable({ venueId, superseded }: { venueId: string; supersed
         </h1>
         <p className="mt-3 text-sm leading-6 text-pf-deep/70">
           {superseded
-            ? 'The approved experience changed after this link was created. Torchico will provide a new exact preview when it is ready.'
+            ? 'The approved experience changed after this link was created. Torchiko will provide a new exact preview when it is ready.'
             : 'Return to your portal to see the latest status for this venue.'}
         </p>
         <Link

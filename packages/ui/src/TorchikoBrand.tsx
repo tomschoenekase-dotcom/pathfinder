@@ -1,8 +1,8 @@
-type TorchicoIconProps = {
+type TorchikoIconProps = {
   className?: string
 }
 
-type TorchicoBrandProps = {
+type TorchikoBrandProps = {
   className?: string
   iconClassName?: string
   textClassName?: string
@@ -10,7 +10,7 @@ type TorchicoBrandProps = {
   gapClassName?: string
 }
 
-export function TorchicoIcon({ className = 'h-7 w-7' }: TorchicoIconProps) {
+export function TorchikoIcon({ className = 'h-7 w-7' }: TorchikoIconProps) {
   return (
     <svg
       className={className}
@@ -28,18 +28,18 @@ export function TorchicoIcon({ className = 'h-7 w-7' }: TorchicoIconProps) {
   )
 }
 
-export function TorchicoBrand({
+export function TorchikoBrand({
   className = '',
   iconClassName = 'h-7 w-7 flex-shrink-0',
   textClassName = '',
   textSizeClassName = 'text-lg',
   gapClassName = 'gap-2.5',
-}: TorchicoBrandProps) {
+}: TorchikoBrandProps) {
   return (
     <div className={`flex items-center ${gapClassName} ${className}`}>
-      <TorchicoIcon className={iconClassName} />
+      <TorchikoIcon className={iconClassName} />
       <span className={`${textSizeClassName} font-semibold tracking-tight ${textClassName}`}>
-        Torchico
+        Torchiko
       </span>
     </div>
   )

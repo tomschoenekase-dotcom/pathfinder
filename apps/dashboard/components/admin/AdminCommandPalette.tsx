@@ -269,7 +269,7 @@ export function AdminCommandPalette({ compact = false }: { compact?: boolean }) 
                 </div>
               ) : !query.trim() ? (
                 <p className="px-4 py-10 text-center text-sm text-slate-500">
-                  Type to search operational records across Torchico.
+                  Type to search operational records across Torchiko.
                 </p>
               ) : matches.length === 0 ? (
                 <p className="px-4 py-10 text-center text-sm text-slate-500">

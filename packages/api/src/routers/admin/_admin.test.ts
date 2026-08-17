@@ -1686,44 +1686,47 @@ describe('admin router', () => {
     expect(enqueueGenerationDispatchKick).not.toHaveBeenCalled()
   })
 
-  it('admin.generateWeeklyReportDraft replays an exact request without duplicate writes', async () => {
-    generationRequestDispatchFindFirst.mockResolvedValueOnce({
-      id: 'dispatch_existing',
-      recordId: 'report_existing',
-      requestHash: generationRequestHash({
-        kind: 'WEEKLY_REPORT',
+  it.each(['Torchico Weekly Report', 'PathFinder Weekly Report'])(
+    'admin.generateWeeklyReportDraft replays the legacy %s identity without duplicate writes',
+    async (legacyTitle) => {
+      generationRequestDispatchFindFirst.mockResolvedValueOnce({
+        id: 'dispatch_existing',
+        recordId: 'report_existing',
+        requestHash: generationRequestHash({
+          kind: 'WEEKLY_REPORT',
+          venueId: 'venue_1',
+          rangeStart: new Date('2026-07-01T00:00:00.000Z'),
+          rangeEnd: new Date('2026-07-07T23:59:59.999Z'),
+          title: legacyTitle,
+        }),
+        status: 'PENDING',
+      })
+
+      const caller = testRouter.createCaller(adminCtx())
+      const result = await caller.admin.generateWeeklyReportDraft({
+        tenantId: 'tenant_1',
         venueId: 'venue_1',
-        rangeStart: new Date('2026-07-01T00:00:00.000Z'),
-        rangeEnd: new Date('2026-07-07T23:59:59.999Z'),
-        title: 'PathFinder Weekly Report',
-      }),
-      status: 'PENDING',
-    })
+        weekStart: '2026-07-01T00:00:00.000Z',
+        weekEnd: '2026-07-07T23:59:59.999Z',
+        requestId: '88888888-8888-4888-8888-888888888888',
+      })
 
-    const caller = testRouter.createCaller(adminCtx())
-    const result = await caller.admin.generateWeeklyReportDraft({
-      tenantId: 'tenant_1',
-      venueId: 'venue_1',
-      weekStart: '2026-07-01T00:00:00.000Z',
-      weekEnd: '2026-07-07T23:59:59.999Z',
-      requestId: '88888888-8888-4888-8888-888888888888',
-    })
-
-    expect(result).toEqual({
-      reportId: 'report_existing',
-      requestId: '88888888-8888-4888-8888-888888888888',
-      dispatchState: 'PENDING',
-      replayed: true,
-    })
-    expect(venueFindFirst).toHaveBeenCalledWith({
-      where: { id: 'venue_1', tenantId: 'tenant_1' },
-      select: { id: true, isActive: true },
-    })
-    expect(weeklyReportCreate).not.toHaveBeenCalled()
-    expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
-    expect(auditLogCreate).not.toHaveBeenCalled()
-    expect(enqueueGenerationDispatchKick).toHaveBeenCalledWith('dispatch_existing')
-  })
+      expect(result).toEqual({
+        reportId: 'report_existing',
+        requestId: '88888888-8888-4888-8888-888888888888',
+        dispatchState: 'PENDING',
+        replayed: true,
+      })
+      expect(venueFindFirst).toHaveBeenCalledWith({
+        where: { id: 'venue_1', tenantId: 'tenant_1' },
+        select: { id: true, isActive: true },
+      })
+      expect(weeklyReportCreate).not.toHaveBeenCalled()
+      expect(generationRequestDispatchCreate).not.toHaveBeenCalled()
+      expect(auditLogCreate).not.toHaveBeenCalled()
+      expect(enqueueGenerationDispatchKick).toHaveBeenCalledWith('dispatch_existing')
+    },
+  )
 
   it('admin.generateWeeklyReportDraft rejects reuse of a request ID for changed input', async () => {
     generationRequestDispatchFindFirst.mockResolvedValueOnce({

@@ -29,7 +29,7 @@ const privacyRank: Record<StaffInterviewPrivacy, number> = {
   PRIVATE: 2,
 }
 
-// Preserve review access for interviews captured before the Torchico rename.
+// Preserve review access for interviews captured before the Torchiko rename.
 const LEGACY_STAFF_INTERVIEW_CONSENT_SHA256 =
   'a5cf3db6904cd5191ac3cad19554ca19357c660da36636b0dd11a0dd37dabab6'
 

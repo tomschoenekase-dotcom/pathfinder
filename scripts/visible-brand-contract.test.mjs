@@ -17,7 +17,7 @@ const explicitFiles = [
 const technicalAllowlist = new Map([
   [
     'packages/api/src/lib/generation-request-identity.ts',
-    new Set(["export const LEGACY_DEFAULT_WEEKLY_REPORT_TITLE = 'PathFinder Weekly Report'"]),
+    new Set(["'Torchico Weekly Report',", "'PathFinder Weekly Report',"]),
   ],
   [
     'apps/dashboard/lib/media-source-identity.test.ts',
@@ -77,7 +77,7 @@ async function sourceFiles(relativeRoot) {
   return files
 }
 
-test('visible product copy uses Torchico while legacy technical contracts remain explicit', async () => {
+test('visible product copy uses Torchiko while legacy technical contracts remain explicit', async () => {
   const files = [...(await Promise.all(roots.map(sourceFiles))).flat(), ...explicitFiles]
   const violations = []
 
@@ -85,7 +85,15 @@ test('visible product copy uses Torchico while legacy technical contracts remain
     const source = await readFile(path.join(repositoryRoot, relativePath), 'utf8')
     const allowed = technicalAllowlist.get(relativePath) ?? new Set()
     source.split(/\r?\n/u).forEach((line, index) => {
-      if (!line.includes('PathFinder') && !line.includes('pathfinder.app')) return
+      const renderedSource =
+        /\.(?:html|tsx)$/u.test(relativePath) && !relativePath.includes('.test.')
+      if (
+        !line.includes('PathFinder') &&
+        !line.includes('Torchico') &&
+        !line.includes('pathfinder.app') &&
+        !(renderedSource && line.includes('PATHFINDER'))
+      )
+        return
       const trimmed = line.trim()
       if (allowed.has(trimmed)) return
       violations.push(`${relativePath}:${index + 1}: ${trimmed}`)
