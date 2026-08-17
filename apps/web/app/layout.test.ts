@@ -22,6 +22,8 @@ describe('root service-worker wiring', () => {
     expect(source).toContain('process.env.NEXT_PUBLIC_WEB_URL')
     expect(source).toContain('metadataBase: publicWebUrl')
     expect(source).toContain('url: publicWebUrl')
+    expect(source).toContain("process.env.NEXT_PUBLIC_WEB_URL ?? 'https://torchiko.com'")
     expect(source).not.toContain('NEXT_PUBLIC_APP_URL')
+    expect(source).not.toContain('sweet-luck-production-0037.up.railway.app')
   })
 })

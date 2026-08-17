@@ -64,9 +64,7 @@ type RootLayoutProps = {
   children: ReactNode
 }
 
-const publicWebUrl = new URL(
-  process.env.NEXT_PUBLIC_WEB_URL ?? 'https://sweet-luck-production-0037.up.railway.app',
-)
+const publicWebUrl = new URL(process.env.NEXT_PUBLIC_WEB_URL ?? 'https://torchiko.com')
 
 export const metadata: Metadata = {
   metadataBase: publicWebUrl,

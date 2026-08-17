@@ -1,6 +1,6 @@
-# PathFinder staging release workflow
+# Torchiko staging release workflow
 
-This is the normal PathFinder feature-delivery path:
+This is the normal Torchiko feature-delivery path:
 
 1. Create a feature branch from `codex/pathfinder-v2-staging`.
 2. Implement and test the feature on that branch.
@@ -24,8 +24,10 @@ This is the normal PathFinder feature-delivery path:
 - Staging project: `serene-inspiration`
 - Staging environment: `a7a394fc-aa4e-4a45-bd3c-904419a67818`
 - Staging branch: `codex/pathfinder-v2-staging`
-- Public web: `https://staging-web-staging-bbeb.up.railway.app`
-- Dashboard: `https://staging-dashboard-staging-dc4a.up.railway.app`
+- Public web (canonical after DNS activation): `https://staging.torchiko.com`
+- Dashboard (canonical after DNS activation): `https://app.staging.torchiko.com`
+- Railway fallback web: `https://staging-web-staging-bbeb.up.railway.app`
+- Railway fallback dashboard: `https://staging-dashboard-staging-dc4a.up.railway.app`
 - Database resource: `7bd81064-588f-48a5-b138-1fc86691a09b`
 - Redis resource: `d53ab235-d403-4d7d-b525-3ace0ef07b92`
 - Storage resource: `0a9b3c58-0c9e-47de-96ae-38df297996e8`
@@ -43,6 +45,21 @@ provider and must never be added to repository files or GitHub workflow logs.
 
 These boundaries let routine feature changes deploy automatically to staging while keeping production
 promotion explicit and reviewable.
+
+## Domain topology
+
+Torchiko uses one public-web origin and one authenticated-dashboard origin per environment:
+
+| Environment | Public marketing and visitor routes | Dashboard                          |
+| ----------- | ----------------------------------- | ---------------------------------- |
+| Production  | `https://torchiko.com`              | `https://app.torchiko.com`         |
+| Staging     | `https://staging.torchiko.com`      | `https://app.staging.torchiko.com` |
+
+`www.torchiko.com` redirects to the production apex. Existing `*.up.railway.app` domains remain
+enabled as recovery origins, but they are not canonical. `NEXT_PUBLIC_WEB_URL` must equal the public
+origin for that environment, and workers' `DASHBOARD_URL` must equal its dashboard origin. DNS and
+Railway custom-domain changes are additive and do not authorize a production deployment, migration,
+or database write.
 
 The `workflow_run` admission becomes automatic after this workflow file is present on GitHub's
 default branch. Before that first reviewed production promotion, run the same checked-in

@@ -133,8 +133,8 @@ export async function processSendWelcomeEmailJob(
       return
     }
 
-    const fromEmail = env.RESEND_FROM_EMAIL ?? 'noreply@pathfinder.ai'
-    const dashboardUrl = env.DASHBOARD_URL ?? 'https://dashboard.pathfinder.ai'
+    const fromEmail = env.RESEND_FROM_EMAIL ?? 'noreply@torchiko.com'
+    const dashboardUrl = env.DASHBOARD_URL ?? 'https://app.torchiko.com'
 
     if (!deliveryState.attemptedAt) {
       deliveryState = await beginWelcomeEmailDeliveryAttempt(payload.tenantId, payload.deliveryId)
