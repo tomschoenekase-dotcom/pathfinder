@@ -1,3 +1,5 @@
+import { normalizeTorchikoBrandText } from '@pathfinder/ui'
+
 type IntakeUploadReviewItem = {
   id: string
   status: string
@@ -69,7 +71,9 @@ export function IntakeUploadReviewList({ uploads }: { uploads: IntakeUploadRevie
             <li key={upload.id} className="rounded-xl border border-pf-light p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="break-all text-sm font-medium text-pf-deep">{upload.displayName}</p>
+                  <p className="break-all text-sm font-medium text-pf-deep">
+                    {normalizeTorchikoBrandText(upload.displayName)}
+                  </p>
                   <p className="mt-1 break-all text-xs text-pf-deep/65">{upload.fileName}</p>
                 </div>
                 <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium uppercase tracking-wide text-slate-700">

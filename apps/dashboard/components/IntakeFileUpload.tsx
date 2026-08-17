@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import type { IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
+import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../lib/trpc'
 import {
@@ -400,7 +401,7 @@ export function IntakeFileUpload({
         <ul className="mt-2 space-y-2">
           {uploads.map((upload) => (
             <li key={upload.id} className="rounded-xl bg-slate-50 p-3 text-sm">
-              <span className="font-medium">{upload.displayName}</span>
+              <span className="font-medium">{normalizeTorchikoBrandText(upload.displayName)}</span>
               <span className="ml-2 text-xs uppercase text-pf-deep/60">
                 {clientUploadStatus(upload.status)}
               </span>

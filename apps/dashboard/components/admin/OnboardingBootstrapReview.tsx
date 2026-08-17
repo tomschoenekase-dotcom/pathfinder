@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
+import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { ReviewedVenuePackageDraftForm } from './ReviewedVenuePackageDraftForm'
@@ -59,7 +60,7 @@ export function OnboardingBootstrapReview({
 
   return (
     <article className="rounded-xl border border-pf-light p-4">
-      <p className="font-medium text-pf-deep">{run.displayName}</p>
+      <p className="font-medium text-pf-deep">{normalizeTorchikoBrandText(run.displayName)}</p>
       <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/60">
         {run.status.replaceAll('_', ' ')}
       </p>

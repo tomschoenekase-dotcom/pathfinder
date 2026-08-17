@@ -16,6 +16,13 @@ const explicitFiles = [
 
 const technicalAllowlist = new Map([
   [
+    'packages/ui/src/brand.test.ts',
+    new Set([
+      "['PathFinder Staging QA', 'Torchiko Staging QA'],",
+      "['Torchico Weekly Report', 'Torchiko Weekly Report'],",
+    ]),
+  ],
+  [
     'packages/api/src/lib/generation-request-identity.ts',
     new Set(["'Torchico Weekly Report',", "'PathFinder Weekly Report',"]),
   ],

@@ -289,7 +289,7 @@ export function MediaIngestionReview({ initialProject }: { initialProject: Media
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'pathfinder-venue-package-v1.json'
+    link.download = 'torchiko-venue-package-v1.json'
     link.click()
     URL.revokeObjectURL(url)
   }
