@@ -56,7 +56,7 @@ Torchiko separates the marketing site, venue visitor guide, and authenticated da
 | Production  | `https://torchiko.com`         | `https://guide.torchiko.com`         | `https://app.torchiko.com`         |
 | Staging     | `https://staging.torchiko.com` | `https://guide.staging.torchiko.com` | `https://app.staging.torchiko.com` |
 
-`www.torchiko.com` redirects to the production apex. Existing `*.up.railway.app` domains remain
+`www.torchiko.com` aliases the production apex marketing site. Existing `*.up.railway.app` domains remain
 enabled as recovery origins, but they are not canonical. `NEXT_PUBLIC_WEB_URL` must equal the visitor
 guide origin for that environment, and workers' `DASHBOARD_URL` must equal its dashboard origin. DNS and
 Railway custom-domain changes are additive and do not authorize a production deployment, migration,
