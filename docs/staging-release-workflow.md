@@ -24,7 +24,8 @@ This is the normal Torchiko feature-delivery path:
 - Staging project: `serene-inspiration`
 - Staging environment: `a7a394fc-aa4e-4a45-bd3c-904419a67818`
 - Staging branch: `codex/pathfinder-v2-staging`
-- Public web (canonical after DNS activation): `https://staging.torchiko.com`
+- Marketing site: `https://staging.torchiko.com`
+- Public visitor guide: `https://guide.staging.torchiko.com`
 - Dashboard (canonical after DNS activation): `https://app.staging.torchiko.com`
 - Railway fallback web: `https://staging-web-staging-bbeb.up.railway.app`
 - Railway fallback dashboard: `https://staging-dashboard-staging-dc4a.up.railway.app`
@@ -48,23 +49,25 @@ promotion explicit and reviewable.
 
 ## Domain topology
 
-Torchiko uses one public-web origin and one authenticated-dashboard origin per environment:
+Torchiko separates the marketing site, venue visitor guide, and authenticated dashboard:
 
-| Environment | Public marketing and visitor routes | Dashboard                          |
-| ----------- | ----------------------------------- | ---------------------------------- |
-| Production  | `https://torchiko.com`              | `https://app.torchiko.com`         |
-| Staging     | `https://staging.torchiko.com`      | `https://app.staging.torchiko.com` |
+| Environment | Marketing                      | Visitor guide                        | Dashboard                          |
+| ----------- | ------------------------------ | ------------------------------------ | ---------------------------------- |
+| Production  | `https://torchiko.com`         | `https://guide.torchiko.com`         | `https://app.torchiko.com`         |
+| Staging     | `https://staging.torchiko.com` | `https://guide.staging.torchiko.com` | `https://app.staging.torchiko.com` |
 
 `www.torchiko.com` redirects to the production apex. Existing `*.up.railway.app` domains remain
-enabled as recovery origins, but they are not canonical. `NEXT_PUBLIC_WEB_URL` must equal the public
-origin for that environment, and workers' `DASHBOARD_URL` must equal its dashboard origin. DNS and
+enabled as recovery origins, but they are not canonical. `NEXT_PUBLIC_WEB_URL` must equal the visitor
+guide origin for that environment, and workers' `DASHBOARD_URL` must equal its dashboard origin. DNS and
 Railway custom-domain changes are additive and do not authorize a production deployment, migration,
 or database write.
 
-Registering a production hostname in Railway is not permission to activate its DNS. Keep the apex,
-`www`, and production `app` DNS records absent until the exact staging revision has passed promotion
-and the production schema is compatible with that revision. Staging DNS may be activated
-independently because it targets the isolated staging services and resources listed above.
+The apex and `www` marketing records target the independently deployed Torchiko marketing Site; they
+do not route to the product services or database. Registering production `guide` or `app` hostnames
+in Railway is not permission to activate their DNS. Keep those product DNS records absent until the
+exact staging revision has passed promotion and the production schema is compatible with that
+revision. Staging product DNS may be activated independently because it targets the isolated staging
+services and resources listed above.
 
 The `workflow_run` admission becomes automatic after this workflow file is present on GitHub's
 default branch. Before that first reviewed production promotion, run the same checked-in
