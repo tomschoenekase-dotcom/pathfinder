@@ -25,7 +25,7 @@ This is the normal Torchiko feature-delivery path:
 - Staging environment: `a7a394fc-aa4e-4a45-bd3c-904419a67818`
 - Staging branch: `codex/pathfinder-v2-staging`
 - Marketing site: `https://staging.torchiko.com`
-- Public visitor guide: `https://guide.staging.torchiko.com`
+- Legacy visitor-guide custom domain: retired; Railway fallback retained for recovery only
 - Dashboard (canonical after DNS activation): `https://app.staging.torchiko.com`
 - Railway fallback web: `https://staging-web-staging-bbeb.up.railway.app`
 - Railway fallback dashboard: `https://staging-dashboard-staging-dc4a.up.railway.app`
@@ -51,14 +51,16 @@ promotion explicit and reviewable.
 
 Torchiko separates the marketing site, venue visitor guide, and authenticated dashboard:
 
-| Environment | Marketing                      | Visitor guide                        | Dashboard                          |
-| ----------- | ------------------------------ | ------------------------------------ | ---------------------------------- |
-| Production  | `https://torchiko.com`         | `https://guide.torchiko.com`         | `https://app.torchiko.com`         |
-| Staging     | `https://staging.torchiko.com` | `https://guide.staging.torchiko.com` | `https://app.staging.torchiko.com` |
+| Environment | Marketing                      | Visitor guide                | Dashboard                          |
+| ----------- | ------------------------------ | ---------------------------- | ---------------------------------- |
+| Production  | `https://torchiko.com`         | `https://guide.torchiko.com` | `https://app.torchiko.com`         |
+| Staging     | `https://staging.torchiko.com` | Retired                      | `https://app.staging.torchiko.com` |
 
 `www.torchiko.com` aliases the production apex marketing site. Existing `*.up.railway.app` domains remain
-enabled as recovery origins, but they are not canonical. `NEXT_PUBLIC_WEB_URL` must equal the visitor
-guide origin for that environment, and workers' `DASHBOARD_URL` must equal its dashboard origin. DNS and
+enabled as recovery origins, but they are not canonical. The staging dashboard intentionally omits
+`NEXT_PUBLIC_WEB_URL` while the legacy visitor guide is retired, which suppresses links to that old
+experience. In an environment with an approved visitor guide, `NEXT_PUBLIC_WEB_URL` must equal that
+guide's origin. Workers' `DASHBOARD_URL` must equal the dashboard origin. DNS and
 Railway custom-domain changes are additive and do not authorize a production deployment, migration,
 or database write.
 
@@ -66,10 +68,13 @@ The apex and `www` marketing records target the independently deployed Torchiko 
 do not route to the product services or database. Registering production `guide` or `app` hostnames
 in Railway is not permission to activate their DNS. Keep those product DNS records absent until the
 exact staging revision has passed promotion and the production schema is compatible with that
-revision. Staging product DNS may be activated independently because it targets the isolated staging
-services and resources listed above.
+revision. The staging dashboard DNS may be activated independently because it targets the isolated
+staging services and resources listed above.
 
 The `workflow_run` admission becomes automatic after this workflow file is present on GitHub's
 default branch. Before that first reviewed production promotion, run the same checked-in
 `verify:staging-health` command from `railway-staging.md` after Railway reports the staging deployment
-healthy. Railway's own health check and its `Wait for CI` setting remain active throughout.
+healthy. Railway's own health check remains active. The dashboard's Railway `Wait for CI` switch is
+temporarily disabled because this branch is not receiving a completing GitHub check suite; restore
+that switch after the repository CI workflow is visible to Railway. Web and workers retain their
+existing CI wait behavior.
