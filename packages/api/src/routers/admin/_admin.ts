@@ -4,9 +4,13 @@ import { adminAnswerAnalysisRouter } from './answer-analysis'
 import { adminAttentionConsoleRouter } from './attention-console'
 import { adminAiWorkloadConfigurationRouter } from './ai-workload-configuration'
 import { adminAgentOperationsRouter } from './agent-operations'
+import { adminAgentBridgeOperationsRouter } from './agent-bridge-operations'
 import { adminAgentIdentityConfigurationRouter } from './agent-identity-configuration'
 import { adminAgentApprovalDecisionsRouter } from './agent-approval-decisions'
 import { adminAgentRunCancellationRouter } from './agent-run-cancellation'
+import { adminAgentQuestionsRouter } from './agent-questions'
+import { adminAgentTaskRequestsRouter } from './agent-task-requests'
+import { adminAgentOutcomesRouter } from './agent-outcomes'
 import { adminChatlogsRouter } from './chatlogs'
 import { adminClientAnalyticsRouter } from './client-analytics'
 import { adminClientManagementRouter } from './client-management'
@@ -42,6 +46,7 @@ import { adminWeeklyReportLifecycleRouter } from './weekly-report-lifecycle'
 import { adminVenueAvailabilityRouter } from './venue-availability'
 import { adminVenuePackageOperationsRouter } from './venue-package-operations'
 import { adminSecondLayerRouter } from './second-layer'
+import { adminTochiRolloutRouter } from './tochi-rollout'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -50,9 +55,13 @@ export const adminRouter = mergeRouters(
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,
   adminAgentOperationsRouter,
+  adminAgentBridgeOperationsRouter,
   adminAgentIdentityConfigurationRouter,
   adminAgentApprovalDecisionsRouter,
   adminAgentRunCancellationRouter,
+  adminAgentQuestionsRouter,
+  adminAgentTaskRequestsRouter,
+  adminAgentOutcomesRouter,
   adminIncidentControlRouter,
   adminIntakeOperationsRouter,
   adminIntakeUploadReviewRouter,
@@ -86,4 +95,5 @@ export const adminRouter = mergeRouters(
   adminWeeklyReportLifecycleRouter,
   adminDigestRouter,
   adminDeploymentManifestReviewRouter,
+  adminTochiRolloutRouter,
 )

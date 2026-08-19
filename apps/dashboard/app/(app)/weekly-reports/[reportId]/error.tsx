@@ -4,7 +4,7 @@ import { PacketRouteError } from '../../../../components/PacketRouteState'
 
 export default function WeeklyReportDetailError({ reset }: { reset: () => void }) {
   return (
-    <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
+    <div className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-3xl">
         <PacketRouteError
           title="This weekly report could not be loaded"
@@ -12,6 +12,6 @@ export default function WeeklyReportDetailError({ reset }: { reset: () => void }
           reset={reset}
         />
       </div>
-    </main>
+    </div>
   )
 }

@@ -8,6 +8,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const monitoringContext = resolveMonitoringContext(process.env, 'dashboard')
 
 const nextConfig: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   env: {
     NEXT_PUBLIC_SENTRY_ENVIRONMENT: monitoringContext.environment,
     NEXT_PUBLIC_SENTRY_RELEASE: monitoringContext.release,

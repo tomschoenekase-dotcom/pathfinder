@@ -7,6 +7,7 @@ import {
   AgentAccessCapability,
   AgentAutonomousAction,
   AgentConfigurationAutonomyLevel,
+  AgentExecutionProvider,
   AgentIdentityType,
   agentConfigurationCoherenceIssue,
 } from '@pathfinder/contracts'
@@ -21,6 +22,8 @@ type Fields = {
   accessCapabilities: (typeof AgentAccessCapability.options)[number][]
   autonomyLevel: (typeof AgentConfigurationAutonomyLevel.options)[number]
   autonomousActions: (typeof AgentAutonomousAction.options)[number][]
+  defaultProvider: (typeof AgentExecutionProvider.options)[number] | null
+  defaultModel: string | null
 }
 
 type ExistingIdentity = Fields & {
@@ -37,6 +40,14 @@ function errorCode(error: unknown) {
 
 function toggle<T extends string>(values: T[], value: T): T[] {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
+}
+
+function apiFields(fields: Fields) {
+  const { defaultProvider, defaultModel, ...authority } = fields
+  return {
+    ...authority,
+    ...(defaultProvider && defaultModel ? { defaultProvider, defaultModel } : {}),
+  }
 }
 
 function FieldsEditor({
@@ -111,6 +122,46 @@ function FieldsEditor({
           onChange={(event) => setFields({ ...fields, description: event.target.value || null })}
         />
       </label>
+      <label className="text-sm font-medium text-pf-deep">
+        Execution provider
+        <select
+          className="mt-1 w-full rounded-xl border border-pf-light bg-white px-3 py-2"
+          value={fields.defaultProvider ?? ''}
+          onChange={(event) =>
+            setFields({
+              ...fields,
+              defaultProvider: (event.target.value || null) as Fields['defaultProvider'],
+              defaultModel:
+                event.target.value === 'anthropic'
+                  ? 'claude-sonnet-4-6'
+                  : event.target.value
+                    ? fields.defaultProvider === 'anthropic'
+                      ? 'subscription-default'
+                      : fields.defaultModel
+                    : null,
+            })
+          }
+        >
+          <option value="">Not configured</option>
+          {AgentExecutionProvider.options.map((provider) => (
+            <option key={provider} value={provider}>
+              {provider}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-sm font-medium text-pf-deep">
+        Model or bridge target
+        <input
+          className="mt-1 w-full rounded-xl border border-pf-light bg-white px-3 py-2"
+          value={fields.defaultModel ?? ''}
+          disabled={!fields.defaultProvider}
+          placeholder={
+            fields.defaultProvider === 'anthropic' ? 'claude-sonnet-4-6' : 'subscription-default'
+          }
+          onChange={(event) => setFields({ ...fields, defaultModel: event.target.value || null })}
+        />
+      </label>
       <fieldset className="rounded-xl border border-pf-light p-3">
         <legend className="px-1 text-sm font-semibold text-pf-deep">Access capabilities</legend>
         <div className="mt-2 grid gap-2">
@@ -165,7 +216,147 @@ const emptyFields: Fields = {
   accessCapabilities: ['content.read'],
   autonomyLevel: 'READ_ONLY',
   autonomousActions: [],
+  defaultProvider: null,
+  defaultModel: null,
 }
+
+const identityTemplates: Array<{ label: string; fields: Fields }> = [
+  {
+    label: 'Primary coordinator',
+    fields: {
+      identityKey: 'edith.primary',
+      name: 'EDITH',
+      description:
+        'Primary operator interface. Clarifies goals, chooses the narrowest capable specialist, delegates with explicit scope, and reports durable evidence without pretending work occurred.',
+      agentType: 'PRIMARY',
+      accessCapabilities: ['agents.read', 'agents.delegate', 'operations.read'],
+      autonomyLevel: 'INTERNAL_REVERSIBLE',
+      autonomousActions: ['agents.delegate-specialist'],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'Content steward',
+    fields: {
+      identityKey: 'content.steward',
+      name: 'Content Steward',
+      description:
+        'Grounds recommendations in approved venue content, prepares reviewable drafts, preserves provenance, and never publishes or invents missing facts.',
+      agentType: 'CONTENT',
+      accessCapabilities: ['content.read', 'content.draft'],
+      autonomyLevel: 'DRAFT',
+      autonomousActions: ['content.prepare-draft'],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'Reliability evaluator',
+    fields: {
+      identityKey: 'reliability.evaluator',
+      name: 'Reliability Evaluator',
+      description:
+        'Inspects evaluation, operations, and readiness evidence; distinguishes observed facts from proposed thresholds and escalates unsafe uncertainty.',
+      agentType: 'EVALUATION',
+      accessCapabilities: ['evaluation.read', 'operations.read'],
+      autonomyLevel: 'READ_ONLY',
+      autonomousActions: [],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'Support specialist',
+    fields: {
+      identityKey: 'support.specialist',
+      name: 'Support Specialist',
+      description:
+        'Reviews bounded support context, prepares empathetic internal guidance, asks when facts are missing, and never sends an external message.',
+      agentType: 'SUPPORT',
+      accessCapabilities: ['support.read', 'content.read'],
+      autonomyLevel: 'READ_ONLY',
+      autonomousActions: [],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'PathFinder architect',
+    fields: {
+      identityKey: 'pathfinder.architect',
+      name: 'PathFinder Architect',
+      description:
+        'Maps product architecture, boundaries, dependencies, and implementation gaps to repository evidence; it labels unknown state and delegates code changes to a capable worker.',
+      agentType: 'OPERATIONS',
+      accessCapabilities: ['operations.read', 'evaluation.read', 'content.read', 'agents.read'],
+      autonomyLevel: 'READ_ONLY',
+      autonomousActions: [],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'Data steward',
+    fields: {
+      identityKey: 'pathfinder.data-steward',
+      name: 'PathFinder Data Steward',
+      description:
+        'Audits content, intake, evaluation, and operational records with exact source and count evidence; never invents tolerances, causes, reconciliation, or acceptance policy.',
+      agentType: 'OPERATIONS',
+      accessCapabilities: ['content.read', 'intake.read', 'evaluation.read', 'operations.read'],
+      autonomyLevel: 'READ_ONLY',
+      autonomousActions: [],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'Experience designer',
+    fields: {
+      identityKey: 'pathfinder.experience',
+      name: 'PathFinder Experience Designer',
+      description:
+        'Designs calm operator and guest workflows from observed product constraints, prepares reviewable UX copy, and labels accessibility or responsive behavior as proposed until tested.',
+      agentType: 'CONTENT',
+      accessCapabilities: ['content.read', 'content.draft'],
+      autonomyLevel: 'DRAFT',
+      autonomousActions: ['content.prepare-draft'],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'Outreach steward',
+    fields: {
+      identityKey: 'pathfinder.outreach',
+      name: 'PathFinder Outreach Steward',
+      description:
+        'Reviews outreach and venue context, prepares grounded internal recommendations, and never contacts a person or claims delivery without an explicit approved communication surface.',
+      agentType: 'SUPPORT',
+      accessCapabilities: ['support.read', 'content.read', 'operations.read'],
+      autonomyLevel: 'READ_ONLY',
+      autonomousActions: [],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+  {
+    label: 'Media curator',
+    fields: {
+      identityKey: 'media.curator',
+      name: 'Media Curator',
+      description:
+        'Inspects approved media and content context, identifies quality or coverage gaps, and proposes bounded work without uploading, deleting, publishing, or fabricating assets.',
+      agentType: 'MEDIA',
+      accessCapabilities: ['media.read', 'content.read'],
+      autonomyLevel: 'READ_ONLY',
+      autonomousActions: [],
+      defaultProvider: null,
+      defaultModel: null,
+    },
+  },
+]
 
 export function AgentIdentityCreateEditor({
   tenantId,
@@ -189,7 +380,7 @@ export function AgentIdentityCreateEditor({
     try {
       await client.admin.createDisabledAgentIdentity.mutate({
         scope: { level: 'VENUE', tenantId, venueId },
-        fields,
+        fields: apiFields(fields),
       })
       setFields(emptyFields)
       setMessage('Disabled identity created. No agent was enabled or run.')
@@ -211,6 +402,29 @@ export function AgentIdentityCreateEditor({
         Create disabled identity
       </summary>
       <form className="mt-4 space-y-4" onSubmit={submit}>
+        <fieldset className="rounded-xl border border-sky-200 bg-white p-3">
+          <legend className="px-1 text-sm font-semibold text-sky-950">Start from a role</legend>
+          <p className="mb-3 text-xs leading-5 text-pf-deep/55">
+            Templates define a narrow personality and authority boundary. Review every field before
+            creating; the identity remains disabled.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {identityTemplates.map((template) => (
+              <button
+                key={template.label}
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setFields(template.fields)
+                  setMessage(null)
+                }}
+                className="rounded-full border border-sky-200 px-3 py-2 text-xs font-semibold text-sky-950"
+              >
+                {template.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <FieldsEditor fields={fields} setFields={setFields} />
         <button
           type="submit"
@@ -244,7 +458,7 @@ export function AgentIdentityEditEditor({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  async function mutate(kind: 'edit' | 'disable') {
+  async function mutate(kind: 'edit' | 'disable' | 'enable') {
     const issue = kind === 'edit' ? agentConfigurationCoherenceIssue(fields) : null
     if (issue) return setMessage(issue)
     setBusy(true)
@@ -256,11 +470,17 @@ export function AgentIdentityEditEditor({
         expectedUpdatedAt: identity.updatedAt,
       }
       if (kind === 'edit') {
-        await client.admin.editDisabledAgentIdentity.mutate({ ...common, fields })
+        await client.admin.editDisabledAgentIdentity.mutate({
+          ...common,
+          fields: apiFields(fields),
+        })
         setMessage('Disabled configuration saved. No agent was enabled or run.')
-      } else {
+      } else if (kind === 'disable') {
         await client.admin.disableAgentIdentity.mutate(common)
         setMessage('Identity disabled. No run was started.')
+      } else {
+        await client.admin.enableAgentIdentity.mutate(common)
+        setMessage('Identity enabled. This does not start a run.')
       }
       router.refresh()
     } catch (error) {
@@ -288,18 +508,30 @@ export function AgentIdentityEditEditor({
         ) : (
           <FieldsEditor fields={fields} setFields={setFields} />
         )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void mutate(identity.enabled ? 'disable' : 'edit')}
-          className="min-h-11 rounded-xl bg-pf-primary px-4 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          {busy
-            ? 'Saving...'
-            : identity.enabled
-              ? 'Disable identity'
-              : 'Save disabled configuration'}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void mutate(identity.enabled ? 'disable' : 'edit')}
+            className="min-h-11 rounded-xl bg-pf-primary px-4 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {busy
+              ? 'Saving...'
+              : identity.enabled
+                ? 'Disable identity'
+                : 'Save disabled configuration'}
+          </button>
+          {!identity.enabled ? (
+            <button
+              type="button"
+              disabled={busy || !identity.defaultProvider || !identity.defaultModel}
+              onClick={() => void mutate('enable')}
+              className="min-h-11 rounded-xl border border-pf-primary bg-white px-4 text-sm font-semibold text-pf-primary disabled:opacity-50"
+            >
+              Enable configured identity
+            </button>
+          ) : null}
+        </div>
         {message ? (
           <p role="status" className="text-sm text-pf-deep/70">
             {message}

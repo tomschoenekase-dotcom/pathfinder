@@ -9,6 +9,17 @@
   --pf-light: #c9d4e3;
   --pf-surface: #f2f5f9;
   --pf-white: #ffffff;
+  --torchiko-ink: #102f50;
+  --torchiko-blue: #477c98;
+  --torchiko-aqua: #9dd4d8;
+  --torchiko-mist: #edf5f5;
+  --torchiko-warm: #fbfaf6;
+  --torchiko-ember: #ee7962;
+  --torchiko-glow: #f5bd55;
+  --torchiko-focus: #225b91;
+  --torchiko-motion-fast: 180ms;
+  --torchiko-motion-settle: 420ms;
+  --torchiko-ease-directional: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @layer base {

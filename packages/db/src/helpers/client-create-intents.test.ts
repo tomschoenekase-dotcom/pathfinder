@@ -14,6 +14,7 @@ const identity = {
   requestHash: 'a'.repeat(64),
   actor,
 }
+const createdAt = new Date('2026-08-18T12:00:00.000Z')
 
 function fixture(existing: Record<string, unknown> | null = null) {
   const tx = {
@@ -29,6 +30,7 @@ function fixture(existing: Record<string, unknown> | null = null) {
         providerOrganizationId: null,
         completedTenantId: null,
         completedVenueId: null,
+        createdAt,
       })),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
@@ -42,6 +44,7 @@ describe('durable client-create intents', () => {
     const { tx, client } = fixture()
     await expect(beginClientCreateIntentAction(identity, client as never)).resolves.toEqual({
       state: 'READY',
+      createdAt,
     })
     expect(tx.clientCreateIntentEvent.create).toHaveBeenNthCalledWith(1, {
       data: { intentId: 'intent-1', status: 'RESERVED', actorId: 'admin-1' },
@@ -75,9 +78,11 @@ describe('durable client-create intents', () => {
       requestHash: identity.requestHash,
       actorId: actor.id,
       status: 'PROVIDER_STARTED',
+      createdAt,
     })
     await expect(beginClientCreateIntentAction(identity, client as never)).resolves.toEqual({
       state: 'RECONCILIATION_REQUIRED',
+      createdAt,
     })
     expect(tx.clientCreateIntent.updateMany).not.toHaveBeenCalled()
   })

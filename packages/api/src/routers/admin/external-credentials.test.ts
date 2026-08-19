@@ -47,6 +47,14 @@ describe('admin external credential metadata', () => {
       operationId: '11111111-1111-4111-8111-111111111111',
     }
     await expect(
+      app.createCaller(context(false)).admin.activateAgentBridgeCredential({
+        ...actionScope,
+        venueId: 'venue_1',
+        credentialId: 'credential_1',
+        expectedUpdatedAt: new Date(0).toISOString(),
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
       app.createCaller(context(false)).admin.issueExternalCredential({
         ...actionScope,
         kind: 'PARTNER_READ_API',
@@ -124,5 +132,6 @@ describe('admin external credential metadata', () => {
     expect(select.rotationsFrom).toBeTruthy()
     expect(select.rotationsTo).toBeTruthy()
     expect(select.revocation).toBeTruthy()
+    expect(select.activation).toBeTruthy()
   })
 })

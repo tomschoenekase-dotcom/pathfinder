@@ -292,6 +292,34 @@ describe('GENERATION_RECOVERY_ENABLED', () => {
   })
 })
 
+describe('AGENT_BRIDGE_HTTP_ENABLED', () => {
+  it.each(['production', 'staging', 'preview'] as const)(
+    'defaults to disabled in %s',
+    (RAILWAY_ENVIRONMENT) => {
+      expect(
+        envSchema.parse({ ...requiredEnvironment, RAILWAY_ENVIRONMENT }).AGENT_BRIDGE_HTTP_ENABLED,
+      ).toBe(false)
+    },
+  )
+
+  it('accepts only an exact explicit enable value', () => {
+    expect(
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        AGENT_BRIDGE_HTTP_ENABLED: 'true',
+      }).AGENT_BRIDGE_HTTP_ENABLED,
+    ).toBe(true)
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        RAILWAY_ENVIRONMENT: 'staging',
+        AGENT_BRIDGE_HTTP_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+})
+
 describe('EVALUATION_RUNNER_ENABLED', () => {
   it.each(['production', 'staging', 'preview'] as const)(
     'defaults to disabled in %s',

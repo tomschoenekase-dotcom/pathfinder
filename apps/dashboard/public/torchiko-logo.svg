@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="120" y1="240" x2="1000" y2="610" gradientUnits="userSpaceOnUse"><stop stop-color="#D6F4F6"/><stop offset=".38" stop-color="#8EB9C2"/><stop offset=".72" stop-color="#4E7792"/><stop offset="1" stop-color="#15385C"/></linearGradient>
+    <linearGradient id="g2" x1="160" y1="330" x2="1000" y2="620" gradientUnits="userSpaceOnUse"><stop stop-color="#D8F8FB"/><stop offset=".35" stop-color="#95C0C8"/><stop offset=".7" stop-color="#5B8197"/><stop offset="1" stop-color="#1A3B5D"/></linearGradient>
+    <linearGradient id="g3" x1="120" y1="500" x2="1000" y2="610" gradientUnits="userSpaceOnUse"><stop stop-color="#D2F1F4"/><stop offset=".33" stop-color="#89B6C0"/><stop offset=".72" stop-color="#466E8C"/><stop offset="1" stop-color="#143354"/></linearGradient>
+    <linearGradient id="g4" x1="300" y1="620" x2="1000" y2="650" gradientUnits="userSpaceOnUse"><stop stop-color="#A1CCD4"/><stop offset=".5" stop-color="#5D8498"/><stop offset="1" stop-color="#173C5E"/></linearGradient>
+    <linearGradient id="g5" x1="250" y1="770" x2="1000" y2="760" gradientUnits="userSpaceOnUse"><stop stop-color="#7DAAB5"/><stop offset=".35" stop-color="#5D879B"/><stop offset="1" stop-color="#0E2F52"/></linearGradient>
+    <linearGradient id="flame" x1="887" y1="540" x2="1090" y2="670" gradientUnits="userSpaceOnUse"><stop stop-color="#FFF0A8"/><stop offset=".46" stop-color="#F2B84B"/><stop offset="1" stop-color="#EF765F"/></linearGradient>
+  </defs>
+  <path d="M170 285C355 120 805 140 995 575 730 168 430 208 230 392Q130 340 170 285Z" fill="url(#g1)"/>
+  <path d="M228 354C420 273 770 322 995 575 725 364 455 360 238 438Q188 398 228 354Z" fill="url(#g2)"/>
+  <path d="M168 500C390 456 770 505 995 600 700 546 395 558 178 618Q118 560 168 500Z" fill="url(#g3)"/>
+  <path d="M336 568C510 570 780 566 995 605 714 640 485 673 340 720Q268 646 336 568Z" fill="url(#g4)"/>
+  <path d="M350 736C486 829 784 820 996 606 675 992 360 975 214 913Q181 817 350 736Z" fill="url(#g5)"/>
+  <path d="M882 535C929 545 972 566 997 595 1005 575 1009 550 1003 528 1023 541 1036 564 1040 587 1055 579 1065 562 1069 545 1083 564 1090 588 1090 612 1090 643 1075 668 1050 684 1018 704 976 702 934 679 966 676 994 660 1011 636 989 594 946 554 882 535Z" fill="url(#flame)"/>
+  <path d="M951 653C977 637 993 613 997 585 1015 601 1023 619 1019 636 1032 631 1043 620 1049 607 1052 631 1042 651 1025 661 1003 674 974 666 951 653Z" fill="#FFF2AF"/>
+</svg>

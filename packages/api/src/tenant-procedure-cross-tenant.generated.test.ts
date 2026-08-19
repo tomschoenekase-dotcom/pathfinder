@@ -89,6 +89,17 @@ vi.mock('@pathfinder/db', async () => {
           where: { id: input.uploadId, tenantId: input.tenantId, venueId: input.venueId },
         }),
     ),
+    getIntakeUploadMultipartAction: vi.fn(
+      (input: {
+        tenantId: string
+        venueId: string
+        uploadId: string
+        client: LegacyHarnessClient
+      }) =>
+        intakeTouch(input.client, {
+          where: { id: input.uploadId, tenantId: input.tenantId, venueId: input.venueId },
+        }),
+    ),
     listIntakeUploadsAction: vi.fn(
       (input: { tenantId: string; venueId: string; client: LegacyHarnessClient }) =>
         (
@@ -224,6 +235,69 @@ vi.mock('@pathfinder/db', async () => {
       (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
         client.$transaction((tx) =>
           tx.venue.findFirst({ where: { id: input.venueId, tenantId: input.tenantId } }),
+        ),
+    ),
+    getVenueBotConfigurationAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        (
+          client as unknown as {
+            venueBotConfiguration: { findFirst: (args: unknown) => unknown }
+          }
+        ).venueBotConfiguration.findFirst({
+          where: { tenantId: input.tenantId, venueId: input.venueId },
+        }),
+    ),
+    updateVenueBotConfigurationAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          (
+            tx as unknown as {
+              venueBotConfiguration: { findFirst: (args: unknown) => unknown }
+            }
+          ).venueBotConfiguration.findFirst({
+            where: { tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
+    listPersonalityProfilesAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        (
+          client as unknown as {
+            personalityProfile: { findMany: (args: unknown) => unknown }
+          }
+        ).personalityProfile.findMany({
+          where: { tenantId: input.tenantId, venueId: input.venueId },
+        }),
+    ),
+    createPersonalityProfileAction: vi.fn(
+      (input: { tenantId: string; venueId: string }, client: LegacyHarnessClient) =>
+        client.$transaction((tx) =>
+          (
+            tx as unknown as {
+              personalityProfile: { create: (args: unknown) => unknown }
+            }
+          ).personalityProfile.create({
+            data: { tenantId: input.tenantId, venueId: input.venueId },
+          }),
+        ),
+    ),
+    updatePersonalityProfileAction: vi.fn(
+      (
+        input: { tenantId: string; venueId: string; profileId: string },
+        client: LegacyHarnessClient,
+      ) =>
+        client.$transaction((tx) =>
+          (
+            tx as unknown as {
+              personalityProfile: { findFirst: (args: unknown) => unknown }
+            }
+          ).personalityProfile.findFirst({
+            where: {
+              id: input.profileId,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+            },
+          }),
         ),
     ),
     updateVenueChatDesignAction: vi.fn(
@@ -400,6 +474,8 @@ vi.mock('@pathfinder/db', async () => {
         }),
     ),
     SupportActionError: class SupportActionError extends Error {},
+    ClientAssistantActionError: class ClientAssistantActionError extends Error {},
+    OnboardingQuestionActionError: class OnboardingQuestionActionError extends Error {},
     tenantSupportRequestAccessWhere: vi.fn((actor: { actorId: string }) => ({
       createdByKind: 'CLIENT',
       requesterUserId: actor.actorId,
@@ -441,6 +517,14 @@ vi.mock('@pathfinder/db', async () => {
           }),
         ),
     ),
+    resumeOnboardingQuestionFromSupportAction: vi.fn(),
+    setClientAssistantPreferenceAction: vi.fn(),
+    reserveClientAssistantTurnAction: vi.fn(),
+    claimClientAssistantTurnGenerationAction: vi.fn(),
+    markClientAssistantTurnProviderDispatchedAction: vi.fn(),
+    completeClientAssistantTurnAction: vi.fn(),
+    linkClientAssistantSupportHandoffAction: vi.fn(),
+    assertVenueAiAvailable: vi.fn(),
     assertGlobalAiAvailable: vi.fn().mockResolvedValue(undefined),
     createSupportRequestAction: vi.fn(
       (
@@ -517,11 +601,17 @@ vi.mock('@pathfinder/db', async () => {
 })
 
 vi.mock('@pathfinder/jobs', () => ({
+  enqueueAgentRun: vi.fn(),
   enqueueEmbedKnowledgeEntry: vi.fn(),
   enqueueEmbedPlace: vi.fn(),
 }))
 
 vi.mock('@pathfinder/analytics', () => ({ emitEvent: vi.fn() }))
+
+vi.mock('@pathfinder/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pathfinder/config')>()),
+  isFeatureEnabled: vi.fn(() => true),
+}))
 
 vi.mock('@pathfinder/config/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -540,6 +630,7 @@ import type { TenantRole } from '@pathfinder/auth'
 import { router } from './core'
 import type { TRPCContext } from './context'
 import { analyticsRouter } from './routers/analytics'
+import { clientAssistantRouter } from './routers/client-assistant'
 import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
 import { intakeRouter } from './routers/intake'
@@ -562,6 +653,7 @@ const ATTACKER_TENANT_ID = 'tenant_attacker'
 
 const testRouter = router({
   analytics: analyticsRouter,
+  clientAssistant: clientAssistantRouter,
   contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,
   intake: intakeRouter,
@@ -609,10 +701,21 @@ function authoritativeTenant(touch: {
   if (touch.path === 'external.listPendingOrganizationInvitations') return touch.args[0]
 
   const operation = touch.args[0] as
-    | { where?: { id?: unknown; tenantId?: unknown }; data?: { tenantId?: unknown } }
+    | {
+        where?: {
+          id?: unknown
+          tenantId?: unknown
+          tenantId_flagKey?: { tenantId?: unknown }
+        }
+        data?: { tenantId?: unknown }
+      }
     | undefined
   if (touch.path.startsWith('tenant.')) return operation?.where?.id
-  return operation?.where?.tenantId ?? operation?.data?.tenantId
+  return (
+    operation?.where?.tenantId ??
+    operation?.where?.tenantId_flagKey?.tenantId ??
+    operation?.data?.tenantId
+  )
 }
 
 function context(role: TenantRole): TRPCContext {

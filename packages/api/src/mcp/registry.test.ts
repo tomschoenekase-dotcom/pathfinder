@@ -9,7 +9,14 @@ const credential: VerifiedMcpCredentialScope = {
   tenantId: 'tenant-1',
   clientId: 'client-1',
   venueIds: ['venue-1'],
-  capabilities: ['resources:read', 'content:read', 'packages:draft', 'evaluations:request'],
+  capabilities: [
+    'resources:read',
+    'content:read',
+    'packages:draft',
+    'evaluations:request',
+    'questions:ask',
+    'delegations:create',
+  ],
 }
 
 function actions(): PathfinderMcpDomainActions {
@@ -21,6 +28,8 @@ function actions(): PathfinderMcpDomainActions {
   return {
     verifyApprovalGrant: vi.fn().mockResolvedValue(undefined),
     read: vi.fn().mockResolvedValue(result),
+    askOperator: vi.fn().mockResolvedValue(result),
+    delegateSpecialist: vi.fn().mockResolvedValue(result),
     createPackageDraft: vi.fn().mockResolvedValue(result),
     createUpdateDraft: vi.fn().mockResolvedValue(result),
     createSupportDraft: vi.fn().mockResolvedValue(result),
@@ -98,6 +107,47 @@ describe('PathFinder MCP server-side adapter registry', () => {
         { credential },
       ),
     ).rejects.toMatchObject({ code: 'APPROVAL_REQUIRED' })
+  })
+
+  it('allows a scoped operator question without converting it into an approval or write grant', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    await registry.callTool(
+      'pathfinder.ask_operator',
+      {
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        operationId: '86d4ee39-a7c7-44ab-bf24-75c187cff002',
+        agentIdentityId: 'agent-1',
+        question: 'Which source should I treat as authoritative?',
+        choices: ['Venue website', 'Operator note'],
+        blocking: true,
+      },
+      { credential },
+    )
+    expect(domain.askOperator).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+  })
+
+  it('allows an idempotent in-scope specialist delegation without granting domain mutation authority', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    await registry.callTool(
+      'pathfinder.delegate_specialist',
+      {
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        parentAgentRunId: 'run-primary',
+        requestingAgentIdentityId: 'agent-primary',
+        specialistAgentIdentityId: 'agent-research',
+        instructions: 'Review the current architecture and return evidence.',
+        reason: 'The research specialist owns architecture review.',
+      },
+      { credential },
+    )
+    expect(domain.delegateSpecialist).toHaveBeenCalledOnce()
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
   })
 
   it('validates scope and output around an injected canonical domain action', async () => {

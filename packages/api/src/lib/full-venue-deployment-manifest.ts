@@ -53,6 +53,20 @@ const venueSelect = {
   chatBannerUrl: true,
   isActive: true,
   updatedAt: true,
+  venueBotConfiguration: {
+    select: {
+      presentationMode: true,
+      personalityMode: true,
+      tonePreset: true,
+      tonePresetVersion: true,
+      personalityProfileId: true,
+      characterKey: true,
+      customCharacterId: true,
+      publicDisplayName: true,
+      greeting: true,
+      voiceProfileId: true,
+    },
+  },
 } as const
 
 const themeIds = new Set(['default', 'forest', 'sunset', 'midnight', 'rose', 'dark'])
@@ -214,6 +228,15 @@ export async function projectFullVenueDeploymentManifest(
       ),
     )
   }
+  if (!venue.venueBotConfiguration) {
+    omissions.push(
+      omission(
+        'VENUE_BOT_CONFIGURATION_UNAVAILABLE',
+        'AI_CONFIGURATION',
+        'Venue Bot presentation is omitted because no canonical configuration row exists.',
+      ),
+    )
+  }
   const candidate = {
     schemaVersion: 2 as const,
     packageType: 'FULL' as const,
@@ -244,6 +267,7 @@ export async function projectFullVenueDeploymentManifest(
     aiConfiguration: {
       ...(guideName && guideName.length <= 80 ? { guideName } : {}),
       tone: { preset: tone.preset, behaviorVersion: tone.behaviorVersion },
+      ...(venue.venueBotConfiguration ? { venueBot: venue.venueBotConfiguration } : {}),
       modelReferences: [],
     },
     capabilities: {

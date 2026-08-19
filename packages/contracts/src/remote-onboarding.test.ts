@@ -1,0 +1,110 @@
+import { describe, expect, it } from 'vitest'
+
+import { resolveClientPortalLifecycle } from './client-portal-lifecycle'
+import {
+  resolveRemoteOnboardingProjection,
+  type RemoteOnboardingEvidence,
+} from './remote-onboarding'
+
+function evidence(overrides: Partial<RemoteOnboardingEvidence> = {}): RemoteOnboardingEvidence {
+  return {
+    lifecycle: resolveClientPortalLifecycle({
+      isActive: false,
+      publicContentCount: 0,
+      wasLive: false,
+      collectingSourceCount: 0,
+      processingSourceCount: 0,
+      reviewSourceCount: 0,
+      intakeProposalCount: 0,
+      packageCounts: { draft: 0, approved: 0, applied: 0, reverted: 0 },
+      hasActiveOffboarding: false,
+    }),
+    materials: { uploaded: 0, checking: 0, needsAttention: 0, readyForReview: 0, processed: 0 },
+    review: { proposedSources: 0, draftPackages: 0 },
+    questions: { open: 0 },
+    preview: { state: 'UNAVAILABLE', packageId: null },
+    qa: {
+      state: 'NOT_RUN',
+      passed: 0,
+      failed: 0,
+      operationalIssues: 0,
+      requiredDimensions: 7,
+      assessedDimensions: 0,
+      exactPackage: false,
+    },
+    release: { hasReviewedArtifact: false, released: false },
+    ...overrides,
+  }
+}
+
+describe('remote onboarding journey projection', () => {
+  it('offers one obvious website-first action for a new venue', () => {
+    const result = resolveRemoteOnboardingProjection(evidence())
+    expect(result.primaryAction).toMatchObject({
+      stage: 'MATERIALS',
+      label: 'Start with my website',
+    })
+    expect(result.stages.find(({ id }) => id === 'MATERIALS')?.status).toBe('AVAILABLE')
+    expect(result.readiness.every(({ status }) => status === 'NOT_ASSESSED')).toBe(true)
+  })
+
+  it('prioritizes a focused client question over preview and never implies publication', () => {
+    const result = resolveRemoteOnboardingProjection(
+      evidence({
+        questions: { open: 2 },
+        preview: { state: 'AVAILABLE', packageId: 'package-1' },
+        release: { hasReviewedArtifact: true, released: false },
+      }),
+    )
+    expect(result.primaryAction).toMatchObject({ stage: 'QUESTIONS' })
+    expect(result.readiness.find(({ id }) => id === 'RELEASE')).toMatchObject({
+      status: 'NOT_ASSESSED',
+      summary: expect.stringContaining('explicit operator action'),
+    })
+  })
+
+  it('separates QA failures from other readiness dimensions', () => {
+    const result = resolveRemoteOnboardingProjection(
+      evidence({
+        materials: { uploaded: 0, checking: 0, needsAttention: 0, readyForReview: 2, processed: 1 },
+        qa: {
+          state: 'COMPLETED',
+          passed: 42,
+          failed: 3,
+          operationalIssues: 0,
+          safetyCriticalFailed: 1,
+          requiredDimensions: 7,
+          assessedDimensions: 7,
+          exactPackage: true,
+        },
+      }),
+    )
+    expect(result.readiness.find(({ id }) => id === 'AUTOMATED_QA')).toMatchObject({
+      status: 'NEEDS_ATTENTION',
+      summary:
+        '42 passed; 3 failed; 0 could not be scored. 1 safety-critical failure(s) block release.',
+    })
+    expect(result.readiness.find(({ id }) => id === 'SOURCES')?.status).toBe('READY')
+  })
+
+  it('does not call a completed run ready when it is stale or missing packet dimensions', () => {
+    const result = resolveRemoteOnboardingProjection(
+      evidence({
+        qa: {
+          state: 'COMPLETED',
+          passed: 3,
+          failed: 0,
+          operationalIssues: 0,
+          requiredDimensions: 7,
+          assessedDimensions: 3,
+          exactPackage: true,
+        },
+      }),
+    )
+    expect(result.readiness.find(({ id }) => id === 'AUTOMATED_QA')).toMatchObject({
+      status: 'NOT_ASSESSED',
+      summary:
+        '3 of 7 required onboarding dimensions have terminal evidence for the exact approved package.',
+    })
+  })
+})

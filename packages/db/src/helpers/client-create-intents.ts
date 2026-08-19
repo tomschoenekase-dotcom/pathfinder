@@ -88,6 +88,7 @@ export async function beginClientCreateIntentAction(
         state: 'COMPLETED' as const,
         tenantId: intent.completedTenantId!,
         venueId: intent.completedVenueId!,
+        createdAt: intent.createdAt,
       }
     }
     if (intent.status === 'PROVIDER_CONFIRMED') {
@@ -95,12 +96,13 @@ export async function beginClientCreateIntentAction(
         state: 'PROVIDER_CONFIRMED' as const,
         providerOrganizationId: intent.providerOrganizationId!,
         localSlug: intent.localSlug!,
+        createdAt: intent.createdAt,
       }
     }
     if (intent.status === 'PROVIDER_STARTED') {
-      return { state: 'RECONCILIATION_REQUIRED' as const }
+      return { state: 'RECONCILIATION_REQUIRED' as const, createdAt: intent.createdAt }
     }
-    return { state: 'READY' as const }
+    return { state: 'READY' as const, createdAt: intent.createdAt }
   })
 }
 

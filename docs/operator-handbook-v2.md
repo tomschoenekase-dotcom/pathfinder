@@ -372,6 +372,35 @@ If it reports a conflict, reload history and review the newer state; do not retr
 Managers may revert content within an existing venue, while restoring or removing a venue requires
 an owner. Invalid or cross-scoped legacy snapshots fail closed rather than being partially applied.
 
+## Remote onboarding operations
+
+Create the client, first venue, and primary contact together from `/admin/new`. The command is
+idempotent: an unchanged retry reuses the exact client-create intent and matching pending invitation;
+a role or identity collision fails closed. After impersonating the exact tenant, open
+`/venues/[venueId]/onboarding` to inspect the same journey the client sees.
+
+Use the venue admin summary for milestone metrics and the linked workspaces for evidence, support,
+packages, evaluation, and release controls. The client home intentionally has no publish button.
+Interpret readiness dimensions separately; a passing aggregate does not override a safety-critical
+failure, package approval, deployment review, or explicit release authorization.
+
+Upload states are authoritative only after verification. `RESERVED` or multipart-in-progress means
+bytes are still untrusted; `AWAITING_REVIEW` means immutable storage identity and security checks
+passed, not that content was approved. A client-cancelled multipart upload records abort evidence and
+is terminal. If completion is ambiguous, retry the unchanged command so object probing and the
+idempotency key can reconcile it.
+
+Route a missing fact through the existing onboarding question action. The exact support participant
+may answer or add an active teammate to that discussion. A client answer resumes the linked blocked
+agent run at most once; it never authorizes publication. Preview corrections create durable support
+work against the exact approved package.
+
+For release preparation, require the persisted same-scope FULL manifest base, its materializable
+PATCH artifact, the linked draft, explicit package approval, and frozen QA evidence. Apply and revert
+remain separate owner/operator commands with optimistic-concurrency timestamps. Follow
+`docs/remote-onboarding.md` for the guarded disposable proof. Local passing evidence is not staging or
+production deployment evidence.
+
 ## Failures and incidents
 
 Start in **PathFinder OS → Operations**. Determine whether the issue is AI admission, a durable job,
@@ -424,8 +453,8 @@ storage tests are not live storage or delivery evidence.
 
 ## External credentials
 
-The credential console manages only disabled MCP and Partner Read API credential records. A true
-platform administrator may issue, rotate or revoke within an exact tenant/client/optional-venue
+The credential console manages disabled-by-default MCP and Partner Read API credential records. A true
+platform administrator may issue, activate an eligible agent bridge credential, rotate, or revoke within an exact tenant/client/optional-venue
 scope and the displayed capability allowlist. Fresh issue or rotation returns a one-time secret;
 copy it during that response if it is needed for an owner-approved future workflow, then dismiss it.
 The console does not persist, download or reveal that plaintext again. Retrying the same completed
@@ -434,12 +463,15 @@ ambiguous, reconcile that operation first; when evidence confirms creation but t
 was not received, revoke or rotate through a fresh confirmed operation rather than assuming the
 credential is recoverable.
 
-Rotation atomically revokes the selected credential and creates a disabled replacement. Revocation
+Only a venue MCP credential whose displayed capabilities include `agent-runs:execute` is eligible
+for activation. Confirm its venue and capability list. Activation grants only that stored scope,
+creates immutable evidence and an audit event, returns no secret, and does not start or authenticate
+a runner. Rotation atomically revokes the selected credential and creates a disabled replacement. Revocation
 is terminal. Confirm the exact credential label, scope and non-secret prefix before either action;
-changed state is reported as a conflict and must be reloaded. These controls do not enable a
-credential or make it usable: global transport, authentication, verification, request admission,
-`lastUsedAt` tracking and live rollout remain absent and owner-only. Migration
-`20260812001300_add_external_credential_operations` is unapplied, performs no backfill and has no
+changed state is reported as a conflict and must be reloaded. Global transport, authentication,
+secret verification, request admission, `lastUsedAt` tracking and live rollout remain absent and
+owner-only. Migrations `20260812001300_add_external_credential_operations` and
+`20260818213000_activate_agent_bridge_credentials` are unapplied, perform no backfill and have no
 live database evidence.
 
 ## Quarantined intake files

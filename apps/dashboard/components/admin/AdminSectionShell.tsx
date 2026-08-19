@@ -175,7 +175,7 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
                 onClick={() => setMobileOpen(true)}
                 aria-expanded={mobileOpen}
                 aria-controls="admin-mobile-navigation"
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 lg:hidden"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 lg:hidden"
                 aria-label="Open navigation"
               >
                 <Menu className="h-5 w-5" aria-hidden="true" />

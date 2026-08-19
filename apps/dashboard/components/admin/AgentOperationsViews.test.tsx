@@ -55,6 +55,7 @@ describe('agent operations views', () => {
         }}
         runs={{ items: [], nextCursor: null }}
         approvals={{ items: [], nextCursor: null }}
+        questions={{ items: [], nextCursor: null }}
       />,
     )
     expect(screen.getByText('Access scope')).toBeTruthy()
@@ -62,9 +63,35 @@ describe('agent operations views', () => {
     expect(screen.getByText('READ_CONTENT')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create disabled identity' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
-    expect(
-      screen.getByText(/Approval decisions record evidence only and never execute/),
-    ).toBeTruthy()
+    expect(screen.getByText(/answering a question never grants approval by itself/)).toBeTruthy()
+  })
+
+  it('shows a provider as connected only while its exact bridge session is online and unexpired', () => {
+    render(
+      <AgentOperationsOverview
+        tenantId="tenant_1"
+        venueId="venue_1"
+        identities={{ items: [], nextCursor: null }}
+        runs={{ items: [], nextCursor: null }}
+        approvals={{ items: [], nextCursor: null }}
+        questions={{ items: [], nextCursor: null }}
+        bridgeSessions={[
+          {
+            id: 'session_1',
+            provider: 'CODEX_SUBSCRIPTION',
+            label: 'Codex desktop',
+            runnerVersion: '1.0.0',
+            supportedModels: ['subscription-default'],
+            status: 'ONLINE',
+            lastHeartbeatAt: new Date(),
+            expiresAt: new Date(Date.now() + 60_000),
+            _count: { agentRuns: 0 },
+          },
+        ]}
+      />,
+    )
+    expect(screen.getAllByText('Runner online')).toHaveLength(1)
+    expect(screen.getByText('Codex desktop')).toBeTruthy()
   })
 
   it('shows lifecycle, actions, timeline, costs, and approval state on run detail', () => {

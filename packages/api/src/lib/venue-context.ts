@@ -7,6 +7,10 @@ export {
   GUEST_CHAT_PROMPT_VERSION,
 } from '@pathfinder/contracts/prompt-contract'
 import { resolveEffectiveTone } from '@pathfinder/contracts/tone-presets'
+import {
+  customPersonalityStyleInstruction,
+  type CustomPersonalityBounds,
+} from '@pathfinder/contracts'
 
 type RelevantPlace = {
   id?: string
@@ -36,6 +40,7 @@ type VenueInfo = {
   tonePresetVersion?: number | null
   aiGuideName?: string | null
   guideMode?: string | null
+  customPersonality?: CustomPersonalityBounds
 }
 
 type KnowledgeEntry = {
@@ -177,7 +182,9 @@ export function buildVenueSystemPromptParts(params: {
     // No active authored questions at all - invention is the only option.
     return `\n\nGuest engagement moment: This operator is especially interested in learning from guests. Look for one genuinely natural opening in this conversation (e.g. it's wrapping up, or the guest just finished an experience) to ask a single low-key question of your own invention that's genuinely curious about this specific guest's visit so far - grounded in something they actually said or did, not generic small talk. Never force it into an unrelated answer, never present it as a survey, and never ask more than one engagement question in the whole conversation.${ENGAGEMENT_ASKED_INSTRUCTION}`
   })()
-  const toneInstruction = resolveEffectiveTone(venue).styleInstruction
+  const toneInstruction = venue.customPersonality
+    ? customPersonalityStyleInstruction(venue.customPersonality)
+    : resolveEffectiveTone(venue).styleInstruction
 
   const placesSection =
     relevantPlaces.length === 0

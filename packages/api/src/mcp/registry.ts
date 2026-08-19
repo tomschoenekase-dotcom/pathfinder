@@ -1,6 +1,8 @@
 import {
   assertMcpScope,
   MCP_RESOURCE_SECURITY_BY_KIND,
+  McpAskOperatorInput,
+  McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
   McpReadInput,
@@ -31,7 +33,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   verifyApprovalGrant: (
     request: Readonly<{
       approvalGrantId: string
-      toolName: Exclude<PathfinderMcpToolName, 'pathfinder.read'>
+      toolName: Exclude<
+        PathfinderMcpToolName,
+        'pathfinder.read' | 'pathfinder.ask_operator' | 'pathfinder.delegate_specialist'
+      >
       clientId: string
       venueId: string
       capability: string
@@ -39,6 +44,14 @@ export type PathfinderMcpDomainActions = Readonly<{
     context: VerifiedMcpInvocationContext,
   ) => Promise<void>
   read: (input: McpReadInput, context: VerifiedMcpInvocationContext) => Promise<McpToolResult>
+  askOperator: (
+    input: McpAskOperatorInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  delegateSpecialist: (
+    input: McpDelegateSpecialistInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
   createPackageDraft: (
     input: McpPackageDraftInput,
     context: VerifiedMcpInvocationContext,
@@ -99,7 +112,7 @@ export function createPathfinderMcpRegistry(
           : {}),
       }
       const metadata = definition._meta['com.pathfinder/security']
-      if (metadata.effect !== 'read') {
+      if (metadata.approvalRequired) {
         if (!writeToolsEnabled) {
           throw new PathfinderMcpRegistryError(
             'WRITE_TOOLS_DISABLED',
@@ -127,6 +140,18 @@ export function createPathfinderMcpRegistry(
             resourceSecurity.scope,
           )
           result = await actions.read(input, context)
+          break
+        }
+        case 'pathfinder.ask_operator': {
+          const input = McpAskOperatorInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.askOperator(input, context)
+          break
+        }
+        case 'pathfinder.delegate_specialist': {
+          const input = McpDelegateSpecialistInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.delegateSpecialist(input, context)
           break
         }
         case 'pathfinder.create_package_draft': {
@@ -190,7 +215,10 @@ export function createPathfinderMcpRegistry(
 
 async function verifyApproval(
   actions: PathfinderMcpDomainActions,
-  toolName: Exclude<PathfinderMcpToolName, 'pathfinder.read'>,
+  toolName: Exclude<
+    PathfinderMcpToolName,
+    'pathfinder.read' | 'pathfinder.ask_operator' | 'pathfinder.delegate_specialist'
+  >,
   scope: Readonly<{ clientId: string; venueId?: string | undefined }>,
   capability: string,
   context: VerifiedMcpInvocationContext,

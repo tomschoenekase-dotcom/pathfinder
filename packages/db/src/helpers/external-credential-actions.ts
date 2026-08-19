@@ -55,7 +55,10 @@ const credentialSelect = {
 export type ExternalCredentialActor = z.infer<typeof actorSchema>
 export type ExternalCredentialActionClient = Pick<
   typeof db,
-  '$transaction' | 'externalAccessCredential' | 'externalCredentialOperationReceipt'
+  | '$transaction'
+  | 'externalAccessCredential'
+  | 'externalCredentialOperationReceipt'
+  | 'externalCredentialActivation'
 >
 export class ExternalCredentialActionError extends Error {
   constructor(
@@ -255,6 +258,132 @@ const lifecycleSchema = scopeSchema
   })
   .strict()
 
+const bridgeActivationSchema = lifecycleSchema.extend({
+  venueId: z.string().trim().min(1).max(191),
+})
+
+/** Activates one exact venue-scoped MCP bridge credential. Activation is
+ * idempotent, append-only evidenced, and never reads or returns plaintext. */
+export async function activateAgentBridgeCredentialAction(
+  raw: unknown,
+  client: ExternalCredentialActionClient = db,
+) {
+  const parsed = bridgeActivationSchema.safeParse(raw)
+  if (!parsed.success)
+    throw new ExternalCredentialActionError('INVALID_INPUT', 'Invalid bridge activation request')
+  const input = parsed.data
+  if (input.tenantId !== input.clientId)
+    throw new ExternalCredentialActionError('INVALID_INPUT', 'Client must match tenant scope')
+  const opHash = operationHash({
+    action: 'ACTIVATE_AGENT_BRIDGE',
+    operationId: input.operationId,
+    tenantId: input.tenantId,
+    clientId: input.clientId,
+    venueId: input.venueId,
+    credentialId: input.credentialId,
+    expectedUpdatedAt: input.expectedUpdatedAt.toISOString(),
+    actorId: input.actor.id,
+  })
+  const prior = await client.externalCredentialActivation.findFirst({
+    where: { operationId: input.operationId },
+    select: { operationHash: true, activatedBy: true, credential: { select: credentialSelect } },
+  })
+  if (prior) {
+    if (prior.operationHash !== opHash || prior.activatedBy !== input.actor.id)
+      throw new ExternalCredentialActionError(
+        'CONFLICT',
+        'Operation ID is bound to different activation evidence',
+      )
+    return { credential: prior.credential, plaintextSecret: null, replayed: true as const }
+  }
+  try {
+    return await client.$transaction(async (rawTx) => {
+      const tx = rawTx as unknown as typeof db
+      const credential = await tx.externalAccessCredential.findFirst({
+        where: {
+          id: input.credentialId,
+          tenantId: input.tenantId,
+          clientId: input.clientId,
+          venueId: input.venueId,
+          kind: 'MCP',
+          enabled: false,
+          revokedAt: null,
+          updatedAt: input.expectedUpdatedAt,
+          capabilities: { has: 'agent-runs:execute' },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        select: credentialSelect,
+      })
+      if (!credential)
+        throw new ExternalCredentialActionError(
+          'CONFLICT',
+          'Credential is not eligible for bridge activation',
+        )
+      const activatedAt = new Date()
+      await tx.externalCredentialActivation.create({
+        data: {
+          operationId: input.operationId,
+          operationHash: opHash,
+          tenantId: credential.tenantId,
+          clientId: credential.clientId,
+          venueId: input.venueId,
+          scopeKey: credential.scopeKey,
+          credentialId: credential.id,
+          activatedBy: input.actor.id,
+          activatedAt,
+        },
+      })
+      const changed = await tx.externalAccessCredential.updateMany({
+        where: {
+          id: credential.id,
+          tenantId: credential.tenantId,
+          clientId: credential.clientId,
+          venueId: input.venueId,
+          enabled: false,
+          revokedAt: null,
+          updatedAt: input.expectedUpdatedAt,
+        },
+        data: { enabled: true, updatedAt: activatedAt },
+      })
+      if (changed.count !== 1)
+        throw new ExternalCredentialActionError('CONFLICT', 'Credential state changed')
+      await writeAuditLogStrict(
+        {
+          tenantId: credential.tenantId,
+          actorId: input.actor.id,
+          actorRole: 'PLATFORM_ADMIN',
+          action: 'external-credential.agent-bridge-activated',
+          targetType: 'ExternalAccessCredential',
+          targetId: credential.id,
+          beforeState: { enabled: false },
+          afterState: {
+            venueId: input.venueId,
+            kind: 'MCP',
+            capabilities: credential.capabilities,
+            enabled: true,
+          },
+        },
+        tx,
+      )
+      return {
+        credential: { ...credential, enabled: true, updatedAt: activatedAt },
+        plaintextSecret: null,
+        replayed: false as const,
+      }
+    })
+  } catch (error) {
+    const replayableRace = isP2002(error) || isP2034(error)
+    if (!replayableRace) throw error
+    const converged = await client.externalCredentialActivation.findFirst({
+      where: { operationId: input.operationId },
+      select: { operationHash: true, activatedBy: true, credential: { select: credentialSelect } },
+    })
+    if (converged?.operationHash === opHash && converged.activatedBy === input.actor.id)
+      return { credential: converged.credential, plaintextSecret: null, replayed: true as const }
+    throw new ExternalCredentialActionError('CONFLICT', 'Credential activation did not converge')
+  }
+}
+
 export async function rotateExternalCredentialAction(
   raw: unknown,
   client: ExternalCredentialActionClient = db,
@@ -292,11 +421,7 @@ export async function rotateExternalCredentialAction(
       select: { ...credentialSelect },
     })
     if (!old) throw new ExternalCredentialActionError('NOT_FOUND', 'Credential not found')
-    if (
-      old.revokedAt ||
-      old.enabled ||
-      old.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
-    )
+    if (old.revokedAt || old.updatedAt.getTime() !== input.expectedUpdatedAt.getTime())
       throw new ExternalCredentialActionError('CONFLICT', 'Credential state changed')
     const generated = secret(old.kind)
     const verifier = await secretHash(generated.plaintext)
@@ -310,11 +435,10 @@ export async function rotateExternalCredentialAction(
             tenantId: old.tenantId,
             clientId: old.clientId,
             venueId: old.venueId,
-            enabled: false,
             revokedAt: null,
             updatedAt: input.expectedUpdatedAt,
           },
-          data: { revokedAt: now, updatedAt: now },
+          data: { enabled: false, revokedAt: now, updatedAt: now },
         })
         if (changed.count !== 1)
           throw new ExternalCredentialActionError('CONFLICT', 'Credential state changed')
@@ -466,7 +590,6 @@ export async function revokeExternalCredentialAction(
       if (!credential) throw new ExternalCredentialActionError('NOT_FOUND', 'Credential not found')
       if (
         credential.revokedAt ||
-        credential.enabled ||
         credential.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()
       )
         throw new ExternalCredentialActionError('CONFLICT', 'Credential state changed')
@@ -477,11 +600,10 @@ export async function revokeExternalCredentialAction(
           tenantId: credential.tenantId,
           clientId: credential.clientId,
           venueId: credential.venueId,
-          enabled: false,
           revokedAt: null,
           updatedAt: input.expectedUpdatedAt,
         },
-        data: { revokedAt: now, updatedAt: now },
+        data: { enabled: false, revokedAt: now, updatedAt: now },
       })
       if (changed.count !== 1)
         throw new ExternalCredentialActionError('CONFLICT', 'Credential state changed')
@@ -519,7 +641,7 @@ export async function revokeExternalCredentialAction(
           action: 'external-credential.revoked',
           targetType: 'ExternalAccessCredential',
           targetId: credential.id,
-          beforeState: { enabled: false },
+          beforeState: { enabled: credential.enabled },
           afterState: {
             venueId: credential.venueId,
             reasonCode: input.reasonCode,

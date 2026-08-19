@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { EvidenceLocator, sha256Hex } from './venue-deployment-manifest'
+import { VenueBotConfigurationValues } from './venue-bot-configuration'
 
 const Hash = z.string().regex(/^[a-f0-9]{64}$/u)
 const Id = z.string().trim().min(1).max(191)
@@ -257,6 +258,8 @@ export const NativeCoreFullManifest = z
       })
       .strict(),
     venue: NativeVenueConfiguration,
+    /** Optional for backward-compatible NATIVE_CORE_V1 input; omission preserves current truth. */
+    venueBotConfiguration: VenueBotConfigurationValues.optional(),
     places: z.array(NativePlaceState).max(1_000),
     knowledgeEntries: z.array(NativeKnowledgeState).max(1_000),
     generalizedModules: z.array(NativeGeneralizedModuleState).max(1_000),
@@ -380,6 +383,7 @@ export type NativeCoreFullManifest = z.infer<typeof NativeCoreFullManifest>
 export const NativeCoreVisibleState = z
   .object({
     venue: NativeVenueConfiguration,
+    venueBotConfiguration: VenueBotConfigurationValues,
     places: z.array(NativePlaceState).max(1_000),
     knowledgeEntries: z.array(NativeKnowledgeState).max(1_000),
     generalizedModules: z.array(NativeGeneralizedModuleState).max(1_000),

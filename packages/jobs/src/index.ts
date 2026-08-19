@@ -1,4 +1,7 @@
 export {
+  AGENT_RUN_PROCESS_JOB,
+  AGENT_RUN_QUEUE,
+  AGENT_RUN_RETRY_BACKOFF,
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
   ANSWER_ANALYSIS_RECOVERY_JOB,
@@ -77,8 +80,10 @@ export {
   enqueueWeeklyReportRecovery,
   enqueueMediaIngestion,
   enqueueEvaluationRun,
+  enqueueAgentRun,
 } from './enqueue'
 export type {
+  AgentRunJobPayload,
   AnswerAnalysisJobPayload,
   AnswerAnalysisRecoveryJobPayload,
   AnalyticsEnrichmentJobPayload,

@@ -10,6 +10,8 @@ describe('QuickPromptChips', () => {
 
     render(<QuickPromptChips onSend={onSend} />)
 
+    const prompts = screen.getAllByRole('button')
+    expect(prompts.every((prompt) => prompt.className.includes('min-h-11'))).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Where are the restrooms?' }))
 
     expect(onSend).toHaveBeenCalledWith('Where are the restrooms?')

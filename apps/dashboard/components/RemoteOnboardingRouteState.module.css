@@ -1,0 +1,122 @@
+.statePage {
+  display: grid;
+  width: min(calc(100% - 2rem), 70rem);
+  min-height: 24rem;
+  grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.45fr);
+  align-items: center;
+  gap: 2rem;
+  margin: clamp(1rem, 4vw, 3rem) auto;
+  background: #102f50;
+  color: #fff;
+  padding: clamp(1.5rem, 5vw, 4rem);
+}
+
+.stateCopy > p {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: #9dd4d8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.stateCopy > p svg {
+  width: 0.9rem;
+}
+
+.stateCopy h1 {
+  max-width: 16ch;
+  margin: 0.7rem 0 0;
+  outline: 0;
+  font-size: clamp(2rem, 5vw, 3.7rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.stateCopy > span {
+  display: block;
+  max-width: 38rem;
+  margin-top: 1rem;
+  color: rgb(255 255 255 / 66%);
+  line-height: 1.65;
+}
+
+.loadingLines {
+  display: grid;
+  gap: 0.45rem;
+  width: min(100%, 24rem);
+  margin-top: 1.8rem;
+}
+
+.loadingLines i {
+  display: block;
+  height: 2px;
+  background: linear-gradient(90deg, #9dd4d8 0 35%, rgb(255 255 255 / 12%) 35% 100%);
+  background-size: 280% 100%;
+  animation: route-flow 1.8s ease-in-out infinite;
+}
+
+.loadingLines i:nth-child(2) {
+  width: 84%;
+  animation-delay: -0.35s;
+}
+
+.loadingLines i:nth-child(3) {
+  width: 64%;
+  animation-delay: -0.7s;
+}
+
+.stateCopy button {
+  display: inline-flex;
+  min-height: 2.9rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: #fff;
+  color: #102f50;
+  padding: 0 1rem;
+  font-size: 0.8rem;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.stateCopy button svg {
+  width: 0.95rem;
+}
+
+.stateCopy button:focus-visible {
+  outline: 3px solid #f4bd55;
+  outline-offset: 3px;
+}
+
+.errorLabel {
+  color: #ffbe86 !important;
+}
+
+@keyframes route-flow {
+  0%,
+  100% {
+    background-position: 100% 0;
+  }
+  50% {
+    background-position: 0 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .statePage {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingLines i {
+    animation: none;
+    background-position: 0 0;
+  }
+}

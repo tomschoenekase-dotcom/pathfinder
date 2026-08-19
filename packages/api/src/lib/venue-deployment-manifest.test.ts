@@ -154,6 +154,18 @@ describe('venue deployment manifest lifecycle bridge', () => {
         op: 'UPSERT_AI_CONFIGURATION',
         value: {
           tone: { preset: 'friendly', behaviorVersion: 1 },
+          venueBot: {
+            presentationMode: 'CLASSIC',
+            personalityMode: 'PRESET',
+            tonePreset: 'friendly',
+            tonePresetVersion: 1,
+            personalityProfileId: null,
+            characterKey: null,
+            customCharacterId: null,
+            publicDisplayName: null,
+            greeting: null,
+            voiceProfileId: null,
+          },
           modelReferences: [
             { purpose: 'CHAT', provider: 'openai', modelRef: 'gpt-5-mini', configVersion: 1 },
           ],
@@ -168,7 +180,13 @@ describe('venue deployment manifest lifecycle bridge', () => {
       result.converted.issues
         .filter((issue) => issue.severity === 'ERROR')
         .map((issue) => issue.code),
-    ).toEqual(expect.arrayContaining(['OPERATION_NOT_SUPPORTED', 'MODEL_REFERENCE_NOT_SUPPORTED']))
+    ).toEqual(
+      expect.arrayContaining([
+        'OPERATION_NOT_SUPPORTED',
+        'MODEL_REFERENCE_NOT_SUPPORTED',
+        'VENUE_BOT_CONFIGURATION_REQUIRES_NATIVE_PROFILE',
+      ]),
+    )
   })
 
   it('rejects venue scope mismatches and FULL conversion without touching persistence', () => {

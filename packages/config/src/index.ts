@@ -1,7 +1,12 @@
 export { assertServerEnv } from './assert-env'
 export { env, envSchema } from './env'
-export { FEATURE_FLAGS, isFeatureEnabled } from './feature-flags'
-export type { FeatureFlagKey } from './feature-flags'
+export {
+  FEATURE_FLAGS,
+  isFeatureEnabled,
+  TOCHI_ROLLOUT_FLAGS,
+  TOCHI_TENANT_FLAG_KEYS,
+} from './feature-flags'
+export type { FeatureFlagKey, TochiTenantFlagKey } from './feature-flags'
 export { haversineDistanceMeters } from './geo'
 export {
   DEFAULT_GLOBAL_AI_CONTROL,

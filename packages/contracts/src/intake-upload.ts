@@ -1,6 +1,25 @@
 import { z } from 'zod'
 
-export const INTAKE_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
+/** Single-file ceiling; larger files use resumable multipart transport. */
+export const INTAKE_UPLOAD_MAX_BYTES = 2_000_000_000
+export const INTAKE_UPLOAD_MULTIPART_THRESHOLD_BYTES = 32 * 1024 * 1024
+export const INTAKE_UPLOAD_MULTIPART_PART_BYTES = 16 * 1024 * 1024
+/** Non-media files are fully parsed during precheck; keep their in-memory boundary explicit. */
+export const INTAKE_UPLOAD_NON_MEDIA_MAX_BYTES = 100 * 1024 * 1024
+/** Combined active material allowance for one venue. */
+export const INTAKE_UPLOAD_VENUE_MAX_BYTES = 50 * 1024 * 1024 * 1024
+
+export const IntakeUploadCategory = z.enum([
+  'WEBSITE',
+  'DOCUMENT',
+  'PHOTO',
+  'VIDEO_AUDIO',
+  'FLOOR_PLAN',
+  'FAQ',
+  'STAFF_INTERVIEW',
+  'OTHER',
+])
+export type IntakeUploadCategory = z.infer<typeof IntakeUploadCategory>
 
 /** Deliberately excludes SVG and animated formats. */
 export const IntakeUploadMimeType = z.enum([
@@ -11,6 +30,13 @@ export const IntakeUploadMimeType = z.enum([
   'image/heic',
   'image/heif',
   'image/tiff',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/wav',
+  'audio/webm',
 ])
 export type IntakeUploadMimeType = z.infer<typeof IntakeUploadMimeType>
 
@@ -30,6 +56,7 @@ export const IntakeUploadRejectionCode = z.enum([
   'SIZE_MISMATCH',
   'HASH_MISMATCH',
   'UNSAFE_FILE',
+  'CLIENT_CANCELLED',
 ])
 export type IntakeUploadRejectionCode = z.infer<typeof IntakeUploadRejectionCode>
 
@@ -80,6 +107,7 @@ export const IntakeUploadReserveRequest = z
     displayName,
     fileName: baseFileName,
     mimeType: IntakeUploadMimeType,
+    category: IntakeUploadCategory,
     byteSize: z.number().int().min(1).max(INTAKE_UPLOAD_MAX_BYTES),
     sha256,
   })

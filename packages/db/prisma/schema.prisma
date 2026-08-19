@@ -124,11 +124,16 @@ model Tenant {
   evalResults                    EvalResult[]
   evalReviews                    EvalReview[]
   evalRunCostReservations        EvalRunCostReservation[]
+  onboardingMilestoneEvents      OnboardingMilestoneEvent[]
   agentIdentities                AgentIdentity[]
   agentRuns                      AgentRun[]
   agentActions                   AgentAction[]
   agentTimelineEvents            AgentTimelineEvent[]
   approvalRequests               ApprovalRequest[]
+  agentQuestions                 AgentQuestion[]
+  onboardingQuestionLinks        OnboardingQuestionLink[]
+  agentMessages                  AgentMessage[]
+  agentOutcomeObservations       AgentOutcomeObservation[]
   approvalDecisions              ApprovalDecision[]
   supportRequests                SupportRequest[]
   supportMessages                SupportMessage[]
@@ -153,32 +158,44 @@ model Tenant {
   intakePackageHandoffs          IntakePackageHandoff[]
   intakeUploads                  IntakeUpload[]
   externalCredentials            ExternalAccessCredential[]
+  agentBridgeSessions            AgentBridgeSession[]
   credentialRotations            ExternalCredentialRotation[]
   credentialRevocations          ExternalCredentialRevocation[]
+  credentialActivations          ExternalCredentialActivation[]
   aiConfigurationOverrides       AiScopedWorkloadConfigurationOverride[]
   aiConfigurationHistory         AiScopedWorkloadConfigurationHistory[]
+  venueBotConfigurations         VenueBotConfiguration[]
+  personalityProfiles            PersonalityProfile[]
+  customCharacters               CustomCharacter[]
+  clientAssistantPreferences     ClientAssistantPreference[]
+  clientAssistantThreads         ClientAssistantThread[]
+  clientAssistantTurns           ClientAssistantTurn[]
+  clientAssistantSupportHandoffs ClientAssistantSupportHandoff[]
 
   @@map("tenants")
 }
 
 model TenantMembership {
-  id                           String                      @id @default(cuid())
-  tenantId                     String                      @map("tenant_id")
-  userId                       String                      @map("user_id")
+  id                           String                          @id @default(cuid())
+  tenantId                     String                          @map("tenant_id")
+  userId                       String                          @map("user_id")
   role                         TenantRole
-  status                       MembershipStatus            @default(ACTIVE)
-  invitedBy                    String?                     @map("invited_by")
-  joinedAt                     DateTime?                   @map("joined_at")
-  clerkEventTimestamp          BigInt                      @default(dbgenerated("(FLOOR(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000))::BIGINT")) @map("clerk_event_timestamp")
-  clerkCursorIsCutoverBaseline Boolean                     @default(true) @map("clerk_cursor_is_cutover_baseline")
-  welcomeEmailAttemptedAt      DateTime?                   @map("welcome_email_attempted_at")
-  welcomeEmailDeliveredAt      DateTime?                   @map("welcome_email_delivered_at")
-  createdAt                    DateTime                    @default(now()) @map("created_at")
-  updatedAt                    DateTime                    @updatedAt @map("updated_at")
-  tenant                       Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user                         User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  supportRequesters            SupportRequest[]            @relation("support_request_requester_membership")
+  status                       MembershipStatus                @default(ACTIVE)
+  invitedBy                    String?                         @map("invited_by")
+  joinedAt                     DateTime?                       @map("joined_at")
+  clerkEventTimestamp          BigInt                          @default(dbgenerated("(FLOOR(EXTRACT(EPOCH FROM CURRENT_TIMESTAMP) * 1000))::BIGINT")) @map("clerk_event_timestamp")
+  clerkCursorIsCutoverBaseline Boolean                         @default(true) @map("clerk_cursor_is_cutover_baseline")
+  welcomeEmailAttemptedAt      DateTime?                       @map("welcome_email_attempted_at")
+  welcomeEmailDeliveredAt      DateTime?                       @map("welcome_email_delivered_at")
+  createdAt                    DateTime                        @default(now()) @map("created_at")
+  updatedAt                    DateTime                        @updatedAt @map("updated_at")
+  tenant                       Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user                         User                            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  supportRequesters            SupportRequest[]                @relation("support_request_requester_membership")
   supportRequestParticipations SupportRequestParticipant[]
+  clientAssistantPreferences   ClientAssistantPreference[]     @relation("client_assistant_preference_membership")
+  clientAssistantThreads       ClientAssistantThread[]         @relation("client_assistant_thread_membership")
+  confirmedAssistantHandoffs   ClientAssistantSupportHandoff[] @relation("client_assistant_handoff_confirmer")
 
   @@unique([tenantId, userId])
   @@index([tenantId])
@@ -218,6 +235,239 @@ model TenantFeatureFlag {
   @@unique([tenantId, flagKey])
   @@index([tenantId])
   @@map("tenant_feature_flags")
+}
+
+enum VenueBotPresentationMode {
+  CLASSIC
+  CHARACTER
+}
+
+enum VenueBotPersonalityMode {
+  PRESET
+  CUSTOM
+}
+
+enum PersonalityProfileStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum CustomCharacterStatus {
+  REQUESTED
+  GENERATING
+  REVIEW
+  ACTIVE
+  ARCHIVED
+}
+
+enum ClientAssistantThreadStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum ClientAssistantTurnStatus {
+  RESERVED
+  GENERATING
+  COMPLETED
+  FAILED
+}
+
+enum ClientAssistantHandoffConfirmationState {
+  CONFIRMED
+}
+
+model PersonalityProfile {
+  id                     String                   @id @default(cuid())
+  tenantId               String                   @map("tenant_id")
+  venueId                String?                  @map("venue_id")
+  name                   String                   @db.VarChar(120)
+  description            String?                  @db.VarChar(500)
+  tone                   String?                  @db.VarChar(80)
+  verbosity              Int                      @default(3)
+  warmth                 Int                      @default(50)
+  brevity                Int                      @default(50)
+  energy                 Int                      @default(50)
+  humor                  Int                      @default(1)
+  formality              Int                      @default(50)
+  customInstruction      String?                  @map("custom_instruction") @db.VarChar(2000)
+  status                 PersonalityProfileStatus @default(ACTIVE)
+  revision               Int                      @default(1)
+  createdBy              String                   @map("created_by") @db.VarChar(191)
+  updatedBy              String                   @map("updated_by") @db.VarChar(191)
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  tenant                 Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue?                   @relation("VenuePersonalityProfiles", fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venueBotConfigurations VenueBotConfiguration[]  @relation("VenueBotConfigurationPersonalityProfile")
+  customCharacters       CustomCharacter[]        @relation("CustomCharacterDefaultPersonality")
+
+  @@unique([id, tenantId])
+  @@index([tenantId, venueId, status, updatedAt])
+  @@map("personality_profiles")
+}
+
+model CustomCharacter {
+  id                          String                  @id @default(cuid())
+  tenantId                    String                  @map("tenant_id")
+  venueId                     String                  @map("venue_id")
+  displayName                 String                  @map("display_name") @db.VarChar(120)
+  description                 String?                 @db.VarChar(500)
+  status                      CustomCharacterStatus   @default(REQUESTED)
+  assetStorageReference       Json?                   @map("asset_storage_reference")
+  previewStorageReference     Json?                   @map("preview_storage_reference")
+  capabilityMetadata          Json                    @default("{}") @map("capability_metadata")
+  fallbackBehavior            Json                    @default("{}") @map("fallback_behavior")
+  defaultPersonalityProfileId String?                 @map("default_personality_profile_id")
+  version                     Int                     @default(1)
+  revision                    Int                     @default(1)
+  createdBy                   String                  @map("created_by") @db.VarChar(191)
+  updatedBy                   String                  @map("updated_by") @db.VarChar(191)
+  createdAt                   DateTime                @default(now()) @map("created_at")
+  updatedAt                   DateTime                @updatedAt @map("updated_at")
+  tenant                      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                       Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  defaultPersonalityProfile   PersonalityProfile?     @relation("CustomCharacterDefaultPersonality", fields: [defaultPersonalityProfileId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venueBotConfigurations      VenueBotConfiguration[]
+
+  @@unique([id, tenantId])
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, venueId, status, updatedAt])
+  @@map("custom_characters")
+}
+
+model VenueBotConfiguration {
+  id                   String                   @id @default(cuid())
+  tenantId             String                   @map("tenant_id")
+  venueId              String                   @map("venue_id")
+  presentationMode     VenueBotPresentationMode @default(CLASSIC) @map("presentation_mode")
+  personalityMode      VenueBotPersonalityMode  @default(PRESET) @map("personality_mode")
+  tonePreset           String                   @default("friendly") @map("tone_preset") @db.VarChar(40)
+  tonePresetVersion    Int                      @default(1) @map("tone_preset_version")
+  personalityProfileId String?                  @map("personality_profile_id")
+  characterKey         String?                  @map("character_key") @db.VarChar(100)
+  customCharacterId    String?                  @map("custom_character_id")
+  publicDisplayName    String?                  @map("public_display_name") @db.VarChar(80)
+  greeting             String?                  @db.VarChar(500)
+  voiceProfileId       String?                  @map("voice_profile_id") @db.VarChar(191)
+  revision             Int                      @default(1)
+  createdBy            String                   @map("created_by") @db.VarChar(191)
+  updatedBy            String                   @map("updated_by") @db.VarChar(191)
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Cascade, onUpdate: Restrict)
+  personalityProfile   PersonalityProfile?      @relation("VenueBotConfigurationPersonalityProfile", fields: [personalityProfileId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  customCharacter      CustomCharacter?         @relation(fields: [customCharacterId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId])
+  @@unique([venueId, tenantId])
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, presentationMode, updatedAt])
+  @@map("venue_bot_configurations")
+}
+
+model ClientAssistantPreference {
+  id         String           @id @default(cuid())
+  tenantId   String           @map("tenant_id")
+  userId     String           @map("user_id")
+  enabled    Boolean          @default(true)
+  minimized  Boolean          @default(false)
+  revision   Int              @default(1)
+  updatedBy  String           @map("updated_by") @db.VarChar(191)
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  membership TenantMembership @relation("client_assistant_preference_membership", fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId, enabled, updatedAt])
+  @@map("client_assistant_preferences")
+}
+
+model ClientAssistantThread {
+  id           String                      @id @default(cuid())
+  tenantId     String                      @map("tenant_id")
+  venueId      String                      @map("venue_id")
+  userId       String                      @map("user_id")
+  status       ClientAssistantThreadStatus @default(ACTIVE)
+  revision     Int                         @default(1)
+  lastActiveAt DateTime                    @default(now()) @map("last_active_at")
+  closedAt     DateTime?                   @map("closed_at")
+  createdAt    DateTime                    @default(now()) @map("created_at")
+  updatedAt    DateTime                    @updatedAt @map("updated_at")
+  tenant       Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue        Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  membership   TenantMembership            @relation("client_assistant_thread_membership", fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+  turns        ClientAssistantTurn[]
+
+  @@unique([id, tenantId])
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, userId, status, lastActiveAt])
+  @@index([tenantId, venueId, status, lastActiveAt])
+  @@map("client_assistant_threads")
+}
+
+model ClientAssistantTurn {
+  id                       String                          @id @default(cuid())
+  operationId              String                          @map("operation_id") @db.Uuid
+  operationHash            String                          @map("operation_hash") @db.Char(64)
+  tenantId                 String                          @map("tenant_id")
+  venueId                  String                          @map("venue_id")
+  threadId                 String                          @map("thread_id")
+  sequence                 Int
+  status                   ClientAssistantTurnStatus       @default(RESERVED)
+  behaviorVersion          String                          @map("behavior_version") @db.VarChar(100)
+  userMessage              String                          @map("user_message") @db.VarChar(10000)
+  assistantMessage         String?                         @map("assistant_message") @db.VarChar(20000)
+  questionCategory         String?                         @map("question_category") @db.VarChar(100)
+  safeActions              Json                            @default("[]") @map("safe_actions")
+  failureCode              String?                         @map("failure_code") @db.VarChar(100)
+  generationLeaseId        String?                         @unique @map("generation_lease_id") @db.Uuid
+  generationLeaseExpiresAt DateTime?                       @map("generation_lease_expires_at")
+  generationAttempts       Int                             @default(0) @map("generation_attempts")
+  providerDispatchedAt     DateTime?                       @map("provider_dispatched_at")
+  revision                 Int                             @default(1)
+  completedAt              DateTime?                       @map("completed_at")
+  createdAt                DateTime                        @default(now()) @map("created_at")
+  updatedAt                DateTime                        @updatedAt @map("updated_at")
+  tenant                   Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  thread                   ClientAssistantThread           @relation(fields: [threadId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  usageEvents              AiUsageEvent[]
+  supportHandoffs          ClientAssistantSupportHandoff[]
+
+  @@unique([id, tenantId, venueId])
+  @@unique([tenantId, operationId])
+  @@unique([threadId, tenantId, venueId, sequence])
+  @@index([tenantId, venueId, threadId, createdAt])
+  @@index([tenantId, status, updatedAt])
+  @@index([tenantId, status, generationLeaseExpiresAt])
+  @@map("client_assistant_turns")
+}
+
+model ClientAssistantSupportHandoff {
+  id                   String                                  @id @default(cuid())
+  operationId          String                                  @map("operation_id") @db.Uuid
+  operationHash        String                                  @map("operation_hash") @db.Char(64)
+  tenantId             String                                  @map("tenant_id")
+  venueId              String                                  @map("venue_id")
+  turnId               String                                  @map("turn_id")
+  supportRequestId     String                                  @map("support_request_id")
+  summarySnapshot      Json                                    @map("summary_snapshot")
+  confirmationState    ClientAssistantHandoffConfirmationState @default(CONFIRMED) @map("confirmation_state")
+  confirmedByUserId    String                                  @map("confirmed_by_user_id")
+  confirmedAt          DateTime                                @map("confirmed_at")
+  createdAt            DateTime                                @default(now()) @map("created_at")
+  tenant               Tenant                                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue                                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  turn                 ClientAssistantTurn                     @relation(fields: [turnId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest       SupportRequest                          @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  confirmingMembership TenantMembership                        @relation("client_assistant_handoff_confirmer", fields: [tenantId, confirmedByUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId])
+  @@unique([supportRequestId, tenantId, venueId])
+  @@index([tenantId, venueId, turnId, createdAt])
+  @@map("client_assistant_support_handoffs")
 }
 
 model EngagementQuestion {
@@ -360,11 +610,16 @@ model Venue {
   evalResults                         EvalResult[]
   evalReviews                         EvalReview[]
   evalRunCostReservations             EvalRunCostReservation[]
+  onboardingMilestoneEvents           OnboardingMilestoneEvent[]
   agentIdentities                     AgentIdentity[]
   agentRuns                           AgentRun[]
   agentActions                        AgentAction[]
   agentTimelineEvents                 AgentTimelineEvent[]
   approvalRequests                    ApprovalRequest[]
+  agentQuestions                      AgentQuestion[]
+  onboardingQuestionLinks             OnboardingQuestionLink[]
+  agentMessages                       AgentMessage[]
+  agentOutcomeObservations            AgentOutcomeObservation[]
   approvalDecisions                   ApprovalDecision[]
   supportRequests                     SupportRequest[]
   supportMessages                     SupportMessage[]
@@ -385,9 +640,17 @@ model Venue {
   intakePackageHandoffs               IntakePackageHandoff[]
   intakeUploads                       IntakeUpload[]
   externalCredentials                 ExternalAccessCredential[]
+  agentBridgeSessions                 AgentBridgeSession[]
   credentialRotations                 ExternalCredentialRotation[]
   credentialRevocations               ExternalCredentialRevocation[]
+  credentialActivations               ExternalCredentialActivation[]
   aiConfigurationOverrides            AiScopedWorkloadConfigurationOverride[]
+  venueBotConfiguration               VenueBotConfiguration?
+  personalityProfiles                 PersonalityProfile[]                      @relation("VenuePersonalityProfiles")
+  customCharacters                    CustomCharacter[]
+  clientAssistantThreads              ClientAssistantThread[]
+  clientAssistantTurns                ClientAssistantTurn[]
+  clientAssistantSupportHandoffs      ClientAssistantSupportHandoff[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -808,6 +1071,17 @@ enum IntakeUploadStatus {
   REJECTED
 }
 
+enum IntakeUploadCategory {
+  WEBSITE
+  DOCUMENT
+  PHOTO
+  VIDEO_AUDIO
+  FLOOR_PLAN
+  FAQ
+  STAFF_INTERVIEW
+  OTHER
+}
+
 enum IntakeUploadVerificationKind {
   PRECHECK
   RESOURCE_SAFETY
@@ -831,11 +1105,16 @@ model IntakeUpload {
   displayName            String                            @map("display_name") @db.VarChar(255)
   fileName               String                            @map("file_name") @db.VarChar(255)
   mimeType               String                            @map("mime_type") @db.VarChar(64)
+  category               IntakeUploadCategory              @default(OTHER)
   byteSize               Int                               @map("byte_size")
   sha256                 String                            @db.Char(64)
   objectKey              String                            @unique(map: "intake_uploads_object_key_key") @map("object_key") @db.VarChar(255)
   objectGeneration       String                            @map("object_generation") @db.Uuid
   storageVersionId       String?                           @map("storage_version_id") @db.VarChar(1024)
+  multipartUploadId      String?                           @map("multipart_upload_id") @db.VarChar(1024)
+  multipartStartedAt     DateTime?                         @map("multipart_started_at")
+  multipartCompletedAt   DateTime?                         @map("multipart_completed_at")
+  multipartAbortedAt     DateTime?                         @map("multipart_aborted_at")
   status                 IntakeUploadStatus                @default(RESERVED)
   verificationClaimId    String?                           @map("verification_claim_id") @db.Uuid
   verificationClaimedAt  DateTime?                         @map("verification_claimed_at")
@@ -1311,7 +1590,7 @@ model VisitorSession {
   tenantId                        String                       @map("tenant_id")
   venueId                         String                       @map("venue_id")
   anonymousToken                  String                       @unique @map("anonymous_token")
-  experienceScope                String                       @default("PUBLIC") @map("experience_scope")
+  experienceScope                 String                       @default("PUBLIC") @map("experience_scope")
   // Persistent per-browser identity (localStorage), distinct from the per-visit
   // anonymousToken (sessionStorage). Drives unique/returning visitor counts.
   // Optional so older clients that don't send it keep working.
@@ -1348,33 +1627,36 @@ model VisitorSession {
 }
 
 model AiUsageEvent {
-  id                       String          @id @default(cuid())
-  tenantId                 String          @map("tenant_id")
-  venueId                  String          @map("venue_id")
-  sessionId                String?         @map("session_id")
+  id                       String               @id @default(cuid())
+  tenantId                 String               @map("tenant_id")
+  venueId                  String               @map("venue_id")
+  sessionId                String?              @map("session_id")
+  clientAssistantTurnId    String?              @map("client_assistant_turn_id")
   feature                  String
   surface                  String
   provider                 String
   model                    String
-  pricingVersion           String          @map("pricing_version")
-  inputTokens              Int             @default(0) @map("input_tokens")
-  outputTokens             Int             @default(0) @map("output_tokens")
-  cacheCreationInputTokens Int             @default(0) @map("cache_creation_input_tokens")
-  cacheReadInputTokens     Int             @default(0) @map("cache_read_input_tokens")
-  totalTokens              Int             @default(0) @map("total_tokens")
-  estimatedCostUsd         Decimal         @default(0) @map("estimated_cost_usd") @db.Decimal(18, 8)
-  latencyMs                Int             @map("latency_ms")
-  attempts                 Int             @default(1)
+  pricingVersion           String               @map("pricing_version")
+  inputTokens              Int                  @default(0) @map("input_tokens")
+  outputTokens             Int                  @default(0) @map("output_tokens")
+  cacheCreationInputTokens Int                  @default(0) @map("cache_creation_input_tokens")
+  cacheReadInputTokens     Int                  @default(0) @map("cache_read_input_tokens")
+  totalTokens              Int                  @default(0) @map("total_tokens")
+  estimatedCostUsd         Decimal              @default(0) @map("estimated_cost_usd") @db.Decimal(18, 8)
+  latencyMs                Int                  @map("latency_ms")
+  attempts                 Int                  @default(1)
   success                  Boolean
-  errorCode                String?         @map("error_code")
-  createdAt                DateTime        @default(now()) @map("created_at")
-  tenant                   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  venue                    Venue           @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  session                  VisitorSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  errorCode                String?              @map("error_code")
+  createdAt                DateTime             @default(now()) @map("created_at")
+  tenant                   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue                    Venue                @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  session                  VisitorSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  clientAssistantTurn      ClientAssistantTurn? @relation(fields: [clientAssistantTurnId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@index([tenantId, createdAt])
   @@index([tenantId, venueId, createdAt])
   @@index([sessionId])
+  @@index([clientAssistantTurnId])
   @@index([feature, createdAt])
   @@map("ai_usage_events")
 }
@@ -1627,6 +1909,7 @@ enum EvalRunStatus {
 enum EvalContentSnapshotKind {
   LEGACY_VENUE_CONTENT_V1
   NATIVE_CORE_V1
+  APPROVED_VENUE_PACKAGE_V1
 }
 
 enum EvalResultOutcome {
@@ -1796,6 +2079,34 @@ model EvalResult {
   @@index([tenantId, venueId, createdAt])
   @@index([tenantId, runId])
   @@map("eval_results")
+}
+
+/// Append-only, sanitized onboarding milestone/outcome evidence. This records
+/// domain transitions, never page views, raw conversations, or mutable counters.
+model OnboardingMilestoneEvent {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id")
+  venueId        String   @map("venue_id")
+  eventType      String   @map("event_type") @db.VarChar(64)
+  eventVersion   Int      @default(1) @map("event_version")
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(191)
+  identityHash   String   @map("identity_hash") @db.Char(64)
+  occurredAt     DateTime @map("occurred_at")
+  actorType      String   @map("actor_type") @db.VarChar(32)
+  actorId        String?  @map("actor_id") @db.VarChar(191)
+  sourceType     String   @map("source_type") @db.VarChar(64)
+  sourceId       String   @map("source_id") @db.VarChar(191)
+  sourceRevision String?  @map("source_revision") @db.VarChar(191)
+  category       String?  @db.VarChar(100)
+  durationMs     Int?     @map("duration_ms")
+  createdAt      DateTime @default(now()) @map("created_at")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, eventType, idempotencyKey], map: "onboarding_milestone_events_replay_key")
+  @@index([tenantId, venueId, occurredAt, id], map: "onboarding_milestone_events_timeline_idx")
+  @@index([tenantId, eventType, occurredAt], map: "onboarding_milestone_events_rollup_idx")
+  @@map("onboarding_milestone_events")
 }
 
 /// Append-only human review conclusion. It stores a bounded conclusion, never hidden reasoning.
@@ -2500,28 +2811,31 @@ enum WeeklyDigestStatus {
 /// A tenant-owned machine principal. Access and autonomy are intentionally
 /// independent: visibility never implies permission to mutate.
 model AgentIdentity {
-  id                 String             @id @default(cuid())
-  tenantId           String             @map("tenant_id")
-  venueId            String?            @map("venue_id")
-  identityKey        String             @map("identity_key") @db.VarChar(100)
-  name               String             @db.VarChar(191)
-  description        String?
-  agentType          String             @map("agent_type") @db.VarChar(100)
-  accessScope        AgentAccessScope   @map("access_scope")
-  accessCapabilities String[]           @default([]) @map("access_capabilities")
-  autonomyLevel      AgentAutonomyLevel @default(READ_ONLY) @map("autonomy_level")
-  autonomousActions  String[]           @default([]) @map("autonomous_actions")
-  defaultProvider    String?            @map("default_provider") @db.VarChar(100)
-  defaultModel       String?            @map("default_model") @db.VarChar(191)
-  enabled            Boolean            @default(false)
-  createdBy          String             @map("created_by") @db.VarChar(191)
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
-  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue              Venue?             @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  runs               AgentRun[]
-  actions            AgentAction[]
-  approvalRequests   ApprovalRequest[]
+  id                  String                    @id @default(cuid())
+  tenantId            String                    @map("tenant_id")
+  venueId             String?                   @map("venue_id")
+  identityKey         String                    @map("identity_key") @db.VarChar(100)
+  name                String                    @db.VarChar(191)
+  description         String?
+  agentType           String                    @map("agent_type") @db.VarChar(100)
+  accessScope         AgentAccessScope          @map("access_scope")
+  accessCapabilities  String[]                  @default([]) @map("access_capabilities")
+  autonomyLevel       AgentAutonomyLevel        @default(READ_ONLY) @map("autonomy_level")
+  autonomousActions   String[]                  @default([]) @map("autonomous_actions")
+  defaultProvider     String?                   @map("default_provider") @db.VarChar(100)
+  defaultModel        String?                   @map("default_model") @db.VarChar(191)
+  enabled             Boolean                   @default(false)
+  createdBy           String                    @map("created_by") @db.VarChar(191)
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue?                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  runs                AgentRun[]
+  actions             AgentAction[]
+  approvalRequests    ApprovalRequest[]
+  questions           AgentQuestion[]
+  messages            AgentMessage[]
+  outcomeObservations AgentOutcomeObservation[]
 
   @@unique([tenantId, identityKey])
   @@unique([id, tenantId])
@@ -2531,40 +2845,60 @@ model AgentIdentity {
 }
 
 model AgentRun {
-  id                 String                  @id @default(cuid())
-  tenantId           String                  @map("tenant_id")
-  venueId            String?                 @map("venue_id")
-  agentIdentityId    String                  @map("agent_identity_id")
-  runType            String                  @map("run_type") @db.VarChar(100)
-  requestedOperation String                  @map("requested_operation") @db.VarChar(191)
-  scopeSnapshot      Json                    @map("scope_snapshot")
-  status             AgentRunStatus          @default(QUEUED)
-  modelProvider      String?                 @map("model_provider") @db.VarChar(100)
-  modelName          String?                 @map("model_name") @db.VarChar(191)
-  costE8Usd          BigInt                  @default(0) @map("cost_e8_usd")
-  artifacts          Json                    @default("[]")
-  errorCode          String?                 @map("error_code") @db.VarChar(100)
-  errorMessage       String?                 @map("error_message")
-  initiatedByType    ActorType               @map("initiated_by_type")
-  initiatedById      String                  @map("initiated_by_id") @db.VarChar(191)
-  cancelRequestedAt  DateTime?               @map("cancel_requested_at")
-  startedAt          DateTime?               @map("started_at")
-  completedAt        DateTime?               @map("completed_at")
-  createdAt          DateTime                @default(now()) @map("created_at")
-  updatedAt          DateTime                @updatedAt @map("updated_at")
-  tenant             Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue              Venue?                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity      AgentIdentity           @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  actions            AgentAction[]
-  timelineEvents     AgentTimelineEvent[]
-  approvalRequests   ApprovalRequest[]
-  supportLineage     SupportAgentRunLineage?
+  id                       String                    @id @default(cuid())
+  operationId              String?                   @map("operation_id") @db.Uuid
+  tenantId                 String                    @map("tenant_id")
+  venueId                  String?                   @map("venue_id")
+  agentIdentityId          String                    @map("agent_identity_id")
+  parentAgentRunId         String?                   @map("parent_agent_run_id")
+  delegationReason         String?                   @map("delegation_reason") @db.VarChar(1000)
+  runType                  String                    @map("run_type") @db.VarChar(100)
+  requestedOperation       String                    @map("requested_operation") @db.VarChar(191)
+  requestPrompt            String?                   @map("request_prompt") @db.VarChar(10000)
+  scopeSnapshot            Json                      @map("scope_snapshot")
+  status                   AgentRunStatus            @default(QUEUED)
+  modelProvider            String?                   @map("model_provider") @db.VarChar(100)
+  modelName                String?                   @map("model_name") @db.VarChar(191)
+  costE8Usd                BigInt                    @default(0) @map("cost_e8_usd")
+  artifacts                Json                      @default("[]")
+  errorCode                String?                   @map("error_code") @db.VarChar(100)
+  errorMessage             String?                   @map("error_message")
+  initiatedByType          ActorType                 @map("initiated_by_type")
+  initiatedById            String                    @map("initiated_by_id") @db.VarChar(191)
+  cancelRequestedAt        DateTime?                 @map("cancel_requested_at")
+  executionLeaseToken      String?                   @map("execution_lease_token") @db.Uuid
+  executionBridgeSessionId String?                   @map("execution_bridge_session_id")
+  executionLeaseExpiresAt  DateTime?                 @map("execution_lease_expires_at")
+  lastHeartbeatAt          DateTime?                 @map("last_heartbeat_at")
+  attemptNumber            Int                       @default(0) @map("attempt_number")
+  maxAttempts              Int                       @default(3) @map("max_attempts")
+  startedAt                DateTime?                 @map("started_at")
+  completedAt              DateTime?                 @map("completed_at")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue?                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity            AgentIdentity             @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  actions                  AgentAction[]
+  timelineEvents           AgentTimelineEvent[]
+  approvalRequests         ApprovalRequest[]
+  questions                AgentQuestion[]
+  messages                 AgentMessage[]
+  outcomeObservations      AgentOutcomeObservation[]
+  supportLineage           SupportAgentRunLineage?
+  parentAgentRun           AgentRun?                 @relation("AgentRunDelegations", fields: [parentAgentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  delegatedRuns            AgentRun[]                @relation("AgentRunDelegations")
+  executionBridgeSession   AgentBridgeSession?       @relation(fields: [executionBridgeSessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([id, tenantId])
+  @@unique([tenantId, operationId], map: "agent_runs_tenant_operation_key")
   @@unique([id, tenantId, venueId], map: "agent_runs_id_tenant_id_venue_id_key")
   @@index([tenantId, status, createdAt])
   @@index([tenantId, venueId, createdAt])
   @@index([tenantId, agentIdentityId, createdAt])
+  @@index([tenantId, parentAgentRunId, createdAt], map: "agent_runs_parent_created_idx")
+  @@index([status, executionLeaseExpiresAt], map: "agent_runs_status_lease_expiry_idx")
+  @@index([status, createdAt], map: "agent_runs_status_created_idx")
   @@map("agent_runs")
 }
 
@@ -2660,6 +2994,126 @@ model ApprovalRequest {
   @@map("approval_requests")
 }
 
+/// A durable clarification raised by an agent and answered by a human operator.
+/// Questions are coordination state, not approvals and never grant execution authority.
+model AgentQuestion {
+  id              String                  @id @default(cuid())
+  operationId     String                  @map("operation_id") @db.Uuid
+  tenantId        String                  @map("tenant_id")
+  venueId         String                  @map("venue_id")
+  agentIdentityId String                  @map("agent_identity_id")
+  agentRunId      String?                 @map("agent_run_id")
+  question        String                  @db.VarChar(2000)
+  context         String?                 @db.VarChar(2000)
+  choices         String[]                @default([])
+  blocking        Boolean                 @default(true)
+  status          AgentQuestionStatus     @default(PENDING)
+  answer          String?                 @db.VarChar(5000)
+  answeredById    String?                 @map("answered_by_id") @db.VarChar(191)
+  answeredAt      DateTime?               @map("answered_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+  tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity   AgentIdentity           @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun        AgentRun?               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  onboardingLink  OnboardingQuestionLink?
+
+  @@unique([id, tenantId])
+  @@unique([id, tenantId, venueId], map: "agent_questions_id_tenant_venue_key")
+  @@unique([tenantId, operationId], map: "agent_questions_tenant_operation_key")
+  @@index([tenantId, venueId, status, createdAt], map: "agent_questions_scope_status_created_idx")
+  @@index([tenantId, agentIdentityId, createdAt], map: "agent_questions_identity_created_idx")
+  @@index([tenantId, agentRunId, createdAt], map: "agent_questions_run_created_idx")
+  @@index([status, createdAt], map: "agent_questions_status_created_idx")
+  @@map("agent_questions")
+}
+
+enum AgentMessageRole {
+  OPERATOR
+  AGENT
+  SYSTEM
+}
+
+enum AgentMessageType {
+  PROMPT
+  RESULT
+  ANSWER
+  STATUS
+}
+
+/// Append-only conversational projection for an AgentRun. Chat text never
+/// grants approval or execution authority.
+model AgentMessage {
+  id              String           @id @default(cuid())
+  tenantId        String           @map("tenant_id")
+  venueId         String           @map("venue_id")
+  agentRunId      String           @map("agent_run_id")
+  agentIdentityId String           @map("agent_identity_id")
+  role            AgentMessageRole
+  messageType     AgentMessageType @map("message_type")
+  content         String           @db.VarChar(20000)
+  actorId         String           @map("actor_id") @db.VarChar(191)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue            @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun        AgentRun         @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity   AgentIdentity    @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, venueId, agentRunId, createdAt, id], map: "agent_messages_run_created_idx")
+  @@map("agent_messages")
+}
+
+enum AgentOutcomeSignalKind {
+  HUMAN_REVIEW
+  BUSINESS_OUTCOME
+  QUALITY_EVALUATION
+  CUSTOMER_SIGNAL
+  SYSTEM_OBSERVATION
+}
+
+enum AgentOutcomeVerdict {
+  POSITIVE
+  MIXED
+  NEGATIVE
+  INCONCLUSIVE
+}
+
+/// Append-only evidence about the usefulness or real-world result of an agent run.
+/// A terminal run status is execution evidence, not a quality verdict; routing and
+/// reputation must use these explicit observations instead of completion alone.
+model AgentOutcomeObservation {
+  id              String                 @id @default(cuid())
+  operationId     String                 @map("operation_id") @db.Uuid
+  tenantId        String                 @map("tenant_id")
+  venueId         String                 @map("venue_id")
+  agentRunId      String                 @map("agent_run_id")
+  agentIdentityId String                 @map("agent_identity_id")
+  signalKind      AgentOutcomeSignalKind @map("signal_kind")
+  verdict         AgentOutcomeVerdict
+  summary         String                 @db.VarChar(2000)
+  evidenceRef     String?                @map("evidence_ref") @db.VarChar(500)
+  taskClass       String                 @map("task_class") @db.VarChar(100)
+  modelProvider   String?                @map("model_provider") @db.VarChar(100)
+  modelName       String?                @map("model_name") @db.VarChar(191)
+  actorType       ActorType              @map("actor_type")
+  actorId         String                 @map("actor_id") @db.VarChar(191)
+  createdAt       DateTime               @default(now()) @map("created_at")
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun        AgentRun               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity   AgentIdentity          @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId])
+  @@unique([tenantId, operationId], map: "agent_outcome_observations_tenant_operation_key")
+  @@index([tenantId, venueId, createdAt], map: "agent_outcome_observations_scope_created_idx")
+  @@index([tenantId, agentIdentityId, signalKind, createdAt], map: "agent_outcome_observations_identity_signal_idx")
+  @@index([tenantId, agentRunId, createdAt], map: "agent_outcome_observations_run_created_idx")
+  @@index([createdAt], map: "agent_outcome_observations_created_idx")
+  @@map("agent_outcome_observations")
+}
+
 /// A single append-only terminal decision for an ApprovalRequest. Any action
 /// executed under it points back through AgentAction.approvalDecisionId.
 model ApprovalDecision {
@@ -2706,6 +3160,7 @@ enum AgentAutonomyLevel {
 enum AgentRunStatus {
   QUEUED
   RUNNING
+  AWAITING_INPUT
   AWAITING_APPROVAL
   COMPLETED
   FAILED
@@ -2717,6 +3172,12 @@ enum AgentActionStatus {
   FAILED
   DENIED
   CANCELLED
+}
+
+enum AgentQuestionStatus {
+  PENDING
+  ANSWERED
+  DISMISSED
 }
 
 enum ApprovalRiskCategory {
@@ -2734,34 +3195,36 @@ enum ApprovalDecisionOutcome {
 }
 
 model SupportRequest {
-  id                  String                      @id @default(cuid())
-  tenantId            String                      @map("tenant_id")
-  venueId             String                      @map("venue_id")
-  category            SupportRequestCategory
-  status              SupportRequestStatus        @default(OPEN)
-  subject             String                      @db.VarChar(200)
-  missingInformation  String[]                    @default([]) @map("missing_information")
-  artifacts           Json                        @default("{}")
-  version             Int                         @default(1)
-  clientVersion       Int                         @default(1) @map("client_version")
-  clientActivityAt    DateTime                    @default(now()) @map("client_activity_at")
-  statusChangedAt     DateTime                    @default(now()) @map("status_changed_at")
-  createdByKind       SupportParticipantKind      @map("created_by_kind")
-  createdById         String                      @map("created_by_id") @db.VarChar(191)
-  requesterUserId     String?                     @map("requester_user_id")
-  updatedByKind       SupportParticipantKind      @map("updated_by_kind")
-  updatedById         String                      @map("updated_by_id") @db.VarChar(191)
-  createdAt           DateTime                    @default(now()) @map("created_at")
-  updatedAt           DateTime                    @updatedAt @map("updated_at")
-  tenant              Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue               Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  messages            SupportMessage[]
-  auditEvents         SupportRequestAuditEvent[]
-  packageHandoffs     SupportPackageHandoff[]
-  previewFeedback     SupportPreviewFeedback[]
-  requesterMembership TenantMembership?           @relation("support_request_requester_membership", fields: [tenantId, requesterUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
-  participants        SupportRequestParticipant[]
-  agentRunLineages    SupportAgentRunLineage[]
+  id                     String                         @id @default(cuid())
+  tenantId               String                         @map("tenant_id")
+  venueId                String                         @map("venue_id")
+  category               SupportRequestCategory
+  status                 SupportRequestStatus           @default(OPEN)
+  subject                String                         @db.VarChar(200)
+  missingInformation     String[]                       @default([]) @map("missing_information")
+  artifacts              Json                           @default("{}")
+  version                Int                            @default(1)
+  clientVersion          Int                            @default(1) @map("client_version")
+  clientActivityAt       DateTime                       @default(now()) @map("client_activity_at")
+  statusChangedAt        DateTime                       @default(now()) @map("status_changed_at")
+  createdByKind          SupportParticipantKind         @map("created_by_kind")
+  createdById            String                         @map("created_by_id") @db.VarChar(191)
+  requesterUserId        String?                        @map("requester_user_id")
+  updatedByKind          SupportParticipantKind         @map("updated_by_kind")
+  updatedById            String                         @map("updated_by_id") @db.VarChar(191)
+  createdAt              DateTime                       @default(now()) @map("created_at")
+  updatedAt              DateTime                       @updatedAt @map("updated_at")
+  tenant                 Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  messages               SupportMessage[]
+  auditEvents            SupportRequestAuditEvent[]
+  packageHandoffs        SupportPackageHandoff[]
+  previewFeedback        SupportPreviewFeedback[]
+  requesterMembership    TenantMembership?              @relation("support_request_requester_membership", fields: [tenantId, requesterUserId], references: [tenantId, userId], onDelete: Restrict, onUpdate: Restrict)
+  participants           SupportRequestParticipant[]
+  agentRunLineages       SupportAgentRunLineage[]
+  onboardingQuestionLink OnboardingQuestionLink?
+  clientAssistantHandoff ClientAssistantSupportHandoff?
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, updatedAt, id])
@@ -2809,29 +3272,60 @@ model SupportRequestParticipant {
 /// Immutable message content. Corrections are new messages so the support
 /// conversation remains reviewable and client/internal visibility is durable.
 model SupportMessage {
-  id                  String                     @id @default(cuid())
-  tenantId            String                     @map("tenant_id")
-  venueId             String                     @map("venue_id")
-  supportRequestId    String                     @map("support_request_id")
-  authorKind          SupportParticipantKind     @map("author_kind")
-  authorId            String                     @map("author_id") @db.VarChar(191)
-  visibility          SupportMessageVisibility   @default(CLIENT_VISIBLE)
-  body                String
-  submissionRequestId String?                    @map("submission_request_id") @db.Uuid
-  submissionInputHash String?                    @map("submission_input_hash") @db.Char(64)
-  clientVersion       Int?                       @map("client_version")
-  requestVersion      Int?                       @map("request_version")
-  createdAt           DateTime                   @default(now()) @map("created_at")
-  tenant              Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue               Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  supportRequest      SupportRequest             @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  attachments         SupportMessageAttachment[]
-  previewFeedback     SupportPreviewFeedback?
+  id                        String                     @id @default(cuid())
+  tenantId                  String                     @map("tenant_id")
+  venueId                   String                     @map("venue_id")
+  supportRequestId          String                     @map("support_request_id")
+  authorKind                SupportParticipantKind     @map("author_kind")
+  authorId                  String                     @map("author_id") @db.VarChar(191)
+  visibility                SupportMessageVisibility   @default(CLIENT_VISIBLE)
+  body                      String
+  submissionRequestId       String?                    @map("submission_request_id") @db.Uuid
+  submissionInputHash       String?                    @map("submission_input_hash") @db.Char(64)
+  clientVersion             Int?                       @map("client_version")
+  requestVersion            Int?                       @map("request_version")
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest            SupportRequest             @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  attachments               SupportMessageAttachment[]
+  previewFeedback           SupportPreviewFeedback?
+  onboardingQuestionAnswers OnboardingQuestionLink[]
 
   @@unique([id, tenantId, venueId, supportRequestId])
   @@unique([tenantId, submissionRequestId], map: "support_messages_tenant_submission_request_key")
   @@index([tenantId, venueId, supportRequestId, createdAt, id])
   @@map("support_messages")
+}
+
+/// Coordination-only bridge between the existing AgentQuestion and Support
+/// workflows. It creates no third question engine and grants no approval.
+model OnboardingQuestionLink {
+  id                        String          @id @default(cuid())
+  operationId               String          @map("operation_id") @db.Uuid
+  operationHash             String          @map("operation_hash") @db.Char(64)
+  tenantId                  String          @map("tenant_id")
+  venueId                   String          @map("venue_id")
+  agentQuestionId           String          @map("agent_question_id")
+  expectedQuestionUpdatedAt DateTime        @map("expected_question_updated_at")
+  supportRequestId          String          @map("support_request_id")
+  recipientUserId           String          @map("recipient_user_id") @db.VarChar(191)
+  answeredSupportMessageId  String?         @map("answered_support_message_id")
+  resumedAt                 DateTime?       @map("resumed_at")
+  createdBy                 String          @map("created_by") @db.VarChar(191)
+  createdAt                 DateTime        @default(now()) @map("created_at")
+  tenant                    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentQuestion             AgentQuestion   @relation(fields: [agentQuestionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest            SupportRequest  @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  answeredSupportMessage    SupportMessage? @relation(fields: [answeredSupportMessageId, tenantId, venueId, supportRequestId], references: [id, tenantId, venueId, supportRequestId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "onboarding_question_links_tenant_operation_key")
+  @@unique([agentQuestionId, tenantId, venueId], map: "onboarding_question_links_question_scope_key")
+  @@unique([supportRequestId, tenantId, venueId], map: "onboarding_question_links_request_scope_key")
+  @@unique([answeredSupportMessageId, tenantId, venueId, supportRequestId], map: "onboarding_question_links_answer_message_key")
+  @@index([tenantId, venueId, resumedAt, createdAt], map: "onboarding_question_links_scope_resume_idx")
+  @@map("onboarding_question_links")
 }
 
 /// Metadata only. Source bytes remain owned by the existing intake/media
@@ -3000,11 +3494,54 @@ model ExternalAccessCredential {
   revocation             ExternalCredentialRevocation?
   operationReceipts      ExternalCredentialOperationReceipt[] @relation("credential_operation_result")
   priorOperationReceipts ExternalCredentialOperationReceipt[] @relation("credential_operation_previous")
+  bridgeSessions         AgentBridgeSession[]
+  activation             ExternalCredentialActivation?
 
   @@unique([id, tenantId, clientId, scopeKey], map: "external_credentials_exact_scope_key")
   @@unique([tenantId, kind, secretPrefix], map: "external_credentials_prefix_key")
   @@index([tenantId, clientId, venueId, kind, createdAt, id], map: "external_credentials_scope_created_idx")
   @@map("external_access_credentials")
+}
+
+enum AgentBridgeProvider {
+  HERMES
+  CLAUDE_SUBSCRIPTION
+  CODEX_SUBSCRIPTION
+  OPENAI_COMPATIBLE
+}
+
+enum AgentBridgeSessionStatus {
+  ONLINE
+  OFFLINE
+  REVOKED
+}
+
+/// Presence and capability metadata for a user-controlled local runner. It
+/// stores no subscription tokens, browser state, or provider credentials.
+model AgentBridgeSession {
+  id              String                   @id @default(cuid())
+  tenantId        String                   @map("tenant_id")
+  clientId        String                   @map("client_id")
+  venueId         String                   @map("venue_id")
+  scopeKey        String                   @map("scope_key") @db.VarChar(191)
+  credentialId    String                   @map("credential_id")
+  provider        AgentBridgeProvider
+  label           String                   @db.VarChar(200)
+  runnerVersion   String                   @map("runner_version") @db.VarChar(100)
+  supportedModels String[]                 @default([]) @map("supported_models")
+  status          AgentBridgeSessionStatus @default(ONLINE)
+  lastHeartbeatAt DateTime                 @default(now()) @map("last_heartbeat_at")
+  expiresAt       DateTime                 @map("expires_at")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  credential      ExternalAccessCredential @relation(fields: [credentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+  agentRuns       AgentRun[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, venueId, provider, status, lastHeartbeatAt], map: "agent_bridge_sessions_scope_status_idx")
+  @@map("agent_bridge_sessions")
 }
 
 enum ExternalCredentialOperationKind {
@@ -3076,6 +3613,27 @@ model ExternalCredentialRevocation {
   @@unique([credentialId, tenantId, clientId, scopeKey], map: "external_revocations_exact_scope_key")
   @@index([tenantId, clientId, venueId, revokedAt, id], map: "external_revocations_scope_created_idx")
   @@map("external_credential_revocations")
+}
+
+/// Append-only evidence for the one reviewed activation of an MCP bridge
+/// credential. The plaintext secret is never stored here.
+model ExternalCredentialActivation {
+  operationId   String                   @id @map("operation_id") @db.Uuid
+  operationHash String                   @map("operation_hash") @db.Char(64)
+  tenantId      String                   @map("tenant_id")
+  clientId      String                   @map("client_id")
+  venueId       String                   @map("venue_id")
+  scopeKey      String                   @map("scope_key") @db.VarChar(191)
+  credentialId  String                   @unique(map: "external_credential_activations_credential_key") @map("credential_id")
+  activatedBy   String                   @map("activated_by") @db.VarChar(191)
+  activatedAt   DateTime                 @default(now()) @map("activated_at")
+  tenant        Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue         Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  credential    ExternalAccessCredential @relation(fields: [credentialId, tenantId, clientId, scopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([credentialId, tenantId, clientId, scopeKey], map: "external_credential_activations_exact_scope_key")
+  @@index([tenantId, clientId, venueId, activatedAt], map: "external_credential_activations_scope_idx")
+  @@map("external_credential_activations")
 }
 
 /// Reviewable offboarding intent only. This model does not execute revocations,

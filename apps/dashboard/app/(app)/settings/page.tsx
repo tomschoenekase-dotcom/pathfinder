@@ -6,6 +6,7 @@ import { useUser } from '@clerk/nextjs'
 import { Building2, CalendarClock, Settings, Users } from 'lucide-react'
 
 import { type DashboardTRPCClient, useTRPCClient } from '../../../lib/trpc'
+import { ClientTochiPreferenceWorkspace } from '../../../components/ClientTochiPreferenceWorkspace'
 
 type SettingsData = Awaited<ReturnType<DashboardTRPCClient['tenant']['getSettings']['query']>>
 type SettingsMember = SettingsData['members'][number]
@@ -419,7 +420,7 @@ export default function SettingsPage() {
   }, [])
 
   return (
-    <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
+    <div className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-4xl space-y-8">
         <section>
           <div className="flex items-center gap-3">
@@ -483,6 +484,10 @@ export default function SettingsPage() {
           )}
         </section>
 
+        <section className="border border-pf-primary/10 bg-white p-6 shadow-sm">
+          <ClientTochiPreferenceWorkspace />
+        </section>
+
         <section className="rounded-3xl border border-pf-primary/10 bg-white p-6 shadow-sm">
           <SectionHeader icon={Users} title="Team" />
 
@@ -522,6 +527,6 @@ export default function SettingsPage() {
           )}
         </section>
       </div>
-    </main>
+    </div>
   )
 }

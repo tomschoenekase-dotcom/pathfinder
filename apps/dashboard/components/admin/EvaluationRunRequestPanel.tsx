@@ -12,6 +12,7 @@ export type EvaluationCaseListItem = {
   category: string
   schemaVersion: string
   sourceType: string
+  sourceRef?: string
   createdAt: Date
 }
 type Cursor = { createdAt: string; id: string }
@@ -29,6 +30,7 @@ export function EvaluationRunRequestPanel(props: {
   initialNextCursor: Cursor | null
   runnerEnabled: boolean
   maximumCases: number
+  approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -36,6 +38,7 @@ export function EvaluationRunRequestPanel(props: {
   const [nextCursor, setNextCursor] = useState(props.initialNextCursor)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [budget, setBudget] = useState('0.25')
+  const [approvedPackageId, setApprovedPackageId] = useState(props.approvedPackages?.[0]?.id ?? '')
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const idempotencyKey = useRef(crypto.randomUUID())
@@ -44,6 +47,25 @@ export function EvaluationRunRequestPanel(props: {
   const scope = `${props.tenantId}:${props.venueId}`
   const scopeRef = useRef(scope)
   scopeRef.current = scope
+  const selectedPackage = props.approvedPackages?.find((pkg) => pkg.id === approvedPackageId)
+  const expectedSourceRef = selectedPackage
+    ? `venue-package:${selectedPackage.id}:${selectedPackage.payloadHash}`
+    : null
+  const latestOnboardingCases = [
+    ...cases
+      .filter(
+        (item) =>
+          item.sourceType === 'ONBOARDING_APPROVED_PACKAGE' &&
+          expectedSourceRef !== null &&
+          item.sourceRef === expectedSourceRef,
+      )
+      .reduce((latest, item) => {
+        const prior = latest.get(item.caseKey)
+        if (!prior || item.revision > prior.revision) latest.set(item.caseKey, item)
+        return latest
+      }, new Map<string, EvaluationCaseListItem>())
+      .values(),
+  ]
 
   useEffect(() => {
     generation.current += 1
@@ -51,11 +73,18 @@ export function EvaluationRunRequestPanel(props: {
     setNextCursor(props.initialNextCursor)
     setSelected(new Set())
     setBudget('0.25')
+    setApprovedPackageId(props.approvedPackages?.[0]?.id ?? '')
     setMessage(null)
     setBusy(false)
     submitting.current = false
     idempotencyKey.current = crypto.randomUUID()
-  }, [props.tenantId, props.venueId, props.initialCases, props.initialNextCursor])
+  }, [
+    props.tenantId,
+    props.venueId,
+    props.initialCases,
+    props.initialNextCursor,
+    props.approvedPackages,
+  ])
 
   async function loadMore() {
     if (!nextCursor || busy) return
@@ -100,6 +129,7 @@ export function EvaluationRunRequestPanel(props: {
         idempotencyKey: idempotencyKey.current,
         caseIds: [...selected],
         budgetCeilingE8Usd,
+        ...(approvedPackageId ? { approvedPackageId } : {}),
       })
       if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
       if (result.dispatchPending) {
@@ -163,6 +193,23 @@ export function EvaluationRunRequestPanel(props: {
           <legend className="text-sm font-semibold text-pf-deep">
             Cases ({selected.size}/{props.maximumCases})
           </legend>
+          {approvedPackageId ? (
+            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+              <button
+                type="button"
+                onClick={() => setSelected(new Set(latestOnboardingCases.map((item) => item.id)))}
+                disabled={latestOnboardingCases.length !== 7}
+                className="min-h-11 rounded-xl border border-sky-300 bg-white px-4 text-sm font-semibold text-sky-950 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Select seven onboarding cases
+              </button>
+              <p className="mt-1 text-xs text-sky-950/75">
+                {latestOnboardingCases.length === 7
+                  ? 'Selects only the latest immutable revision tied to this exact package hash.'
+                  : `${latestOnboardingCases.length} of 7 exact-package cases are ready. Prepare the suite above before requesting a run.`}
+              </p>
+            </div>
+          ) : null}
           {cases.map((item) => (
             <label
               key={item.id}
@@ -201,6 +248,27 @@ export function EvaluationRunRequestPanel(props: {
           Load more cases
         </button>
       ) : null}
+      <label className="mt-5 block text-sm font-semibold text-pf-deep">
+        Evaluation target
+        <select
+          aria-label="Evaluation target"
+          value={approvedPackageId}
+          onChange={(event) => setApprovedPackageId(event.target.value)}
+          disabled={busy || !props.runnerEnabled}
+          className="mt-2 block min-h-11 w-full max-w-xl rounded-xl border border-pf-light bg-white px-3"
+        >
+          <option value="">Current live venue content</option>
+          {(props.approvedPackages ?? []).map((pkg) => (
+            <option key={pkg.id} value={pkg.id}>
+              Approved onboarding package · {pkg.payloadHash.slice(0, 12)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-2 text-xs text-pf-deep/55">
+        Onboarding QA should target the exact approved package. Live content is retained for legacy
+        operational evaluations.
+      </p>
       <label className="mt-5 block text-sm font-semibold text-pf-deep">
         Budget ceiling (USD, maximum $1)
         <input

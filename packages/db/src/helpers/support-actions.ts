@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import type {
   SupportAttachmentReference,
@@ -12,9 +12,11 @@ import {
 } from '@pathfinder/contracts/support-workflow'
 import { z } from 'zod'
 import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
+import { PreviewFeedbackContext } from '@pathfinder/contracts/client-package-preview'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-events'
 import { canTenantActorAccessSupportRequest } from './support-request-access'
 
 export type SupportActionActor =
@@ -81,6 +83,14 @@ const createSupportRequestActionInput = z
     subject: z.string().trim().min(1).max(200),
     body: z.string().trim().min(1).max(20_000),
     attachments: SupportAttachmentReferences,
+    /** Trusted server-only lineage for a correction to an immutable intake source. */
+    intakeSource: z
+      .object({
+        runId: scopedId,
+        expectedEventCount: z.number().int().min(1).max(10_000),
+      })
+      .strict()
+      .optional(),
     actor: supportActionActor,
   })
   .strict()
@@ -115,6 +125,7 @@ const createPreviewFeedbackRequestActionInput = z
     venueId: scopedId,
     packageId: scopedId,
     body: z.string().trim().min(1).max(20_000),
+    context: PreviewFeedbackContext.default({ kind: 'GENERAL' }),
     attachments: SupportAttachmentReferences,
     actor: z
       .object({
@@ -479,6 +490,7 @@ async function createSupportRequestActionOnce(
     subject: string
     body: string
     attachments: SupportAttachmentDraft[]
+    intakeSource?: { runId: string; expectedEventCount: number }
     actor: SupportActionActor
   },
   client: SupportActionClient = db,
@@ -495,6 +507,7 @@ async function createSupportRequestActionOnce(
     subject: parsed.subject,
     body: parsed.body,
     intakeUploadIds: parsed.attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
+    intakeSource: parsed.intakeSource ?? null,
   })
   return client.$transaction(async (tx) => {
     const replayQuery = {
@@ -541,6 +554,36 @@ async function createSupportRequestActionOnce(
       select: { id: true },
     })
     if (!venue) throw new SupportActionError('NOT_FOUND', 'Venue not found')
+    let intakeSource:
+      | { id: string; sourceKind: string; displayName: string; eventCount: number }
+      | undefined
+    if (parsed.intakeSource) {
+      const source = await tx.intakeRun.findFirst({
+        where: {
+          id: parsed.intakeSource.runId,
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+        },
+        select: {
+          id: true,
+          sourceKind: true,
+          displayName: true,
+          _count: { select: { events: true } },
+        },
+      })
+      if (!source) throw new SupportActionError('NOT_FOUND', 'Intake source not found')
+      if (source._count.events !== parsed.intakeSource.expectedEventCount)
+        throw new SupportActionError(
+          'CONFLICT',
+          'The intake source changed. Refresh before submitting this correction.',
+        )
+      intakeSource = {
+        id: source.id,
+        sourceKind: source.sourceKind,
+        displayName: source.displayName,
+        eventCount: source._count.events,
+      }
+    }
     const attachments = await resolveAttachments(tx, parsed, parsed.attachments)
     const request = await tx.supportRequest.create({
       data: {
@@ -548,7 +591,13 @@ async function createSupportRequestActionOnce(
         venueId: parsed.venueId,
         category: parsed.category,
         subject: parsed.subject,
-        artifacts: {},
+        artifacts: intakeSource
+          ? {
+              schemaVersion: 1,
+              kind: 'INTAKE_SOURCE_CORRECTION',
+              intakeSource,
+            }
+          : {},
         createdByKind: parsed.actor.participantKind,
         createdById: parsed.actor.actorId,
         requesterUserId: parsed.actor.participantKind === 'CLIENT' ? parsed.actor.actorId : null,
@@ -607,10 +656,33 @@ async function createSupportRequestActionOnce(
           status: request.status,
           version: request.version,
           attachmentCount: attachments.length,
+          intakeSource: intakeSource
+            ? { id: intakeSource.id, eventCount: intakeSource.eventCount }
+            : null,
         },
       },
       tx,
     )
+    if (intakeSource) {
+      await recordOrReplayOnboardingMilestoneEvent({
+        db: tx,
+        input: {
+          id: randomUUID(),
+          tenantId: parsed.tenantId,
+          venueId: parsed.venueId,
+          eventType: 'CORRECTION_RECORDED',
+          idempotencyKey: `support-request:${request.id}:intake-source-correction`,
+          occurredAt: request.createdAt,
+          actorType: parsed.actor.participantKind,
+          actorId: parsed.actor.actorId,
+          sourceType: 'INTAKE_SOURCE',
+          sourceId: intakeSource.id,
+          sourceRevision: String(intakeSource.eventCount),
+          category: parsed.category,
+          durationMs: null,
+        },
+      })
+    }
     return { request, message, replayed: false as const }
   })
 }
@@ -651,6 +723,7 @@ async function createPreviewFeedbackRequestActionOnce(
     venueId: string
     packageId: string
     body: string
+    context?: z.input<typeof PreviewFeedbackContext>
     attachments: SupportAttachmentDraft[]
     actor: {
       actorType: 'HUMAN'
@@ -663,6 +736,7 @@ async function createPreviewFeedbackRequestActionOnce(
   client: SupportActionClient,
 ) {
   const parsed = parseActionInput(createPreviewFeedbackRequestActionInput, input)
+  const feedbackContext = parsed.context ?? ({ kind: 'GENERAL' } as const)
   const submissionInputHash = supportSubmissionHash({
     kind: 'CREATE_APPROVED_PREVIEW_FEEDBACK_REQUEST',
     actorKind: parsed.actor.participantKind,
@@ -671,6 +745,7 @@ async function createPreviewFeedbackRequestActionOnce(
     venueId: parsed.venueId,
     packageId: parsed.packageId,
     body: parsed.body,
+    context: feedbackContext,
     intakeUploadIds: parsed.attachments.map(({ intakeUploadId }) => intakeUploadId).sort(),
   })
   return client.$transaction(
@@ -742,8 +817,15 @@ async function createPreviewFeedbackRequestActionOnce(
           tenantId: parsed.tenantId,
           venueId: parsed.venueId,
           category: 'EXPERIENCE_BEHAVIOR',
-          subject: 'Feedback on approved preview',
-          artifacts: {},
+          subject:
+            feedbackContext.kind === 'PREVIEW_ANSWER'
+              ? 'Feedback on a preview answer'
+              : 'Feedback on approved preview',
+          artifacts: {
+            schemaVersion: 1,
+            kind: 'CLIENT_PREVIEW_FEEDBACK',
+            context: feedbackContext,
+          },
           createdByKind: 'CLIENT',
           createdById: parsed.actor.actorId,
           requesterUserId: parsed.actor.actorId,

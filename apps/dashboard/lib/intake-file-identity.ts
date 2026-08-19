@@ -1,11 +1,14 @@
 import {
   INTAKE_UPLOAD_MAX_BYTES,
+  INTAKE_UPLOAD_NON_MEDIA_MAX_BYTES,
   IntakeUploadMimeType,
   type IntakeUploadMimeType as IntakeUploadMime,
 } from '@pathfinder/contracts/intake-upload'
+import { createSHA256 } from 'hash-wasm'
 
 export const MAX_INTAKE_FILE_BYTES = INTAKE_UPLOAD_MAX_BYTES
 export const MAX_INTAKE_FILE_SELECTION = 20
+export const INTAKE_FILE_HASH_CHUNK_BYTES = 8 * 1024 * 1024
 
 export const SAFE_INTAKE_FILE_TYPES = IntakeUploadMimeType.options
 
@@ -14,35 +17,47 @@ export type IntakeFileIdentity = {
   sha256Base64: string
 }
 
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
+function hexToBase64(hex: string): string {
   let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
+  for (let offset = 0; offset < hex.length; offset += 2) {
+    binary += String.fromCharCode(Number.parseInt(hex.slice(offset, offset + 2), 16))
+  }
   return globalThis.btoa(binary)
 }
 
 export function validateIntakeFile(file: File): string | null {
   if (!SAFE_INTAKE_FILE_TYPES.includes(file.type as IntakeUploadMime)) {
-    return 'Choose a PDF, JPEG, PNG, WebP, HEIC, HEIF, or TIFF file.'
+    return 'Choose a supported document, image, video, or audio file.'
   }
   if (!Number.isSafeInteger(file.size) || file.size < 1) return 'The file is empty or invalid.'
-  if (file.size > MAX_INTAKE_FILE_BYTES) return 'Each file must be 25 MiB or smaller.'
+  const media = file.type.startsWith('video/') || file.type.startsWith('audio/')
+  if (!media && file.size > INTAKE_UPLOAD_NON_MEDIA_MAX_BYTES) {
+    return 'Documents and images must be 100 MB or smaller.'
+  }
+  if (file.size > MAX_INTAKE_FILE_BYTES) return 'Each file must be 2 GB or smaller.'
   return null
 }
 
 export async function identifyIntakeFile(file: File): Promise<IntakeFileIdentity> {
   const error = validateIntakeFile(file)
   if (error) throw new Error(error)
-  if (!globalThis.crypto?.subtle) {
-    throw new Error('This browser cannot verify the file. Update the browser and try again.')
+  const hasher = await createSHA256()
+  hasher.init()
+  if (typeof file.stream === 'function') {
+    const reader = file.stream().getReader()
+    for (;;) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      hasher.update(chunk.value)
+    }
+  } else {
+    for (let offset = 0; offset < file.size; offset += INTAKE_FILE_HASH_CHUNK_BYTES) {
+      const chunk = file.slice(offset, Math.min(file.size, offset + INTAKE_FILE_HASH_CHUNK_BYTES))
+      hasher.update(new Uint8Array(await chunk.arrayBuffer()))
+    }
   }
-  const digest = new Uint8Array(
-    await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer()),
-  )
-  return { sha256Hex: bytesToHex(digest), sha256Base64: bytesToBase64(digest) }
+  const sha256Hex = hasher.digest('hex')
+  return { sha256Hex, sha256Base64: hexToBase64(sha256Hex) }
 }
 
 export function intakeFileFingerprint(file: File, identity: IntakeFileIdentity): string {

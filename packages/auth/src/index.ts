@@ -2,6 +2,7 @@ export { SignInButton, SignOutButton, useAuth, useOrganization, useUser } from '
 export {
   createOrganization,
   currentUser,
+  ensureOrganizationInvitation,
   inviteOrganizationMember,
   listPendingOrganizationInvitations,
   requireAuth,
@@ -9,6 +10,7 @@ export {
 } from './server'
 export type {
   CreatedOrganization,
+  EnsuredOrganizationInvitation,
   OrganizationRole,
   PendingOrganizationInvitation,
   ValidatedOrganizationOwner,

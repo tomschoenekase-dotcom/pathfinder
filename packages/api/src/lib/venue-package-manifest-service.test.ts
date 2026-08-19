@@ -84,8 +84,17 @@ function harness(options: { base?: boolean; existing?: unknown } = {}) {
   const tx = {
     venue: { findFirst: vi.fn().mockResolvedValue({ id: venueId, name: 'Museum' }) },
     venuePackage: {
-      findFirst: vi.fn().mockResolvedValue({ manifestArtifactId: null }),
-      update: vi.fn(async ({ data }) => ({ id: 'draft_1', ...data })),
+      findFirst: vi
+        .fn()
+        .mockResolvedValue({
+          manifestArtifactId: null,
+          updatedAt: new Date('2026-08-12T12:00:00Z'),
+        }),
+      update: vi.fn(async ({ data }) => ({
+        id: 'draft_1',
+        updatedAt: new Date('2026-08-12T12:01:00Z'),
+        ...data,
+      })),
     },
     venuePackageManifestArtifact: artifact,
   }
@@ -204,6 +213,23 @@ describe('venue package manifest service', () => {
     )
     expect(accepted.materialization.legacyPayloadHash).toMatch(/^[a-f0-9]{64}$/u)
     expect(accepted.legacyDraftInput).toMatchObject({ venueId, payload: { schemaVersion: 3 } })
+  })
+
+  it('returns the post-link package revision for immediate optimistic-concurrency approval', async () => {
+    const h = harness({ base: true })
+    const result = await reviewVenuePackageManifestService({
+      db: h.db as never,
+      tenantId: 'tenant_1',
+      venueId,
+      actor,
+      manifest: patch(),
+      persist: true,
+    })
+
+    expect(result.draft).toMatchObject({
+      id: 'draft_1',
+      updatedAt: new Date('2026-08-12T12:01:00Z'),
+    })
   })
 
   it('keeps unsupported PATCH operations gated even with an exact base', async () => {

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "tochi",
+  "displayName": "Tochi",
+  "description": "Torchiko's character foundation, currently backed by non-publishable development art.",
+  "source": "system",
+  "lifecycle": "development",
+  "defaultAssetPackId": "tochi-dev-v0",
+  "supportedContexts": ["client-assistant", "venue-text-chat", "venue-voice-chat", "marketing"],
+  "capabilities": ["static", "animation", "look-at", "semantic-state"],
+  "tags": ["torchiko", "development"]
+}

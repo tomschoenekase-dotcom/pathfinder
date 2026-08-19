@@ -30,6 +30,20 @@ export {
   type AiModelSpec,
 } from './model-registry'
 export {
+  CLIENT_TOCHI_BEHAVIOR_VERSION,
+  CLIENT_TOCHI_LOCKED_RULES,
+  ClientTochiActionSchema,
+  ClientTochiContextSchema,
+  ClientTochiPresentationModeSchema,
+  ClientTochiResponseSchema,
+  buildClientTochiSystemBlocks,
+  parseClientTochiResponse,
+  resolveDeterministicClientTochiResponse,
+  type ClientTochiAction,
+  type ClientTochiContext,
+  type ClientTochiResponse,
+} from './client-tochi-behavior'
+export {
   AI_EMBEDDING_MODEL_KEYS,
   AI_EMBEDDING_MODEL_REGISTRY,
   getAiEmbeddingProfile,

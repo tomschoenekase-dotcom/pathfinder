@@ -1,0 +1,574 @@
+.core {
+  --core-ink: #102f50;
+  --core-blue: #477c98;
+  --core-aqua: #9dd4d8;
+  --core-glow: #f5bd55;
+  --core-ember: #ee7962;
+  isolation: isolate;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 34rem;
+  aspect-ratio: 1.2;
+  color: var(--core-ink);
+}
+
+.core::before {
+  position: absolute;
+  inset: 12% 8%;
+  z-index: -1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 66% 48%, rgb(245 189 85 / 18%), transparent 15%),
+    radial-gradient(circle at 48% 48%, rgb(157 212 216 / 22%), transparent 51%);
+  content: '';
+  filter: blur(16px);
+  opacity: 0.68;
+  transform: scale(0.96);
+  animation: core-breathe 7s ease-in-out infinite;
+}
+
+.coreCompact {
+  max-width: 15rem;
+}
+
+.coreSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.coreField {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.13;
+}
+
+.coreStrand {
+  fill: none;
+  stroke-linecap: round;
+  opacity: var(--strand-opacity, 0.62);
+  stroke-dasharray: 0.74 0.26;
+  stroke-dashoffset: 0.12;
+  animation: strand-flow 6.4s cubic-bezier(0.55, 0.08, 0.45, 0.92) infinite;
+}
+
+.strandAqua {
+  stroke: #91c8cd;
+}
+
+.strandAquaDeep {
+  stroke: #70a9b5;
+}
+
+.strandBlue {
+  stroke: #477c98;
+}
+
+.strandBlueDeep {
+  stroke: #315d79;
+}
+
+.strandInk {
+  stroke: #143653;
+}
+
+.strandTwo {
+  animation-delay: -1.15s;
+}
+
+.strandThree {
+  animation-delay: -2.4s;
+}
+
+.strandFour {
+  animation-delay: -3.55s;
+}
+
+.strandFive {
+  animation-delay: -4.7s;
+}
+
+.coreSeam {
+  fill: none;
+  stroke: rgb(255 255 255 / 62%);
+  stroke-linecap: round;
+  stroke-width: 2;
+  opacity: 0.45;
+}
+
+.coreHalo {
+  fill: none;
+  stroke: var(--core-aqua);
+  stroke-width: 2;
+  opacity: 0.3;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: halo-settle 7s ease-in-out infinite;
+}
+
+.coreEmber {
+  fill: #f09a63;
+  filter: drop-shadow(0 9px 14px rgb(238 121 98 / 20%));
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ember-pulse 4.8s ease-in-out infinite;
+}
+
+.core[data-state='welcome'] .coreStrand {
+  --strand-opacity: 0.42;
+  stroke-dasharray: 0.42 0.58;
+}
+
+.core[data-state='share'] .coreStrand {
+  --strand-opacity: 0.68;
+}
+
+.core[data-state='processing'] .coreStrand {
+  --strand-opacity: 0.8;
+  animation-duration: 4.6s;
+}
+
+.core[data-state='questions'] .coreEmber {
+  filter: drop-shadow(0 9px 18px rgb(238 121 98 / 36%));
+}
+
+.core[data-state='ready'] .coreStrand,
+.core[data-state='live'] .coreStrand {
+  --strand-opacity: 0.94;
+  stroke-dasharray: 1 0;
+  animation: none;
+}
+
+.core[data-state='ready'] .coreHalo,
+.core[data-state='live'] .coreHalo {
+  opacity: 0.54;
+}
+
+.core[data-state='live']::before {
+  opacity: 0.82;
+}
+
+.journey {
+  width: 100%;
+}
+
+.journeyList {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.journeyList::before {
+  position: absolute;
+  top: 1.08rem;
+  right: 9%;
+  left: 9%;
+  height: 1px;
+  background: #c8d7df;
+  content: '';
+}
+
+.journeyItem {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.55rem;
+  padding: 0 0.45rem;
+  text-align: center;
+}
+
+.journeyMarker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 2.15rem;
+  height: 2.15rem;
+  place-items: center;
+  border: 1px solid #c8d7df;
+  border-radius: 50%;
+  background: #f8fafb;
+  color: #526a7c;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.journeyItem[data-status='complete'] .journeyMarker {
+  border-color: #6b9ca8;
+  background: #dceff0;
+  color: #123653;
+}
+
+.journeyItem[data-status='current'] .journeyMarker {
+  border-color: #123653;
+  background: #123653;
+  color: white;
+  box-shadow: 0 0 0 5px rgb(157 212 216 / 28%);
+}
+
+.journeyItem[data-status='current'] .journeyMarker::after {
+  position: absolute;
+  top: 50%;
+  right: -0.52rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 60% 40% 65% 35%;
+  background: #f29a65;
+  content: '';
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.journeyCopy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.journeyLabel {
+  color: #123653;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.journeyState {
+  color: #607589;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.journeySummary {
+  max-width: 14rem;
+  color: #5c7183;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.journeyCompact .journeySummary {
+  display: none;
+}
+
+.primaryAction {
+  position: relative;
+  display: grid;
+  min-height: 29rem;
+  grid-template-columns: minmax(0, 1.05fr) minmax(18rem, 0.95fr);
+  align-items: center;
+  gap: clamp(1.5rem, 4vw, 4rem);
+  overflow: hidden;
+  border-radius: 1.25rem;
+  padding: clamp(1.5rem, 4.5vw, 4.25rem);
+}
+
+.primaryAction[data-tone='deep'] {
+  background: linear-gradient(115deg, rgb(255 255 255 / 4%), transparent 38%), #102f50;
+  color: white;
+  box-shadow: 0 24px 60px rgb(16 47 80 / 16%);
+}
+
+.primaryAction[data-tone='light'] {
+  border: 1px solid #d6e0e6;
+  background: #fbfcfc;
+  color: #102f50;
+  box-shadow: 0 18px 50px rgb(16 47 80 / 8%);
+}
+
+.primaryActionCopy {
+  position: relative;
+  z-index: 2;
+  max-width: 42rem;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #84c4cc;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.primaryAction[data-tone='light'] .eyebrow {
+  color: #22647a;
+}
+
+.primaryActionTitle {
+  max-width: 17ch;
+  margin: 0.8rem 0 0;
+  font-size: clamp(2.25rem, 5vw, 4.8rem);
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.primaryActionSummary {
+  max-width: 41rem;
+  margin: 1.25rem 0 0;
+  color: rgb(255 255 255 / 72%);
+  font-size: clamp(0.98rem, 1.25vw, 1.12rem);
+  line-height: 1.7;
+}
+
+.primaryAction[data-tone='light'] .primaryActionSummary {
+  color: rgb(16 47 80 / 72%);
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-top: 1.65rem;
+}
+
+.primaryLink,
+.secondaryLink {
+  display: inline-flex;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.7rem 1.15rem;
+  font-size: 0.88rem;
+  font-weight: 750;
+  line-height: 1.2;
+  text-decoration: none;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.primaryLink {
+  background: #f9fbfc;
+  color: #102f50;
+  box-shadow: 0 9px 24px rgb(0 0 0 / 14%);
+}
+
+.primaryAction[data-tone='light'] .primaryLink {
+  background: #102f50;
+  color: white;
+}
+
+.secondaryLink {
+  border: 1px solid rgb(255 255 255 / 34%);
+  color: inherit;
+}
+
+.primaryAction[data-tone='light'] .secondaryLink {
+  border-color: #aec1cc;
+}
+
+.primaryLink:hover,
+.secondaryLink:hover {
+  transform: translateY(-2px);
+}
+
+.primaryLink:focus-visible,
+.secondaryLink:focus-visible {
+  outline: 3px solid #f4bd55;
+  outline-offset: 3px;
+}
+
+.supportingText {
+  max-width: 39rem;
+  margin: 1rem 0 0;
+  color: rgb(255 255 255 / 58%);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.primaryAction[data-tone='light'] .supportingText {
+  color: rgb(16 47 80 / 62%);
+}
+
+.primaryActionVisual {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+
+.primaryAction[data-tone='deep'] .primaryActionVisual {
+  filter: saturate(0.92) brightness(1.2);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.sectionHeadingCopy {
+  max-width: 48rem;
+}
+
+.sectionTitle {
+  margin: 0.35rem 0 0;
+  color: #102f50;
+  font-size: clamp(1.7rem, 3vw, 2.6rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.sectionSummary {
+  max-width: 44rem;
+  margin: 0.7rem 0 0;
+  color: #5c7183;
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.sectionAction {
+  flex: 0 0 auto;
+}
+
+@keyframes strand-flow {
+  0%,
+  100% {
+    stroke-dashoffset: 0.12;
+  }
+  50% {
+    stroke-dashoffset: -0.16;
+  }
+}
+
+@keyframes core-breathe {
+  0%,
+  100% {
+    opacity: 0.56;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.78;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes halo-settle {
+  0%,
+  100% {
+    opacity: 0.22;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes ember-pulse {
+  0%,
+  100% {
+    transform: scale(0.97);
+  }
+  50% {
+    transform: scale(1.045);
+  }
+}
+
+@media (max-width: 760px) {
+  .primaryAction {
+    min-height: auto;
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+    padding: 1.35rem;
+  }
+
+  .primaryActionTitle {
+    max-width: 16ch;
+    font-size: clamp(2.05rem, 10.5vw, 3.2rem);
+    line-height: 1;
+  }
+
+  .primaryActionVisual {
+    width: min(20rem, 88vw);
+    max-height: 10.5rem;
+    margin: -0.4rem auto -2.5rem;
+    overflow: hidden;
+  }
+
+  .journey {
+    overflow: visible;
+    padding: 0.35rem 0 0.55rem;
+  }
+
+  .journeyList {
+    width: 100%;
+  }
+
+  .journeyItem {
+    gap: 0.38rem;
+    padding-inline: 0.14rem;
+  }
+
+  .journeyList::before {
+    top: 0.9rem;
+  }
+
+  .journeyMarker {
+    width: 1.8rem;
+    height: 1.8rem;
+    font-size: 0.72rem;
+  }
+
+  .journeyLabel {
+    font-size: 0.7rem;
+  }
+
+  .journeyState {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .journeySummary {
+    display: none;
+  }
+
+  .sectionHeading {
+    align-items: start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .core::before,
+  .coreStrand,
+  .coreHalo,
+  .coreEmber {
+    animation: none;
+  }
+
+  .primaryLink,
+  .secondaryLink {
+    scroll-behavior: auto;
+    transition: none;
+  }
+
+  .primaryLink:hover,
+  .secondaryLink:hover {
+    transform: none;
+  }
+}

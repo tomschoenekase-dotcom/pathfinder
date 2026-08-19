@@ -2,18 +2,12 @@
 
 import { useEffect, useState } from 'react'
 
+import { browserUuid } from '../lib/browser-uuid'
+
 const STORAGE_KEY = 'pathfinder_visitor_id'
 
 function generateVisitorId() {
-  // randomUUID is available in modern secure browser contexts, which this PWA
-  // already relies on for geolocation. The schema validates visitorId as a UUID,
-  // so always prefer it; the timestamp form is only a last-resort fallback for
-  // ancient browsers and is simply not sent when it isn't a valid UUID.
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID()
-  }
-
-  return ''
+  return browserUuid() ?? ''
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -32,7 +26,12 @@ export function useVisitorId(): string {
       return
     }
 
-    const existing = window.localStorage.getItem(STORAGE_KEY)
+    let existing: string | null = null
+    try {
+      existing = window.localStorage.getItem(STORAGE_KEY)
+    } catch {
+      // Some private or embedded mobile contexts expose storage but reject access.
+    }
 
     if (existing && UUID_RE.test(existing)) {
       setVisitorId(existing)
@@ -42,7 +41,11 @@ export function useVisitorId(): string {
     const next = generateVisitorId()
 
     if (next) {
-      window.localStorage.setItem(STORAGE_KEY, next)
+      try {
+        window.localStorage.setItem(STORAGE_KEY, next)
+      } catch {
+        // Keep the visitor identity in memory for this page.
+      }
       setVisitorId(next)
     }
   }, [])

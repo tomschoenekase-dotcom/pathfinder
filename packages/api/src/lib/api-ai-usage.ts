@@ -18,6 +18,7 @@ export function createApiAiUsageRecorder(params: {
   tenantId: string
   venueId: string
   sessionId?: string
+  clientAssistantTurnId?: string
   feature: string
   surface: string
 }) {
@@ -31,6 +32,9 @@ export function createApiAiUsageRecorder(params: {
           tenantId: params.tenantId,
           venueId: params.venueId,
           ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+          ...(params.clientAssistantTurnId
+            ? { clientAssistantTurnId: params.clientAssistantTurnId }
+            : {}),
           feature: params.feature,
           surface: params.surface,
           provider: usage.provider,

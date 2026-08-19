@@ -4,6 +4,7 @@ export type ChatFontValue = 'jakarta' | 'inter' | 'poppins' | 'spaceGrotesk' | '
 
 export type ChatPalette = {
   accent: string
+  accentText: string
   accentContrast: string
   bg: string
   card: string
@@ -124,6 +125,18 @@ function accessibleAccentText(accent: string): string {
   return contrastRatio(accent, LIGHT_ACCENT_TEXT) >= 4.5 ? LIGHT_ACCENT_TEXT : DARK_ACCENT_TEXT
 }
 
+function accessibleAccentOnSurfaces(accent: string, surfaces: readonly string[]): string {
+  if (surfaces.every((surface) => contrastRatio(accent, surface) >= 4.5)) return accent
+
+  const { h, s, l } = hexToHsl(accent)
+  for (let lightness = Math.min(l, 0.45); lightness >= 0.08; lightness -= 0.01) {
+    const candidate = hslToHex(h, s, lightness)
+    if (surfaces.every((surface) => contrastRatio(candidate, surface) >= 4.5)) return candidate
+  }
+
+  return '#0F2A4A'
+}
+
 /**
  * Derives a neon-dark palette from a venue's existing brand accent, preserving
  * the brand hue so every venue's dark mode looks distinct rather than a shared preset.
@@ -133,6 +146,7 @@ export function deriveNeonPalette(baseHex: string): ChatPalette {
 
   return {
     accent: hslToHex(h, 0.9, 0.6),
+    accentText: hslToHex(h, 0.9, 0.6),
     accentContrast: hslToHex(h, 0.4, 0.08),
     bg: hslToHex(h, 0.25, 0.07),
     card: hslToHex(h, 0.22, 0.11),
@@ -156,12 +170,15 @@ export function getChatPalette(
   const preset = CHAT_THEME_PRESETS.find((p) => p.value === theme) ?? CHAT_THEME_PRESETS[0]!
 
   const accent = isHexColor(accentOverride) ? accentOverride : preset.accent
+  const card = '#FFFFFF'
+  const accentText = accessibleAccentOnSurfaces(accent, [preset.surface, card])
 
   return {
     accent,
+    accentText,
     accentContrast: accessibleAccentText(accent),
     bg: preset.surface,
-    card: '#FFFFFF',
+    card,
     border: '#C9D4E3',
     text: '#0F2A4A',
     textMuted: '#59697E',

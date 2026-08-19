@@ -41,8 +41,19 @@ const approvedPolicies = new Set([
   'tenant-offboarding-request-lock',
   'tenant-onboarding-request-lock',
   'tenant-onboarding-venue-slug-lock',
+  'tenant-onboarding-question-lock',
+  'tenant-onboarding-question-resume-lock',
   'tenant-intake-upload-request-lock',
+  'tenant-intake-upload-quota-lock',
+  'tenant-intake-upload-record-lock',
+  'tenant-intake-upload-multipart-lock',
   'tenant-intake-proposal-request-lock',
+  'tenant-client-assistant-preference-lock',
+  'tenant-client-assistant-turn-operation-lock',
+  'tenant-client-assistant-thread-lock',
+  'tenant-client-assistant-generation-lock',
+  'tenant-client-assistant-completion-lock',
+  'tenant-client-assistant-handoff-lock',
   'tenant-support-operation-lock',
   'tenant-support-agent-run-operation-lock',
   'tenant-support-request-lineage-lock',
@@ -223,7 +234,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/chat.ts',
     method: '$queryRaw',
-    hash: '4324b44a2ae2990f0f9f93dc9a44176f786e5ee93ee59f2d08cc4a8dc51f6fa4',
+    hash: '9f381badfcf7e8208cd17102526b7f6a28c8302c609a9a60429dc8cb97dac26e',
     policy: 'public-venue-id',
   },
   {
@@ -241,7 +252,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/venue.ts',
     method: '$queryRaw',
-    hash: '4f405b4207389854cdc15e07ffe078329dcfd1681845f27e7b70997c9f459f34',
+    hash: '08e5613e8e664eff6ce54816cb84b07d58e875a62eb9efc57ba62e35decb3a36',
     policy: 'public-venue-slug',
   },
   {
@@ -261,6 +272,42 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: 'd318aa1b435d868e28ec324666fd4d5b38d72f2e0a3f05345ef16668b40bdb8c',
     policy: 'platform-client-create-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-assistant-actions.ts',
+    method: '$executeRaw',
+    hash: '135a8e6d63e3251cfdfbb93039d71765b93df8616bc4c69834bb703059d48102',
+    policy: 'tenant-client-assistant-preference-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-assistant-actions.ts',
+    method: '$executeRaw',
+    hash: 'aab87d4ab8def8235dad05fc3557a4dbcc06ccdc58ce24665dd20b7efcf7ff7d',
+    policy: 'tenant-client-assistant-turn-operation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-assistant-actions.ts',
+    method: '$executeRaw',
+    hash: '74375b322125ec3f8ff9d4bfde1297929c803fb1e00ce961d8715f87507b23fb',
+    policy: 'tenant-client-assistant-thread-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-assistant-actions.ts',
+    method: '$executeRaw',
+    hash: '2b3420bcae3577afe8fcc8b31920d568595ddf6a40f9fbb59c2e622fb2db22b1',
+    policy: 'tenant-client-assistant-generation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-assistant-actions.ts',
+    method: '$executeRaw',
+    hash: '4398ffabbd421422d0628e8cc9f762e3b6b46ef016916604efef1b13b6aa28b2',
+    policy: 'tenant-client-assistant-completion-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/client-assistant-actions.ts',
+    method: '$executeRaw',
+    hash: 'da919fd2aa26f6f73b82c4cfcce5a7d6db8ba51998196aca48ff5aa40cb675ad',
+    policy: 'tenant-client-assistant-handoff-lock',
   },
   {
     file: 'packages/db/src/helpers/offboarding-plan-actions.ts',
@@ -287,10 +334,40 @@ const approvedOperations = [
     policy: 'tenant-onboarding-venue-slug-lock',
   },
   {
+    file: 'packages/db/src/helpers/onboarding-question-actions.ts',
+    method: '$executeRaw',
+    hash: '2ee70d40bc4f79f0f0d02d0f28c74f6a0a7d9882394cf929d00d3063208bbb17',
+    policy: 'tenant-onboarding-question-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/onboarding-question-actions.ts',
+    method: '$executeRaw',
+    hash: 'c6a29ed10894781357d4f4220aae129bb0e597db6111772bf4e89aeb21329fcf',
+    policy: 'tenant-onboarding-question-resume-lock',
+  },
+  {
     file: 'packages/db/src/helpers/intake-upload-actions.ts',
     method: '$executeRaw',
     hash: '38c3506f295d7ee11b73d6bc224e1cdabb77d34e0edd4d6479fb573d1ee78b1d',
     policy: 'tenant-intake-upload-request-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-upload-actions.ts',
+    method: '$executeRaw',
+    hash: 'a8cdc500a0d333fc87298ecf342ebb9cc2514071fdd688b13708d2660c31b877',
+    policy: 'tenant-intake-upload-quota-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-upload-actions.ts',
+    method: '$executeRaw',
+    hash: '14558cd28b5584b17dcaa50eefc4a6639f974e410fd9accaf2ec0217ffdfb98b',
+    policy: 'tenant-intake-upload-record-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/intake-upload-actions.ts',
+    method: '$executeRaw',
+    hash: 'a50b4d4684fda38829f56ae749ac8e3ea508124c144d3c09b22d42f1fbc559d6',
+    policy: 'tenant-intake-upload-multipart-lock',
   },
   {
     file: 'packages/db/src/helpers/intake-actions.ts',
@@ -483,7 +560,7 @@ const approvedOperations = [
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$queryRaw',
-    hash: '86c45e1fb58daaf4ee5320549fa21008b76f1984fb96c010fde2f3442bfa510c',
+    hash: '531d881c910f52622ce1d8df88593e09077817bba661d80e0eebe7b994692954',
     policy: 'tenant-and-venue',
   },
   {

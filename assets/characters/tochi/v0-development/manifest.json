@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "characterId": "tochi",
+  "assetPackId": "tochi-dev-v0",
+  "version": "0-development",
+  "renderer": "layered-svg-v1",
+  "artStatus": "placeholder",
+  "publishable": false,
+  "publicBasePath": "/characters/tochi/v0-development",
+  "assets": [
+    {
+      "id": "body",
+      "path": "body.svg",
+      "mediaType": "image/svg+xml",
+      "width": 320,
+      "height": 360,
+      "bytes": 1057,
+      "sha256": "500da7e147377e2f1fdebe424c8cdeb5e4f599f549c3f2bb389168e693ca5250"
+    },
+    {
+      "id": "eyes",
+      "path": "eyes.svg",
+      "mediaType": "image/svg+xml",
+      "width": 320,
+      "height": 360,
+      "bytes": 444,
+      "sha256": "be12f858c2a412b368b42018d57abe1dd164c8127107905fc0ace37a2a931b98"
+    },
+    {
+      "id": "embers",
+      "path": "embers.svg",
+      "mediaType": "image/svg+xml",
+      "width": 320,
+      "height": 360,
+      "bytes": 353,
+      "sha256": "7721e881d6ca42fa7c1da111a6bd43e98a2c8979cf2f15d115b0325d4c34ffda"
+    },
+    {
+      "id": "preview",
+      "path": "preview.svg",
+      "mediaType": "image/svg+xml",
+      "width": 320,
+      "height": 360,
+      "bytes": 1844,
+      "sha256": "dd34c16473a6d6bb0bac2a131be3c0b48dc6fe64fe59df4f48caa8f5fd6587e9"
+    },
+    {
+      "id": "fallback",
+      "path": "fallback.svg",
+      "mediaType": "image/svg+xml",
+      "width": 320,
+      "height": 360,
+      "bytes": 1206,
+      "sha256": "ceefc3afff6d137fa20bb210605ca4b806add57be318f59b31b7be7fea84a5fc"
+    }
+  ],
+  "canvas": { "width": 320, "height": 360 },
+  "safeBounds": { "x": 24, "y": 20, "width": 272, "height": 320 },
+  "origin": { "x": 160, "y": 340 },
+  "anchors": {
+    "lookAt": { "x": 160, "y": 174 },
+    "embers": { "x": 160, "y": 276 }
+  },
+  "thumbnailAssetId": "preview",
+  "selectionPreviewAssetId": "preview",
+  "staticFallbackAssetId": "fallback",
+  "reducedMotionFallbackAssetId": "fallback",
+  "layers": {
+    "body": "body",
+    "eyes": "eyes",
+    "embers": "embers"
+  },
+  "states": {
+    "idle": { "variant": "idle" },
+    "attention": { "variant": "attention" },
+    "listening": { "variant": "listening" },
+    "thinking": { "variant": "thinking" },
+    "speaking": { "variant": "speaking" },
+    "success": { "variant": "success" },
+    "processing": { "variant": "processing" },
+    "uploadReceiving": { "variant": "upload-receiving" },
+    "uploadComplete": { "variant": "upload-complete" },
+    "question": { "variant": "question" },
+    "handoff": { "variant": "handoff" },
+    "error": { "variant": "error" },
+    "sleeping": { "variant": "sleeping" },
+    "minimized": { "variant": "minimized" }
+  },
+  "stateFallbacks": {},
+  "supportedThemes": ["torchiko-light", "torchiko-dark"],
+  "supportedContexts": ["client-assistant", "venue-text-chat", "venue-voice-chat", "marketing"],
+  "voice": {
+    "supported": false,
+    "profileIds": [],
+    "notes": "Voice is an explicit future seam; this pack does not provide voice capability."
+  },
+  "attribution": "Temporary development artwork created for renderer and state-machine validation.",
+  "internalHandoffNotes": "Temporary development assets. Replace through a new approved immutable pack; never promote this placeholder pack."
+}

@@ -2,9 +2,14 @@ import { redirect } from 'next/navigation'
 
 import { SupportWorkspace } from '../../../components/SupportWorkspace'
 import { createDashboardCaller } from '../../../lib/server-caller'
+import { resolveOnboardingReturn } from '../../../lib/onboarding-return'
 
 type SupportPageProps = {
-  searchParams: Promise<{ venue?: string | string[]; request?: string | string[] }>
+  searchParams: Promise<{
+    venue?: string | string[]
+    request?: string | string[]
+    returnTo?: string | string[]
+  }>
 }
 
 export default async function SupportPage({ searchParams }: SupportPageProps) {
@@ -20,6 +25,9 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
   const requestedRequestId =
     requestedRequest && requestedRequest.length <= 191 ? requestedRequest : undefined
   const selectedVenue = venues.find((venue) => venue.id === requestedVenueId) ?? venues[0]!
+  const returnHref = query.returnTo
+    ? resolveOnboardingReturn(query.returnTo, selectedVenue.id, 'QUESTIONS')
+    : undefined
   const [requestPage, eligibleAttachments] = await Promise.all([
     caller.support.listRequests({ venueId: selectedVenue.id }),
     caller.support.listEligibleAttachments({ venueId: selectedVenue.id, limit: 20 }),
@@ -47,6 +55,7 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
       initialDetail={initialDetail}
       initialEligibleAttachments={eligibleAttachments.items}
       initialEligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
+      returnHref={returnHref}
     />
   )
 }

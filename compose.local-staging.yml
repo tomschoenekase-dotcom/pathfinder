@@ -1,0 +1,81 @@
+name: pathfinder-local-staging
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: pathfinder_disposable_local_staging
+      POSTGRES_USER: pathfinder
+      POSTGRES_PASSWORD: pathfinder-local-staging
+    ports:
+      - '127.0.0.1:55440:5432'
+    volumes:
+      - '${PATHFINDER_LOCAL_STAGING_DATA_DIR}/postgres:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pathfinder -d pathfinder_disposable_local_staging']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '127.0.0.1:56380:6379'
+    volumes:
+      - '${PATHFINDER_LOCAL_STAGING_DATA_DIR}/redis:/data'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: pathfinder-local-staging
+      MINIO_ROOT_PASSWORD: pathfinder-local-staging-secret
+      MINIO_API_CORS_ALLOW_ORIGIN: 'http://127.0.0.1:3101,http://localhost:3101,${PATHFINDER_LOCAL_STAGING_DASHBOARD_ORIGIN:-http://127.0.0.1:3101}'
+    ports:
+      - '${PATHFINDER_LOCAL_STAGING_MINIO_BIND_ADDRESS:-127.0.0.1}:59000:9000'
+      - '127.0.0.1:59001:9001'
+    volumes:
+      - '${PATHFINDER_LOCAL_STAGING_DATA_DIR}/minio:/data'
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 pathfinder-local-staging pathfinder-local-staging-secret
+        mc mb --ignore-existing local/pathfinder-local-staging
+        mc version enable local/pathfinder-local-staging
+        mc anonymous set none local/pathfinder-local-staging
+    restart: 'no'
+
+  clamav:
+    image: clamav/clamav:stable
+    ports:
+      - '127.0.0.1:53310:3310'
+    volumes:
+      - '${PATHFINDER_LOCAL_STAGING_DATA_DIR}/clamav:/var/lib/clamav'
+    healthcheck:
+      test: ['CMD-SHELL', 'printf "PING\\n" | nc 127.0.0.1 3310 | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+    restart: unless-stopped

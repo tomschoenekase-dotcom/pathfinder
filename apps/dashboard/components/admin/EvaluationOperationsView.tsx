@@ -2,6 +2,9 @@ import Link from 'next/link'
 import { EvaluationRunRequestPanel, type EvaluationCaseListItem } from './EvaluationRunRequestPanel'
 import { EvaluationRunLifecycleControl } from './EvaluationRunLifecycleControl'
 import { EvaluationComparisonPanel } from './EvaluationComparisonPanel'
+import { OnboardingEvaluationSuitePanel } from './OnboardingEvaluationSuitePanel'
+import { OnboardingMilestoneMetricsPanel } from './OnboardingMilestoneMetricsPanel'
+import type { OnboardingMilestoneRollup } from '@pathfinder/contracts'
 
 type EvaluationSummary = {
   resultCount: number
@@ -57,6 +60,18 @@ type HumanConclusion = {
   }
 }
 
+type FailedCase = {
+  id: string
+  runId: string
+  caseId: string
+  caseKey: string
+  category: string
+  caseRevision: number
+  passedChecks: number | null
+  totalChecks: number | null
+  checks: { checkId: string; passed: boolean; detail: string }[]
+}
+
 type EvaluationOperationsViewProps = {
   tenantId: string
   venueId: string
@@ -68,6 +83,9 @@ type EvaluationOperationsViewProps = {
   runnerEnabled?: boolean
   maximumCases?: number
   requestPanelEnabled?: boolean
+  approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
+  failedCases?: FailedCase[]
+  onboardingMetrics?: OnboardingMilestoneRollup
 }
 
 function shortHash(value: string | null) {
@@ -145,6 +163,9 @@ export function EvaluationOperationsView({
   runnerEnabled = false,
   maximumCases = 50,
   requestPanelEnabled = false,
+  approvedPackages = [],
+  failedCases = [],
+  onboardingMetrics,
 }: EvaluationOperationsViewProps) {
   return (
     <div className="space-y-8">
@@ -165,15 +186,25 @@ export function EvaluationOperationsView({
         </div>
       </header>
 
+      {onboardingMetrics ? <OnboardingMilestoneMetricsPanel rollup={onboardingMetrics} /> : null}
+
       {requestPanelEnabled ? (
-        <EvaluationRunRequestPanel
-          tenantId={tenantId}
-          venueId={venueId}
-          initialCases={cases}
-          initialNextCursor={caseNextCursor}
-          runnerEnabled={runnerEnabled}
-          maximumCases={maximumCases}
-        />
+        <>
+          <OnboardingEvaluationSuitePanel
+            tenantId={tenantId}
+            venueId={venueId}
+            approvedPackages={approvedPackages}
+          />
+          <EvaluationRunRequestPanel
+            tenantId={tenantId}
+            venueId={venueId}
+            initialCases={cases}
+            initialNextCursor={caseNextCursor}
+            runnerEnabled={runnerEnabled}
+            maximumCases={maximumCases}
+            approvedPackages={approvedPackages}
+          />
+        </>
       ) : null}
 
       {runs.length === 0 ? (
@@ -188,6 +219,7 @@ export function EvaluationOperationsView({
         <section className="space-y-4" aria-label="Evaluation runs">
           {runs.map((run) => {
             const operational = operationalTotal(run.summary)
+            const runFailures = failedCases.filter((failure) => failure.runId === run.id)
             return (
               <article
                 key={run.id}
@@ -247,6 +279,51 @@ export function EvaluationOperationsView({
                     </div>
                   </section>
                 </div>
+
+                {runFailures.length > 0 ? (
+                  <section
+                    className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 p-4"
+                    aria-label={`Failed cases for run ${run.id}`}
+                  >
+                    <h4 className="font-semibold text-rose-950">Exact failed cases</h4>
+                    <p className="mt-1 text-sm text-rose-900">
+                      Record any repair as a new package revision, approve it separately, prepare
+                      its seven-case suite, and retest that exact package. Reviewed packages are
+                      never edited in place.
+                    </p>
+                    <ul className="mt-3 space-y-3">
+                      {runFailures.map((failure) => (
+                        <li
+                          key={failure.id}
+                          className="rounded-xl border border-rose-200 bg-white p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-pf-deep">{failure.caseKey}</span>
+                            <span className="text-xs text-pf-deep/60">
+                              {failure.category} · revision {failure.caseRevision} ·{' '}
+                              {failure.passedChecks ?? 0}/{failure.totalChecks ?? 0} checks
+                            </span>
+                          </div>
+                          <ul className="mt-2 space-y-1 text-xs text-pf-deep/70">
+                            {failure.checks
+                              .filter((check) => !check.passed)
+                              .map((check) => (
+                                <li key={check.checkId}>
+                                  {check.checkId}: {check.detail}
+                                </li>
+                              ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                    <Link
+                      href={`/admin/clients/${tenantId}/venues/${venueId}/packages`}
+                      className="mt-3 inline-flex min-h-11 items-center font-semibold text-pf-primary underline"
+                    >
+                      Open versioned package repairs
+                    </Link>
+                  </section>
+                ) : null}
 
                 <details className="mt-5 rounded-2xl border border-pf-light px-4 py-3">
                   <summary className="cursor-pointer text-sm font-semibold text-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent">

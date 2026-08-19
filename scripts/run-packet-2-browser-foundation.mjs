@@ -17,6 +17,8 @@ const suites = [
       'components/admin/AdminSectionShell.test.tsx',
       'components/admin/ClientWorkspaceShell.test.tsx',
       'components/DashboardOverview.test.tsx',
+      'components/RemoteOnboardingJourney.test.tsx',
+      'components/ClientPortalPrimitives.test.tsx',
       'components/SupportWorkspace.test.tsx',
       'components/admin/SupportOperationsView.test.tsx',
       'components/PacketSurfaceStates.test.tsx',

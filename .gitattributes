@@ -1,0 +1,2 @@
+# Character hashes are calculated from canonical bytes and must be checkout-stable.
+assets/characters/** text eol=lf

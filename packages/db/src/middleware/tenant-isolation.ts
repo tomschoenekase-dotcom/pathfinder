@@ -16,14 +16,26 @@ export type TenantIsolationMiddlewareParams = {
 
 type MiddlewareNext = (params: TenantIsolationMiddlewareParams) => Promise<unknown>
 
-const bypassTenantIsolationStorage = new AsyncLocalStorage<boolean>()
+type TenantIsolationGlobal = typeof globalThis & {
+  __pathfinderTenantIsolationBypassStorage?: AsyncLocalStorage<boolean>
+}
+
+// Next.js can evaluate this package in more than one server bundle. Keep one
+// request-scoped AsyncLocalStorage instance per process so the approved bypass
+// wrapper and Prisma middleware cannot diverge across those module copies.
+const tenantIsolationGlobal = globalThis as TenantIsolationGlobal
+const bypassTenantIsolationStorage =
+  tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage ?? new AsyncLocalStorage<boolean>()
+tenantIsolationGlobal.__pathfinderTenantIsolationBypassStorage = bypassTenantIsolationStorage
 const APPEND_ONLY_MODELS = [
   'AiUsageEvent',
   'EvalCase',
   'EvalResult',
   'EvalReview',
+  'OnboardingMilestoneEvent',
   'AgentAction',
   'AgentTimelineEvent',
+  'AgentMessage',
   'ApprovalRequest',
   'ApprovalDecision',
   'SupportMessage',
@@ -32,9 +44,11 @@ const APPEND_ONLY_MODELS = [
   'SupportPackageHandoff',
   'SupportPreviewFeedback',
   'SupportAgentRunLineage',
+  'ClientAssistantSupportHandoff',
   'ExternalCredentialRotation',
   'ExternalCredentialOperationReceipt',
   'ExternalCredentialRevocation',
+  'ExternalCredentialActivation',
   'OffboardingVenueTarget',
   'OffboardingRevocationEvidence',
   'OffboardingExportArtifact',
@@ -64,16 +78,24 @@ const APPEND_ONLY_MODELS = [
   'NativeVenueDeploymentEvaluationEvidence',
 ] as const
 const AUDIT_LIFECYCLE_MODELS = [
+  'AgentBridgeSession',
   'AgentRun',
   'EvalRun',
   'EvalRunCostReservation',
   'SupportRequest',
   'SupportRequestParticipant',
+  'OnboardingQuestionLink',
   'OffboardingPlan',
   'OffboardingExportOperation',
   'IntakeUpload',
   'GuestChatTurn',
   'GuestChatProviderOperation',
+  'VenueBotConfiguration',
+  'PersonalityProfile',
+  'CustomCharacter',
+  'ClientAssistantPreference',
+  'ClientAssistantThread',
+  'ClientAssistantTurn',
 ] as const
 const MUTATING_EXISTING_ACTIONS = ['update', 'updateMany', 'upsert', 'delete', 'deleteMany']
 const DESTRUCTIVE_ACTIONS = ['delete', 'deleteMany']

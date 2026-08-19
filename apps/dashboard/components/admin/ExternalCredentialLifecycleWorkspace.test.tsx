@@ -25,6 +25,7 @@ describe('external credential lifecycle workspace', () => {
   const issue = vi.fn()
   const rotate = vi.fn()
   const revoke = vi.fn()
+  const activate = vi.fn()
   const refresh = vi.fn()
 
   beforeEach(() => {
@@ -52,6 +53,11 @@ describe('external credential lifecycle workspace', () => {
       plaintextSecret: null,
       replayed: false,
     })
+    activate.mockResolvedValue({
+      credential: { ...credential, enabled: true },
+      plaintextSecret: null,
+      replayed: false,
+    })
   })
 
   afterEach(() => {
@@ -59,7 +65,9 @@ describe('external credential lifecycle workspace', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderWorkspace(selected = credential) {
+  function renderWorkspace(
+    selected: React.ComponentProps<typeof ExternalCredentialLifecycle>['credential'] = credential,
+  ) {
     return render(
       <ExternalCredentialLifecycle
         tenantId="tenant-a"
@@ -69,6 +77,7 @@ describe('external credential lifecycle workspace', () => {
         issue={issue}
         rotate={rotate}
         revoke={revoke}
+        activate={activate}
         onRefresh={refresh}
       />,
     )
@@ -110,7 +119,7 @@ describe('external credential lifecycle workspace', () => {
     expect(screen.queryByText('pf_read_ONE_TIME_SECRET')).toBeNull()
     expect(refresh).toHaveBeenCalledOnce()
     expect(document.activeElement).toBe(
-      screen.getByRole('heading', { name: 'External access is disabled' }),
+      screen.getByRole('heading', { name: 'External access is capability-gated' }),
     )
   })
 
@@ -138,7 +147,7 @@ describe('external credential lifecycle workspace', () => {
     renderWorkspace()
     fireEvent.click(screen.getByLabelText(/confirmed the prefix/))
     fireEvent.click(screen.getByLabelText(/revocation is permanent/))
-    const rotateButton = screen.getByRole('button', { name: 'Rotate disabled credential' })
+    const rotateButton = screen.getByRole('button', { name: 'Rotate credential' })
     const revokeButton = screen.getByRole('button', { name: 'Revoke permanently' })
     fireEvent.click(rotateButton)
     fireEvent.click(revokeButton)
@@ -201,6 +210,7 @@ describe('external credential lifecycle workspace', () => {
         issue={issue}
         rotate={rotate}
         revoke={revoke}
+        activate={activate}
       />,
     )
     expect(screen.queryByText('pf_read_ONE_TIME_SECRET')).toBeNull()
@@ -233,6 +243,7 @@ describe('external credential lifecycle workspace', () => {
         issue={issue}
         rotate={rotate}
         revoke={revoke}
+        activate={activate}
       />,
     )
     resolveIssue?.({ credential, plaintextSecret: 'SECRET_SENTINEL_LATE', replayed: false })
@@ -247,5 +258,30 @@ describe('external credential lifecycle workspace', () => {
       rules: { 'color-contrast': { enabled: false } },
     })
     expect(result.violations).toEqual([])
+  })
+
+  it('activates only a confirmed exact venue MCP bridge credential without returning a secret', async () => {
+    const bridgeCredential = {
+      ...credential,
+      kind: 'MCP' as const,
+      label: 'Codex runner',
+      capabilities: ['agent-runs:execute'],
+      secretPrefix: 'pf_mcp_visible',
+    }
+    renderWorkspace(bridgeCredential)
+    const button = screen.getByRole('button', { name: 'Activate bridge credential' })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText(/verified the venue and the exact capability list/i))
+    fireEvent.click(button)
+    await screen.findByText(/Bridge credential activated/i)
+    expect(activate).toHaveBeenCalledWith({
+      tenantId: 'tenant-a',
+      clientId: 'tenant-a',
+      venueId: 'venue-a',
+      credentialId: 'credential-a',
+      expectedUpdatedAt: '2026-08-12T12:00:00.000Z',
+      operationId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+    })
+    expect(document.body.textContent).not.toMatch(/pf_mcp_[A-Za-z0-9_-]{20,}/u)
   })
 })

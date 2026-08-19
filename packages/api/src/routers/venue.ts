@@ -3,6 +3,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { currentUser, validateExistingOrganizationOwner } from '@pathfinder/auth'
+import { PersonalityProfileDraft, resolvePublicVenueBotPresentation } from '@pathfinder/contracts'
+import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config'
 import {
   createVenueAction,
   deleteVenueAction,
@@ -11,6 +14,11 @@ import {
   setContentVersionContext,
   updateVenueAction,
   updateVenueAiConfigAction,
+  getVenueBotConfigurationAction,
+  updateVenueBotConfigurationAction,
+  createPersonalityProfileAction,
+  listPersonalityProfilesAction,
+  updatePersonalityProfileAction,
   updateVenueChatDesignAction,
   VenueActionError,
   type VenueHumanActor,
@@ -19,9 +27,11 @@ import { emitEvent } from '@pathfinder/analytics'
 import {
   CreateVenueRequestInput,
   DeleteVenueInput,
+  GetVenueBotConfigurationInput,
   normalizeInitialVenueContent,
   UpdateVenueAiConfigInput,
   UpdateVenueChatDesignInput,
+  UpdateVenueBotConfigurationInput,
   UpdateVenueRequestInput,
 } from '../schemas/venue'
 import {
@@ -30,11 +40,128 @@ import {
 } from '../schemas/venue-content'
 
 import { router } from '../core'
+import { resolveSystemCharacterProjection } from '../lib/character-registry'
 import { checkRateLimit } from '../lib/rate-limit'
 import { requireRole } from '../middleware/require-role'
 import { publicProcedure, tenantProcedure } from '../trpc'
 
 const PUBLIC_VENUE_LOOKUP_GLOBAL_LIMIT_PER_MINUTE = 10_000
+
+function exactDisposableLoopbackDatabase(raw: string | undefined): string | null {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    const database = url.pathname.replace(/^\//u, '')
+    if (
+      !['postgres:', 'postgresql:'].includes(url.protocol) ||
+      !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
+      !/^pathfinder_disposable_[a-z0-9_]+$/u.test(database)
+    ) {
+      return null
+    }
+    return `${url.hostname}:${url.port}/${database}`
+  } catch {
+    return null
+  }
+}
+
+export function permitsLocalWorkspaceReconciliation(environment?: {
+  DATABASE_URL?: string | undefined
+  DIRECT_DATABASE_URL?: string | undefined
+  PATHFINDER_LOCAL_STAGING_DATA_DIR?: string | undefined
+}): boolean {
+  const candidate = environment ?? (process.env as Record<string, string | undefined>)
+  const primary = exactDisposableLoopbackDatabase(candidate.DATABASE_URL)
+  const direct = exactDisposableLoopbackDatabase(candidate.DIRECT_DATABASE_URL)
+  return Boolean(candidate.PATHFINDER_LOCAL_STAGING_DATA_DIR && primary && primary === direct)
+}
+
+function isMissingVenueTenant(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'P2003' &&
+    'message' in error &&
+    String(error.message).includes('venues_tenant_id_fkey')
+  )
+}
+
+async function reconcileLocalWorkspace(ctx: {
+  db: typeof import('@pathfinder/db').db
+  session: { userId: string; activeTenantId: string }
+}): Promise<void> {
+  if (!permitsLocalWorkspaceReconciliation()) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'The selected client workspace is not available in this environment.',
+    })
+  }
+
+  const user = await currentUser()
+  const email =
+    user?.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)
+      ?.emailAddress ?? user?.emailAddresses[0]?.emailAddress
+  if (!user || user.id !== ctx.session.userId || !email) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication must be refreshed.' })
+  }
+
+  const organization = await validateExistingOrganizationOwner({
+    organizationId: ctx.session.activeTenantId,
+    userId: ctx.session.userId,
+    emailAddress: email,
+  })
+  const slugBase = slugify(organization.organizationSlug) || 'workspace'
+  const localSlug = `${slugBase}-${createHash('sha256')
+    .update(organization.organizationId)
+    .digest('hex')
+    .slice(0, 10)}`
+
+  await ctx.db.$transaction(async (tx) => {
+    await tx.tenant.upsert({
+      where: { id: organization.organizationId },
+      create: {
+        id: organization.organizationId,
+        name: organization.organizationName,
+        slug: localSlug,
+      },
+      update: { name: organization.organizationName },
+    })
+    await tx.user.upsert({
+      where: { id: user.id },
+      create: { id: user.id, email },
+      update: { email },
+    })
+    await tx.tenantMembership.upsert({
+      where: {
+        tenantId: organization.organizationId,
+        tenantId_userId: {
+          tenantId: organization.organizationId,
+          userId: user.id,
+        },
+      },
+      create: {
+        tenantId: organization.organizationId,
+        userId: user.id,
+        role: 'OWNER',
+        status: 'ACTIVE',
+        joinedAt: new Date(),
+      },
+      update: { role: 'OWNER', status: 'ACTIVE' },
+    })
+    await tx.auditLog.create({
+      data: {
+        tenantId: organization.organizationId,
+        actorId: user.id,
+        actorRole: 'OWNER',
+        action: 'local-staging.workspace.reconciled',
+        targetType: 'Tenant',
+        targetId: organization.organizationId,
+        afterState: { source: 'validated-clerk-owner', localOnly: true },
+      },
+    })
+  })
+}
 
 function venueActor(session: { userId: string | null; role: string | null }): VenueHumanActor {
   return {
@@ -69,6 +196,39 @@ function publicVenueUnavailable(): TRPCError {
     code: 'SERVICE_UNAVAILABLE',
     message: 'This venue guide is temporarily unavailable.',
   })
+}
+
+async function requireCharacterConfigurationRollout(
+  db: typeof import('@pathfinder/db').db,
+  tenantId: string,
+  characterKey?: string | null,
+): Promise<void> {
+  const globalKeys = ['venueCharacterMode', 'characterRegistry'] as const
+  if (
+    globalKeys.some((key) => !isFeatureEnabled(key)) ||
+    (characterKey === 'tochi' && !isFeatureEnabled('tochiVenueCharacter'))
+  ) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Character presentation is not available for this workspace.',
+    })
+  }
+  const requiredTenantKeys = [
+    TOCHI_TENANT_FLAG_KEYS.venueCharacterMode,
+    TOCHI_TENANT_FLAG_KEYS.characterRegistry,
+    ...(characterKey === 'tochi' ? [TOCHI_TENANT_FLAG_KEYS.tochiVenueCharacter] : []),
+  ]
+  const rows = await db.tenantFeatureFlag.findMany({
+    where: { tenantId, flagKey: { in: requiredTenantKeys }, enabled: true },
+    select: { flagKey: true },
+  })
+  const enabled = new Set(rows.map(({ flagKey }) => flagKey))
+  if (requiredTenantKeys.some((key) => !enabled.has(key))) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Character presentation is not available for this workspace.',
+    })
+  }
 }
 
 function venueContentImportPayloadHash(input: ImportVenueContentInput): string {
@@ -214,9 +374,15 @@ export const venueRouter = router({
           secondLayerEnabled: boolean
           secondLayerLabel: string
           secondLayerAccessKey: string | null
+          venueBotConfigurationId: string | null
+          venueBotPresentationMode: 'CLASSIC' | 'CHARACTER' | null
+          venueBotTonePreset: string | null
+          venueBotCharacterKey: string | null
+          venueBotPublicDisplayName: string | null
+          venueBotGreeting: string | null
         }[]
       >`
-        SELECT id, tenant_id AS "tenantId", name, description, category,
+        SELECT v.id, v.tenant_id AS "tenantId", v.name, v.description, v.category,
                guide_mode            AS "guideMode",
                default_center_lat    AS "defaultCenterLat",
                default_center_lng    AS "defaultCenterLng",
@@ -230,7 +396,16 @@ export const venueRouter = router({
                ,second_layer_enabled AS "secondLayerEnabled"
                ,second_layer_label AS "secondLayerLabel"
                ,second_layer_access_key AS "secondLayerAccessKey"
-        FROM venues WHERE slug = ${input.slug} LIMIT 1
+               ,vbc.id AS "venueBotConfigurationId"
+               ,vbc.presentation_mode AS "venueBotPresentationMode"
+               ,vbc.tone_preset AS "venueBotTonePreset"
+               ,vbc.character_key AS "venueBotCharacterKey"
+               ,vbc.public_display_name AS "venueBotPublicDisplayName"
+               ,vbc.greeting AS "venueBotGreeting"
+        FROM venues v
+        LEFT JOIN venue_bot_configurations vbc
+          ON vbc.venue_id = v.id AND vbc.tenant_id = v.tenant_id
+        WHERE v.slug = ${input.slug} LIMIT 1
       `
 
       if (!venue) {
@@ -256,20 +431,83 @@ export const venueRouter = router({
         secondLayerEnabled: _enabled,
         secondLayerLabel: _label,
         tenantId: _tenantId,
+        venueBotConfigurationId: _venueBotConfigurationId,
+        venueBotPresentationMode: _venueBotPresentationMode,
+        venueBotTonePreset: _venueBotTonePreset,
+        venueBotCharacterKey: _venueBotCharacterKey,
+        venueBotPublicDisplayName: _venueBotPublicDisplayName,
+        venueBotGreeting: _venueBotGreeting,
         ...safeVenue
       } = publicVenue
       void _secret
       void _enabled
       void _label
       void _tenantId
+      void _venueBotConfigurationId
+      void _venueBotPresentationMode
+      void _venueBotTonePreset
+      void _venueBotCharacterKey
+      void _venueBotPublicDisplayName
+      void _venueBotGreeting
 
+      let venueBotPresentation = null
+      if (isFeatureEnabled('venueCharacterMode') && isFeatureEnabled('characterRegistry')) {
+        const configuredCharacterKey = venue.venueBotCharacterKey
+        const enabledFlags = await ctx.db.tenantFeatureFlag.findMany({
+          where: {
+            tenantId: venue.tenantId,
+            flagKey: {
+              in: [
+                TOCHI_TENANT_FLAG_KEYS.venueCharacterMode,
+                TOCHI_TENANT_FLAG_KEYS.characterRegistry,
+                ...(configuredCharacterKey === 'tochi'
+                  ? [TOCHI_TENANT_FLAG_KEYS.tochiVenueCharacter]
+                  : []),
+              ],
+            },
+            enabled: true,
+          },
+          select: { flagKey: true },
+        })
+        const enabledKeys = new Set(enabledFlags.map(({ flagKey }) => flagKey))
+        if (
+          enabledKeys.has(TOCHI_TENANT_FLAG_KEYS.venueCharacterMode) &&
+          enabledKeys.has(TOCHI_TENANT_FLAG_KEYS.characterRegistry) &&
+          (configuredCharacterKey !== 'tochi' ||
+            (isFeatureEnabled('tochiVenueCharacter') &&
+              enabledKeys.has(TOCHI_TENANT_FLAG_KEYS.tochiVenueCharacter)))
+        ) {
+          venueBotPresentation = resolvePublicVenueBotPresentation({
+            configuration: venue.venueBotConfigurationId
+              ? {
+                  presentationMode: venue.venueBotPresentationMode ?? 'CLASSIC',
+                  tonePreset:
+                    venue.venueBotTonePreset === 'concise' ||
+                    venue.venueBotTonePreset === 'enthusiastic' ||
+                    venue.venueBotTonePreset === 'informative'
+                      ? venue.venueBotTonePreset
+                      : 'friendly',
+                  characterKey: venue.venueBotCharacterKey,
+                  publicDisplayName: venue.venueBotPublicDisplayName,
+                  greeting: venue.venueBotGreeting,
+                }
+              : null,
+            rolloutEnabled: true,
+            approvedCharacter: resolveSystemCharacterProjection(configuredCharacterKey),
+          })
+        }
+      }
+
+      const projectedVenue = venueBotPresentation
+        ? { ...safeVenue, venueBotPresentation }
+        : safeVenue
       return isSecondLayer
         ? {
-            ...safeVenue,
+            ...projectedVenue,
             experienceScope: 'SECOND_LAYER' as const,
             experienceLabel: venue.secondLayerLabel,
           }
-        : safeVenue
+        : projectedVenue
     }),
 
   list: tenantProcedure.query(async ({ ctx }) => {
@@ -417,27 +655,39 @@ export const venueRouter = router({
       const guideMode = input.guideMode ?? 'location_aware'
 
       try {
-        const created = await createVenueAction(
-          {
-            tenantId,
-            actor: venueActor(ctx.session),
-            name: input.name,
-            baseSlug,
-            callerSuppliedSlug: input.slug !== undefined,
-            ...(input.description !== undefined ? { description: input.description } : {}),
-            ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
-            ...(input.category !== undefined ? { category: input.category } : {}),
-            guideMode,
-            ...(input.defaultCenterLat !== undefined
-              ? { defaultCenterLat: input.defaultCenterLat }
-              : {}),
-            ...(input.defaultCenterLng !== undefined
-              ? { defaultCenterLng: input.defaultCenterLng }
-              : {}),
-            ...(initialContent !== undefined ? { initialContent } : {}),
-          },
-          ctx.db,
-        )
+        const create = () =>
+          createVenueAction(
+            {
+              tenantId,
+              actor: venueActor(ctx.session),
+              name: input.name,
+              baseSlug,
+              callerSuppliedSlug: input.slug !== undefined,
+              ...(input.description !== undefined ? { description: input.description } : {}),
+              ...(input.guideNotes !== undefined ? { guideNotes: input.guideNotes } : {}),
+              ...(input.category !== undefined ? { category: input.category } : {}),
+              guideMode,
+              ...(input.defaultCenterLat !== undefined
+                ? { defaultCenterLat: input.defaultCenterLat }
+                : {}),
+              ...(input.defaultCenterLng !== undefined
+                ? { defaultCenterLng: input.defaultCenterLng }
+                : {}),
+              ...(initialContent !== undefined ? { initialContent } : {}),
+            },
+            ctx.db,
+          )
+        let created
+        try {
+          created = await create()
+        } catch (error) {
+          if (!isMissingVenueTenant(error)) throw error
+          await reconcileLocalWorkspace({
+            db: ctx.db,
+            session: { userId: ctx.session.userId, activeTenantId: tenantId },
+          })
+          created = await create()
+        }
 
         const { places = [], knowledgeEntries = [], ...venue } = created.record
         void places
@@ -650,6 +900,155 @@ export const venueRouter = router({
       }
 
       return updated
+    }),
+
+  getBotConfiguration: tenantProcedure
+    .input(GetVenueBotConfigurationInput)
+    .query(async ({ ctx, input }) => {
+      try {
+        return await getVenueBotConfigurationAction(
+          { tenantId: ctx.session.activeTenantId, venueId: input.venueId },
+          ctx.db,
+        )
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
+      }
+    }),
+
+  updateBotConfiguration: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(UpdateVenueBotConfigurationInput)
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      const { venueId, expectedRevision, ...fields } = input
+      if (
+        input.presentationMode === 'CHARACTER' ||
+        typeof input.characterKey === 'string' ||
+        typeof input.customCharacterId === 'string'
+      ) {
+        await requireCharacterConfigurationRollout(ctx.db, tenantId, input.characterKey)
+      }
+      let updated
+      try {
+        updated = await updateVenueBotConfigurationAction(
+          {
+            tenantId,
+            venueId,
+            expectedRevision,
+            actor: venueActor(ctx.session),
+            fields,
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
+      }
+
+      try {
+        if (input.presentationMode !== undefined) {
+          await emitEvent({
+            tenantId,
+            venueId,
+            eventType: 'venue_bot_presentation_changed',
+            metadata: { presentationMode: updated.presentationMode },
+          })
+          if (updated.presentationMode === 'CLASSIC') {
+            await emitEvent({ tenantId, venueId, eventType: 'character_mode_disabled' })
+          }
+        }
+        if (input.characterKey !== undefined || input.customCharacterId !== undefined) {
+          await emitEvent({
+            tenantId,
+            venueId,
+            eventType: 'character_selected',
+            metadata: {
+              characterKey: updated.characterKey,
+              customCharacterSelected: updated.customCharacterId !== null,
+            },
+          })
+        }
+      } catch {
+        // Product analytics remain best-effort and never invalidate persistence.
+      }
+      return updated
+    }),
+
+  listPersonalityProfiles: tenantProcedure
+    .input(z.object({ venueId: z.string().cuid() }).strict())
+    .query(({ ctx, input }) =>
+      listPersonalityProfilesAction(
+        { tenantId: ctx.session.activeTenantId, venueId: input.venueId },
+        ctx.db,
+      ),
+    ),
+
+  createPersonalityProfile: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(z.object({ venueId: z.string().cuid(), profile: PersonalityProfileDraft }).strict())
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      try {
+        const profile = await createPersonalityProfileAction(
+          {
+            tenantId,
+            venueId: input.venueId,
+            profile: input.profile,
+            actor: venueActor(ctx.session),
+          },
+          ctx.db,
+        )
+        await emitEvent({
+          tenantId,
+          venueId: input.venueId,
+          eventType: 'custom_personality_saved',
+          metadata: { profileId: profile.id, operation: 'created' },
+        }).catch(() => undefined)
+        return profile
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
+      }
+    }),
+
+  updatePersonalityProfile: tenantProcedure
+    .use(requireRole('MANAGER'))
+    .input(
+      z
+        .object({
+          venueId: z.string().cuid(),
+          profileId: z.string().min(1).max(191),
+          expectedRevision: z.number().int().positive(),
+          profile: PersonalityProfileDraft,
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      try {
+        const profile = await updatePersonalityProfileAction(
+          {
+            tenantId,
+            venueId: input.venueId,
+            profileId: input.profileId,
+            expectedRevision: input.expectedRevision,
+            profile: input.profile,
+            actor: venueActor(ctx.session),
+          },
+          ctx.db,
+        )
+        await emitEvent({
+          tenantId,
+          venueId: input.venueId,
+          eventType: 'custom_personality_saved',
+          metadata: { profileId: profile.id, operation: 'updated' },
+        }).catch(() => undefined)
+        return profile
+      } catch (error) {
+        mapVenueActionError(error)
+        throw error
+      }
     }),
 
   updateChatDesign: tenantProcedure

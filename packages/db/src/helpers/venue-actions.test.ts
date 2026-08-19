@@ -43,6 +43,9 @@ function fixture() {
       updateMany: vi.fn(async () => ({ count: 1 })),
       deleteMany: vi.fn(async () => ({ count: 1 })),
     },
+    venueBotConfiguration: {
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     place: { findFirst: vi.fn(async () => ({ id: 'place-1' })) },
     auditLog: {
       create: vi.fn(async (input: unknown) => {
@@ -222,6 +225,15 @@ describe('canonical venue actions', () => {
         }),
       }),
     )
+    expect(tx.venueBotConfiguration.updateMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', venueId: 'venue-1' },
+      data: {
+        tonePreset: 'concise',
+        tonePresetVersion: 1,
+        revision: { increment: 1 },
+        updatedBy: 'manager-1',
+      },
+    })
     expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain('private note')
   })
 

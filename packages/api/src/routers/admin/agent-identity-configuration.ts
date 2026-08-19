@@ -7,6 +7,7 @@ import {
   createDisabledAgentIdentity as createDisabledAgentIdentityAction,
   disableAgentIdentity as disableAgentIdentityAction,
   editDisabledAgentIdentity as editDisabledAgentIdentityAction,
+  enableAgentIdentity as enableAgentIdentityAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -93,6 +94,29 @@ export const adminAgentIdentityConfigurationRouter = router({
       withTenantIsolationBypass(async () => {
         try {
           return await disableAgentIdentityAction({
+            ...input,
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          })
+        } catch (error) {
+          identityConfigurationError(error)
+        }
+      }),
+    ),
+
+  enableAgentIdentity: adminProcedure
+    .input(
+      z
+        .object({
+          scope: agentIdentityScope,
+          agentIdentityId: z.string().min(1),
+          expectedUpdatedAt: z.coerce.date(),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        try {
+          return await enableAgentIdentityAction({
             ...input,
             actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
           })

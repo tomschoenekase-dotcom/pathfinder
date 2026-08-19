@@ -10,6 +10,8 @@ import {
   type StaffInterviewSubmission,
 } from '@pathfinder/contracts/staff-interview'
 
+import { browserUuid } from '../lib/browser-uuid'
+
 type AnswerDraft = {
   mode: 'ANSWER' | 'SKIP' | 'REDACT'
   text: string
@@ -51,7 +53,7 @@ export function StaffInterviewCapture({
   const [drafts, setDrafts] = useState(() => draftsFor('EXECUTIVE'))
   const [consent, setConsent] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [requestId, setRequestId] = useState(() => crypto.randomUUID())
+  const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
   const questions = STAFF_INTERVIEW_QUESTION_SETS[role]
   const incomplete = useMemo(
@@ -64,7 +66,7 @@ export function StaffInterviewCapture({
   )
 
   function update(questionId: string, patch: Partial<AnswerDraft>) {
-    setRequestId(crypto.randomUUID())
+    setRequestId(browserUuid())
     setDrafts((current) => ({
       ...current,
       [questionId]: { ...current[questionId]!, ...patch },
@@ -108,7 +110,7 @@ export function StaffInterviewCapture({
       setDisplayName('')
       setDrafts(draftsFor(role))
       setConsent(false)
-      setRequestId(crypto.randomUUID())
+      setRequestId(browserUuid())
     } catch {
       // The parent announces the failure; retain this request key and form for an exact retry.
     } finally {
@@ -124,7 +126,7 @@ export function StaffInterviewCapture({
         </legend>
         <p className="text-sm leading-6 text-pf-deep/75">
           {clientFacing
-            ? 'Written answers help the PathFinder team understand your venue. Choose how each answer may be used; skipped or redacted answers retain no text. This form does not accept recordings.'
+            ? 'Written answers help the Torchiko team understand your venue. Choose how each answer may be used; skipped or redacted answers retain no text. This form does not accept recordings.'
             : 'Public-candidate text may be reviewed. Internal and private text is converted to evidence hashes only; skipped and redacted answers retain no text. No recording, audio, or video is accepted.'}
         </p>
         <label className="block text-sm font-medium text-pf-deep">
@@ -135,7 +137,7 @@ export function StaffInterviewCapture({
             value={displayName}
             onChange={(event) => {
               setDisplayName(event.target.value)
-              setRequestId(crypto.randomUUID())
+              setRequestId(browserUuid())
             }}
             className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
           />
@@ -148,7 +150,7 @@ export function StaffInterviewCapture({
               const nextRole = event.target.value as StaffInterviewRole
               setRole(nextRole)
               setDrafts(draftsFor(nextRole))
-              setRequestId(crypto.randomUUID())
+              setRequestId(browserUuid())
             }}
             className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
           >
@@ -236,7 +238,7 @@ export function StaffInterviewCapture({
                               ? option === 'PUBLIC_CANDIDATE'
                                 ? 'May be used for visitors'
                                 : option === 'INTERNAL_CONTEXT'
-                                  ? 'PathFinder team only'
+                                  ? 'Torchiko team only'
                                   : 'Private—do not retain the text'
                               : option.replaceAll('_', ' ')}
                           </option>
@@ -278,7 +280,7 @@ export function StaffInterviewCapture({
             checked={consent}
             onChange={(event) => {
               setConsent(event.target.checked)
-              setRequestId(crypto.randomUUID())
+              setRequestId(browserUuid())
             }}
             className="mt-1"
           />

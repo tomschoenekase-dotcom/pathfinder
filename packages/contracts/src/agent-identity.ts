@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const AgentIdentityType = z.enum([
+  'PRIMARY',
   'INTAKE',
   'CONTENT',
   'MEDIA',
@@ -19,12 +20,15 @@ export const AgentAccessCapability = z.enum([
   'support.read',
   'evaluation.read',
   'operations.read',
+  'agents.read',
+  'agents.delegate',
 ])
 export type AgentAccessCapability = z.infer<typeof AgentAccessCapability>
 
 export const AgentAutonomousAction = z.enum([
   'content.prepare-draft',
   'content.apply-internal-reversible',
+  'agents.delegate-specialist',
 ])
 export type AgentAutonomousAction = z.infer<typeof AgentAutonomousAction>
 
@@ -39,6 +43,15 @@ export const AgentConfigurationAutonomyLevel = z.enum([
 ])
 export type AgentConfigurationAutonomyLevel = z.infer<typeof AgentConfigurationAutonomyLevel>
 
+export const AgentExecutionProvider = z.enum([
+  'anthropic',
+  'hermes-bridge',
+  'claude-bridge',
+  'codex-bridge',
+  'openai-compatible-bridge',
+])
+export type AgentExecutionProvider = z.infer<typeof AgentExecutionProvider>
+
 /**
  * The capability required to stage each autonomous action. This mapping is
  * intentionally closed: adding an action requires a reviewed contract change.
@@ -46,6 +59,7 @@ export type AgentConfigurationAutonomyLevel = z.infer<typeof AgentConfigurationA
 export const AGENT_ACTION_CAPABILITY = {
   'content.prepare-draft': 'content.draft',
   'content.apply-internal-reversible': 'content.apply-internal',
+  'agents.delegate-specialist': 'agents.delegate',
 } as const satisfies Record<AgentAutonomousAction, AgentAccessCapability>
 
 export const AgentIdentityConfigurationFields = z
@@ -62,16 +76,19 @@ export const AgentIdentityConfigurationFields = z
     accessCapabilities: z.array(AgentAccessCapability).max(AgentAccessCapability.options.length),
     autonomyLevel: AgentConfigurationAutonomyLevel,
     autonomousActions: z.array(AgentAutonomousAction).max(AgentAutonomousAction.options.length),
+    defaultProvider: AgentExecutionProvider.nullable().optional(),
+    defaultModel: z.string().trim().min(1).max(191).nullable().optional(),
   })
   .strict()
 
-export type AgentIdentityConfigurationFields = z.infer<typeof AgentIdentityConfigurationFields>
+export type AgentIdentityConfigurationFields = z.input<typeof AgentIdentityConfigurationFields>
 
 export function agentConfigurationCoherenceIssue(
   fields: Pick<
     AgentIdentityConfigurationFields,
     'accessCapabilities' | 'autonomyLevel' | 'autonomousActions'
-  >,
+  > &
+    Partial<Pick<AgentIdentityConfigurationFields, 'defaultProvider' | 'defaultModel'>>,
 ): string | null {
   const capabilities = new Set(fields.accessCapabilities)
   const actions = new Set(fields.autonomousActions)
@@ -94,6 +111,14 @@ export function agentConfigurationCoherenceIssue(
     if (!capabilities.has(AGENT_ACTION_CAPABILITY[action])) {
       return `Autonomous action ${action} requires capability ${AGENT_ACTION_CAPABILITY[action]}`
     }
+  }
+  const hasProvider = (fields.defaultProvider ?? null) !== null
+  const hasModel = (fields.defaultModel ?? null) !== null
+  if (hasProvider !== hasModel) {
+    return 'Execution provider and model must be configured together'
+  }
+  if (fields.defaultProvider === 'anthropic' && fields.defaultModel !== 'claude-sonnet-4-6') {
+    return 'Anthropic specialists currently require claude-sonnet-4-6'
   }
   return null
 }

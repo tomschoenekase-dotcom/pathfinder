@@ -23,19 +23,29 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/weekly-digest.ts', 3],
   ['apps/workers/src/processors/weekly-report.ts', 2],
   ['apps/workers/src/processors/evaluation-dispatch.ts', 2],
-  ['apps/workers/src/processors/evaluation-run.ts', 7],
+  // Worker reconciles approved-package onboarding milestones for the exact job tenant+venue.
+  ['apps/workers/src/processors/evaluation-run.ts', 8],
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
   ['packages/api/src/routers/admin/attention-console.ts', 1],
-  ['packages/api/src/routers/admin/agent-operations.ts', 8],
+  ['packages/api/src/routers/admin/agent-operations.ts', 6],
+  ['packages/api/src/routers/admin/agent-identity-reads.ts', 2],
+  ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
   ['packages/api/src/routers/admin/agent-run-cancellation.ts', 1],
-  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 3],
+  ['packages/api/src/routers/admin/agent-identity-configuration.ts', 4],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
+  // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
+  ['packages/api/src/routers/admin/agent-questions.ts', 4],
+  ['packages/api/src/routers/admin/agent-outcomes.ts', 2],
+  // Platform-admin task composer queues one exact tenant+venue run without provider execution.
+  ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
   ['packages/api/src/routers/admin/chatlogs.ts', 4],
   ['packages/api/src/routers/admin/client-analytics.ts', 2],
-  ['packages/api/src/routers/admin/client-management.ts', 7],
+  // Platform-admin client lifecycle includes an exact-tenant payment-due mutation.
+  ['packages/api/src/routers/admin/client-management.ts', 8],
   ['packages/api/src/routers/admin/client-search.ts', 1],
   ['packages/api/src/routers/admin/client-directory-search.ts', 1],
-  ['packages/api/src/routers/admin/client-reads.ts', 2],
+  // Platform-admin reads include one exact tenant+venue onboarding/character detail projection.
+  ['packages/api/src/routers/admin/client-reads.ts', 3],
   ['packages/api/src/routers/admin/cost-budget.ts', 3],
   ['packages/api/src/routers/admin/digest.ts', 1],
   // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
@@ -50,6 +60,10 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/evaluation-operation-actions.ts', 2],
   // Evaluation comparison uses one additional exact tenant-scoped read.
   ['packages/api/src/routers/admin/evaluation-operations.ts', 3],
+  // Platform-admin onboarding evidence is bounded to the requested tenant+venue and time range.
+  ['packages/api/src/routers/admin/evaluation-onboarding-reads.ts', 2],
+  // Platform-admin review appends one exact tenant+venue evaluation conclusion.
+  ['packages/api/src/routers/admin/evaluation-review-actions.ts', 1],
   ['packages/api/src/routers/admin/freshness-audit.ts', 1],
   // Guest design exposes two platform-admin-only, exact tenant+venue scoped operations.
   ['packages/api/src/routers/admin/guest-design.ts', 2],
@@ -72,6 +86,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/weekly-reports.ts', 5],
   ['packages/api/src/routers/admin/venue-availability.ts', 2],
   ['packages/api/src/routers/admin/second-layer.ts', 2],
+  // Founder-only rollout reads and changes exact-tenant, allowlisted Tochi flags.
+  ['packages/api/src/routers/admin/tochi-rollout.ts', 2],
   ['packages/db/src/helpers/job-records.ts', 4],
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],

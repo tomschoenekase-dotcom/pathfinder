@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
+  activateAgentBridgeCredentialAction,
   ExternalCredentialActionError,
   issueExternalCredentialAction,
   revokeExternalCredentialAction,
@@ -67,6 +68,29 @@ const actionScope = scope.extend({
 })
 
 export const adminExternalCredentialsRouter = router({
+  activateAgentBridgeCredential: adminProcedure
+    .input(
+      actionScope.extend({
+        venueId: z.string().trim().min(1).max(191),
+        credentialId: z.string().trim().min(1).max(191),
+        expectedUpdatedAt: z.string().datetime({ offset: true }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        return await activateAgentBridgeCredentialAction(
+          {
+            ...input,
+            expectedUpdatedAt: new Date(input.expectedUpdatedAt),
+            actor: { type: 'HUMAN', id: ctx.session.userId, role: 'PLATFORM_ADMIN' },
+          },
+          ctx.db,
+        )
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
   issueExternalCredential: adminProcedure
     .input(
       actionScope.extend({
@@ -205,6 +229,9 @@ export const adminExternalCredentialsRouter = router({
             select: { id: true, previousCredentialId: true, rotatedBy: true, rotatedAt: true },
           },
           revocation: { select: { id: true, revokedBy: true, reasonCode: true, revokedAt: true } },
+          activation: {
+            select: { operationId: true, activatedBy: true, activatedAt: true },
+          },
         },
       })
       if (!credential) throw new TRPCError({ code: 'NOT_FOUND', message: 'Credential not found' })

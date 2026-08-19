@@ -47,6 +47,15 @@ describe('tenant support request ACL', () => {
     expect(
       canTenantActorAccessSupportRequest(actor, {
         ...base,
+        createdByKind: 'OPERATOR',
+        requesterUserId: null,
+        requesterMembership: null,
+        participants: [{ userId: 'user_1', revokedAt: null, membership: { status: 'ACTIVE' } }],
+      }),
+    ).toBe(true)
+    expect(
+      canTenantActorAccessSupportRequest(actor, {
+        ...base,
         participants: [
           { userId: 'user_1', revokedAt: new Date(), membership: { status: 'ACTIVE' } },
         ],

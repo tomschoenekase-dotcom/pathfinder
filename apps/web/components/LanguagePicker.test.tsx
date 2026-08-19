@@ -58,6 +58,7 @@ describe('LanguagePicker storage resilience', () => {
     render(<LanguagePicker value={arabic.label} onChange={vi.fn()} />)
 
     const picker = screen.getByRole('combobox', { name: 'Select language' })
+    expect(picker.className).toContain('min-h-11')
     expect(picker.getAttribute('lang')).toBe('ar')
     expect(picker.getAttribute('dir')).toBe('rtl')
     const labelId = picker.getAttribute('aria-labelledby')

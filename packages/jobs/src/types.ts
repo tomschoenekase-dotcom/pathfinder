@@ -80,3 +80,10 @@ export type EvaluationRunJobPayload = {
   runId: string
   runIdentityHash: string
 }
+
+/** Carries only durable identity. Prompts, scopes, and model policy are always
+ * reloaded from Postgres by the worker and are never trusted from Redis. */
+export type AgentRunJobPayload = {
+  tenantId: string
+  runId: string
+}

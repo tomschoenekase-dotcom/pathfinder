@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 /* eslint-disable @typescript-eslint/no-explicit-any -- lifecycle mocks exercise heterogeneous Prisma delegates. */
 
+import { nativeCoreVisibleStateHash } from '@pathfinder/contracts'
+
 import {
   approveNativeVenueDeploymentAction,
   applyNativeVenueDeploymentAction,
@@ -11,6 +13,19 @@ import {
   projectNativeVenueStateAction,
   revertNativeVenueDeploymentAction,
 } from './native-venue-deployment-actions'
+
+const classicBotConfiguration = {
+  presentationMode: 'CLASSIC' as const,
+  personalityMode: 'PRESET' as const,
+  tonePreset: 'friendly' as const,
+  tonePresetVersion: 1 as const,
+  personalityProfileId: null,
+  characterKey: null,
+  customCharacterId: null,
+  publicDisplayName: null,
+  greeting: null,
+  voiceProfileId: null,
+}
 
 function client(overrides: Record<string, unknown> = {}) {
   const tx = {
@@ -59,6 +74,7 @@ describe('native venue deployment actions', () => {
       venueId: 'venue-1',
     })
     expect(result.state.venue.name).toBe('Venue')
+    expect(result.state.venueBotConfiguration).toEqual(classicBotConfiguration)
     expect(result.universe).toEqual({
       activePlaceIds: [],
       enabledKnowledgeEntryIds: [],
@@ -399,6 +415,111 @@ describe('native venue deployment actions', () => {
     vi.useRealTimers()
   })
 
+  it('reverts Venue Bot presentation to the exact prior configuration', async () => {
+    let storedBot: Record<string, unknown> = { ...classicBotConfiguration, revision: 1 }
+    const venueBotConfiguration = {
+      findUnique: vi.fn(async () => storedBot),
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        storedBot = { ...storedBot, ...data, revision: 3 }
+        return storedBot
+      }),
+    }
+    const { db, tx } = client({ venueBotConfiguration })
+    const base = await projectNativeVenueStateAction(db, {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    const characterBot = {
+      ...classicBotConfiguration,
+      presentationMode: 'CHARACTER' as const,
+      characterKey: 'tochi',
+      publicDisplayName: 'Tochi',
+    }
+    const desired = { ...base.state, venueBotConfiguration: characterBot }
+    const desiredStateHash = nativeCoreVisibleStateHash(desired)
+    storedBot = { ...characterBot, revision: 2 }
+    const effects = nativeVenueDeploymentTestHooks.plannedEffects(
+      'venue-1',
+      base.state,
+      desired,
+      {},
+      {},
+    )
+    const now = new Date('2026-08-12T12:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    const releaseId = '11111111-1111-4111-8111-111111111111'
+    Object.assign(tx, {
+      nativeVenueDeploymentCommand: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ producedSnapshot: { appliedUniverse: base.universe } }),
+        create: vi.fn(),
+      },
+      nativeVenueDeploymentRelease: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: releaseId,
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          artifactId: releaseId,
+          manifestHash: 'a'.repeat(64),
+          baseStateHash: base.stateHash,
+          desiredStateHash,
+          plan: {
+            before: base.state,
+            desired,
+            priorHead: null,
+            hiddenPlaces: {},
+            hiddenKnowledge: {},
+            effects,
+          },
+        }),
+        update: vi.fn(),
+      },
+      nativeVenueDeploymentEffect: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue(effects.map((effect) => ({ ...effect, id: 'effect-1', releaseId }))),
+      },
+      nativeVenueDeploymentHead: {
+        findFirst: vi.fn().mockResolvedValue({
+          releaseId,
+          artifactId: releaseId,
+          stateHash: desiredStateHash,
+          revision: 1,
+        }),
+        delete: vi.fn(),
+        update: vi.fn(),
+      },
+      auditLog: { create: vi.fn() },
+    })
+
+    await expect(
+      revertNativeVenueDeploymentAction(
+        {
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          releaseId,
+          commandId: '22222222-2222-4222-8222-222222222222',
+          expectedUpdatedAt: now.toISOString(),
+          actor: { type: 'HUMAN', role: 'PLATFORM_ADMIN', id: 'admin-1' },
+        },
+        db,
+      ),
+    ).resolves.toMatchObject({ status: 'REVERTED', restoredStateHash: base.stateHash })
+    expect(venueBotConfiguration.update).toHaveBeenCalledWith({
+      where: { tenantId_venueId: { tenantId: 'tenant-1', venueId: 'venue-1' } },
+      data: expect.objectContaining({
+        presentationMode: 'CLASSIC',
+        characterKey: null,
+        updatedBy: 'admin-1',
+        revision: { increment: 1 },
+      }),
+    })
+    vi.useRealTimers()
+  })
+
   it('plans distinct immutable revision and publication effects with hidden-state restoration', () => {
     const venue = {
       name: 'Venue',
@@ -435,9 +556,16 @@ describe('native venue deployment actions', () => {
       payload: { kind: 'OPERATIONAL_FACT' as const, label: 'Open', value: 'Yes', expiresAt: null },
       publication: { status: 'PUBLISHED' as const, revisionId: 'revision-1' },
     }
-    const before = { venue, places: [], knowledgeEntries: [], generalizedModules: [] }
+    const before = {
+      venue,
+      venueBotConfiguration: classicBotConfiguration,
+      places: [],
+      knowledgeEntries: [],
+      generalizedModules: [],
+    }
     const desired = {
       venue: { ...venue, aiFeaturedPlaceId: 'place-1' },
+      venueBotConfiguration: classicBotConfiguration,
       places: [
         {
           id: 'place-1',
@@ -492,6 +620,138 @@ describe('native venue deployment actions', () => {
     expect(effects[3]?.afterState).toMatchObject({
       present: true,
       value: { revisionId: 'revision-1' },
+    })
+  })
+
+  it('plans and applies Venue Bot configuration independently from legacy venue fields', async () => {
+    const venue = {
+      name: 'Venue',
+      slug: 'venue',
+      description: null,
+      guideNotes: null,
+      aiGuideNotes: null,
+      aiFeaturedPlaceId: null,
+      aiTone: 'FRIENDLY',
+      tonePreset: 'friendly',
+      tonePresetVersion: 1,
+      aiGuideName: null,
+      chatTheme: 'default',
+      chatAccentColor: null,
+      chatFont: 'jakarta',
+      chatLogoUrl: null,
+      chatBannerUrl: null,
+      category: null,
+      guideMode: 'location_aware',
+      defaultCenterLat: null,
+      defaultCenterLng: null,
+      geoBoundary: null,
+      isActive: true,
+    }
+    const characterBot = {
+      ...classicBotConfiguration,
+      presentationMode: 'CHARACTER' as const,
+      characterKey: 'tochi',
+      publicDisplayName: 'Tochi',
+    }
+    const before = {
+      venue,
+      venueBotConfiguration: classicBotConfiguration,
+      places: [],
+      knowledgeEntries: [],
+      generalizedModules: [],
+    }
+    const desired = { ...before, venueBotConfiguration: characterBot }
+    const effects = nativeVenueDeploymentTestHooks.plannedEffects(
+      'venue-1',
+      before,
+      desired,
+      {},
+      {},
+    )
+    expect(effects).toHaveLength(1)
+    expect(effects[0]).toMatchObject({
+      effectOrder: 1,
+      kind: 'VENUE_BOT_CONFIGURATION',
+      targetId: 'venue-1',
+    })
+
+    const tx = {
+      nativeVenueDeploymentEffect: { create: vi.fn().mockResolvedValue({ id: 'effect-1' }) },
+      venueBotConfiguration: { upsert: vi.fn() },
+    }
+    const count = await nativeVenueDeploymentTestHooks.applyVisibleState(
+      tx,
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        plan: { before, desired, priorHead: null, hiddenPlaces: {}, hiddenKnowledge: {}, effects },
+      },
+      before,
+      desired,
+      'admin-1',
+    )
+    expect(count).toBe(1)
+    expect(tx.venueBotConfiguration.upsert).toHaveBeenCalledWith({
+      where: { tenantId_venueId: { tenantId: 'tenant-1', venueId: 'venue-1' } },
+      create: expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        presentationMode: 'CHARACTER',
+        characterKey: 'tochi',
+        createdBy: 'admin-1',
+        updatedBy: 'admin-1',
+      }),
+      update: expect.objectContaining({
+        presentationMode: 'CHARACTER',
+        characterKey: 'tochi',
+        revision: { increment: 1 },
+        updatedBy: 'admin-1',
+      }),
+    })
+  })
+
+  it('rejects custom personality and character references outside exact deployment scope', async () => {
+    const tx = {
+      personalityProfile: { findFirst: vi.fn().mockResolvedValue(null) },
+      customCharacter: { findFirst: vi.fn().mockResolvedValue(null) },
+    }
+    await expect(
+      nativeVenueDeploymentTestHooks.validateVenueBotConfigurationReferences(
+        tx,
+        { tenantId: 'tenant-1', venueId: 'venue-1' },
+        {
+          ...classicBotConfiguration,
+          personalityMode: 'CUSTOM',
+          personalityProfileId: 'profile-other-tenant',
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(tx.personalityProfile.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'profile-other-tenant',
+        tenantId: 'tenant-1',
+        status: 'ACTIVE',
+        OR: [{ venueId: 'venue-1' }, { venueId: null }],
+      },
+      select: { id: true },
+    })
+
+    await expect(
+      nativeVenueDeploymentTestHooks.validateVenueBotConfigurationReferences(
+        tx,
+        { tenantId: 'tenant-1', venueId: 'venue-1' },
+        { ...classicBotConfiguration, customCharacterId: 'character-other-venue' },
+      ),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(tx.customCharacter.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'character-other-venue',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        status: 'ACTIVE',
+      },
+      select: { id: true },
     })
   })
 
@@ -658,9 +918,16 @@ describe('native venue deployment actions', () => {
       },
       publication: { status: 'PUBLISHED' as const, revisionId: 'relationship-revision' },
     }
-    const before = { venue, places: [], knowledgeEntries: [], generalizedModules: [] }
+    const before = {
+      venue,
+      venueBotConfiguration: classicBotConfiguration,
+      places: [],
+      knowledgeEntries: [],
+      generalizedModules: [],
+    }
     const desired = {
       venue,
+      venueBotConfiguration: classicBotConfiguration,
       places: [],
       knowledgeEntries: [],
       generalizedModules: [relationship, endpoint('z-one'), endpoint('z-two')],

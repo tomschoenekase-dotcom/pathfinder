@@ -96,7 +96,7 @@ export function PlaceCard({
             </p>
           </div>
           {distanceMeters !== undefined ? (
-            <span className="shrink-0 rounded-full bg-[var(--chat-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--chat-accent)]">
+            <span className="shrink-0 rounded-full bg-[var(--chat-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--chat-accent-text)]">
               {formatDistance(distanceMeters)}
             </span>
           ) : null}
@@ -105,7 +105,7 @@ export function PlaceCard({
         {hasDetails ? (
           <button
             type="button"
-            className="mt-3 inline-flex min-h-9 w-full items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent)] transition hover:border-[var(--chat-accent)]"
+            className="mt-3 inline-flex min-h-9 w-full items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)]"
             aria-controls={detailsId}
             aria-expanded={isExpanded}
             onClick={() => {
@@ -145,7 +145,7 @@ export function PlaceCard({
             aria-label={`Get directions to ${name}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent)] transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
+            className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full border border-[var(--chat-border)] bg-[var(--chat-bg)] px-4 text-xs font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
             onClick={(event) => {
               event.stopPropagation()
               onDirectionsClick?.(id)

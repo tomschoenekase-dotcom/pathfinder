@@ -57,7 +57,14 @@ describe('support participant actions', () => {
     })
     expect(tx.supportRequest.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ requesterUserId: 'requester_1' }),
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({ requesterUserId: 'requester_1' }),
+            expect.objectContaining({
+              onboardingQuestionLink: { is: { recipientUserId: 'requester_1' } },
+            }),
+          ]),
+        }),
       }),
     )
     expect(tx.tenantMembership.findFirst).toHaveBeenCalledWith(

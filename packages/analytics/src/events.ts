@@ -16,6 +16,18 @@ export const ANALYTICS_EVENT_TYPES = [
   'operational_update.viewed',
   'venue.updated',
   'engagement_question.asked',
+  // Trusted server-only product events. They are deliberately excluded from
+  // PUBLIC_ANALYTICS_EVENT_TYPES so a visitor cannot forge rollout, support,
+  // configuration, or private-assistant activity.
+  'client_tochi_opened',
+  'client_tochi_message_sent',
+  'client_tochi_handoff_created',
+  'client_tochi_disabled',
+  'venue_bot_presentation_changed',
+  'character_selected',
+  'custom_personality_saved',
+  'character_chat_started',
+  'character_mode_disabled',
 ] as const
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number]

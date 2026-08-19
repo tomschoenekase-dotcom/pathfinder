@@ -36,7 +36,7 @@ export default async function WeeklyReportDetailPage({
   }
 
   return (
-    <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
+    <div className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
       <article className="mx-auto max-w-3xl rounded-[2rem] border border-pf-light bg-pf-white p-6 shadow-sm sm:p-10">
         <Link
           href={`/weekly-reports?venue=${encodeURIComponent(venueId)}`}
@@ -55,6 +55,6 @@ export default async function WeeklyReportDetailPage({
           <WeeklyReportContent content={report.content ?? ''} />
         </section>
       </article>
-    </main>
+    </div>
   )
 }

@@ -6,6 +6,9 @@ import { logger } from '@pathfinder/config'
 
 import { getBullMQConnection } from './connection'
 import {
+  AGENT_RUN_PROCESS_JOB,
+  AGENT_RUN_QUEUE,
+  AGENT_RUN_RETRY_BACKOFF,
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
   ANSWER_ANALYSIS_RECOVERY_JOB,
@@ -43,6 +46,7 @@ import {
 } from './queues'
 import { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 import type {
+  AgentRunJobPayload,
   AnswerAnalysisJobPayload,
   AnalyticsEnrichmentJobPayload,
   DailyRollupJobPayload,
@@ -214,6 +218,35 @@ const evaluationRunJobOptions: JobsOptions = {
   backoff: { type: EVALUATION_RUN_RETRY_BACKOFF },
   removeOnComplete: 1000,
   removeOnFail: 5000,
+}
+
+const agentRunJobOptions: JobsOptions = {
+  attempts: 3,
+  backoff: { type: AGENT_RUN_RETRY_BACKOFF },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+/** Agent execution is default-off. The caller must pass the explicit runtime
+ * gate, making accidental imports or task creation incapable of dispatch. */
+export async function enqueueAgentRun(
+  payload: AgentRunJobPayload,
+  options: { enabled?: boolean; dispatchKey?: string } = {},
+): Promise<{ enqueued: boolean }> {
+  if (options.enabled !== true) return { enqueued: false }
+  if (!payload.tenantId.trim() || !payload.runId.trim()) {
+    throw new Error('Agent run payload requires exact tenant and run identity')
+  }
+  await getQueue(AGENT_RUN_QUEUE).add(AGENT_RUN_PROCESS_JOB, payload, {
+    ...agentRunJobOptions,
+    jobId: `agent-run-${payload.runId}${options.dispatchKey ? `-${options.dispatchKey}` : ''}`,
+  })
+  logger.info({
+    action: 'jobs.agent-run.enqueued',
+    tenantId: payload.tenantId,
+    runId: payload.runId,
+  })
+  return { enqueued: true }
 }
 
 /** Evaluation execution is deliberately default-off. Callers must pass the

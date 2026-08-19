@@ -2,6 +2,9 @@ import { Queue, Worker, type Job } from 'bullmq'
 
 import { env, logger } from '@pathfinder/config'
 import {
+  AGENT_RUN_PROCESS_JOB,
+  AGENT_RUN_QUEUE,
+  AGENT_RUN_RETRY_BACKOFF,
   ANSWER_ANALYSIS_PROCESS_JOB,
   ANSWER_ANALYSIS_QUEUE,
   ANSWER_ANALYSIS_RECOVERY_JOB,
@@ -43,6 +46,7 @@ import {
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
   type AnalyticsEnrichmentJobPayload,
+  type AgentRunJobPayload,
   type EmbedKnowledgeEntryJobPayload,
   type EmbedPlaceJobPayload,
   type EvaluationRunJobPayload,
@@ -66,6 +70,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { processAnswerAnalysisJob } from './processors/answer-analysis'
+import { processAgentRunJob } from './processors/agent-run'
 import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment'
 import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
@@ -488,6 +493,19 @@ async function handleEvaluationRunQueueJob(
   )
 }
 
+async function handleAgentRunQueueJob(
+  job: Job<AgentRunJobPayload>,
+  token?: string,
+  signal?: AbortSignal,
+) {
+  if (job.name !== AGENT_RUN_PROCESS_JOB) {
+    throw new Error(`Unsupported agent run job: ${job.name}`)
+  }
+  await runAiJobWithIncidentControl(job, token, async () => {
+    await processAgentRunJob(job.data, signal)
+  })
+}
+
 export async function startWorkers() {
   if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
     const runtime = await startProviderDisabledRuntime({
@@ -520,6 +538,7 @@ export async function startWorkers() {
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
+  const agentRunQueue = env.AGENT_RUNNER_ENABLED ? new Queue(AGENT_RUN_QUEUE, { connection }) : null
 
   const schedulerQueueResources = [
     { name: WEEKLY_DIGEST_QUEUE, close: () => weeklyDigestQueue.close() },
@@ -535,6 +554,7 @@ export async function startWorkers() {
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
       : []),
+    ...(agentRunQueue ? [{ name: AGENT_RUN_QUEUE, close: () => agentRunQueue.close() }] : []),
   ]
   const cleanupAfterStartupFailure = createShutdownCoordinator({
     onStart: () => logger.info({ action: 'workers.start.cleanup' }),
@@ -918,6 +938,20 @@ export async function startWorkers() {
       )
     : null
 
+  const agentRunWorker = env.AGENT_RUNNER_ENABLED
+    ? observeWorkerRuntime(
+        AGENT_RUN_QUEUE,
+        new Worker(AGENT_RUN_QUEUE, handleAgentRunQueueJob, {
+          connection,
+          concurrency: 1,
+          settings: {
+            backoffStrategy: (attemptsMade, type) =>
+              type === AGENT_RUN_RETRY_BACKOFF ? Math.min(attemptsMade * 30_000, 5 * 60_000) : 0,
+          },
+        }),
+      )
+    : null
+
   const handleCompletedJob = (job: Job) => {
     logger.info({
       action: 'workers.job.completed',
@@ -952,6 +986,7 @@ export async function startWorkers() {
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
     ...(evaluationRunWorker ? [{ name: EVALUATION_RUN_QUEUE, worker: evaluationRunWorker }] : []),
+    ...(agentRunWorker ? [{ name: AGENT_RUN_QUEUE, worker: agentRunWorker }] : []),
   ]
 
   for (const { worker } of workers) {
@@ -968,6 +1003,7 @@ export async function startWorkers() {
     generationDispatchEnabled: env.GENERATION_DISPATCH_ENABLED,
     generationRecoveryEnabled: env.GENERATION_RECOVERY_ENABLED,
     evaluationRunnerEnabled: env.EVALUATION_RUNNER_ENABLED,
+    agentRunnerEnabled: env.AGENT_RUNNER_ENABLED,
     queues: [
       WEEKLY_DIGEST_QUEUE,
       DAILY_ROLLUP_QUEUE,
@@ -982,6 +1018,7 @@ export async function startWorkers() {
       SEND_EMAIL_QUEUE,
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
+      ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
     ],
   })
 
@@ -1030,6 +1067,8 @@ export async function startWorkers() {
     mediaIngestionWorker,
     evaluationRunWorker,
     evaluationRunQueue,
+    agentRunWorker,
+    agentRunQueue,
     weeklyReportQueue,
     weeklyReportWorker,
     weeklyDigestQueue,

@@ -30,6 +30,8 @@ const credential: VerifiedMcpCredentialScope = {
     'jobs:read',
     'evaluations:read',
     'readiness:read',
+    'questions:read',
+    'outcomes:read',
   ],
 }
 
@@ -47,11 +49,16 @@ function database() {
     jobRecord: { findMany: vi.fn() },
     evalRun: { findMany: vi.fn() },
     venueReportConfiguration: { findFirst: vi.fn() },
+    agentQuestion: { findMany: vi.fn() },
+    agentOutcomeObservation: { findMany: vi.fn() },
+    onboardingMilestoneEvent: { findMany: vi.fn() },
   }
 }
 
 const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   verifyApprovalGrant: vi.fn(),
+  askOperator: vi.fn(),
+  delegateSpecialist: vi.fn(),
   createPackageDraft: vi.fn(),
   createUpdateDraft: vi.fn(),
   createSupportDraft: vi.fn(),
@@ -306,5 +313,94 @@ describe('MCP v0 concrete read bindings', () => {
       readyForPreview: true,
     })
     expect(db.venue.findFirst.mock.calls[0]![0].select).not.toHaveProperty('config')
+  })
+
+  it('returns a versioned bounded onboarding summary without raw milestone identities', async () => {
+    const db = database()
+    const invitationAt = new Date(Date.now() - 60 * 60 * 1000)
+    const materialAt = new Date(invitationAt.getTime() + 15 * 60 * 1000)
+    db.venue.findFirst.mockResolvedValue({
+      id: 'venue-1',
+      name: 'Museum',
+      slug: 'museum',
+      isActive: false,
+      updatedAt: materialAt,
+    })
+    db.place.count.mockResolvedValue(0)
+    db.venueKnowledgeEntry.count.mockResolvedValue(0)
+    db.venueReportConfiguration.findFirst.mockResolvedValue(null)
+    db.onboardingMilestoneEvent.findMany.mockResolvedValue([
+      {
+        id: 'event-2',
+        eventType: 'FIRST_USEFUL_MATERIAL',
+        occurredAt: materialAt,
+        category: 'PHOTO',
+        durationMs: null,
+      },
+      {
+        id: 'event-1',
+        eventType: 'INVITATION_STARTED',
+        occurredAt: invitationAt,
+        category: null,
+        durationMs: null,
+      },
+    ])
+
+    const response = await readMcpResource(
+      db as never,
+      {
+        resource: 'onboarding-summary',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        limit: 25,
+      },
+      { credential },
+    )
+
+    expect(response.data).toMatchObject({
+      schemaVersion: 'torchiko-onboarding-summary-v1',
+      venueId: 'venue-1',
+      milestoneRollup: {
+        version: 'torchiko-onboarding-milestone-rollup-v1',
+        window: { eventLimit: 1000, observedEvents: 2, truncated: false },
+        timeToFirstUsefulMaterial: { valueMs: 15 * 60 * 1000, denominator: 1 },
+      },
+    })
+    const query = db.onboardingMilestoneEvent.findMany.mock.calls[0]![0]
+    expect(query.where).toMatchObject({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(query.take).toBe(1001)
+    expect(query.select).not.toHaveProperty('actorId')
+    expect(query.select).not.toHaveProperty('sourceId')
+    expect(query.select).not.toHaveProperty('idempotencyKey')
+  })
+
+  it('returns scoped agent questions without internal actor or execution payloads', async () => {
+    const db = database()
+    db.agentQuestion.findMany.mockResolvedValue([])
+    await readMcpResource(
+      db as never,
+      { resource: 'questions', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+      { credential },
+    )
+    const query = db.agentQuestion.findMany.mock.calls[0]![0]
+    expect(query.where).toMatchObject({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(query.select).not.toHaveProperty('answeredById')
+    expect(query.select).not.toHaveProperty('operationId')
+  })
+
+  it('returns scoped explicit outcomes without operation IDs or human actor identifiers', async () => {
+    const db = database()
+    db.agentOutcomeObservation.findMany.mockResolvedValue([])
+    await readMcpResource(
+      db as never,
+      { resource: 'outcomes', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+      { credential },
+    )
+    const query = db.agentOutcomeObservation.findMany.mock.calls[0]![0]
+    expect(query.where).toMatchObject({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(query.select).not.toHaveProperty('operationId')
+    expect(query.select).not.toHaveProperty('actorId')
+    expect(query.select).not.toHaveProperty('tenantId')
+    expect(query.select).not.toHaveProperty('venueId')
   })
 })

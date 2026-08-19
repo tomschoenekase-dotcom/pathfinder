@@ -71,7 +71,7 @@ export function GlobalErrorContent({ error, reset }: GlobalErrorProps) {
             margin: '12px 0 0',
           }}
         >
-          PathFinder could not finish loading this guide. Please try again.
+          Torchiko could not finish loading this guide. Please try again.
         </p>
         <button
           type="button"

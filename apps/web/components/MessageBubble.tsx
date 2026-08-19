@@ -5,6 +5,7 @@ import { ResponseRenderer } from './ResponseRenderer'
 type MessageBubbleProps = {
   role: 'user' | 'assistant'
   content: string
+  assistantLabel?: string
   bubbleColor?: string
   bubbleTextColor?: string
   blocks?: GuestResponseBlock[]
@@ -18,6 +19,7 @@ type MessageBubbleProps = {
 export function MessageBubble({
   role,
   content,
+  assistantLabel = 'Venue guide',
   bubbleColor,
   bubbleTextColor,
   blocks,
@@ -28,7 +30,7 @@ export function MessageBubble({
   onChoiceSelect,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
-  const speaker = isUser ? 'You' : 'PathFinder guide'
+  const speaker = isUser ? 'You' : assistantLabel
 
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>

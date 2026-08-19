@@ -240,6 +240,15 @@ export function previewDeploymentManifestConversion(input: {
         })
         break
       case 'UPSERT_AI_CONFIGURATION':
+        if (operation.value.venueBot) {
+          addIssue(
+            issues,
+            'ERROR',
+            'VENUE_BOT_CONFIGURATION_REQUIRES_NATIVE_PROFILE',
+            `${path}.value.venueBot`,
+            'Venue Bot presentation requires the exact native deployment profile; legacy VenuePackage persistence cannot apply or roll it back.',
+          )
+        }
         if (operation.value.modelReferences.length > 0) {
           addIssue(
             issues,

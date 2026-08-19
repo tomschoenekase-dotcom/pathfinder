@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto'
+
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import { setContentVersionContext } from './content-version-context'
+import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-events'
 import { lockVenueContentMutation } from './venue-content-lock'
 
 export type VenuePackageLifecycleActor = {
@@ -182,6 +185,26 @@ async function runLifecycle<T extends VenuePackageLifecycleRecord>(
       },
       tx,
     )
+    if (input.kind === 'apply' || input.kind === 'revert') {
+      await recordOrReplayOnboardingMilestoneEvent({
+        db: tx,
+        input: {
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          venueId,
+          eventType: input.kind === 'apply' ? 'RELEASED' : 'HUMAN_INTERVENTION',
+          idempotencyKey: `venue-package:${input.id}:${input.kind}:${input.commandKey}`,
+          occurredAt: now,
+          actorType: 'OPERATOR',
+          actorId: input.actor.id,
+          sourceType: 'VENUE_PACKAGE',
+          sourceId: input.id,
+          sourceRevision: input.commandKey,
+          category: input.kind === 'apply' ? 'APPLIED' : 'REVERTED',
+          durationMs: null,
+        },
+      })
+    }
     return saved
   }
   const candidate = client as VenuePackageLifecycleClient & {

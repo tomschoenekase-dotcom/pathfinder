@@ -60,7 +60,7 @@ describe('requestAgentRunCancellationAction', () => {
     expect(h.transaction).not.toHaveBeenCalled()
   })
 
-  it.each(['QUEUED', 'RUNNING', 'AWAITING_APPROVAL'])(
+  it.each(['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'])(
     'requests cancellation atomically from %s',
     async (status) => {
       const h = harness({ id: 'run-1', status, cancelRequestedAt: null })

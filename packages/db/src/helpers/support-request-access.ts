@@ -18,9 +18,9 @@ export type SupportRequesterIdentity = {
  */
 export function tenantSupportRequestAccessWhere(actor: TenantSupportActor) {
   return {
-    createdByKind: 'CLIENT' as const,
     OR: [
       {
+        createdByKind: 'CLIENT' as const,
         requesterUserId: actor.actorId,
         requesterMembership: { is: { status: 'ACTIVE' as const } },
       },
@@ -42,14 +42,14 @@ export function canTenantActorAccessSupportRequest(
   request: SupportRequesterIdentity,
 ): boolean {
   return (
-    request.createdByKind === 'CLIENT' &&
-    ((request.requesterUserId === actor.actorId &&
+    (request.createdByKind === 'CLIENT' &&
+      request.requesterUserId === actor.actorId &&
       request.requesterMembership?.status === 'ACTIVE') ||
-      request.participants.some(
-        (participant) =>
-          participant.userId === actor.actorId &&
-          participant.revokedAt === null &&
-          participant.membership.status === 'ACTIVE',
-      ))
+    request.participants.some(
+      (participant) =>
+        participant.userId === actor.actorId &&
+        participant.revokedAt === null &&
+        participant.membership.status === 'ACTIVE',
+    )
   )
 }

@@ -83,6 +83,13 @@ describe('tenantIsolationMiddleware', () => {
       'TenantMembership',
       'TenantFeatureFlag',
       'Venue',
+      'VenueBotConfiguration',
+      'PersonalityProfile',
+      'CustomCharacter',
+      'ClientAssistantPreference',
+      'ClientAssistantThread',
+      'ClientAssistantTurn',
+      'ClientAssistantSupportHandoff',
       'Place',
       'VenueKnowledgeEntry',
       'ContentVersion',
@@ -91,6 +98,7 @@ describe('tenantIsolationMiddleware', () => {
       'EvalRunCostReservation',
       'EvalResult',
       'EvalReview',
+      'OnboardingMilestoneEvent',
       'VenueContentImportReceipt',
       'VenuePackage',
       'VenuePackageManifestArtifact',
@@ -128,9 +136,14 @@ describe('tenantIsolationMiddleware', () => {
       'EmbeddingWorkClaim',
       'EmbeddingDispatch',
       'AgentIdentity',
+      'AgentBridgeSession',
       'AgentRun',
       'AgentAction',
       'AgentTimelineEvent',
+      'AgentMessage',
+      'AgentOutcomeObservation',
+      'AgentQuestion',
+      'OnboardingQuestionLink',
       'ApprovalRequest',
       'ApprovalDecision',
       'SupportRequest',
@@ -145,6 +158,7 @@ describe('tenantIsolationMiddleware', () => {
       'ExternalCredentialOperationReceipt',
       'ExternalCredentialRotation',
       'ExternalCredentialRevocation',
+      'ExternalCredentialActivation',
       'OffboardingPlan',
       'OffboardingVenueTarget',
       'OffboardingRevocationEvidence',
@@ -199,6 +213,7 @@ describe('tenantIsolationMiddleware', () => {
       'EvalCase',
       'EvalResult',
       'EvalReview',
+      'OnboardingMilestoneEvent',
       'AgentAction',
       'AgentTimelineEvent',
       'ApprovalRequest',
@@ -209,8 +224,10 @@ describe('tenantIsolationMiddleware', () => {
       'SupportPackageHandoff',
       'SupportPreviewFeedback',
       'SupportAgentRunLineage',
+      'ClientAssistantSupportHandoff',
       'ExternalCredentialRotation',
       'ExternalCredentialRevocation',
+      'ExternalCredentialActivation',
       'OffboardingVenueTarget',
       'OffboardingRevocationEvidence',
       'OffboardingExportArtifact',
@@ -264,6 +281,12 @@ describe('tenantIsolationMiddleware', () => {
       'OffboardingPlan',
       'OffboardingExportOperation',
       'IntakeUpload',
+      'VenueBotConfiguration',
+      'PersonalityProfile',
+      'CustomCharacter',
+      'ClientAssistantPreference',
+      'ClientAssistantThread',
+      'ClientAssistantTurn',
     ].flatMap((model) => ['delete', 'deleteMany'].map((action) => [model, action])),
   )('rejects %s %s while preserving lifecycle updates', async (model, action) => {
     const next = vi.fn(async (params) => params)
@@ -371,6 +394,21 @@ describe('tenantIsolationMiddleware', () => {
     expect(loggerInfo).toHaveBeenCalledWith({
       action: 'tenant_isolation.bypass',
       caller: expect.stringMatching(/tenant-isolation\.test\.ts:\d+:\d+$/),
+    })
+  })
+
+  it('shares the request-scoped bypass across duplicate server module evaluation', async () => {
+    const next = vi.fn(async (params) => params)
+
+    await withTenantIsolationBypass(async () => {
+      vi.resetModules()
+      const duplicateModule = await import('./tenant-isolation')
+      await expect(
+        duplicateModule.tenantIsolationMiddleware(
+          createParams({ action: 'count', args: { where: { isActive: true } }, model: 'Venue' }),
+          next,
+        ),
+      ).resolves.toMatchObject({ action: 'count', model: 'Venue' })
     })
   })
 

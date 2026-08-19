@@ -43,6 +43,7 @@ const {
   enqueueGenerationDispatchKick,
   createOrganizationMock,
   currentUserMock,
+  ensureOrganizationInvitationMock,
   validateExistingOrganizationOwnerMock,
   loggerWarn,
   lockVenueReportMutation,
@@ -57,6 +58,7 @@ const {
   setChatlogNotableActionMock,
   addChatlogNoteActionMock,
   prepareWeeklyDigestIntentActionMock,
+  recordOrReplayOnboardingMilestoneEventMock,
 } = vi.hoisted(() => ({
   tenantFindMany: vi.fn(),
   tenantFindUnique: vi.fn(),
@@ -99,6 +101,7 @@ const {
   enqueueGenerationDispatchKick: vi.fn(),
   createOrganizationMock: vi.fn(),
   currentUserMock: vi.fn(),
+  ensureOrganizationInvitationMock: vi.fn(),
   validateExistingOrganizationOwnerMock: vi.fn(),
   loggerWarn: vi.fn(),
   lockVenueReportMutation: vi.fn(),
@@ -113,6 +116,7 @@ const {
   setChatlogNotableActionMock: vi.fn(),
   addChatlogNoteActionMock: vi.fn(),
   prepareWeeklyDigestIntentActionMock: vi.fn(),
+  recordOrReplayOnboardingMilestoneEventMock: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config/logger', () => ({
@@ -233,6 +237,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     setClientPaymentDueAction: setClientPaymentDueActionMock,
     updateClientPlanTierAction: updateClientPlanTierActionMock,
     updateClientStatusAction: updateClientStatusActionMock,
+    recordOrReplayOnboardingMilestoneEvent: recordOrReplayOnboardingMilestoneEventMock,
     createLegacyPlaceAction: vi.fn(),
     updateLegacyPlaceAction: vi.fn(),
     retireLegacyPlaceAction: vi.fn(),
@@ -286,6 +291,7 @@ vi.mock('@pathfinder/auth', async (importOriginal) => {
     ...actual,
     createOrganization: createOrganizationMock,
     currentUser: currentUserMock,
+    ensureOrganizationInvitation: ensureOrganizationInvitationMock,
     validateExistingOrganizationOwner: validateExistingOrganizationOwnerMock,
   }
 })
@@ -358,7 +364,14 @@ describe('admin router', () => {
     beginClientCreateIntentActionMock.mockResolvedValue({ state: 'READY' })
     startClientCreateProviderActionMock.mockResolvedValue({ state: 'CALL_PROVIDER' })
     confirmClientCreateProviderActionMock.mockResolvedValue({})
-    completeClientCreateIntentActionMock.mockResolvedValue({})
+    completeClientCreateIntentActionMock.mockResolvedValue({
+      createdAt: new Date('2026-08-18T12:00:00.000Z'),
+    })
+    recordOrReplayOnboardingMilestoneEventMock.mockResolvedValue({
+      event: { id: 'milestone_1' },
+      replayed: false,
+    })
+    ensureOrganizationInvitationMock.mockResolvedValue({ id: 'invite_1', replayed: false })
     prepareWeeklyDigestIntentActionMock.mockResolvedValue({
       id: 'digest_1',
       status: 'PENDING',
@@ -1156,6 +1169,7 @@ describe('admin router', () => {
     const result = await caller.admin.createClientAndVenue({
       requestId: '77777777-7777-4777-8777-777777777777',
       clientName: 'The Grand Hotel',
+      primaryContact: { emailAddress: 'owner@example.com', role: 'org:admin' },
       venue: { name: 'Main Lobby' },
     })
 
@@ -1170,9 +1184,30 @@ describe('admin router', () => {
         initialVenue: expect.objectContaining({ name: 'Main Lobby', slug: 'main-lobby' }),
       }),
     )
+    expect(ensureOrganizationInvitationMock).toHaveBeenCalledWith({
+      organizationId: 'org_new',
+      emailAddress: 'owner@example.com',
+      role: 'org:admin',
+      inviterUserId: 'admin_1',
+    })
+    expect(recordOrReplayOnboardingMilestoneEventMock).toHaveBeenCalledWith({
+      db: expect.any(Object),
+      input: expect.objectContaining({
+        tenantId: 'org_new',
+        venueId: 'venue_new',
+        eventType: 'INVITATION_STARTED',
+        idempotencyKey: 'client-create:77777777-7777-4777-8777-777777777777:invitation',
+        occurredAt: new Date('2026-08-18T12:00:00.000Z'),
+        actorType: 'OPERATOR',
+        actorId: 'admin_1',
+        sourceType: 'ORGANIZATION_INVITATION',
+        sourceId: 'invite_1',
+      }),
+    })
     expect(result).toEqual({
       tenant: { id: 'org_new', name: 'The Grand Hotel', slug: 'the-grand-hotel' },
       venue: { id: 'venue_new', name: 'Main Lobby', slug: 'main-lobby' },
+      invitation: { id: 'invite_1', replayed: false },
     })
   })
 

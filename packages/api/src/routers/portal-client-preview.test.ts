@@ -4,16 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TRPCContext } from '../context'
 import { router } from '../core'
 
-const { buildPreview, assertCurrent, parseStored, createFeedback } = vi.hoisted(() => ({
-  buildPreview: vi.fn(),
-  assertCurrent: vi.fn(),
-  parseStored: vi.fn(),
-  createFeedback: vi.fn(),
-}))
+const { buildPreview, assertCurrent, parseStored, createFeedback, createSupport } = vi.hoisted(
+  () => ({
+    buildPreview: vi.fn(),
+    assertCurrent: vi.fn(),
+    parseStored: vi.fn(),
+    createFeedback: vi.fn(),
+    createSupport: vi.fn(),
+  }),
+)
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
   createPreviewFeedbackRequestAction: createFeedback,
+  createSupportRequestAction: createSupport,
 }))
 
 vi.mock('./venue-package', () => ({
@@ -249,6 +253,55 @@ describe('package-bound client preview read', () => {
       } as never),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(createFeedback).not.toHaveBeenCalled()
+  })
+
+  it('creates a source-version-bound correction with authoritative client identity', async () => {
+    createSupport.mockResolvedValueOnce({
+      request: {
+        id: 'request_correction',
+        venueId: 'venue_1',
+        category: 'CONTENT_CORRECTION',
+        status: 'OPEN',
+        subject: 'Correction to onboarding source',
+        missingInformation: [],
+        version: 1,
+        clientVersion: 1,
+        clientActivityAt: approvedAt,
+        statusChangedAt: approvedAt,
+        createdAt: approvedAt,
+        updatedAt: approvedAt,
+      },
+      message: {
+        id: 'message_correction',
+        authorKind: 'CLIENT',
+        visibility: 'CLIENT_VISIBLE',
+        body: 'The Saturday hours are wrong.',
+        createdAt: approvedAt,
+        attachments: [],
+      },
+      replayed: false,
+    })
+
+    const result = await app.createCaller(context()).portal.createIntakeCorrectionRequest({
+      operationId: '00000000-0000-4000-8000-000000000003',
+      venueId: 'venue_1',
+      runId: 'run_1',
+      expectedEventCount: 2,
+      body: 'The Saturday hours are wrong.',
+    })
+
+    expect(createSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant_1',
+        category: 'CONTENT_CORRECTION',
+        intakeSource: { runId: 'run_1', expectedEventCount: 2 },
+        actor: expect.objectContaining({ actorId: 'user_1', participantKind: 'CLIENT' }),
+      }),
+      db,
+    )
+    expect(result.source).toEqual({ runId: 'run_1', expectedEventCount: 2 })
+    expect(result.request).not.toHaveProperty('version')
+    expect(result.request).not.toHaveProperty('updatedAt')
   })
 
   it('fails closed when current venue state no longer matches the approved base', async () => {

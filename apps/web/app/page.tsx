@@ -11,7 +11,7 @@ import {
 import Link from 'next/link'
 import Image from 'next/image'
 
-import { FadeIn } from '@pathfinder/ui'
+import { FadeIn } from '@pathfinder/ui/fade-in'
 
 const exampleQuestions = [
   "Where's the closest bathroom?",
@@ -37,16 +37,17 @@ export default function WebHomePage() {
         className="sticky top-0 z-50 overflow-hidden border-b border-white/10 bg-pf-deep"
         style={{ height: '80px' }}
       >
-        <div className="mx-auto max-w-7xl px-6 lg:px-10" style={{ marginTop: '-65px' }}>
+        <div className="mx-auto flex h-full max-w-7xl items-center gap-3 px-6 lg:px-10">
           <Image
-            src="/pathfinder-logo.svg"
-            alt="PathFinder"
-            width={560}
-            height={200}
+            src="/torchiko-logo.svg"
+            alt=""
+            aria-hidden="true"
+            width={44}
+            height={44}
             priority
-            className="w-auto"
-            style={{ height: '200px' }}
+            className="h-11 w-11 object-contain"
           />
+          <span className="text-xl font-semibold tracking-tight text-white">Torchiko</span>
         </div>
       </header>
 
@@ -73,13 +74,13 @@ export default function WebHomePage() {
                 <span className="font-semibold text-pf-light">built on your places.</span>
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-8 text-pf-light/80">
-                Guests ask questions. PathFinder answers with real directions, hours, and
+                Guests ask questions. Torchiko answers with real directions, hours, and
                 recommendations specific to your venue. Set up in an afternoon. No app download
                 required.
               </p>
               <div className="mt-10 flex flex-col gap-4 sm:flex-row">
                 <a
-                  href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
+                  href="mailto:tomschoenekase@gmail.com?subject=Torchiko%20demo%20request"
                   className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-accent px-7 text-sm font-semibold text-white transition hover:bg-[#4d8de0]"
                 >
                   Request a demo
@@ -101,7 +102,7 @@ export default function WebHomePage() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">Riverside Zoo Guide</p>
-                    <p className="text-xs text-pf-light/60">Powered by PathFinder</p>
+                    <p className="text-xs text-pf-light/70">Powered by Torchiko</p>
                   </div>
                 </div>
                 <div className="mt-5 space-y-4">
@@ -150,7 +151,7 @@ export default function WebHomePage() {
               {
                 step: '02',
                 title: 'The guide learns your venue',
-                body: 'PathFinder builds a guide that knows your specific layout, not generic directions.',
+                body: 'Torchiko builds a guide that knows your specific layout, not generic directions.',
               },
               {
                 step: '03',
@@ -240,7 +241,7 @@ export default function WebHomePage() {
               </h2>
             </div>
             <a
-              href="mailto:tomschoenekase@gmail.com?subject=PathFinder%20demo%20request"
+              href="mailto:tomschoenekase@gmail.com?subject=Torchiko%20demo%20request"
               className="inline-flex min-h-12 items-center justify-center rounded-full bg-pf-white px-6 text-sm font-semibold text-pf-primary transition hover:bg-pf-surface"
             >
               Get in touch
@@ -252,7 +253,7 @@ export default function WebHomePage() {
       <footer className="border-t border-white/10 bg-pf-deep px-6 py-10 lg:px-10">
         <div className="mx-auto flex max-w-7xl flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-white/30">
-            © {new Date().getFullYear()} PathFinder. All rights reserved.
+            © {new Date().getFullYear()} Torchiko. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <a

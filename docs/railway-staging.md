@@ -1,8 +1,8 @@
 # Railway staging configuration
 
-> **Migration instruction status: INCIDENT STOP — DO NOT EXECUTE EXTERNAL DATABASE COMMANDS.**
-> The active stop in [`database-incident-stop.md`](database-incident-stop.md) supersedes every
-> external migration, seed, and database-write step in this runbook.
+> **Migration instruction status: STAGING-ONLY AUTHORIZED — PRODUCTION COMMANDS REMAIN STOPPED.**
+> Tom approved this isolated Railway staging release on 2026-08-19 with a hard USD 10 ceiling. The
+> production stop in [`database-incident-stop.md`](database-incident-stop.md) remains binding.
 
 This runbook creates a staging release boundary for PathFinder. It does not
 authorize access to an account, provision resources, change credentials, or
@@ -29,10 +29,8 @@ All three services must deploy the exact same Git commit SHA. Set
 successful build time as proof that the revisions match; record the full SHA
 reported for each deployment.
 
-After the incident stop is explicitly lifted, the following topology is a future prerequisite.
-It does not authorize provisioning, connecting to, or inspecting any resource while the stop is
-active. Before adding application variables, provision resources that are physically or logically
-independent from production:
+The staging-only exception requires resources that are physically or logically independent from
+production before adding application variables:
 
 - A separate staging Supabase project or PostgreSQL instance. Both
   `DATABASE_URL` and `DIRECT_DATABASE_URL` must resolve to staging. Record and
@@ -107,21 +105,31 @@ local tunnel or proxy. For evidence-grade proofs, create an exact-name disposabl
 dedicated port, verify `current_database()` and the finished migration count, then remove that
 exact container.
 
-### External staging release is incident-stopped
+### Approved isolated staging migration
 
-The disposable wrapper intentionally has no external-host escape hatch. Selecting a release,
-opening a release shell, inspecting an external database, applying migrations, seeding data, or
-deploying a database-dependent revision is paused by `database-incident-stop.md`. Do not reconstruct
-an older command from Git history or another packet document.
+Production remains forbidden. The only active external migration entrypoint is the fail-closed
+wrapper below, executed from the exact Railway staging release after its non-secret resource
+identity and full release SHA are independently recorded:
 
-After Tom lifts the stop through a reviewed incident-resolution commit, this section must be
-replaced with a newly rehearsed release procedure that records the exact release SHA, independently
-proved resource identity, migration result, synthetic-data boundary, service revisions, and
-rollback evidence. The public verifier below is retained as a post-resolution reference only; it
-does not authorize a deployment or database action.
+```bash
+pnpm db:migrate:staging
+```
 
-The synthetic seed does not trust the `staging` label alone. After the stop is lifted and before an
-authorized seed, independently read the non-secret pooled host, direct host, and database name from
+The provider secret store—not a shell history, repository file, command argument, or log—must set
+`DATABASE_URL`, `DIRECT_DATABASE_URL`, `RAILWAY_ENVIRONMENT=staging`, the provider release SHA, the
+matching PathFinder release SHA, exact pooled/direct host and database confirmations, matching
+runtime/operator database resource identities, `PATHFINDER_ALLOW_STAGING_MIGRATIONS=1`,
+`PATHFINDER_CONFIRM_STAGING_DATA_POLICY=synthetic-only`, and a staging spend ceiling no greater than 10. The wrapper rejects the known production project, SHA drift, resource drift, host/database
+drift, non-synthetic policy, missing opt-in, or a larger ceiling before Prisma starts. Remove the
+one-run opt-in after a successful migration.
+
+This authorization is for an empty or already synthetic-only staging database. It does not permit
+restoring the production-lineage archive that was previously uploaded to the private staging
+container. Record migration output and a second no-pending result against the same release and
+resource identity.
+
+The synthetic seed does not trust the `staging` label alone. Before a separately authorized
+synthetic seed, independently read the non-secret pooled host, direct host, and database name from
 the staging provider. The operator must set `PATHFINDER_ALLOW_STAGING_SEED=1` and exact values for
 `PATHFINDER_CONFIRM_STAGING_DATABASE_HOST`,
 `PATHFINDER_CONFIRM_STAGING_DIRECT_DATABASE_HOST`, and

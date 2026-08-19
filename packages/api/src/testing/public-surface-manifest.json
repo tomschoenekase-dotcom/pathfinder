@@ -54,6 +54,17 @@
       "behavioralEvidence": ["apps/dashboard/app/api/admin/impersonate/route.test.ts"]
     },
     {
+      "source": "apps/dashboard/app/api/agent-bridge/[tenantId]/[venueId]/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/agent-bridge/[tenantId]/[venueId]/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/agent-bridge/http.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/trpc/[trpc]/route.ts",
       "methods": ["GET", "POST"],
       "exposure": "middleware-and-procedure-controlled",
@@ -95,5 +106,5 @@
       "behavioralEvidence": ["apps/web/app/api/widget-ready/[venueSlug]/route.test.ts"]
     }
   ],
-  "dashboardPublicApiPaths": ["/api/webhooks/clerk"]
+  "dashboardPublicApiPaths": ["/api/agent-bridge", "/api/webhooks/clerk"]
 }

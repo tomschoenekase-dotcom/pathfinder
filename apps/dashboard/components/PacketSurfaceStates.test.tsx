@@ -55,9 +55,11 @@ describe('Packet 2 authenticated surface route states', () => {
     render(<ClientPortalLoading />)
 
     const status = screen.getByRole('status')
-    expect(status.textContent).toContain('Loading your PathFinder portal')
-    expect(status.className).toContain('sm:px-6')
-    expect(status.className).toContain('lg:px-10')
+    expect(status.textContent).toContain('Loading your Torchiko portal')
+    expect(status.getAttribute('aria-busy')).toBe('true')
+    expect(
+      screen.getByRole('heading', { name: 'Bringing your Torchiko workspace into focus.' }),
+    ).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/analytics|queue|worker|agent|package/iu)
   })
 })

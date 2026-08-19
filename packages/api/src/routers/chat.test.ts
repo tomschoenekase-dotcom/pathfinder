@@ -45,6 +45,8 @@ const guestTurnActions = vi.hoisted(() => ({
   finalize: vi.fn(),
 }))
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
+const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
+vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
   searchPlacesByEmbedding: semanticSearch.places,
@@ -99,6 +101,7 @@ const aiUsageEventCreate = vi.fn().mockResolvedValue({})
 const platformConfigFindUnique = vi.fn()
 const aiCostBudgetFindFirst = vi.fn()
 const venueFindFirst = vi.fn()
+const tenantFeatureFlagFindMany = vi.fn()
 const dbTransaction = vi.fn()
 
 const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
@@ -106,6 +109,7 @@ const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 const mockDb = {
   platformConfig: { findUnique: platformConfigFindUnique },
   venue: { findFirst: venueFindFirst },
+  tenantFeatureFlag: { findMany: tenantFeatureFlagFindMany },
   visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
   tenant: { findUnique: tenantFindUnique },
   engagementQuestion: {
@@ -204,6 +208,8 @@ describe('chat router', () => {
     platformConfigFindUnique.mockResolvedValue(null)
     aiCostBudgetFindFirst.mockResolvedValue(null)
     venueFindFirst.mockResolvedValue({ isActive: true })
+    resolveSystemCharacterProjection.mockReturnValue(null)
+    tenantFeatureFlagFindMany.mockResolvedValue([])
     dbTransaction.mockImplementation((callback: (client: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -1001,6 +1007,49 @@ describe('chat router', () => {
       expect(emitEvent).not.toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'message.fallback' }),
       )
+    })
+
+    it('records a first-session character start only after every trusted rollout gate passes', async () => {
+      setupHappyPath('Welcome.')
+      messageFindMany.mockReset()
+      messageFindMany.mockResolvedValueOnce([{ role: 'user', content: sendInput.message }])
+      dbQueryRaw.mockReset()
+      dbQueryRaw.mockResolvedValueOnce([
+        {
+          ...venueRow,
+          venueBotPresentationMode: 'CHARACTER',
+          venueBotCharacterKey: 'tochi',
+        },
+      ])
+      resolveSystemCharacterProjection.mockReturnValue({ characterId: 'tochi' })
+      tenantFeatureFlagFindMany.mockResolvedValue([
+        { flagKey: 'venue-character-mode-v1' },
+        { flagKey: 'character-registry-v1' },
+        { flagKey: 'tochi-venue-character-v1' },
+      ])
+      vi.stubEnv('VENUE_CHARACTER_MODE_ENABLED', 'true')
+      vi.stubEnv('CHARACTER_REGISTRY_ENABLED', 'true')
+      vi.stubEnv('TOCHI_VENUE_CHARACTER_ENABLED', 'true')
+
+      await caller.chat.send(sendInput)
+      await vi.waitFor(() =>
+        expect(emitEvent).toHaveBeenCalledWith({
+          tenantId: TENANT_ID,
+          venueId: VENUE_ID,
+          eventType: 'character_chat_started',
+          metadata: { sessionId: SESSION_ID, characterKey: 'tochi' },
+        }),
+      )
+      expect(tenantFeatureFlagFindMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: TENANT_ID,
+          enabled: true,
+          flagKey: {
+            in: ['venue-character-mode-v1', 'character-registry-v1', 'tochi-venue-character-v1'],
+          },
+        },
+        select: { flagKey: true },
+      })
     })
 
     it('does not persist live coordinates for a non-location chat send', async () => {

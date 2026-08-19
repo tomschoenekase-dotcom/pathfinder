@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { TonePresetId } from './tone-presets'
 import { CapabilityId, VenueArchetypeId, VenuePresetId } from './venue-configuration'
+import { VenueBotConfigurationValues } from './venue-bot-configuration'
 
 export const VENUE_DEPLOYMENT_MANIFEST_VERSION = 2 as const
 export const VENUE_DEPLOYMENT_MAX_MODULES = 1_000
@@ -238,6 +239,7 @@ export const DeploymentAiConfiguration = z
   .object({
     guideName: z.string().trim().min(1).max(80).optional(),
     tone: z.object({ preset: TonePresetId, behaviorVersion: z.number().int().positive() }).strict(),
+    venueBot: VenueBotConfigurationValues.optional(),
     modelReferences: z.array(ModelReference).max(20),
   })
   .strict()
@@ -423,6 +425,7 @@ const patchOperations = [
         'branding.bannerAssetId',
         'aiConfiguration.guideName',
         'aiConfiguration.tone',
+        'aiConfiguration.venueBot',
         'aiConfiguration.modelReferences',
         'capabilities.preset',
       ]),

@@ -347,4 +347,47 @@ test('reconciles exact inventories and rejects missing, stale, and reclassified 
       },
     }).some((violation) => violation.includes('invalid behavioral evidence path')),
   )
+
+  const machineCredentialIngress = {
+    source: 'apps/dashboard/app/api/agent-bridge/[tenantId]/[venueId]/route.ts',
+    methods: ['POST'],
+    exposure: 'machine-credential-authenticated-public-ingress',
+    controlProfile: 'bounded-machine-credential-ingress',
+    behavioralEvidence: [],
+    exceptionReason: 'fixture',
+  }
+  assert.deepEqual(
+    auditPublicSurfaceManifest({
+      discoveredTrpc,
+      discoveredHttp: [
+        discoveredHttp[0],
+        { source: machineCredentialIngress.source, methods: machineCredentialIngress.methods },
+      ],
+      publicApiPaths: ['/api/agent-bridge', '/api/webhooks/clerk'],
+      manifest: {
+        ...manifest,
+        http: [...manifest.http, machineCredentialIngress],
+        dashboardPublicApiPaths: ['/api/agent-bridge', '/api/webhooks/clerk'],
+      },
+    }),
+    [],
+  )
+  assert.ok(
+    auditPublicSurfaceManifest({
+      discoveredTrpc,
+      discoveredHttp: [
+        discoveredHttp[0],
+        { source: machineCredentialIngress.source, methods: machineCredentialIngress.methods },
+      ],
+      publicApiPaths: ['/api/agent-bridge', '/api/webhooks/clerk'],
+      manifest: {
+        ...manifest,
+        http: [
+          ...manifest.http,
+          { ...machineCredentialIngress, controlProfile: 'bounded-signed-webhook' },
+        ],
+        dashboardPublicApiPaths: ['/api/agent-bridge', '/api/webhooks/clerk'],
+      },
+    }).some((violation) => violation.includes('control profile is incompatible')),
+  )
 })

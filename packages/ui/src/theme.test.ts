@@ -62,6 +62,8 @@ describe('getChatPalette', () => {
     for (const theme of ['default', 'forest', 'sunset', 'midnight', 'rose']) {
       const palette = getChatPalette(theme)
       expect(contrastRatio(palette.accent, palette.accentContrast)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(palette.card, palette.accentText)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(palette.bg, palette.accentText)).toBeGreaterThanOrEqual(4.5)
       expect(contrastRatio(palette.card, palette.textMuted)).toBeGreaterThanOrEqual(4.5)
       expect(contrastRatio(palette.bg, palette.textMuted)).toBeGreaterThanOrEqual(4.5)
     }

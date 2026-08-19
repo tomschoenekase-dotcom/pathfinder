@@ -17,6 +17,7 @@ const lifecycleMocks = vi.hoisted(() => ({
   claimEvaluationRunAttempt: vi.fn(),
   finishEvaluationRunAttempt: vi.fn(),
   failEvaluationRunAttempt: vi.fn(),
+  recordApprovedPackageEvaluationMilestones: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -26,6 +27,8 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   claimEvaluationRunAttempt: lifecycleMocks.claimEvaluationRunAttempt,
   finishEvaluationRunAttempt: lifecycleMocks.finishEvaluationRunAttempt,
   failEvaluationRunAttempt: lifecycleMocks.failEvaluationRunAttempt,
+  recordApprovedPackageEvaluationMilestones:
+    lifecycleMocks.recordApprovedPackageEvaluationMilestones,
 }))
 
 vi.mock('@pathfinder/ai', async (importOriginal) => ({
@@ -89,6 +92,18 @@ const contentSnapshotHash = createHash('sha256')
   .digest('hex')
 const payload = { tenantId: 't1', venueId: 'v1', runId: id, runIdentityHash: identityHash }
 const nativeState = {
+  venueBotConfiguration: {
+    presentationMode: 'CLASSIC',
+    personalityMode: 'PRESET',
+    tonePreset: 'friendly',
+    tonePresetVersion: 1,
+    personalityProfileId: null,
+    characterKey: null,
+    customCharacterId: null,
+    publicDisplayName: null,
+    greeting: null,
+    voiceProfileId: null,
+  },
   venue: {
     name: 'Venue',
     slug: 'venue',
@@ -162,6 +177,72 @@ function deps(overrides: Partial<EvaluationRunnerDependencies> = {}): Evaluation
 }
 
 describe('executeFrozenEvaluationRun', () => {
+  it('parses and re-hashes only the frozen approved client-package preview', () => {
+    const preview = {
+      venue: {
+        id: 'v1',
+        name: 'Frozen approved venue',
+        description: null,
+        category: null,
+        branding: {
+          theme: null,
+          accentColor: null,
+          font: null,
+          logoUrl: null,
+          bannerUrl: null,
+        },
+        guide: { name: null, tone: { preset: 'friendly', behaviorVersion: 1 } },
+      },
+      package: {
+        id: 'package_1',
+        status: 'APPROVED',
+        approvedAt: '2026-08-18T12:00:00.000Z',
+      },
+      experience: {
+        places: [],
+        knowledgeEntries: [],
+        summary: { placeCount: 0, knowledgeEntryCount: 0 },
+      },
+      staleness: 'CURRENT',
+      autoApply: false,
+      published: false,
+      guestAccessible: false,
+    } as const
+    const approvedContent = {
+      version: 'pathfinder-approved-package-evaluation-content-v1',
+      tenantId: 't1',
+      venueId: 'v1',
+      packageId: 'package_1',
+      preview,
+    }
+    const run = {
+      ...frozenRun(),
+      contentSnapshotKind: 'APPROVED_VENUE_PACKAGE_V1' as const,
+      contentSnapshotRef: 'package_1',
+      contentSnapshotHash: evaluationSnapshotHash(
+        'pathfinder-approved-client-package-preview-v1',
+        approvedContent as never,
+      ),
+      runConfigSnapshot: {
+        version: 'pathfinder-approved-package-evaluation-run-config-v1',
+        contentSnapshot: approvedContent,
+      },
+    }
+    expect(frozenContent(run)).toEqual(approvedContent)
+    expect(() =>
+      frozenContent({
+        ...run,
+        runConfigSnapshot: {
+          ...run.runConfigSnapshot,
+          contentSnapshot: {
+            ...approvedContent,
+            preview: { ...preview, venue: { ...preview.venue, name: 'Tampered' } },
+          },
+        },
+      }),
+    ).toThrow('EVALUATION_CONTENT_IDENTITY_MISMATCH')
+  })
+
   it('parses and re-hashes only the frozen native desired-state snapshot', () => {
     const nativeContent = {
       version: 'pathfinder-native-evaluation-content-v1',
@@ -449,6 +530,10 @@ describe('executeFrozenEvaluationRun', () => {
 describe('processEvaluationRunJob lifecycle', () => {
   beforeEach(() => {
     for (const mock of Object.values(lifecycleMocks)) mock.mockClear()
+    lifecycleMocks.recordApprovedPackageEvaluationMilestones.mockResolvedValue({
+      eligible: true,
+      recorded: 0,
+    })
   })
   it('brackets an exact attempt with JobRecord evidence without calling a provider', async () => {
     lifecycleMocks.claimEvaluationRunAttempt.mockResolvedValueOnce({

@@ -10,6 +10,7 @@ import {
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
+import { CustomPersonalityBoundsSchema } from '@pathfinder/contracts'
 import {
   assertVenueAiAvailable,
   claimGuestChatTurnAction,
@@ -26,12 +27,13 @@ import {
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
-import { isFeatureEnabled } from '@pathfinder/config/feature-flags'
+import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config/feature-flags'
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
+import { resolveSystemCharacterProjection } from '../lib/character-registry'
 import { rollEngagementGate, selectAuthoredQuestion } from '../lib/engagement-questions'
 import { findNearestPlaces } from '../lib/geo'
 import { generateGuestQueryEmbedding } from '../lib/guest-query-embedding'
@@ -121,6 +123,13 @@ type PublicChatVenue = {
   secondLayerEnabled: boolean
   secondLayerLabel: string
   secondLayerAccessKey: string | null
+  customWarmth?: number | null
+  customBrevity?: number | null
+  customEnergy?: number | null
+  customFormality?: number | null
+  customInstruction?: string | null
+  venueBotPresentationMode?: 'CLASSIC' | 'CHARACTER' | null
+  venueBotCharacterKey?: string | null
 }
 
 type ChatExperienceScope = 'PUBLIC' | 'SECOND_LAYER'
@@ -174,26 +183,41 @@ const admittedChatSendProcedure = publicProcedure
     // keys. The fixed global gate above bounds invalid-ID database traffic and
     // prevents arbitrary venue IDs from expanding Redis key cardinality.
     const [chatVenue] = await ctx.db.$queryRaw<PublicChatVenue[]>`
-      SELECT id,
-             tenant_id AS "tenantId",
-             name,
-             description,
-             guide_notes AS "guideNotes",
-             ai_guide_notes AS "aiGuideNotes",
-             ai_featured_place_id AS "aiFeaturedPlaceId",
-             ai_tone AS "aiTone",
-             tone_preset AS "tonePreset",
-             tone_preset_version AS "tonePresetVersion",
-             ai_guide_name AS "aiGuideName",
-             category,
-             guide_mode AS "guideMode",
-             default_center_lat AS "defaultCenterLat",
-             default_center_lng AS "defaultCenterLng",
-             is_active AS "isActive"
-             ,second_layer_enabled AS "secondLayerEnabled"
-             ,second_layer_label AS "secondLayerLabel"
-             ,second_layer_access_key AS "secondLayerAccessKey"
-      FROM venues WHERE id = ${input.venueId} LIMIT 1
+      SELECT v.id,
+             v.tenant_id AS "tenantId",
+             v.name,
+             v.description,
+             v.guide_notes AS "guideNotes",
+             v.ai_guide_notes AS "aiGuideNotes",
+             v.ai_featured_place_id AS "aiFeaturedPlaceId",
+             v.ai_tone AS "aiTone",
+             v.tone_preset AS "tonePreset",
+             v.tone_preset_version AS "tonePresetVersion",
+             v.ai_guide_name AS "aiGuideName",
+             v.category,
+             v.guide_mode AS "guideMode",
+             v.default_center_lat AS "defaultCenterLat",
+             v.default_center_lng AS "defaultCenterLng",
+             v.is_active AS "isActive",
+             v.second_layer_enabled AS "secondLayerEnabled",
+             v.second_layer_label AS "secondLayerLabel",
+             v.second_layer_access_key AS "secondLayerAccessKey",
+             CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.warmth END AS "customWarmth",
+             CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.brevity END AS "customBrevity",
+             CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.energy END AS "customEnergy",
+             CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.formality END AS "customFormality",
+             CASE WHEN vbc.personality_mode = 'CUSTOM' THEN pp.custom_instruction END AS "customInstruction",
+             vbc.presentation_mode AS "venueBotPresentationMode",
+             vbc.character_key AS "venueBotCharacterKey"
+      FROM venues v
+      LEFT JOIN venue_bot_configurations vbc
+        ON vbc.venue_id = v.id AND vbc.tenant_id = v.tenant_id
+      LEFT JOIN personality_profiles pp
+        ON pp.id = vbc.personality_profile_id
+       AND pp.tenant_id = v.tenant_id
+       AND pp.status = 'ACTIVE'
+      WHERE v.id = ${input.venueId}
+      LIMIT 1
     `
 
     if (!chatVenue) {
@@ -626,6 +650,45 @@ export const chatRouter = router({
         }),
       ])
 
+    if (
+      historyDesc.length === 1 &&
+      venue.venueBotPresentationMode === 'CHARACTER' &&
+      venue.venueBotCharacterKey &&
+      isFeatureEnabled('venueCharacterMode') &&
+      isFeatureEnabled('characterRegistry') &&
+      (venue.venueBotCharacterKey !== 'tochi' || isFeatureEnabled('tochiVenueCharacter')) &&
+      resolveSystemCharacterProjection(venue.venueBotCharacterKey)
+    ) {
+      const requiredKeys = [
+        TOCHI_TENANT_FLAG_KEYS.venueCharacterMode,
+        TOCHI_TENANT_FLAG_KEYS.characterRegistry,
+        ...(venue.venueBotCharacterKey === 'tochi'
+          ? [TOCHI_TENANT_FLAG_KEYS.tochiVenueCharacter]
+          : []),
+      ]
+      void ctx.db.tenantFeatureFlag
+        .findMany({
+          where: { tenantId: venue.tenantId, enabled: true, flagKey: { in: requiredKeys } },
+          select: { flagKey: true },
+        })
+        .then((rows) => {
+          const enabled = new Set(rows.map((row) => row.flagKey))
+          if (requiredKeys.every((key) => enabled.has(key))) {
+            return emitEvent({
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+              eventType: 'character_chat_started',
+              metadata: {
+                sessionId: session.id,
+                characterKey: venue.venueBotCharacterKey,
+              },
+            })
+          }
+          return undefined
+        })
+        .catch(() => undefined)
+    }
+
     // 4. Retrieve relevant places and knowledge entries.
     //    When an embedding is available both searches run in parallel (same query embedding,
     //    no inter-dependency). Geo-nearest fallback for places when embedding is absent;
@@ -774,8 +837,18 @@ export const chatRouter = router({
           return []
         })
       : []
+    const customPersonality = CustomPersonalityBoundsSchema.safeParse({
+      warmth: (venue.customWarmth ?? -1) / 100,
+      brevity: (venue.customBrevity ?? -1) / 100,
+      energy: (venue.customEnergy ?? -1) / 100,
+      formality: (venue.customFormality ?? -1) / 100,
+      ...(venue.customInstruction ? { customInstruction: venue.customInstruction } : {}),
+    })
     const { staticPart, dynamicPart } = buildVenueSystemPromptParts({
-      venue,
+      venue: {
+        ...venue,
+        ...(customPersonality.success ? { customPersonality: customPersonality.data } : {}),
+      },
       relevantPlaces,
       knowledgeEntries: relevantKnowledgeEntries,
       activeUpdates,

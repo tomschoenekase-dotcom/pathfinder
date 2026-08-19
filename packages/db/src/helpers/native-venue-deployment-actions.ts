@@ -3,6 +3,7 @@ import {
   NativeCoreFullManifest,
   type NativeCoreFullManifest as NativeManifest,
   NativeCoreVisibleState,
+  resolveEffectiveTone,
   nativeCoreFullManifestHash,
   nativeCoreVisibleStateHash,
   sha256Hex,
@@ -104,6 +105,29 @@ function venueState(row: Record<string, unknown>) {
   }
 }
 
+function venueBotConfigurationState(
+  row: Record<string, unknown> | null | undefined,
+  venue: Record<string, unknown>,
+) {
+  const tone = resolveEffectiveTone({
+    tonePreset: typeof venue.tonePreset === 'string' ? venue.tonePreset : null,
+    tonePresetVersion: typeof venue.tonePresetVersion === 'number' ? venue.tonePresetVersion : null,
+    aiTone: typeof venue.aiTone === 'string' ? venue.aiTone : null,
+  })
+  return {
+    presentationMode: row?.presentationMode ?? 'CLASSIC',
+    personalityMode: row?.personalityMode ?? 'PRESET',
+    tonePreset: row?.tonePreset ?? tone.preset,
+    tonePresetVersion: row?.tonePresetVersion ?? tone.behaviorVersion,
+    personalityProfileId: row?.personalityProfileId ?? null,
+    characterKey: row?.characterKey ?? null,
+    customCharacterId: row?.customCharacterId ?? null,
+    publicDisplayName: row?.publicDisplayName ?? null,
+    greeting: row?.greeting ?? null,
+    voiceProfileId: row?.voiceProfileId ?? null,
+  }
+}
+
 function sourcedState(row: Record<string, unknown>) {
   return {
     sourceType: row.sourceType,
@@ -173,7 +197,7 @@ const revisionInclude = {
 async function projectLocked(tx: NativeVenueDeploymentClient, scope: Scope) {
   const venue = await tx.venue.findFirst({ where: { id: scope.venueId, tenantId: scope.tenantId } })
   if (!venue) throw new NativeVenueDeploymentError('NOT_FOUND', 'Venue was not found.')
-  const [places, knowledge, headIds] = await Promise.all([
+  const [places, knowledge, headIds, venueBotConfiguration] = await Promise.all([
     tx.place.findMany({
       where: { tenantId: scope.tenantId, venueId: scope.venueId, isActive: true },
       orderBy: { id: 'asc' },
@@ -195,6 +219,13 @@ async function projectLocked(tx: NativeVenueDeploymentClient, scope: Scope) {
       ORDER BY head.module_id
       LIMIT 1001
     `,
+    tx.venueBotConfiguration?.findUnique
+      ? tx.venueBotConfiguration.findUnique({
+          where: {
+            tenantId_venueId: { tenantId: scope.tenantId, venueId: scope.venueId },
+          },
+        })
+      : Promise.resolve(null),
   ])
   if (places.length > 1_000 || knowledge.length > 1_000)
     throw new NativeVenueDeploymentError(
@@ -232,6 +263,7 @@ async function projectLocked(tx: NativeVenueDeploymentClient, scope: Scope) {
     )
   const state = NativeCoreVisibleState.parse({
     venue: venueState(venue),
+    venueBotConfiguration: venueBotConfigurationState(venueBotConfiguration, venue),
     places: places.map((item: Record<string, unknown>) => ({
       id: item.id,
       name: item.name,
@@ -326,6 +358,45 @@ function sameUniverse(actual: Omit<BaseUniverse, 'stateHash'>, expected: BaseUni
   )
 }
 
+async function validateVenueBotConfigurationReferences(
+  tx: NativeVenueDeploymentClient,
+  scope: Scope,
+  configuration: VisibleState['venueBotConfiguration'],
+) {
+  if (configuration.personalityProfileId) {
+    const profile = await tx.personalityProfile.findFirst({
+      where: {
+        id: configuration.personalityProfileId,
+        tenantId: scope.tenantId,
+        status: 'ACTIVE',
+        OR: [{ venueId: scope.venueId }, { venueId: null }],
+      },
+      select: { id: true },
+    })
+    if (!profile)
+      throw new NativeVenueDeploymentError(
+        'PRECONDITION_FAILED',
+        'Venue Bot personality profile is outside the exact deployment scope.',
+      )
+  }
+  if (configuration.customCharacterId) {
+    const character = await tx.customCharacter.findFirst({
+      where: {
+        id: configuration.customCharacterId,
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    })
+    if (!character)
+      throw new NativeVenueDeploymentError(
+        'PRECONDITION_FAILED',
+        'Custom character is outside the exact deployment scope.',
+      )
+  }
+}
+
 function plannedEffects(
   venueId: string,
   before: VisibleState,
@@ -352,6 +423,15 @@ function plannedEffects(
     })
   if (JSON.stringify(before.venue) !== JSON.stringify(desired.venue))
     add('VENUE', venueId, before.venue, desired.venue)
+  if (
+    JSON.stringify(before.venueBotConfiguration) !== JSON.stringify(desired.venueBotConfiguration)
+  )
+    add(
+      'VENUE_BOT_CONFIGURATION',
+      venueId,
+      before.venueBotConfiguration,
+      desired.venueBotConfiguration,
+    )
   const entities = <T extends { id: string }>(
     kind: string,
     left: T[],
@@ -463,10 +543,13 @@ export async function createNativeVenueDeploymentAction(
         await validateSourcePackages(tx, input, manifest)
         const desired = NativeCoreVisibleState.parse({
           venue: manifest.venue,
+          venueBotConfiguration:
+            manifest.venueBotConfiguration ?? current.state.venueBotConfiguration,
           places: manifest.places,
           knowledgeEntries: manifest.knowledgeEntries,
           generalizedModules: manifest.generalizedModules,
         })
+        await validateVenueBotConfigurationReferences(tx, input, desired.venueBotConfiguration)
         const [placeRows, knowledgeRows, identities, revisionRows] = await Promise.all([
           tx.place.findMany({
             where: {
@@ -1033,8 +1116,38 @@ async function applyVisibleState(
 ) {
   let order = 1
   const venueChanged = JSON.stringify(before.venue) !== JSON.stringify(desired.venue)
+  const venueBotChanged =
+    JSON.stringify(before.venueBotConfiguration) !== JSON.stringify(desired.venueBotConfiguration)
   if (venueChanged)
     await recordEffect(tx, scope, order++, 'VENUE', scope.venueId, before.venue, desired.venue)
+  if (venueBotChanged) {
+    await recordEffect(
+      tx,
+      scope,
+      order++,
+      'VENUE_BOT_CONFIGURATION',
+      scope.venueId,
+      before.venueBotConfiguration,
+      desired.venueBotConfiguration,
+    )
+    await tx.venueBotConfiguration.upsert({
+      where: {
+        tenantId_venueId: { tenantId: scope.tenantId, venueId: scope.venueId },
+      },
+      create: {
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        ...desired.venueBotConfiguration,
+        createdBy: actorId,
+        updatedBy: actorId,
+      },
+      update: {
+        ...desired.venueBotConfiguration,
+        revision: { increment: 1 },
+        updatedBy: actorId,
+      },
+    })
+  }
   const beforePlaces = new Map(before.places.map((item) => [item.id, item]))
   const desiredPlaces = new Map(desired.places.map((item) => [item.id, item]))
   for (const [id, old] of beforePlaces)
@@ -1185,7 +1298,11 @@ async function applyVisibleState(
   return order - 1
 }
 
-export const nativeVenueDeploymentTestHooks = { applyVisibleState, plannedEffects }
+export const nativeVenueDeploymentTestHooks = {
+  applyVisibleState,
+  plannedEffects,
+  validateVenueBotConfigurationReferences,
+}
 
 export async function applyNativeVenueDeploymentAction(
   input: Scope & {
@@ -1369,7 +1486,30 @@ export async function revertNativeVenueDeploymentAction(
           'Deployment effect evidence is inconsistent.',
         )
       if (effect.kind === 'VENUE') venueBefore = before
-      else if (effect.kind === 'PLACE') {
+      else if (effect.kind === 'VENUE_BOT_CONFIGURATION') {
+        const row = await tx.venueBotConfiguration.findUnique({
+          where: {
+            tenantId_venueId: { tenantId: input.tenantId, venueId: input.venueId },
+          },
+        })
+        if (!row)
+          throw new NativeVenueDeploymentError(
+            'CONFLICT',
+            'Applied Venue Bot configuration evidence is missing.',
+          )
+        const actual = venueBotConfigurationState(row, plan.desired.venue)
+        if (JSON.stringify(actual) !== JSON.stringify(after))
+          throw new NativeVenueDeploymentError(
+            'PRECONDITION_FAILED',
+            'Venue Bot configuration changed after materialization.',
+          )
+        await tx.venueBotConfiguration.update({
+          where: {
+            tenantId_venueId: { tenantId: input.tenantId, venueId: input.venueId },
+          },
+          data: { ...before, revision: { increment: 1 }, updatedBy: input.actor.id },
+        })
+      } else if (effect.kind === 'PLACE') {
         const row = await tx.place.findFirst({
           where: { id: effect.targetId, tenantId: input.tenantId, venueId: input.venueId },
         })

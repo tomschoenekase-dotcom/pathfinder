@@ -377,15 +377,16 @@ Results are navigation hints, not mutation or audit evidence. Retention helpers 
 policy registry only: no deletion or anonymization may be added before owner/legal policy. Partner
 API, MCP transport, SDK and provider execution remain default-off and must not acquire an accidental
 listener or authentication path through an administration UI. The external-credential seam now has
-canonical `HUMAN` `PLATFORM_ADMIN` issue, rotate and revoke actions. Every credential remains
-disabled, exact tenant/client/optional-venue scoped and capability bounded. Fresh issue and rotation
+canonical `HUMAN` `PLATFORM_ADMIN` issue, activate-agent-bridge, rotate and revoke actions. Every
+credential starts disabled, exact tenant/client/optional-venue scoped and capability bounded. Fresh issue and rotation
 hash the generated secret with Argon2id, persist only the verifier and non-secret prefix, and return
 the plaintext once; exact replay returns the immutable result with `plaintextSecret: null`.
 Rotation atomically revokes the old credential, creates a disabled replacement and appends exact
 lineage, operation and audit evidence. Revocation likewise uses exact-scope CAS and immutable
-evidence. Do not add secret recovery, download, verification, `lastUsedAt` mutation, enablement,
-transport listeners or request authentication: those runtime boundaries remain absent and
-owner/live work.
+evidence. Bridge activation is limited to an exact non-expired venue MCP credential with
+`agent-runs:execute`, requires append-only activation evidence, and returns no secret. Do not add
+secret recovery, download, `lastUsedAt` mutation, transport listeners, or request authentication:
+those runtime boundaries remain absent and owner/live work.
 
 The MCP read adapter is a canonical, transport-neutral binding over verified invocation context.
 Every query must reapply exact tenant/client/venue scope, use a bounded resource-specific cursor and
@@ -395,10 +396,15 @@ messages, snapshots, errors, signed asset/source URLs, redirects, and secrets re
 ## Schema and migrations
 
 Forward-only migration `20260812001300_add_external_credential_operations` adds immutable UUID/hash
-operation receipts and database guards for disabled-only issuance, single-origin credentials,
+operation receipts and database guards for disabled-by-default issuance, single-origin credentials,
 single-outgoing rotation, exact actor/time/scope lineage, canonical capability allowlists and
 terminal revocation. It performs no legacy backfill and remains unapplied and unrehearsed; local
 schema and action tests are not live credential or authentication evidence.
+
+Forward-only migration `20260818213000_activate_agent_bridge_credentials` adds the append-only
+activation evidence table, expands the canonical MCP capability allowlist for questions,
+delegations, and agent execution, and permits only an exact evidenced activation or terminal
+revocation update. It remains unapplied and is not transport/authentication evidence.
 
 Forward-only migration `20260812001400_add_native_venue_deployments` adds separate immutable native
 artifact, release, effect, command, publication-lineage, and current-head evidence for the bounded

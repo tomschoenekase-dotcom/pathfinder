@@ -91,7 +91,7 @@ function exactScope(scope: AgentIdentityConfigurationScope) {
   }
 }
 
-function parseFields(fields: AgentIdentityFields): AgentIdentityFields {
+function parseFields(fields: AgentIdentityFields) {
   const parsed = AgentIdentityConfigurationFields.safeParse(fields)
   if (!parsed.success) {
     throw new AgentIdentityConfigurationError(
@@ -101,7 +101,11 @@ function parseFields(fields: AgentIdentityFields): AgentIdentityFields {
   }
   const issue = agentConfigurationCoherenceIssue(parsed.data)
   if (issue) throw new AgentIdentityConfigurationError('INVALID_INPUT', issue)
-  return parsed.data
+  return {
+    ...parsed.data,
+    defaultProvider: parsed.data.defaultProvider ?? null,
+    defaultModel: parsed.data.defaultModel ?? null,
+  }
 }
 
 function snapshot(identity: IdentitySnapshot) {
@@ -118,8 +122,10 @@ function snapshot(identity: IdentitySnapshot) {
     accessCapabilities: identity.accessCapabilities,
     autonomyLevel: identity.autonomyLevel,
     autonomousActions: identity.autonomousActions,
+    defaultProvider: identity.defaultProvider,
+    defaultModel: identity.defaultModel,
     enabled: identity.enabled,
-    providerConfigurationEditable: false,
+    providerConfigurationEditable: !identity.enabled,
     revision: identity.updatedAt.toISOString(),
   }
 }
@@ -173,8 +179,8 @@ export async function createDisabledAgentIdentity(
           accessCapabilities: fields.accessCapabilities,
           autonomyLevel: fields.autonomyLevel,
           autonomousActions: fields.autonomousActions,
-          defaultProvider: null,
-          defaultModel: null,
+          defaultProvider: fields.defaultProvider,
+          defaultModel: fields.defaultModel,
           enabled: false,
           createdBy: input.actor.id,
         },
@@ -249,6 +255,8 @@ export async function editDisabledAgentIdentity(
           accessCapabilities: fields.accessCapabilities,
           autonomyLevel: fields.autonomyLevel,
           autonomousActions: fields.autonomousActions,
+          defaultProvider: fields.defaultProvider,
+          defaultModel: fields.defaultModel,
           updatedAt: nextUpdatedAt,
         },
       })
@@ -322,6 +330,62 @@ export async function disableAgentIdentity(
         actorId: input.actor.id,
         actorRole: input.actor.role,
         action: 'admin.agent-identity.disabled',
+        targetType: 'AgentIdentity',
+        targetId: saved.id,
+        beforeState: snapshot(before),
+        afterState: snapshot(saved),
+      },
+      tx,
+    )
+    return saved
+  })
+}
+
+export async function enableAgentIdentity(
+  input: {
+    scope: AgentIdentityConfigurationScope
+    agentIdentityId: string
+    expectedUpdatedAt: Date
+    actor: AgentIdentityConfigurationActor
+  },
+  client: ActionClient = db,
+) {
+  assertActor(input.actor)
+  const scope = exactScope(input.scope)
+  return client.$transaction(async (tx) => {
+    const before = await tx.agentIdentity.findFirst({
+      where: { id: input.agentIdentityId, ...scope },
+      select: identitySelect,
+    })
+    if (!before) throw new AgentIdentityConfigurationError('NOT_FOUND', 'Agent identity not found')
+    if (before.enabled) conflict('Agent identity is already enabled')
+    if (before.updatedAt.getTime() !== input.expectedUpdatedAt.getTime()) {
+      conflict('Agent identity configuration changed; refresh before enabling')
+    }
+    if (!before.defaultProvider || !before.defaultModel) {
+      throw new AgentIdentityConfigurationError(
+        'INVALID_INPUT',
+        'Configure an execution provider and model before enabling this identity',
+      )
+    }
+    const nextUpdatedAt = new Date(Math.max(Date.now(), before.updatedAt.getTime() + 1))
+    const updated = await tx.agentIdentity.updateMany({
+      where: { id: before.id, ...scope, enabled: false, updatedAt: input.expectedUpdatedAt },
+      data: { enabled: true, updatedAt: nextUpdatedAt },
+    })
+    if (updated.count !== 1) {
+      conflict('Agent identity configuration changed; refresh before enabling')
+    }
+    const saved = await tx.agentIdentity.findFirstOrThrow({
+      where: { id: before.id, ...scope, enabled: true },
+      select: identitySelect,
+    })
+    await writeAuditLogStrict(
+      {
+        tenantId: scope.tenantId,
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'admin.agent-identity.enabled',
         targetType: 'AgentIdentity',
         targetId: saved.id,
         beforeState: snapshot(before),

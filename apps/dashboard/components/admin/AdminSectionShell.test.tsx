@@ -56,6 +56,8 @@ describe('AdminSectionShell browser foundation', () => {
     )
 
     const trigger = screen.getByRole('button', { name: 'Open navigation' })
+    expect(trigger.className).toContain('min-h-11')
+    expect(trigger.className).toContain('min-w-11')
     fireEvent.click(trigger)
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true')

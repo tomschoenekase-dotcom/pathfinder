@@ -17,7 +17,9 @@ export default async function EvaluationOperationsPage({
   const caller = await createAdminCaller()
 
   try {
-    const [data, cases] = await Promise.all([
+    const metricsTo = new Date()
+    const metricsFrom = new Date(metricsTo.getTime() - 90 * 24 * 60 * 60 * 1000)
+    const [data, cases, approvedPackages, onboardingMetrics] = await Promise.all([
       caller.admin.listEvaluationRuns({
         tenantId,
         venueId,
@@ -26,6 +28,13 @@ export default async function EvaluationOperationsPage({
           : {}),
       }),
       caller.admin.listEvaluationCases({ tenantId, venueId }),
+      caller.admin.listOnboardingEvaluationPackages({ tenantId, venueId }),
+      caller.admin.getOnboardingMilestoneRollup({
+        tenantId,
+        venueId,
+        from: metricsFrom.toISOString(),
+        to: metricsTo.toISOString(),
+      }),
     ])
     return (
       <EvaluationOperationsView
@@ -33,12 +42,15 @@ export default async function EvaluationOperationsPage({
         venueId={venueId}
         runs={data.items}
         humanConclusions={data.humanConclusions}
+        failedCases={data.failedCases}
         nextCursor={data.nextCursor}
         cases={cases.items}
         caseNextCursor={cases.nextCursor}
         runnerEnabled={cases.runnerEnabled}
         maximumCases={cases.maximumCases}
         requestPanelEnabled
+        approvedPackages={approvedPackages}
+        onboardingMetrics={onboardingMetrics}
       />
     )
   } catch {

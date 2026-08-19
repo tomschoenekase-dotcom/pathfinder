@@ -99,6 +99,14 @@ function harness() {
     venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue_1' }) },
     tenantMembership: { findFirst: vi.fn().mockResolvedValue({ id: 'membership_1' }) },
     venuePackage: { findFirst: vi.fn().mockResolvedValue({ id: 'package_1' }) },
+    intakeRun: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'run_1',
+        sourceKind: 'INTERVIEW',
+        displayName: 'Front desk interview',
+        _count: { events: 2 },
+      }),
+    },
     intakeUpload: { findMany: vi.fn().mockResolvedValue([]) },
     supportRequest: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -126,6 +134,10 @@ function harness() {
     },
     supportPreviewFeedback: {
       create: vi.fn().mockResolvedValue({ venuePackageId: 'package_1', createdAt: now }),
+    },
+    onboardingMilestoneEvent: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn(async ({ data }) => data),
     },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
   }
@@ -161,7 +173,14 @@ describe('support domain actions', () => {
     })
     expect(tx.supportRequest.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ category: 'EXPERIENCE_BEHAVIOR' }),
+        data: expect.objectContaining({
+          category: 'EXPERIENCE_BEHAVIOR',
+          artifacts: {
+            schemaVersion: 1,
+            kind: 'CLIENT_PREVIEW_FEEDBACK',
+            context: { kind: 'GENERAL' },
+          },
+        }),
       }),
     )
     expect(tx.supportPreviewFeedback.create).toHaveBeenCalledOnce()
@@ -173,6 +192,43 @@ describe('support domain actions', () => {
     const audit = tx.auditLog.create.mock.calls[0]?.[0]
     expect(JSON.stringify(audit)).not.toMatch(/clearer|filename|submission|hash/iu)
     expect(result.replayed).toBe(false)
+  })
+
+  it('persists exact answer-level preview feedback as structured follow-up evidence', async () => {
+    const { tx, actionClient } = harness()
+    await createPreviewFeedbackRequestAction(
+      {
+        operationId,
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        packageId: 'package_1',
+        body: 'Preview answer feedback: needs change.',
+        context: {
+          kind: 'PREVIEW_ANSWER',
+          prompt: 'Where should I park?',
+          answerRef: 'knowledge:2:Parking',
+          verdict: 'NEEDS_CHANGE',
+        },
+        attachments: [],
+        actor: clientActor,
+      },
+      { assertEligible: vi.fn().mockResolvedValue(undefined) },
+      actionClient,
+    )
+    expect(tx.supportRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          subject: 'Feedback on a preview answer',
+          artifacts: expect.objectContaining({
+            context: expect.objectContaining({
+              kind: 'PREVIEW_ANSWER',
+              answerRef: 'knowledge:2:Parking',
+              verdict: 'NEEDS_CHANGE',
+            }),
+          }),
+        }),
+      }),
+    )
   })
 
   it('fails malformed/non-client feedback before transaction and propagates eligibility outages', async () => {
@@ -320,6 +376,64 @@ describe('support domain actions', () => {
     expect(tx.supportMessage.create).toHaveBeenCalledOnce()
     expect(tx.supportRequestAuditEvent.create).toHaveBeenCalledOnce()
     expect(tx.auditLog.create).toHaveBeenCalledOnce()
+  })
+
+  it('records an intake correction against the exact immutable source version', async () => {
+    const { tx, actionClient } = harness()
+    await createSupportRequestAction(
+      {
+        ...createInput,
+        category: 'CONTENT_CORRECTION',
+        intakeSource: { runId: 'run_1', expectedEventCount: 2 },
+      },
+      actionClient,
+    )
+
+    expect(tx.intakeRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'run_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+      }),
+    )
+    expect(tx.supportRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          artifacts: {
+            schemaVersion: 1,
+            kind: 'INTAKE_SOURCE_CORRECTION',
+            intakeSource: {
+              id: 'run_1',
+              sourceKind: 'INTERVIEW',
+              displayName: 'Front desk interview',
+              eventCount: 2,
+            },
+          },
+        }),
+      }),
+    )
+    expect(tx.onboardingMilestoneEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: 'CORRECTION_RECORDED',
+        sourceType: 'INTAKE_SOURCE',
+        sourceId: 'run_1',
+        category: 'CONTENT_CORRECTION',
+      }),
+    })
+  })
+
+  it('rejects a stale intake correction without creating partial support evidence', async () => {
+    const { tx, actionClient } = harness()
+    await expect(
+      createSupportRequestAction(
+        {
+          ...createInput,
+          category: 'CONTENT_CORRECTION',
+          intakeSource: { runId: 'run_1', expectedEventCount: 1 },
+        },
+        actionClient,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' } satisfies Partial<SupportActionError>)
+    expect(tx.supportRequest.create).not.toHaveBeenCalled()
+    expect(tx.supportMessage.create).not.toHaveBeenCalled()
   })
 
   it('prevents a client adapter from spoofing an internal note before starting a transaction', async () => {

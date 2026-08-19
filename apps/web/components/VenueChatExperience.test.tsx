@@ -49,10 +49,11 @@ vi.mock('../hooks/useSession', () => ({
   }),
 }))
 vi.mock('../hooks/useVisitorId', () => ({ useVisitorId: () => null }))
-vi.mock('@pathfinder/ui', () => ({
+vi.mock('@pathfinder/ui/theme', () => ({
   CHAT_FONT_OPTIONS: [{ value: 'default', cssVar: '--font-sans' }],
   getChatPalette: () => ({
     accent: '#123456',
+    accentText: '#123456',
     accentContrast: '#ffffff',
     bg: '#ffffff',
     card: '#ffffff',
@@ -60,7 +61,10 @@ vi.mock('@pathfinder/ui', () => ({
     text: '#111111',
     textMuted: '#666666',
   }),
-  PathFinderIcon: () => <span>Icon</span>,
+}))
+vi.mock('@pathfinder/ui/brand', () => ({ PathFinderIcon: () => <span>Icon</span> }))
+vi.mock('@pathfinder/ui/character', () => ({
+  PublicCharacterPresence: ({ state }: { state: string }) => <span>Character visual: {state}</span>,
 }))
 vi.mock('./ChatWindow', () => ({
   ChatWindow: ({
@@ -78,7 +82,7 @@ vi.mock('./ChatWindow', () => ({
     errorMessage?: string | null
     messages: Array<{ places?: Array<{ id: string }> }>
     onSend: (message: string) => void
-    onDraftChange?: () => void
+    onDraftChange?: (draft: string) => void
     onRetry?: () => void
     retryLabel?: string
     onPlaceCardClick?: (placeId: string) => void
@@ -99,7 +103,7 @@ vi.mock('./ChatWindow', () => ({
         ))}
       <button onClick={() => onSend('Where is the café?')}>Send test message</button>
       <button onClick={() => onSend('Where is parking?')}>Send different message</button>
-      <button onClick={() => onDraftChange?.()}>Edit draft</button>
+      <button onClick={() => onDraftChange?.('Edited draft')}>Edit draft</button>
       {onRetry ? <button onClick={onRetry}>{retryLabel ?? 'Retry same message'}</button> : null}
     </div>
   ),
@@ -150,6 +154,42 @@ const activeVenue = {
   chatBannerUrl: null,
 }
 
+const characterVenue = {
+  ...activeVenue,
+  venueBotPresentation: {
+    mode: 'CHARACTER' as const,
+    displayName: 'Museum Tochi',
+    greeting: 'Ask me anything about your visit.',
+    personalityPreset: 'friendly' as const,
+    character: {
+      characterId: 'tochi',
+      displayName: 'Tochi',
+      assetPackId: 'tochi-approved',
+      assetPackVersion: '1.0.0',
+      renderer: 'static-image-v1' as const,
+      publicBasePath: '/characters/tochi/1.0.0',
+      assets: [
+        {
+          id: 'fallback',
+          path: 'fallback.svg',
+          mediaType: 'image/svg+xml' as const,
+          width: 128,
+          height: 128,
+          bytes: 512,
+        },
+      ],
+      canvas: { width: 128, height: 128 },
+      anchors: { lookAt: { x: 64, y: 52 }, embers: { x: 64, y: 18 } },
+      staticFallbackAssetId: 'fallback',
+      reducedMotionFallbackAssetId: 'fallback',
+      layers: {},
+      states: {},
+      stateFallbacks: {},
+      supportedContexts: ['venue-text-chat' as const],
+    },
+  },
+}
+
 function codedError(code: string) {
   return Object.assign(new Error(code), { data: { code } })
 }
@@ -189,7 +229,7 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(mocks.geolocationEnabled).not.toHaveBeenCalledWith(true)
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
-    expect(screen.getByText('PathFinder').closest('a')).toBeNull()
+    expect(screen.getByText('Torchiko').closest('a')).toBeNull()
   })
 
   it('creates one UUID operation and fences same-tick duplicate submission', async () => {
@@ -379,7 +419,7 @@ describe('VenueChatExperience presentation boundary', () => {
     },
   )
 
-  it('suppresses the PathFinder footer in native web-view presentation', async () => {
+  it('suppresses the Torchiko footer in native web-view presentation', async () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="webview" />)
 
@@ -409,11 +449,14 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.getBySlug.mockResolvedValueOnce(activeVenue)
     render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
 
-    expect(await screen.findByText('Back')).toBeTruthy()
-    expect(screen.getByText('Back').closest('a')?.getAttribute('href')).toBe('/museum')
-    expect(screen.getByText('PathFinder').closest('a')?.getAttribute('href')).toBe(
-      'https://pathfinder.app',
-    )
+    const backLink = (await screen.findByText('Back')).closest('a')
+    const brandLink = screen.getByText('Torchiko').closest('a')
+    expect(backLink?.getAttribute('href')).toBe('/museum')
+    expect(backLink?.className).toContain('min-h-11')
+    expect(brandLink?.getAttribute('href')).toBe('https://torchiko.com')
+    expect(brandLink?.className).toContain('min-h-11')
+    expect(brandLink?.className).toContain('min-w-11')
+    expect(screen.getByRole('button', { name: 'New conversation' }).className).toContain('min-h-11')
   })
 
   it.each(['standalone', 'embed', 'webview'] as const)(
@@ -738,6 +781,34 @@ describe('VenueChatExperience presentation boundary', () => {
       ).toBe(true)
     })
     expect(mocks.startNewConversation).not.toHaveBeenCalled()
+  })
+
+  it('maps real text-chat lifecycle events to truthful character states', async () => {
+    let resolveSend!: (value: { response: string; sessionId: string; places: never[] }) => void
+    const pendingSend = new Promise<{ response: string; sessionId: string; places: never[] }>(
+      (resolve) => {
+        resolveSend = resolve
+      },
+    )
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174022'
+    mocks.getBySlug.mockResolvedValueOnce(characterVenue)
+    mocks.client.chat.send.mutate.mockReturnValueOnce(pendingSend)
+
+    render(<VenueChatExperience venueSlug="museum" presentation="standalone" />)
+
+    expect(await screen.findByText('Here and ready')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
+    expect(await screen.findByText('Listening')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    expect(await screen.findByText('Thinking')).toBeTruthy()
+
+    resolveSend({ response: 'Nearby.', sessionId: 'session-1', places: [] })
+    expect(await screen.findByText('Response ready')).toBeTruthy()
+
+    mocks.client.chat.send.mutate.mockRejectedValueOnce(new Error('network unavailable'))
+    fireEvent.click(screen.getByRole('button', { name: 'Send different message' }))
+    expect(await screen.findByText('The character had a problem')).toBeTruthy()
   })
 
   it('preserves the current chat when New conversation confirmation is cancelled', async () => {

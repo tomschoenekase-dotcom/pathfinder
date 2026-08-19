@@ -30,7 +30,7 @@ describe('widget operator contract', () => {
     expect(guide).toContain('set `EMBED_PREVIEW_ENABLED=false`')
     expect(guide).toContain('No migration or persistent data rollback is involved')
     expect(guide).toContain('session-free, credential-free, no-referrer')
-    expect(guide).toContain('unavailable PathFinder does not leave a broken launcher')
+    expect(guide).toContain('unavailable Torchiko guide does not leave a broken launcher')
     expect(guide).toContain('`script-src`, `style-src`, `connect-src`, and `frame-src`')
     expect(guide).toContain('closed launcher creates no iframe, visitor session, or location work')
     expect(guide).toContain('ten-second readiness timeout removes the complete widget')

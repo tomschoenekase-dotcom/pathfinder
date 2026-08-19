@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { isAdminPath, isInternalWorkspacePath, resolveDashboardAccess } from './middleware-access'
+import {
+  isAdminPath,
+  isInternalWorkspacePath,
+  isPublicDashboardPath,
+  resolveDashboardAccess,
+} from './middleware-access'
 
 const signedIn = {
   userId: 'user_1',
@@ -112,33 +117,52 @@ describe('dashboard middleware access policy', () => {
     ).toBe('next')
   })
 
-  it.each(['/sign-in', '/sign-in/sso-callback', '/sign-up', '/api/webhooks/clerk'])(
-    'preserves the public boundary for %s',
-    (pathname) => {
-      expect(
-        resolveDashboardAccess({
-          pathname,
-          userId: null,
-          orgId: null,
-          platformRole: undefined,
-        }),
-      ).toBe('next')
-    },
-  )
+  it.each([
+    '/sign-in',
+    '/sign-in/sso-callback',
+    '/sign-up',
+    '/api/webhooks/clerk',
+    '/api/agent-bridge',
+    '/api/agent-bridge/tenant_1/venue_1',
+  ])('preserves the public boundary for %s', (pathname) => {
+    expect(
+      resolveDashboardAccess({
+        pathname,
+        userId: null,
+        orgId: null,
+        platformRole: undefined,
+      }),
+    ).toBe('next')
+  })
 
-  it.each(['/sign-in-evil', '/sign-upgrade', '/api/webhooks/clerk-attacker'])(
-    'does not make the prefix-adjacent path %s public',
-    (pathname) => {
-      expect(
-        resolveDashboardAccess({
-          pathname,
-          userId: null,
-          orgId: null,
-          platformRole: undefined,
-        }),
-      ).toBe('sign-in')
-    },
-  )
+  it.each([
+    '/sign-in-evil',
+    '/sign-upgrade',
+    '/api/webhooks/clerk-attacker',
+    '/api/agent-bridge-attacker/tenant_1/venue_1',
+  ])('does not make the prefix-adjacent path %s public', (pathname) => {
+    expect(
+      resolveDashboardAccess({
+        pathname,
+        userId: null,
+        orgId: null,
+        platformRole: undefined,
+      }),
+    ).toBe('sign-in')
+  })
+
+  it('exposes the sanitized visual-fixture matrix only in local development', () => {
+    for (const pathname of [
+      '/dev-fixtures',
+      '/dev-fixtures/remote-onboarding',
+      '/dev-fixtures/portal-home',
+    ]) {
+      expect(isPublicDashboardPath(pathname, 'development')).toBe(true)
+      expect(isPublicDashboardPath(pathname, 'test')).toBe(false)
+      expect(isPublicDashboardPath(pathname, 'production')).toBe(false)
+    }
+    expect(isPublicDashboardPath('/dev-fixtures-evil/portal-home', 'development')).toBe(false)
+  })
 
   it('keeps API admin authorization owned by the route', () => {
     expect(resolveDashboardAccess({ ...signedIn, pathname: '/api/admin/impersonate' })).toBe('next')

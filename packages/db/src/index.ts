@@ -1,7 +1,21 @@
 export { db } from './client'
+export { recordApprovedPackageEvaluationMilestones } from './helpers/evaluation-onboarding-milestones'
+export {
+  AgentBridgeActionError,
+  claimAgentBridgeTask,
+  completeAgentBridgeTask,
+  failAgentBridgeTask,
+  heartbeatAgentBridgeSession,
+  heartbeatAgentBridgeTask,
+  registerAgentBridgeSession,
+  revokeAgentBridgeSessionAction,
+} from './helpers/agent-bridge-actions'
+export { AgentDelegationError, delegateAgentTaskAction } from './helpers/agent-delegation-actions'
+export type { AgentDelegationClient } from './helpers/agent-delegation-actions'
 export {
   ExternalCredentialActionError,
   issueExternalCredentialAction,
+  activateAgentBridgeCredentialAction,
   revokeExternalCredentialAction,
   rotateExternalCredentialAction,
 } from './helpers/external-credential-actions'
@@ -9,6 +23,11 @@ export type {
   ExternalCredentialActionClient,
   ExternalCredentialActor,
 } from './helpers/external-credential-actions'
+export {
+  ExternalCredentialVerificationError,
+  verifyAgentBridgeCredential,
+} from './helpers/external-credential-verification'
+export type { ExternalCredentialVerificationClient } from './helpers/external-credential-verification'
 
 export {
   claimGuestChatTurnAction,
@@ -43,6 +62,14 @@ export type {
   AgentRunCancellationErrorCode,
 } from './helpers/agent-run-cancellation-actions'
 export {
+  AgentRunExecutionError,
+  claimAgentRunExecution,
+  completeAgentRunExecution,
+  failAgentRunExecution,
+  heartbeatAgentRunExecution,
+} from './helpers/agent-run-execution-actions'
+export type { AgentRunExecutionClient } from './helpers/agent-run-execution-actions'
+export {
   AnswerAnalysisRequestActionError,
   answerAnalysisRequestHash,
   requestAnswerAnalysisAction,
@@ -57,6 +84,7 @@ export {
   createDisabledAgentIdentity,
   disableAgentIdentity,
   editDisabledAgentIdentity,
+  enableAgentIdentity,
 } from './helpers/agent-identity-configuration-actions'
 export type {
   AgentIdentityConfigurationActor,
@@ -203,6 +231,21 @@ export {
 } from './helpers/ai-cost-budgets'
 export { isAiAdmissionControlError } from './helpers/ai-admission-control'
 export {
+  ClientAssistantActionError,
+  claimClientAssistantTurnGenerationAction,
+  completeClientAssistantTurnAction,
+  linkClientAssistantSupportHandoffAction,
+  markClientAssistantTurnProviderDispatchedAction,
+  reserveClientAssistantTurnAction,
+  setClientAssistantPreferenceAction,
+  type ClaimClientAssistantTurnInput,
+  type CompleteClientAssistantTurnInput,
+  type LinkClientAssistantHandoffInput,
+  type MarkClientAssistantTurnDispatchedInput,
+  type ReserveClientAssistantTurnInput,
+  type SetClientAssistantPreferenceInput,
+} from './helpers/client-assistant-actions'
+export {
   appendSupportMessageAction,
   completeSupportRequestAction,
   createPreviewFeedbackRequestAction,
@@ -240,6 +283,15 @@ export {
   linkSupportRequestAgentRunAction,
   SupportAgentRunLineageError,
 } from './helpers/support-agent-run-lineage'
+export {
+  createClientOnboardingQuestionAction,
+  OnboardingQuestionActionError,
+  resumeOnboardingQuestionFromSupportAction,
+} from './helpers/onboarding-question-actions'
+export type {
+  CreateClientOnboardingQuestionInput,
+  ResumeOnboardingQuestionInput,
+} from './helpers/onboarding-question-actions'
 export {
   linkSupportRequestDraftPackageAction,
   SupportPackageHandoffError,
@@ -348,6 +400,15 @@ export {
 export type { EvaluationRunCostReservationAcquisition } from './helpers/evaluation-run-cost-reservations'
 export { hashEvalCase, hashEvalObservation } from './helpers/evaluation-hash'
 export {
+  onboardingMilestoneIdentityHash,
+  OnboardingMilestoneEventError,
+  recordOrReplayOnboardingMilestoneEvent,
+} from './helpers/onboarding-milestone-events'
+export type {
+  OnboardingMilestoneEventClient,
+  RecordOnboardingMilestoneInput,
+} from './helpers/onboarding-milestone-events'
+export {
   buildVenueContentSnapshot,
   createVenueContentSnapshot,
   VENUE_CONTENT_SNAPSHOT_SCHEMA_VERSION,
@@ -386,6 +447,18 @@ export type {
   WeeklyDigestStatus,
 } from '@prisma/client'
 export type { WriteAuditLogParams } from './helpers/audit'
+export {
+  AgentQuestionActionError,
+  answerAgentQuestionAction,
+  askAgentQuestionAction,
+} from './helpers/agent-question-actions'
+export { AgentTaskActionError, createAgentTaskAction } from './helpers/agent-task-actions'
+export type { AgentTaskClient, CreateAgentTaskInput } from './helpers/agent-task-actions'
+export type {
+  AgentQuestionClient,
+  AnswerAgentQuestionInput,
+  AskAgentQuestionInput,
+} from './helpers/agent-question-actions'
 export {
   AiConfigurationActionError,
   configurationOverrideFromRow,
@@ -673,6 +746,8 @@ export type {
 export {
   claimIntakeUploadVerificationAction,
   recordIntakeUploadPrecheckAction,
+  settleIntakeUploadAuthoritativeVerificationAction,
+  releaseIntakeUploadAuthoritativeVerificationAction,
   recordRejectedIntakeUploadPrecheckAction,
   getIntakeUploadDetailAction,
   intakeUploadRequestHash,
@@ -683,6 +758,10 @@ export {
   renewIntakeUploadVerificationLeaseAction,
   releaseIntakeUploadVerificationAction,
   reserveIntakeUploadAction,
+  bindIntakeUploadMultipartAction,
+  getIntakeUploadMultipartAction,
+  completeIntakeUploadMultipartAction,
+  cancelIntakeUploadMultipartAction,
 } from './helpers/intake-upload-actions'
 export {
   approveNativeVenueDeploymentAction,
@@ -701,9 +780,24 @@ export type {
   NativeVenueDeploymentActor,
   NativeVenueDeploymentClient,
 } from './helpers/native-venue-deployment-actions'
+export {
+  getVenueBotConfigurationAction,
+  updateVenueBotConfigurationAction,
+  venueBotConfigurationSelect,
+} from './helpers/venue-bot-configuration-actions'
+export {
+  createPersonalityProfileAction,
+  listPersonalityProfilesAction,
+  updatePersonalityProfileAction,
+} from './helpers/personality-profile-actions'
 export type {
   IntakeUploadActionClient,
   IntakeUploadActionErrorCode,
   IntakeUploadActor,
   TrustedIntakeUploadObjectIdentity,
 } from './helpers/intake-upload-actions'
+export { AgentOutcomeActionError, recordAgentOutcomeAction } from './helpers/agent-outcome-actions'
+export type {
+  AgentOutcomeActionClient,
+  RecordAgentOutcomeInput,
+} from './helpers/agent-outcome-actions'

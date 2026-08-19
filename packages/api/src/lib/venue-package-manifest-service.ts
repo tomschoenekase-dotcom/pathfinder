@@ -32,6 +32,13 @@ function digest(value: string) {
   return createHash('sha256').update(value).digest('hex')
 }
 
+function packagePayloadDigest(value: string) {
+  // Venue-package payloadHash is defined by venue-package.ts as SHA-256 over the
+  // JSON representation of the canonical payload string. Keep manifest linkage
+  // byte-identical to that authoritative contract.
+  return digest(JSON.stringify(value))
+}
+
 function evidenceDigest(manifest: Manifest) {
   const moduleEvidence =
     manifest.packageType === 'FULL'
@@ -134,7 +141,7 @@ function reportFor(input: { manifest: Manifest; venueId: string; baseFound: bool
     input.manifest.packageType === 'PATCH' && input.baseFound && converted.compatible
   const payloadHash =
     materializable && converted.payload
-      ? digest(canonicalVenuePackagePayload(input.venueId, converted.payload))
+      ? packagePayloadDigest(canonicalVenuePackagePayload(input.venueId, converted.payload))
       : null
   const report = VenueDeploymentMaterializationReport.parse({
     artifactKind: 'VENUE_DEPLOYMENT_MANIFEST_V2',
@@ -336,7 +343,7 @@ export async function reviewVenuePackageManifestService(input: {
           }
           const packageLink = await tx.venuePackage.findFirst({
             where: { id: packageId, tenantId: input.tenantId, venueId: input.venueId },
-            select: { manifestArtifactId: true },
+            select: { manifestArtifactId: true, updatedAt: true },
           })
           if (!packageLink) {
             throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue package not found.' })
@@ -344,13 +351,16 @@ export async function reviewVenuePackageManifestService(input: {
           if (packageLink.manifestArtifactId && packageLink.manifestArtifactId !== artifact.id) {
             throw new TRPCError({ code: 'CONFLICT', message: 'Manifest package link collision.' })
           }
+          let linkedUpdatedAt = packageLink.updatedAt
           if (!packageLink.manifestArtifactId) {
-            await tx.venuePackage.update({
+            const linkedPackage = await tx.venuePackage.update({
               where: { id: packageId },
               data: { manifestArtifactId: artifact.id },
+              select: { updatedAt: true },
             })
+            linkedUpdatedAt = linkedPackage.updatedAt
           }
-          return { artifact, replayed }
+          return { artifact, replayed, linkedUpdatedAt }
         },
       })
     let draftResult: Awaited<ReturnType<typeof materialize>> | undefined
@@ -369,11 +379,14 @@ export async function reviewVenuePackageManifestService(input: {
     const attachment = draftResult.attachment as {
       artifact: { id: string; manifestHash: string; createdBy: string }
       replayed: boolean
+      linkedUpdatedAt?: Date
     }
     return {
       ...preview,
       artifact: attachment.artifact,
-      draft: draftResult.value,
+      draft: attachment.linkedUpdatedAt
+        ? { ...draftResult.value, updatedAt: attachment.linkedUpdatedAt }
+        : draftResult.value,
       replayed: attachment.replayed,
     }
   }

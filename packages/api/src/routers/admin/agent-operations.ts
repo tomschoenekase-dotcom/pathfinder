@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import {
   approvalState,
@@ -12,101 +12,29 @@ import {
   pageResult,
   tenantScopeInput,
 } from './agent-operations-shared'
+import { adminAgentIdentityReadsRouter } from './agent-identity-reads'
 
 /**
  * Read-only operator surfaces for the agent control plane. Raw JSON inputs,
- * outputs, scope snapshots, timeline data, and artifacts are deliberately not
- * returned here; future reveal endpoints need their own authorization review.
+ * scope snapshots, raw action payloads, and lease tokens are deliberately not
+ * returned. Platform admins can read bounded prompts and result artifacts so
+ * this workspace is useful without exposing execution authority.
  */
-export const adminAgentOperationsRouter = router({
-  listAgentIdentities: adminProcedure
-    .input(
-      tenantScopeInput.merge(pageInput).extend({
-        enabled: z.boolean().optional(),
-      }),
-    )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        const rows = await db.agentIdentity.findMany({
-          where: {
-            tenantId: input.tenantId,
-            ...(input.venueId ? { venueId: input.venueId } : {}),
-            ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-            ...createdBefore(input.cursor),
-          },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: input.limit + 1,
-          select: {
-            id: true,
-            tenantId: true,
-            venueId: true,
-            identityKey: true,
-            name: true,
-            description: true,
-            agentType: true,
-            accessScope: true,
-            accessCapabilities: true,
-            autonomyLevel: true,
-            autonomousActions: true,
-            defaultProvider: true,
-            defaultModel: true,
-            enabled: true,
-            createdBy: true,
-            createdAt: true,
-            updatedAt: true,
-            venue: { select: { id: true, name: true } },
-            _count: { select: { runs: true, approvalRequests: true } },
-          },
-        })
-        return pageResult(rows, input.limit)
-      }),
-    ),
-
-  getAgentIdentity: adminProcedure
-    .input(tenantScopeInput.extend({ agentIdentityId: z.string().min(1) }))
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        const identity = await db.agentIdentity.findFirst({
-          where: {
-            id: input.agentIdentityId,
-            tenantId: input.tenantId,
-            ...(input.venueId ? { venueId: input.venueId } : {}),
-          },
-          select: {
-            id: true,
-            tenantId: true,
-            venueId: true,
-            identityKey: true,
-            name: true,
-            description: true,
-            agentType: true,
-            accessScope: true,
-            accessCapabilities: true,
-            autonomyLevel: true,
-            autonomousActions: true,
-            defaultProvider: true,
-            defaultModel: true,
-            enabled: true,
-            createdBy: true,
-            createdAt: true,
-            updatedAt: true,
-            venue: { select: { id: true, name: true } },
-            _count: { select: { runs: true, actions: true, approvalRequests: true } },
-          },
-        })
-        if (!identity) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Agent identity not found' })
-        }
-        return identity
-      }),
-    ),
-
+const adminAgentRunOperationsRouter = router({
   listAgentRuns: adminProcedure
     .input(
       tenantScopeInput.merge(pageInput).extend({
         agentIdentityId: z.string().min(1).optional(),
         status: z
-          .enum(['QUEUED', 'RUNNING', 'AWAITING_APPROVAL', 'COMPLETED', 'FAILED', 'CANCELLED'])
+          .enum([
+            'QUEUED',
+            'RUNNING',
+            'AWAITING_INPUT',
+            'AWAITING_APPROVAL',
+            'COMPLETED',
+            'FAILED',
+            'CANCELLED',
+          ])
           .optional(),
       }),
     )
@@ -127,8 +55,11 @@ export const adminAgentOperationsRouter = router({
             tenantId: true,
             venueId: true,
             agentIdentityId: true,
+            parentAgentRunId: true,
+            delegationReason: true,
             runType: true,
             requestedOperation: true,
+            requestPrompt: true,
             status: true,
             modelProvider: true,
             modelName: true,
@@ -137,13 +68,28 @@ export const adminAgentOperationsRouter = router({
             initiatedByType: true,
             initiatedById: true,
             cancelRequestedAt: true,
+            attemptNumber: true,
+            maxAttempts: true,
+            lastHeartbeatAt: true,
+            executionLeaseExpiresAt: true,
             startedAt: true,
             completedAt: true,
             createdAt: true,
             updatedAt: true,
             agentIdentity: { select: { id: true, name: true, enabled: true } },
+            parentAgentRun: {
+              select: { id: true, agentIdentity: { select: { id: true, name: true } } },
+            },
             venue: { select: { id: true, name: true } },
-            _count: { select: { actions: true, timelineEvents: true, approvalRequests: true } },
+            _count: {
+              select: {
+                actions: true,
+                timelineEvents: true,
+                approvalRequests: true,
+                delegatedRuns: true,
+                outcomeObservations: true,
+              },
+            },
           },
         })
         return pageResult(rows, input.limit)
@@ -165,8 +111,12 @@ export const adminAgentOperationsRouter = router({
             tenantId: true,
             venueId: true,
             agentIdentityId: true,
+            parentAgentRunId: true,
+            delegationReason: true,
             runType: true,
             requestedOperation: true,
+            requestPrompt: true,
+            artifacts: true,
             status: true,
             modelProvider: true,
             modelName: true,
@@ -176,13 +126,51 @@ export const adminAgentOperationsRouter = router({
             initiatedByType: true,
             initiatedById: true,
             cancelRequestedAt: true,
+            attemptNumber: true,
+            maxAttempts: true,
+            lastHeartbeatAt: true,
+            executionLeaseExpiresAt: true,
             startedAt: true,
             completedAt: true,
             createdAt: true,
             updatedAt: true,
             agentIdentity: { select: { id: true, name: true, enabled: true } },
+            parentAgentRun: {
+              select: { id: true, agentIdentity: { select: { id: true, name: true } } },
+            },
+            delegatedRuns: {
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              take: 25,
+              select: {
+                id: true,
+                status: true,
+                delegationReason: true,
+                createdAt: true,
+                agentIdentity: { select: { id: true, name: true } },
+              },
+            },
+            messages: {
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              take: 100,
+              select: {
+                id: true,
+                role: true,
+                messageType: true,
+                content: true,
+                actorId: true,
+                createdAt: true,
+              },
+            },
             venue: { select: { id: true, name: true } },
-            _count: { select: { actions: true, timelineEvents: true, approvalRequests: true } },
+            _count: {
+              select: {
+                actions: true,
+                timelineEvents: true,
+                approvalRequests: true,
+                delegatedRuns: true,
+                outcomeObservations: true,
+              },
+            },
           },
         })
         if (!run) throw new TRPCError({ code: 'NOT_FOUND', message: 'Agent run not found' })
@@ -387,3 +375,8 @@ export const adminAgentOperationsRouter = router({
       }),
     ),
 })
+
+export const adminAgentOperationsRouter = mergeRouters(
+  adminAgentRunOperationsRouter,
+  adminAgentIdentityReadsRouter,
+)

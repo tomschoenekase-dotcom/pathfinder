@@ -39,7 +39,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
     const log = screen.getByRole('log', { name: 'Conversation' })
     expect(log.getAttribute('aria-live')).toBe('off')
     expect(screen.getByText('You:')).toBeTruthy()
-    expect(screen.getByText('PathFinder guide:')).toBeTruthy()
+    expect(screen.getByText('Venue guide:')).toBeTruthy()
   })
 
   it('uses automatic direction and unknown language for free-form and restored text', () => {
@@ -107,7 +107,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
 
     expect(screen.getByRole('alert').textContent).toContain('The guide could not respond.')
     expect(screen.getByRole('button', { name: 'Sending message' })).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe('PathFinder guide is responding')
+    expect(screen.getByRole('status').textContent).toBe('Venue guide is responding')
 
     view.rerender(
       <ChatWindow
@@ -140,7 +140,7 @@ describe('ChatWindow accessibility and motion behavior', () => {
       />,
     )
 
-    expect(screen.getByRole('status').textContent).toBe('PathFinder guide: A new answer.')
+    expect(screen.getByRole('status').textContent).toBe('Venue guide: A new answer.')
   })
 
   it('restores focus to the composer after a request finishes', () => {

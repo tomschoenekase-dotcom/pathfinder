@@ -10,10 +10,18 @@ import {
   rejectIntakeUploadAction,
   renewIntakeUploadVerificationLeaseAction,
   releaseIntakeUploadVerificationAction,
+  releaseIntakeUploadAuthoritativeVerificationAction,
   reserveIntakeUploadAction,
+  settleIntakeUploadAuthoritativeVerificationAction,
   type IntakeUploadActor,
+  bindIntakeUploadMultipartAction,
+  cancelIntakeUploadMultipartAction,
+  completeIntakeUploadMultipartAction,
+  getIntakeUploadMultipartAction,
 } from '@pathfinder/db'
 import {
+  INTAKE_UPLOAD_MULTIPART_PART_BYTES,
+  INTAKE_UPLOAD_MULTIPART_THRESHOLD_BYTES,
   IntakeUploadCursor,
   IntakeUploadMimeType,
   IntakeUploadReserveRequest,
@@ -26,6 +34,11 @@ import {
   inspectIntakeUpload,
   readIntakeUploadVersion,
   signIntakeUploadPut,
+  abortIntakeUploadMultipart,
+  beginIntakeUploadMultipart,
+  completeIntakeUploadMultipart,
+  listIntakeUploadMultipartParts,
+  signIntakeUploadPart,
 } from '../lib/intake-upload-storage'
 import {
   configuredIntakeUploadMalwareScanner,
@@ -36,6 +49,7 @@ import { tenantProcedure } from '../trpc'
 const venueId = z.string().trim().min(1).max(191)
 const uploadId = z.string().trim().min(1).max(191)
 const claimId = z.string().uuid()
+const checksumSha256 = z.string().regex(/^[a-f0-9]{64}$/u)
 
 function actor(session: { userId: string; role: string | null }): IntakeUploadActor {
   if (!['STAFF', 'MANAGER', 'OWNER'].includes(session.role ?? '')) {
@@ -69,6 +83,7 @@ function safeUpload(upload: {
   displayName: string
   fileName: string
   mimeType: string
+  category: string
   byteSize: number
   rejectionCode: string | null
   intakeRunId: string | null
@@ -81,6 +96,7 @@ function safeUpload(upload: {
     displayName: upload.displayName,
     fileName: upload.fileName,
     mimeType: upload.mimeType,
+    category: upload.category,
     byteSize: upload.byteSize,
     rejectionCode: upload.rejectionCode,
     intakeRunId: upload.intakeRunId,
@@ -95,6 +111,47 @@ const rejectionCodeByInspection = {
   mime: 'MIME_MISMATCH',
   checksum: 'HASH_MISMATCH',
 } as const
+
+async function runAuthoritativeVerification(input: {
+  scope: {
+    client: NonNullable<
+      Parameters<typeof settleIntakeUploadAuthoritativeVerificationAction>[0]['client']
+    >
+    tenantId: string
+    venueId: string
+    uploadId: string
+    actor: IntakeUploadActor
+    claimId: string
+  }
+  target: {
+    objectKey: string
+    objectGeneration: string
+    mimeType: string
+    byteSize: number
+    sha256: string
+    storageVersionId: string | null
+  }
+}) {
+  const scanner = configuredIntakeUploadMalwareScanner()
+  if (!scanner || !input.target.storageVersionId) return null
+  const bytes = await readIntakeUploadVersion({
+    key: input.target.objectKey,
+    versionId: input.target.storageVersionId,
+  })
+  const malware = await scanner.scan({
+    bytes,
+    expectedBytes: input.target.byteSize,
+    expectedSha256: input.target.sha256,
+  })
+  return settleIntakeUploadAuthoritativeVerificationAction({
+    ...input.scope,
+    malware: {
+      ...malware,
+      engine: scanner.engine,
+      engineVersion: scanner.engineVersion,
+    },
+  })
+}
 
 export const intakeUploadRouter = router({
   reserve: tenantProcedure
@@ -122,6 +179,68 @@ export const intakeUploadRouter = router({
             uploadRequest: null,
           }
         }
+        if (reserved.uploadTarget.byteSize > INTAKE_UPLOAD_MULTIPART_THRESHOLD_BYTES) {
+          let target = reserved.uploadTarget
+          if (!target.multipartUploadId) {
+            const started = await beginIntakeUploadMultipart({
+              key: target.objectKey,
+              generation: target.objectGeneration,
+              contentType: target.mimeType,
+            })
+            try {
+              const bound = await bindIntakeUploadMultipartAction({
+                client: ctx.db,
+                tenantId: ctx.session.activeTenantId,
+                venueId: scopedVenueId,
+                uploadId: reserved.upload.id,
+                multipartUploadId: started.uploadId,
+                actor: actor(ctx.session),
+              })
+              target = {
+                ...target,
+                multipartUploadId: bound.upload.multipartUploadId,
+                multipartStartedAt: bound.upload.multipartStartedAt,
+              }
+            } catch (error) {
+              await abortIntakeUploadMultipart({
+                key: target.objectKey,
+                uploadId: started.uploadId,
+              }).catch(() => undefined)
+              const active = await getIntakeUploadMultipartAction({
+                client: ctx.db,
+                tenantId: ctx.session.activeTenantId,
+                venueId: scopedVenueId,
+                uploadId: reserved.upload.id,
+                actor: actor(ctx.session),
+              })
+              target = { ...target, ...active.target }
+              if (!target.multipartUploadId) throw error
+            }
+          }
+          if (!target.multipartUploadId)
+            throw new IntakeUploadActionError('CONFLICT', 'Multipart upload was not retained')
+          const completedParts = await listIntakeUploadMultipartParts({
+            key: target.objectKey,
+            uploadId: target.multipartUploadId,
+            expectedBytes: target.byteSize,
+          })
+          return {
+            upload: safeUpload(reserved.upload),
+            replayed: reserved.replayed,
+            nextAction: reserved.nextAction,
+            uploadRequest: {
+              kind: 'multipart' as const,
+              partSize: INTAKE_UPLOAD_MULTIPART_PART_BYTES,
+              partCount: Math.ceil(target.byteSize / INTAKE_UPLOAD_MULTIPART_PART_BYTES),
+              completedParts: completedParts.map((part) => ({
+                partNumber: part.partNumber,
+                etag: part.etag,
+                checksumSha256: part.checksumSha256,
+                size: part.size,
+              })),
+            },
+          }
+        }
         const signed = await signIntakeUploadPut({
           key: reserved.uploadTarget.objectKey,
           generation: reserved.uploadTarget.objectGeneration,
@@ -133,8 +252,143 @@ export const intakeUploadRouter = router({
           upload: safeUpload(reserved.upload),
           replayed: reserved.replayed,
           nextAction: reserved.nextAction,
-          uploadRequest: signed,
+          uploadRequest: { kind: 'single' as const, ...signed },
         }
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  signMultipartPart: tenantProcedure
+    .input(
+      z
+        .object({
+          venueId,
+          uploadId,
+          partNumber: z.number().int().min(1).max(10_000),
+          checksumSha256,
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const active = await getIntakeUploadMultipartAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          uploadId: input.uploadId,
+          actor: actor(ctx.session),
+        })
+        const expectedParts = Math.ceil(active.target.byteSize / INTAKE_UPLOAD_MULTIPART_PART_BYTES)
+        if (input.partNumber > expectedParts)
+          throw new IntakeUploadActionError('INVALID_INPUT', 'Multipart part is out of range')
+        return signIntakeUploadPart({
+          key: active.target.objectKey,
+          uploadId: active.target.multipartUploadId,
+          partNumber: input.partNumber,
+          checksumSha256: input.checksumSha256,
+        })
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  completeMultipart: tenantProcedure
+    .input(z.object({ venueId, uploadId }).strict())
+    .mutation(async ({ ctx, input }) => {
+      const actionActor = actor(ctx.session)
+      try {
+        const active = await getIntakeUploadMultipartAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          uploadId: input.uploadId,
+          actor: actionActor,
+          allowCompleted: true,
+        })
+        if (!active.target.multipartCompletedAt) {
+          try {
+            const parts = await listIntakeUploadMultipartParts({
+              key: active.target.objectKey,
+              uploadId: active.target.multipartUploadId,
+              expectedBytes: active.target.byteSize,
+            })
+            const expectedParts = Math.ceil(
+              active.target.byteSize / INTAKE_UPLOAD_MULTIPART_PART_BYTES,
+            )
+            if (parts.length !== expectedParts)
+              throw new IntakeUploadActionError(
+                'CONFLICT',
+                `Multipart upload has ${parts.length} of ${expectedParts} parts`,
+              )
+            await completeIntakeUploadMultipart({
+              key: active.target.objectKey,
+              uploadId: active.target.multipartUploadId,
+              parts,
+            })
+          } catch (cause) {
+            const inspection = await inspectIntakeUpload({
+              key: active.target.objectKey,
+              generation: active.target.objectGeneration,
+              contentType: active.target.mimeType,
+              bytes: active.target.byteSize,
+              checksumSha256: active.target.sha256,
+            }).catch(() => null)
+            if (inspection?.state !== 'verified') {
+              if (cause instanceof IntakeUploadActionError) throw cause
+              throw publicTRPCError({
+                code: 'SERVICE_UNAVAILABLE',
+                message: 'Multipart completion could not be confirmed. Retry without re-uploading.',
+                cause,
+              })
+            }
+          }
+        }
+        const completed = await completeIntakeUploadMultipartAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          uploadId: input.uploadId,
+          multipartUploadId: active.target.multipartUploadId,
+          actor: actionActor,
+        })
+        return {
+          upload: safeUpload(completed.upload),
+          replayed: completed.replayed,
+          nextAction: 'VERIFY' as const,
+        }
+      } catch (error) {
+        mapActionError(error)
+      }
+    }),
+
+  cancelMultipart: tenantProcedure
+    .input(z.object({ venueId, uploadId }).strict())
+    .mutation(async ({ ctx, input }) => {
+      const actionActor = actor(ctx.session)
+      try {
+        const active = await getIntakeUploadMultipartAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          uploadId: input.uploadId,
+          actor: actionActor,
+          allowCancelled: true,
+        })
+        if (!active.target.multipartAbortedAt)
+          await abortIntakeUploadMultipart({
+            key: active.target.objectKey,
+            uploadId: active.target.multipartUploadId,
+          })
+        const cancelled = await cancelIntakeUploadMultipartAction({
+          client: ctx.db,
+          tenantId: ctx.session.activeTenantId,
+          venueId: input.venueId,
+          uploadId: input.uploadId,
+          multipartUploadId: active.target.multipartUploadId,
+          actor: actionActor,
+        })
+        return { upload: safeUpload(cancelled.upload), replayed: cancelled.replayed }
       } catch (error) {
         mapActionError(error)
       }
@@ -171,6 +425,36 @@ export const intakeUploadRouter = router({
         }
       }
       if (claimed.state === 'PRECHECK_PASSED') {
+        try {
+          const settled = await runAuthoritativeVerification({
+            scope,
+            target: claimed.uploadTarget,
+          })
+          if (settled)
+            return {
+              upload: safeUpload(settled.upload),
+              retryable: false,
+              nextAction: settled.nextAction,
+              processingState:
+                settled.nextAction === 'PATHFINDER_REVIEW'
+                  ? ('READY_FOR_REVIEW' as const)
+                  : ('REJECTED' as const),
+              autoApprove: false as const,
+              autoApply: false as const,
+              published: false as const,
+            }
+        } catch (cause) {
+          try {
+            await releaseIntakeUploadAuthoritativeVerificationAction(scope)
+          } catch {
+            // Preserve the original availability error; claim recovery remains lease-bounded.
+          }
+          throw publicTRPCError({
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Security verification is temporarily unavailable. Retry this file.',
+            cause,
+          })
+        }
         return {
           upload: safeUpload(claimed.upload),
           retryable: true,
@@ -398,16 +682,57 @@ export const intakeUploadRouter = router({
             computedSha256: format.computedSha256,
           },
         })
-        const scanner = configuredIntakeUploadMalwareScanner()
-        return {
-          upload: safeUpload(result.upload),
-          retryable: scanner === null,
-          nextAction: result.nextAction,
-          processingState: 'MALWARE_SCAN_PENDING' as const,
-          autoApprove: false as const,
-          autoApply: false as const,
-          published: false as const,
+        if (configuredIntakeUploadMalwareScanner() === null)
+          return {
+            upload: safeUpload(result.upload),
+            retryable: true,
+            nextAction: result.nextAction,
+            processingState: 'MALWARE_SCAN_PENDING' as const,
+            autoApprove: false as const,
+            autoApply: false as const,
+            published: false as const,
+          }
+        const authoritativeClaim = await claimIntakeUploadVerificationAction(scope)
+        if (authoritativeClaim.state !== 'PRECHECK_PASSED')
+          throw new IntakeUploadActionError(
+            'CONFLICT',
+            'Upload could not enter authoritative verification',
+          )
+        let settled: Awaited<ReturnType<typeof runAuthoritativeVerification>>
+        try {
+          settled = await runAuthoritativeVerification({
+            scope,
+            target: {
+              ...authoritativeClaim.uploadTarget,
+              storageVersionId: inspection.versionId,
+            },
+          })
+        } catch (cause) {
+          try {
+            await releaseIntakeUploadAuthoritativeVerificationAction(scope)
+          } catch {
+            // Preserve the original availability error; claim recovery remains lease-bounded.
+          }
+          throw publicTRPCError({
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Security verification is temporarily unavailable. Retry this file.',
+            cause,
+          })
         }
+        if (settled)
+          return {
+            upload: safeUpload(settled.upload),
+            retryable: false,
+            nextAction: settled.nextAction,
+            processingState:
+              settled.nextAction === 'PATHFINDER_REVIEW'
+                ? ('READY_FOR_REVIEW' as const)
+                : ('REJECTED' as const),
+            autoApprove: false as const,
+            autoApply: false as const,
+            published: false as const,
+          }
+        throw new IntakeUploadActionError('CONFLICT', 'Authoritative verification did not settle')
       } catch (error) {
         mapActionError(error)
       }

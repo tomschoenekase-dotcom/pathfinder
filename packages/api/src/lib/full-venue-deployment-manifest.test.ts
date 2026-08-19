@@ -65,6 +65,20 @@ describe('FULL venue deployment manifest projection', () => {
         chatBannerUrl: true,
         isActive: true,
         updatedAt: true,
+        venueBotConfiguration: {
+          select: {
+            presentationMode: true,
+            personalityMode: true,
+            tonePreset: true,
+            tonePresetVersion: true,
+            personalityProfileId: true,
+            characterKey: true,
+            customCharacterId: true,
+            publicDisplayName: true,
+            greeting: true,
+            voiceProfileId: true,
+          },
+        },
       },
     })
     expect(VenueDeploymentFullManifest.parse(result.manifest)).toEqual(result.manifest)
@@ -80,6 +94,35 @@ describe('FULL venue deployment manifest projection', () => {
     expect(result.manifest.contentModules).toEqual([])
     expect(result.manifest.assets).toEqual([])
     expect(result.readiness.readyForApply).toBe(false)
+  })
+
+  it('projects canonical Venue Bot presentation without private workflow or asset state', async () => {
+    const h = harness({
+      venueBotConfiguration: {
+        presentationMode: 'CHARACTER',
+        personalityMode: 'PRESET',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        personalityProfileId: null,
+        characterKey: 'tochi',
+        customCharacterId: null,
+        publicDisplayName: 'Tochi',
+        greeting: 'What can I help you find?',
+        voiceProfileId: null,
+      },
+    })
+    const result = await projectFullVenueDeploymentManifest(envelope, h.client as never)
+    expect(result.manifest.aiConfiguration.venueBot).toMatchObject({
+      presentationMode: 'CHARACTER',
+      characterKey: 'tochi',
+      tonePreset: 'friendly',
+    })
+    expect(JSON.stringify(result.manifest.aiConfiguration.venueBot)).not.toMatch(
+      /tenant|storage|workflow|asset|revision/iu,
+    )
+    expect(result.readiness.omissions.map(({ code }) => code)).not.toContain(
+      'VENUE_BOT_CONFIGURATION_UNAVAILABLE',
+    )
   })
 
   it('uses canonical JSON/hash and stable ordering for the same caller envelope', async () => {

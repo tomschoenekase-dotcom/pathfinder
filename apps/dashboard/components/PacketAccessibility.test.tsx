@@ -12,7 +12,19 @@ import ClientPortalLoading from '../app/(app)/loading'
 
 let pathname = '/admin'
 
-vi.mock('next/navigation', () => ({ usePathname: () => pathname }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => pathname,
+  useRouter: () => ({ refresh: vi.fn() }),
+}))
+vi.mock('../lib/trpc', () => ({
+  useTRPCClient: () => ({
+    intakeUpload: {
+      reserve: { mutate: vi.fn() },
+      verify: { mutate: vi.fn() },
+      list: { query: vi.fn() },
+    },
+  }),
+}))
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
     <a href={String(href)} {...props}>
@@ -33,10 +45,12 @@ vi.mock('@clerk/nextjs', () => ({
 }))
 
 import { resolveClientPortalLifecycle } from '@pathfinder/contracts/client-portal-lifecycle'
+import { resolveRemoteOnboardingProjection } from '@pathfinder/contracts/remote-onboarding'
 import { AdminSectionShell } from './admin/AdminSectionShell'
 import { ClientWorkspaceShell } from './admin/ClientWorkspaceShell'
 import { DashboardOverview } from './DashboardOverview'
 import { DashboardShell } from './DashboardShell'
+import { RemoteOnboardingJourney } from './RemoteOnboardingJourney'
 
 async function expectNoAutomatedViolations(container: HTMLElement) {
   expect(document.body.contains(container)).toBe(true)
@@ -49,7 +63,11 @@ async function expectNoAutomatedViolations(container: HTMLElement) {
     },
   })
   expect(
-    result.violations.map(({ id, impact, nodes }) => ({ id, impact, nodes: nodes.length })),
+    result.violations.map(({ id, impact, nodes }) => ({
+      id,
+      impact,
+      nodes: nodes.map(({ target }) => target.join(' > ')),
+    })),
   ).toEqual([])
 }
 
@@ -118,6 +136,71 @@ describe('Packet 2 authenticated surface automated accessibility', () => {
         />
         <ClientPortalLoading />
       </DashboardShell>,
+    )
+    await expectNoAutomatedViolations(container)
+  })
+
+  it('finds no automated violations in the remote onboarding journey', async () => {
+    const lifecycle = resolveClientPortalLifecycle({
+      isActive: false,
+      publicContentCount: 0,
+      wasLive: false,
+      collectingSourceCount: 1,
+      processingSourceCount: 0,
+      reviewSourceCount: 0,
+      intakeProposalCount: 0,
+      packageCounts: { draft: 0, approved: 0, applied: 0, reverted: 0 },
+      hasActiveOffboarding: false,
+    })
+    const materials = {
+      uploaded: 1,
+      checking: 0,
+      needsAttention: 0,
+      readyForReview: 0,
+      processed: 0,
+    }
+    const { container } = render(
+      <RemoteOnboardingJourney
+        data={{
+          venue: { id: 'venue-1', name: 'East Museum' },
+          lifecycle,
+          projection: resolveRemoteOnboardingProjection({
+            lifecycle,
+            materials,
+            review: { proposedSources: 0, draftPackages: 0 },
+            questions: { open: 0 },
+            preview: { state: 'UNAVAILABLE', packageId: null },
+            qa: {
+              state: 'NOT_RUN',
+              passed: 0,
+              failed: 0,
+              operationalIssues: 0,
+              requiredDimensions: 7,
+              assessedDimensions: 0,
+              exactPackage: false,
+            },
+            release: { hasReviewedArtifact: false, released: false },
+          }),
+          materials,
+          review: { proposedSources: 0, draftPackages: 0 },
+          questions: { open: 0, items: [], additionalQuestionCount: 0 },
+          preview: { state: 'UNAVAILABLE', packageId: null },
+          qa: {
+            state: 'NOT_RUN',
+            passed: 0,
+            failed: 0,
+            operationalIssues: 0,
+            requiredDimensions: 7,
+            assessedDimensions: 0,
+            exactPackage: false,
+          },
+          release: { hasReviewedArtifact: false, released: false },
+          publication: {
+            clientCanPublish: false,
+            summary: 'Publication remains a separate, explicit Torchiko operator action.',
+          },
+        }}
+      />,
     )
     await expectNoAutomatedViolations(container)
   })

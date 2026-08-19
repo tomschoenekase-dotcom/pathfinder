@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
+  ArrowLeft,
   Headphones,
   Home,
+  Library,
   NotebookText,
   LogOut,
   Menu,
@@ -19,6 +21,9 @@ import {
 
 import { PathFinderBrand } from '@pathfinder/ui'
 
+import { ClientTochiWorkspace } from './ClientTochiWorkspace'
+import { ClientTochiBoundary } from './ClientTochiBoundary'
+
 type DashboardShellProps = {
   children: ReactNode
   impersonatedTenantName?: string
@@ -26,11 +31,19 @@ type DashboardShellProps = {
 }
 
 const navigationItems = [
-  { href: '/', label: 'Home', icon: Home },
-  { href: '/operational-updates', label: 'Visitor updates', icon: Megaphone },
-  { href: '/weekly-reports', label: 'Weekly Reports', icon: NotebookText, reportsOnly: true },
-  { href: '/ai-controls', label: 'Tone', icon: Sparkles },
-  { href: '/support', label: 'Support', icon: Headphones },
+  { href: '/', label: 'Today', icon: Home },
+  { href: '/information', label: 'Information', icon: Library },
+  { href: '/operational-updates', label: 'Updates', icon: Megaphone },
+  { href: '/weekly-reports', label: 'Reports', icon: NotebookText, reportsOnly: true },
+  { href: '/ai-controls', label: 'Visitor experience', icon: Sparkles },
+  { href: '/support', label: 'Help & changes', icon: Headphones },
+  { href: '/settings', label: 'Account', icon: Settings },
+] as const
+
+const onboardingNavigationItems = [
+  { href: '/', label: 'Today', icon: Home },
+  { href: '#materials', label: 'Your information', icon: Library },
+  { href: '/support', label: 'Questions & help', icon: Headphones },
   { href: '/settings', label: 'Account', icon: Settings },
 ] as const
 
@@ -56,6 +69,18 @@ export function DashboardShell({
     impersonatedTenantName ??
     organization?.name ??
     (isPlatformAdmin ? 'Client workspace' : 'Your organization')
+  const onboardingPath =
+    pathname === '/onboarding/setup' || /^\/venues\/[^/]+\/onboarding(?:\/|$)/u.test(pathname)
+  const venueOnboardingPath = /^\/venues\/[^/]+\/onboarding(?:\/|$)/u.test(pathname)
+  const visibleNavigationItems = onboardingPath
+    ? onboardingNavigationItems.map((item) =>
+        item.href === '#materials'
+          ? venueOnboardingPath
+            ? { ...item, href: `${pathname}#materials` }
+            : { ...item, href: null }
+          : item,
+      )
+    : navigationItems.filter((item) => !('reportsOnly' in item) || weeklyReportsAvailable)
 
   useEffect(() => setMenuOpen(false), [pathname])
 
@@ -101,33 +126,45 @@ export function DashboardShell({
 
   const navigation = (
     <>
-      <nav className="mt-7 flex-1 space-y-1" aria-label="Client portal navigation">
-        {navigationItems
-          .filter((item) => !('reportsOnly' in item) || weeklyReportsAvailable)
-          .map((item) => {
-            const Icon = item.icon
-            const active = isActivePath(pathname, item.href)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                className={[
-                  'flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent',
-                  active
-                    ? 'bg-white/12 text-white'
-                    : 'text-pf-light/90 hover:bg-white/7 hover:text-white',
-                ].join(' ')}
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                <span>{item.label}</span>
-              </Link>
-            )
-          })}
+      <nav className="mt-6 flex-1" aria-label="Client portal navigation">
+        {visibleNavigationItems.map((item) => {
+          const Icon = item.icon
+          const active = item.href
+            ? item.href.includes('#')
+              ? item.href.startsWith(`${pathname}#`)
+              : isActivePath(pathname, item.href)
+            : true
+          const className = [
+            'relative flex min-h-11 items-center gap-3 border-l-2 px-3.5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-pf-accent',
+            active
+              ? 'border-[#f2a65a] bg-white/8 text-white'
+              : 'border-transparent text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white',
+          ].join(' ')
+          const content = (
+            <>
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              <span>{item.label}</span>
+            </>
+          )
+          return item.href ? (
+            <Link
+              key={`${item.label}-${item.href}`}
+              href={item.href}
+              aria-current={active ? 'page' : undefined}
+              className={className}
+            >
+              {content}
+            </Link>
+          ) : (
+            <span key={item.label} aria-current="page" className={className}>
+              {content}
+            </span>
+          )
+        })}
         {isPlatformAdmin ? (
           <Link
             href="/admin"
-            className="mt-4 flex min-h-11 items-center gap-3 border-t border-white/10 px-3.5 pt-5 text-sm font-medium text-pf-light/90 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+            className="mt-4 flex min-h-11 items-center gap-3 border-t border-white/10 px-3.5 pt-5 text-sm font-medium text-pf-light/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
           >
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
             Admin
@@ -137,7 +174,7 @@ export function DashboardShell({
       <SignOutButton>
         <button
           type="button"
-          className="mt-6 flex min-h-11 w-full items-center gap-3 rounded-xl px-3.5 text-sm font-medium text-pf-light/90 hover:bg-white/7 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+          className="mt-6 flex min-h-11 w-full items-center gap-3 border-l-2 border-transparent px-3.5 text-sm font-medium text-pf-light/80 hover:border-white/20 hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
         >
           <LogOut className="h-4 w-4" aria-hidden="true" />
           Sign out
@@ -148,7 +185,7 @@ export function DashboardShell({
 
   return (
     <div className="min-h-screen bg-pf-surface text-pf-deep">
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-pf-light bg-pf-deep px-4 text-white lg:hidden">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/10 bg-pf-deep px-4 text-white lg:hidden">
         <PathFinderBrand
           gapClassName="gap-2"
           textClassName="text-white"
@@ -161,7 +198,7 @@ export function DashboardShell({
           aria-expanded={menuOpen}
           aria-controls="client-portal-navigation"
           onClick={() => setMenuOpen((open) => !open)}
-          className="flex h-11 w-11 items-center justify-center rounded-xl hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
+          className="flex h-11 w-11 items-center justify-center hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
         >
           {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
@@ -177,8 +214,15 @@ export function DashboardShell({
       <aside
         ref={sidebarRef}
         id="client-portal-navigation"
+        {...(menuOpen
+          ? {
+              role: 'dialog' as const,
+              'aria-modal': true,
+              'aria-label': 'Client portal navigation',
+            }
+          : {})}
         className={[
-          'fixed inset-y-0 left-0 z-40 flex w-[min(86vw,280px)] flex-col bg-pf-deep p-5 text-slate-100 shadow-xl transition-transform motion-reduce:transition-none lg:visible lg:translate-x-0 lg:shadow-none',
+          'fixed inset-y-0 left-0 z-40 flex w-[min(86vw,252px)] flex-col bg-pf-deep p-5 text-slate-100 shadow-xl transition-transform motion-reduce:transition-none lg:visible lg:translate-x-0 lg:shadow-none',
           menuOpen ? 'visible translate-x-0' : 'invisible -translate-x-full',
         ].join(' ')}
       >
@@ -195,23 +239,31 @@ export function DashboardShell({
         </div>
         {navigation}
       </aside>
-      <main className="min-w-0 lg:pl-[280px]">
+      <main
+        className="min-w-0 lg:pl-[252px]"
+        inert={menuOpen ? true : undefined}
+        aria-hidden={menuOpen ? true : undefined}
+      >
         {isPlatformAdmin ? (
-          <div className="flex flex-col items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6">
-            <p className="text-sm font-medium text-amber-800">
-              Viewing the client portal for <span className="font-semibold">{orgName}</span>
+          <div className="flex min-h-10 items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-1.5 sm:px-6">
+            <p className="min-w-0 truncate text-xs font-medium text-amber-900 sm:text-sm">
+              Client view: <span className="font-semibold">{orgName}</span>
             </p>
             <button
               type="button"
               onClick={exitClientView}
-              className="min-h-11 shrink-0 rounded-lg px-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 hover:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 border-l border-amber-300 pl-3 text-xs font-semibold text-amber-800 hover:text-amber-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 sm:text-sm"
             >
-              Back to Admin
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              Admin
             </button>
           </div>
         ) : null}
         {children}
       </main>
+      <ClientTochiBoundary>
+        <ClientTochiWorkspace />
+      </ClientTochiBoundary>
     </div>
   )
 }

@@ -76,6 +76,78 @@ describe('EvaluationRunRequestPanel', () => {
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('modelName')
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('contentSnapshotHash')
   })
+  it('targets the exact approved package when onboarding evidence is supplied', async () => {
+    render(
+      <EvaluationRunRequestPanel
+        tenantId="tenant-1"
+        venueId="venue-1"
+        initialCases={[item]}
+        initialNextCursor={null}
+        runnerEnabled
+        maximumCases={50}
+        approvedPackages={[
+          { id: 'package_1', payloadHash: 'a'.repeat(64), approvedAt: new Date() },
+        ]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.mutate.mock.calls[0]?.[0]).toMatchObject({
+      approvedPackageId: 'package_1',
+      caseIds: [item.id],
+    })
+  })
+  it('selects only the latest seven case revisions tied to the chosen package hash', async () => {
+    const payloadHash = 'a'.repeat(64)
+    const sourceRef = `venue-package:package_1:${payloadHash}`
+    const dimensions = [
+      'fact',
+      'navigation',
+      'accessibility',
+      'safety',
+      'multilingual',
+      'adversarial',
+      'unanswerable',
+    ]
+    const onboardingCases = dimensions.flatMap((dimension, index) => [
+      {
+        ...item,
+        id: `00000000-0000-4000-8000-${(index * 2).toString().padStart(12, '0')}`,
+        caseKey: `onboarding-${dimension}-approved-package`,
+        revision: 1,
+        sourceType: 'ONBOARDING_APPROVED_PACKAGE',
+        sourceRef,
+      },
+      {
+        ...item,
+        id: `00000000-0000-4000-8000-${(index * 2 + 1).toString().padStart(12, '0')}`,
+        caseKey: `onboarding-${dimension}-approved-package`,
+        revision: 2,
+        sourceType: 'ONBOARDING_APPROVED_PACKAGE',
+        sourceRef,
+      },
+    ])
+    render(
+      <EvaluationRunRequestPanel
+        tenantId="tenant-1"
+        venueId="venue-1"
+        initialCases={onboardingCases}
+        initialNextCursor={null}
+        runnerEnabled
+        maximumCases={50}
+        approvedPackages={[{ id: 'package_1', payloadHash, approvedAt: new Date() }]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Select seven onboarding cases' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Request run' }))
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.mutate.mock.calls[0]?.[0].caseIds).toEqual(
+      onboardingCases
+        .filter((candidate) => candidate.revision === 2)
+        .map((candidate) => candidate.id),
+    )
+  })
   it('serializes double submission', async () => {
     let resolve!: (value: { enqueued: boolean }) => void
     mocks.mutate.mockReturnValue(

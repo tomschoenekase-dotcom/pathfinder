@@ -1,8 +1,11 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
-import { CHAT_FONT_OPTIONS, getChatPalette, PathFinderIcon } from '@pathfinder/ui'
+import type { CharacterState } from '@pathfinder/contracts/character-system'
+import { PathFinderIcon } from '@pathfinder/ui/brand'
+import { CHAT_FONT_OPTIONS, getChatPalette } from '@pathfinder/ui/theme'
 
 import { ChatWindow } from './ChatWindow'
 import {
@@ -14,7 +17,17 @@ import {
 } from './LanguagePicker'
 import { LocationBanner } from './LocationBanner'
 import { QuickPromptChips } from './QuickPromptChips'
+import { VenueCharacterBoundary } from './VenueCharacterBoundary'
+import { VenueCharacterFallback } from './VenueCharacterFallback'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
+
+const LazyVenueCharacterStage = dynamic(
+  () => import('./VenueCharacterStage').then((module) => module.VenueCharacterStage),
+  {
+    ssr: false,
+    loading: () => <VenueCharacterFallback status="loading" />,
+  },
+)
 
 function fontFamily(chatFont: string | null): string {
   const option = CHAT_FONT_OPTIONS.find((font) => font.value === chatFont) ?? CHAT_FONT_OPTIONS[0]!
@@ -32,6 +45,8 @@ export function VenueChatShell(props: {
   language: SupportedChatLanguage
   setLanguage: (language: SupportedChatLanguage) => void
   initialDraft: string
+  characterState?: CharacterState
+  characterMotion?: 'system' | 'reduced' | 'full'
   location: {
     lat: number | null
     lng: number | null
@@ -39,7 +54,7 @@ export function VenueChatShell(props: {
     refresh: () => void
   }
   onSend: (message: string) => void
-  onDraftChange?: () => void
+  onDraftChange?: (draft: string) => void
   onRetry?: (() => void) | null
   retryLabel?: string
   onNewConversation: () => void
@@ -58,6 +73,8 @@ export function VenueChatShell(props: {
     language,
     setLanguage,
     initialDraft,
+    characterState = 'idle',
+    characterMotion = 'system',
     location,
     onSend,
     onDraftChange,
@@ -74,13 +91,19 @@ export function VenueChatShell(props: {
     venue.guideMode !== 'non_location' && location.lat !== null && location.lng !== null
   const guideName = venue.aiGuideName?.trim() || `${venue.name} Guide`
   const banner = Boolean(venue.chatBannerUrl)
+  const publicCharacter = venue.venueBotPresentation?.character
+  const characterPresentation =
+    venue.venueBotPresentation?.mode === 'CHARACTER' && publicCharacter
+      ? { ...venue.venueBotPresentation, character: publicCharacter }
+      : null
+  const characterExpanded = messages.length === 0
 
   return (
     <div
       className="flex h-svh flex-col overflow-hidden"
       style={{ backgroundColor: palette.bg, fontFamily: fontFamily(venue.chatFont) }}
     >
-      <style>{`:root{--chat-accent:${palette.accent};--chat-accent-contrast:${palette.accentContrast};--chat-surface:${palette.bg};--chat-bg:${palette.bg};--chat-card:${palette.card};--chat-border:${palette.border};--chat-text:${palette.text};--chat-text-muted:${palette.textMuted};}`}</style>
+      <style>{`:root{--chat-accent:${palette.accent};--chat-accent-text:${palette.accentText};--chat-accent-contrast:${palette.accentContrast};--chat-surface:${palette.bg};--chat-bg:${palette.bg};--chat-card:${palette.card};--chat-border:${palette.border};--chat-text:${palette.text};--chat-text-muted:${palette.textMuted};}`}</style>
       <header
         className="border-b border-[var(--chat-border)] bg-[var(--chat-card)] px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6"
         style={
@@ -97,7 +120,7 @@ export function VenueChatShell(props: {
           {presentation === 'standalone' ? (
             <Link
               href={`/${venueSlug}`}
-              className={`inline-flex items-center gap-1.5 text-xs font-medium transition ${banner ? 'text-white/75 hover:text-white' : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent)]'}`}
+              className={`inline-flex min-h-11 items-center gap-1.5 text-xs font-medium transition ${banner ? 'text-white/75 hover:text-white' : 'text-[var(--chat-text-muted)] hover:text-[var(--chat-accent-text)]'}`}
             >
               <span aria-hidden="true">←</span> Back
             </Link>
@@ -128,7 +151,7 @@ export function VenueChatShell(props: {
               type="button"
               onClick={onNewConversation}
               disabled={isSending || !anonymousToken}
-              className="inline-flex min-h-9 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
               New conversation
             </button>
@@ -136,6 +159,23 @@ export function VenueChatShell(props: {
         </div>
       </header>
       <main className="flex min-h-0 flex-1 flex-col">
+        {characterPresentation ? (
+          <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
+            <VenueCharacterBoundary
+              resetKey={`${characterPresentation.character.characterId}:${characterPresentation.character.assetPackId}:${characterPresentation.character.assetPackVersion}`}
+              compact={!characterExpanded}
+            >
+              <LazyVenueCharacterStage
+                projection={characterPresentation.character}
+                state={characterState}
+                displayName={characterPresentation.displayName}
+                greeting={characterPresentation.greeting}
+                expanded={characterExpanded}
+                motion={characterMotion}
+              />
+            </VenueCharacterBoundary>
+          </div>
+        ) : null}
         <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
           <LocationBanner
             permission={location.permission}
@@ -146,6 +186,7 @@ export function VenueChatShell(props: {
         <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
           <ChatWindow
             messages={messages}
+            assistantLabel={guideName}
             onSend={onSend}
             {...(onDraftChange ? { onDraftChange } : {})}
             {...(onRetry ? { onRetry } : {})}
@@ -201,11 +242,14 @@ export function VenueChatShell(props: {
           <p className="text-[10px] text-[var(--chat-text-muted)]">
             Powered by{' '}
             {presentation === 'standalone' ? (
-              <a href="https://pathfinder.app" className="hover:text-[var(--chat-accent)]">
-                PathFinder
+              <a
+                href="https://torchiko.com"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center hover:text-[var(--chat-accent-text)]"
+              >
+                Torchiko
               </a>
             ) : (
-              <span>PathFinder</span>
+              <span>Torchiko</span>
             )}
           </p>
         ) : null}

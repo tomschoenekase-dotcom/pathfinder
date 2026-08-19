@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  activateAgentBridgeCredentialAction,
   ExternalCredentialActionError,
   issueExternalCredentialAction,
   revokeExternalCredentialAction,
@@ -51,6 +52,7 @@ function harness() {
     },
     externalCredentialRevocation: { create: vi.fn() },
     externalCredentialRotation: { create: vi.fn() },
+    externalCredentialActivation: { create: vi.fn() },
     externalCredentialOperationReceipt: { create: vi.fn() },
     auditLog: { create: vi.fn() },
   }
@@ -58,6 +60,7 @@ function harness() {
     $transaction: vi.fn(async (fn) => fn(tx)),
     externalAccessCredential: { findFirst: vi.fn() },
     externalCredentialOperationReceipt: { findFirst: vi.fn().mockResolvedValue(null) },
+    externalCredentialActivation: { findFirst: vi.fn().mockResolvedValue(null) },
   }
   return { tx, client }
 }
@@ -107,6 +110,45 @@ describe('disabled external credential actions', () => {
     expect(replay.client.$transaction).not.toHaveBeenCalled()
   })
 
+  it('activates only an exact venue MCP bridge credential with append-only evidence', async () => {
+    const { tx, client } = harness()
+    const bridgeCredential = {
+      ...credential,
+      venueId: 'venue-1',
+      scopeKey: 'venue-1',
+      kind: 'MCP',
+      capabilities: ['agent-runs:execute'],
+    }
+    tx.externalAccessCredential.findFirst.mockResolvedValue(bridgeCredential)
+    const result = await activateAgentBridgeCredentialAction(
+      {
+        tenantId: 'tenant-1',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        actor,
+        credentialId: bridgeCredential.id,
+        expectedUpdatedAt: bridgeCredential.updatedAt,
+      },
+      client as never,
+    )
+    expect(result).toMatchObject({ credential: { enabled: true }, plaintextSecret: null })
+    expect(tx.externalCredentialActivation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          credentialId: bridgeCredential.id,
+          venueId: 'venue-1',
+          activatedBy: actor.id,
+        }),
+      }),
+    )
+    const activatedAt = tx.externalCredentialActivation.create.mock.calls[0]?.[0]?.data.activatedAt
+    expect(tx.externalAccessCredential.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { enabled: true, updatedAt: activatedAt } }),
+    )
+    expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toMatch(/secretHash|plaintext/u)
+  })
+
   it('rejects wrong actor, scope mismatch, duplicates, and cross-kind capabilities before writes', async () => {
     for (const candidate of [
       { ...input, actor: { ...actor, role: 'OWNER' } },
@@ -147,7 +189,9 @@ describe('disabled external credential actions', () => {
     expect(tx.externalCredentialRotation.create).toHaveBeenCalledOnce()
     const rotationAt = tx.externalCredentialRotation.create.mock.calls[0]?.[0]?.data.rotatedAt
     expect(tx.externalAccessCredential.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { revokedAt: rotationAt, updatedAt: rotationAt } }),
+      expect.objectContaining({
+        data: { enabled: false, revokedAt: rotationAt, updatedAt: rotationAt },
+      }),
     )
     expect(tx.externalCredentialOperationReceipt.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -183,7 +227,9 @@ describe('disabled external credential actions', () => {
     )
     const revokedAt = tx.externalCredentialRevocation.create.mock.calls[0]?.[0]?.data.revokedAt
     expect(tx.externalAccessCredential.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { revokedAt, updatedAt: revokedAt } }),
+      expect.objectContaining({
+        data: { enabled: false, revokedAt, updatedAt: revokedAt },
+      }),
     )
     expect(tx.externalCredentialOperationReceipt.create).toHaveBeenCalledWith(
       expect.objectContaining({

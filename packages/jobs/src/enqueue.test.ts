@@ -34,6 +34,7 @@ vi.mock('./connection', () => ({ getBullMQConnection: vi.fn(() => ({})) }))
 
 import {
   closeJobQueues,
+  enqueueAgentRun,
   enqueueAnswerAnalysis,
   enqueueAnswerAnalysisDispatch,
   enqueueAnswerAnalysisRecovery,
@@ -72,6 +73,21 @@ describe('job enqueues', () => {
     vi.clearAllMocks()
     mocks.add.mockResolvedValue({ id: 'generated' })
     mocks.getJob.mockResolvedValue(null)
+  })
+
+  it('keeps agent execution default-off and uses a deterministic run job when enabled', async () => {
+    await expect(enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' })).resolves.toEqual({
+      enqueued: false,
+    })
+    expect(mocks.add).not.toHaveBeenCalled()
+    await expect(
+      enqueueAgentRun({ tenantId: 'tenant_1', runId: 'run_1' }, { enabled: true }),
+    ).resolves.toEqual({ enqueued: true })
+    expect(mocks.add).toHaveBeenCalledWith(
+      'agent-run-process',
+      { tenantId: 'tenant_1', runId: 'run_1' },
+      expect.objectContaining({ jobId: 'agent-run-run_1', attempts: 3 }),
+    )
   })
 
   afterEach(async () => {

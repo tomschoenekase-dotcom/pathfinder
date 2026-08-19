@@ -1,24 +1,36 @@
 import { randomUUID } from 'node:crypto'
 
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListPartsCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 import { currentDeploymentStorageKey } from './deployment-storage-key'
+import { INTAKE_UPLOAD_MULTIPART_PART_BYTES } from '@pathfinder/contracts/intake-upload'
 
 export const INTAKE_UPLOAD_URL_EXPIRES_SECONDS = 15 * 60
 export const INTAKE_UPLOAD_GENERATION_METADATA_KEY = 'pf-intake-upload-generation'
+export const INTAKE_UPLOAD_MULTIPART_METADATA_KEY = 'pf-intake-upload-multipart'
 
 type IntakeUploadStorageCommand =
   | PutObjectCommand
   | HeadObjectCommand
   | GetObjectCommand
   | DeleteObjectCommand
+  | CreateMultipartUploadCommand
+  | UploadPartCommand
+  | ListPartsCommand
+  | CompleteMultipartUploadCommand
+  | AbortMultipartUploadCommand
 
 export type IntakeUploadStorageTransport = {
   send(
@@ -130,6 +142,183 @@ export async function signIntakeUploadPut(input: {
   }
 }
 
+export async function beginIntakeUploadMultipart(input: {
+  key: string
+  generation: string
+  contentType: string
+  storage?: IntakeUploadStorageTransport
+}) {
+  const config = storageConfig()
+  const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
+  const result = (await storage.send(
+    new CreateMultipartUploadCommand({
+      Bucket: config.bucket,
+      Key: input.key,
+      ContentType: input.contentType,
+      ChecksumAlgorithm: 'SHA256',
+      Metadata: {
+        [INTAKE_UPLOAD_GENERATION_METADATA_KEY]: input.generation,
+        [INTAKE_UPLOAD_MULTIPART_METADATA_KEY]: 'true',
+      },
+    }),
+  )) as { UploadId?: string }
+  if (!result.UploadId) throw new Error('Storage did not return a multipart upload ID.')
+  return { uploadId: result.UploadId, partSize: INTAKE_UPLOAD_MULTIPART_PART_BYTES }
+}
+
+export async function signIntakeUploadPart(input: {
+  key: string
+  uploadId: string
+  partNumber: number
+  checksumSha256: string
+  client?: S3Client
+  signer?: typeof getSignedUrl
+}) {
+  if (!Number.isSafeInteger(input.partNumber) || input.partNumber < 1 || input.partNumber > 10_000)
+    throw new Error('Multipart part number is invalid.')
+  const config = storageConfig()
+  const checksumBase64 = intakeUploadChecksumBase64(input.checksumSha256)
+  const command = new UploadPartCommand({
+    Bucket: config.bucket,
+    Key: input.key,
+    UploadId: input.uploadId,
+    PartNumber: input.partNumber,
+    ChecksumSHA256: checksumBase64,
+  })
+  const url = await (input.signer ?? getSignedUrl)(input.client ?? storageClient(), command, {
+    expiresIn: INTAKE_UPLOAD_URL_EXPIRES_SECONDS,
+    unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
+  })
+  return {
+    url,
+    expiresInSeconds: INTAKE_UPLOAD_URL_EXPIRES_SECONDS,
+    requiredHeaders: { 'x-amz-checksum-sha256': checksumBase64 },
+  }
+}
+
+export type IntakeUploadCompletedPart = {
+  partNumber: number
+  etag: string
+  checksumSha256: string
+  size: number
+}
+
+export async function listIntakeUploadMultipartParts(input: {
+  key: string
+  uploadId: string
+  expectedBytes: number
+  storage?: IntakeUploadStorageTransport
+}): Promise<IntakeUploadCompletedPart[]> {
+  const config = storageConfig()
+  const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
+  const expectedCount = Math.ceil(input.expectedBytes / INTAKE_UPLOAD_MULTIPART_PART_BYTES)
+  const parts = new Map<number, IntakeUploadCompletedPart>()
+  let marker: string | undefined
+  const seen = new Set<string>()
+  for (;;) {
+    const result = (await storage.send(
+      new ListPartsCommand({
+        Bucket: config.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+        PartNumberMarker: marker,
+        MaxParts: Math.min(1000, expectedCount),
+      }),
+    )) as {
+      Parts?: Array<{
+        PartNumber?: number
+        ETag?: string
+        ChecksumSHA256?: string
+        Size?: number
+      }>
+      IsTruncated?: boolean
+      NextPartNumberMarker?: string
+    }
+    for (const part of result.Parts ?? []) {
+      const number = part.PartNumber
+      const expectedSize =
+        number === expectedCount
+          ? input.expectedBytes - INTAKE_UPLOAD_MULTIPART_PART_BYTES * (expectedCount - 1)
+          : INTAKE_UPLOAD_MULTIPART_PART_BYTES
+      if (
+        !number ||
+        number < 1 ||
+        number > expectedCount ||
+        parts.has(number) ||
+        typeof part.ETag !== 'string' ||
+        !part.ETag ||
+        typeof part.ChecksumSHA256 !== 'string' ||
+        !part.ChecksumSHA256 ||
+        part.Size !== expectedSize
+      )
+        throw new Error('Storage returned invalid multipart resume metadata.')
+      parts.set(number, {
+        partNumber: number,
+        etag: part.ETag,
+        checksumSha256: part.ChecksumSHA256,
+        size: part.Size,
+      })
+    }
+    if (!result.IsTruncated) break
+    if (!result.NextPartNumberMarker || seen.has(result.NextPartNumberMarker))
+      throw new Error('Storage returned invalid multipart resume pagination.')
+    marker = result.NextPartNumberMarker
+    seen.add(marker)
+  }
+  return [...parts.values()].sort((left, right) => left.partNumber - right.partNumber)
+}
+
+export async function completeIntakeUploadMultipart(input: {
+  key: string
+  uploadId: string
+  parts: IntakeUploadCompletedPart[]
+  storage?: IntakeUploadStorageTransport
+}) {
+  const config = storageConfig()
+  const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
+  const result = (await storage.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: config.bucket,
+      Key: input.key,
+      UploadId: input.uploadId,
+      MultipartUpload: {
+        Parts: input.parts.map((part) => ({
+          PartNumber: part.partNumber,
+          ETag: part.etag,
+          ChecksumSHA256: part.checksumSha256,
+        })),
+      },
+    }),
+  )) as { VersionId?: string }
+  return { versionId: result.VersionId ?? null }
+}
+
+function isMissingMultipart(error: unknown) {
+  if (typeof error !== 'object' || error === null) return false
+  const candidate = error as { name?: unknown; Code?: unknown }
+  return candidate.name === 'NoSuchUpload' || candidate.Code === 'NoSuchUpload'
+}
+
+export async function abortIntakeUploadMultipart(input: {
+  key: string
+  uploadId: string
+  storage?: IntakeUploadStorageTransport
+}): Promise<void> {
+  const config = storageConfig()
+  const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
+  try {
+    await storage.send(
+      new AbortMultipartUploadCommand({
+        Bucket: config.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+      }),
+    )
+  } catch (error) {
+    if (!isMissingMultipart(error)) throw error
+  }
+}
+
 export type IntakeUploadInspection =
   | { state: 'verified'; versionId: string }
   | { state: 'missing' }
@@ -194,7 +383,10 @@ export async function inspectIntakeUpload(input: {
   if (result.ContentLength !== input.bytes) return { state: 'invalid', versionId, reason: 'bytes' }
   if (result.ContentType !== input.contentType)
     return { state: 'invalid', versionId, reason: 'mime' }
-  if (result.ChecksumSHA256 !== expectedChecksum) {
+  if (
+    result.Metadata?.[INTAKE_UPLOAD_MULTIPART_METADATA_KEY] !== 'true' &&
+    result.ChecksumSHA256 !== expectedChecksum
+  ) {
     return { state: 'invalid', versionId, reason: 'checksum' }
   }
   return { state: 'verified', versionId }

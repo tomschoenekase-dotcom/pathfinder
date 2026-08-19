@@ -102,4 +102,38 @@ describe('EvaluationOperationsView', () => {
     expect(screen.getByText('Source coverage needs follow-up.')).toBeTruthy()
     expect(screen.getByText('NEEDS FOLLOW UP')).toBeTruthy()
   })
+
+  it('shows exact failed checks and the versioned repair/retest path', () => {
+    render(
+      <EvaluationOperationsView
+        {...baseProps}
+        runs={[run]}
+        failedCases={[
+          {
+            id: 'result_1',
+            runId: run.id,
+            caseId: 'case_1',
+            caseKey: 'onboarding-accessibility-approved-package',
+            category: 'known-answer',
+            caseRevision: 2,
+            passedChecks: 2,
+            totalChecks: 3,
+            checks: [
+              {
+                checkId: 'fact:approved-accessibility',
+                passed: false,
+                detail: 'Required marker missing',
+              },
+              { checkId: 'max-words', passed: true, detail: '20 words; maximum 180' },
+            ],
+          },
+        ]}
+      />,
+    )
+    expect(screen.getByText('Exact failed cases')).toBeTruthy()
+    expect(screen.getByText(/fact:approved-accessibility: Required marker missing/)).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: 'Open versioned package repairs' }).getAttribute('href'),
+    ).toBe('/admin/clients/tenant_1/venues/venue_1/packages')
+  })
 })

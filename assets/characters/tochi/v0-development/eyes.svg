@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 360" role="presentation">
+  <g fill="#F8FEFF">
+    <ellipse cx="132" cy="174" rx="23" ry="27"/>
+    <ellipse cx="188" cy="174" rx="23" ry="27"/>
+  </g>
+  <g fill="#102F47">
+    <ellipse cx="135" cy="178" rx="9" ry="12"/>
+    <ellipse cx="191" cy="178" rx="9" ry="12"/>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="138" cy="174" r="3"/>
+    <circle cx="194" cy="174" r="3"/>
+  </g>
+</svg>

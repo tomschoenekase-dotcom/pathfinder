@@ -12,6 +12,7 @@ import {
   assertGlobalAiAvailable,
   assertVenueAiAvailable,
   lockVenueContentMutation,
+  recordOrReplayOnboardingMilestoneEvent,
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
@@ -1454,6 +1455,24 @@ export async function createVenuePackageDraftService(request: {
           },
           transaction as DbClient,
         )
+        await recordOrReplayOnboardingMilestoneEvent({
+          db: transaction,
+          input: {
+            id: randomUUID(),
+            tenantId,
+            venueId: input.venueId,
+            eventType: 'REVIEWABLE_PACKAGE',
+            idempotencyKey: `venue-package:${pkg.id}:reviewable`,
+            occurredAt: new Date(),
+            actorType: 'OPERATOR',
+            actorId: actor.id,
+            sourceType: 'VENUE_PACKAGE',
+            sourceId: pkg.id,
+            sourceRevision: finalPreview.payloadHash,
+            category: null,
+            durationMs: null,
+          },
+        })
         return { kind: 'complete' as const, pkg, preview: finalPreview, attachment }
       },
       { isolationLevel: request.isolationLevel ?? 'ReadCommitted' },

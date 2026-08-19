@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const createIdentity = vi.hoisted(() => vi.fn())
 const editIdentity = vi.hoisted(() => vi.fn())
 const disableIdentity = vi.hoisted(() => vi.fn())
+const enableIdentity = vi.hoisted(() => vi.fn())
 const refresh = vi.hoisted(() => vi.fn())
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({
@@ -13,6 +14,7 @@ vi.mock('../../lib/trpc', () => ({
       createDisabledAgentIdentity: { mutate: createIdentity },
       editDisabledAgentIdentity: { mutate: editIdentity },
       disableAgentIdentity: { mutate: disableIdentity },
+      enableAgentIdentity: { mutate: enableIdentity },
     },
   }),
 }))
@@ -40,6 +42,7 @@ describe('AgentIdentityEditor', () => {
     createIdentity.mockResolvedValue({ id: 'agent_2', enabled: false })
     editIdentity.mockResolvedValue({ id: 'agent_1', enabled: false })
     disableIdentity.mockResolvedValue({ id: 'agent_1', enabled: false })
+    enableIdentity.mockResolvedValue({ id: 'agent_1', enabled: true })
   })
   afterEach(cleanup)
 
@@ -68,8 +71,44 @@ describe('AgentIdentityEditor', () => {
         autonomousActions: [],
       },
     })
-    expect(container.textContent).not.toMatch(/provider|model|credential|api key/i)
+    expect(container.textContent).toMatch(/execution provider|model or bridge target/i)
+    expect(container.textContent).not.toMatch(/credential|api key/i)
     expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
+  })
+
+  it('offers narrow reviewed role templates without enabling or running them', () => {
+    render(<AgentIdentityCreateEditor tenantId="tenant_1" venueId="venue_1" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Primary coordinator' }))
+    expect((screen.getByLabelText('Identity key') as HTMLInputElement).value).toBe('edith.primary')
+    expect((screen.getByLabelText('Display name') as HTMLInputElement).value).toBe('EDITH')
+    expect((screen.getByLabelText('Identity type') as HTMLSelectElement).value).toBe('PRIMARY')
+    expect(createIdentity).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /enable|run agent/i })).toBeNull()
+  })
+
+  it('enables a saved identity only when its provider and model are configured', async () => {
+    render(
+      <AgentIdentityEditEditor
+        tenantId="tenant_1"
+        venueId="venue_1"
+        identity={
+          {
+            ...identity,
+            defaultProvider: 'anthropic',
+            defaultModel: 'claude-sonnet-4-6',
+          } as never
+        }
+      />,
+    )
+    fireEvent.click(screen.getByText('Edit disabled configuration'))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable configured identity' }))
+    await waitFor(() =>
+      expect(enableIdentity).toHaveBeenCalledWith({
+        scope: { level: 'VENUE', tenantId: 'tenant_1', venueId: 'venue_1' },
+        agentIdentityId: 'agent_1',
+        expectedUpdatedAt: identity.updatedAt,
+      }),
+    )
   })
 
   it('edits a disabled identity with its immutable scope and expected revision', async () => {

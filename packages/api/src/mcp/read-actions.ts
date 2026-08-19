@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client'
 
 import type { McpReadInput, McpToolResult } from '@pathfinder/contracts/mcp-v0'
+import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
 
 import type { PathfinderMcpDomainActions, VerifiedMcpInvocationContext } from './registry'
 
@@ -30,6 +31,9 @@ type ReadDb = Pick<
   | 'jobRecord'
   | 'evalRun'
   | 'venueReportConfiguration'
+  | 'agentQuestion'
+  | 'agentOutcomeObservation'
+  | 'onboardingMilestoneEvent'
 >
 
 type CursorPayload = Readonly<{
@@ -133,9 +137,16 @@ export async function readMcpResource(
       return readJobs(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'evaluations':
       return readEvaluations(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'onboarding-summary':
+      rejectCursor(cursor, input.resource)
+      return readOnboardingSummary(db, context.credential.tenantId, input.venueId!)
     case 'readiness':
       rejectCursor(cursor, input.resource)
       return readReadiness(db, context.credential.tenantId, input.venueId!)
+    case 'questions':
+      return readQuestions(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'outcomes':
+      return readOutcomes(db, context.credential.tenantId, input.venueId!, limit, cursor)
     default:
       throw new McpReadBindingError(
         'RESOURCE_UNAVAILABLE',
@@ -570,6 +581,120 @@ async function readReadiness(
         }
       : null,
   )
+}
+
+const ONBOARDING_SUMMARY_VERSION = 'torchiko-onboarding-summary-v1' as const
+const ONBOARDING_SUMMARY_WINDOW_DAYS = 90
+const ONBOARDING_SUMMARY_EVENT_LIMIT = 1_000
+
+async function readOnboardingSummary(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+): Promise<McpToolResult> {
+  const to = new Date()
+  const from = new Date(to.getTime() - ONBOARDING_SUMMARY_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+  const [readiness, rows] = await Promise.all([
+    readReadiness(db, tenantId, venueId),
+    db.onboardingMilestoneEvent.findMany({
+      where: { tenantId, venueId, occurredAt: { gte: from, lt: to } },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: ONBOARDING_SUMMARY_EVENT_LIMIT + 1,
+      select: {
+        id: true,
+        eventType: true,
+        occurredAt: true,
+        category: true,
+        durationMs: true,
+      },
+    }),
+  ])
+  if (readiness.data === null) return result('onboarding-summary', null)
+  const rollup = buildOnboardingMilestoneRollup({
+    events: rows.slice(0, ONBOARDING_SUMMARY_EVENT_LIMIT).map((row) => ({
+      ...row,
+      eventType: row.eventType as Parameters<
+        typeof buildOnboardingMilestoneRollup
+      >[0]['events'][number]['eventType'],
+    })),
+    from,
+    to,
+    eventLimit: ONBOARDING_SUMMARY_EVENT_LIMIT,
+    truncated: rows.length > ONBOARDING_SUMMARY_EVENT_LIMIT,
+  })
+  return result('onboarding-summary', {
+    schemaVersion: ONBOARDING_SUMMARY_VERSION,
+    venueId,
+    readiness: readiness.data,
+    milestoneRollup: {
+      ...rollup,
+      window: {
+        ...rollup.window,
+        from: rollup.window.from.toISOString(),
+        to: rollup.window.to.toISOString(),
+      },
+    },
+  })
+}
+
+async function readQuestions(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.agentQuestion.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      agentIdentityId: true,
+      agentRunId: true,
+      question: true,
+      context: true,
+      choices: true,
+      blocking: true,
+      status: true,
+      answer: true,
+      answeredAt: true,
+      createdAt: true,
+      updatedAt: true,
+      agentIdentity: { select: { id: true, name: true } },
+    },
+  })
+  return result('questions', mapPage(page('questions', rows, limit, (row) => row.createdAt)))
+}
+
+async function readOutcomes(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.agentOutcomeObservation.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      agentRunId: true,
+      agentIdentityId: true,
+      signalKind: true,
+      verdict: true,
+      summary: true,
+      evidenceRef: true,
+      taskClass: true,
+      modelProvider: true,
+      modelName: true,
+      actorType: true,
+      createdAt: true,
+      agentIdentity: { select: { id: true, name: true } },
+    },
+  })
+  return result('outcomes', mapPage(page('outcomes', rows, limit, (row) => row.createdAt)))
 }
 
 function mapPage<T extends Record<string, unknown>>(value: {

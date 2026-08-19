@@ -5,23 +5,81 @@ import { type FormEvent, useRef, useState } from 'react'
 import { ArrowLeft, Clock3, MapPin, MessageCircle, ShieldCheck, Sparkles } from 'lucide-react'
 
 import type { ClientVenuePackagePreview as Preview } from '@pathfinder/contracts'
+import { browserUuid } from '../lib/browser-uuid'
 import { useTRPCClient } from '../lib/trpc'
 
-type Props = { preview: Preview }
+type Props = { preview: Preview; returnHref?: string | undefined }
 
-export function ClientPackagePreview({ preview }: Props) {
+const GUIDED_PROMPTS = [
+  'Are you open Sunday?',
+  'Where should I park?',
+  'Is the building wheelchair accessible?',
+  'Can I bring a stroller?',
+  'What should I see if I have one hour?',
+] as const
+
+type PreviewAnswer = { text: string; ref: string; supported: boolean }
+
+function answerFromExactPackage(preview: Preview, prompt: string): PreviewAnswer {
+  const tokens = [...new Set(prompt.toLowerCase().match(/[a-z0-9]+/g) ?? [])].filter(
+    (token) => token.length > 2,
+  )
+  const candidates = [
+    ...preview.experience.knowledgeEntries.map((entry, index) => ({
+      text: entry.content,
+      ref: `knowledge:${index}:${entry.title}`,
+      searchable: `${entry.title} ${entry.category} ${entry.content}`.toLowerCase(),
+    })),
+    ...preview.experience.places.map((place, index) => ({
+      text: [place.shortDescription ?? place.longDescription, place.areaName, place.hours]
+        .filter(Boolean)
+        .join(' · '),
+      ref: `place:${index}:${place.name}`,
+      searchable:
+        `${place.name} ${place.type} ${place.shortDescription ?? ''} ${place.longDescription ?? ''} ${place.areaName ?? ''} ${place.hours ?? ''} ${place.tags.join(' ')}`.toLowerCase(),
+    })),
+  ]
+    .filter((candidate) => candidate.text)
+    .map((candidate) => ({
+      ...candidate,
+      score: tokens.reduce(
+        (score, token) => score + (candidate.searchable.includes(token) ? 1 : 0),
+        0,
+      ),
+    }))
+    .sort((left, right) => right.score - left.score)
+  const best = candidates[0]
+  if (!best || best.score === 0)
+    return {
+      text: 'This reviewed candidate does not contain a supported answer yet. Flag it and Torchiko can turn the gap into follow-up work.',
+      ref: 'unanswered:exact-package',
+      supported: false,
+    }
+  return { text: best.text, ref: best.ref, supported: true }
+}
+
+export function ClientPackagePreview({ preview, returnHref }: Props) {
   const client = useTRPCClient()
   const [feedback, setFeedback] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
   const writeInFlight = useRef(false)
-  const operation = useRef(crypto.randomUUID())
+  const operation = useRef(browserUuid())
+  const answerWriteInFlight = useRef(false)
+  const answerOperation = useRef(browserUuid())
+  const [previewPrompt, setPreviewPrompt] = useState('')
+  const [previewAnswer, setPreviewAnswer] = useState<PreviewAnswer | null>(null)
+  const [answerFeedback, setAnswerFeedback] = useState<string | null>(null)
+  const [answerFeedbackError, setAnswerFeedbackError] = useState<string | null>(null)
   const { venue, experience } = preview
   const accent = /^#[0-9a-f]{6}$/i.test(venue.branding.accentColor ?? '')
     ? venue.branding.accentColor!
     : '#326b73'
-  const supportHref = `/support?${new URLSearchParams({ venue: venue.id })}`
+  const supportHref = `/support?${new URLSearchParams({
+    venue: venue.id,
+    ...(returnHref ? { returnTo: returnHref } : {}),
+  })}`
 
   async function submitFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -40,7 +98,7 @@ export function ClientPackagePreview({ preview }: Props) {
       })
       setFeedback('')
       setSent(true)
-      operation.current = crypto.randomUUID()
+      operation.current = browserUuid()
     } catch (submitError) {
       const code = errorCode(submitError)
       setError(
@@ -54,6 +112,46 @@ export function ClientPackagePreview({ preview }: Props) {
     }
   }
 
+  function runPreview(prompt = previewPrompt) {
+    const normalized = prompt.trim()
+    if (!normalized) return
+    setPreviewPrompt(normalized)
+    setPreviewAnswer(answerFromExactPackage(preview, normalized))
+    setAnswerFeedback(null)
+    setAnswerFeedbackError(null)
+    answerOperation.current = browserUuid()
+  }
+
+  async function submitAnswerFeedback(verdict: 'CORRECT' | 'NEEDS_CHANGE' | 'NOT_SURE') {
+    if (!previewAnswer || answerWriteInFlight.current) return
+    answerWriteInFlight.current = true
+    setAnswerFeedback(null)
+    setAnswerFeedbackError(null)
+    try {
+      await client.portal.createPreviewFeedbackRequest.mutate({
+        operationId: answerOperation.current,
+        venueId: venue.id,
+        packageId: preview.package.id,
+        body: `Preview answer feedback: ${verdict.replaceAll('_', ' ').toLowerCase()}. Prompt: ${previewPrompt}`,
+        context: {
+          kind: 'PREVIEW_ANSWER',
+          prompt: previewPrompt,
+          answerRef: previewAnswer.ref,
+          verdict,
+        },
+        attachments: [],
+      })
+      setAnswerFeedback('Feedback saved as follow-up work. Nothing was published.')
+      answerOperation.current = browserUuid()
+    } catch {
+      setAnswerFeedbackError(
+        'The feedback outcome could not be confirmed. Retry the same choice to check the original request.',
+      )
+    } finally {
+      answerWriteInFlight.current = false
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f4f1ea] px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -62,10 +160,11 @@ export function ClientPackagePreview({ preview }: Props) {
           className="flex flex-wrap items-center justify-between gap-3"
         >
           <Link
-            href={`/?venue=${encodeURIComponent(venue.id)}`}
+            href={returnHref ?? `/?venue=${encodeURIComponent(venue.id)}`}
             className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-semibold text-pf-deep"
           >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to home
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />{' '}
+            {returnHref ? 'Back to onboarding journey' : 'Back to home'}
           </Link>
           <a
             href="#preview-feedback"
@@ -120,6 +219,106 @@ export function ClientPackagePreview({ preview }: Props) {
             </div>
           </div>
           <div className="h-1.5" style={{ backgroundColor: accent }} />
+        </section>
+
+        <section
+          aria-labelledby="test-preview-heading"
+          className="rounded-[2rem] border border-pf-light bg-white p-6 shadow-sm sm:p-8"
+        >
+          <p className="text-sm font-medium text-pf-primary">Test the exact reviewed candidate</p>
+          <h2 id="test-preview-heading" className="mt-1 text-2xl font-semibold text-pf-deep">
+            Ask a visitor question
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/70">
+            This safe preview searches only the approved package shown on this page. If the answer
+            is missing, it says so instead of guessing.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2" aria-label="Suggested visitor questions">
+            {GUIDED_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => runPreview(prompt)}
+                className="min-h-11 rounded-full border border-pf-light px-4 text-left text-sm font-semibold text-pf-deep"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+          <form
+            className="mt-5 flex flex-col gap-3 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault()
+              runPreview()
+            }}
+          >
+            <label className="flex-1 text-sm font-semibold text-pf-deep">
+              Your question
+              <input
+                value={previewPrompt}
+                maxLength={1_000}
+                onChange={(event) => {
+                  setPreviewPrompt(event.target.value)
+                  setPreviewAnswer(null)
+                  setAnswerFeedback(null)
+                  setAnswerFeedbackError(null)
+                  answerOperation.current = browserUuid()
+                }}
+                className="mt-2 min-h-12 w-full rounded-2xl border border-pf-light px-4 font-normal"
+                placeholder="Ask anything a visitor might ask"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!previewPrompt.trim()}
+              className="min-h-12 self-end rounded-full bg-pf-primary px-6 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Test question
+            </button>
+          </form>
+          {previewAnswer ? (
+            <div className="mt-5 rounded-2xl bg-pf-surface p-5" aria-live="polite">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-pf-primary">
+                {previewAnswer.supported ? 'Answer from this candidate' : 'Missing information'}
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-pf-deep/80">
+                {previewAnswer.text}
+              </p>
+              <fieldset className="mt-4">
+                <legend className="text-sm font-semibold text-pf-deep">
+                  How did this answer do?
+                </legend>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(
+                    [
+                      ['CORRECT', 'Correct'],
+                      ['NEEDS_CHANGE', 'Needs a change'],
+                      ['NOT_SURE', 'I am not sure'],
+                    ] as const
+                  ).map(([verdict, label]) => (
+                    <button
+                      key={verdict}
+                      type="button"
+                      onClick={() => void submitAnswerFeedback(verdict)}
+                      className="min-h-11 rounded-full border border-pf-primary px-4 text-sm font-semibold text-pf-primary"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              {answerFeedback ? (
+                <p className="mt-3 text-sm text-emerald-800" role="status">
+                  {answerFeedback}
+                </p>
+              ) : null}
+              {answerFeedbackError ? (
+                <p className="mt-3 text-sm text-rose-800" role="alert">
+                  {answerFeedbackError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section aria-labelledby="places-heading">
@@ -223,7 +422,7 @@ export function ClientPackagePreview({ preview }: Props) {
             </span>
             <div>
               <p className="text-sm text-pf-deep/60">
-                {venue.guide.name ?? 'PathFinder guide'}
+                {venue.guide.name ?? 'Torchiko guide'}
                 {` · ${venue.guide.tone.preset} voice`}
               </p>
               <h2 id="answers-heading" className="text-2xl font-semibold text-pf-deep">
@@ -263,8 +462,8 @@ export function ClientPackagePreview({ preview }: Props) {
             Does this feel ready for your visitors?
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-pf-deep/70">
-            Send corrections or questions to PathFinder Support. This preview cannot publish or
-            change the visitor experience.
+            Send corrections or questions to Torchiko Support. This preview cannot publish or change
+            the visitor experience.
           </p>
           <form
             onSubmit={(event) => void submitFeedback(event)}
@@ -283,7 +482,7 @@ export function ClientPackagePreview({ preview }: Props) {
                   setFeedback(event.target.value)
                   setError(null)
                   setSent(false)
-                  operation.current = crypto.randomUUID()
+                  operation.current = browserUuid()
                 }}
                 className="mt-2 block w-full rounded-2xl border border-pf-light px-4 py-3 font-normal leading-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
                 placeholder="Tell us what feels right or what should change."
@@ -310,7 +509,7 @@ export function ClientPackagePreview({ preview }: Props) {
               role="status"
               className="mt-4 max-w-2xl rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"
             >
-              <p>Your feedback was sent to PathFinder Support. Nothing was published.</p>
+              <p>Your feedback was sent to Torchiko Support. Nothing was published.</p>
               <Link
                 href={supportHref}
                 className="mt-2 inline-flex font-semibold underline underline-offset-2"

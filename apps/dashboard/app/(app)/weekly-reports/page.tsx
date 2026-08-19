@@ -24,7 +24,7 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
 
   if (enabledVenues.length === 0) {
     return (
-      <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
+      <div className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
         <div className="mx-auto max-w-6xl space-y-8">
           <section>
             <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">Weekly Reports</h1>
@@ -35,18 +35,18 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
           <section className="rounded-[2rem] border border-dashed border-pf-light bg-pf-white p-10 text-center shadow-sm">
             <h2 className="text-2xl font-semibold text-pf-deep">Reports are disabled.</h2>
             <p className="mt-3 text-sm text-pf-deep/60">
-              Your PathFinder administrator can enable reports for a venue after launch review.
+              Your Torchiko administrator can enable reports for a venue after launch review.
             </p>
           </section>
         </div>
-      </main>
+      </div>
     )
   }
 
   const venueQuery = Array.isArray(requestedVenue) ? requestedVenue[0] : requestedVenue
   if (venueQuery && !enabledVenueIds.has(venueQuery)) {
     return (
-      <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
+      <div className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
         <section className="mx-auto max-w-3xl rounded-[2rem] border border-dashed border-pf-light bg-pf-white p-10 text-center shadow-sm">
           <h1 className="text-2xl font-semibold text-pf-deep">
             Reports are disabled for this venue.
@@ -58,7 +58,7 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
             View an enabled venue
           </Link>
         </section>
-      </main>
+      </div>
     )
   }
   const selectedVenueId = venueQuery ?? enabledVenues[0]!.id
@@ -81,12 +81,12 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
   })
 
   return (
-    <main className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
+    <div className="min-h-screen bg-pf-surface px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-6xl space-y-8">
         <section>
           <h1 className="text-3xl font-semibold tracking-tight text-pf-deep">Weekly Reports</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-pf-deep/60">
-            Published summaries from PathFinder review.
+            Published summaries from Torchiko review.
           </p>
         </section>
 
@@ -168,6 +168,6 @@ export default async function WeeklyReportsPage({ searchParams }: WeeklyReportsP
           </section>
         )}
       </div>
-    </main>
+    </div>
   )
 }

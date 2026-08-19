@@ -7,7 +7,10 @@ async function* chunks(...values: Uint8Array[]) {
   yield* values
 }
 
-function request(bytes: Uint8Array, mimeType: 'image/png' | 'application/pdf' = 'image/png') {
+function request(
+  bytes: Uint8Array,
+  mimeType: 'image/png' | 'application/pdf' | 'video/mp4' = 'image/png',
+) {
   return {
     bytes: chunks(bytes.subarray(0, 3), bytes.subarray(3)),
     mimeType,
@@ -49,5 +52,16 @@ describe('bounded intake upload byte verification', () => {
     await expect(
       verifyIntakeUploadBytes({ ...request(pdf, 'application/pdf'), expectedBytes: 2 }),
     ).resolves.toMatchObject({ passed: false, reason: 'SIZE_MISMATCH' })
+  })
+
+  it('accepts a streamed MP4 file-type box without buffering the entire media file', async () => {
+    const bytes = Uint8Array.from([
+      0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 0, 0, 0x69, 0x73, 0x6f,
+      0x6d, 0x6d, 0x70, 0x34, 0x32,
+    ])
+    await expect(verifyIntakeUploadBytes(request(bytes, 'video/mp4'))).resolves.toMatchObject({
+      passed: true,
+      reason: 'PASSED',
+    })
   })
 })

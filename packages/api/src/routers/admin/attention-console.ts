@@ -14,6 +14,11 @@ const input = z
     approvalsCursor: cursor.optional(),
     supportCursor: cursor.optional(),
     agentsCursor: cursor.optional(),
+    questionsCursor: cursor.optional(),
+    workingAgentsCursor: cursor.optional(),
+    blockedAgentsCursor: cursor.optional(),
+    completedAgentsCursor: cursor.optional(),
+    outcomesCursor: cursor.optional(),
   })
   .default({ limit: 10 })
 
@@ -57,7 +62,18 @@ export const adminAttentionConsoleRouter = router({
     withTenantIsolationBypass(async () => {
       const now = new Date()
       const take = query.limit + 1
-      const [jobs, evaluations, approvals, support, agents] = await Promise.all([
+      const [
+        jobs,
+        evaluations,
+        approvals,
+        support,
+        agents,
+        questions,
+        workingAgents,
+        blockedAgents,
+        completedAgents,
+        outcomes,
+      ] = await Promise.all([
         db.jobRecord.findMany({
           where: { status: 'FAILED', ...after(query.jobsCursor) },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -138,6 +154,9 @@ export const adminAttentionConsoleRouter = router({
             version: true,
             updatedAt: true,
             createdAt: true,
+            onboardingQuestionLink: {
+              select: { id: true, agentQuestionId: true },
+            },
           },
         }),
         db.agentRun.findMany({
@@ -153,6 +172,98 @@ export const adminAttentionConsoleRouter = router({
             status: true,
             startedAt: true,
             completedAt: true,
+            createdAt: true,
+            agentIdentity: { select: { name: true } },
+          },
+        }),
+        db.agentQuestion.findMany({
+          where: { status: 'PENDING', ...after(query.questionsCursor) },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            agentRunId: true,
+            question: true,
+            context: true,
+            choices: true,
+            blocking: true,
+            createdAt: true,
+            agentIdentity: { select: { name: true } },
+            agentRun: { select: { id: true, status: true, requestedOperation: true } },
+          },
+        }),
+        db.agentRun.findMany({
+          where: {
+            status: { in: ['QUEUED', 'RUNNING'] },
+            ...after(query.workingAgentsCursor),
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            runType: true,
+            requestedOperation: true,
+            status: true,
+            startedAt: true,
+            createdAt: true,
+            agentIdentity: { select: { name: true } },
+          },
+        }),
+        db.agentRun.findMany({
+          where: {
+            status: { in: ['AWAITING_INPUT', 'AWAITING_APPROVAL', 'FAILED'] },
+            ...after(query.blockedAgentsCursor),
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            runType: true,
+            requestedOperation: true,
+            status: true,
+            errorCode: true,
+            createdAt: true,
+            agentIdentity: { select: { name: true } },
+          },
+        }),
+        db.agentRun.findMany({
+          where: { status: 'COMPLETED', ...after(query.completedAgentsCursor) },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            runType: true,
+            requestedOperation: true,
+            status: true,
+            completedAt: true,
+            createdAt: true,
+            agentIdentity: { select: { name: true } },
+            _count: { select: { outcomeObservations: true } },
+          },
+        }),
+        db.agentOutcomeObservation.findMany({
+          where: after(query.outcomesCursor),
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            agentRunId: true,
+            signalKind: true,
+            verdict: true,
+            summary: true,
+            taskClass: true,
+            modelProvider: true,
+            modelName: true,
             createdAt: true,
             agentIdentity: { select: { name: true } },
           },
@@ -181,6 +292,11 @@ export const adminAttentionConsoleRouter = router({
         },
         support: page(support, query.limit),
         agents: page(agents, query.limit),
+        questions: page(questions, query.limit),
+        workingAgents: page(workingAgents, query.limit),
+        blockedAgents: page(blockedAgents, query.limit),
+        completedAgents: page(completedAgents, query.limit),
+        outcomes: page(outcomes, query.limit),
       }
     }),
   ),

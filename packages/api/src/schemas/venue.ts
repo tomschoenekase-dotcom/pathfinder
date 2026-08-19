@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { KnowledgeEntryInput, PlaceInput } from '@pathfinder/contracts'
+import { KnowledgeEntryInput, PlaceInput, UpdateVenueBotConfiguration } from '@pathfinder/contracts'
 import { TonePresetId } from '@pathfinder/contracts/tone-presets'
 
 const InitialGuideItemInput = PlaceInput.omit({ itemType: true, lat: true, lng: true }).extend({
@@ -140,6 +140,10 @@ export const UpdateVenueChatDesignInput = z
     chatBannerUrl: z.string().url().max(500).nullable().optional(),
   })
   .strict()
+
+export const GetVenueBotConfigurationInput = z.object({ venueId: z.string().cuid() }).strict()
+
+export const UpdateVenueBotConfigurationInput = UpdateVenueBotConfiguration
 
 export const DeleteVenueInput = z
   .object({ id: z.string().cuid(), expectedUpdatedAt: z.coerce.date() })

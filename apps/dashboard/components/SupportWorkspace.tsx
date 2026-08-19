@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   ArrowLeft,
   ChevronRight,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import { useTRPCClient } from '../lib/trpc'
+import { browserUuid } from '../lib/browser-uuid'
 
 type VenueOption = { id: string; name: string }
 type EligibleAttachment = {
@@ -66,6 +68,7 @@ type SupportWorkspaceProps = {
   initialDetail: RequestDetail | null
   initialEligibleAttachments: EligibleAttachment[]
   initialEligibleAttachmentsNextCursor: EligibleAttachmentCursor | null
+  returnHref?: string | undefined
 }
 
 const categories = [
@@ -73,7 +76,7 @@ const categories = [
   ['CONTENT_CORRECTION', 'Correct visitor information'],
   ['OPERATIONAL_UPDATE', 'Temporary visitor update'],
   ['BRANDING', 'Branding or appearance'],
-  ['EXPERIENCE_BEHAVIOR', 'PathFinder behavior'],
+  ['EXPERIENCE_BEHAVIOR', 'Torchiko behavior'],
   ['ACCESSIBILITY', 'Accessibility'],
 ] as const
 
@@ -84,7 +87,7 @@ const statusLabels: Record<string, string> = {
   PATCH_DRAFTED: 'Preparing an update',
   VALIDATING: 'Checking the update',
   AWAITING_APPROVAL: 'Awaiting approval',
-  APPLYING: 'Updating PathFinder',
+  APPLYING: 'Updating Torchiko',
   COMPLETED: 'Completed',
   CANCELLED: 'Closed',
 }
@@ -151,7 +154,7 @@ function AttachmentPicker({
     <fieldset className="rounded-2xl border border-pf-light bg-pf-surface/50 p-4">
       <legend className="px-1 text-sm font-semibold text-pf-deep">{label}</legend>
       <p id={`${id}-help`} className="mt-1 text-xs leading-5 text-pf-deep/70">
-        Choose a file you already shared after its required checks are complete. PathFinder still
+        Choose a file you already shared after its required checks are complete. Torchiko still
         reviews every file before using it; attaching a file here never publishes it. Files cannot
         be previewed or downloaded from Support.
       </p>
@@ -223,6 +226,7 @@ export function SupportWorkspace({
   initialDetail,
   initialEligibleAttachments,
   initialEligibleAttachmentsNextCursor,
+  returnHref,
 }: SupportWorkspaceProps) {
   const router = useRouter()
   const client = useTRPCClient()
@@ -259,9 +263,9 @@ export function SupportWorkspace({
   const attachmentReadInFlight = useRef(false)
   const nextBusyOwner = useRef(0)
   const activeBusyOwner = useRef<number | null>(null)
-  const createOperationId = useRef(crypto.randomUUID())
-  const replyOperationId = useRef(crypto.randomUUID())
-  const participantOperation = useRef({ key: '', id: crypto.randomUUID() })
+  const createOperationId = useRef(browserUuid())
+  const replyOperationId = useRef(browserUuid())
+  const participantOperation = useRef({ key: '', id: browserUuid() })
   const [participantCandidates, setParticipantCandidates] = useState<ParticipantCandidate[] | null>(
     null,
   )
@@ -316,9 +320,9 @@ export function SupportWorkspace({
     setCreateAttachments([])
     setReplyBody('')
     setReplyAttachments([])
-    createOperationId.current = crypto.randomUUID()
-    replyOperationId.current = crypto.randomUUID()
-    participantOperation.current = { key: '', id: crypto.randomUUID() }
+    createOperationId.current = browserUuid()
+    replyOperationId.current = browserUuid()
+    participantOperation.current = { key: '', id: browserUuid() }
     participantReadGeneration.current += 1
     participantReadInFlight.current = false
     setParticipantCandidates(null)
@@ -337,11 +341,11 @@ export function SupportWorkspace({
 
   function changeCreateDraft(change: () => void) {
     change()
-    createOperationId.current = crypto.randomUUID()
+    createOperationId.current = browserUuid()
   }
   function changeReplyDraft(change: () => void) {
     change()
-    replyOperationId.current = crypto.randomUUID()
+    replyOperationId.current = browserUuid()
   }
 
   function clearFeedback() {
@@ -371,7 +375,7 @@ export function SupportWorkspace({
     setRequests((current) => current.filter((request) => request.id !== requestId))
     setReplyBody('')
     setReplyAttachments([])
-    replyOperationId.current = crypto.randomUUID()
+    replyOperationId.current = browserUuid()
     setView('conversation')
     setConflict(false)
     setError('This conversation is not available.')
@@ -406,7 +410,7 @@ export function SupportWorkspace({
         setReplyAttachments([])
       }
       setDetail(next as RequestDetail)
-      replyOperationId.current = crypto.randomUUID()
+      replyOperationId.current = browserUuid()
       setView('conversation')
     } catch (loadError) {
       if (
@@ -578,7 +582,7 @@ export function SupportWorkspace({
       setSubject('')
       setRequestBody('')
       setCreateAttachments([])
-      createOperationId.current = crypto.randomUUID()
+      createOperationId.current = browserUuid()
       setView('conversation')
       setNotice('Your message and selected files were submitted for review. Nothing was published.')
     } catch {
@@ -654,7 +658,7 @@ export function SupportWorkspace({
       )
       setReplyBody('')
       setReplyAttachments([])
-      replyOperationId.current = crypto.randomUUID()
+      replyOperationId.current = browserUuid()
       setNotice('Your message and selected files were submitted for review. Nothing was published.')
     } catch (replyError) {
       if (scopeRef.current !== submittedScope || writeGeneration.current !== generation) return
@@ -741,7 +745,7 @@ export function SupportWorkspace({
     try {
       const operationKey = `${candidate.activeOnRequest ? 'revoke' : 'grant'}:${candidate.userId}:${detail.clientVersion}`
       if (participantOperation.current.key !== operationKey)
-        participantOperation.current = { key: operationKey, id: crypto.randomUUID() }
+        participantOperation.current = { key: operationKey, id: browserUuid() }
       const mutation = candidate.activeOnRequest
         ? client.support.revokeParticipant
         : client.support.grantParticipant
@@ -780,11 +784,19 @@ export function SupportWorkspace({
   }
 
   return (
-    <div className="min-h-screen px-4 py-7 sm:px-6 sm:py-10 lg:px-10">
+    <div className="min-h-screen bg-[#f5f8f7] px-4 py-7 sm:px-6 sm:py-10 lg:px-10">
       <div className="mx-auto max-w-6xl">
         <header className="flex flex-col gap-5 border-b border-pf-light pb-7 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm font-medium text-pf-primary">PathFinder Support</p>
+            {returnHref ? (
+              <Link
+                href={returnHref}
+                className="mb-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-pf-primary underline underline-offset-4"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to onboarding journey
+              </Link>
+            ) : null}
+            <p className="text-sm font-medium text-pf-primary">Torchiko Support</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-pf-deep sm:text-4xl">
               How can we help?
             </h1>
@@ -820,7 +832,7 @@ export function SupportWorkspace({
         </header>
 
         <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(240px,0.72fr)_minmax(0,1.6fr)]">
-          <aside className="rounded-3xl border border-pf-light bg-white p-4 shadow-sm">
+          <aside className="border-y border-pf-light py-4 lg:border-y-0 lg:border-r lg:py-0 lg:pr-5">
             <button
               type="button"
               disabled={busy === 'create' || busy === 'reply'}
@@ -830,11 +842,11 @@ export function SupportWorkspace({
                 detailRequestRef.current = null
                 setReplyBody('')
                 setReplyAttachments([])
-                replyOperationId.current = crypto.randomUUID()
+                replyOperationId.current = browserUuid()
                 clearFeedback()
                 setView('create')
               }}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-pf-primary px-4 text-sm font-semibold text-white hover:bg-pf-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 bg-pf-deep px-4 text-sm font-semibold text-white hover:bg-pf-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent focus-visible:ring-offset-2"
             >
               <Plus className="h-4 w-4" aria-hidden="true" /> New request
             </button>
@@ -855,10 +867,10 @@ export function SupportWorkspace({
                       disabled={busy === 'create' || busy === 'reply'}
                       onClick={() => void openRequest(request.id)}
                       aria-current={view === 'conversation' && detail?.id === request.id}
-                      className={`flex min-h-16 w-full items-center gap-3 rounded-xl px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent ${
+                      className={`flex min-h-16 w-full items-center gap-3 border-l-2 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent ${
                         view === 'conversation' && detail?.id === request.id
-                          ? 'bg-pf-primary/[0.07]'
-                          : 'hover:bg-pf-surface'
+                          ? 'border-[#ef8d47] bg-pf-primary/[0.05]'
+                          : 'border-transparent hover:border-pf-light hover:bg-pf-surface'
                       }`}
                     >
                       <span className="min-w-0 flex-1">
@@ -892,11 +904,11 @@ export function SupportWorkspace({
             ) : null}
           </aside>
 
-          <section className="min-h-[30rem] rounded-3xl border border-pf-light bg-white p-5 shadow-sm sm:p-7">
+          <section className="min-h-[30rem] border-y border-pf-light bg-white/80 p-5 sm:p-7">
             {error ? (
               <div
                 role="alert"
-                className="mb-5 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-800"
+                className="mb-5 flex items-start gap-3 border-l-2 border-rose-500 bg-rose-50 p-4 text-sm leading-6 text-rose-800"
               >
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>{error}</span>
@@ -914,7 +926,7 @@ export function SupportWorkspace({
             {notice ? (
               <p
                 role="status"
-                className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+                className="mb-5 border-l-2 border-emerald-500 bg-emerald-50 p-4 text-sm text-emerald-800"
               >
                 {notice}
               </p>
@@ -988,7 +1000,7 @@ export function SupportWorkspace({
                   available={eligibleAttachments}
                   selected={createAttachments}
                   disabled={busy === 'create'}
-                  label="Files for PathFinder review (optional)"
+                  label="Files for Torchiko review (optional)"
                   onChange={(ids) => changeCreateDraft(() => setCreateAttachments(ids))}
                 />
                 {eligibleAttachmentsNextCursor ? (
@@ -1046,7 +1058,7 @@ export function SupportWorkspace({
                 detail.status !== 'CANCELLED' ? (
                   <section
                     aria-labelledby="support-information-needed"
-                    className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"
+                    className="mt-5 border-l-2 border-amber-500 bg-amber-50 p-4 sm:p-5"
                   >
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">
                       Your next step
@@ -1072,6 +1084,17 @@ export function SupportWorkspace({
                       >
                         Reply with details
                       </a>
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => {
+                          changeReplyDraft(() => setReplyBody("I don't know."))
+                          document.getElementById('support-reply')?.focus()
+                        }}
+                        className="inline-flex min-h-11 items-center rounded-xl px-3 font-semibold text-amber-900 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 disabled:opacity-50"
+                      >
+                        I don’t know
+                      </button>
                       <a
                         href={`/venues/${encodeURIComponent(activeVenue.id)}/intake`}
                         className="inline-flex min-h-11 items-center rounded-xl px-3 font-semibold text-amber-900 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
@@ -1099,7 +1122,7 @@ export function SupportWorkspace({
                             ? message.authorIsCurrentUser
                               ? 'You'
                               : 'Your team'
-                            : 'PathFinder Support'}{' '}
+                            : 'Torchiko Support'}{' '}
                           · {dateLabel(message.createdAt)}
                         </p>
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.body}</p>
@@ -1217,7 +1240,7 @@ export function SupportWorkspace({
                         available={eligibleAttachments}
                         selected={replyAttachments}
                         disabled={busy === 'reply'}
-                        label="Files for PathFinder review (optional)"
+                        label="Files for Torchiko review (optional)"
                         onChange={(ids) => changeReplyDraft(() => setReplyAttachments(ids))}
                       />
                       {eligibleAttachmentsNextCursor ? (

@@ -35,7 +35,10 @@ describe('PathFinder MCP v0 contracts', () => {
       'pathfinder.ai-usage',
       'pathfinder.jobs',
       'pathfinder.evaluations',
+      'pathfinder.onboarding-summary',
       'pathfinder.readiness',
+      'pathfinder.questions',
+      'pathfinder.outcomes',
     ])
     for (const definition of [...PATHFINDER_MCP_RESOURCES, ...PATHFINDER_MCP_TOOLS]) {
       const security = definition._meta['com.pathfinder/security']
@@ -45,13 +48,20 @@ describe('PathFinder MCP v0 contracts', () => {
       expect(security.scope).toBeTruthy()
     }
     for (const tool of PATHFINDER_MCP_TOOLS.filter(
-      ({ annotations }) => !annotations.readOnlyHint,
+      (tool) => tool._meta['com.pathfinder/security'].approvalRequired,
     )) {
       const security = tool._meta['com.pathfinder/security']
       expect(security.defaultEnabled).toBe(false)
       expect(security.approvalRequired).toBe(true)
       expect(tool.annotations.destructiveHint).toBe(false)
     }
+    const askOperator = PATHFINDER_MCP_TOOLS.find(({ name }) => name === 'pathfinder.ask_operator')!
+    expect(askOperator._meta['com.pathfinder/security']).toMatchObject({
+      effect: 'interaction',
+      risk: 'low',
+      defaultEnabled: true,
+      approvalRequired: false,
+    })
   })
 
   it('rejects cross-client, cross-venue, and missing-capability scope attempts', () => {

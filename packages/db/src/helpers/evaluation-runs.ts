@@ -22,6 +22,7 @@ const HASH_PATTERN = /^[0-9a-f]{64}$/
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const LEGACY_RUN_IDENTITY_VERSION = 'pathfinder-eval-run-identity-v2'
 const NATIVE_RUN_IDENTITY_VERSION = 'pathfinder-eval-run-identity-v3'
+const APPROVED_PACKAGE_RUN_IDENTITY_VERSION = 'pathfinder-eval-run-identity-v4'
 
 type EvaluationRunClient = Pick<typeof db, 'evalRun'>
 
@@ -52,6 +53,11 @@ export type EvaluationRunIdentity = EvaluationRunIdentityBase &
       }
     | {
         contentSnapshotKind: 'NATIVE_CORE_V1'
+        contentSnapshotRef: string
+        contentSnapshotVersion: bigint
+      }
+    | {
+        contentSnapshotKind: 'APPROVED_VENUE_PACKAGE_V1'
         contentSnapshotRef: string
         contentSnapshotVersion: bigint
       }
@@ -132,6 +138,9 @@ function validateIdentity(identity: EvaluationRunIdentity): void {
   if (identity.contentSnapshotKind === 'NATIVE_CORE_V1') {
     if (!UUID_PATTERN.test(identity.contentSnapshotRef) || identity.contentSnapshotVersion < 1n)
       throw new EvaluationRunIdentityError('Native content snapshot identity is invalid')
+  } else if (identity.contentSnapshotKind === 'APPROVED_VENUE_PACKAGE_V1') {
+    if (!identity.contentSnapshotRef.trim() || identity.contentSnapshotVersion < 1n)
+      throw new EvaluationRunIdentityError('Approved package content snapshot identity is invalid')
   } else if (identity.contentSnapshotRef !== undefined && identity.contentSnapshotRef !== null) {
     throw new EvaluationRunIdentityError('Legacy content snapshots cannot have a reference')
   }
@@ -176,7 +185,14 @@ function identitySnapshot(identity: EvaluationRunIdentity): CanonicalObject {
         contentSnapshotKind: 'NATIVE_CORE_V1',
         contentSnapshotRef: identity.contentSnapshotRef,
       }
-    : { version: LEGACY_RUN_IDENTITY_VERSION, ...common }
+    : identity.contentSnapshotKind === 'APPROVED_VENUE_PACKAGE_V1'
+      ? {
+          version: APPROVED_PACKAGE_RUN_IDENTITY_VERSION,
+          ...common,
+          contentSnapshotKind: 'APPROVED_VENUE_PACKAGE_V1',
+          contentSnapshotRef: identity.contentSnapshotRef,
+        }
+      : { version: LEGACY_RUN_IDENTITY_VERSION, ...common }
 }
 
 export function evaluationRunIdentityHash(identity: EvaluationRunIdentity): string {
@@ -202,9 +218,14 @@ function isMatchingReplay(run: EvalRun, identityHash: string, snapshot: Canonica
     run.contentSnapshotKind ===
       (expected.version === NATIVE_RUN_IDENTITY_VERSION
         ? 'NATIVE_CORE_V1'
-        : 'LEGACY_VENUE_CONTENT_V1') &&
+        : expected.version === APPROVED_PACKAGE_RUN_IDENTITY_VERSION
+          ? 'APPROVED_VENUE_PACKAGE_V1'
+          : 'LEGACY_VENUE_CONTENT_V1') &&
     run.contentSnapshotRef ===
-      (expected.version === NATIVE_RUN_IDENTITY_VERSION ? expected.contentSnapshotRef : null) &&
+      (expected.version === NATIVE_RUN_IDENTITY_VERSION ||
+      expected.version === APPROVED_PACKAGE_RUN_IDENTITY_VERSION
+        ? expected.contentSnapshotRef
+        : null) &&
     run.contentSnapshotVersion.toString() === expected.contentSnapshotVersion &&
     run.contentSnapshotHash === expected.contentSnapshotHash &&
     run.modelProvider === expected.modelProvider &&
@@ -287,9 +308,12 @@ export async function createOrReplayEvaluationRun(params: {
         contentSnapshotKind:
           params.identity.contentSnapshotKind === 'NATIVE_CORE_V1'
             ? 'NATIVE_CORE_V1'
-            : 'LEGACY_VENUE_CONTENT_V1',
+            : params.identity.contentSnapshotKind === 'APPROVED_VENUE_PACKAGE_V1'
+              ? 'APPROVED_VENUE_PACKAGE_V1'
+              : 'LEGACY_VENUE_CONTENT_V1',
         contentSnapshotRef:
-          params.identity.contentSnapshotKind === 'NATIVE_CORE_V1'
+          params.identity.contentSnapshotKind === 'NATIVE_CORE_V1' ||
+          params.identity.contentSnapshotKind === 'APPROVED_VENUE_PACKAGE_V1'
             ? params.identity.contentSnapshotRef
             : null,
         contentSnapshotVersion: params.identity.contentSnapshotVersion,

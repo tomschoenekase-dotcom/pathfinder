@@ -39,6 +39,11 @@ export const McpCapability = z.enum([
   'jobs:read',
   'evaluations:read',
   'readiness:read',
+  'questions:read',
+  'outcomes:read',
+  'questions:ask',
+  'delegations:create',
+  'agent-runs:execute',
   'packages:draft',
   'support:draft',
   'updates:draft',
@@ -115,7 +120,7 @@ export type PathfinderMcpSecurityMetadata = Readonly<{
   clientBound: true
   venueBound: boolean | 'conditional'
   risk: 'low' | 'moderate'
-  effect: 'read' | 'draft' | 'bounded-evaluation-request'
+  effect: 'read' | 'interaction' | 'draft' | 'bounded-evaluation-request'
   defaultEnabled: boolean
   approvalRequired: boolean
 }>
@@ -151,16 +156,17 @@ function security(
   effect: PathfinderMcpSecurityMetadata['effect'],
 ): PathfinderMcpSecurityMetadata {
   const readOnly = effect === 'read'
+  const approvalRequired = effect === 'draft' || effect === 'bounded-evaluation-request'
   return {
     scope,
     capability,
     tenantBound: true,
     clientBound: true,
     venueBound: scope === 'client-or-venue' ? 'conditional' : scope === 'venue',
-    risk: readOnly ? 'low' : 'moderate',
+    risk: readOnly || effect === 'interaction' ? 'low' : 'moderate',
     effect,
-    defaultEnabled: readOnly,
-    approvalRequired: !readOnly,
+    defaultEnabled: !approvalRequired,
+    approvalRequired,
   }
 }
 
@@ -255,12 +261,36 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'evaluations:read',
   ],
   [
+    'onboarding-summary',
+    'Onboarding summary',
+    'Versioned venue onboarding readiness and bounded milestone rollup.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/onboarding-summary',
+    'venue',
+    'readiness:read',
+  ],
+  [
     'readiness',
     'Venue readiness',
     'Onboarding, preview, and launch-readiness evidence.',
     'pathfinder://clients/{clientId}/venues/{venueId}/readiness',
     'venue',
     'readiness:read',
+  ],
+  [
+    'questions',
+    'Agent questions',
+    'Pending and resolved operator clarifications raised by venue-scoped agents.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-questions',
+    'venue',
+    'questions:read',
+  ],
+  [
+    'outcomes',
+    'Agent outcomes',
+    'Explicit outcome observations for venue-scoped agent work.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-outcomes',
+    'venue',
+    'outcomes:read',
   ],
 ]
 
@@ -370,6 +400,27 @@ export const McpEvaluationRequestInput = McpRequestedScope.extend({
   })
 export type McpEvaluationRequestInput = z.infer<typeof McpEvaluationRequestInput>
 
+export const McpAskOperatorInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier.optional(),
+  question: z.string().trim().min(1).max(2_000),
+  context: z.string().trim().min(1).max(2_000).optional(),
+  choices: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
+  blocking: z.boolean().default(true),
+}).strict()
+export type McpAskOperatorInput = z.infer<typeof McpAskOperatorInput>
+
+export const McpDelegateSpecialistInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  parentAgentRunId: Identifier,
+  requestingAgentIdentityId: Identifier,
+  specialistAgentIdentityId: Identifier,
+  instructions: z.string().trim().min(1).max(10_000),
+  reason: z.string().trim().min(1).max(1_000),
+}).strict()
+export type McpDelegateSpecialistInput = z.infer<typeof McpDelegateSpecialistInput>
+
 export const McpToolResult = z
   .object({ kind: Identifier, summary: Summary, data: JsonValue })
   .strict()
@@ -377,6 +428,8 @@ export type McpToolResult = z.infer<typeof McpToolResult>
 
 export type PathfinderMcpToolName =
   | 'pathfinder.read'
+  | 'pathfinder.ask_operator'
+  | 'pathfinder.delegate_specialist'
   | 'pathfinder.create_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
@@ -405,6 +458,72 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('client-or-venue', 'resources:read', 'read') },
+  },
+  {
+    name: 'pathfinder.ask_operator',
+    title: 'Ask the operator',
+    description:
+      'Raise a durable, venue-scoped clarification in the Agent workspace. It does not approve or execute any action.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        question: { type: 'string', minLength: 1, maxLength: 2000 },
+        context: { type: 'string', minLength: 1, maxLength: 2000 },
+        choices: {
+          type: 'array',
+          maxItems: 8,
+          items: { type: 'string', minLength: 1, maxLength: 200 },
+          default: [],
+        },
+        blocking: { type: 'boolean', default: true },
+      },
+      [...scopeRequired, 'operationId', 'agentIdentityId', 'question'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'questions:ask', 'interaction') },
+  },
+  {
+    name: 'pathfinder.delegate_specialist',
+    title: 'Delegate to a specialist',
+    description:
+      'Create an idempotent child run for an enabled in-scope specialist. The active parent run remains the authority boundary.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        parentAgentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        requestingAgentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        specialistAgentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        instructions: { type: 'string', minLength: 1, maxLength: 10000 },
+        reason: { type: 'string', minLength: 1, maxLength: 1000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'parentAgentRunId',
+        'requestingAgentIdentityId',
+        'specialistAgentIdentityId',
+        'instructions',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'delegations:create', 'interaction') },
   },
   {
     name: 'pathfinder.create_package_draft',
@@ -545,8 +664,17 @@ export function validatePathfinderMcpCatalog(): void {
     if (tool.annotations.readOnlyHint !== (metadata.effect === 'read')) {
       throw new Error(`Tool ${tool.name} risk metadata is contradictory`)
     }
-    if (metadata.effect !== 'read' && (metadata.defaultEnabled || !metadata.approvalRequired)) {
+    if (
+      (metadata.effect === 'draft' || metadata.effect === 'bounded-evaluation-request') &&
+      (metadata.defaultEnabled || !metadata.approvalRequired)
+    ) {
       throw new Error(`Tool ${tool.name} must remain default-off and approval-gated`)
+    }
+    if (
+      metadata.effect === 'interaction' &&
+      (!metadata.defaultEnabled || metadata.approvalRequired)
+    ) {
+      throw new Error(`Tool ${tool.name} interaction metadata is contradictory`)
     }
   }
 }

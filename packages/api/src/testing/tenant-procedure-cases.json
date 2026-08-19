@@ -379,6 +379,13 @@
     "input": null
   },
   {
+    "path": "portal.getOnboardingJourney",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
     "path": "portal.getClientPreview",
     "kind": "query",
     "minimumRole": "STAFF",
@@ -408,6 +415,19 @@
       "packageId": "cpackageabc1234567890",
       "body": "Preview feedback",
       "attachments": []
+    }
+  },
+  {
+    "path": "portal.createIntakeCorrectionRequest",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "operationId": "00000000-0000-4000-8000-000000000098",
+      "venueId": "cvenueabc123456789012",
+      "runId": "cintakerun123456789012",
+      "expectedEventCount": 1,
+      "body": "Please correct this onboarding source."
     }
   },
   {
@@ -657,8 +677,41 @@
       "displayName": "Visitor guide",
       "fileName": "guide.pdf",
       "mimeType": "application/pdf",
+      "category": "DOCUMENT",
       "byteSize": 42,
       "sha256": "abababababababababababababababababababababababababababababababab"
+    }
+  },
+  {
+    "path": "intakeUpload.signMultipartPart",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "intakeUpload.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "uploadId": "cuploadabc12345678901",
+      "partNumber": 1,
+      "checksumSha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    }
+  },
+  {
+    "path": "intakeUpload.completeMultipart",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "intakeUpload.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "uploadId": "cuploadabc12345678901"
+    }
+  },
+  {
+    "path": "intakeUpload.cancelMultipart",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "intakeUpload.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "uploadId": "cuploadabc12345678901"
     }
   },
   {
@@ -692,6 +745,57 @@
     "minimumRole": "STAFF",
     "firstTouch": "venue.findFirst",
     "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "clientAssistant.bootstrap",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "clientAssistant.opened",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "clientAssistant.setPreference",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "enabled": true,
+      "minimized": false,
+      "expectedRevision": 0
+    }
+  },
+  {
+    "path": "clientAssistant.send",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": {
+      "operationId": "22222222-2222-4222-8222-222222222222",
+      "venueId": "cvenueabc123456789012",
+      "message": "Where should I upload photos?"
+    }
+  },
+  {
+    "path": "clientAssistant.confirmHandoff",
+    "kind": "mutation",
+    "minimumRole": "STAFF",
+    "firstTouch": "tenantFeatureFlag.findUnique",
+    "input": {
+      "operationId": "33333333-3333-4333-8333-333333333333",
+      "venueId": "cvenueabc123456789012",
+      "turnId": "cturnabc1234567890123",
+      "category": "GENERAL",
+      "summary": "Please review this request",
+      "requestedOutcome": "Confirm the venue information is current."
+    }
   },
   {
     "path": "venue.create",
@@ -742,6 +846,59 @@
     "input": {
       "venueId": "cvenueabc123456789012",
       "expectedUpdatedAt": "2026-08-11T00:00:00.000Z"
+    }
+  },
+  {
+    "path": "venue.getBotConfiguration",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venueBotConfiguration.findFirst",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "venue.updateBotConfiguration",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "venueBotConfiguration.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "expectedRevision": 1,
+      "presentationMode": "CLASSIC"
+    }
+  },
+  {
+    "path": "venue.listPersonalityProfiles",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "personalityProfile.findMany",
+    "input": { "venueId": "cvenueabc123456789012" }
+  },
+  {
+    "path": "venue.createPersonalityProfile",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "personalityProfile.create",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "profile": {
+        "name": "Warm and concise",
+        "bounds": { "warmth": 0.8, "brevity": 0.8, "energy": 0.5, "formality": 0.5 }
+      }
+    }
+  },
+  {
+    "path": "venue.updatePersonalityProfile",
+    "kind": "mutation",
+    "minimumRole": "MANAGER",
+    "firstTouch": "personalityProfile.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012",
+      "profileId": "profile-1",
+      "expectedRevision": 1,
+      "profile": {
+        "name": "Warm and concise",
+        "bounds": { "warmth": 0.8, "brevity": 0.8, "energy": 0.5, "formality": 0.5 }
+      }
     }
   },
   {

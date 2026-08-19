@@ -31,6 +31,7 @@ const mockDb = {
     updateMany: requestUpdateMany,
   },
   supportMessage: { findFirst: vi.fn().mockResolvedValue(null), create: messageCreate },
+  onboardingQuestionLink: { findFirst: vi.fn().mockResolvedValue(null) },
   supportRequestParticipant: { findMany: participantFindMany },
   supportRequestAuditEvent: { create: auditEventCreate },
   auditLog: { create: auditLogCreate },
@@ -147,9 +148,9 @@ describe('client support router', () => {
     )
     const where = requestFindMany.mock.calls[0]?.[0]?.where
     expect(where).toMatchObject({
-      createdByKind: 'CLIENT',
       OR: [
         {
+          createdByKind: 'CLIENT',
           requesterUserId: 'user_client',
           requesterMembership: { is: { status: 'ACTIVE' } },
         },
@@ -187,9 +188,24 @@ describe('client support router', () => {
         id: requestId,
         tenantId: 'tenant_assigned',
         venueId,
-        createdByKind: 'CLIENT',
-        requesterUserId: 'user_client',
-        requesterMembership: { is: { status: 'ACTIVE' } },
+        OR: [
+          {
+            createdByKind: 'CLIENT',
+            requesterUserId: 'user_client',
+            requesterMembership: { is: { status: 'ACTIVE' } },
+          },
+          {
+            createdByKind: 'OPERATOR',
+            onboardingQuestionLink: { is: { recipientUserId: 'user_client' } },
+            participants: {
+              some: {
+                userId: 'user_client',
+                revokedAt: null,
+                membership: { is: { status: 'ACTIVE' } },
+              },
+            },
+          },
+        ],
       },
       select: {
         id: true,
@@ -244,8 +260,11 @@ describe('client support router', () => {
         })
         .support.listRequests({ venueId })
       expect(requestFindMany.mock.calls[0]?.[0]?.where).toMatchObject({
-        createdByKind: 'CLIENT',
         OR: expect.any(Array),
+      })
+      expect(requestFindMany.mock.calls[0]?.[0]?.where.OR[0]).toMatchObject({
+        createdByKind: 'CLIENT',
+        requesterUserId: 'user_client',
       })
       expect(requestFindMany.mock.calls[0]?.[0]?.where).not.toHaveProperty('role')
     },

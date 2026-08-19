@@ -1,0 +1,82 @@
+.page {
+  min-height: 100vh;
+  background: #f3f7f6;
+  padding: clamp(1rem, 4vw, 3rem);
+}
+
+.field {
+  display: grid;
+  width: min(100%, 70rem);
+  min-height: 26rem;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.45fr);
+  align-items: center;
+  gap: 2rem;
+  margin-inline: auto;
+  background: #102f50;
+  color: #fff;
+  padding: clamp(1.5rem, 5vw, 4rem);
+}
+
+.field p {
+  margin: 0;
+  color: #9dd4d8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.field h1 {
+  max-width: 16ch;
+  margin: 0.7rem 0 0;
+  font-size: clamp(2rem, 5vw, 3.8rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.lines {
+  display: grid;
+  gap: 0.5rem;
+  width: min(100%, 24rem);
+  margin-top: 2rem;
+}
+
+.lines i {
+  height: 2px;
+  background: linear-gradient(90deg, #9dd4d8 0 32%, rgb(255 255 255 / 12%) 32% 100%);
+  background-size: 300% 100%;
+  animation: portal-load 1.9s ease-in-out infinite;
+}
+
+.lines i:nth-child(2) {
+  width: 82%;
+  animation-delay: -0.35s;
+}
+
+.lines i:nth-child(3) {
+  width: 62%;
+  animation-delay: -0.7s;
+}
+
+@keyframes portal-load {
+  0%,
+  100% {
+    background-position: 100% 0;
+  }
+  50% {
+    background-position: 0 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .field {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lines i {
+    animation: none;
+    background-position: 0 0;
+  }
+}

@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
@@ -14,6 +15,7 @@ import {
   assertVenueAiAvailable,
   db,
   isAiAdmissionControlError,
+  recordOrReplayOnboardingMilestoneEvent,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -50,6 +52,8 @@ const EMBED_BATCH_SIZE = 96 // questions per embeddings request
 // nightly — regenerating unchanged data every night would just burn model calls.
 const THEME_MIN_QUESTIONS = 5 // below this, guest data is too thin to summarize honestly
 const THEME_MAX_QUESTIONS_FOR_PROMPT = 300
+const TRUSTED_CONTENT_STALE_DAYS = 60
+const STALE_FACT_SCAN_LIMIT_PER_TYPE = 1_000
 
 // DailyRollup metrics this job owns. It deletes ONLY these for the target day before
 // re-inserting, so it never clobbers the pure-SQL daily-rollup job's rows
@@ -85,6 +89,73 @@ function endOfUtcDay(date: Date): Date {
   const result = startOfUtcDay(date)
   result.setUTCDate(result.getUTCDate() + 1)
   return result
+}
+
+async function recordStaleFactMilestones(params: {
+  tenantId: string
+  venueId: string
+  observedAt: Date
+}): Promise<void> {
+  const staleCutoff = new Date(
+    params.observedAt.getTime() - TRUSTED_CONTENT_STALE_DAYS * 86_400_000,
+  )
+  const [places, knowledgeEntries] = await Promise.all([
+    db.place.findMany({
+      where: {
+        tenantId: params.tenantId,
+        venueId: params.venueId,
+        isActive: true,
+        humanConfirmedAt: { not: null },
+        lastReviewedAt: { lte: staleCutoff },
+      },
+      orderBy: [{ lastReviewedAt: 'asc' }, { id: 'asc' }],
+      take: STALE_FACT_SCAN_LIMIT_PER_TYPE,
+      select: { id: true, lastReviewedAt: true },
+    }),
+    db.venueKnowledgeEntry.findMany({
+      where: {
+        tenantId: params.tenantId,
+        venueId: params.venueId,
+        isEnabled: true,
+        humanConfirmedAt: { not: null },
+        lastReviewedAt: { lte: staleCutoff },
+      },
+      orderBy: [{ lastReviewedAt: 'asc' }, { id: 'asc' }],
+      take: STALE_FACT_SCAN_LIMIT_PER_TYPE,
+      select: { id: true, lastReviewedAt: true },
+    }),
+  ])
+
+  for (const candidate of [
+    ...places.map((item) => ({ ...item, category: 'PLACE' as const })),
+    ...knowledgeEntries.map((item) => ({ ...item, category: 'KNOWLEDGE_ENTRY' as const })),
+  ]) {
+    if (!candidate.lastReviewedAt) continue
+    const sourceRevision = candidate.lastReviewedAt.toISOString()
+    const becameStaleAt = new Date(
+      candidate.lastReviewedAt.getTime() + TRUSTED_CONTENT_STALE_DAYS * 86_400_000,
+    )
+    const identityHash = createHash('sha256')
+      .update(`${candidate.category}:${candidate.id}:${sourceRevision}`, 'utf8')
+      .digest('hex')
+    await recordOrReplayOnboardingMilestoneEvent({
+      db,
+      input: {
+        id: randomUUID(),
+        tenantId: params.tenantId,
+        venueId: params.venueId,
+        eventType: 'STALE_FACT',
+        idempotencyKey: `stale-fact:${identityHash}`,
+        occurredAt: becameStaleAt,
+        actorType: 'SYSTEM',
+        actorId: null,
+        sourceType: candidate.category,
+        sourceId: candidate.id,
+        sourceRevision,
+        category: candidate.category,
+      },
+    })
+  }
 }
 
 /** Monday 00:00 UTC of the week containing `date`. */
@@ -622,6 +693,28 @@ async function enrichVenue(params: {
       })),
     })
   }
+
+  for (const cluster of gapClusters) {
+    const gapHash = createHash('sha256').update(cluster.canonicalText, 'utf8').digest('hex')
+    await recordOrReplayOnboardingMilestoneEvent({
+      db,
+      input: {
+        id: randomUUID(),
+        tenantId,
+        venueId,
+        eventType: 'POST_LAUNCH_MISSING_KNOWLEDGE',
+        idempotencyKey: `analytics-gap:${dayStart.toISOString()}:${gapHash}`,
+        occurredAt: dayStart,
+        actorType: 'SYSTEM',
+        actorId: null,
+        sourceType: 'ANALYTICS_CONTENT_GAP',
+        sourceId: gapHash,
+        category: 'CONTENT_GAP',
+      },
+    })
+  }
+
+  await recordStaleFactMilestones({ tenantId, venueId, observedAt: dayEnd })
 
   return { rollups, clustersWritten: clusterRows.length, themesWritten }
 }

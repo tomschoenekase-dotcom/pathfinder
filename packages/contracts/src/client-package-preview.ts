@@ -2,12 +2,26 @@ import { z } from 'zod'
 import { SupportAttachmentReferences } from './support-workflow'
 import { TONE_PRESET_BEHAVIOR_VERSION, TonePresetId } from './tone-presets'
 
+export const PreviewFeedbackContext = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('GENERAL') }).strict(),
+  z
+    .object({
+      kind: z.literal('PREVIEW_ANSWER'),
+      prompt: z.string().trim().min(1).max(1_000),
+      answerRef: z.string().trim().min(1).max(500),
+      verdict: z.enum(['CORRECT', 'NEEDS_CHANGE', 'NOT_SURE']),
+    })
+    .strict(),
+])
+export type PreviewFeedbackContext = z.infer<typeof PreviewFeedbackContext>
+
 export const CreateClientPreviewFeedbackInput = z
   .object({
     operationId: z.string().uuid(),
     venueId: z.string().trim().min(1).max(191),
     packageId: z.string().trim().min(1).max(191),
     body: z.string().trim().min(1).max(20_000),
+    context: PreviewFeedbackContext.default({ kind: 'GENERAL' }),
     attachments: SupportAttachmentReferences.default([]),
   })
   .strict()

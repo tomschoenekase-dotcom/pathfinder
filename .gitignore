@@ -1,4 +1,5 @@
 .next/
+.next-local-staging/
 dist/
 node_modules/
 .env
@@ -9,6 +10,8 @@ node_modules/
 .corepack/
 .corepack-bin/
 coverage/
+apps/dashboard/public/characters/
+apps/web/public/characters/
 
 # TypeScript incremental build info
 *.tsbuildinfo

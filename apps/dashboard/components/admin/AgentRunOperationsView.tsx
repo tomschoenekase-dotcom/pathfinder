@@ -2,12 +2,17 @@ import Link from 'next/link'
 
 import { formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunCancellationControl } from './AgentRunCancellationControl'
+import { AgentOutcomeObservationForm } from './AgentOutcomeObservationForm'
 
 type Cursor = { createdAt: string; id: string } | null
 type Run = {
   id: string
   runType: string
   requestedOperation: string
+  requestPrompt?: string | null
+  parentAgentRunId?: string | null
+  delegationReason?: string | null
+  artifacts?: unknown
   status: string
   modelProvider: string | null
   modelName: string | null
@@ -17,12 +22,38 @@ type Run = {
   initiatedByType: string
   initiatedById: string
   cancelRequestedAt: Date | null
+  attemptNumber?: number
+  maxAttempts?: number
+  lastHeartbeatAt?: Date | null
+  executionLeaseExpiresAt?: Date | null
   startedAt: Date | null
   completedAt: Date | null
   createdAt: Date
   updatedAt: Date
   agentIdentity: { id: string; name: string; enabled: boolean }
-  _count: { actions: number; timelineEvents: number; approvalRequests: number }
+  parentAgentRun?: { id: string; agentIdentity: { id: string; name: string } } | null
+  delegatedRuns?: Array<{
+    id: string
+    status: string
+    delegationReason: string | null
+    createdAt: Date
+    agentIdentity: { id: string; name: string }
+  }>
+  messages?: Array<{
+    id: string
+    role: string
+    messageType: string
+    content: string
+    actorId: string
+    createdAt: Date
+  }>
+  _count: {
+    actions: number
+    timelineEvents: number
+    approvalRequests: number
+    delegatedRuns?: number
+    outcomeObservations?: number
+  }
 }
 type Action = {
   id: string
@@ -59,6 +90,19 @@ type Approval = {
   createdAt: Date
   decision: { decision: string; reason: string | null; createdAt: Date } | null
 }
+type OutcomeObservation = {
+  id: string
+  signalKind: string
+  verdict: string
+  summary: string
+  evidenceRef: string | null
+  taskClass: string
+  modelProvider: string | null
+  modelName: string | null
+  actorType: string
+  actorId: string
+  createdAt: Date
+}
 
 type Props = {
   tenantId: string
@@ -67,13 +111,29 @@ type Props = {
   actions: { items: Action[]; nextCursor: Cursor }
   timeline: { items: Timeline[]; nextCursor: Cursor }
   approvals: { items: Approval[]; nextCursor: Cursor }
+  outcomes?: { items: OutcomeObservation[]; nextCursor: Cursor }
 }
 
 function nextHref(base: string, prefix: string, cursor: Exclude<Cursor, null>) {
   return `${base}?${prefix}CreatedAt=${encodeURIComponent(cursor.createdAt)}&${prefix}Id=${encodeURIComponent(cursor.id)}`
 }
-function date(value: Date | null) {
+function date(value: Date | null | undefined) {
   return value ? value.toLocaleString() : 'Not recorded'
+}
+
+function resultArtifacts(value: unknown): Array<{ title: string; content: string }> {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((artifact) => {
+    if (!artifact || typeof artifact !== 'object') return []
+    const item = artifact as Record<string, unknown>
+    if (typeof item.content !== 'string') return []
+    return [
+      {
+        title: typeof item.title === 'string' ? item.title : 'Agent result',
+        content: item.content.slice(0, 100_000),
+      },
+    ]
+  })
 }
 
 export function AgentRunOperationsView({
@@ -83,9 +143,13 @@ export function AgentRunOperationsView({
   actions,
   timeline,
   approvals,
+  outcomes = { items: [], nextCursor: null },
 }: Props) {
   const overview = `/admin/clients/${tenantId}/venues/${venueId}/agents`
   const base = `${overview}/runs/${run.id}`
+  const artifacts = resultArtifacts(run.artifacts)
+  const delegatedRuns = run.delegatedRuns ?? []
+  const messages = run.messages ?? []
   return (
     <div className="space-y-8">
       <header className="border-b border-pf-light pb-6">
@@ -108,9 +172,9 @@ export function AgentRunOperationsView({
           </span>
         </div>
         <p className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
-          Lifecycle evidence is read-only except for the cancellation-intent control. Raw inputs,
-          outputs, artifacts, and scope snapshots are not exposed here; requesting cancellation
-          records intent only.
+          Lifecycle evidence and text results are visible to platform administrators. Raw action
+          payloads, scope snapshots, and execution lease tokens remain hidden; requesting
+          cancellation records intent only.
         </p>
       </header>
 
@@ -130,6 +194,9 @@ export function AgentRunOperationsView({
         />
         <Summary label="Actions" value={String(run._count.actions)} />
         <Summary label="Approvals" value={String(run._count.approvalRequests)} />
+        <Summary label="Attempts" value={`${run.attemptNumber ?? 0} / ${run.maxAttempts ?? 3}`} />
+        <Summary label="Delegated tasks" value={String(run._count.delegatedRuns ?? 0)} />
+        <Summary label="Outcome signals" value={String(run._count.outcomeObservations ?? 0)} />
       </section>
 
       <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm">
@@ -139,6 +206,8 @@ export function AgentRunOperationsView({
           <Datum label="Started" value={date(run.startedAt)} />
           <Datum label="Completed" value={date(run.completedAt)} />
           <Datum label="Cancel requested" value={date(run.cancelRequestedAt)} />
+          <Datum label="Last heartbeat" value={date(run.lastHeartbeatAt)} />
+          <Datum label="Lease expires" value={date(run.executionLeaseExpiresAt)} />
           <Datum label="Initiated by" value={`${run.initiatedByType} · ${run.initiatedById}`} />
           <Datum label="Last updated" value={date(run.updatedAt)} />
           {run.errorCode ? (
@@ -149,6 +218,173 @@ export function AgentRunOperationsView({
           ) : null}
         </dl>
       </section>
+
+      {run.requestPrompt ? (
+        <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm">
+          <h3 className="text-xl font-semibold text-pf-deep">Task</h3>
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-pf-deep/75">
+            {run.requestPrompt}
+          </p>
+          {run.parentAgentRun ? (
+            <p className="mt-4 text-sm text-pf-deep/60">
+              Delegated by{' '}
+              <Link
+                className="font-semibold text-pf-primary"
+                href={`${overview}/runs/${run.parentAgentRun.id}`}
+              >
+                {run.parentAgentRun.agentIdentity.name}
+              </Link>
+              {run.delegationReason ? ` · ${run.delegationReason}` : ''}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="space-y-4" aria-labelledby="conversation-heading">
+        <div>
+          <h3 id="conversation-heading" className="text-xl font-semibold text-pf-deep">
+            Conversation
+          </h3>
+          <p className="mt-1 text-sm text-pf-deep/60">
+            Prompts, operator answers, and agent results in chronological order.
+          </p>
+        </div>
+        {messages.length ? (
+          <ol className="space-y-3">
+            {messages.map((message) => (
+              <li
+                key={message.id}
+                className={`max-w-4xl rounded-3xl border p-5 ${
+                  message.role === 'OPERATOR'
+                    ? 'ml-auto border-sky-200 bg-sky-50'
+                    : message.role === 'AGENT'
+                      ? 'mr-auto border-emerald-200 bg-emerald-50/50'
+                      : 'mx-auto border-pf-light bg-white'
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-pf-deep/55">
+                  <span>{message.role}</span>
+                  <span>·</span>
+                  <span>{message.messageType}</span>
+                  <span>·</span>
+                  <span>{message.createdAt.toLocaleString()}</span>
+                </div>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-pf-deep/80">
+                  {message.content}
+                </p>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <Empty text="No conversational messages are recorded for this run yet." />
+        )}
+      </section>
+
+      <section className="space-y-4" aria-labelledby="run-results-heading">
+        <div>
+          <h3 id="run-results-heading" className="text-xl font-semibold text-pf-deep">
+            Results
+          </h3>
+          <p className="mt-1 text-sm text-pf-deep/60">
+            Text artifacts returned by the execution adapter.
+          </p>
+        </div>
+        {artifacts.length ? (
+          artifacts.map((artifact, index) => (
+            <article
+              key={`${artifact.title}-${index}`}
+              className="rounded-3xl border border-emerald-200 bg-emerald-50/40 p-5"
+            >
+              <h4 className="font-semibold text-pf-deep">{artifact.title}</h4>
+              <pre className="mt-3 whitespace-pre-wrap break-words font-sans text-sm leading-7 text-pf-deep/80">
+                {artifact.content}
+              </pre>
+            </article>
+          ))
+        ) : (
+          <Empty text="No readable result artifacts are recorded yet." />
+        )}
+      </section>
+
+      {['COMPLETED', 'FAILED', 'CANCELLED'].includes(run.status) ? (
+        <AgentOutcomeObservationForm tenantId={tenantId} venueId={venueId} agentRunId={run.id} />
+      ) : null}
+
+      <section className="space-y-4" aria-labelledby="run-outcomes-heading">
+        <div>
+          <h3 id="run-outcomes-heading" className="text-xl font-semibold text-pf-deep">
+            Outcome evidence
+          </h3>
+          <p className="mt-1 text-sm text-pf-deep/60">
+            Append-only observations used to evaluate this agent, model, and task class. These are
+            distinct from execution completion.
+          </p>
+        </div>
+        {outcomes.items.length ? (
+          <ol className="space-y-3">
+            {outcomes.items.map((outcome) => (
+              <li key={outcome.id} className="rounded-2xl border border-pf-light bg-white p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-800">
+                    {outcome.verdict.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-xs font-semibold text-pf-deep/55">
+                    {outcome.signalKind.replace(/_/g, ' ')} · {outcome.createdAt.toLocaleString()}
+                  </span>
+                </div>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-pf-deep/75">
+                  {outcome.summary}
+                </p>
+                <p className="mt-3 text-xs text-pf-deep/55">
+                  {outcome.taskClass} ·{' '}
+                  {[outcome.modelProvider, outcome.modelName].filter(Boolean).join(' / ') ||
+                    'No model recorded'}
+                </p>
+                {outcome.evidenceRef ? (
+                  <p className="mt-2 break-all font-mono text-xs text-pf-deep/55">
+                    Evidence: {outcome.evidenceRef}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <Empty text="No outcome evidence is recorded. Completion is not being counted as quality." />
+        )}
+        {outcomes.nextCursor ? (
+          <Older
+            href={nextHref(base, 'outcomeCursor', outcomes.nextCursor)}
+            label="Older outcome evidence"
+          />
+        ) : null}
+      </section>
+
+      {delegatedRuns.length ? (
+        <section className="space-y-4" aria-labelledby="delegated-runs-heading">
+          <h3 id="delegated-runs-heading" className="text-xl font-semibold text-pf-deep">
+            Specialists on this job
+          </h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            {delegatedRuns.map((child) => (
+              <Link
+                key={child.id}
+                href={`${overview}/runs/${child.id}`}
+                className="rounded-2xl border border-pf-light bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-pf-primary">{child.agentIdentity.name}</span>
+                  <span className="text-xs font-bold text-pf-deep/60">
+                    {child.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-pf-deep/65">
+                  {child.delegationReason ?? 'No delegation reason recorded.'}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="space-y-4" aria-labelledby="run-actions-heading">
         <div>

@@ -60,3 +60,7 @@ export const EVALUATION_RUN_QUEUE = queueName('evaluation-run')
 export const EVALUATION_RUN_PROCESS_JOB = 'evaluation-run-process'
 export const EVALUATION_RUN_DISPATCH_JOB = 'evaluation-run-dispatch'
 export const EVALUATION_RUN_RETRY_BACKOFF = 'evaluation-run-retry'
+
+export const AGENT_RUN_QUEUE = queueName('agent-run')
+export const AGENT_RUN_PROCESS_JOB = 'agent-run-process'
+export const AGENT_RUN_RETRY_BACKOFF = 'agent-run-retry'

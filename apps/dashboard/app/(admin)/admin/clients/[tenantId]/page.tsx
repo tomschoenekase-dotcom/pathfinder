@@ -6,6 +6,7 @@ import { AdminAiCostBudgetForm } from '../../../../../components/admin/AdminAiCo
 import { AdminClientPlanForm } from '../../../../../components/admin/AdminClientPlanForm'
 import { AdminClientStatusForm } from '../../../../../components/admin/AdminClientStatusForm'
 import { AdminTriggerDigestButton } from '../../../../../components/admin/AdminTriggerDigestButton'
+import { AdminTochiRolloutForm } from '../../../../../components/admin/AdminTochiRolloutForm'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
 import { getStatusClasses } from '../../../../../lib/admin-status'
 
@@ -52,6 +53,7 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
 
   const { tenant, venues, engagement7d } = data
   const aiCostBudget = await caller.admin.getAiCostBudget({ tenantId })
+  const tochiRollout = await caller.admin.getTochiRollout({ tenantId })
   const placesTotal = venues.reduce((total, venue) => total + venue._count.places, 0)
   const inactiveVenues = venues.filter((venue) => !venue.isActive)
 
@@ -159,6 +161,25 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
             ))}
           </div>
         )}
+      </section>
+
+      <section className="space-y-4" aria-labelledby="tochi-rollout-heading">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-pf-primary">
+            Private rollout
+          </p>
+          <h2
+            id="tochi-rollout-heading"
+            className="mt-1 text-xl font-semibold tracking-tight text-pf-deep"
+          >
+            Tochi system access
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-pf-deep/60">
+            A feature works only when both its server kill switch and this client allowlist are on.
+            These controls are audited and do not publish a character pack by themselves.
+          </p>
+        </div>
+        <AdminTochiRolloutForm tenantId={tenantId} flags={tochiRollout.flags} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">

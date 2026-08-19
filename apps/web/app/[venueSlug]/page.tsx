@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 
-import { PathFinderIcon } from '@pathfinder/ui'
+import { PathFinderIcon } from '@pathfinder/ui/brand'
 import { VenueTemporarilyUnavailable } from '../../components/VenueTemporarilyUnavailable'
 import { classifyPublicVenueLookupError } from '../../lib/public-venue-error'
 
@@ -91,7 +91,7 @@ export default async function VenueLandingPage({ params }: VenueLandingPageProps
         <p className="mt-5 text-center text-xs text-pf-deep/30">
           Powered by{' '}
           <Link href="/" className="font-medium text-pf-deep/40 hover:text-pf-primary">
-            PathFinder
+            Torchiko
           </Link>
         </p>
       </section>

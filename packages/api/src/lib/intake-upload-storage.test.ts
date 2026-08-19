@@ -1,8 +1,12 @@
 import {
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  ListPartsCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,6 +18,10 @@ import {
   inspectIntakeUpload,
   intakeUploadChecksumBase64,
   signIntakeUploadPut,
+  beginIntakeUploadMultipart,
+  completeIntakeUploadMultipart,
+  listIntakeUploadMultipartParts,
+  signIntakeUploadPart,
   type IntakeUploadSigner,
   type IntakeUploadStorageTransport,
 } from './intake-upload-storage'
@@ -77,6 +85,68 @@ describe('intake upload storage contract', () => {
         'x-amz-meta-pf-intake-upload-generation',
       ]),
     })
+  })
+
+  it('starts, resumes, signs, and completes an exact checksum-bound multipart transport', async () => {
+    const send = vi
+      .fn<IntakeUploadStorageTransport['send']>()
+      .mockResolvedValueOnce({ UploadId: 'multipart-1' })
+      .mockResolvedValueOnce({
+        Parts: [
+          {
+            PartNumber: 1,
+            ETag: 'etag-1',
+            ChecksumSHA256: checksumBase64,
+            Size: 16 * 1024 * 1024,
+          },
+          { PartNumber: 2, ETag: 'etag-2', ChecksumSHA256: checksumBase64, Size: 5 },
+        ],
+        IsTruncated: false,
+      })
+      .mockResolvedValueOnce({ VersionId: 'version-1' })
+    const started = await beginIntakeUploadMultipart({
+      key: 'staging/intake-quarantine/opaque-id',
+      generation: 'generation-1',
+      contentType: 'video/mp4',
+      storage: { send },
+    })
+    expect(started).toMatchObject({ uploadId: 'multipart-1', partSize: 16 * 1024 * 1024 })
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(CreateMultipartUploadCommand)
+
+    const signer = vi.fn(async (client: S3Client, command: UploadPartCommand, options: unknown) => {
+      void client
+      void command
+      void options
+      return Promise.resolve('https://signed.invalid/part')
+    })
+    const signed = await signIntakeUploadPart({
+      key: 'staging/intake-quarantine/opaque-id',
+      uploadId: 'multipart-1',
+      partNumber: 1,
+      checksumSha256: checksumHex,
+      client: {} as S3Client,
+      signer: signer as never,
+    })
+    expect(signed.requiredHeaders).toEqual({ 'x-amz-checksum-sha256': checksumBase64 })
+    expect(signer.mock.calls[0]?.[1]).toBeInstanceOf(UploadPartCommand)
+
+    const parts = await listIntakeUploadMultipartParts({
+      key: 'staging/intake-quarantine/opaque-id',
+      uploadId: 'multipart-1',
+      expectedBytes: 16 * 1024 * 1024 + 5,
+      storage: { send },
+    })
+    expect(send.mock.calls[1]?.[0]).toBeInstanceOf(ListPartsCommand)
+    expect(parts).toHaveLength(2)
+    await expect(
+      completeIntakeUploadMultipart({
+        key: 'staging/intake-quarantine/opaque-id',
+        uploadId: 'multipart-1',
+        parts,
+        storage: { send },
+      }),
+    ).resolves.toEqual({ versionId: 'version-1' })
+    expect(send.mock.calls[2]?.[0]).toBeInstanceOf(CompleteMultipartUploadCommand)
   })
 
   it('produces an SDK signature carrying the immutable PUT constraints', async () => {
@@ -243,6 +313,30 @@ describe('intake upload storage contract', () => {
         },
       }),
     ).rejects.toThrow('storage unavailable')
+  })
+
+  it('defers a multipart composite checksum to the streaming full-file verifier', async () => {
+    await expect(
+      inspectIntakeUpload({
+        key: 'opaque',
+        generation: 'generation-1',
+        contentType: 'video/mp4',
+        bytes: 123,
+        checksumSha256: checksumHex,
+        storage: {
+          send: vi.fn(async () => ({
+            VersionId: 'version-1',
+            ContentLength: 123,
+            ContentType: 'video/mp4',
+            ChecksumSHA256: 'composite-checksum-2',
+            Metadata: {
+              [INTAKE_UPLOAD_GENERATION_METADATA_KEY]: 'generation-1',
+              'pf-intake-upload-multipart': 'true',
+            },
+          })),
+        },
+      }),
+    ).resolves.toEqual({ state: 'verified', versionId: 'version-1' })
   })
 
   it('deletes only an explicitly supplied immutable version', async () => {

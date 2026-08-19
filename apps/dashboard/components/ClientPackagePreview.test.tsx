@@ -107,6 +107,35 @@ describe('ClientPackagePreview', () => {
     expect(result.violations.map(({ id }) => id)).toEqual([])
   })
 
+  it('tests guided and open questions against the exact package and records answer feedback', async () => {
+    mocks.mutate.mockResolvedValue({ request: { id: 'request_1' } })
+    render(<ClientPackagePreview preview={preview} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'What should I see if I have one hour?' }))
+    expect(screen.getByText(/does not contain a supported answer/i)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Your question'), {
+      target: { value: 'Where is the arrival entrance?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Test question' }))
+    expect(screen.getAllByText('Use the east entrance.')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Needs a change' }))
+
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledOnce())
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packageId: 'package / approved',
+        context: {
+          kind: 'PREVIEW_ANSWER',
+          prompt: 'Where is the arrival entrance?',
+          answerRef: 'knowledge:0:Arrival',
+          verdict: 'NEEDS_CHANGE',
+        },
+      }),
+    )
+    expect(await screen.findByText(/saved as follow-up work/i)).toBeTruthy()
+  })
+
   it('renders truthful empty sections and has no automated accessibility violations', async () => {
     const { container } = render(
       <ClientPackagePreview

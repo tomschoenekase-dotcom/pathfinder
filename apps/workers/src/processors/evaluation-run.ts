@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import { ClientVenuePackagePreview } from '@pathfinder/contracts'
 import {
   AI_MODEL_KEYS,
   generateText,
@@ -42,6 +43,7 @@ import {
   persistEvaluationResultWithLease,
   reserveEvaluationRunCaseCost,
   renewEvaluationRunLease,
+  recordApprovedPackageEvaluationMilestones,
   updateJobRecord,
   withTenantIsolationBypass,
   writeJobRecord,
@@ -77,7 +79,7 @@ export type FrozenEvaluationRun = {
   caseManifestSnapshot: unknown
   promptContractVersion: string
   promptContractHash: string
-  contentSnapshotKind?: 'LEGACY_VENUE_CONTENT_V1' | 'NATIVE_CORE_V1'
+  contentSnapshotKind?: 'LEGACY_VENUE_CONTENT_V1' | 'NATIVE_CORE_V1' | 'APPROVED_VENUE_PACKAGE_V1'
   contentSnapshotRef?: string | null
   contentSnapshotVersion: bigint
   contentSnapshotHash: string
@@ -215,6 +217,28 @@ export function frozenContent(run: FrozenEvaluationRun): CanonicalJsonValue {
     throw new Error('EVALUATION_RUN_CONFIG_INVALID')
   }
   const config = run.runConfigSnapshot as Record<string, unknown>
+  if (run.contentSnapshotKind === 'APPROVED_VENUE_PACKAGE_V1') {
+    if (
+      config.version !== 'pathfinder-approved-package-evaluation-run-config-v1' ||
+      config.contentSnapshot === undefined
+    )
+      throw new Error('EVALUATION_CONTENT_SNAPSHOT_MISSING')
+    const content = config.contentSnapshot as Record<string, unknown>
+    const preview = ClientVenuePackagePreview.safeParse(content.preview)
+    if (
+      content.version !== 'pathfinder-approved-package-evaluation-content-v1' ||
+      content.tenantId !== run.tenantId ||
+      content.venueId !== run.venueId ||
+      content.packageId !== run.contentSnapshotRef ||
+      !preview.success ||
+      preview.data.venue.id !== run.venueId ||
+      preview.data.package.id !== run.contentSnapshotRef ||
+      evaluationSnapshotHash('pathfinder-approved-client-package-preview-v1', content as never) !==
+        run.contentSnapshotHash
+    )
+      throw new Error('EVALUATION_CONTENT_IDENTITY_MISMATCH')
+    return content as CanonicalJsonValue
+  }
   if (run.contentSnapshotKind === 'NATIVE_CORE_V1') {
     if (
       config.version !== 'pathfinder-native-evaluation-run-config-v1' ||
@@ -733,6 +757,8 @@ export async function processEvaluationRunJob(
   signal?: AbortSignal,
   dependencies?: EvaluationRunnerDependencies,
 ): Promise<void> {
+  const reconcileOnboardingMilestones = () =>
+    withTenantIsolationBypass(() => recordApprovedPackageEvaluationMilestones(payload))
   const execution = normalizeJobExecutionMetadata(executionInput)
   const jobRecordId = await writeJobRecord({
     queue: EVALUATION_RUN_QUEUE,
@@ -761,6 +787,7 @@ export async function processEvaluationRunJob(
     if (claim.state === 'not-found') throw new Error('EVALUATION_RUN_IDENTITY_MISMATCH')
     if (claim.state === 'not-admitted') throw new Error('EVALUATION_RUN_NOT_ADMITTED')
     if (claim.state !== 'acquired') {
+      if (claim.state === 'terminal') await reconcileOnboardingMilestones()
       await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
       return
     }
@@ -784,6 +811,7 @@ export async function processEvaluationRunJob(
       outcome: result.cancelled > 0 ? 'CANCELLED' : 'COMPLETED',
     })
     if (!advanced) throw new Error('EVALUATION_RUN_LIFECYCLE_STALE')
+    await reconcileOnboardingMilestones()
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
   } catch (error) {
     if (acquiredClaim && error instanceof ExecutionLeaseCancelledError) {
@@ -797,6 +825,7 @@ export async function processEvaluationRunJob(
         outcome: 'CANCELLED',
       })
       if (cancelled) {
+        await reconcileOnboardingMilestones()
         await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
         return
       }
@@ -811,7 +840,7 @@ export async function processEvaluationRunJob(
       throw error
     }
     if (acquiredClaim) {
-      await failEvaluationRunAttempt({
+      const failure = await failEvaluationRunAttempt({
         runId: payload.runId,
         tenantId: payload.tenantId,
         venueId: payload.venueId,
@@ -821,6 +850,7 @@ export async function processEvaluationRunJob(
         leaseToken: acquiredClaim.leaseToken,
         errorCode: 'EVALUATION_EXECUTION_FAILED',
       })
+      if (failure === 'failed' || failure === 'cancelled') await reconcileOnboardingMilestones()
     }
     await recordJobFailure({
       jobRecordId,

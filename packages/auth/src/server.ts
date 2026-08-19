@@ -177,6 +177,11 @@ export type PendingOrganizationInvitation = {
   role: string
 }
 
+export type EnsuredOrganizationInvitation = {
+  id: string
+  replayed: boolean
+}
+
 /**
  * Invites someone into a Clerk Organization via the Backend API, scoped to
  * whatever `organizationId` the caller resolved server-side. Used instead of
@@ -207,6 +212,37 @@ export async function inviteOrganizationMember(input: {
       message: `Clerk rejected the invitation: ${describeClerkError(error)}`,
     })
   }
+}
+
+/**
+ * Creates the primary-contact invitation once, or returns the matching pending
+ * invitation after an uncertain response/retry. The email comparison is
+ * case-insensitive; a pending invitation with a different role fails closed.
+ */
+export async function ensureOrganizationInvitation(input: {
+  organizationId: string
+  emailAddress: string
+  role: OrganizationRole
+  inviterUserId: string
+}): Promise<EnsuredOrganizationInvitation> {
+  const normalizedEmail = input.emailAddress.trim().toLowerCase()
+  const pending = await listPendingOrganizationInvitations(input.organizationId)
+  const existing = pending.find(
+    (invitation) => invitation.emailAddress.trim().toLowerCase() === normalizedEmail,
+  )
+
+  if (existing) {
+    if (existing.role !== input.role) {
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'A pending invitation already exists for this email with a different role',
+      })
+    }
+    return { id: existing.id, replayed: true }
+  }
+
+  const invitation = await inviteOrganizationMember(input)
+  return { ...invitation, replayed: false }
 }
 
 export async function listPendingOrganizationInvitations(

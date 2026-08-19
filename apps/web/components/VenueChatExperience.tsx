@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
+import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { inferRouterInputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 
@@ -10,6 +11,7 @@ import { useSession } from '../hooks/useSession'
 import { useVenueChatAnalytics } from '../hooks/useVenueChatAnalytics'
 import { useVisitorId } from '../hooks/useVisitorId'
 import { classifyPublicVenueLookupError } from '../lib/public-venue-error'
+import { browserUuid } from '../lib/browser-uuid'
 import { useTRPCClient } from '../lib/trpc'
 import { getStoredLanguage, SUPPORTED_LANGUAGES } from './LanguagePicker'
 import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
@@ -54,6 +56,7 @@ export function VenueChatExperience({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isBooting, setIsBooting] = useState(true)
   const [isSending, setIsSending] = useState(false)
+  const [characterState, setCharacterState] = useState<CharacterState>('idle')
   const [pageError, setPageError] = useState<string | null>(null)
   const [isVenueUnavailable, setIsVenueUnavailable] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -72,6 +75,7 @@ export function VenueChatExperience({
   const currentVenueIdRef = useRef<string | null>(null)
   const currentAnonymousTokenRef = useRef<string | null>(null)
   const reconciliationRequiredRef = useRef(false)
+  const characterResetTimerRef = useRef<number | null>(null)
   const { lat, lng, permission, refresh } = useGeolocation(
     Boolean(venue && venue.guideMode !== 'non_location'),
   )
@@ -89,6 +93,35 @@ export function VenueChatExperience({
       anonymousToken: secondLayerKey ? null : anonymousToken,
       visitorId,
     })
+
+  const clearCharacterReset = useCallback(() => {
+    if (characterResetTimerRef.current !== null) {
+      window.clearTimeout(characterResetTimerRef.current)
+      characterResetTimerRef.current = null
+    }
+  }, [])
+
+  const setStableCharacterState = useCallback(
+    (state: CharacterState) => {
+      clearCharacterReset()
+      setCharacterState(state)
+    },
+    [clearCharacterReset],
+  )
+
+  const setTemporaryCharacterState = useCallback(
+    (state: CharacterState, durationMs: number) => {
+      clearCharacterReset()
+      setCharacterState(state)
+      characterResetTimerRef.current = window.setTimeout(() => {
+        characterResetTimerRef.current = null
+        setCharacterState('idle')
+      }, durationMs)
+    },
+    [clearCharacterReset],
+  )
+
+  useEffect(() => () => clearCharacterReset(), [clearCharacterReset])
 
   useEffect(() => {
     if (venue && identityUnavailable)
@@ -120,6 +153,7 @@ export function VenueChatExperience({
         })
         if (disposed || conversationEpochRef.current !== epoch) return
         setVenueState({ slug: venueSlug, venue: result })
+        setTemporaryCharacterState('attention', 900)
         let token: string | null = null
         try {
           token = window.sessionStorage.getItem(
@@ -162,7 +196,14 @@ export function VenueChatExperience({
     return () => {
       disposed = true
     }
-  }, [client, experienceStorageScope, resetAnalytics, secondLayerKey, venueSlug])
+  }, [
+    client,
+    experienceStorageScope,
+    resetAnalytics,
+    secondLayerKey,
+    setTemporaryCharacterState,
+    venueSlug,
+  ])
 
   useEffect(() => {
     let disposed = false
@@ -251,6 +292,7 @@ export function VenueChatExperience({
     setSendError(null)
     setRecoveryMode(null)
     setIsSending(true)
+    setStableCharacterState('thinking')
     if (addOptimistic)
       setMessages((current) => [
         ...current,
@@ -284,6 +326,7 @@ export function VenueChatExperience({
       setSessionId(result.sessionId)
       pendingTurnRef.current = null
       setRecoveryMode(null)
+      setTemporaryCharacterState('success', 900)
     } catch (error) {
       if (!turnIsCurrent(turn)) return
       const code = trpcErrorCode(error)
@@ -316,6 +359,7 @@ export function VenueChatExperience({
             : 'The outcome of this message is not confirmed. Retry the same message safely.',
         )
       }
+      setTemporaryCharacterState('error', 1600)
     } finally {
       if (sendingEpochRef.current === turn.epoch) sendingEpochRef.current = null
       if (turnScopeIsCurrent(turn)) setIsSending(false)
@@ -335,7 +379,13 @@ export function VenueChatExperience({
       return
     abandonPendingOptimistic()
     const epoch = conversationEpochRef.current
-    const operationId = crypto.randomUUID()
+    const operationId = browserUuid()
+    if (!operationId) {
+      setSendError(
+        'This browser cannot create a private message identity. Please try another browser.',
+      )
+      return
+    }
     const input: ChatSendInput = {
       operationId,
       venueId: venue.id,
@@ -377,7 +427,8 @@ export function VenueChatExperience({
     } else if (recoveryMode === 'retry-turn') void dispatchTurn(turn, false)
   }
 
-  function handleDraftChange() {
+  function handleDraftChange(draft = '') {
+    setStableCharacterState(draft.trim() ? 'listening' : 'idle')
     if (
       activeOperationRef.current !== null ||
       !pendingTurnRef.current ||
@@ -392,7 +443,7 @@ export function VenueChatExperience({
     if (
       messages.length &&
       !window.confirm(
-        'Start a new conversation? The current chat will leave this screen, but it will not be deleted from PathFinder records.',
+        'Start a new conversation? The current chat will leave this screen, but it will not be deleted from Torchiko records.',
       )
     )
       return
@@ -412,6 +463,7 @@ export function VenueChatExperience({
     reconciliationRequiredRef.current = false
     lastSyncedPosRef.current = null
     resetAnalytics()
+    setTemporaryCharacterState('attention', 900)
     endSession(venue.id, previousToken, previousStartedAt)
   }
 
@@ -438,6 +490,7 @@ export function VenueChatExperience({
       language={language}
       setLanguage={setLanguage}
       initialDraft={initialDraft}
+      characterState={characterState}
       location={{ lat, lng, permission, refresh }}
       onSend={(message) => {
         handleSend(message)

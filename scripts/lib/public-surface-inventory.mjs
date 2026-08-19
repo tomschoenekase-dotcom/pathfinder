@@ -14,6 +14,7 @@ const CONTROL_PROFILES = new Set([
   'bounded-public-health',
   'bounded-widget-readiness',
   'bounded-signed-webhook',
+  'bounded-machine-credential-ingress',
   'handler-platform-admin',
 ])
 const CANONICAL_PROCEDURE_BUILDERS = new Map([
@@ -38,6 +39,7 @@ const HTTP_PROFILE_POLICY = new Map([
   ['bounded-public-health', 'intentional-public'],
   ['bounded-widget-readiness', 'intentional-public'],
   ['bounded-signed-webhook', 'signature-authenticated-public-ingress'],
+  ['bounded-machine-credential-ingress', 'machine-credential-authenticated-public-ingress'],
   ['handler-platform-admin', 'handler-platform-admin'],
 ])
 const TRPC_ENTRY_KEYS = new Set([

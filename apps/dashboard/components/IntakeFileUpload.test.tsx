@@ -52,7 +52,11 @@ describe('quarantined intake file upload', () => {
       },
       replayed: false,
       nextAction: 'UPLOAD_BYTES',
-      uploadRequest: { url: 'https://upload.invalid/signed', requiredHeaders: headers },
+      uploadRequest: {
+        kind: 'single',
+        url: 'https://upload.invalid/signed',
+        requiredHeaders: headers,
+      },
     })
     verify.mockResolvedValue({
       upload: {
@@ -68,6 +72,7 @@ describe('quarantined intake file upload', () => {
     })
     fetchMock.mockResolvedValue({ ok: true, status: 200 })
     vi.stubGlobal('fetch', fetchMock)
+    globalThis.localStorage.clear()
   })
 
   afterEach(() => {
@@ -85,7 +90,7 @@ describe('quarantined intake file upload', () => {
   it('uses the exact signed PUT headers and reports transport verification without safety claims', async () => {
     const file = renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting review')
 
     expect(reserve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -95,24 +100,146 @@ describe('quarantined intake file upload', () => {
         mimeType: 'application/pdf',
         byteSize: 8,
         sha256: 'a'.repeat(64),
+        category: 'DOCUMENT',
       }),
     )
-    expect(fetchMock).toHaveBeenCalledWith('https://upload.invalid/signed', {
-      method: 'PUT',
-      headers,
-      body: file,
-    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://upload.invalid/signed',
+      expect.objectContaining({ method: 'PUT', headers, body: file, signal: expect.anything() }),
+    )
     expect(verify).toHaveBeenCalledWith({
       venueId: 'venue-a',
       uploadId: 'upload-a',
       claimId: expect.stringMatching(/^[0-9a-f-]{36}$/),
     })
-    expect(screen.getByText(/team still reviews it before use/i)).toBeTruthy()
+    expect(screen.getByText(/nothing is published from this page/i)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(
       /quarantin|checksum|object version|approved|applied/iu,
     )
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.queryByRole('img')).toBeNull()
+  })
+
+  it('resumes a multipart file from storage-confirmed parts and verifies only after completion', async () => {
+    Object.defineProperty(Blob.prototype, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new ArrayBuffer(4)),
+    })
+    Object.defineProperty(globalThis.crypto, 'subtle', {
+      configurable: true,
+      value: { digest: vi.fn(async () => new ArrayBuffer(32)) },
+    })
+    const signMultipartPart = vi.fn().mockResolvedValue({
+      url: 'https://upload.invalid/part-2',
+      requiredHeaders: { 'x-amz-checksum-sha256': 'part-checksum' },
+    })
+    const completeMultipart = vi.fn().mockResolvedValue({ nextAction: 'VERIFY' })
+    reserve.mockResolvedValueOnce({
+      upload: {
+        id: 'upload-a',
+        displayName: 'map.pdf',
+        fileName: 'map.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 8,
+        status: 'RESERVED',
+      },
+      replayed: true,
+      nextAction: 'UPLOAD_BYTES',
+      uploadRequest: {
+        kind: 'multipart',
+        partSize: 4,
+        partCount: 2,
+        completedParts: [{ partNumber: 1, etag: 'etag-1', checksumSha256: 'checksum-1', size: 4 }],
+      },
+    })
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+        signMultipartPart={signMultipartPart}
+        completeMultipart={completeMultipart}
+      />,
+    )
+    const file = new File(['evidence'], 'map.pdf', { type: 'application/pdf' })
+    fireEvent.change(screen.getByLabelText('Choose files'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    await screen.findByText('Checks complete — awaiting review')
+    expect(signMultipartPart).toHaveBeenCalledWith(
+      expect.objectContaining({ uploadId: 'upload-a', partNumber: 2 }),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(completeMultipart).toHaveBeenCalledWith({ venueId: 'venue-a', uploadId: 'upload-a' })
+    expect(verify.mock.invocationCallOrder[0]).toBeGreaterThan(
+      completeMultipart.mock.invocationCallOrder[0] ?? 0,
+    )
+  })
+
+  it('aborts and durably cancels an active multipart upload', async () => {
+    Object.defineProperty(Blob.prototype, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new ArrayBuffer(4)),
+    })
+    Object.defineProperty(globalThis.crypto, 'subtle', {
+      configurable: true,
+      value: { digest: vi.fn(async () => new ArrayBuffer(32)) },
+    })
+    reserve.mockResolvedValueOnce({
+      upload: {
+        id: 'upload-cancel',
+        displayName: 'map.pdf',
+        fileName: 'map.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 8,
+        status: 'RESERVED',
+      },
+      replayed: false,
+      nextAction: 'UPLOAD_BYTES',
+      uploadRequest: {
+        kind: 'multipart',
+        partSize: 4,
+        partCount: 2,
+        completedParts: [],
+      },
+    })
+    const signMultipartPart = vi.fn().mockResolvedValue({
+      url: 'https://upload.invalid/part-1',
+      requiredHeaders: { 'x-amz-checksum-sha256': 'part-checksum' },
+    })
+    const completeMultipart = vi.fn()
+    const cancelMultipart = vi.fn().mockResolvedValue({ replayed: false })
+    fetchMock.mockImplementationOnce(
+      (_url, options: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          )
+        }),
+    )
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+        signMultipartPart={signMultipartPart}
+        completeMultipart={completeMultipart}
+        cancelMultipart={cancelMultipart}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Choose files'), {
+      target: { files: [new File(['evidence'], 'map.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel upload' }))
+    expect(await screen.findByText('Upload cancelled.')).toBeTruthy()
+    expect(cancelMultipart).toHaveBeenCalledWith({
+      venueId: 'venue-a',
+      uploadId: 'upload-cancel',
+    })
+    expect(completeMultipart).not.toHaveBeenCalled()
+    expect(verify).not.toHaveBeenCalled()
   })
 
   it('retains request and claim identity for an unchanged ambiguous retry and fences a double click', async () => {
@@ -123,7 +250,7 @@ describe('quarantined intake file upload', () => {
     const uploadButton = screen.getByRole('button', { name: 'Upload' })
     fireEvent.click(uploadButton)
     fireEvent.click(uploadButton)
-    await screen.findByText('PathFinder could not confirm this file. Please try again.')
+    await screen.findByText('Torchiko could not confirm this file. Please try again.')
     expect(document.body.textContent).not.toMatch(/storage-signature-secret|raw-provider-detail/iu)
     expect(reserve).toHaveBeenCalledOnce()
 
@@ -141,7 +268,7 @@ describe('quarantined intake file upload', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
 
     expect(
-      await screen.findByText('PathFinder could not confirm this file. Please try again.'),
+      await screen.findByText('Torchiko could not confirm this file. Please try again.'),
     ).toBeTruthy()
     expect(document.body.textContent).not.toMatch(
       /signed-object-key|private\/raw-map|provider request/iu,
@@ -166,7 +293,7 @@ describe('quarantined intake file upload', () => {
     })
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting review')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(verify).toHaveBeenCalledWith({
       venueId: 'venue-a',
@@ -181,7 +308,7 @@ describe('quarantined intake file upload', () => {
     )
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('PathFinder could not confirm this file. Please try again.')
+    await screen.findByText('Torchiko could not confirm this file. Please try again.')
     expect(document.body.textContent).not.toMatch(/internal-verification-claim|secret/iu)
     const firstRequestId = reserve.mock.calls[0]?.[0]?.requestId
     const firstClaimId = verify.mock.calls[0]?.[0]?.claimId
@@ -200,7 +327,7 @@ describe('quarantined intake file upload', () => {
       uploadRequest: null,
     })
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting review')
     expect(reserve.mock.calls[1]?.[0]?.requestId).toBe(firstRequestId)
     expect(verify.mock.calls[1]?.[0]?.claimId).toBe(firstClaimId)
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -210,7 +337,7 @@ describe('quarantined intake file upload', () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 412 })
     renderUpload()
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-    await screen.findByText('Checks complete — awaiting PathFinder review')
+    await screen.findByText('Checks complete — awaiting review')
     expect(verify).toHaveBeenCalledOnce()
   })
 
@@ -357,6 +484,234 @@ describe('quarantined intake file upload', () => {
     )
     fireEvent.change(input, { target: { files: tooMany } })
     expect(screen.getByRole('alert').textContent).toMatch(/at most 20/)
+  })
+
+  it('treats drag-and-drop like browse selection, including automatic material typing', () => {
+    const dropped = new File(['map'], 'floor-plan.pdf', {
+      type: 'application/pdf',
+      lastModified: 1_800_000_000_000,
+    })
+    const firstRender = render(
+      <IntakeFileUpload venueId="venue-a" uploads={[]} reserve={reserve} verify={verify} />,
+    )
+    const dropField = screen.getByLabelText('Choose files').closest('label')
+    expect(dropField).not.toBeNull()
+
+    fireEvent.dragEnter(dropField!, { dataTransfer: { files: [dropped] } })
+    expect(screen.getByText('Release to add these files')).toBeTruthy()
+    fireEvent.drop(dropField!, { dataTransfer: { files: [dropped] } })
+
+    expect(screen.getByText('floor-plan.pdf')).toBeTruthy()
+    expect((screen.getByLabelText('Type') as HTMLSelectElement).value).toBe('DOCUMENT')
+    expect(dropField?.getAttribute('data-activity')).toBe('queued')
+
+    firstRender.unmount()
+    render(<IntakeFileUpload venueId="venue-a" uploads={[]} reserve={reserve} verify={verify} />)
+    fireEvent.change(screen.getByLabelText('Choose files'), { target: { files: [dropped] } })
+
+    expect(screen.getByText('floor-plan.pdf')).toBeTruthy()
+    expect((screen.getByLabelText('Type') as HTMLSelectElement).value).toBe('DOCUMENT')
+  })
+
+  it('identifies a duplicate selection in plain language without silently sending it', () => {
+    render(<IntakeFileUpload venueId="venue-a" uploads={[]} reserve={reserve} verify={verify} />)
+    const duplicate = new File(['same'], 'visitor-guide.pdf', {
+      type: 'application/pdf',
+      lastModified: 1_800_000_000_000,
+    })
+    const input = screen.getByLabelText('Choose files')
+
+    fireEvent.change(input, { target: { files: [duplicate] } })
+    fireEvent.change(input, { target: { files: [duplicate] } })
+
+    expect(screen.getByRole('alert').textContent).toBe('This file is already in your upload list.')
+    expect(reserve).not.toHaveBeenCalled()
+  })
+
+  it('announces multipart progress with a named, determinate progressbar', async () => {
+    Object.defineProperty(Blob.prototype, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new ArrayBuffer(4)),
+    })
+    Object.defineProperty(globalThis.crypto, 'subtle', {
+      configurable: true,
+      value: { digest: vi.fn(async () => new ArrayBuffer(32)) },
+    })
+    reserve.mockReset().mockResolvedValue({
+      upload: {
+        id: 'upload-progress',
+        displayName: 'map.pdf',
+        fileName: 'map.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 8,
+        status: 'RESERVED',
+      },
+      replayed: true,
+      nextAction: 'UPLOAD_BYTES',
+      uploadRequest: {
+        kind: 'multipart',
+        partSize: 4,
+        partCount: 2,
+        completedParts: [{ partNumber: 1, etag: 'etag-1', checksumSha256: 'checksum-1', size: 4 }],
+      },
+    })
+    const signMultipartPart = vi.fn().mockResolvedValue({
+      url: 'https://upload.invalid/part-2',
+      requiredHeaders: { 'x-amz-checksum-sha256': 'part-checksum' },
+    })
+    const completeMultipart = vi.fn().mockResolvedValue({ nextAction: 'VERIFY' })
+    let finishUpload!: (value: { ok: boolean; status: number }) => void
+    fetchMock.mockReset().mockImplementation(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          finishUpload = resolve
+        }),
+    )
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        uploads={[]}
+        reserve={reserve}
+        verify={verify}
+        signMultipartPart={signMultipartPart}
+        completeMultipart={completeMultipart}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Choose files'), {
+      target: { files: [new File(['evidence'], 'map.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    const progress = await screen.findByRole('progressbar', { name: 'Uploading map.pdf' })
+    expect(screen.getByLabelText('Choose files').closest('label')?.dataset.activity).toBe('sending')
+    expect(screen.getByRole('heading', { name: 'Sending to Torchiko' })).toBeTruthy()
+    expect(progress.getAttribute('aria-valuemin')).toBe('0')
+    expect(progress.getAttribute('aria-valuemax')).toBe('100')
+    expect(progress.getAttribute('aria-valuenow')).toBe('50')
+    const liveStatus = screen.getByRole('status')
+    expect(liveStatus.getAttribute('aria-live')).toBe('polite')
+    expect(liveStatus.textContent).toContain('Sending file · 50%')
+    finishUpload({ ok: true, status: 200 })
+    await screen.findByText('Checks complete — awaiting review')
+    expect(screen.getByLabelText('Choose files').closest('label')?.dataset.activity).toBe('joined')
+    expect(screen.getByRole('heading', { name: 'Handoff complete' })).toBeTruthy()
+  })
+
+  it('counts and filters submitted files by material type', () => {
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        uploads={[
+          {
+            id: 'photo-1',
+            displayName: 'entrance.png',
+            fileName: 'entrance.png',
+            mimeType: 'image/png',
+            category: 'PHOTO',
+            byteSize: 8,
+            status: 'PRECHECK_PASSED',
+          },
+          {
+            id: 'video-1',
+            displayName: 'tour.mp4',
+            fileName: 'tour.mp4',
+            mimeType: 'video/mp4',
+            category: 'VIDEO_AUDIO',
+            byteSize: 8,
+            status: 'PRECHECK_PASSED',
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Videos or audio 1/ }))
+    expect(screen.getByText('tour.mp4')).toBeTruthy()
+    expect(screen.queryByText('entrance.png')).toBeNull()
+  })
+
+  it('loads older submitted files into the selected material type', async () => {
+    const loadMore = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 'video-older',
+          displayName: 'walkthrough.mp4',
+          fileName: 'walkthrough.mp4',
+          mimeType: 'video/mp4',
+          category: 'VIDEO_AUDIO',
+          byteSize: 8,
+          status: 'PRECHECK_PASSED',
+        },
+      ],
+      nextCursor: null,
+    })
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        uploads={[]}
+        categoryCounts={{ VIDEO_AUDIO: 1 }}
+        nextCursor={{ createdAt: '2026-08-18T12:00:00.000Z', id: 'cursor-a' }}
+        loadMore={loadMore}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Videos or audio 1/ }))
+    expect(screen.queryByText('walkthrough.mp4')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more files' }))
+
+    expect(await screen.findByText('walkthrough.mp4')).toBeTruthy()
+    expect(loadMore).toHaveBeenCalledWith({
+      createdAt: '2026-08-18T12:00:00.000Z',
+      id: 'cursor-a',
+    })
+  })
+
+  it('can resume an authoritative security check for a saved prechecked upload', async () => {
+    const onCommitted = vi.fn()
+    verify.mockResolvedValueOnce({
+      upload: {
+        id: 'upload-pending',
+        displayName: 'map.pdf',
+        fileName: 'map.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 8,
+        status: 'AWAITING_REVIEW',
+      },
+      retryable: false,
+      nextAction: 'PATHFINDER_REVIEW',
+    })
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        onCommitted={onCommitted}
+        uploads={[
+          {
+            id: 'upload-pending',
+            displayName: 'map.pdf',
+            fileName: 'map.pdf',
+            mimeType: 'application/pdf',
+            byteSize: 8,
+            status: 'PRECHECK_PASSED',
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Complete security check' }))
+    await waitFor(() =>
+      expect(verify).toHaveBeenCalledWith({
+        venueId: 'venue-a',
+        uploadId: 'upload-pending',
+        claimId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      }),
+    )
+    expect(await screen.findByText('Checks complete — awaiting review')).toBeTruthy()
+    expect(onCommitted).toHaveBeenCalledOnce()
   })
 
   it('has no automated accessibility violations in the pending-check state', async () => {

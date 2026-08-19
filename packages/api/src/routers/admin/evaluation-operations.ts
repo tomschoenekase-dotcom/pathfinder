@@ -12,6 +12,8 @@ import { TRPCError } from '@trpc/server'
 import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { adminEvaluationOperationActionsRouter } from './evaluation-operation-actions'
+import { adminEvaluationOnboardingReadsRouter } from './evaluation-onboarding-reads'
+import { adminEvaluationReviewActionsRouter } from './evaluation-review-actions'
 
 const DEFAULT_PAGE_LIMIT = 20
 const MAX_PAGE_LIMIT = 50
@@ -142,6 +144,7 @@ const adminEvaluationOperationReadsRouter = router({
             category: true,
             schemaVersion: true,
             sourceType: true,
+            sourceRef: true,
             createdAt: true,
           },
         }),
@@ -226,9 +229,10 @@ const adminEvaluationOperationReadsRouter = router({
       const hasMore = runs.length > input.limit
       const pageRuns = runs.slice(0, input.limit)
       const runIds = pageRuns.map((run) => run.id)
-      if (runIds.length === 0) return { items: [], humanConclusions: [], nextCursor: null }
+      if (runIds.length === 0)
+        return { items: [], humanConclusions: [], failedCases: [], nextCursor: null }
 
-      const [outcomeCounts, humanConclusions] = await Promise.all([
+      const [outcomeCounts, humanConclusions, failedCaseRows] = await Promise.all([
         db.evalResult.groupBy({
           by: ['runId', 'outcome', 'passed'],
           where: {
@@ -264,6 +268,26 @@ const adminEvaluationOperationReadsRouter = router({
             },
           },
         }),
+        db.evalResult.findMany({
+          where: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: { in: runIds },
+            outcome: 'SCORED',
+            passed: false,
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 100,
+          select: {
+            id: true,
+            runId: true,
+            caseRevision: true,
+            passedChecks: true,
+            totalChecks: true,
+            checksSnapshot: true,
+            evalCase: { select: { id: true, caseKey: true, category: true } },
+          },
+        }),
       ])
 
       const summaries = summarizeOutcomes(outcomeCounts)
@@ -280,6 +304,38 @@ const adminEvaluationOperationReadsRouter = router({
           summary: summaries.get(run.id) ?? emptySummary(),
         })),
         humanConclusions,
+        failedCases: failedCaseRows.map((row) => ({
+          id: row.id,
+          runId: row.runId,
+          caseId: row.evalCase.id,
+          caseKey: row.evalCase.caseKey,
+          category: row.evalCase.category,
+          caseRevision: row.caseRevision,
+          passedChecks: row.passedChecks,
+          totalChecks: row.totalChecks,
+          checks: Array.isArray(row.checksSnapshot)
+            ? row.checksSnapshot.flatMap((check) => {
+                if (
+                  !check ||
+                  typeof check !== 'object' ||
+                  !('checkId' in check) ||
+                  typeof check.checkId !== 'string' ||
+                  !('passed' in check) ||
+                  typeof check.passed !== 'boolean' ||
+                  !('detail' in check) ||
+                  typeof check.detail !== 'string'
+                )
+                  return []
+                return [
+                  {
+                    checkId: check.checkId.slice(0, 120),
+                    passed: check.passed,
+                    detail: check.detail.slice(0, 500),
+                  },
+                ]
+              })
+            : [],
+        })),
         nextCursor:
           hasMore && last ? { createdAt: last.createdAt.toISOString(), id: last.id } : null,
       }
@@ -288,6 +344,8 @@ const adminEvaluationOperationReadsRouter = router({
 })
 
 export const adminEvaluationOperationsRouter = mergeRouters(
+  adminEvaluationOnboardingReadsRouter,
   adminEvaluationOperationReadsRouter,
   adminEvaluationOperationActionsRouter,
+  adminEvaluationReviewActionsRouter,
 )

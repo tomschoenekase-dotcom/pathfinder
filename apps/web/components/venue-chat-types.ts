@@ -1,4 +1,5 @@
 import type { GuestPlaceCard } from '@pathfinder/api'
+import type { PublicVenueBotPresentation } from '@pathfinder/contracts/venue-bot-configuration'
 
 export type VenueSummary = {
   id: string
@@ -16,6 +17,8 @@ export type VenueSummary = {
   chatBannerUrl: string | null
   experienceScope?: 'PUBLIC' | 'SECOND_LAYER'
   experienceLabel?: string | null
+  /** Server-resolved, sanitized public presentation. Missing means Classic. */
+  venueBotPresentation?: PublicVenueBotPresentation
 }
 
 export type ChatMessage = {

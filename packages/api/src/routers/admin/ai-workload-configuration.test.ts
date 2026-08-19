@@ -58,7 +58,8 @@ describe('admin AI workload configuration', () => {
       expect.objectContaining({ where: { tenantId: 'tenant_1', venueScopeKey: 'venue_7' } }),
     )
     expect(result.scope).toEqual({ tenantId: 'tenant_1', venueId: 'venue_7' })
-    expect(result.workloads).toHaveLength(10)
+    expect(result.workloads).toHaveLength(12)
+    expect(result.workloads.map((workload) => workload.workloadId)).toContain('client-tochi')
     expect(result.workloads.every((workload) => workload.effectiveSource === 'PLATFORM')).toBe(true)
     expect(result.providerExecution).toBe(false)
   })

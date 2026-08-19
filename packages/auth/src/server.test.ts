@@ -1,21 +1,28 @@
 import { TRPCError } from '@trpc/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { clerkClientMock, getOrganization, getOrganizationMembershipList, getUser } = vi.hoisted(
-  () => ({
-    clerkClientMock: vi.fn(),
-    getOrganization: vi.fn(),
-    getOrganizationMembershipList: vi.fn(),
-    getUser: vi.fn(),
-  }),
-)
+const {
+  clerkClientMock,
+  createOrganizationInvitation,
+  getOrganization,
+  getOrganizationInvitationList,
+  getOrganizationMembershipList,
+  getUser,
+} = vi.hoisted(() => ({
+  clerkClientMock: vi.fn(),
+  createOrganizationInvitation: vi.fn(),
+  getOrganization: vi.fn(),
+  getOrganizationInvitationList: vi.fn(),
+  getOrganizationMembershipList: vi.fn(),
+  getUser: vi.fn(),
+}))
 
 vi.mock('@clerk/nextjs/server', () => ({
   clerkClient: clerkClientMock,
   currentUser: vi.fn(),
 }))
 
-import { validateExistingOrganizationOwner } from './server'
+import { ensureOrganizationInvitation, validateExistingOrganizationOwner } from './server'
 
 const input = {
   organizationId: 'org_1',
@@ -27,7 +34,12 @@ describe('validateExistingOrganizationOwner', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     clerkClientMock.mockResolvedValue({
-      organizations: { getOrganization, getOrganizationMembershipList },
+      organizations: {
+        createOrganizationInvitation,
+        getOrganization,
+        getOrganizationInvitationList,
+        getOrganizationMembershipList,
+      },
       users: { getUser },
     })
     getOrganization.mockResolvedValue({ id: 'org_1', name: 'Organization One', slug: 'org-one' })
@@ -47,6 +59,8 @@ describe('validateExistingOrganizationOwner', () => {
         },
       ],
     })
+    getOrganizationInvitationList.mockResolvedValue({ data: [] })
+    createOrganizationInvitation.mockResolvedValue({ id: 'invite_new' })
   })
 
   it('returns exact Clerk identity and canonical primary email for an admin member', async () => {
@@ -142,5 +156,52 @@ describe('validateExistingOrganizationOwner', () => {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'Clerk identity validation is temporarily unavailable',
     } satisfies Partial<TRPCError>)
+  })
+})
+
+describe('ensureOrganizationInvitation', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    clerkClientMock.mockResolvedValue({
+      organizations: { createOrganizationInvitation, getOrganizationInvitationList },
+    })
+    getOrganizationInvitationList.mockResolvedValue({ data: [] })
+    createOrganizationInvitation.mockResolvedValue({ id: 'invite_new' })
+  })
+
+  const invitationInput = {
+    organizationId: 'org_1',
+    emailAddress: 'Owner@Example.com',
+    role: 'org:admin' as const,
+    inviterUserId: 'admin_1',
+  }
+
+  it('creates an invitation when no matching pending invitation exists', async () => {
+    await expect(ensureOrganizationInvitation(invitationInput)).resolves.toEqual({
+      id: 'invite_new',
+      replayed: false,
+    })
+    expect(createOrganizationInvitation).toHaveBeenCalledWith(invitationInput)
+  })
+
+  it('reuses a case-insensitive matching pending invitation on retry', async () => {
+    getOrganizationInvitationList.mockResolvedValueOnce({
+      data: [{ id: 'invite_existing', emailAddress: 'owner@example.com', role: 'org:admin' }],
+    })
+    await expect(ensureOrganizationInvitation(invitationInput)).resolves.toEqual({
+      id: 'invite_existing',
+      replayed: true,
+    })
+    expect(createOrganizationInvitation).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the same email has a pending invitation with a different role', async () => {
+    getOrganizationInvitationList.mockResolvedValueOnce({
+      data: [{ id: 'invite_existing', emailAddress: 'owner@example.com', role: 'org:member' }],
+    })
+    await expect(ensureOrganizationInvitation(invitationInput)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(createOrganizationInvitation).not.toHaveBeenCalled()
   })
 })

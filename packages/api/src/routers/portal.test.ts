@@ -77,9 +77,11 @@ describe('client portal lifecycle read model', () => {
         where: expect.objectContaining({
           tenantId: 'tenant-1',
           venueId: 'venue-1',
-          createdByKind: 'CLIENT',
           OR: expect.arrayContaining([
-            expect.objectContaining({ requesterUserId: 'user-1' }),
+            expect.objectContaining({
+              createdByKind: 'CLIENT',
+              requesterUserId: 'user-1',
+            }),
             expect.objectContaining({ participants: expect.any(Object) }),
           ]),
         }),

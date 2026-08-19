@@ -8,6 +8,7 @@
     "./prompt-contract": "./src/prompt-contract.ts",
     "./tone-presets": "./src/tone-presets.ts",
     "./venue-configuration": "./src/venue-configuration.ts",
+    "./venue-bot-configuration": "./src/venue-bot-configuration.ts",
     "./guest-response": "./src/guest-response.ts",
     "./support-workflow": "./src/support-workflow.ts",
     "./content-model": "./src/content-model.ts",
@@ -22,9 +23,11 @@
     "./partner-read-api": "./src/partner-read-api.ts",
     "./retention-policy": "./src/retention-policy.ts",
     "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts",
+    "./remote-onboarding": "./src/remote-onboarding.ts",
     "./client-package-preview": "./src/client-package-preview.ts",
     "./universal-content-actions": "./src/universal-content-actions.ts",
-    "./native-venue-deployment": "./src/native-venue-deployment.ts"
+    "./native-venue-deployment": "./src/native-venue-deployment.ts",
+    "./character-system": "./src/character-system.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

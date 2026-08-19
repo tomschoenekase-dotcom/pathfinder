@@ -33,6 +33,39 @@ describe('Packet 2 dark-launch boundaries', () => {
   })
 })
 
+describe('Tochi and Character Mode rollout boundaries', () => {
+  it('keeps every new product surface behind an exact default-off kill switch', () => {
+    expect(FEATURE_FLAGS.clientTochi).toEqual({
+      environmentVariable: 'CLIENT_TOCHI_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(FEATURE_FLAGS.venueCharacterMode).toEqual({
+      environmentVariable: 'VENUE_CHARACTER_MODE_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(FEATURE_FLAGS.characterRegistry).toEqual({
+      environmentVariable: 'CHARACTER_REGISTRY_ENABLED',
+      defaultEnabled: false,
+    })
+    expect(FEATURE_FLAGS.tochiVenueCharacter).toEqual({
+      environmentVariable: 'TOCHI_VENUE_CHARACTER_ENABLED',
+      defaultEnabled: false,
+    })
+  })
+
+  it('does not enable a character surface for truthy or similarly named values', () => {
+    expect(isFeatureEnabled('venueCharacterMode', { VENUE_CHARACTER_MODE_ENABLED: '1' })).toBe(
+      false,
+    )
+    expect(isFeatureEnabled('venueCharacterMode', { VENUE_CHARACTER_MODE_ENABLED: 'TRUE' })).toBe(
+      false,
+    )
+    expect(isFeatureEnabled('venueCharacterMode', { VENUE_CHARACTER_MODE_ENABLED: 'true' })).toBe(
+      true,
+    )
+  })
+})
+
 function isFeatureEnabledByEnvironmentVariable(
   environmentVariable: string,
   environment: Readonly<Record<string, string | undefined>>,

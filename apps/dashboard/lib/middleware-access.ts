@@ -2,7 +2,8 @@ const AUTH_ROUTES = ['/sign-in', '/sign-up']
 
 // Clerk sends webhook POST requests without a session cookie. Requiring auth
 // here would redirect the webhook and prevent automatic tenant creation.
-const PUBLIC_ROUTES = ['/api/webhooks/clerk']
+const PUBLIC_ROUTES = ['/api/webhooks/clerk', '/api/agent-bridge']
+const PUBLIC_ROUTE_PREFIXES = ['/api/agent-bridge/']
 
 const INTERNAL_WORKSPACE_ROUTES = ['/analytics', '/chat-design', '/engagement-questions'] as const
 
@@ -20,10 +21,16 @@ export function isAdminPath(pathname: string): boolean {
   return pathname === '/admin' || pathname.startsWith('/admin/')
 }
 
-export function isPublicDashboardPath(pathname: string): boolean {
+export function isPublicDashboardPath(
+  pathname: string,
+  nodeEnv: string | undefined = process.env.NODE_ENV,
+): boolean {
   return (
     AUTH_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`)) ||
-    PUBLIC_ROUTES.includes(pathname)
+    PUBLIC_ROUTES.includes(pathname) ||
+    PUBLIC_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
+    (nodeEnv === 'development' &&
+      (pathname === '/dev-fixtures' || pathname.startsWith('/dev-fixtures/')))
   )
 }
 

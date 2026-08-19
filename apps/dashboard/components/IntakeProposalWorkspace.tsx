@@ -6,10 +6,11 @@ import { useRef, useState } from 'react'
 import type { StaffInterviewSubmission } from '@pathfinder/contracts/staff-interview'
 
 import { useTRPCClient } from '../lib/trpc'
+import { browserUuid } from '../lib/browser-uuid'
 import { IntakeProposalReview } from './IntakeProposalReview'
 import { StaffInterviewCapture } from './StaffInterviewCapture'
 
-type Proposal = {
+export type IntakeProposalSummary = {
   id: string
   sourceKind: string
   status: string
@@ -32,7 +33,7 @@ function WebsiteProposalCapture({
 }) {
   const [displayName, setDisplayName] = useState('')
   const [websiteUri, setWebsiteUri] = useState('')
-  const [requestId, setRequestId] = useState(() => crypto.randomUUID())
+  const [requestId, setRequestId] = useState(browserUuid)
   const submittingRef = useRef(false)
   return (
     <form
@@ -45,7 +46,7 @@ function WebsiteProposalCapture({
           .then(() => {
             setDisplayName('')
             setWebsiteUri('')
-            setRequestId(crypto.randomUUID())
+            setRequestId(browserUuid())
           })
           .catch(() => undefined)
           .finally(() => {
@@ -59,7 +60,7 @@ function WebsiteProposalCapture({
         </legend>
         <p className="mt-1 text-sm text-pf-deep/75">
           {clientFacing
-            ? 'Add a website address for the PathFinder team to review. Nothing is published from this step.'
+            ? 'Add a website address for the Torchiko team to review. Nothing is published from this step.'
             : 'Record an address for later review. This form does not fetch or crawl it.'}
         </p>
         <label className="mt-4 block text-sm font-medium text-pf-deep">
@@ -70,7 +71,7 @@ function WebsiteProposalCapture({
             value={displayName}
             onChange={(event) => {
               setDisplayName(event.target.value)
-              setRequestId(crypto.randomUUID())
+              setRequestId(browserUuid())
             }}
             className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3"
           />
@@ -84,7 +85,7 @@ function WebsiteProposalCapture({
             value={websiteUri}
             onChange={(event) => {
               setWebsiteUri(event.target.value)
-              setRequestId(crypto.randomUUID())
+              setRequestId(browserUuid())
             }}
             className="mt-1 min-h-11 w-full rounded-xl border border-pf-light px-3"
           />
@@ -113,7 +114,7 @@ export function IntakeProposalWorkspace({
   adminTenantId,
 }: {
   venueId: string
-  proposals: Proposal[]
+  proposals: IntakeProposalSummary[]
   adminTenantId?: string
 }) {
   const client = useTRPCClient()
@@ -155,13 +156,13 @@ export function IntakeProposalWorkspace({
       }
       setMessage(
         clientFacing
-          ? 'Information received. The PathFinder team will review it before use.'
+          ? 'Information received. The Torchiko team will review it before use.'
           : 'Draft proposal recorded for review. Nothing was approved, applied, or published.',
       )
       router.refresh()
     } catch (error) {
       const failure = clientFacing
-        ? 'PathFinder could not receive this information.'
+        ? 'Torchiko could not receive this information.'
         : error instanceof Error
           ? error.message
           : 'The proposal was not recorded.'
@@ -180,6 +181,7 @@ export function IntakeProposalWorkspace({
   return (
     <div className="space-y-7">
       <section
+        id="website-source"
         className="rounded-2xl border border-pf-light bg-white p-5"
         aria-labelledby="new-intake-source"
       >
@@ -248,9 +250,7 @@ export function IntakeProposalWorkspace({
                   {clientFacing ? (
                     <>
                       {proposal.sourceKind === 'INTERVIEW' ? 'Staff answers' : 'Website'} ·{' '}
-                      {proposal.packageHandoff
-                        ? 'Prepared for PathFinder review'
-                        : 'Review pending'}
+                      {proposal.packageHandoff ? 'Prepared for Torchiko review' : 'Review pending'}
                     </>
                   ) : (
                     <>

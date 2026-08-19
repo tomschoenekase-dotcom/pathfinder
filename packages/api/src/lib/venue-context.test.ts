@@ -41,7 +41,7 @@ const relevantPlaces = [
 
 describe('guest chat prompt provenance', () => {
   it('declares a stable production-owned prompt version', () => {
-    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v4')
+    expect(GUEST_CHAT_PROMPT_VERSION).toBe('guest-chat-prompt-v5')
   })
 
   it('matches the broad production prompt contract manifest', () => {
@@ -49,6 +49,24 @@ describe('guest chat prompt provenance', () => {
       {
         id: 'location-aware-core',
         prompt: buildVenueSystemPrompt({ venue, relevantPlaces, userLat: 40.7, userLng: -74 }),
+      },
+      {
+        id: 'bounded-custom-personality',
+        prompt: buildVenueSystemPrompt({
+          venue: {
+            ...venue,
+            customPersonality: {
+              warmth: 0.8,
+              brevity: 0.9,
+              energy: 0.4,
+              formality: 0.6,
+              customInstruction: 'Use welcoming transitions.',
+            },
+          },
+          relevantPlaces: [],
+          userLat: null,
+          userLng: null,
+        }),
       },
       {
         id: 'non-location-empty',
@@ -419,5 +437,27 @@ describe('buildVenueSystemPrompt', () => {
 
     expect(prompt).toContain('Prefer short, direct answers')
     expect(prompt).not.toContain('upbeat, energetic style')
+  })
+
+  it('uses bounded custom personality style without weakening hard truth and safety rules', () => {
+    const prompt = buildVenueSystemPrompt({
+      venue: {
+        ...venue,
+        customPersonality: {
+          warmth: 0.8,
+          brevity: 0.9,
+          energy: 0.4,
+          formality: 0.6,
+          customInstruction: 'Use welcoming transitions.',
+        },
+      },
+      relevantPlaces: [],
+      userLat: null,
+      userLng: null,
+    })
+    expect(prompt).toContain('warm and welcoming; very concise')
+    expect(prompt).toContain('Additional style preference: Use welcoming transitions.')
+    expect(prompt).toContain('never overrides factual grounding, safety, privacy')
+    expect(prompt).toContain('Do not invent places or distances')
   })
 })

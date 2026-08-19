@@ -9,6 +9,7 @@ import {
   createDisabledAgentIdentity,
   disableAgentIdentity,
   editDisabledAgentIdentity,
+  enableAgentIdentity,
 } from './agent-identity-configuration-actions'
 
 const revision = new Date('2026-08-11T14:30:00.000Z')
@@ -289,6 +290,52 @@ describe('staged AgentIdentity configuration actions', () => {
       expect.objectContaining({ action: 'admin.agent-identity.disabled' }),
       tx,
     )
+  })
+
+  it('enables only a provider-configured identity with exact-scope CAS and strict audit', async () => {
+    const { tx, client } = harness()
+    tx.agentIdentity.findFirst.mockResolvedValue(
+      identity({
+        defaultProvider: 'anthropic',
+        defaultModel: 'claude-sonnet-4-6',
+      }),
+    )
+    tx.agentIdentity.findFirstOrThrow.mockResolvedValue(
+      identity({
+        defaultProvider: 'anthropic',
+        defaultModel: 'claude-sonnet-4-6',
+        enabled: true,
+      }),
+    )
+    await enableAgentIdentity(
+      { scope: venueScope, agentIdentityId: 'agent_1', expectedUpdatedAt: revision, actor },
+      client as never,
+    )
+    expect(tx.agentIdentity.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          enabled: false,
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+        }),
+        data: expect.objectContaining({ enabled: true }),
+      }),
+    )
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'admin.agent-identity.enabled' }),
+      tx,
+    )
+  })
+
+  it('refuses to enable an identity without a provider and model', async () => {
+    const { tx, client } = harness()
+    await expect(
+      enableAgentIdentity(
+        { scope: venueScope, agentIdentityId: 'agent_1', expectedUpdatedAt: revision, actor },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(tx.agentIdentity.updateMany).not.toHaveBeenCalled()
   })
 
   it('propagates strict audit failure so the enclosing transaction cannot report success', async () => {

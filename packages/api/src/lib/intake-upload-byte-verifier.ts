@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { once } from 'node:events'
+import { createConnection } from 'node:net'
 
 import {
   INTAKE_UPLOAD_MAX_BYTES,
@@ -26,7 +28,12 @@ export type IntakeUploadMalwareScanner = {
     bytes: IntakeUploadByteSource
     expectedBytes: number
     expectedSha256: string
-  }): Promise<{ verdict: 'CLEAN' | 'INFECTED'; verdictHash: string }>
+  }): Promise<{
+    verdict: 'CLEAN' | 'INFECTED'
+    verdictHash: string
+    computedByteSize: number
+    computedSha256: string
+  }>
 }
 
 function startsWith(bytes: Uint8Array, signature: number[]): boolean {
@@ -35,6 +42,10 @@ function startsWith(bytes: Uint8Array, signature: number[]): boolean {
 
 function ascii(bytes: Uint8Array, offset: number, length: number): string {
   return String.fromCharCode(...bytes.subarray(offset, offset + length))
+}
+
+function isStreamingMediaMime(mimeType: IntakeUploadMimeType): boolean {
+  return mimeType.startsWith('video/') || mimeType.startsWith('audio/')
 }
 
 function matchesMime(bytes: Uint8Array, mimeType: IntakeUploadMimeType): boolean {
@@ -57,6 +68,22 @@ function matchesMime(bytes: Uint8Array, mimeType: IntakeUploadMimeType): boolean
     const brand = ascii(bytes, 8, 4)
     return ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'].includes(brand)
   }
+  if (mimeType === 'video/mp4' || mimeType === 'video/quicktime' || mimeType === 'audio/mp4') {
+    if (ascii(bytes, 4, 4) !== 'ftyp') return false
+    const brand = ascii(bytes, 8, 4)
+    return mimeType === 'video/quicktime'
+      ? brand === 'qt  '
+      : ['isom', 'iso2', 'mp41', 'mp42', 'avc1', 'M4V ', 'M4A '].includes(brand)
+  }
+  if (mimeType === 'video/webm' || mimeType === 'audio/webm')
+    return startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3])
+  if (mimeType === 'audio/wav')
+    return ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WAVE'
+  if (mimeType === 'audio/mpeg')
+    return (
+      ascii(bytes, 0, 3) === 'ID3' ||
+      (bytes[0] === 0xff && bytes[1] !== undefined && (bytes[1] & 0xe0) === 0xe0)
+    )
   return false
 }
 
@@ -126,6 +153,7 @@ function conservativeStructurePrecheck(bytes: Buffer, mimeType: IntakeUploadMime
     }
     return sawFtyp && offset === bytes.length
   }
+  if (isStreamingMediaMime(mimeType)) return bytes.length >= 12 && matchesMime(bytes, mimeType)
   return false
 }
 
@@ -179,6 +207,9 @@ export async function verifyIntakeUploadBytes(input: {
 }): Promise<IntakeUploadPrecheckVerdict> {
   const hash = createHash('sha256')
   const chunks: Uint8Array[] = []
+  const streamingMedia = isStreamingMediaMime(input.mimeType)
+  const mediaPrefixLimit = 1024 * 1024
+  let capturedBytes = 0
   let total = 0
   for await (const chunk of input.bytes) {
     if (input.signal?.aborted) throw new Error('Intake upload precheck was aborted')
@@ -204,7 +235,12 @@ export async function verifyIntakeUploadBytes(input: {
       }
     }
     hash.update(chunk)
-    chunks.push(chunk)
+    if (!streamingMedia) chunks.push(chunk)
+    else if (capturedBytes < mediaPrefixLimit) {
+      const captured = chunk.subarray(0, mediaPrefixLimit - capturedBytes)
+      chunks.push(captured)
+      capturedBytes += captured.byteLength
+    }
     await input.onProgress?.(total)
   }
   const digest = hash.digest('hex')
@@ -230,7 +266,68 @@ export async function verifyIntakeUploadBytes(input: {
   }
 }
 
-/** No scanner is configured in this repository. Provider adapters must be injected explicitly. */
 export function configuredIntakeUploadMalwareScanner(): IntakeUploadMalwareScanner | null {
-  return null
+  const host = process.env.INTAKE_CLAMAV_HOST?.trim()
+  const parsedPort = Number(process.env.INTAKE_CLAMAV_PORT ?? '3310')
+  if (!host) return null
+  if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65_535)
+    throw new Error('INTAKE_CLAMAV_PORT must be a valid TCP port')
+  return {
+    engine: 'clamav-clamd',
+    engineVersion: 'daemon',
+    async scan(input) {
+      const socket = createConnection({ host, port: parsedPort })
+      socket.setTimeout(30 * 60_000)
+      const responseChunks: Buffer[] = []
+      socket.on('data', (chunk: Buffer) => responseChunks.push(Buffer.from(chunk)))
+      const socketError = new Promise<never>((_, reject) => {
+        socket.once('error', reject)
+        socket.once('timeout', () => reject(new Error('ClamAV scan timed out')))
+      })
+      await Promise.race([once(socket, 'connect'), socketError])
+      socket.write(Buffer.from('zINSTREAM\0'))
+      const hash = createHash('sha256')
+      let total = 0
+      for await (const chunk of input.bytes) {
+        total += chunk.byteLength
+        if (total > input.expectedBytes || total > INTAKE_UPLOAD_MAX_BYTES) {
+          socket.destroy()
+          throw new Error('ClamAV stream exceeded immutable upload size')
+        }
+        hash.update(chunk)
+        const size = Buffer.allocUnsafe(4)
+        size.writeUInt32BE(chunk.byteLength)
+        if (!socket.write(size)) await Promise.race([once(socket, 'drain'), socketError])
+        if (!socket.write(chunk)) await Promise.race([once(socket, 'drain'), socketError])
+      }
+      socket.end(Buffer.alloc(4))
+      await Promise.race([once(socket, 'close'), socketError])
+      const computedSha256 = hash.digest('hex')
+      if (total !== input.expectedBytes || computedSha256 !== input.expectedSha256)
+        throw new Error('ClamAV stream did not match immutable upload evidence')
+      const response = Buffer.concat(responseChunks).toString('utf8').replace(/\0+$/u, '').trim()
+      const verdict = response.endsWith(' OK')
+        ? ('CLEAN' as const)
+        : response.includes(' FOUND')
+          ? ('INFECTED' as const)
+          : null
+      if (!verdict) throw new Error(`ClamAV returned an unrecognized response: ${response}`)
+      return {
+        verdict,
+        computedByteSize: total,
+        computedSha256,
+        verdictHash: createHash('sha256')
+          .update(
+            JSON.stringify({
+              domain: 'pathfinder.clamav-verdict.v1',
+              engine: 'clamav-clamd',
+              response,
+              byteSize: total,
+              sha256: computedSha256,
+            }),
+          )
+          .digest('hex'),
+      }
+    },
+  }
 }

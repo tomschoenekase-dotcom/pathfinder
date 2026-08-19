@@ -7,6 +7,7 @@
     "embedding:freshness": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-freshness.ts",
     "embedding:claim-repair": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/embedding-claim-repair.ts",
     "jobs:terminal-redrive": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/terminal-redrive.ts",
+    "agent-bridge:run": "pnpm --dir ../../packages/db exec tsx ../../apps/workers/src/scripts/agent-bridge-runner.ts",
     "lint": "eslint --config ../../packages/config/eslint/base.js \"src/**/*.ts\"",
     "start": "node --require ./dist/sentry.js dist/bootstrap.js",
     "typecheck": "tsc --noEmit --project tsconfig.json",

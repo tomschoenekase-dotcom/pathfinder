@@ -18,7 +18,7 @@ export default async function AgentRunPage({ params, searchParams }: Props) {
   const query = await searchParams
   const caller = await createAdminCaller()
   try {
-    const [run, actions, timeline, approvals] = await Promise.all([
+    const [run, actions, timeline, approvals, outcomes] = await Promise.all([
       caller.admin.getAgentRun({ tenantId, venueId, agentRunId: runId }),
       caller.admin.listAgentRunActions({
         tenantId,
@@ -42,6 +42,13 @@ export default async function AgentRunPage({ params, searchParams }: Props) {
         limit: 25,
         ...(cursor(query, 'approvalCursor') ? { cursor: cursor(query, 'approvalCursor') } : {}),
       }),
+      caller.admin.listAgentOutcomeObservations({
+        tenantId,
+        venueId,
+        agentRunId: runId,
+        limit: 25,
+        ...(cursor(query, 'outcomeCursor') ? { cursor: cursor(query, 'outcomeCursor') } : {}),
+      }),
     ])
     return (
       <AgentRunOperationsView
@@ -51,6 +58,7 @@ export default async function AgentRunPage({ params, searchParams }: Props) {
         actions={actions}
         timeline={timeline}
         approvals={approvals}
+        outcomes={outcomes}
       />
     )
   } catch {

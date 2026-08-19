@@ -54,6 +54,14 @@ const rawEnvSchema = z
     // requires the evaluation-runner-v1 TenantFeatureFlag as well.
     EVALUATION_RUNNER_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Agent task consumption is separately gated from every existing provider
+    // workload. It stays off until an operator configures an execution adapter.
+    AGENT_RUNNER_ENABLED: z.enum(['true', 'false']).optional(),
+
+    // Public machine-to-machine bridge transport is separately dark. Database
+    // activation alone must never expose the HTTP surface.
+    AGENT_BRIDGE_HTTP_ENABLED: z.enum(['true', 'false']).optional(),
+
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
     EMBED_PREVIEW_ENABLED: z.enum(['true', 'false']).optional(),
@@ -100,6 +108,11 @@ const rawEnvSchema = z
     STORAGE_ACCESS_KEY_ID: z.string().optional(),
     STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
 
+    // Optional authoritative malware scanner for quarantined intake bytes.
+    // Without it, uploads remain PRECHECK_PASSED and cannot become reviewable.
+    INTAKE_CLAMAV_HOST: z.string().trim().min(1).max(253).optional(),
+    INTAKE_CLAMAV_PORT: z.coerce.number().int().min(1).max(65_535).optional(),
+
     // Required when email is wired (post-MVP scaffolding)
     RESEND_API_KEY: z.string().optional(),
     RESEND_FROM_EMAIL: z.string().optional(),
@@ -134,6 +147,8 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   GENERATION_DISPATCH_ENABLED: values.GENERATION_DISPATCH_ENABLED === 'true',
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
   EVALUATION_RUNNER_ENABLED: values.EVALUATION_RUNNER_ENABLED === 'true',
+  AGENT_RUNNER_ENABLED: values.AGENT_RUNNER_ENABLED === 'true',
+  AGENT_BRIDGE_HTTP_ENABLED: values.AGENT_BRIDGE_HTTP_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',
 }))
 

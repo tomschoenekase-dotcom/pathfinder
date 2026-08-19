@@ -158,7 +158,7 @@ export function ResponseRenderer({
                       className={`inline-flex min-h-10 items-center rounded-full px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 ${
                         action.style === 'primary'
                           ? 'bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)] hover:opacity-90'
-                          : 'border border-[var(--chat-border)] bg-[var(--chat-bg)] text-[var(--chat-accent)] hover:border-[var(--chat-accent)]'
+                          : 'border border-[var(--chat-border)] bg-[var(--chat-bg)] text-[var(--chat-accent-text)] hover:border-[var(--chat-accent)]'
                       }`}
                     >
                       {action.label}
@@ -194,7 +194,7 @@ export function ResponseRenderer({
                             href={href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="font-medium text-[var(--chat-accent)] underline decoration-current/30 underline-offset-2 hover:decoration-current"
+                            className="font-medium text-[var(--chat-accent-text)] underline decoration-current/30 underline-offset-2 hover:decoration-current"
                           >
                             {citation.label}
                             <span className="sr-only"> (opens in a new tab)</span>
@@ -237,7 +237,7 @@ export function ResponseRenderer({
                         <button
                           type="button"
                           aria-label={choice.accessibleLabel ?? choice.label}
-                          className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-2 text-sm font-semibold text-[var(--chat-accent)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2"
+                          className="min-h-11 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 py-2 text-sm font-semibold text-[var(--chat-accent-text)] transition hover:border-[var(--chat-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2"
                           onClick={() => onChoiceSelect(choice.value)}
                         >
                           {choice.label}
@@ -367,7 +367,7 @@ export function ResponseRenderer({
                                 href={href}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-[var(--chat-accent)] underline underline-offset-2"
+                                className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-[var(--chat-accent-text)] underline underline-offset-2"
                               >
                                 Event details{' '}
                                 <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
@@ -404,7 +404,7 @@ export function ResponseRenderer({
                       href={href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-[var(--chat-accent)] underline underline-offset-2"
+                      className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-[var(--chat-accent-text)] underline underline-offset-2"
                     >
                       Open map link <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                       <span className="sr-only"> (opens in a new tab)</span>

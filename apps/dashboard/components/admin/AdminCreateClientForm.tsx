@@ -1,7 +1,9 @@
 'use client'
 
 import { type FormEvent, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
+import { browserUuid } from '../../lib/browser-uuid'
 import { useTRPCClient } from '../../lib/trpc'
 
 function getErrorMessage(error: unknown) {
@@ -14,14 +16,16 @@ function getErrorMessage(error: unknown) {
 
 export function AdminCreateClientForm() {
   const client = useTRPCClient()
+  const router = useRouter()
 
   const [clientName, setClientName] = useState('')
   const [venueName, setVenueName] = useState('')
   const [venueCategory, setVenueCategory] = useState('')
+  const [primaryContactEmail, setPrimaryContactEmail] = useState('')
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const submitInFlightRef = useRef(false)
-  const requestIdRef = useRef(crypto.randomUUID())
+  const requestIdRef = useRef(browserUuid())
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -32,9 +36,13 @@ export function AdminCreateClientForm() {
     setErrorMessage(null)
 
     try {
-      const { tenant } = await client.admin.createClientAndVenue.mutate({
+      const { tenant, venue } = await client.admin.createClientAndVenue.mutate({
         requestId: requestIdRef.current,
         clientName: clientName.trim(),
+        primaryContact: {
+          emailAddress: primaryContactEmail.trim(),
+          role: 'org:admin',
+        },
         venue: {
           name: venueName.trim(),
           ...(venueCategory.trim() ? { category: venueCategory.trim() } : {}),
@@ -48,7 +56,8 @@ export function AdminCreateClientForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId: tenant.id }),
       })
-      window.location.href = '/'
+      router.push(`/venues/${encodeURIComponent(venue.id)}/onboarding`)
+      router.refresh()
     } catch (error) {
       submitInFlightRef.current = false
       setErrorMessage(getErrorMessage(error))
@@ -61,6 +70,25 @@ export function AdminCreateClientForm() {
       onSubmit={handleSubmit}
       className="space-y-6 rounded-3xl border border-pf-light bg-pf-white p-8 shadow-sm"
     >
+      <div className="space-y-2">
+        <label htmlFor="primary-contact-email" className="text-sm font-medium text-pf-deep">
+          Primary client contact
+        </label>
+        <input
+          id="primary-contact-email"
+          type="email"
+          required
+          autoComplete="email"
+          value={primaryContactEmail}
+          onChange={(event) => setPrimaryContactEmail(event.target.value)}
+          placeholder="owner@example.com"
+          className="min-h-11 w-full rounded-2xl border border-pf-light px-4 text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
+        />
+        <p className="text-xs text-pf-deep/50">
+          Creates a retry-safe owner invitation after the private workspace is ready.
+        </p>
+      </div>
+
       <div className="space-y-2">
         <label htmlFor="client-name" className="text-sm font-medium text-pf-deep">
           Client name
@@ -117,14 +145,16 @@ export function AdminCreateClientForm() {
       <div className="space-y-3">
         <button
           type="submit"
-          disabled={saving || !clientName.trim() || !venueName.trim()}
+          disabled={
+            saving || !clientName.trim() || !venueName.trim() || !primaryContactEmail.trim()
+          }
           className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-pf-primary px-5 text-sm font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? 'Creating…' : 'Create client & venue →'}
         </button>
         <p className="text-xs text-pf-deep/50">
-          You&apos;ll land in the new client&apos;s dashboard to finish setup. Whenever you&apos;re
-          ready, use Settings → Invite a team member to bring the real client in by email.
+          You&apos;ll land in the new onboarding journey. The client receives a secure organization
+          invitation; nothing is published by creating the workspace.
         </p>
       </div>
     </form>

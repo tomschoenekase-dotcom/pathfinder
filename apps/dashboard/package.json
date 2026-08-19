@@ -2,8 +2,8 @@
   "name": "@pathfinder/dashboard",
   "private": true,
   "scripts": {
-    "build": "next build && node ../../scripts/copy-next-standalone-assets.mjs",
-    "dev": "next dev --port 3001",
+    "build": "node ../../scripts/sync-character-assets.mjs && next build && node ../../scripts/copy-next-standalone-assets.mjs",
+    "dev": "node ../../scripts/sync-character-assets.mjs && next dev --port 3001",
     "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"components/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"instrumentation*.ts\" \"sentry.*.config.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
@@ -24,6 +24,7 @@
     "@trpc/react-query": "^11.0.0",
     "@trpc/server": "^11.0.0",
     "autoprefixer": "10.4.21",
+    "hash-wasm": "^4.12.0",
     "lucide-react": "^0.511.0",
     "next": "15.5.21",
     "postcss": "8.5.23",

@@ -8,6 +8,8 @@ const docsRoot = new URL('../docs/', import.meta.url)
 const execFile = promisify(execFileCallback)
 const activeStopMarker =
   'Migration instruction status: INCIDENT STOP — DO NOT EXECUTE EXTERNAL DATABASE COMMANDS.'
+const stagingOnlyMarker =
+  'Migration instruction status: STAGING-ONLY AUTHORIZED — PRODUCTION COMMANDS REMAIN STOPPED.'
 const historicalMarker = 'Migration instruction status: HISTORICAL — DO NOT EXECUTE.'
 const inertArchiveMarker = '## Post-resolution external exercise archive — INERT, DO NOT EXECUTE'
 
@@ -44,30 +46,38 @@ function findUnsafeInstructions(source) {
     .map(([name]) => name)
 }
 
-test('the external database incident stop remains active and authority-gated', async () => {
+test('the production incident stop remains active while staging is authority-gated', async () => {
   const stop = await readFile(new URL('database-incident-stop.md', docsRoot), 'utf8')
 
-  assert.match(stop, /Incident state: ACTIVE/)
+  assert.match(stop, /Production incident state: ACTIVE/)
+  assert.match(stop, /Staging exception state: APPROVED/)
+  assert.match(stop, /hard USD 10 spending ceiling/)
+  assert.match(stop, /synthetic-only staging database/)
+  assert.match(stop, /known production project reference is explicitly denied/)
   assert.match(stop, /Tom identifies the affected external project\/environment/)
   assert.match(stop, /authorizes a bounded read-only assessment plan/)
   assert.match(stop, /Tom explicitly approves the remediation, roll-forward, or rollback plan/)
   assert.match(stop, /every\s+external database inspection or write that plan authorizes/)
-  assert.match(stop, /Only after that explicit approval/)
-  assert.doesNotMatch(stop, /Incident state: RESOLVED/)
+  assert.match(stop, /Only after that explicit production approval/)
+  assert.doesNotMatch(stop, /Production incident state: RESOLVED/)
 })
 
-test('active runbooks expose no executable external database instruction', async () => {
+test('active runbook admits only the reviewed staging wrapper', async () => {
   const staging = await readFile(new URL('railway-staging.md', docsRoot), 'utf8')
   const archiveOffset = staging.indexOf(inertArchiveMarker)
 
-  assert.equal(hasLeadingMarker(staging, activeStopMarker), true)
+  assert.equal(hasLeadingMarker(staging, stagingOnlyMarker), true)
   assert.match(staging, /database-incident-stop\.md/)
   assert.notEqual(archiveOffset, -1)
 
   const activeRunbook = staging.slice(0, archiveOffset)
   const inertArchive = staging.slice(archiveOffset)
-  assert.deepEqual(findUnsafeInstructions(activeRunbook), [])
+  const wrapperOccurrences = activeRunbook.match(/pnpm db:migrate:staging/gu) ?? []
+  assert.equal(wrapperOccurrences.length, 1)
+  assert.deepEqual(findUnsafeInstructions(activeRunbook.replace('pnpm db:migrate:staging', '')), [])
   assert.match(activeRunbook, /db:migrate:disposable/)
+  assert.match(activeRunbook, /PATHFINDER_CONFIRM_STAGING_DATA_POLICY=synthetic-only/)
+  assert.match(activeRunbook, /no greater than\s+10/)
   assert.ok(findUnsafeInstructions(inertArchive).some((finding) => finding.startsWith('SQL ')))
   assert.doesNotMatch(inertArchive.slice(inertArchiveMarker.length), /^## /m)
   assert.match(inertArchive, /Tom explicitly approves an incident\s+assessment/)
@@ -88,6 +98,7 @@ test('every retained historical database instruction is prominently deactivated'
 
     if (
       !hasLeadingMarker(source, activeStopMarker) &&
+      !hasLeadingMarker(source, stagingOnlyMarker) &&
       !hasLeadingMarker(source, historicalMarker)
     ) {
       unguarded.push(`${path}: ${findings.join(', ')}`)

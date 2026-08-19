@@ -96,6 +96,30 @@ describe('API AI usage recorder', () => {
     expect(recorder.usageEventIds()).toEqual(['usage_1', 'usage_2'])
   })
 
+  it('correlates Client Tochi usage without assigning a public visitor session', async () => {
+    createUsageEvent.mockResolvedValueOnce({ id: 'usage_tochi' })
+    const recorder = createApiAiUsageRecorder({
+      db,
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      clientAssistantTurnId: 'turn_1',
+      feature: 'client-tochi',
+      surface: 'client-portal',
+    })
+
+    await recorder.sink(usage)
+
+    expect(createUsageEvent.mock.calls[0]![0].data).toMatchObject({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      clientAssistantTurnId: 'turn_1',
+      feature: 'client-tochi',
+      surface: 'client-portal',
+    })
+    expect(createUsageEvent.mock.calls[0]![0].data).not.toHaveProperty('sessionId')
+    expect(recorder.usageEventIds()).toEqual(['usage_tochi'])
+  })
+
   it('fails with a generic error and logs no persistence exception details', async () => {
     createUsageEvent.mockRejectedValueOnce(new Error('postgres host and secret detail'))
     const recorder = createApiAiUsageRecorder({

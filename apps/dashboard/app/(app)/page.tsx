@@ -59,7 +59,7 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
   const tasks: ClientPortalTask[] = taskEvidence.missingInformation.map((request) => ({
     id: `missing-information:${request.requestId}`,
     title: request.subject,
-    description: 'PathFinder Support is waiting for the details below.',
+    description: 'Torchiko Support is waiting for the details below.',
     href: `/support?venue=${encodeURIComponent(selectedVenue!.id)}&request=${encodeURIComponent(request.requestId)}`,
     required: true,
     items: request.items,
@@ -110,15 +110,28 @@ export default async function DashboardIndexPage({ searchParams }: DashboardInde
       description: taskEvidence.hasSharedInformation
         ? 'Add another website, staff answer, document, or image when it is ready.'
         : 'Start with a website, staff answer, document, or image. Rough source material is welcome.',
-      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/intake`,
+      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/onboarding`,
       required: true,
+    })
+  } else if (
+    selectedLifecycle.lifecycle.state === 'PROCESSING' ||
+    selectedLifecycle.lifecycle.state === 'INTERNAL_REVIEW' ||
+    selectedLifecycle.lifecycle.state === 'REVISIONS'
+  ) {
+    tasks.push({
+      id: 'onboarding-progress',
+      title: 'View onboarding progress',
+      description:
+        'See what Torchiko is working on, what is ready, and whether any focused questions need you.',
+      href: `/venues/${encodeURIComponent(selectedVenue!.id)}/onboarding`,
+      required: false,
     })
   }
   if (taskEvidence.latestReport) {
     tasks.push({
       id: `report:${taskEvidence.latestReport.id}`,
       title: taskEvidence.latestReport.title,
-      description: 'A published PathFinder report is available to read.',
+      description: 'A published Torchiko report is available to read.',
       href: `/weekly-reports/${encodeURIComponent(taskEvidence.latestReport.id)}?venue=${encodeURIComponent(selectedVenue!.id)}`,
       required: false,
     })

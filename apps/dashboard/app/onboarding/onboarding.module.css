@@ -54,7 +54,7 @@
   letter-spacing: 0.17em;
 }
 
-.brand span {
+.brand > span {
   display: grid;
   width: 38px;
   height: 38px;
@@ -64,7 +64,7 @@
   border-radius: 50%;
 }
 
-.brand svg {
+.brand > svg {
   width: 20px;
 }
 
@@ -201,6 +201,39 @@
   margin: 12px 0 0;
   color: #a12c3d;
   font-size: 12px;
+}
+
+.invitationList {
+  display: grid;
+  gap: 12px;
+}
+
+.invitationCard {
+  padding: 18px;
+  border: 1px solid #d3e0dc;
+  border-radius: 16px;
+  background: #fbfdfc;
+}
+
+.invitationCard h3 {
+  margin: 5px 0 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.invitationCard p {
+  margin: 5px 0 0;
+  color: #607574;
+  font-size: 11px;
+}
+
+.invitationCard .invitationLabel {
+  margin: 0;
+  color: #2d8578;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .primaryButton {

@@ -46,8 +46,24 @@ The bindings expose:
 - job lifecycle metadata only when the record's internal payload has an exact matching `venueId`;
   the payload and error text are never selected or returned, and unmarked jobs are invisible;
 - evaluation lifecycle/model/budget metadata without errors, corpus, model, run-config, identity,
-  package, or content snapshots; and
-- derived readiness counts/state without configuration blobs.
+  package, or content snapshots;
+- derived readiness counts/state without configuration blobs;
+- venue-scoped agent questions and operator responses without credential or raw execution data; and
+- explicit venue-scoped agent outcome observations without operation IDs or human actor identifiers.
+
+## Agent-to-operator interaction
+
+`pathfinder.ask_operator` is the first live domain binding beyond reads. An enabled, in-scope agent
+can create an idempotent question using an operation UUID, optionally attach it to an active run,
+offer up to eight suggested answers, and mark it blocking. A blocking question moves a queued or
+running run to `AWAITING_INPUT`. It is a low-risk interaction tool: it cannot approve, execute,
+publish, or change venue content.
+
+Platform admins answer or dismiss questions in the Agent workspace. Responses use optimistic
+concurrency, write audit and timeline evidence, and return a blocked run to `QUEUED`. When the
+durable runner feature gate is enabled, the response endpoint idempotently enqueues that eligible
+run and reports whether dispatch actually occurred; it never claims execution when the runtime is
+paused.
 
 The adapter is exported by `@pathfinder/api/mcp`, but nothing instantiates it in a listener. Write
 actions remain injected separately and default-off at the registry boundary.
@@ -58,8 +74,8 @@ actions remain injected separately and default-off at the registry boundary.
   dispatcher exists.
 - No OAuth/credential issuer, token validation, Clerk adapter, API-key persistence, or authorization
   server exists. The registry requires a credential scope already verified by the embedding server.
-- No database, Prisma schema, migration, environment variable, feature-flag change, or external
-  database action is included. The external database incident stop remains active.
+- The agent-question schema and migration are implemented locally, but no migration was applied to
+  any external or production database.
 - Concrete bounded read actions are available, but no deployment composition root currently injects
   them into a transport. Draft/evaluation write actions remain unbound.
 - Draft/evaluation tools are disabled unless the embedding server explicitly enables them, and every

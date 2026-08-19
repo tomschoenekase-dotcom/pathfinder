@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
@@ -6,6 +6,8 @@ import {
   IntakeUploadRejectionCode,
   IntakeUploadReserveRequest,
   IntakeUploadRetryReason,
+  INTAKE_UPLOAD_NON_MEDIA_MAX_BYTES,
+  INTAKE_UPLOAD_VENUE_MAX_BYTES,
   IntakeUploadVerificationEvidence,
   IntakeUploadVerifiedTransport,
   type IntakeUploadReserveRequest as IntakeUploadReserveRequestType,
@@ -15,6 +17,7 @@ import {
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
+import { recordOrReplayOnboardingMilestoneEvent } from './onboarding-milestone-events'
 
 export type IntakeUploadActor = {
   type: 'HUMAN'
@@ -78,6 +81,7 @@ const scopeInput = z
   .strict()
 
 const claimIdInput = z.string().uuid()
+const multipartUploadIdInput = z.string().trim().min(1).max(1024)
 
 const uploadStateSelect = {
   id: true,
@@ -88,11 +92,16 @@ const uploadStateSelect = {
   displayName: true,
   fileName: true,
   mimeType: true,
+  category: true,
   byteSize: true,
   sha256: true,
   objectKey: true,
   objectGeneration: true,
   storageVersionId: true,
+  multipartUploadId: true,
+  multipartStartedAt: true,
+  multipartCompletedAt: true,
+  multipartAbortedAt: true,
   status: true,
   verificationClaimId: true,
   verificationClaimedAt: true,
@@ -113,6 +122,7 @@ const safeListSelect = {
   displayName: true,
   fileName: true,
   mimeType: true,
+  category: true,
   byteSize: true,
   rejectionCode: true,
   intakeRunId: true,
@@ -171,12 +181,21 @@ function parseScope(input: unknown) {
   return parsed.data
 }
 
+function intakeUploadWhere(scope: ReturnType<typeof parseScope>) {
+  return {
+    tenantId: scope.tenantId,
+    venueId: scope.venueId,
+    id: scope.uploadId,
+  }
+}
+
 function safeUpload(upload: {
   id: string
   status: string
   displayName: string
   fileName: string
   mimeType: string
+  category: string
   byteSize: number
   rejectionCode: string | null
   intakeRunId: string | null
@@ -189,6 +208,7 @@ function safeUpload(upload: {
     displayName: upload.displayName,
     fileName: upload.fileName,
     mimeType: upload.mimeType,
+    category: upload.category,
     byteSize: upload.byteSize,
     rejectionCode: upload.rejectionCode,
     intakeRunId: upload.intakeRunId,
@@ -203,6 +223,11 @@ function uploadTarget(upload: {
   mimeType: string
   byteSize: number
   sha256: string
+  storageVersionId?: string | null
+  multipartUploadId?: string | null
+  multipartStartedAt?: Date | null
+  multipartCompletedAt?: Date | null
+  multipartAbortedAt?: Date | null
 }) {
   return {
     objectKey: upload.objectKey,
@@ -210,6 +235,11 @@ function uploadTarget(upload: {
     mimeType: upload.mimeType,
     byteSize: upload.byteSize,
     sha256: upload.sha256,
+    storageVersionId: upload.storageVersionId ?? null,
+    multipartUploadId: upload.multipartUploadId ?? null,
+    multipartStartedAt: upload.multipartStartedAt ?? null,
+    multipartCompletedAt: upload.multipartCompletedAt ?? null,
+    multipartAbortedAt: upload.multipartAbortedAt ?? null,
   }
 }
 
@@ -242,6 +272,13 @@ export async function reserveIntakeUploadAction(input: {
   if (!parsed.success)
     throw new IntakeUploadActionError('INVALID_INPUT', 'Invalid intake upload reservation')
   const request = parsed.data
+  const media = request.mimeType.startsWith('video/') || request.mimeType.startsWith('audio/')
+  if (!media && request.byteSize > INTAKE_UPLOAD_NON_MEDIA_MAX_BYTES) {
+    throw new IntakeUploadActionError(
+      'INVALID_INPUT',
+      'Documents and images must be 100 MB or smaller',
+    )
+  }
   const requestHash = intakeUploadRequestHash(request)
   const trustedObjectIdentity = trustedObjectIdentityInput.safeParse(input.trustedObjectIdentity)
   if (!trustedObjectIdentity.success)
@@ -259,6 +296,7 @@ export async function reserveIntakeUploadAction(input: {
       if (replay) {
         if (
           replay.requestHash !== requestHash ||
+          replay.category !== request.category ||
           replay.venueId !== scope.venueId ||
           replay.requestedBy !== actor.id ||
           replay.requestedByRole !== actor.role
@@ -282,6 +320,23 @@ export async function reserveIntakeUploadAction(input: {
       })
       if (!venue) throw new IntakeUploadActionError('NOT_FOUND', 'Venue not found')
 
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-upload-quota:${scope.tenantId}:${scope.venueId}`}, 0))`
+
+      const activeBytes = await tx.intakeUpload.aggregate({
+        where: {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          status: { not: 'REJECTED' },
+        },
+        _sum: { byteSize: true },
+      })
+      if ((activeBytes._sum.byteSize ?? 0) + request.byteSize > INTAKE_UPLOAD_VENUE_MAX_BYTES) {
+        throw new IntakeUploadActionError(
+          'CONFLICT',
+          'This venue has reached its 50 GB material allowance.',
+        )
+      }
+
       const upload = await tx.intakeUpload.create({
         data: {
           tenantId: scope.tenantId,
@@ -291,6 +346,7 @@ export async function reserveIntakeUploadAction(input: {
           displayName: request.displayName,
           fileName: request.fileName,
           mimeType: request.mimeType,
+          category: request.category,
           byteSize: request.byteSize,
           sha256: request.sha256,
           objectKey: trustedObjectIdentity.data.objectKey,
@@ -334,6 +390,7 @@ export async function reserveIntakeUploadAction(input: {
       })
       if (
         replay?.requestHash === requestHash &&
+        replay.category === request.category &&
         replay.venueId === scope.venueId &&
         replay.requestedBy === actor.id &&
         replay.requestedByRole === actor.role
@@ -373,7 +430,11 @@ export async function claimIntakeUploadVerificationAction(input: {
   const client = input.client ?? db
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    const current = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    const uploadWhere = intakeUploadWhere(scope)
+    const current = await tx.intakeUpload.findFirst({
+      where: uploadWhere,
+      select: uploadStateSelect,
+    })
     if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
     requireUploadOwner(current, actor)
     if (current.status === 'AWAITING_REVIEW' && current.intakeRunId) {
@@ -384,10 +445,24 @@ export async function claimIntakeUploadVerificationAction(input: {
       }
     }
     if (current.status === 'PRECHECK_PASSED') {
+      const now = new Date()
+      const leaseUntil = new Date(now.getTime() + INTAKE_UPLOAD_VERIFICATION_LEASE_MS)
+      const changed = await tx.intakeUpload.updateMany({
+        where: { ...uploadWhere, status: 'PRECHECK_PASSED', verificationClaimId: null },
+        data: {
+          status: 'VERIFYING',
+          verificationClaimId: claim.data,
+          verificationClaimedAt: now,
+          verificationLeaseUntil: leaseUntil,
+        },
+      })
+      if (changed.count !== 1)
+        throw new IntakeUploadActionError('CONFLICT', 'Intake upload verification was claimed')
       return {
         state: 'PRECHECK_PASSED' as const,
-        upload: safeUpload(current),
-        replayed: true as const,
+        upload: safeUpload({ ...current, status: 'VERIFYING', updatedAt: now }),
+        uploadTarget: uploadTarget(current),
+        replayed: false as const,
       }
     }
     const now = new Date()
@@ -416,7 +491,7 @@ export async function claimIntakeUploadVerificationAction(input: {
     const leaseUntil = new Date(now.getTime() + INTAKE_UPLOAD_VERIFICATION_LEASE_MS)
     const changed = await tx.intakeUpload.updateMany({
       where: {
-        ...scope,
+        ...uploadWhere,
         OR: [
           { status: 'RESERVED', verificationClaimId: null, verificationLeaseUntil: null },
           { status: 'VERIFYING', verificationLeaseUntil: { lte: now } },
@@ -444,7 +519,10 @@ export async function claimIntakeUploadVerificationAction(input: {
       },
       tx,
     )
-    const claimed = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    const claimed = await tx.intakeUpload.findFirst({
+      where: uploadWhere,
+      select: uploadStateSelect,
+    })
     if (!claimed) throw new Error('Claimed intake upload disappeared')
     return {
       state: 'VERIFYING' as const,
@@ -475,7 +553,11 @@ export async function releaseIntakeUploadVerificationAction(input: {
   const client = input.client ?? db
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    const current = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    const uploadWhere = intakeUploadWhere(scope)
+    const current = await tx.intakeUpload.findFirst({
+      where: uploadWhere,
+      select: uploadStateSelect,
+    })
     if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
     requireUploadOwner(current, actor)
     if (current.status !== 'VERIFYING' || current.verificationClaimId !== claim.data)
@@ -483,7 +565,7 @@ export async function releaseIntakeUploadVerificationAction(input: {
     const now = new Date()
     const leaseUntil = new Date(now.getTime() + INTAKE_UPLOAD_VERIFICATION_LEASE_MS)
     const changed = await tx.intakeUpload.updateMany({
-      where: { ...scope, status: 'VERIFYING', verificationClaimId: claim.data },
+      where: { ...uploadWhere, status: 'VERIFYING', verificationClaimId: claim.data },
       data: { verificationClaimedAt: now, verificationLeaseUntil: leaseUntil },
     })
     if (changed.count !== 1)
@@ -532,12 +614,16 @@ export async function renewIntakeUploadVerificationLeaseAction(input: {
   const client = input.client ?? db
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    const current = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    const uploadWhere = intakeUploadWhere(scope)
+    const current = await tx.intakeUpload.findFirst({
+      where: uploadWhere,
+      select: uploadStateSelect,
+    })
     if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
     requireUploadOwner(current, actor)
     const changed = await tx.intakeUpload.updateMany({
       where: {
-        ...scope,
+        ...uploadWhere,
         status: 'VERIFYING',
         verificationClaimId: claim.data,
         verificationLeaseUntil: { gt: now },
@@ -582,7 +668,11 @@ async function settleRejectedClaim(input: {
   const client = input.client ?? db
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    const current = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    const uploadWhere = intakeUploadWhere(scope)
+    const current = await tx.intakeUpload.findFirst({
+      where: uploadWhere,
+      select: uploadStateSelect,
+    })
     if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
     requireUploadOwner(current, actor)
     if (current.status !== 'VERIFYING' || current.verificationClaimId !== claim.data)
@@ -592,7 +682,7 @@ async function settleRejectedClaim(input: {
       throw new IntakeUploadActionError('CONFLICT', 'Verification claim lease expired')
     const changed = await tx.intakeUpload.updateMany({
       where: {
-        ...scope,
+        ...uploadWhere,
         status: 'VERIFYING',
         verificationClaimId: claim.data,
         verificationLeaseUntil: { gt: now },
@@ -626,7 +716,10 @@ async function settleRejectedClaim(input: {
       },
       tx,
     )
-    const settled = await tx.intakeUpload.findFirst({ where: scope, select: safeDetailSelect })
+    const settled = await tx.intakeUpload.findFirst({
+      where: uploadWhere,
+      select: safeDetailSelect,
+    })
     if (!settled) throw new Error('Settled intake upload disappeared')
     return { upload: safeUpload(settled), retryable: false as const }
   })
@@ -655,7 +748,11 @@ export async function recordIntakeUploadPrecheckAction(input: {
   try {
     return await client.$transaction(async (rawTx) => {
       const tx = rawTx as unknown as typeof db
-      const upload = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+      const uploadWhere = intakeUploadWhere(scope)
+      const upload = await tx.intakeUpload.findFirst({
+        where: uploadWhere,
+        select: uploadStateSelect,
+      })
       if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
       requireUploadOwner(upload, actor)
       const transportMismatch =
@@ -696,7 +793,7 @@ export async function recordIntakeUploadPrecheckAction(input: {
         throw new IntakeUploadActionError('CONFLICT', 'Verification claim lease expired')
       await tx.intakeUpload.updateMany({
         where: {
-          ...scope,
+          ...uploadWhere,
           status: 'VERIFYING',
           verificationClaimId: claim.data,
           verificationLeaseUntil: { gt: now },
@@ -725,7 +822,7 @@ export async function recordIntakeUploadPrecheckAction(input: {
       })
       const changed = await tx.intakeUpload.updateMany({
         where: {
-          ...scope,
+          ...uploadWhere,
           status: 'VERIFYING',
           verificationClaimId: claim.data,
           verificationLeaseUntil: { gt: now },
@@ -775,7 +872,10 @@ export async function recordIntakeUploadPrecheckAction(input: {
     })
   } catch (error) {
     if (!isUniqueConflict(error)) throw error
-    const upload = await client.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    const upload = await client.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
     if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
     requireUploadOwner(upload, actor)
     const receipt = await client.intakeUploadVerificationReceipt.findFirst({
@@ -805,6 +905,368 @@ export async function recordIntakeUploadPrecheckAction(input: {
   }
 }
 
+export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  actor: IntakeUploadActor
+  claimId: string
+  malware: {
+    verdict: 'CLEAN' | 'INFECTED'
+    engine: string
+    engineVersion: string
+    verdictHash: string
+    computedByteSize: number
+    computedSha256: string
+  }
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const claim = claimIdInput.parse(input.claimId)
+  const malware = z
+    .object({
+      verdict: z.enum(['CLEAN', 'INFECTED']),
+      engine: z.string().trim().min(1).max(64),
+      engineVersion: z.string().trim().min(1).max(64),
+      verdictHash: z.string().regex(/^[a-f0-9]{64}$/u),
+      computedByteSize: z.number().int().min(1),
+      computedSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    })
+    .parse(input.malware)
+  const client = input.client ?? db
+  return client.$transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:intake-authoritative:${scope.tenantId}:${scope.uploadId}`}, 0))`
+    const upload = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireUploadOwner(upload, actor)
+    if (upload.status === 'AWAITING_REVIEW' && upload.intakeRunId)
+      return {
+        upload: safeUpload(upload),
+        replayed: true as const,
+        nextAction: 'PATHFINDER_REVIEW' as const,
+      }
+    if (upload.status === 'REJECTED')
+      return {
+        upload: safeUpload(upload),
+        replayed: true as const,
+        nextAction: 'RESELECT_FILE' as const,
+      }
+    if (
+      upload.status !== 'VERIFYING' ||
+      upload.verificationClaimId !== claim ||
+      !upload.verificationLeaseUntil ||
+      upload.verificationLeaseUntil <= new Date() ||
+      !upload.storageVersionId
+    )
+      throw new IntakeUploadActionError(
+        'CONFLICT',
+        'Upload is not ready for authoritative verification',
+      )
+
+    const precheck = await tx.intakeUploadVerificationReceipt.findFirst({
+      where: { ...scope, kind: 'PRECHECK', verdict: 'PASSED' },
+      select: {
+        claimId: true,
+        objectGeneration: true,
+        storageVersionId: true,
+        computedByteSize: true,
+        computedSha256: true,
+        verdictHash: true,
+      },
+    })
+    if (
+      !precheck ||
+      precheck.objectGeneration !== upload.objectGeneration ||
+      precheck.storageVersionId !== upload.storageVersionId ||
+      precheck.computedByteSize !== upload.byteSize ||
+      precheck.computedSha256 !== upload.sha256 ||
+      malware.computedByteSize !== upload.byteSize ||
+      malware.computedSha256 !== upload.sha256
+    )
+      throw new IntakeUploadActionError(
+        'VERIFICATION_MISMATCH',
+        'Authoritative verification does not match immutable upload evidence',
+      )
+
+    const resourceVerdictHash = createHash('sha256')
+      .update(
+        canonicalJson({
+          domain: 'pathfinder.intake-resource-safety.v1',
+          uploadId: upload.id,
+          objectGeneration: upload.objectGeneration,
+          storageVersionId: upload.storageVersionId,
+          byteSize: upload.byteSize,
+          sha256: upload.sha256,
+          precheckVerdictHash: precheck.verdictHash,
+          policy: 'bounded-structure-and-container-v1',
+        }),
+      )
+      .digest('hex')
+    const commonReceipt = {
+      tenantId: scope.tenantId,
+      venueId: scope.venueId,
+      uploadId: upload.id,
+      objectGeneration: upload.objectGeneration,
+      storageVersionId: upload.storageVersionId,
+      computedByteSize: upload.byteSize,
+      computedSha256: upload.sha256,
+      claimId: claim,
+    }
+    await tx.intakeUploadVerificationReceipt.create({
+      data: {
+        ...commonReceipt,
+        kind: 'RESOURCE_SAFETY',
+        verdict: 'PASSED',
+        engine: 'pathfinder-resource-policy',
+        engineVersion: '1',
+        verdictHash: resourceVerdictHash,
+      },
+    })
+    await tx.intakeUploadVerificationReceipt.create({
+      data: {
+        ...commonReceipt,
+        kind: 'MALWARE',
+        verdict: malware.verdict === 'CLEAN' ? 'CLEAN' : 'REJECTED',
+        engine: malware.engine,
+        engineVersion: malware.engineVersion,
+        verdictHash: malware.verdictHash,
+      },
+    })
+
+    const now = new Date()
+    if (malware.verdict === 'INFECTED') {
+      await tx.intakeUpload.update({
+        where: { id: upload.id },
+        data: {
+          status: 'REJECTED',
+          verificationClaimId: null,
+          verificationClaimedAt: null,
+          verificationLeaseUntil: null,
+          rejectedAt: now,
+          rejectionCode: 'UNSAFE_FILE',
+        },
+      })
+      await recordOrReplayOnboardingMilestoneEvent({
+        db: tx,
+        input: {
+          id: randomUUID(),
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          eventType: 'UPLOAD_FAILED',
+          idempotencyKey: `intake-upload:${upload.id}:authoritative:${malware.verdictHash}`,
+          occurredAt: now,
+          actorType: actor.role === 'PLATFORM_ADMIN' ? 'OPERATOR' : 'CLIENT',
+          actorId: actor.id,
+          sourceType: 'INTAKE_UPLOAD',
+          sourceId: upload.id,
+          sourceRevision: malware.verdictHash,
+          category: upload.category,
+          durationMs: Math.max(0, now.getTime() - upload.createdAt.getTime()),
+        },
+      })
+      await writeAuditLogStrict(
+        {
+          tenantId: scope.tenantId,
+          actorId: actor.id,
+          actorRole: actor.role,
+          action: 'intake-upload.authoritative-rejected',
+          targetType: 'IntakeUpload',
+          targetId: upload.id,
+          beforeState: { status: 'VERIFYING' },
+          afterState: { venueId: scope.venueId, status: 'REJECTED', reasonCode: 'UNSAFE_FILE' },
+        },
+        tx,
+      )
+      return {
+        upload: safeUpload({
+          ...upload,
+          status: 'REJECTED',
+          rejectionCode: 'UNSAFE_FILE',
+          updatedAt: now,
+        }),
+        replayed: false as const,
+        nextAction: 'RESELECT_FILE' as const,
+      }
+    }
+
+    const run = await tx.intakeRun.create({
+      data: {
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        sourceKind: 'FILE_UPLOAD',
+        status: 'AWAITING_REVIEW',
+        displayName: upload.displayName,
+        requestedBy: upload.requestedBy,
+      },
+      select: { id: true },
+    })
+    await tx.intakeEvidenceRecord.create({
+      data: {
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        runId: run.id,
+        sourceKind: 'FILE_UPLOAD',
+        locator: `intake-upload:${upload.id}`,
+        normalizedHash: upload.sha256,
+        confidence: 1,
+        capturedAt: now,
+      },
+    })
+    await tx.intakeRunEvent.createMany({
+      data: [
+        {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          runId: run.id,
+          kind: 'PROPOSAL_CREATED',
+          actorId: actor.id,
+          metadata: { sourceKind: 'FILE_UPLOAD' },
+        },
+        {
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          runId: run.id,
+          kind: 'EVIDENCE_RECORDED',
+          actorId: actor.id,
+          metadata: { evidenceCount: 1 },
+        },
+      ],
+    })
+    const changed = await tx.intakeUpload.updateMany({
+      where: {
+        ...intakeUploadWhere(scope),
+        status: 'VERIFYING',
+        verificationClaimId: claim,
+        verificationLeaseUntil: { gt: now },
+        intakeRunId: null,
+      },
+      data: {
+        status: 'AWAITING_REVIEW',
+        verificationClaimId: null,
+        verificationClaimedAt: null,
+        verificationLeaseUntil: null,
+        intakeRunId: run.id,
+        verifiedAt: now,
+      },
+    })
+    if (changed.count !== 1)
+      throw new IntakeUploadActionError('CONFLICT', 'Upload authoritative settlement raced')
+    await recordOrReplayOnboardingMilestoneEvent({
+      db: tx,
+      input: {
+        id: randomUUID(),
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        eventType: 'FIRST_USEFUL_MATERIAL',
+        idempotencyKey: `intake-upload:${upload.id}:authoritative:${malware.verdictHash}`,
+        occurredAt: now,
+        actorType: actor.role === 'PLATFORM_ADMIN' ? 'OPERATOR' : 'CLIENT',
+        actorId: actor.id,
+        sourceType: 'INTAKE_UPLOAD',
+        sourceId: upload.id,
+        sourceRevision: malware.verdictHash,
+        category: upload.category,
+        durationMs: Math.max(0, now.getTime() - upload.createdAt.getTime()),
+      },
+    })
+    await writeAuditLogStrict(
+      {
+        tenantId: scope.tenantId,
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: 'intake-upload.authoritative-verified',
+        targetType: 'IntakeUpload',
+        targetId: upload.id,
+        beforeState: { status: 'VERIFYING' },
+        afterState: {
+          venueId: scope.venueId,
+          status: 'AWAITING_REVIEW',
+          intakeRunId: run.id,
+          malwareEngine: malware.engine,
+        },
+      },
+      tx,
+    )
+    return {
+      upload: safeUpload({
+        ...upload,
+        status: 'AWAITING_REVIEW',
+        intakeRunId: run.id,
+        updatedAt: now,
+      }),
+      replayed: false as const,
+      nextAction: 'PATHFINDER_REVIEW' as const,
+    }
+  })
+}
+
+export async function releaseIntakeUploadAuthoritativeVerificationAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  actor: IntakeUploadActor
+  claimId: string
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const claim = claimIdInput.parse(input.claimId)
+  const client = input.client ?? db
+  return client.$transaction(async (rawTx) => {
+    const tx = rawTx as unknown as typeof db
+    const current = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireUploadOwner(current, actor)
+    const precheck = await tx.intakeUploadVerificationReceipt.findFirst({
+      where: { ...scope, kind: 'PRECHECK', verdict: 'PASSED' },
+      select: { id: true },
+    })
+    if (
+      current.status !== 'VERIFYING' ||
+      current.verificationClaimId !== claim ||
+      !precheck ||
+      !current.storageVersionId
+    )
+      throw new IntakeUploadActionError('CONFLICT', 'Authoritative verification claim was lost')
+    const changed = await tx.intakeUpload.updateMany({
+      where: { ...intakeUploadWhere(scope), status: 'VERIFYING', verificationClaimId: claim },
+      data: {
+        status: 'PRECHECK_PASSED',
+        verificationClaimId: null,
+        verificationClaimedAt: null,
+        verificationLeaseUntil: null,
+      },
+    })
+    if (changed.count !== 1)
+      throw new IntakeUploadActionError('CONFLICT', 'Authoritative verification claim was lost')
+    await writeAuditLogStrict(
+      {
+        tenantId: scope.tenantId,
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: 'intake-upload.authoritative-unavailable',
+        targetType: 'IntakeUpload',
+        targetId: current.id,
+        beforeState: { status: 'VERIFYING' },
+        afterState: { venueId: scope.venueId, status: 'PRECHECK_PASSED', retryable: true },
+      },
+      tx,
+    )
+    return {
+      upload: safeUpload({ ...current, status: 'PRECHECK_PASSED', updatedAt: new Date() }),
+      retryable: true as const,
+    }
+  })
+}
+
 export async function recordRejectedIntakeUploadPrecheckAction(input: {
   tenantId: string
   venueId: string
@@ -825,7 +1287,11 @@ export async function recordRejectedIntakeUploadPrecheckAction(input: {
   try {
     return await client.$transaction(async (rawTx) => {
       const tx = rawTx as unknown as typeof db
-      const upload = await tx.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+      const uploadWhere = intakeUploadWhere(scope)
+      const upload = await tx.intakeUpload.findFirst({
+        where: uploadWhere,
+        select: uploadStateSelect,
+      })
       if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
       requireUploadOwner(upload, actor)
       const now = new Date()
@@ -842,7 +1308,7 @@ export async function recordRejectedIntakeUploadPrecheckAction(input: {
           'Verification claim no longer owns this upload',
         )
       await tx.intakeUpload.updateMany({
-        where: { ...scope, status: 'VERIFYING', verificationClaimId: claim },
+        where: { ...uploadWhere, status: 'VERIFYING', verificationClaimId: claim },
         data: { storageVersionId: verified.storageVersionId },
       })
       await tx.intakeUploadVerificationReceipt.create({
@@ -864,7 +1330,7 @@ export async function recordRejectedIntakeUploadPrecheckAction(input: {
       })
       const changed = await tx.intakeUpload.updateMany({
         where: {
-          ...scope,
+          ...uploadWhere,
           status: 'VERIFYING',
           verificationClaimId: claim,
           verificationLeaseUntil: { gt: now },
@@ -895,7 +1361,10 @@ export async function recordRejectedIntakeUploadPrecheckAction(input: {
     })
   } catch (error) {
     if (!isUniqueConflict(error)) throw error
-    const upload = await client.intakeUpload.findFirst({ where: scope, select: uploadStateSelect })
+    const upload = await client.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
     if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
     requireUploadOwner(upload, actor)
     const receipt = await client.intakeUploadVerificationReceipt.findFirst({
@@ -993,11 +1462,257 @@ export async function getIntakeUploadDetailAction(input: {
 }) {
   const scope = parseScope(input)
   const upload = await (input.client ?? db).intakeUpload.findFirst({
-    where: scope,
+    where: intakeUploadWhere(scope),
     select: safeDetailSelect,
   })
   if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
   return upload
+}
+
+function requireMultipartOwner(upload: { requestedBy: string }, actor: IntakeUploadActor): void {
+  if (actor.role !== 'PLATFORM_ADMIN' && upload.requestedBy !== actor.id)
+    throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+}
+
+export async function bindIntakeUploadMultipartAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  multipartUploadId: string
+  actor: IntakeUploadActor
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const multipartUploadId = multipartUploadIdInput.parse(input.multipartUploadId)
+  const client = input.client ?? db
+  return client.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`intake-upload:multipart:${scope.tenantId}:${scope.uploadId}`}, 0))`
+    const current = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireMultipartOwner(current, actor)
+    if (current.status !== 'RESERVED' || current.multipartCompletedAt || current.multipartAbortedAt)
+      throw new IntakeUploadActionError('CONFLICT', 'Upload transport is no longer resumable')
+    if (current.multipartUploadId) {
+      if (current.multipartUploadId !== multipartUploadId)
+        throw new IntakeUploadActionError(
+          'CONFLICT',
+          'Another multipart transport already owns this upload',
+        )
+      return { upload: current, replayed: true as const }
+    }
+    const now = new Date()
+    const changed = await tx.intakeUpload.updateMany({
+      where: {
+        ...intakeUploadWhere(scope),
+        status: 'RESERVED',
+        requestedBy: current.requestedBy,
+        multipartUploadId: null,
+        multipartStartedAt: null,
+      },
+      data: { multipartUploadId, multipartStartedAt: now },
+    })
+    if (changed.count !== 1)
+      throw new IntakeUploadActionError(
+        'CONFLICT',
+        'Upload transport changed; retry the reservation',
+      )
+    const saved = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!saved || saved.multipartUploadId !== multipartUploadId)
+      throw new IntakeUploadActionError('CONFLICT', 'Multipart transport was not retained')
+    await writeAuditLogStrict(
+      {
+        tenantId: scope.tenantId,
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: 'intake-upload.multipart-started',
+        targetType: 'IntakeUpload',
+        targetId: scope.uploadId,
+        afterState: { venueId: scope.venueId, byteSize: saved.byteSize },
+      },
+      tx,
+    )
+    return { upload: saved, replayed: false as const }
+  })
+}
+
+export async function getIntakeUploadMultipartAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  actor: IntakeUploadActor
+  allowCompleted?: boolean
+  allowCancelled?: boolean
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const upload = await (input.client ?? db).intakeUpload.findFirst({
+    where: intakeUploadWhere(scope),
+    select: uploadStateSelect,
+  })
+  if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+  requireMultipartOwner(upload, actor)
+  const isActive =
+    upload.status === 'RESERVED' &&
+    Boolean(upload.multipartUploadId) &&
+    !upload.multipartAbortedAt &&
+    (input.allowCompleted || !upload.multipartCompletedAt)
+  const isCancelledReplay =
+    input.allowCancelled === true &&
+    upload.status === 'REJECTED' &&
+    upload.rejectionCode === 'CLIENT_CANCELLED' &&
+    Boolean(upload.multipartUploadId) &&
+    Boolean(upload.multipartAbortedAt) &&
+    !upload.multipartCompletedAt
+  if (!isActive && !isCancelledReplay)
+    throw new IntakeUploadActionError('CONFLICT', 'Multipart upload is not active')
+  return {
+    upload: safeUpload(upload),
+    target: {
+      objectKey: upload.objectKey,
+      objectGeneration: upload.objectGeneration,
+      multipartUploadId: upload.multipartUploadId!,
+      byteSize: upload.byteSize,
+      mimeType: upload.mimeType,
+      sha256: upload.sha256,
+      multipartCompletedAt: upload.multipartCompletedAt,
+      multipartAbortedAt: upload.multipartAbortedAt,
+    },
+  }
+}
+
+export async function completeIntakeUploadMultipartAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  multipartUploadId: string
+  actor: IntakeUploadActor
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const multipartUploadId = multipartUploadIdInput.parse(input.multipartUploadId)
+  const client = input.client ?? db
+  return client.$transaction(async (tx) => {
+    const current = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireMultipartOwner(current, actor)
+    if (current.multipartUploadId !== multipartUploadId || current.multipartAbortedAt)
+      throw new IntakeUploadActionError('CONFLICT', 'Multipart upload identity changed')
+    if (current.multipartCompletedAt) return { upload: current, replayed: true as const }
+    const now = new Date()
+    const changed = await tx.intakeUpload.updateMany({
+      where: {
+        ...intakeUploadWhere(scope),
+        status: 'RESERVED',
+        multipartUploadId,
+        multipartCompletedAt: null,
+        multipartAbortedAt: null,
+      },
+      data: { multipartCompletedAt: now },
+    })
+    if (changed.count !== 1)
+      throw new IntakeUploadActionError('CONFLICT', 'Multipart completion changed')
+    const saved = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!saved)
+      throw new IntakeUploadActionError('CONFLICT', 'Multipart completion was not retained')
+    await writeAuditLogStrict(
+      {
+        tenantId: scope.tenantId,
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: 'intake-upload.multipart-completed',
+        targetType: 'IntakeUpload',
+        targetId: scope.uploadId,
+        afterState: { venueId: scope.venueId, byteSize: saved.byteSize },
+      },
+      tx,
+    )
+    return { upload: saved, replayed: false as const }
+  })
+}
+
+export async function cancelIntakeUploadMultipartAction(input: {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  multipartUploadId: string
+  actor: IntakeUploadActor
+  client?: IntakeUploadActionClient
+}) {
+  const scope = parseScope(input)
+  const actor = parseActor(input.actor)
+  const multipartUploadId = multipartUploadIdInput.parse(input.multipartUploadId)
+  const client = input.client ?? db
+  return client.$transaction(async (tx) => {
+    const current = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
+    requireMultipartOwner(current, actor)
+    if (
+      current.status === 'REJECTED' &&
+      current.rejectionCode === 'CLIENT_CANCELLED' &&
+      current.multipartUploadId === multipartUploadId
+    )
+      return { upload: current, replayed: true as const }
+    if (
+      current.status !== 'RESERVED' ||
+      current.multipartUploadId !== multipartUploadId ||
+      current.multipartCompletedAt
+    )
+      throw new IntakeUploadActionError('CONFLICT', 'Multipart upload can no longer be cancelled')
+    const now = new Date()
+    const changed = await tx.intakeUpload.updateMany({
+      where: {
+        ...intakeUploadWhere(scope),
+        status: 'RESERVED',
+        multipartUploadId,
+        multipartCompletedAt: null,
+      },
+      data: {
+        status: 'REJECTED',
+        rejectedAt: now,
+        rejectionCode: 'CLIENT_CANCELLED',
+        multipartAbortedAt: now,
+      },
+    })
+    if (changed.count !== 1)
+      throw new IntakeUploadActionError('CONFLICT', 'Multipart cancellation changed')
+    const saved = await tx.intakeUpload.findFirst({
+      where: intakeUploadWhere(scope),
+      select: uploadStateSelect,
+    })
+    if (!saved)
+      throw new IntakeUploadActionError('CONFLICT', 'Multipart cancellation was not retained')
+    await writeAuditLogStrict(
+      {
+        tenantId: scope.tenantId,
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: 'intake-upload.multipart-cancelled',
+        targetType: 'IntakeUpload',
+        targetId: scope.uploadId,
+        afterState: { venueId: scope.venueId, rejectionCode: 'CLIENT_CANCELLED' },
+      },
+      tx,
+    )
+    return { upload: saved, replayed: false as const }
+  })
 }
 
 function isUniqueConflict(error: unknown): boolean {

@@ -255,7 +255,7 @@ export function QuickPromptChips({
         {prompts.map((prompt) => (
           <button
             key={prompt}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 text-center text-sm font-medium text-[var(--chat-accent)] shadow-sm transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 text-center text-sm font-medium text-[var(--chat-accent-text)] shadow-sm transition hover:border-[var(--chat-accent)] hover:bg-[var(--chat-accent)]/5"
             type="button"
             onClick={() => {
               onSend(prompt)

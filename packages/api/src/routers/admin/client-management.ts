@@ -28,39 +28,16 @@ import { adminProcedure } from '../../trpc'
 import { slugify } from '../venue'
 import {
   clientCreateHash,
+  clientCreatePrimaryContactInput,
+  ensurePrimaryContactInvitation,
   mapClientActionError,
   mapClientCreateIntentError,
   platformAdminActor,
+  recordPrimaryContactInvitationMilestone,
 } from './client-management-helpers'
 import { uniqueTenantSlug } from './helpers'
 
 export const adminClientManagementRouter = router({
-  listClients: adminProcedure.query(async () => {
-    return withTenantIsolationBypass(() =>
-      db.tenant.findMany({
-        orderBy: { createdAt: 'desc' },
-        // Compatibility-only endpoint. New interfaces use searchClients;
-        // keep legacy callers bounded until the procedure can be removed.
-        take: 100,
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          status: true,
-          createdAt: true,
-          memberships: {
-            where: { status: 'ACTIVE' },
-            select: {
-              id: true,
-              role: true,
-              user: { select: { email: true, fullName: true } },
-            },
-          },
-        },
-      }),
-    )
-  }),
-
   /**
    * Platform-admin-only mutation to set or clear a tenant's next payment due
    * date. Visible read-only to operators; editable for admins viewing a tenant.
@@ -131,6 +108,7 @@ export const adminClientManagementRouter = router({
         requestId: z.string().uuid(),
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
+        primaryContact: clientCreatePrimaryContactInput,
         venue: CreateVenueRequestInput,
       }),
     )
@@ -139,6 +117,7 @@ export const adminClientManagementRouter = router({
       const requestHash = clientCreateHash({
         clientName: input.clientName,
         ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
+        ...(input.primaryContact !== undefined ? { primaryContact: input.primaryContact } : {}),
         venue: input.venue,
       })
       let intent
@@ -170,7 +149,23 @@ export const adminClientManagementRouter = router({
             message: 'Completed client setup is unavailable',
           })
         }
-        return { tenant: completed[0], venue: completed[1] }
+        const invitation = await ensurePrimaryContactInvitation({
+          organizationId: completed[0].id,
+          inviterUserId: ctx.session.userId,
+          primaryContact: input.primaryContact,
+        })
+        await withTenantIsolationBypass(() =>
+          recordPrimaryContactInvitationMilestone({
+            db,
+            tenantId: completed[0]!.id,
+            venueId: completed[1]!.id,
+            requestId: input.requestId,
+            invitation,
+            actorId: ctx.session.userId,
+            occurredAt: intent.createdAt,
+          }),
+        )
+        return { tenant: completed[0], venue: completed[1], invitation }
       }
       if (intent.state === 'RECONCILIATION_REQUIRED') {
         throw new TRPCError({
@@ -272,7 +267,7 @@ export const adminClientManagementRouter = router({
           }),
         )
         if (!result.venue) throw new Error('Initial venue result was missing')
-        await completeClientCreateIntentAction({
+        const completedIntent = await completeClientCreateIntentAction({
           requestId: input.requestId,
           requestHash,
           providerOrganizationId: organization.id,
@@ -280,7 +275,23 @@ export const adminClientManagementRouter = router({
           venueId: result.venue.id,
           actor,
         })
-        return { tenant: result.tenant, venue: result.venue }
+        const invitation = await ensurePrimaryContactInvitation({
+          organizationId: result.tenant.id,
+          inviterUserId: ctx.session.userId,
+          primaryContact: input.primaryContact,
+        })
+        await withTenantIsolationBypass(() =>
+          recordPrimaryContactInvitationMilestone({
+            db,
+            tenantId: result.tenant.id,
+            venueId: result.venue!.id,
+            requestId: input.requestId,
+            invitation,
+            actorId: ctx.session.userId,
+            occurredAt: completedIntent.createdAt,
+          }),
+        )
+        return { tenant: result.tenant, venue: result.venue, invitation }
       } catch (error) {
         if (error instanceof ClientAccountActionError && error.code === 'CONFLICT') {
           mapClientActionError(error)
@@ -300,6 +311,7 @@ export const adminClientManagementRouter = router({
         organizationId: z.string().min(1),
         clientName: z.string().min(1).max(120),
         clientSlug: z.string().min(1).max(80).optional(),
+        primaryContact: clientCreatePrimaryContactInput,
         venue: CreateVenueRequestInput,
       }),
     )
@@ -308,6 +320,7 @@ export const adminClientManagementRouter = router({
       const requestHash = clientCreateHash({
         clientName: input.clientName,
         ...(input.clientSlug !== undefined ? { clientSlug: input.clientSlug } : {}),
+        ...(input.primaryContact !== undefined ? { primaryContact: input.primaryContact } : {}),
         venue: input.venue,
       })
       const adminUser = await currentUser()

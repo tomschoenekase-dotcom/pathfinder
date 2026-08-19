@@ -91,9 +91,9 @@ describe('weekly report capability controls', () => {
         <div>content</div>
       </DashboardShell>,
     )
-    expect(screen.queryByText('Weekly Reports')).toBeNull()
+    expect(screen.queryByText('Reports')).toBeNull()
     expect(screen.queryByText('Analytics')).toBeNull()
-    expect(screen.getByText('Visitor updates')).toBeTruthy()
+    expect(screen.getByText('Updates')).toBeTruthy()
   })
 
   it('shows reports only when enabled and marks report descendants active in responsive navigation', () => {
@@ -104,7 +104,7 @@ describe('weekly report capability controls', () => {
       </DashboardShell>,
     )
 
-    const reportLinks = screen.getAllByRole('link', { name: 'Weekly Reports' })
+    const reportLinks = screen.getAllByRole('link', { name: 'Reports' })
     expect(reportLinks).toHaveLength(1)
     expect(reportLinks.every((link) => link.getAttribute('href') === '/weekly-reports')).toBe(true)
     expect(reportLinks.every((link) => link.getAttribute('aria-current') === 'page')).toBe(true)

@@ -19,7 +19,7 @@ export class AgentRunCancellationError extends Error {
   }
 }
 
-const cancellableStatuses = ['QUEUED', 'RUNNING', 'AWAITING_APPROVAL'] as const
+const cancellableStatuses = ['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'] as const
 const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED'] as const
 
 function invalid(message: string): never {

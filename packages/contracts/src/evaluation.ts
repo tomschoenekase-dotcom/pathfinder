@@ -488,7 +488,11 @@ export function canonicalEvaluationJson(value: CanonicalJsonValue): string {
     .join(',')}}`
 }
 
-export const EvalContentSnapshotKindSchema = z.enum(['LEGACY_VENUE_CONTENT_V1', 'NATIVE_CORE_V1'])
+export const EvalContentSnapshotKindSchema = z.enum([
+  'LEGACY_VENUE_CONTENT_V1',
+  'NATIVE_CORE_V1',
+  'APPROVED_VENUE_PACKAGE_V1',
+])
 export const NativeDeploymentEvaluationDispositionSchema = z.enum([
   'PASS',
   'QUALITY_FAILURE',

@@ -13,7 +13,7 @@ type Props = {
 function state(credential: { enabled: boolean; revokedAt: Date | null; expiresAt: Date | null }) {
   if (credential.revokedAt) return 'Revoked'
   if (credential.expiresAt && credential.expiresAt <= new Date()) return 'Expired'
-  return credential.enabled ? 'Marked enabled (external access disabled)' : 'Disabled'
+  return credential.enabled ? 'Active' : 'Disabled'
 }
 
 function kindLabel(kind: string) {
@@ -36,6 +36,10 @@ const SAFE_CAPABILITIES = new Set([
   'jobs:read',
   'evaluations:read',
   'readiness:read',
+  'questions:read',
+  'questions:ask',
+  'delegations:create',
+  'agent-runs:execute',
   'packages:draft',
   'support:draft',
   'updates:draft',
@@ -106,8 +110,9 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
           </p>
           <h2 className="mt-1 text-2xl font-semibold text-pf-deep">External credentials</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
-            Record and manage disabled metadata for future MCP and Partner Read API credentials.
-            Nothing on this page enables or authenticates external access.
+            Issue and review scoped MCP or Partner Read API credentials. Exact venue MCP credentials
+            with agent-runs:execute may be activated for the staged agent bridge; this still does
+            not deploy or authenticate a runner transport.
           </p>
         </header>
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
@@ -120,7 +125,7 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
         </section>
         {page.items.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-pf-light p-8 text-center text-sm text-pf-deep/75">
-            No credential metadata exists for this client. The credential system remains disabled.
+            No credential metadata exists for this client.
           </p>
         ) : (
           <div className="grid gap-6 xl:grid-cols-[20rem_minmax(0,1fr)]">
@@ -152,7 +157,7 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
               ) : null}
             </aside>
             {detail ? (
-              <main className="min-w-0 space-y-5">
+              <div className="min-w-0 space-y-5">
                 <section className="rounded-2xl border border-pf-light bg-white p-5">
                   <div className="flex flex-wrap justify-between gap-3">
                     <div>
@@ -204,13 +209,20 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
                   </h3>
                   {detail.rotationsFrom.length +
                     detail.rotationsTo.length +
+                    (detail.activation ? 1 : 0) +
                     (detail.revocation ? 1 : 0) ===
                   0 ? (
                     <p className="mt-3 text-sm text-pf-deep/75">
-                      No rotation or revocation evidence is recorded.
+                      No activation, rotation, or revocation evidence is recorded.
                     </p>
                   ) : (
                     <ul className="mt-3 space-y-2 text-sm text-pf-deep/75">
+                      {detail.activation ? (
+                        <li>
+                          Activated for bridge access ·{' '}
+                          {detail.activation.activatedAt.toLocaleString()}
+                        </li>
+                      ) : null}
                       {detail.rotationsTo.map((event) => (
                         <li key={event.id}>
                           Rotated from {event.previousCredentialId} ·{' '}
@@ -231,7 +243,7 @@ export default async function ExternalCredentialsPage({ params, searchParams }: 
                     </ul>
                   )}
                 </section>
-              </main>
+              </div>
             ) : null}
           </div>
         )}

@@ -78,6 +78,36 @@ describe('NATIVE_CORE_V1 FULL manifest', () => {
     expect(canonicalNativeCoreFullManifest(envelope)).toContain('NOT_REQUIRED_FOR_CORE_PROFILE')
   })
 
+  it('carries Venue Bot presentation independently while preserving older manifests', () => {
+    expect(NativeCoreFullManifest.safeParse(envelope).success).toBe(true)
+    const withCharacter = {
+      ...envelope,
+      venueBotConfiguration: {
+        presentationMode: 'CHARACTER',
+        personalityMode: 'PRESET',
+        tonePreset: 'friendly',
+        tonePresetVersion: 1,
+        personalityProfileId: null,
+        characterKey: 'tochi',
+        customCharacterId: null,
+        publicDisplayName: 'Tochi',
+        greeting: null,
+        voiceProfileId: null,
+      },
+    }
+    expect(NativeCoreFullManifest.safeParse(withCharacter).success).toBe(true)
+    expect(
+      NativeCoreFullManifest.safeParse({
+        ...withCharacter,
+        venueBotConfiguration: {
+          ...withCharacter.venueBotConfiguration,
+          characterKey: null,
+        },
+      }).success,
+    ).toBe(false)
+    expect(nativeCoreFullManifestHash(withCharacter)).not.toBe(nativeCoreFullManifestHash(envelope))
+  })
+
   it('fails closed for unsupported nonempty sections and unsafe locators', () => {
     expect(
       NativeCoreFullManifest.safeParse({ ...envelope, items: [{ id: 'item-1' }] }).success,

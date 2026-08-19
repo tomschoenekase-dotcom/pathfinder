@@ -48,6 +48,10 @@ function fixture(rows: Array<ReturnType<typeof record> | null>) {
         return {}
       }),
     },
+    onboardingMilestoneEvent: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn(async ({ data }) => data),
+    },
   }
   const load = vi.fn(async () => rows.shift() ?? null)
   const client = { $transaction: vi.fn(async (callback) => callback(tx)) }
@@ -97,6 +101,9 @@ describe('venue package lifecycle actions', () => {
       )
       expect(tx.auditLog.create).toHaveBeenCalledOnce()
       expect(JSON.stringify(tx.auditLog.create.mock.calls)).not.toContain('body')
+      expect(tx.onboardingMilestoneEvent.create).toHaveBeenCalledTimes(
+        afterStatus === 'APPROVED' ? 0 : 1,
+      )
     },
   )
 

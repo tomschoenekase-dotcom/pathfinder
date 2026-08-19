@@ -18,7 +18,7 @@ type Message = {
 type ChatWindowProps = {
   messages: Message[]
   onSend: (message: string) => void
-  onDraftChange?: () => void
+  onDraftChange?: (draft: string) => void
   onRetry?: () => void
   retryLabel?: string
   isLoading: boolean
@@ -28,12 +28,11 @@ type ChatWindowProps = {
   placeholder?: string
   initialDraft?: string
   emptyState?: ReactNode
+  assistantLabel?: string
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
 }
-
-const RESPONDING_ANNOUNCEMENT = 'PathFinder guide is responding'
 
 export function ChatWindow({
   messages,
@@ -48,6 +47,7 @@ export function ChatWindow({
   placeholder = 'Ask anything about this place...',
   initialDraft = '',
   emptyState,
+  assistantLabel = 'Venue guide',
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
@@ -151,6 +151,7 @@ export function ChatWindow({
             <MessageBubble
               role={message.role}
               content={message.content}
+              assistantLabel={assistantLabel}
               {...(message.blocks ? { blocks: message.blocks } : {})}
               {...(message.places ? { places: message.places } : {})}
               {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
@@ -171,12 +172,12 @@ export function ChatWindow({
       <div className="sr-only" role="status" aria-atomic="true">
         {liveAnnouncement?.kind === 'responding' ? (
           <span lang="en" dir="ltr">
-            {RESPONDING_ANNOUNCEMENT}
+            {assistantLabel} is responding
           </span>
         ) : liveAnnouncement?.kind === 'response' ? (
           <>
             <span lang="en" dir="ltr">
-              PathFinder guide:{' '}
+              {assistantLabel}:{' '}
             </span>
             <span lang="" dir="auto">
               {liveAnnouncement.content}
@@ -220,8 +221,9 @@ export function ChatWindow({
             rows={2}
             value={draft}
             onChange={(event) => {
-              setDraft(event.target.value)
-              onDraftChange?.()
+              const nextDraft = event.target.value
+              setDraft(nextDraft)
+              onDraftChange?.(nextDraft)
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -236,7 +238,7 @@ export function ChatWindow({
               backgroundColor: !isLoading && draft.trim().length > 0 ? accentColor : undefined,
               color: !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
             }}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-[var(--chat-border)] disabled:text-[var(--chat-text-muted)]"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
             disabled={isLoading || draft.trim().length === 0}
             type="button"
             aria-label={isLoading ? 'Sending message' : 'Send message'}

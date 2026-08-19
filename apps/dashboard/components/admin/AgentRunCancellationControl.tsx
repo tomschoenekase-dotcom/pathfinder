@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 
 import { useTRPCClient } from '../../lib/trpc'
 
-const CANCELLABLE_STATES = new Set(['QUEUED', 'RUNNING', 'AWAITING_APPROVAL'])
+const CANCELLABLE_STATES = new Set(['QUEUED', 'RUNNING', 'AWAITING_INPUT', 'AWAITING_APPROVAL'])
 
 type Props = {
   tenantId: string

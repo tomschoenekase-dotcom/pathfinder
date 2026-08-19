@@ -2,7 +2,11 @@
   "name": "@pathfinder/ui",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./brand": "./src/PathFinderBrand.tsx",
+    "./character": "./src/character/index.ts",
+    "./fade-in": "./src/FadeIn.tsx",
+    "./theme": "./src/theme.ts"
   },
   "types": "./src/index.ts",
   "scripts": {
@@ -15,6 +19,9 @@
   },
   "peerDependencies": {
     "react": "19.1.4"
+  },
+  "dependencies": {
+    "@pathfinder/contracts": "workspace:*"
   },
   "devDependencies": {
     "@pathfinder/config": "workspace:*",

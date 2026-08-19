@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   approvals: vi.fn(),
   support: vi.fn(),
   agents: vi.fn(),
+  questions: vi.fn(),
+  outcomes: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -17,6 +19,8 @@ vi.mock('@pathfinder/db', () => ({
     approvalRequest: { findMany: mocks.approvals },
     supportRequest: { findMany: mocks.support },
     agentRun: { findMany: mocks.agents },
+    agentQuestion: { findMany: mocks.questions },
+    agentOutcomeObservation: { findMany: mocks.outcomes },
   },
 }))
 
@@ -47,6 +51,8 @@ describe('admin attention console', () => {
     mocks.approvals.mockResolvedValue([])
     mocks.support.mockResolvedValue([])
     mocks.agents.mockResolvedValue([])
+    mocks.questions.mockResolvedValue([])
+    mocks.outcomes.mockResolvedValue([])
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
@@ -65,6 +71,8 @@ describe('admin attention console', () => {
       mocks.approvals,
       mocks.support,
       mocks.agents,
+      mocks.questions,
+      mocks.outcomes,
     ]) {
       expect(query).toHaveBeenCalledWith(
         expect.objectContaining({ take: 8, select: expect.any(Object) }),
@@ -76,6 +84,8 @@ describe('admin attention console', () => {
       mocks.approvals.mock.calls[0]![0],
       mocks.support.mock.calls[0]![0],
       mocks.agents.mock.calls[0]![0],
+      mocks.questions.mock.calls[0]![0],
+      mocks.outcomes.mock.calls[0]![0],
     ])
     for (const forbidden of [
       'payload',
@@ -92,6 +102,15 @@ describe('admin attention console', () => {
       'VALIDATING',
       'AWAITING_APPROVAL',
     ])
+    expect(mocks.agents).toHaveBeenCalledTimes(4)
+    expect(mocks.agents.mock.calls[1]![0].where.status.in).toEqual(['QUEUED', 'RUNNING'])
+    expect(mocks.agents.mock.calls[2]![0].where.status.in).toEqual([
+      'AWAITING_INPUT',
+      'AWAITING_APPROVAL',
+      'FAILED',
+    ])
+    expect(mocks.agents.mock.calls[3]![0].where.status).toBe('COMPLETED')
+    expect(mocks.questions.mock.calls[0]![0].where.status).toBe('PENDING')
   })
 
   it('classifies expired leases and approvals and emits deterministic cursors', async () => {

@@ -95,6 +95,8 @@ const analysisCreate = vi.fn()
 const analysisUpdateMany = vi.fn()
 const aiUsageCreate = vi.fn()
 const auditLogCreate = vi.fn()
+const milestoneFindFirst = vi.fn()
+const milestoneCreate = vi.fn()
 
 const mockDb = {
   $transaction: vi.fn(async (callback: (tx: unknown) => unknown) => callback(mockDb)),
@@ -122,6 +124,7 @@ const mockDb = {
     updateMany: analysisUpdateMany,
   },
   aiUsageEvent: { create: aiUsageCreate },
+  onboardingMilestoneEvent: { findFirst: milestoneFindFirst, create: milestoneCreate },
   auditLog: { create: auditLogCreate },
 } as unknown as TRPCContext['db']
 
@@ -385,6 +388,8 @@ describe('venue package router', () => {
     analysisCreate.mockResolvedValue({ id: 'analysis-1' })
     analysisUpdateMany.mockResolvedValue({ count: 1 })
     aiUsageCreate.mockResolvedValue({ id: 'usage-1' })
+    milestoneFindFirst.mockResolvedValue(null)
+    milestoneCreate.mockImplementation(async ({ data }) => data)
     placeDeleteMany.mockResolvedValue({ count: 0 })
     knowledgeDeleteMany.mockResolvedValue({ count: 0 })
   })

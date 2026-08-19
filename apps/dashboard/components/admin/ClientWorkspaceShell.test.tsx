@@ -106,7 +106,8 @@ describe('ClientWorkspaceShell', () => {
     )
 
     expect(screen.getByLabelText('Workspace navigation').textContent).toContain('No venues yet')
-    expect(screen.getByRole('main').textContent).toContain('Empty account')
+    expect(screen.getByText('Empty account')).toBeTruthy()
+    expect(screen.queryByRole('main')).toBeNull()
     expect(screen.queryByText('Build & manage')).toBeNull()
     expect(screen.queryByText('Observe & improve')).toBeNull()
   })

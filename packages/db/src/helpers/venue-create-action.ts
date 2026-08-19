@@ -270,6 +270,17 @@ export async function createVenueAction(
         ...(input.defaultCenterLng !== undefined
           ? { defaultCenterLng: input.defaultCenterLng }
           : {}),
+        venueBotConfiguration: {
+          create: {
+            tenant: { connect: { id: input.tenantId } },
+            presentationMode: 'CLASSIC',
+            personalityMode: 'PRESET',
+            tonePreset: 'friendly',
+            tonePresetVersion: 1,
+            createdBy: input.actor.id,
+            updatedBy: input.actor.id,
+          },
+        },
         ...(initial?.kind === 'place'
           ? {
               places: {

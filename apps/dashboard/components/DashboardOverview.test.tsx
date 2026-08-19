@@ -62,8 +62,8 @@ describe('DashboardOverview client portal', () => {
         .every((link) => link.getAttribute('href') === 'https://guest.example/riverside'),
     ).toBe(true)
     expect(screen.getByText('1 visitor update live')).toBeTruthy()
-    expect(screen.getByText('PathFinder tone')).toBeTruthy()
-    expect(screen.getByText('PathFinder Support')).toBeTruthy()
+    expect(screen.getByText('Visitor experience')).toBeTruthy()
+    expect(screen.getByText('Help & changes')).toBeTruthy()
     expect(screen.queryByText(/analytics/i)).toBeNull()
     expect(screen.queryByText(/sessions/i)).toBeNull()
     expect(screen.queryByText(/1 venue/i)).toBeNull()
@@ -156,8 +156,11 @@ describe('DashboardOverview client portal', () => {
         activeUpdates={0}
       />,
     )
-    expect(screen.getByRole('navigation', { name: 'Choose venue' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Uptown' }).getAttribute('href')).toBe('/?venue=uptown')
+    const venueSwitcher = screen.getByRole('combobox', { name: 'Viewing venue' })
+    expect(venueSwitcher).toBeTruthy()
+    expect(
+      Array.from((venueSwitcher as HTMLSelectElement).options).map((option) => option.value),
+    ).toEqual(['riverside', 'uptown'])
   })
 
   it('shows the one required setup action without internal implementation language', () => {
@@ -168,13 +171,11 @@ describe('DashboardOverview client portal', () => {
         activeUpdates={0}
       />,
     )
-    expect(
-      screen
-        .getByRole('link', { name: /Continue setup Action needed Share the information/iu })
-        .getAttribute('href'),
-    ).toBe('/venues/venue%20%2F%20one/intake')
+    expect(screen.getByRole('link', { name: 'Continue setup' }).getAttribute('href')).toBe(
+      '/venues/venue%20%2F%20one/onboarding',
+    )
     expect(document.body.textContent).not.toMatch(/package|worker|queue|analytics|agent/iu)
-    expect(screen.queryByRole('navigation', { name: 'Choose venue' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Viewing venue' })).toBeNull()
   })
 
   it('shows exactly one client task for preview and withholds live management tools', () => {
@@ -194,13 +195,9 @@ describe('DashboardOverview client portal', () => {
       />,
     )
 
-    expect(screen.getAllByText('Your next step')).toHaveLength(1)
+    expect(screen.getByText('Your next step')).toBeTruthy()
     expect(
-      screen
-        .getByRole('link', {
-          name: /Review the visitor experience Action needed See what visitors/iu,
-        })
-        .getAttribute('href'),
+      screen.getByRole('link', { name: 'Review the visitor experience' }).getAttribute('href'),
     ).toBe('/venues/riverside/preview/package-approved')
     expect(screen.queryByRole('link', { name: 'Open visitor experience' })).toBeNull()
     expect(screen.queryByText('The essentials')).toBeNull()
@@ -224,12 +221,10 @@ describe('DashboardOverview client portal', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Owner-authorized preview' })).toBeTruthy()
-    expect(screen.getAllByText('Your next step')).toHaveLength(1)
-    expect(
-      screen
-        .getByRole('link', { name: /Contact Support Action needed Visitors cannot open/iu })
-        .getAttribute('href'),
-    ).toBe('/support')
+    expect(screen.getByText('Your next step')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Contact Support' }).getAttribute('href')).toBe(
+      '/support',
+    )
     expect(screen.queryByRole('link', { name: /Open PathFinder|Open preview/ })).toBeNull()
     expect(document.body.textContent).not.toMatch(/analytics|sessions|conversion/iu)
   })
@@ -254,7 +249,7 @@ describe('DashboardOverview client portal', () => {
           {
             id: 'missing:request-1',
             title: 'Updated admission details',
-            description: 'PathFinder Support is waiting for the details below.',
+            description: 'Torchiko Support is waiting for the details below.',
             href: '/support?venue=riverside&request=request-1',
             required: true,
             items: ['Current price', 'Effective date'],
@@ -269,7 +264,7 @@ describe('DashboardOverview client portal', () => {
           {
             id: 'report',
             title: 'July review',
-            description: 'A published PathFinder report is available to read.',
+            description: 'A published Torchiko report is available to read.',
             href: '/weekly-reports/report-1?venue=riverside',
             required: false,
           },
@@ -277,17 +272,19 @@ describe('DashboardOverview client portal', () => {
       />,
     )
 
-    const tasks = screen.getByRole('list', { name: 'PathFinder tasks' })
+    const tasks = screen.getByRole('list', { name: 'Torchiko tasks' })
     const links = Array.from(tasks.querySelectorAll('a'))
     expect(links.every((link) => link.getAttribute('aria-label') === null)).toBe(true)
+    const questionLink = screen.getByRole('link', { name: 'Updated admission details' })
+    expect(questionLink.getAttribute('href')).toBe('/support?venue=riverside&request=request-1')
+    expect(screen.getByText(/Current price.*Effective date/)).toBeTruthy()
+    expect(screen.getAllByText('Action needed')).toHaveLength(1)
+    expect(screen.getByRole('combobox', { name: 'Viewing venue' })).toBeTruthy()
     expect(
-      screen.getByRole('link', {
-        name: /Updated admission details Action needed PathFinder Support is waiting.*Current price.*Effective date.*Open/iu,
-      }),
+      questionLink.compareDocumentPosition(
+        screen.getByRole('link', { name: /Review the visitor experience.*Open/iu }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(screen.getByText('Current price')).toBeTruthy()
-    expect(screen.getAllByText('Action needed')).toHaveLength(2)
-    expect(screen.getByRole('navigation', { name: 'Choose venue' })).toBeTruthy()
     expect(document.body.textContent).not.toMatch(
       /package|request-1|approved-preview|hash|analytics/iu,
     )
@@ -302,7 +299,7 @@ describe('DashboardOverview client portal', () => {
         tasks={[]}
       />,
     )
-    expect(screen.queryByRole('list', { name: 'PathFinder tasks' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Torchiko tasks' })).toBeNull()
     expect(screen.queryByText(/Your next step/)).toBeNull()
   })
 })

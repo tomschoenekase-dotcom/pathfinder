@@ -29,6 +29,12 @@ function formatItemType(place: { type: string; itemType: string | null }): strin
   return (place.itemType ?? place.type).replace(/_/g, ' ')
 }
 
+function elapsedHours(start: Date, end: Date | null): string {
+  if (!end) return 'Not reached'
+  const hours = Math.max(0, (end.getTime() - start.getTime()) / 3_600_000)
+  return hours < 1 ? `${Math.round(hours * 60)} min` : `${hours.toFixed(hours < 10 ? 1 : 0)} hr`
+}
+
 export default async function AdminVenueDetailPage({ params }: AdminVenueDetailPageProps) {
   const { tenantId, venueId } = await params
   const caller = await createAdminCaller()
@@ -148,6 +154,137 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
               : 'Not set'
           }
         />
+      </section>
+
+      <section
+        className="rounded-2xl border border-pf-light bg-pf-white p-5"
+        aria-labelledby="onboarding-operations-heading"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-pf-primary">
+              Remote onboarding
+            </p>
+            <h2
+              id="onboarding-operations-heading"
+              className="mt-1 text-xl font-semibold text-pf-deep"
+            >
+              Collection through release
+            </h2>
+            <p className="mt-1 text-sm text-pf-deep/55">
+              Durable source, question, QA, and package evidence for this venue. Client actions
+              never publish.
+            </p>
+          </div>
+          <Link
+            href={`/admin/clients/${tenantId}/venues/${venueId}/intake`}
+            className="inline-flex min-h-11 items-center rounded-xl bg-pf-primary px-4 text-sm font-semibold text-white"
+          >
+            Open intake review
+          </Link>
+        </div>
+        <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            [
+              'Materials',
+              `${data.onboarding.materials.reviewable} reviewable · ${data.onboarding.materials.checking} checking`,
+            ],
+            ['Source proposals', data.onboarding.proposedSources.toString()],
+            ['Open questions', data.onboarding.openQuestions.toString()],
+            [
+              'QA',
+              `${data.onboarding.qa.status.replaceAll('_', ' ').toLowerCase()} · ${data.onboarding.qa.passed} passed · ${data.onboarding.qa.failed} failed`,
+            ],
+            ['Draft packages', data.onboarding.packages.draft.toString()],
+            ['Approved packages', data.onboarding.packages.approved.toString()],
+            ['Applied packages', data.onboarding.packages.applied.toString()],
+            ['Release', data.onboarding.release.released ? 'Released' : 'Not released'],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-xl bg-pf-surface p-4">
+              <dt className="text-xs font-bold uppercase tracking-[0.12em] text-pf-deep/45">
+                {label}
+              </dt>
+              <dd className="mt-2 text-sm font-semibold text-pf-deep">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {data.onboarding.materials.needsAttention ||
+        data.onboarding.qa.failed ||
+        data.onboarding.qa.operationalIssues ? (
+          <p
+            className="mt-4 rounded-xl bg-amber-50 p-4 text-sm font-medium text-amber-950"
+            role="status"
+          >
+            Needs attention: {data.onboarding.materials.needsAttention} material issue(s),{' '}
+            {data.onboarding.qa.failed} QA failure(s), and {data.onboarding.qa.operationalIssues}{' '}
+            operational QA issue(s).
+          </p>
+        ) : null}
+        <nav
+          aria-label="Onboarding operator workflows"
+          className="mt-4 flex flex-wrap gap-3 text-sm font-semibold text-pf-primary"
+        >
+          <Link href={`/admin/clients/${tenantId}/venues/${venueId}/support-operations`}>
+            Questions and corrections
+          </Link>
+          <Link href={`/admin/clients/${tenantId}/venues/${venueId}/packages`}>
+            Reviewed packages
+          </Link>
+          <Link href={`/admin/clients/${tenantId}/venues/${venueId}/evaluations`}>QA evidence</Link>
+          <Link href={`/admin/clients/${tenantId}/venues/${venueId}/deployment-manifest`}>
+            Release artifact
+          </Link>
+        </nav>
+        <div className="mt-6 border-t border-pf-light pt-5">
+          <h3 className="font-semibold text-pf-deep">Timing and learning signals</h3>
+          <p className="mt-1 text-sm text-pf-deep/55">
+            Computed only from durable domain records—not page views or browser activity.
+          </p>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <dt className="text-xs text-pf-deep/50">Venue to first source</dt>
+              <dd className="mt-1 font-semibold">
+                {elapsedHours(
+                  data.onboarding.metrics.venueCreatedAt,
+                  data.onboarding.metrics.firstSourceAt,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pf-deep/50">First source to reviewed package</dt>
+              <dd className="mt-1 font-semibold">
+                {data.onboarding.metrics.firstSourceAt
+                  ? elapsedHours(
+                      data.onboarding.metrics.firstSourceAt,
+                      data.onboarding.metrics.firstReviewedPackageAt,
+                    )
+                  : 'Not started'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pf-deep/50">Source corrections</dt>
+              <dd className="mt-1 font-semibold">{data.onboarding.metrics.correctionCount}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-pf-deep/50">Missing-knowledge requests</dt>
+              <dd className="mt-1 font-semibold">
+                {data.onboarding.metrics.missingKnowledgeRequestCount}
+              </dd>
+            </div>
+          </dl>
+          {data.onboarding.metrics.repeatedMissingKnowledge.length ? (
+            <div className="mt-4 rounded-xl bg-pf-surface p-4">
+              <p className="text-sm font-semibold text-pf-deep">Repeated missing knowledge</p>
+              <ul className="mt-2 space-y-1 text-sm text-pf-deep/65">
+                {data.onboarding.metrics.repeatedMissingKnowledge.map((item) => (
+                  <li key={item.prompt}>
+                    {item.prompt} · {item.count} requests
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       </section>
 
       <section className="space-y-4">

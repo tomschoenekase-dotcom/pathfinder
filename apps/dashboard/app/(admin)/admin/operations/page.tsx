@@ -39,6 +39,17 @@ export default async function AdminOperationsPage({
       ...(cursor(query.approvalsCursor) ? { approvalsCursor: cursor(query.approvalsCursor) } : {}),
       ...(cursor(query.supportCursor) ? { supportCursor: cursor(query.supportCursor) } : {}),
       ...(cursor(query.agentsCursor) ? { agentsCursor: cursor(query.agentsCursor) } : {}),
+      ...(cursor(query.questionsCursor) ? { questionsCursor: cursor(query.questionsCursor) } : {}),
+      ...(cursor(query.workingAgentsCursor)
+        ? { workingAgentsCursor: cursor(query.workingAgentsCursor) }
+        : {}),
+      ...(cursor(query.blockedAgentsCursor)
+        ? { blockedAgentsCursor: cursor(query.blockedAgentsCursor) }
+        : {}),
+      ...(cursor(query.completedAgentsCursor)
+        ? { completedAgentsCursor: cursor(query.completedAgentsCursor) }
+        : {}),
+      ...(cursor(query.outcomesCursor) ? { outcomesCursor: cursor(query.outcomesCursor) } : {}),
     }),
     caller.admin.getGlobalAiControl(),
   ])
@@ -51,8 +62,9 @@ export default async function AdminOperationsPage({
           Work and failures
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          Bounded, read-only exception queues with exact links into client and venue evidence. This
-          page cannot retry, cancel, approve, or contact providers.
+          See what needs you, what the AI organization is doing, what finished, and what failed.
+          Detailed evidence remains one click away; this page cannot retry, cancel, approve, or
+          contact providers.
         </p>
       </header>
 

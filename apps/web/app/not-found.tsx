@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import { PathFinderIcon } from '@pathfinder/ui'
+import { PathFinderIcon } from '@pathfinder/ui/brand'
 
 export default function NotFound() {
   return (
@@ -15,7 +15,7 @@ export default function NotFound() {
           href="/"
           className="inline-flex min-h-11 items-center justify-center rounded-full border border-pf-light px-5 text-sm font-medium text-pf-primary transition hover:border-pf-accent hover:bg-pf-accent/5"
         >
-          Back to PathFinder
+          Back to Torchiko
         </Link>
       </div>
     </main>

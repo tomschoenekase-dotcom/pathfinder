@@ -55,15 +55,30 @@ async function lockRequest(tx: Transaction, input: Input) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pathfinder:support-request:${input.tenantId}:${input.requestId}`}, 0))`
 }
 
-async function loadRequester(tx: Transaction, input: Input) {
+async function loadParticipantManager(tx: Transaction, input: Input) {
   const request = await tx.supportRequest.findFirst({
     where: {
       id: input.requestId,
       tenantId: input.tenantId,
       venueId: input.venueId,
-      createdByKind: 'CLIENT',
-      requesterUserId: input.actor.actorId,
-      requesterMembership: { is: { status: 'ACTIVE' } },
+      OR: [
+        {
+          createdByKind: 'CLIENT',
+          requesterUserId: input.actor.actorId,
+          requesterMembership: { is: { status: 'ACTIVE' } },
+        },
+        {
+          createdByKind: 'OPERATOR',
+          onboardingQuestionLink: { is: { recipientUserId: input.actor.actorId } },
+          participants: {
+            some: {
+              userId: input.actor.actorId,
+              revokedAt: null,
+              membership: { is: { status: 'ACTIVE' } },
+            },
+          },
+        },
+      ],
     },
     select: { id: true, version: true, clientVersion: true, requesterUserId: true },
   })
@@ -72,8 +87,8 @@ async function loadRequester(tx: Transaction, input: Input) {
 }
 
 async function validateTargetMember(tx: Transaction, input: Input, requesterUserId: string | null) {
-  if (input.userId === requesterUserId)
-    throw new SupportActionError('INVALID_INPUT', 'Requester cannot be a participant')
+  if (input.userId === requesterUserId || input.userId === input.actor.actorId)
+    throw new SupportActionError('INVALID_INPUT', 'The managing client is already a participant')
   const membership = await tx.tenantMembership.findFirst({
     where: { tenantId: input.tenantId, userId: input.userId, status: 'ACTIVE' },
     select: { userId: true },
@@ -86,7 +101,7 @@ async function grantSupportRequestParticipantActionOnce(input: Input, client: Cl
   const operationHash = hash('GRANT', parsed)
   return client.$transaction(async (tx) => {
     await lockRequest(tx, parsed)
-    const request = await loadRequester(tx, parsed)
+    const request = await loadParticipantManager(tx, parsed)
     const replay = await tx.supportRequestParticipant.findFirst({
       where: { tenantId: parsed.tenantId, grantOperationId: parsed.operationId },
       select: {
@@ -146,7 +161,6 @@ async function grantSupportRequestParticipantActionOnce(input: Input, client: Cl
         venueId: parsed.venueId,
         version: request.version,
         clientVersion: parsed.expectedClientVersion,
-        requesterUserId: parsed.actor.actorId,
       },
       data: {
         version: nextRequestVersion,
@@ -218,7 +232,7 @@ async function revokeSupportRequestParticipantActionOnce(input: Input, client: C
   const operationHash = hash('REVOKE', parsed)
   return client.$transaction(async (tx) => {
     await lockRequest(tx, parsed)
-    const request = await loadRequester(tx, parsed)
+    const request = await loadParticipantManager(tx, parsed)
     const replay = await tx.supportRequestParticipant.findFirst({
       where: { tenantId: parsed.tenantId, revokeOperationId: parsed.operationId },
       select: {
@@ -278,7 +292,6 @@ async function revokeSupportRequestParticipantActionOnce(input: Input, client: C
         venueId: parsed.venueId,
         version: request.version,
         clientVersion: parsed.expectedClientVersion,
-        requesterUserId: parsed.actor.actorId,
       },
       data: {
         version: nextRequestVersion,

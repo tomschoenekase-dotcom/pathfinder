@@ -4,6 +4,8 @@ import type { AnthropicMessagesClient } from '@pathfinder/ai'
 
 const mocks = vi.hoisted(() => ({
   venueFindMany: vi.fn(),
+  placeFindMany: vi.fn(),
+  knowledgeFindMany: vi.fn(),
   messageFindMany: vi.fn(),
   messageGroupBy: vi.fn(),
   messageUpdateMany: vi.fn(),
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   updateJobRecord: vi.fn(),
   aiUsageEventCreate: vi.fn(),
   assertGlobalAiAvailable: vi.fn(),
+  recordOrReplayOnboardingMilestoneEvent: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({
@@ -57,6 +60,8 @@ vi.mock('@pathfinder/db', () => ({
       error.name === 'VenueUnavailableError'),
   db: {
     venue: { findMany: mocks.venueFindMany },
+    place: { findMany: mocks.placeFindMany },
+    venueKnowledgeEntry: { findMany: mocks.knowledgeFindMany },
     aiUsageEvent: { create: mocks.aiUsageEventCreate },
     message: {
       findMany: mocks.messageFindMany,
@@ -76,6 +81,7 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.withTenantIsolationBypass,
   writeJobRecord: mocks.writeJobRecord,
   updateJobRecord: mocks.updateJobRecord,
+  recordOrReplayOnboardingMilestoneEvent: mocks.recordOrReplayOnboardingMilestoneEvent,
 }))
 
 import {
@@ -153,6 +159,10 @@ describe('processAnalyticsEnrichmentJob', () => {
     mocks.updateJobRecord.mockResolvedValue(undefined)
     mocks.aiUsageEventCreate.mockResolvedValue({})
     mocks.assertGlobalAiAvailable.mockResolvedValue(undefined)
+    mocks.recordOrReplayOnboardingMilestoneEvent.mockResolvedValue({
+      event: { id: 'milestone_1' },
+      replayed: false,
+    })
     mocks.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         dailyRollup: { deleteMany: mocks.rollupDeleteMany, createMany: mocks.rollupCreateMany },
@@ -160,6 +170,8 @@ describe('processAnalyticsEnrichmentJob', () => {
     )
 
     mocks.venueFindMany.mockResolvedValue([{ id: 'venue_1' }])
+    mocks.placeFindMany.mockResolvedValue([])
+    mocks.knowledgeFindMany.mockResolvedValue([])
     mocks.messageFindMany.mockResolvedValue([
       { id: 'm1', content: 'where is the toilet' },
       { id: 'm2', content: 'what time do you open' },
@@ -252,6 +264,23 @@ describe('processAnalyticsEnrichmentJob', () => {
     const clusterData = mocks.clusterCreateMany.mock.calls[0]?.[0]?.data as Array<{ kind: string }>
     expect(clusterData.some((row) => row.kind === 'top_question')).toBe(true)
     expect(clusterData.some((row) => row.kind === 'content_gap')).toBe(true)
+    expect(mocks.recordOrReplayOnboardingMilestoneEvent).toHaveBeenCalledWith({
+      db: expect.any(Object),
+      input: expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'POST_LAUNCH_MISSING_KNOWLEDGE',
+        idempotencyKey: expect.stringMatching(
+          /^analytics-gap:2026-06-18T00:00:00\.000Z:[a-f0-9]{64}$/u,
+        ),
+        occurredAt: new Date('2026-06-18T00:00:00.000Z'),
+        actorType: 'SYSTEM',
+        actorId: null,
+        sourceType: 'ANALYTICS_CONTENT_GAP',
+        sourceId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        category: 'CONTENT_GAP',
+      }),
+    })
 
     expect(mocks.updateJobRecord).toHaveBeenCalledWith('job_record_1', { status: 'COMPLETE' })
     for (const call of mocks.analyticsFindMany.mock.calls.slice(0, 3)) {
@@ -280,6 +309,48 @@ describe('processAnalyticsEnrichmentJob', () => {
         success: true,
       }),
     })
+  })
+
+  it('emits bounded sanitized stale-fact signals once per content review revision', async () => {
+    const reviewedAt = new Date('2026-04-01T12:00:00.000Z')
+    mocks.placeFindMany.mockResolvedValue([{ id: 'place_1', lastReviewedAt: reviewedAt }])
+    mocks.knowledgeFindMany.mockResolvedValue([{ id: 'knowledge_1', lastReviewedAt: reviewedAt }])
+
+    await processAnalyticsEnrichmentJob({ tenantId: 'tenant_1', date: '2026-06-18T00:00:00.000Z' })
+
+    expect(mocks.placeFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          humanConfirmedAt: { not: null },
+        }),
+        take: 1_000,
+        select: { id: true, lastReviewedAt: true },
+      }),
+    )
+    expect(mocks.recordOrReplayOnboardingMilestoneEvent).toHaveBeenCalledWith({
+      db: expect.any(Object),
+      input: expect.objectContaining({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'STALE_FACT',
+        idempotencyKey: expect.stringMatching(/^stale-fact:[a-f0-9]{64}$/u),
+        occurredAt: new Date('2026-05-31T12:00:00.000Z'),
+        actorType: 'SYSTEM',
+        actorId: null,
+        sourceType: 'PLACE',
+        sourceId: 'place_1',
+        sourceRevision: reviewedAt.toISOString(),
+        category: 'PLACE',
+      }),
+    })
+    const staleCalls = mocks.recordOrReplayOnboardingMilestoneEvent.mock.calls.filter(
+      ([call]) => call.input.eventType === 'STALE_FACT',
+    )
+    expect(staleCalls).toHaveLength(2)
+    expect(JSON.stringify(staleCalls)).not.toContain('name')
+    expect(JSON.stringify(staleCalls)).not.toContain('content')
   })
 
   it('skips unattributed legacy events without reading raw question metadata', async () => {

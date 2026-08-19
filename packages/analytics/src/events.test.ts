@@ -12,5 +12,19 @@ describe('analytics event trust boundary', () => {
     expect(PUBLIC_ANALYTICS_EVENT_TYPES).not.toContain('message.sent')
     expect(PUBLIC_ANALYTICS_EVENT_TYPES).not.toContain('message.fallback')
     expect(PUBLIC_ANALYTICS_EVENT_TYPES).not.toContain('message.low_confidence')
+    for (const eventType of [
+      'client_tochi_opened',
+      'client_tochi_message_sent',
+      'client_tochi_handoff_created',
+      'client_tochi_disabled',
+      'venue_bot_presentation_changed',
+      'character_selected',
+      'custom_personality_saved',
+      'character_chat_started',
+      'character_mode_disabled',
+    ] as const) {
+      expect(ANALYTICS_EVENT_TYPES).toContain(eventType)
+      expect(PUBLIC_ANALYTICS_EVENT_TYPES).not.toContain(eventType as never)
+    }
   })
 })

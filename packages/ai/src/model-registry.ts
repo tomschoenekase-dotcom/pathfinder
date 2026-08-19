@@ -1,7 +1,9 @@
 export const AI_MODEL_KEYS = {
+  AGENT_RUN: 'agent-run',
   ANALYTICS_TOPIC_CLASSIFIER: 'analytics-topic-classifier',
   ANALYTICS_WEEKLY_THEMES: 'analytics-weekly-themes',
   ANSWER_ANALYSIS: 'answer-analysis',
+  CLIENT_TOCHI: 'client-tochi',
   GUEST_CHAT: 'guest-chat',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -71,9 +73,13 @@ function sonnetSpec(maxOutputTokens: number): AiModelSpec {
 }
 
 export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
+  [AI_MODEL_KEYS.AGENT_RUN]: sonnetSpec(1_800),
   [AI_MODEL_KEYS.ANALYTICS_TOPIC_CLASSIFIER]: haikuSpec(1_024, 30_000),
   [AI_MODEL_KEYS.ANALYTICS_WEEKLY_THEMES]: haikuSpec(1_024, 30_000),
   [AI_MODEL_KEYS.ANSWER_ANALYSIS]: sonnetSpec(1_500),
+  // Private client-portal helper. It receives a small client-visible projection,
+  // has no browsing/general-agent tools, and is expected to answer concisely.
+  [AI_MODEL_KEYS.CLIENT_TOCHI]: haikuSpec(384, 8_000),
   [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),

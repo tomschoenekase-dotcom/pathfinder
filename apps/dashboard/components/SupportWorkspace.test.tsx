@@ -176,6 +176,8 @@ describe('SupportWorkspace', () => {
     expect(screen.getByRole('link', { name: 'Share a file or website' }).getAttribute('href')).toBe(
       '/venues/venue_alpha/intake',
     )
+    fireEvent.click(screen.getByRole('button', { name: 'I don’t know' }))
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe("I don't know.")
     expect(document.body.textContent).not.toMatch(/package|handoff|hash|quarantin|internal note/iu)
 
     rendered.rerender(

@@ -5,8 +5,12 @@ const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
   runFindMany: vi.fn(),
   resultGroupBy: vi.fn(),
+  resultFindMany: vi.fn(),
   reviewFindMany: vi.fn(),
   caseFindMany: vi.fn(),
+  venuePackageFind: vi.fn(),
+  createCase: vi.fn(),
+  loadPreview: vi.fn(),
   createSnapshot: vi.fn(),
   createRun: vi.fn(),
   featureEnabled: vi.fn(),
@@ -17,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   compareRuns: vi.fn(),
   appendReview: vi.fn(),
   nativeReleaseFind: vi.fn(),
+  venueFind: vi.fn(),
+  milestoneFindMany: vi.fn(),
 }))
 
 vi.mock('@pathfinder/config', () => ({ env: { EVALUATION_RUNNER_ENABLED: true } }))
@@ -27,6 +33,8 @@ vi.mock('@pathfinder/ai', () => ({
 }))
 
 vi.mock('@pathfinder/jobs', () => ({ enqueueEvaluationRun: mocks.enqueueRun }))
+
+vi.mock('../portal', () => ({ loadClientPreview: mocks.loadPreview }))
 
 vi.mock('@pathfinder/db', () => ({
   EvaluationRunComparisonError: class EvaluationRunComparisonError extends Error {
@@ -48,6 +56,9 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
   compareEvaluationRuns: mocks.compareRuns,
   appendEvaluationReviewAction: mocks.appendReview,
+  createOrReplayEvaluationCase: mocks.createCase,
+  hashEvalCase: () => 'f'.repeat(64),
+  evaluationSnapshotHash: () => '9'.repeat(64),
   createVenueContentSnapshot: mocks.createSnapshot,
   createOrReplayEvaluationRun: mocks.createRun,
   requestEvaluationRunCancellation: mocks.cancelRun,
@@ -57,14 +68,17 @@ vi.mock('@pathfinder/db', () => ({
     $transaction: vi.fn(async (operation) =>
       operation({
         evalCase: { findMany: mocks.caseFindMany },
+        venuePackage: { findFirst: mocks.venuePackageFind },
         tenantFeatureFlag: { findUnique: mocks.featureEnabled },
         nativeVenueDeploymentRelease: { findFirst: mocks.nativeReleaseFind },
       }),
     ),
     evalRun: { findMany: mocks.runFindMany },
-    evalResult: { groupBy: mocks.resultGroupBy },
+    evalResult: { groupBy: mocks.resultGroupBy, findMany: mocks.resultFindMany },
     evalReview: { findMany: mocks.reviewFindMany },
     evalCase: { findMany: mocks.caseFindMany },
+    venue: { findFirst: mocks.venueFind },
+    onboardingMilestoneEvent: { findMany: mocks.milestoneFindMany },
     tenantFeatureFlag: { findUnique: mocks.featureEnabled },
   },
 }))
@@ -92,17 +106,113 @@ describe('admin evaluation operations router', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.runFindMany.mockResolvedValue([])
+    mocks.resultFindMany.mockResolvedValue([])
     mocks.featureEnabled.mockResolvedValue(null)
     mocks.enqueueRun.mockResolvedValue({ enqueued: false })
     mocks.cancelRun.mockResolvedValue('requested')
     mocks.durableEnabled.mockResolvedValue(true)
     mocks.markQueued.mockResolvedValue(true)
+    mocks.venueFind.mockResolvedValue({ id: 'venue_1' })
+    mocks.milestoneFindMany.mockResolvedValue([])
     mocks.compareRuns.mockResolvedValue({
       status: 'INCOMPARABLE',
       mismatchReasons: ['CONTENT'],
       cases: [],
       totals: null,
     })
+  })
+
+  it('returns a bounded, exact-scope onboarding milestone rollup with honest missing data', async () => {
+    mocks.milestoneFindMany.mockResolvedValue([
+      {
+        id: 'event_2',
+        eventType: 'FIRST_USEFUL_MATERIAL',
+        occurredAt: new Date('2026-08-18T00:05:00.000Z'),
+        category: 'PHOTO',
+        durationMs: 300_000,
+      },
+      {
+        id: 'event_1',
+        eventType: 'INVITATION_STARTED',
+        occurredAt: new Date('2026-08-18T00:00:00.000Z'),
+        category: null,
+        durationMs: null,
+      },
+    ])
+    const result = await testRouter
+      .createCaller(context())
+      .evaluations.getOnboardingMilestoneRollup({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        from: '2026-08-18T00:00:00.000Z',
+        to: '2026-08-19T00:00:00.000Z',
+      })
+    expect(result.timeToFirstUsefulMaterial).toMatchObject({ valueMs: 300_000, denominator: 1 })
+    expect(result.processingFailureRate).toMatchObject({ denominator: 1, rate: 0 })
+    expect(result.clientQuestionResponse.responseRate).toMatchObject({ denominator: 0, rate: null })
+    expect(mocks.milestoneFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant_1', venueId: 'venue_1' }),
+        take: 1001,
+      }),
+    )
+  })
+
+  it('prepares the seven versioned onboarding dimensions from one exact approved package', async () => {
+    mocks.venuePackageFind.mockResolvedValue({ id: 'package_1', payloadHash: 'a'.repeat(64) })
+    mocks.caseFindMany.mockResolvedValue([])
+    mocks.loadPreview.mockResolvedValue({
+      venue: { id: 'venue_1', name: 'Test Venue' },
+      package: { id: 'package_1' },
+      experience: {
+        places: [{ name: 'Lobby' }],
+        knowledgeEntries: [
+          { title: 'Parking', category: 'arrival', content: 'Parking is beside the lobby.' },
+        ],
+      },
+    })
+    mocks.createCase.mockImplementation(async ({ caseId, identity }) => ({
+      evalCase: {
+        id: caseId,
+        caseKey: identity.caseKey,
+        revision: identity.revision,
+        category: identity.category,
+      },
+      replayed: false,
+    }))
+
+    const result = await testRouter
+      .createCaller(context())
+      .evaluations.prepareOnboardingEvaluationSuite({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        packageId: 'package_1',
+      })
+
+    expect(result.cases).toHaveLength(7)
+    expect(result.cases.map((item) => item.dimension)).toEqual([
+      'fact',
+      'navigation',
+      'accessibility',
+      'safety',
+      'multilingual',
+      'adversarial',
+      'unanswerable',
+    ])
+    expect(mocks.loadPreview).toHaveBeenCalledWith(expect.anything(), 'tenant_1', {
+      venueId: 'venue_1',
+      packageId: 'package_1',
+    })
+    expect(mocks.createCase).toHaveBeenCalledTimes(7)
+    expect(mocks.createCase).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          sourceType: 'ONBOARDING_APPROVED_PACKAGE',
+          sourceRef: `venue-package:package_1:${'a'.repeat(64)}`,
+          createdBy: 'operator_1',
+        }),
+      }),
+    )
   })
 
   it('freezes server-derived identities as STAGED without publishing directly from the API', async () => {
@@ -197,6 +307,18 @@ describe('admin evaluation operations router', () => {
       plan: {
         priorHead: null,
         desired: {
+          venueBotConfiguration: {
+            presentationMode: 'CLASSIC',
+            personalityMode: 'PRESET',
+            tonePreset: 'friendly',
+            tonePresetVersion: 1,
+            personalityProfileId: null,
+            characterKey: null,
+            customCharacterId: null,
+            publicDisplayName: null,
+            greeting: null,
+            voiceProfileId: null,
+          },
           venue: {
             name: 'Venue',
             slug: 'venue',
@@ -253,6 +375,58 @@ describe('admin evaluation operations router', () => {
           runConfigSnapshot: expect.objectContaining({
             version: 'pathfinder-native-evaluation-run-config-v1',
             contentSnapshot: expect.objectContaining({ releaseId }),
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('freezes an exact approved onboarding package instead of later live venue content', async () => {
+    const caseId = '11111111-1111-4111-8111-111111111111'
+    mocks.caseFindMany.mockResolvedValue([{ id: caseId, revision: 1, caseHash: 'b'.repeat(64) }])
+    mocks.featureEnabled.mockResolvedValue({ enabled: true })
+    mocks.venuePackageFind.mockResolvedValue({ id: 'package_1', payloadHash: 'c'.repeat(64) })
+    mocks.loadPreview.mockResolvedValue({
+      venue: { id: 'venue_1', name: 'Approved venue' },
+      package: { id: 'package_1', status: 'APPROVED' },
+      experience: {
+        places: [],
+        knowledgeEntries: [],
+        summary: { placeCount: 0, knowledgeEntryCount: 0 },
+      },
+    })
+    mocks.createRun.mockImplementation(async ({ identity }) => ({
+      run: { id: caseId, identityHash: 'e'.repeat(64), status: 'STAGED' },
+      replayed: false,
+      identity,
+    }))
+
+    await testRouter.createCaller(context()).evaluations.requestEvaluationRun({
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      idempotencyKey: 'approved-package-1',
+      caseIds: [caseId],
+      budgetCeilingE8Usd: '1000',
+      approvedPackageId: 'package_1',
+    })
+
+    expect(mocks.createSnapshot).not.toHaveBeenCalled()
+    expect(mocks.loadPreview).toHaveBeenCalledWith(expect.anything(), 'tenant_1', {
+      venueId: 'venue_1',
+      packageId: 'package_1',
+    })
+    expect(mocks.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          contentSnapshotKind: 'APPROVED_VENUE_PACKAGE_V1',
+          contentSnapshotRef: 'package_1',
+          contentSnapshotVersion: 1n,
+          packageSnapshotRef: 'venue-package-v1:package_1',
+          packageSnapshotHash: 'c'.repeat(64),
+          triggerType: 'ADMIN_APPROVED_PACKAGE_REQUEST',
+          runConfigSnapshot: expect.objectContaining({
+            version: 'pathfinder-approved-package-evaluation-run-config-v1',
+            contentSnapshot: expect.objectContaining({ packageId: 'package_1' }),
           }),
         }),
       }),
@@ -444,8 +618,9 @@ describe('admin evaluation operations router', () => {
       venueId: 'venue_1',
     })
 
-    expect(result).toEqual({ items: [], humanConclusions: [], nextCursor: null })
+    expect(result).toEqual({ items: [], humanConclusions: [], failedCases: [], nextCursor: null })
     expect(mocks.resultGroupBy).not.toHaveBeenCalled()
+    expect(mocks.resultFindMany).not.toHaveBeenCalled()
     expect(mocks.reviewFindMany).not.toHaveBeenCalled()
   })
 

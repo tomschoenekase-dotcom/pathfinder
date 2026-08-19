@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { browserUuid } from '../lib/browser-uuid'
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 type SessionHookState = {
@@ -13,34 +15,7 @@ type SessionHookState = {
 }
 
 function generateAnonymousToken() {
-  // randomUUID is available in modern secure browser contexts, which this PWA also
-  // needs for geolocation permissions to work reliably.
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    try {
-      const token = globalThis.crypto.randomUUID()
-      if (UUID_RE.test(token)) {
-        return token
-      }
-    } catch {
-      // Fall through to getRandomValues when the platform implementation fails.
-    }
-  }
-
-  if (typeof globalThis.crypto?.getRandomValues !== 'function') {
-    return ''
-  }
-
-  let bytes: Uint8Array
-  try {
-    bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
-  } catch {
-    return ''
-  }
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80
-  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
-
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  return browserUuid() ?? ''
 }
 
 export function useSession(venueId: string, experienceScope = 'public'): SessionHookState {

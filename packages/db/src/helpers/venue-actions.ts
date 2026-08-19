@@ -295,6 +295,20 @@ export async function updateVenueAiConfigAction(
       data,
     })
     if (changed.count !== 1) conflict('Venue AI configuration changed; refresh and try again.')
+    if (requestedPreset) {
+      const compatibleConfiguration = await tx.venueBotConfiguration.updateMany({
+        where: { tenantId: input.tenantId, venueId: input.venueId },
+        data: {
+          tonePreset: requestedPreset,
+          tonePresetVersion: TONE_PRESET_BEHAVIOR_VERSION,
+          revision: { increment: 1 },
+          updatedBy: input.actor.id,
+        },
+      })
+      if (compatibleConfiguration.count !== 1) {
+        conflict('Venue Bot configuration is unavailable; refresh and try again.')
+      }
+    }
     const saved = await tx.venue.findFirst({
       where: { id: input.venueId, tenantId: input.tenantId },
       select: venueAiConfigSelect,

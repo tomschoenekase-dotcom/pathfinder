@@ -122,7 +122,7 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
   }
 
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 py-1.5 shadow-sm">
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 shadow-sm">
       <span id={labelId} className="sr-only" lang="en" dir="ltr">
         Select language
       </span>
@@ -135,7 +135,7 @@ export function LanguagePicker({ value, onChange }: LanguagePickerProps) {
         onChange={handleChange}
         lang={presentation.code}
         dir={presentation.direction}
-        className="cursor-pointer appearance-none border-none bg-transparent text-xs font-medium text-[var(--chat-text-muted)] outline-none transition hover:text-[var(--chat-text)] focus:text-[var(--chat-text)]"
+        className="min-h-11 cursor-pointer appearance-none border-none bg-transparent text-xs font-medium text-[var(--chat-text-muted)] outline-none transition hover:text-[var(--chat-text)] focus:text-[var(--chat-text)]"
         aria-labelledby={labelId}
       >
         {SUPPORTED_LANGUAGES.map((lang) => {

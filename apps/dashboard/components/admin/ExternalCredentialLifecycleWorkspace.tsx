@@ -20,6 +20,10 @@ const CAPABILITIES = {
     'jobs:read',
     'evaluations:read',
     'readiness:read',
+    'questions:read',
+    'questions:ask',
+    'delegations:create',
+    'agent-runs:execute',
     'packages:draft',
     'support:draft',
     'updates:draft',
@@ -100,6 +104,14 @@ type Props = {
       reasonCode: string
     },
   ) => Promise<ActionResult>
+  activate: (
+    input: Omit<ActionScope, 'venueId'> & {
+      venueId: string
+      operationId: string
+      credentialId: string
+      expectedUpdatedAt: string
+    },
+  ) => Promise<ActionResult>
   onRefresh?: () => void
 }
 
@@ -111,7 +123,7 @@ type SecretView = {
 }
 
 export function ExternalCredentialLifecycleWorkspace(
-  props: Omit<Props, 'issue' | 'rotate' | 'revoke'>,
+  props: Omit<Props, 'issue' | 'rotate' | 'revoke' | 'activate'>,
 ) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -121,6 +133,7 @@ export function ExternalCredentialLifecycleWorkspace(
       issue={(input) => client.admin.issueExternalCredential.mutate(input)}
       rotate={(input) => client.admin.rotateExternalCredential.mutate(input)}
       revoke={(input) => client.admin.revokeExternalCredential.mutate(input)}
+      activate={(input) => client.admin.activateAgentBridgeCredential.mutate(input)}
       onRefresh={() => router.refresh()}
     />
   )
@@ -139,6 +152,7 @@ function ExternalCredentialLifecycleScoped({
   issue,
   rotate,
   revoke,
+  activate,
   onRefresh,
 }: Props) {
   const clientId = tenantId
@@ -147,7 +161,8 @@ function ExternalCredentialLifecycleScoped({
   const generationRef = useRef(0)
   const inFlightRef = useRef(false)
   const issueIdentityRef = useRef<{ key: string; operationId: string } | null>(null)
-  const lifecycleIdentityRef = useRef<Record<'rotate' | 'revoke', string | null>>({
+  const lifecycleIdentityRef = useRef<Record<'activate' | 'rotate' | 'revoke', string | null>>({
+    activate: null,
     rotate: null,
     revoke: null,
   })
@@ -160,7 +175,7 @@ function ExternalCredentialLifecycleScoped({
     generationRef.current += 1
     inFlightRef.current = false
     issueIdentityRef.current = null
-    lifecycleIdentityRef.current = { rotate: null, revoke: null }
+    lifecycleIdentityRef.current = { activate: null, rotate: null, revoke: null }
     secretRef.current = null
   }
 
@@ -172,8 +187,9 @@ function ExternalCredentialLifecycleScoped({
   const [issueConfirmed, setIssueConfirmed] = useState(false)
   const [rotateConfirmed, setRotateConfirmed] = useState(false)
   const [revokeConfirmed, setRevokeConfirmed] = useState(false)
+  const [activateConfirmed, setActivateConfirmed] = useState(false)
   const [reasonCode, setReasonCode] = useState<(typeof REASONS)[number][0]>('ADMIN_REVOKED')
-  const [pending, setPending] = useState<'issue' | 'rotate' | 'revoke' | null>(null)
+  const [pending, setPending] = useState<'issue' | 'activate' | 'rotate' | 'revoke' | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
   const [stale, setStale] = useState(false)
   const [, renderSecret] = useState(0)
@@ -183,7 +199,7 @@ function ExternalCredentialLifecycleScoped({
       ? (venues.find((venue) => venue.id === targetVenueId)?.name ?? 'Selected venue')
       : clientName
 
-  const begin = (action: 'issue' | 'rotate' | 'revoke') => {
+  const begin = (action: 'issue' | 'activate' | 'rotate' | 'revoke') => {
     if (inFlightRef.current || stale) return null
     inFlightRef.current = true
     setPending(action)
@@ -293,9 +309,60 @@ function ExternalCredentialLifecycleScoped({
     }
   }
 
+  async function submitActivation() {
+    if (
+      !credential ||
+      !credential.venueId ||
+      credential.kind !== 'MCP' ||
+      !credential.capabilities.includes('agent-runs:execute') ||
+      credential.enabled ||
+      credential.revokedAt ||
+      !activateConfirmed ||
+      stale
+    )
+      return
+    const claim = begin('activate')
+    if (!claim) return
+    const operationId = lifecycleIdentityRef.current.activate ?? crypto.randomUUID()
+    lifecycleIdentityRef.current.activate = operationId
+    try {
+      await activate({
+        tenantId,
+        clientId,
+        venueId: credential.venueId,
+        credentialId: credential.id,
+        expectedUpdatedAt: credential.updatedAt.toISOString(),
+        operationId,
+      })
+      if (!current(claim)) return
+      setStale(true)
+      setFeedback({
+        kind: 'success',
+        text: 'Bridge credential activated. This grants only its listed capabilities; it does not start a runner.',
+      })
+      onRefresh?.()
+    } catch {
+      if (current(claim))
+        setFeedback({
+          kind: 'error',
+          text: 'Activation could not be confirmed. Keep this confirmation unchanged and refresh the credential state.',
+        })
+    } finally {
+      finish(claim)
+    }
+  }
+
   const secret = secretRef.current
-  const unavailable = credential?.enabled === true
+  const active = credential?.enabled === true
   const terminal = Boolean(credential?.revokedAt)
+  const bridgeEligible = Boolean(
+    credential &&
+    !active &&
+    !terminal &&
+    credential.kind === 'MCP' &&
+    credential.venueId &&
+    credential.capabilities.includes('agent-runs:execute'),
+  )
 
   return (
     <section className="space-y-5" aria-labelledby="credential-lifecycle-title">
@@ -306,11 +373,12 @@ function ExternalCredentialLifecycleScoped({
           tabIndex={-1}
           className="font-semibold text-amber-950"
         >
-          External access is disabled
+          External access is capability-gated
         </h3>
         <p className="mt-1 text-sm leading-6 text-amber-950">
-          These actions only record disabled credential metadata. They do not enable MCP, Partner
-          API access, a listener, authentication, or any external connection.
+          New credentials are disabled. Only an exact venue MCP credential carrying
+          agent-runs:execute can be activated here for the staged runner bridge. Activation does not
+          deploy a listener, authenticate a desktop provider, or start work.
         </p>
       </div>
 
@@ -500,19 +568,52 @@ function ExternalCredentialLifecycleScoped({
           <p className="mt-2 text-sm text-pf-deep/75">
             Capabilities: {credential.capabilities.map(capabilityLabel).join(', ')}
           </p>
-          {terminal || unavailable ? (
+          {terminal ? (
             <p className="mt-4 text-sm text-pf-deep/75">
-              {terminal
-                ? 'This credential is revoked. No further lifecycle action is available.'
-                : 'This legacy record is marked enabled. Lifecycle actions fail closed while external access is disabled.'}
+              This credential is revoked. No further lifecycle action is available.
             </p>
           ) : (
-            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+            <div className="mt-5 grid gap-5 lg:grid-cols-3">
+              {bridgeEligible ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                  <h4 className="font-semibold text-emerald-950">Activate bridge access</h4>
+                  <p className="mt-1 text-sm text-emerald-950/80">
+                    Enables only this venue-scoped machine credential. The secret stays external and
+                    no runner starts automatically.
+                  </p>
+                  <label className="mt-3 flex items-start gap-2 text-sm text-pf-deep">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={activateConfirmed}
+                      onChange={(event) => setActivateConfirmed(event.currentTarget.checked)}
+                    />
+                    I verified the venue and the exact capability list above.
+                  </label>
+                  <button
+                    type="button"
+                    className="mt-3 min-h-11 rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    disabled={pending !== null || stale || !activateConfirmed}
+                    onClick={() => void submitActivation()}
+                  >
+                    {pending === 'activate' ? 'Activating…' : 'Activate bridge credential'}
+                  </button>
+                </div>
+              ) : null}
+              {active ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                  <h4 className="font-semibold text-emerald-950">Bridge credential active</h4>
+                  <p className="mt-1 text-sm text-emerald-950/80">
+                    A compatible authenticated transport may use the listed capabilities. Rotate or
+                    revoke below to disable this credential permanently.
+                  </p>
+                </div>
+              ) : null}
               <div className="rounded-xl border border-pf-light p-4">
                 <h4 className="font-semibold text-pf-deep">Rotate</h4>
                 <p className="mt-1 text-sm text-pf-deep/75">
-                  Rotation revokes this disabled record and creates a disabled replacement with the
-                  same scope and capabilities. Its secret is shown once.
+                  Rotation revokes this record and creates a disabled replacement with the same
+                  scope and capabilities. Its secret is shown once.
                 </p>
                 <label className="mt-3 flex items-start gap-2 text-sm text-pf-deep">
                   <input
@@ -533,7 +634,7 @@ function ExternalCredentialLifecycleScoped({
                     ? 'Check rotation result'
                     : pending === 'rotate'
                       ? 'Rotating…'
-                      : 'Rotate disabled credential'}
+                      : 'Rotate credential'}
                 </button>
               </div>
               <div className="rounded-xl border border-rose-200 p-4">

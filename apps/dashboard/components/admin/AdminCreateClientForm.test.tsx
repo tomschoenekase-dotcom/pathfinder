@@ -6,10 +6,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AdminCreateClientForm } from './AdminCreateClientForm'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const mocks = vi.hoisted(() => ({ create: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  push: vi.fn(),
+  refresh: vi.fn(),
+  uuid: vi.fn(() => '123e4567-e89b-42d3-a456-426614174000'),
+}))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mocks.push, refresh: mocks.refresh }),
+}))
 vi.mock('../../lib/trpc', () => ({
   useTRPCClient: () => ({ admin: { createClientAndVenue: { mutate: mocks.create } } }),
 }))
+vi.mock('../../lib/browser-uuid', () => ({ browserUuid: mocks.uuid }))
 
 describe('AdminCreateClientForm', () => {
   afterEach(() => {
@@ -22,9 +31,45 @@ describe('AdminCreateClientForm', () => {
     render(<AdminCreateClientForm />)
     fireEvent.change(screen.getByLabelText('Client name'), { target: { value: 'Northstar' } })
     fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Lobby' } })
+    fireEvent.change(screen.getByLabelText('Primary client contact'), {
+      target: { value: 'owner@example.com' },
+    })
     const form = screen.getByRole('button', { name: /Create client/ }).closest('form')!
     fireEvent.submit(form)
     fireEvent.submit(form)
     expect(mocks.create).toHaveBeenCalledOnce()
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: '123e4567-e89b-42d3-a456-426614174000' }),
+    )
+  })
+
+  it('creates the client, venue, and primary-contact invitation as one operator flow', async () => {
+    mocks.create.mockResolvedValue({
+      tenant: { id: 'tenant_1' },
+      venue: { id: 'venue / 1' },
+      invitation: { id: 'invite_1', replayed: false },
+    })
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+    render(<AdminCreateClientForm />)
+    fireEvent.change(screen.getByLabelText('Client name'), { target: { value: 'Northstar' } })
+    fireEvent.change(screen.getByLabelText('Venue name'), { target: { value: 'Lobby' } })
+    fireEvent.change(screen.getByLabelText('Primary client contact'), {
+      target: { value: 'owner@example.com' },
+    })
+    fireEvent.submit(screen.getByRole('button', { name: /Create client/ }).closest('form')!)
+
+    await vi.waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          primaryContact: { emailAddress: 'owner@example.com', role: 'org:admin' },
+        }),
+      ),
+    )
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(mocks.push).toHaveBeenCalledWith('/venues/venue%20%2F%201/onboarding')
+    expect(mocks.refresh).toHaveBeenCalledOnce()
+    fetchMock.mockRestore()
   })
 })

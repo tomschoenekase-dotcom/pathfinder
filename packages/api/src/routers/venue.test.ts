@@ -7,15 +7,21 @@ const { checkRateLimitMock } = vi.hoisted(() => ({ checkRateLimitMock: vi.fn() }
 
 vi.mock('../lib/rate-limit', () => ({ checkRateLimit: checkRateLimitMock }))
 
-vi.mock('@pathfinder/config', () => ({
-  env: { OPENAI_API_KEY: 'test-key' },
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  },
-}))
+vi.mock('@pathfinder/config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pathfinder/config')>()
+
+  return {
+    ...actual,
+    env: { ...actual.env, OPENAI_API_KEY: 'test-key' },
+    isFeatureEnabled: vi.fn(() => false),
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    },
+  }
+})
 
 vi.mock('@pathfinder/analytics', () => ({
   emitEvent: vi.fn().mockResolvedValue(undefined),
@@ -27,6 +33,7 @@ vi.mock('@pathfinder/jobs', () => ({
 }))
 
 import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from '@pathfinder/jobs'
+import { isFeatureEnabled } from '@pathfinder/config'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -34,7 +41,7 @@ import {
   canonicalVenueContentImportPayload,
   ImportVenueContentInput,
 } from '../schemas/venue-content'
-import { venueRouter } from './venue'
+import { permitsLocalWorkspaceReconciliation, venueRouter } from './venue'
 
 // ---------------------------------------------------------------------------
 // DB mock
@@ -45,6 +52,11 @@ const venueFindFirst = vi.fn()
 const venueCreate = vi.fn()
 const venueUpdateMany = vi.fn()
 const venueDeleteMany = vi.fn()
+const venueBotConfigurationFindFirst = vi.fn()
+const venueBotConfigurationUpdateMany = vi.fn()
+const personalityProfileFindFirst = vi.fn()
+const customCharacterFindFirst = vi.fn()
+const tenantFeatureFlagFindMany = vi.fn()
 const auditLogCreate = vi.fn()
 const placeCreateMany = vi.fn()
 const knowledgeEntryCreateMany = vi.fn()
@@ -62,6 +74,13 @@ const mockDb = {
     updateMany: venueUpdateMany,
     deleteMany: venueDeleteMany,
   },
+  venueBotConfiguration: {
+    findFirst: venueBotConfigurationFindFirst,
+    updateMany: venueBotConfigurationUpdateMany,
+  },
+  personalityProfile: { findFirst: personalityProfileFindFirst },
+  customCharacter: { findFirst: customCharacterFindFirst },
+  tenantFeatureFlag: { findMany: tenantFeatureFlagFindMany },
   place: { createMany: placeCreateMany },
   venueKnowledgeEntry: { createMany: knowledgeEntryCreateMany },
   venueContentImportReceipt: {
@@ -119,6 +138,18 @@ function staffCtx(): TRPCContext {
   }
 }
 
+function platformAdminImpersonatingCtx(): TRPCContext {
+  return {
+    ...baseCtx,
+    session: {
+      userId: 'platform_admin_1',
+      activeTenantId: 'tenant_1',
+      role: null,
+      isPlatformAdmin: true,
+    },
+  }
+}
+
 const testRouter = router({ venue: venueRouter })
 const enqueueEmbedKnowledgeEntryMock = vi.mocked(enqueueEmbedKnowledgeEntry)
 const enqueueEmbedPlaceMock = vi.mocked(enqueueEmbedPlace)
@@ -150,8 +181,10 @@ describe('venue router', () => {
     importReceiptCreateMany.mockResolvedValue({ count: 1 })
     placeCreateMany.mockResolvedValue({ count: 1 })
     knowledgeEntryCreateMany.mockResolvedValue({ count: 1 })
+    venueBotConfigurationUpdateMany.mockResolvedValue({ count: 1 })
     dbExecuteRaw.mockResolvedValue(1)
     auditLogCreate.mockResolvedValue({ id: 'audit_1' })
+    vi.mocked(isFeatureEnabled).mockReturnValue(false)
     dbTransaction.mockImplementation(async (callback: (tx: typeof mockDb) => unknown) =>
       callback(mockDb),
     )
@@ -322,6 +355,74 @@ describe('venue router', () => {
       10_000,
       60,
     )
+  })
+
+  it('returns only a resolved Classic-safe presentation when rollout is enabled but no approved pack exists', async () => {
+    vi.mocked(isFeatureEnabled).mockReturnValue(true)
+    tenantFeatureFlagFindMany.mockResolvedValueOnce([
+      { flagKey: 'venue-character-mode-v1' },
+      { flagKey: 'character-registry-v1' },
+      { flagKey: 'tochi-venue-character-v1' },
+    ])
+    dbQueryRaw.mockResolvedValueOnce([
+      {
+        id: venueRow.id,
+        tenantId: 'tenant_1',
+        name: 'City Zoo',
+        description: null,
+        category: 'zoo',
+        guideMode: 'location_aware',
+        defaultCenterLat: null,
+        defaultCenterLng: null,
+        aiGuideName: null,
+        chatTheme: 'default',
+        chatAccentColor: null,
+        chatFont: 'jakarta',
+        chatLogoUrl: null,
+        chatBannerUrl: null,
+        isActive: true,
+        secondLayerEnabled: false,
+        secondLayerLabel: 'Employee',
+        secondLayerAccessKey: null,
+        venueBotConfigurationId: 'config-1',
+        venueBotPresentationMode: 'CHARACTER',
+        venueBotTonePreset: 'enthusiastic',
+        venueBotCharacterKey: 'tochi',
+        venueBotPublicDisplayName: 'Zoo guide',
+        venueBotGreeting: 'Welcome to the zoo',
+      },
+    ])
+
+    const result = await testRouter
+      .createCaller({
+        ...baseCtx,
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      })
+      .venue.getBySlug({ slug: 'city-zoo' })
+
+    expect(result).toMatchObject({
+      venueBotPresentation: {
+        mode: 'CLASSIC',
+        displayName: 'Zoo guide',
+        greeting: 'Welcome to the zoo',
+        personalityPreset: 'enthusiastic',
+        character: null,
+      },
+    })
+    expect(result).not.toHaveProperty('tenantId')
+    expect(result).not.toHaveProperty('venueBotConfigurationId')
+    expect(JSON.stringify(result)).not.toContain('storage')
+    expect(tenantFeatureFlagFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant_1',
+          flagKey: {
+            in: ['venue-character-mode-v1', 'character-registry-v1', 'tochi-venue-character-v1'],
+          },
+        }),
+      }),
+    )
+    expect(isFeatureEnabled).toHaveBeenCalledWith('tochiVenueCharacter')
   })
 
   it('venue.getBySlug throws NOT_FOUND when slug is missing', async () => {
@@ -525,6 +626,29 @@ describe('venue router', () => {
     )
   })
 
+  it('venue.create allows a platform admin with an explicitly selected tenant', async () => {
+    venueFindFirst.mockResolvedValueOnce(null)
+    venueCreate.mockResolvedValueOnce({ ...venueRow, places: [] })
+
+    const result = await testRouter
+      .createCaller(platformAdminImpersonatingCtx())
+      .venue.create({ name: 'City Zoo' })
+
+    expect(result).toMatchObject({ name: 'City Zoo' })
+    expect(venueCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ slug: 'city-zoo', tenantId: 'tenant_1' }),
+      }),
+    )
+    expect(auditLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tenantId: 'tenant_1',
+        actorId: 'platform_admin_1',
+        actorRole: 'OWNER',
+      }),
+    })
+  })
+
   it('venue.create rejects a normalized empty slug before persistence', async () => {
     await expect(
       testRouter.createCaller(ownerCtx()).venue.create({ name: '🦒🦁' }),
@@ -596,6 +720,17 @@ describe('venue router', () => {
           guideMode: 'location_aware',
           defaultCenterLat: 40.7,
           defaultCenterLng: -74,
+          venueBotConfiguration: {
+            create: {
+              tenant: { connect: { id: 'tenant_1' } },
+              presentationMode: 'CLASSIC',
+              personalityMode: 'PRESET',
+              tonePreset: 'friendly',
+              tonePresetVersion: 1,
+              createdBy: 'user_1',
+              updatedBy: 'user_1',
+            },
+          },
           places: {
             create: expect.objectContaining({
               tenantId: 'tenant_1',
@@ -1619,6 +1754,121 @@ describe('venue router', () => {
     })
   })
 
+  // --- venue Venue Bot configuration ---
+
+  it('returns the tenant-scoped Classic Venue Bot configuration to a client member', async () => {
+    const updatedAt = new Date('2026-08-19T12:00:00.000Z')
+    venueBotConfigurationFindFirst.mockResolvedValueOnce({
+      id: 'config-1',
+      venueId: venueRow.id,
+      presentationMode: 'CLASSIC',
+      personalityMode: 'PRESET',
+      tonePreset: 'friendly',
+      tonePresetVersion: 1,
+      personalityProfileId: null,
+      characterKey: null,
+      customCharacterId: null,
+      publicDisplayName: null,
+      greeting: null,
+      voiceProfileId: null,
+      revision: 1,
+      updatedAt,
+    })
+
+    await expect(
+      testRouter.createCaller(staffCtx()).venue.getBotConfiguration({ venueId: venueRow.id }),
+    ).resolves.toMatchObject({
+      presentationMode: 'CLASSIC',
+      tonePreset: 'friendly',
+      revision: 1,
+      updatedAt: updatedAt.toISOString(),
+    })
+    expect(venueBotConfigurationFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: 'tenant_1', venueId: venueRow.id } }),
+    )
+  })
+
+  it('updates Character presentation with revision CAS and keeps private state out of analytics', async () => {
+    vi.mocked(isFeatureEnabled).mockReturnValue(true)
+    tenantFeatureFlagFindMany.mockResolvedValueOnce([
+      { flagKey: 'venue-character-mode-v1' },
+      { flagKey: 'character-registry-v1' },
+      { flagKey: 'tochi-venue-character-v1' },
+    ])
+    const updatedAt = new Date('2026-08-19T12:00:00.000Z')
+    const before = {
+      id: 'config-1',
+      venueId: venueRow.id,
+      presentationMode: 'CLASSIC',
+      personalityMode: 'PRESET',
+      tonePreset: 'friendly',
+      tonePresetVersion: 1,
+      personalityProfileId: null,
+      characterKey: null,
+      customCharacterId: null,
+      publicDisplayName: null,
+      greeting: null,
+      voiceProfileId: null,
+      revision: 1,
+      updatedAt,
+    }
+    venueBotConfigurationFindFirst.mockResolvedValueOnce(before).mockResolvedValueOnce({
+      ...before,
+      presentationMode: 'CHARACTER',
+      characterKey: 'tochi',
+      publicDisplayName: 'Museum guide',
+      greeting: 'Private draft greeting',
+      revision: 2,
+      updatedAt: new Date(updatedAt.getTime() + 1),
+    })
+
+    const result = await testRouter.createCaller(managerCtx()).venue.updateBotConfiguration({
+      venueId: venueRow.id,
+      expectedRevision: 1,
+      presentationMode: 'CHARACTER',
+      characterKey: 'tochi',
+      publicDisplayName: 'Museum guide',
+      greeting: 'Private draft greeting',
+    })
+
+    expect(result).toMatchObject({
+      presentationMode: 'CHARACTER',
+      characterKey: 'tochi',
+      revision: 2,
+    })
+    expect(venueBotConfigurationUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant_1', venueId: venueRow.id, revision: 1 },
+      }),
+    )
+    expect(JSON.stringify(auditLogCreate.mock.calls)).not.toContain('Private draft greeting')
+  })
+
+  it('keeps Character configuration fail-closed while global rollout is disabled', async () => {
+    vi.mocked(isFeatureEnabled).mockReturnValue(false)
+    await expect(
+      testRouter.createCaller(managerCtx()).venue.updateBotConfiguration({
+        venueId: venueRow.id,
+        expectedRevision: 1,
+        presentationMode: 'CHARACTER',
+        characterKey: 'tochi',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(tenantFeatureFlagFindMany).not.toHaveBeenCalled()
+    expect(venueBotConfigurationFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('prevents STAFF from changing Venue Bot configuration before database access', async () => {
+    await expect(
+      testRouter.createCaller(staffCtx()).venue.updateBotConfiguration({
+        venueId: venueRow.id,
+        expectedRevision: 1,
+        presentationMode: 'CLASSIC',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(venueBotConfigurationFindFirst).not.toHaveBeenCalled()
+  })
+
   // --- venue.updateChatDesign ---
 
   it('venue.updateChatDesign accepts the dark theme and a valid font', async () => {
@@ -1749,5 +1999,41 @@ describe('venue router', () => {
     await expect(
       caller.venue.delete({ id: 'cuid1234567890abcdef', expectedUpdatedAt: venueRow.updatedAt }),
     ).rejects.toThrowError(expect.objectContaining<Partial<TRPCError>>({ code: 'FORBIDDEN' }))
+  })
+})
+
+describe('local workspace reconciliation boundary', () => {
+  it('requires identical explicit disposable loopback database targets and the local marker', () => {
+    const database =
+      'postgresql://pathfinder:synthetic@127.0.0.1:55440/pathfinder_disposable_local_staging'
+    expect(
+      permitsLocalWorkspaceReconciliation({
+        DATABASE_URL: database,
+        DIRECT_DATABASE_URL: database,
+        PATHFINDER_LOCAL_STAGING_DATA_DIR: 'C:/synthetic-local-staging',
+      }),
+    ).toBe(true)
+  })
+
+  it.each([
+    {
+      DATABASE_URL: 'postgresql://example.invalid/pathfinder_disposable_local_staging',
+      DIRECT_DATABASE_URL: 'postgresql://example.invalid/pathfinder_disposable_local_staging',
+      PATHFINDER_LOCAL_STAGING_DATA_DIR: 'C:/synthetic-local-staging',
+    },
+    {
+      DATABASE_URL: 'postgresql://pathfinder:synthetic@127.0.0.1:55440/pathfinder_disposable_one',
+      DIRECT_DATABASE_URL:
+        'postgresql://pathfinder:synthetic@127.0.0.1:55440/pathfinder_disposable_two',
+      PATHFINDER_LOCAL_STAGING_DATA_DIR: 'C:/synthetic-local-staging',
+    },
+    {
+      DATABASE_URL:
+        'postgresql://pathfinder:synthetic@127.0.0.1:55440/pathfinder_disposable_local_staging',
+      DIRECT_DATABASE_URL:
+        'postgresql://pathfinder:synthetic@127.0.0.1:55440/pathfinder_disposable_local_staging',
+    },
+  ])('fails closed outside the exact local disposable boundary', (environment) => {
+    expect(permitsLocalWorkspaceReconciliation(environment)).toBe(false)
   })
 })

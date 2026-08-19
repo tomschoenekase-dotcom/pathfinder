@@ -1,16 +1,20 @@
 import { TRPCError } from '@trpc/server'
+import { env } from '@pathfinder/config'
 
 import {
   appendSupportMessageAction,
   canTenantActorAccessSupportRequest,
   createSupportRequestAction,
   grantSupportRequestParticipantAction,
+  OnboardingQuestionActionError,
   revokeSupportRequestParticipantAction,
+  resumeOnboardingQuestionFromSupportAction,
   respondToSupportInformationAction,
   SupportActionError,
   tenantSupportRequestAccessWhere,
   type TenantSupportRole,
 } from '@pathfinder/db'
+import { enqueueAgentRun } from '@pathfinder/jobs'
 
 import { router } from '../core'
 import type { TRPCContext } from '../context'
@@ -174,9 +178,24 @@ export const supportRouter = router({
               id: input.requestId,
               tenantId,
               venueId: input.venueId,
-              createdByKind: 'CLIENT',
-              requesterUserId: userId,
-              requesterMembership: { is: { status: 'ACTIVE' } },
+              OR: [
+                {
+                  createdByKind: 'CLIENT',
+                  requesterUserId: userId,
+                  requesterMembership: { is: { status: 'ACTIVE' } },
+                },
+                {
+                  createdByKind: 'OPERATOR',
+                  onboardingQuestionLink: { is: { recipientUserId: userId } },
+                  participants: {
+                    some: {
+                      userId,
+                      revokedAt: null,
+                      membership: { is: { status: 'ACTIVE' } },
+                    },
+                  },
+                },
+              ],
             },
             select: {
               id: true,
@@ -537,11 +556,41 @@ export const supportRouter = router({
           },
           ctx.db,
         )
+        const resume = await resumeOnboardingQuestionFromSupportAction(
+          {
+            tenantId: ctx.session.activeTenantId,
+            venueId: input.venueId,
+            supportRequestId: input.requestId,
+            supportMessageId: result.message.id,
+            actor: { actorId: actor.actorId, auditRole: actor.role },
+          },
+          ctx.db,
+        )
+        const dispatch =
+          resume.runEligibleToResume && resume.agentRunId && resume.questionId
+            ? await enqueueAgentRun(
+                { tenantId: ctx.session.activeTenantId, runId: resume.agentRunId },
+                {
+                  enabled: env.AGENT_RUNNER_ENABLED,
+                  dispatchKey: `client-answer-${resume.questionId}`,
+                },
+              )
+            : { enqueued: false }
         return {
           ...result,
           message: serializeClientMessage(result.message, actor.actorId),
+          onboardingResume: {
+            linked: resume.linked,
+            replayed: resume.replayed,
+            executionTriggered: dispatch.enqueued,
+          },
         }
       } catch (error) {
+        if (error instanceof OnboardingQuestionActionError)
+          throw new TRPCError({
+            code: error.code === 'INVALID_INPUT' ? 'BAD_REQUEST' : error.code,
+            message: error.message,
+          })
         return supportActionError(error)
       }
     }),

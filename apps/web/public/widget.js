@@ -120,8 +120,8 @@
     panel.hidden = true
     launcher.hidden = false
     launcher.disabled = false
-    launcher.textContent = 'Ask PathFinder'
-    launcher.setAttribute('aria-label', 'Open PathFinder venue guide')
+    launcher.textContent = 'Ask Torchiko'
+    launcher.setAttribute('aria-label', 'Open Torchiko venue guide')
     launcher.setAttribute('aria-expanded', 'false')
     launcher.removeAttribute('aria-busy')
     launcher.focus()
@@ -183,7 +183,7 @@
   function createFrame() {
     frame = document.createElement('iframe')
     frame.src = new URL('/embed/' + encodeURIComponent(venueSlug), sourceUrl.origin).href
-    frame.title = 'PathFinder venue guide'
+    frame.title = 'Torchiko venue guide'
     frame.loading = 'eager'
     frame.referrerPolicy = 'no-referrer'
     frame.setAttribute('data-pathfinder-widget-frame', '')
@@ -208,8 +208,8 @@
 
     opening = true
     launcher.disabled = true
-    launcher.textContent = 'Opening PathFinder…'
-    launcher.setAttribute('aria-label', 'Opening PathFinder venue guide')
+    launcher.textContent = 'Opening Torchiko…'
+    launcher.setAttribute('aria-label', 'Opening Torchiko venue guide')
     launcher.setAttribute('aria-busy', 'true')
     try {
       listening = true
@@ -247,10 +247,10 @@
       launcher = document.createElement('button')
       launcher.type = 'button'
       launcher.className = 'pf-launcher'
-      launcher.textContent = 'Ask PathFinder'
+      launcher.textContent = 'Ask Torchiko'
       launcher.setAttribute('aria-controls', 'pathfinder-widget-panel')
       launcher.setAttribute('aria-expanded', 'false')
-      launcher.setAttribute('aria-label', 'Open PathFinder venue guide')
+      launcher.setAttribute('aria-label', 'Open Torchiko venue guide')
       launcher.addEventListener('click', openPanel)
 
       panel = document.createElement('section')
@@ -258,12 +258,12 @@
       panel.className = 'pf-panel'
       panel.hidden = true
       panel.setAttribute('role', 'dialog')
-      panel.setAttribute('aria-label', 'PathFinder venue guide')
+      panel.setAttribute('aria-label', 'Torchiko venue guide')
 
       startGuard = document.createElement('button')
       startGuard.type = 'button'
       startGuard.className = 'pf-focus-guard'
-      startGuard.setAttribute('aria-label', 'Keep focus in PathFinder venue guide')
+      startGuard.setAttribute('aria-label', 'Keep focus in Torchiko venue guide')
       startGuard.addEventListener('focus', function () {
         if (frame) frame.focus()
         else closeButton.focus()
@@ -273,12 +273,12 @@
       closeButton.type = 'button'
       closeButton.className = 'pf-close'
       closeButton.textContent = 'Close'
-      closeButton.setAttribute('aria-label', 'Close PathFinder venue guide')
+      closeButton.setAttribute('aria-label', 'Close Torchiko venue guide')
       closeButton.addEventListener('click', closePanel)
       endGuard = document.createElement('button')
       endGuard.type = 'button'
       endGuard.className = 'pf-focus-guard'
-      endGuard.setAttribute('aria-label', 'Keep focus in PathFinder venue guide')
+      endGuard.setAttribute('aria-label', 'Keep focus in Torchiko venue guide')
       endGuard.addEventListener('focus', function () {
         closeButton.focus()
       })

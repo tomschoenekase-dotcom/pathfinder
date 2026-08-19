@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import { PathFinderIcon } from '@pathfinder/ui'
+import { PathFinderIcon } from '@pathfinder/ui/brand'
 import { VenueRetryButton } from './VenueRetryButton'
 
 export function VenueTemporarilyUnavailable({ showHomeLink = true }: { showHomeLink?: boolean }) {

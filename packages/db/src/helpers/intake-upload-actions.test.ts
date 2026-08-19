@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import {
+  INTAKE_UPLOAD_NON_MEDIA_MAX_BYTES,
+  INTAKE_UPLOAD_VENUE_MAX_BYTES,
+} from '@pathfinder/contracts/intake-upload'
 
 import {
   claimIntakeUploadVerificationAction,
@@ -8,6 +12,10 @@ import {
   releaseIntakeUploadVerificationAction,
   renewIntakeUploadVerificationLeaseAction,
   reserveIntakeUploadAction,
+  settleIntakeUploadAuthoritativeVerificationAction,
+  bindIntakeUploadMultipartAction,
+  cancelIntakeUploadMultipartAction,
+  completeIntakeUploadMultipartAction,
 } from './intake-upload-actions'
 
 const scope = { tenantId: 'tenant-1', venueId: 'venue-1', uploadId: 'upload-1' }
@@ -22,6 +30,7 @@ const request = {
   displayName: 'Visitor guide',
   fileName: 'guide.pdf',
   mimeType: 'application/pdf' as const,
+  category: 'FLOOR_PLAN' as const,
   byteSize: 42,
   sha256: 'a'.repeat(64),
 }
@@ -36,11 +45,16 @@ function upload(overrides: Record<string, unknown> = {}) {
     displayName: request.displayName,
     fileName: request.fileName,
     mimeType: request.mimeType,
+    category: request.category,
     byteSize: request.byteSize,
     sha256: request.sha256,
     objectKey: 'intake-quarantine/opaque/opaque',
     objectGeneration: '9dc1cf0c-5828-41e7-a41e-83d01bdfd837',
     storageVersionId: null,
+    multipartUploadId: null,
+    multipartStartedAt: null,
+    multipartCompletedAt: null,
+    multipartAbortedAt: null,
     status: 'RESERVED',
     verificationClaimId: null,
     verificationClaimedAt: null,
@@ -89,6 +103,21 @@ describe('quarantined intake upload actions', () => {
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
   })
 
+  it('rejects oversized documents before opening a transaction', async () => {
+    const client = { $transaction: vi.fn() }
+    await expect(
+      reserveIntakeUploadAction({
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        actor,
+        request: { ...request, byteSize: INTAKE_UPLOAD_NON_MEDIA_MAX_BYTES + 1 },
+        trustedObjectIdentity: objectIdentity,
+        client: client as never,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(client.$transaction).not.toHaveBeenCalled()
+  })
+
   it('does not replay another actor request identity or disclose its upload target', async () => {
     const existing = upload({
       requestHash: intakeUploadRequestHash(request),
@@ -111,6 +140,97 @@ describe('quarantined intake upload actions', () => {
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(tx.venue.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('serializes venue quota checks and refuses reservations above 50 GB', async () => {
+    const tx = {
+      $executeRaw: vi.fn(),
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        aggregate: vi.fn().mockResolvedValue({
+          _sum: { byteSize: INTAKE_UPLOAD_VENUE_MAX_BYTES - request.byteSize + 1 },
+        }),
+        create: vi.fn(),
+      },
+      venue: { findFirst: vi.fn().mockResolvedValue({ id: scope.venueId }) },
+    }
+
+    await expect(
+      reserveIntakeUploadAction({
+        tenantId: scope.tenantId,
+        venueId: scope.venueId,
+        actor,
+        request,
+        trustedObjectIdentity: objectIdentity,
+        client: transactionClient(tx) as never,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2)
+    expect(tx.intakeUpload.create).not.toHaveBeenCalled()
+  })
+
+  it('binds, completes, and cancels only the exact owner-scoped multipart identity', async () => {
+    const multipartUploadId = 'storage-multipart-1'
+    const startedAt = new Date('2026-08-18T18:00:00.000Z')
+    const bound = upload({ multipartUploadId, multipartStartedAt: startedAt })
+    const bindTx = {
+      $executeRaw: vi.fn(),
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValueOnce(upload()).mockResolvedValueOnce(bound),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(
+      bindIntakeUploadMultipartAction({
+        ...scope,
+        actor,
+        multipartUploadId,
+        client: transactionClient(bindTx) as never,
+      }),
+    ).resolves.toMatchObject({ replayed: false, upload: { multipartUploadId } })
+    expect(bindTx.auditLog.create).toHaveBeenCalledOnce()
+
+    const completed = upload({
+      multipartUploadId,
+      multipartStartedAt: startedAt,
+      multipartCompletedAt: new Date('2026-08-18T18:01:00.000Z'),
+    })
+    const completeTx = {
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValueOnce(bound).mockResolvedValueOnce(completed),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(
+      completeIntakeUploadMultipartAction({
+        ...scope,
+        actor,
+        multipartUploadId,
+        client: transactionClient(completeTx) as never,
+      }),
+    ).resolves.toMatchObject({
+      replayed: false,
+      upload: { multipartCompletedAt: expect.any(Date) },
+    })
+
+    const cancelTx = {
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(completed),
+        updateMany: vi.fn(),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(
+      cancelIntakeUploadMultipartAction({
+        ...scope,
+        actor,
+        multipartUploadId,
+        client: transactionClient(cancelTx) as never,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(cancelTx.intakeUpload.updateMany).not.toHaveBeenCalled()
   })
 
   it('claims RESERVED with exact scope/CAS and returns transport identity', async () => {
@@ -140,11 +260,19 @@ describe('quarantined intake upload actions', () => {
     expect(tx.intakeUpload.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          ...scope,
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          id: scope.uploadId,
           OR: expect.arrayContaining([
             { status: 'RESERVED', verificationClaimId: null, verificationLeaseUntil: null },
           ]),
         }),
+      }),
+    )
+    expect(tx.intakeUpload.findFirst).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { tenantId: scope.tenantId, venueId: scope.venueId, id: scope.uploadId },
       }),
     )
     expect(result.uploadTarget).toEqual({
@@ -153,6 +281,11 @@ describe('quarantined intake upload actions', () => {
       mimeType: current.mimeType,
       byteSize: current.byteSize,
       sha256: current.sha256,
+      storageVersionId: null,
+      multipartUploadId: null,
+      multipartStartedAt: null,
+      multipartCompletedAt: null,
+      multipartAbortedAt: null,
     })
   })
 
@@ -293,7 +426,9 @@ describe('quarantined intake upload actions', () => {
     expect(tx.intakeUpload.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          ...scope,
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          id: scope.uploadId,
           status: 'VERIFYING',
           verificationClaimId: claimId,
           intakeRunId: null,
@@ -304,6 +439,155 @@ describe('quarantined intake upload actions', () => {
     expect(tx.intakeUpload.updateMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'PRECHECK_PASSED' }) }),
     )
+  })
+
+  it('atomically records authoritative receipts and creates a cited file intake run', async () => {
+    const current = upload({
+      status: 'VERIFYING',
+      storageVersionId: 'version-1',
+      verificationClaimId: claimId,
+      verificationLeaseUntil: new Date(Date.now() + 60_000),
+    })
+    const tx = {
+      $executeRaw: vi.fn(),
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(current),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      intakeUploadVerificationReceipt: {
+        findFirst: vi.fn().mockResolvedValue({
+          claimId,
+          objectGeneration: current.objectGeneration,
+          storageVersionId: 'version-1',
+          computedByteSize: current.byteSize,
+          computedSha256: current.sha256,
+          verdictHash: 'd'.repeat(64),
+        }),
+        create: vi.fn(),
+      },
+      intakeRun: { create: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+      intakeEvidenceRecord: { create: vi.fn() },
+      intakeRunEvent: { createMany: vi.fn() },
+      onboardingMilestoneEvent: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(async ({ data }) => data),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    const result = await settleIntakeUploadAuthoritativeVerificationAction({
+      ...scope,
+      actor,
+      claimId,
+      malware: {
+        verdict: 'CLEAN',
+        engine: 'clamav-clamd',
+        engineVersion: 'daemon',
+        verdictHash: 'e'.repeat(64),
+        computedByteSize: current.byteSize,
+        computedSha256: current.sha256,
+      },
+      client: transactionClient(tx) as never,
+    })
+
+    expect(tx.intakeUploadVerificationReceipt.create).toHaveBeenCalledTimes(2)
+    expect(tx.intakeRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.not.objectContaining({
+          submissionRequestId: expect.anything(),
+          submissionInputHash: expect.anything(),
+        }),
+      }),
+    )
+    expect(tx.intakeUploadVerificationReceipt.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({ kind: 'RESOURCE_SAFETY', verdict: 'PASSED' }),
+      }),
+    )
+    expect(tx.intakeUploadVerificationReceipt.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({ kind: 'MALWARE', verdict: 'CLEAN' }),
+      }),
+    )
+    expect(tx.intakeEvidenceRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          runId: 'run-1',
+          locator: 'intake-upload:upload-1',
+          normalizedHash: current.sha256,
+        }),
+      }),
+    )
+    expect(tx.intakeUpload.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'AWAITING_REVIEW', intakeRunId: 'run-1' }),
+      }),
+    )
+    expect(result).toMatchObject({ nextAction: 'PATHFINDER_REVIEW', replayed: false })
+    expect(tx.onboardingMilestoneEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: 'FIRST_USEFUL_MATERIAL',
+        sourceType: 'INTAKE_UPLOAD',
+        sourceId: 'upload-1',
+        category: 'FLOOR_PLAN',
+      }),
+    })
+  })
+
+  it('records an infected verdict without creating reviewable intake evidence', async () => {
+    const current = upload({
+      status: 'VERIFYING',
+      storageVersionId: 'version-1',
+      verificationClaimId: claimId,
+      verificationLeaseUntil: new Date(Date.now() + 60_000),
+    })
+    const tx = {
+      $executeRaw: vi.fn(),
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(current),
+        update: vi.fn(),
+      },
+      intakeUploadVerificationReceipt: {
+        findFirst: vi.fn().mockResolvedValue({
+          claimId,
+          objectGeneration: current.objectGeneration,
+          storageVersionId: 'version-1',
+          computedByteSize: current.byteSize,
+          computedSha256: current.sha256,
+          verdictHash: 'd'.repeat(64),
+        }),
+        create: vi.fn(),
+      },
+      intakeRun: { create: vi.fn() },
+      onboardingMilestoneEvent: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(async ({ data }) => data),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    const result = await settleIntakeUploadAuthoritativeVerificationAction({
+      ...scope,
+      actor,
+      claimId,
+      malware: {
+        verdict: 'INFECTED',
+        engine: 'clamav-clamd',
+        engineVersion: 'daemon',
+        verdictHash: 'f'.repeat(64),
+        computedByteSize: current.byteSize,
+        computedSha256: current.sha256,
+      },
+      client: transactionClient(tx) as never,
+    })
+    expect(tx.intakeUpload.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'REJECTED' }) }),
+    )
+    expect(tx.intakeRun.create).not.toHaveBeenCalled()
+    expect(result.nextAction).toBe('RESELECT_FILE')
+    expect(tx.onboardingMilestoneEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ eventType: 'UPLOAD_FAILED', sourceId: 'upload-1' }),
+    })
   })
 
   it('converges a concurrent same-claim precheck receipt from a fresh read', async () => {
