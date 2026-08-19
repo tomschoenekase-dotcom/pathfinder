@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@pathfinder/ui/brand', () => ({
-  PathFinderIcon: () => <span aria-hidden="true">mark</span>,
+  TorchikoIcon: () => <span aria-hidden="true">mark</span>,
 }))
 
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'

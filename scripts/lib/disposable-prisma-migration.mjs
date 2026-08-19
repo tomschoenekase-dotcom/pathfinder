@@ -14,10 +14,11 @@ function refuse(message) {
 export function parseDisposableMigrationArgs(argv) {
   let database
   let confirmation
+  const args = argv[0] === '--' ? argv.slice(1) : argv
 
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index]
-    const value = argv[index + 1]
+  for (let index = 0; index < args.length; index += 2) {
+    const flag = args[index]
+    const value = args[index + 1]
     if (value === undefined) refuse('every option requires a value')
 
     if (flag === '--database' && database === undefined) database = value
@@ -30,7 +31,9 @@ export function parseDisposableMigrationArgs(argv) {
   }
   if (database !== confirmation) refuse('database confirmation does not match')
   if (database.length > 63 || !DISPOSABLE_DATABASE_PATTERN.test(database)) {
-    refuse('database name must use the pathfinder_disposable_ prefix and lowercase identifier characters')
+    refuse(
+      'database name must use the pathfinder_disposable_ prefix and lowercase identifier characters',
+    )
   }
 
   return { database }
@@ -38,9 +41,7 @@ export function parseDisposableMigrationArgs(argv) {
 
 function normalizedHostname(url) {
   const hostname = url.hostname.toLowerCase()
-  return hostname.startsWith('[') && hostname.endsWith(']')
-    ? hostname.slice(1, -1)
-    : hostname
+  return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
 }
 
 function safelyDecode(value) {
@@ -122,10 +123,7 @@ function escapeRegExp(value) {
 }
 
 export function redactDatabaseOutput(value, sensitiveTokens = []) {
-  let redacted = String(value).replace(
-    /postgres(?:ql)?:\/\/[^\s"'`]+/gi,
-    '[REDACTED_DATABASE_URL]',
-  )
+  let redacted = String(value).replace(/postgres(?:ql)?:\/\/[^\s"'`]+/gi, '[REDACTED_DATABASE_URL]')
 
   for (const token of sensitiveTokens.sort((left, right) => right.length - left.length)) {
     redacted = redacted.replace(new RegExp(escapeRegExp(token), 'g'), '[REDACTED]')
@@ -147,10 +145,7 @@ export function runDisposableMigration({
   }
 
   const { database } = parseDisposableMigrationArgs(argv)
-  const target = validateDisposableDatabaseUrl(
-    env.PATHFINDER_DISPOSABLE_DATABASE_URL,
-    database,
-  )
+  const target = validateDisposableDatabaseUrl(env.PATHFINDER_DISPOSABLE_DATABASE_URL, database)
   const dbPackage = resolve(repoRoot, 'packages', 'db')
   const prismaCli = resolve(dbPackage, 'node_modules', 'prisma', 'build', 'index.js')
   const schema = resolve(dbPackage, 'prisma', 'schema.prisma')

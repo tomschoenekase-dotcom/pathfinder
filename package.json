@@ -3,11 +3,11 @@
   "_bust": "1",
   "private": true,
   "scripts": {
-    "build": "turbo run build",
+    "build": "pnpm characters:sync && turbo run build",
     "dev": "turbo run dev --filter=@pathfinder/web --filter=@pathfinder/dashboard",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test && pnpm test:scripts",
+    "test": "pnpm characters:sync && turbo run test && pnpm test:scripts",
     "test:accessibility": "node scripts/run-packet-2-accessibility.mjs",
     "test:browser-foundation": "node scripts/run-packet-2-browser-foundation.mjs",
     "test:scripts": "node scripts/run-script-tests.mjs",

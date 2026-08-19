@@ -5,7 +5,11 @@ import { createHash } from 'node:crypto'
 import { Webhook } from 'svix'
 
 import { env, logger } from '@pathfinder/config'
-import { handleClerkEvent, isClerkWebhookReceiptConflictError } from '@pathfinder/db'
+import {
+  getClerkMembershipEmail,
+  handleClerkEvent,
+  isClerkWebhookReceiptConflictError,
+} from '@pathfinder/db'
 import { enqueueWelcomeEmail } from '@pathfinder/jobs'
 
 import type { ClerkWebhookEvent } from '@pathfinder/db'
@@ -147,7 +151,7 @@ export async function POST(req: Request): Promise<Response> {
       event.type === 'organizationMembership.created' &&
       event.data.role === 'org:admin'
     ) {
-      const email = event.data.public_user_data.email_addresses?.[0]?.email_address
+      const email = getClerkMembershipEmail(event.data.public_user_data)
 
       if (email) {
         const recipientName =

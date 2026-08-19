@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { ClerkProvider } from '@clerk/nextjs'
 import {
   DM_Sans,
   Inter,
@@ -63,10 +64,10 @@ type RootLayoutProps = {
   children: ReactNode
 }
 
+const publicWebUrl = new URL(process.env.NEXT_PUBLIC_WEB_URL ?? 'https://torchiko.com')
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL ?? 'https://sweet-luck-production-0037.up.railway.app',
-  ),
+  metadataBase: publicWebUrl,
   title: 'Torchiko — The AI guide built for your venue',
   description:
     'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
@@ -74,7 +75,7 @@ export const metadata: Metadata = {
     title: 'Torchiko — The AI guide built for your venue',
     description:
       'Guests ask questions. Torchiko answers with real directions, hours, and recommendations specific to your venue. Set up in an afternoon. No app download required.',
-    url: 'https://sweet-luck-production-0037.up.railway.app',
+    url: publicWebUrl,
     siteName: 'Torchiko',
     type: 'website',
   },
@@ -87,7 +88,7 @@ export const metadata: Metadata = {
 }
 
 export default function RootLayout({ children }: RootLayoutProps) {
-  return (
+  const document = (
     <html lang="en" className={chatFontVariables}>
       <head>
         <meta name="theme-color" content="#1F4E8C" />
@@ -100,5 +101,14 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <ServiceWorkerRegistration enabled={process.env.NEXT_PUBLIC_PWA_ENABLED !== 'false'} />
       </body>
     </html>
+  )
+
+  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  return publishableKey ? (
+    <ClerkProvider publishableKey={publishableKey} afterSignOutUrl="/">
+      {document}
+    </ClerkProvider>
+  ) : (
+    document
   )
 }

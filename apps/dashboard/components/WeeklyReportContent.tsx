@@ -1,9 +1,11 @@
 import React from 'react'
 
+import { normalizeTorchikoBrandText } from '@pathfinder/ui'
+
 type WeeklyReportContentProps = { content: string }
 
 export function WeeklyReportContent({ content }: WeeklyReportContentProps) {
-  const paragraphs = content
+  const paragraphs = normalizeTorchikoBrandText(content)
     .split(/\r?\n\s*\r?\n/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)

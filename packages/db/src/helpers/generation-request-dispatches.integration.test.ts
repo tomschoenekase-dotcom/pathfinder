@@ -88,7 +88,8 @@ integrationDescribe('generation request dispatches (disposable PostgreSQL integr
     await db.answerAnalysisSnapshot.deleteMany({ where: { tenantId } })
     await db.weeklyReport.deleteMany({ where: { tenantId } })
     await db.venue.deleteMany({ where: { tenantId } })
-    await db.tenant.delete({ where: { id: tenantId } })
+    // ContentVersion is append-only and restricts tenant deletion. The unique
+    // test tenant is intentionally retained until the disposable database exits.
     await db.$disconnect()
   })
 

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
-import { PathFinderIcon } from '@pathfinder/ui/brand'
+import { TorchikoIcon } from '@pathfinder/ui/brand'
 import { CHAT_FONT_OPTIONS, getChatPalette } from '@pathfinder/ui/theme'
 
 import { ChatWindow } from './ChatWindow'
@@ -130,7 +130,7 @@ export function VenueChatShell(props: {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={venue.chatLogoUrl} alt="" className="h-8 w-8 rounded-lg object-contain" />
             ) : (
-              <PathFinderIcon className="h-7 w-7 flex-shrink-0" />
+              <TorchikoIcon className="h-7 w-7 flex-shrink-0" />
             )}
             <h1
               className={`text-2xl font-semibold tracking-tight ${banner ? 'text-white drop-shadow-sm' : 'text-[var(--chat-text)]'}`}

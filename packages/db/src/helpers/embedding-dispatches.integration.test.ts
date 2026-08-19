@@ -47,7 +47,8 @@ integrationDescribe('embedding dispatch outbox (PostgreSQL integration)', () => 
     await db.venueKnowledgeEntry.deleteMany({ where: { tenantId } })
     await db.place.deleteMany({ where: { tenantId } })
     await db.venue.deleteMany({ where: { tenantId } })
-    await db.tenant.delete({ where: { id: tenantId } })
+    // ContentVersion is append-only and restricts tenant deletion. The unique
+    // test tenant is intentionally retained until the disposable database exits.
     await db.$disconnect()
   })
 

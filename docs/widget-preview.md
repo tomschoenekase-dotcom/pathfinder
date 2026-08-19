@@ -1,6 +1,6 @@
 # Third-party website widget preview
 
-PathFinder has a small, classic-script loader for evaluating an embedded venue guide on an authorized third-party website. This is a **default-off staging kernel**, not a production widget launch and not completion of packet gate M4.
+Torchiko has a small, classic-script loader for evaluating an embedded venue guide on an authorized third-party website. This is a **default-off staging kernel**, not a production widget launch and not completion of packet gate M4.
 
 ## Admission contract
 

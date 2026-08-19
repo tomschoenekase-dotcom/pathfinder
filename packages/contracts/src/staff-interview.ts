@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const STAFF_INTERVIEW_CONSENT_TEXT =
-  'I consent to PathFinder using these written answers to prepare a reviewable venue-content draft.'
+  'I consent to Torchiko using these written answers to prepare a reviewable venue-content draft.'
 
 export const StaffInterviewRole = z.enum([
   'EXECUTIVE',

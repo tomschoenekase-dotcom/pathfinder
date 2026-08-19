@@ -41,11 +41,12 @@ test('media provider-operation migration is atomic and database bounded', () => 
 })
 
 test('new upload generations reset the durable count while resumable replay returns first', () => {
-  const replayReturn = beginUpload.indexOf('return {\n          partSize: MEDIA_UPLOAD_PART_SIZE')
-  const reset = beginUpload.indexOf('providerOperationCount: 0')
+  const normalized = beginUpload.replace(/\r\n/gu, '\n')
+  const replayReturn = normalized.indexOf('return {\n          partSize: MEDIA_UPLOAD_PART_SIZE')
+  const reset = normalized.indexOf('providerOperationCount: 0')
   assert.ok(replayReturn >= 0 && reset > replayReturn)
-  assert.equal(beginUpload.match(/providerOperationCount: 0/gu)?.length, 1)
-  assert.match(beginUpload, /project\.uploadAttemptId === input\.uploadAttemptId/u)
+  assert.equal(normalized.match(/providerOperationCount: 0/gu)?.length, 1)
+  assert.match(normalized, /project\.uploadAttemptId === input\.uploadAttemptId/u)
 })
 
 test('every direct media provider dispatch is wrapped by a durable pre-dispatch reservation', () => {

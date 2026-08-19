@@ -1,0 +1,45 @@
+name: Production promotion gate
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-promotion-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify-staging-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Require the dedicated staging branch
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: test "$HEAD_BRANCH" = "codex/pathfinder-v2-staging"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.5
+
+      - name: Require the exact PR revision to be healthy in staging
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node scripts/verify-staging-health.mjs \
+            --url https://staging-web-staging-bbeb.up.railway.app/api/health \
+            --expected-revision "$RELEASE_SHA" \
+            --confirm-environment staging \
+            --confirm-host staging-web-staging-bbeb.up.railway.app \
+            --expected-database-resource 7bd81064-588f-48a5-b138-1fc86691a09b \
+            --expected-redis-resource d53ab235-d403-4d7d-b525-3ace0ef07b92 \
+            --expected-storage-resource 0a9b3c58-0c9e-47de-96ae-38df297996e8 \
+            --timeout-ms 10000

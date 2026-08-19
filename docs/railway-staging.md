@@ -4,6 +4,9 @@
 > Tom approved this isolated Railway staging release on 2026-08-19 with a hard USD 10 ceiling. The
 > production stop in [`database-incident-stop.md`](database-incident-stop.md) remains binding.
 
+For the active day-to-day feature and promotion path, see
+[`staging-release-workflow.md`](staging-release-workflow.md).
+
 This runbook creates a staging release boundary for PathFinder. It does not
 authorize access to an account, provision resources, change credentials, or
 deploy anything by itself.

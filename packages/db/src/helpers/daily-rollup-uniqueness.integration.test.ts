@@ -108,8 +108,8 @@ integrationDescribe('daily rollup logical uniqueness (PostgreSQL integration)', 
     await db.place.deleteMany({ where: { tenantId } })
     await db.venue.deleteMany({ where: { tenantId } })
     await db.venue.deleteMany({ where: { tenantId: secondTenantId } })
-    await db.tenant.delete({ where: { id: tenantId } })
-    await db.tenant.delete({ where: { id: secondTenantId } })
+    // ContentVersion is append-only and restricts tenant deletion. The unique
+    // test tenants are intentionally retained until the disposable database exits.
     await db.$disconnect()
   })
 

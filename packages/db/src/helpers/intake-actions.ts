@@ -29,6 +29,10 @@ const privacyRank: Record<StaffInterviewPrivacy, number> = {
   PRIVATE: 2,
 }
 
+// Preserve review access for interviews captured before the Torchiko rename.
+const LEGACY_STAFF_INTERVIEW_CONSENT_SHA256 =
+  'a5cf3db6904cd5191ac3cad19554ca19357c660da36636b0dd11a0dd37dabab6'
+
 export const interviewSubmissionInput = StaffInterviewSubmission.superRefine(
   (submission, context) => {
     if (
@@ -435,11 +439,15 @@ export async function getIntakeProposalReview(input: {
     throw new IntakeActionError('CONFLICT', 'Stored interview answer set is inconsistent')
   }
   const publicByQuestion = new Map(publicAnswers.data.map((answer) => [answer.questionId, answer]))
-  const consentHash = createHash('sha256').update(STAFF_INTERVIEW_CONSENT_TEXT).digest('hex')
+  const consentHashes = new Set([
+    createHash('sha256').update(STAFF_INTERVIEW_CONSENT_TEXT).digest('hex'),
+    LEGACY_STAFF_INTERVIEW_CONSENT_SHA256,
+  ])
   const evidenceByLocator = new Map(run.evidence.map((evidence) => [evidence.locator, evidence]))
   const hashedAnswers = manifest.data.filter((answer) => answer.normalizedHash !== null)
   if (
-    run.interviewConsentTextHash !== consentHash ||
+    !run.interviewConsentTextHash ||
+    !consentHashes.has(run.interviewConsentTextHash) ||
     evidenceByLocator.size !== run.evidence.length ||
     hashedAnswers.length !== run.evidence.length
   ) {

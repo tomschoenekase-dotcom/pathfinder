@@ -250,16 +250,18 @@ export const supportRouter = router({
   listEligibleAttachments: tenantProcedure
     .input(EligibleSupportAttachmentsInput)
     .query(async ({ ctx, input }) => {
-      const membership = await ctx.db.tenantMembership.findFirst({
-        where: {
-          tenantId: ctx.session.activeTenantId,
-          userId: ctx.session.userId,
-          status: 'ACTIVE',
-        },
-        select: { id: true },
-      })
-      if (!membership)
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Eligible attachments not found' })
+      if (!ctx.session.isPlatformAdmin) {
+        const membership = await ctx.db.tenantMembership.findFirst({
+          where: {
+            tenantId: ctx.session.activeTenantId,
+            userId: ctx.session.userId,
+            status: 'ACTIVE',
+          },
+          select: { id: true },
+        })
+        if (!membership)
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Eligible attachments not found' })
+      }
       const rows = await ctx.db.intakeUpload.findMany({
         where: {
           tenantId: ctx.session.activeTenantId,

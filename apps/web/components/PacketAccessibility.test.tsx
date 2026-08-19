@@ -18,7 +18,7 @@ vi.mock('next/link', () => ({
 async function expectNoAutomatedViolations(container: HTMLElement) {
   expect(document.body.contains(container)).toBe(true)
   document.documentElement.lang = 'en'
-  document.title = 'PathFinder guest accessibility contract'
+  document.title = 'Torchiko guest accessibility contract'
   const result = await axe.run(document, {
     rules: {
       // jsdom has no layout or computed pixel colors. Real-browser contrast remains a separate gate.

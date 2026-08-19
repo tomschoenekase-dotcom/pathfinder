@@ -17,6 +17,10 @@ vi.mock('@pathfinder/config', () => ({
   logger: { error: mocks.loggerError },
 }))
 vi.mock('@pathfinder/db', () => ({
+  getClerkMembershipEmail: (publicUserData: {
+    email_addresses?: Array<{ email_address: string }>
+    identifier?: string
+  }) => publicUserData.email_addresses?.[0]?.email_address ?? publicUserData.identifier,
   handleClerkEvent: mocks.handleClerkEvent,
   isClerkWebhookReceiptConflictError: mocks.isClerkWebhookReceiptConflictError,
 }))
@@ -50,7 +54,7 @@ function signedRequest(body: BodyInit, extraHeaders: Record<string, string> = {}
   })
 }
 
-function membershipEvent(options?: { role?: string; email?: string }) {
+function membershipEvent(options?: { role?: string; email?: string; identifier?: string }) {
   const emailAddresses = options?.email ? [{ id: 'email_1', email_address: options.email }] : []
   return {
     type: 'organizationMembership.created',
@@ -62,6 +66,7 @@ function membershipEvent(options?: { role?: string; email?: string }) {
         user_id: 'user_1',
         first_name: 'Ada',
         last_name: 'Lovelace',
+        ...(options?.identifier ? { identifier: options.identifier } : {}),
         email_addresses: emailAddresses,
       },
     },
@@ -109,6 +114,18 @@ describe('Clerk membership welcome webhook', () => {
     expect(response.status).toBe(200)
     expect(mocks.handleClerkEvent).toHaveBeenCalledOnce()
     expect(mocks.enqueueWelcomeEmail).not.toHaveBeenCalled()
+  })
+
+  it('uses Clerk current identifier payloads for the welcome recipient', async () => {
+    mocks.verify.mockReturnValue(membershipEvent({ identifier: 'ada@example.com' }))
+
+    const response = await POST(request())
+
+    expect(response.status).toBe(200)
+    expect(mocks.enqueueWelcomeEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'ada@example.com' }),
+      'membership_1',
+    )
   })
 
   it('does not enqueue a welcome when the membership has no email', async () => {

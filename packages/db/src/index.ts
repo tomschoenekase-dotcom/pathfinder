@@ -319,6 +319,7 @@ export {
   CLERK_WEBHOOK_TRANSACTION_MAX_ATTEMPTS,
   ClerkWebhookReceiptConflictError,
   beginWelcomeEmailDeliveryAttempt,
+  getClerkMembershipEmail,
   getWelcomeEmailDeliveryState,
   handleClerkEvent,
   isClerkWebhookReceiptConflictError,

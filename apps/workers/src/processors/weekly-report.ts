@@ -286,7 +286,7 @@ function buildReportPrompt(params: {
   generalMessages: string[]
 }): string {
   return [
-    'You are drafting a weekly PathFinder report for a venue operator.',
+    'You are drafting a weekly Torchiko report for a venue operator.',
     `Venue: ${params.venueName}${params.venueCategory ? ` (${params.venueCategory})` : ''}`,
     `Week start (UTC): ${params.weekStart}`,
     `Week end (UTC): ${params.weekEnd}`,
@@ -421,7 +421,7 @@ export async function processWeeklyReportJob(
     })
 
     const parsed = response.parsed
-    const title = 'PathFinder Weekly Report'
+    const title = 'Torchiko Weekly Report'
     const content = formatReportContent({
       title,
       venueName: data.venue.name,

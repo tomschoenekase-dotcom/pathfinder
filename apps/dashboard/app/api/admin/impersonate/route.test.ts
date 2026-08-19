@@ -25,7 +25,7 @@ function request(body: unknown, cookie?: string) {
     body: JSON.stringify(body),
     headers: {
       'content-type': 'application/json',
-      'user-agent': 'PathFinder test',
+      'user-agent': 'Torchiko test',
       'x-forwarded-for': '203.0.113.9, 10.0.0.1',
       ...(cookie ? { cookie: `pf_admin_tenant=${cookie}` } : {}),
     },
@@ -94,7 +94,7 @@ describe('admin impersonation route', () => {
       targetId: 'tenant_1',
       afterState: { impersonatedTenantId: 'tenant_1' },
       ipAddress: '203.0.113.9',
-      userAgent: 'PathFinder test',
+      userAgent: 'Torchiko test',
     })
     expect(response.headers.get('set-cookie')).toContain('pf_admin_tenant=tenant_1')
     expect(response.headers.get('set-cookie')).toContain('HttpOnly')

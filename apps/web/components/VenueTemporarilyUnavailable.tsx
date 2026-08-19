@@ -1,13 +1,13 @@
 import Link from 'next/link'
 
-import { PathFinderIcon } from '@pathfinder/ui/brand'
+import { TorchikoIcon } from '@pathfinder/ui/brand'
 import { VenueRetryButton } from './VenueRetryButton'
 
 export function VenueTemporarilyUnavailable({ showHomeLink = true }: { showHomeLink?: boolean }) {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-pf-surface px-6">
       <section className="w-full max-w-md rounded-3xl border border-pf-light bg-pf-white p-10 text-center shadow-sm">
-        <PathFinderIcon className="mx-auto h-12 w-12" />
+        <TorchikoIcon className="mx-auto h-12 w-12" />
         <h1 className="mt-5 text-2xl font-semibold tracking-tight text-pf-deep">
           Guide temporarily unavailable
         </h1>

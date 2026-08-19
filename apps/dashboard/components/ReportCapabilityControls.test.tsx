@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   getReport: vi.fn(),
   getAttempt: vi.fn(),
   clearAttempt: vi.fn(),
+  isPlatformAdmin: false,
 }))
 
 vi.mock('next/navigation', () => ({
@@ -27,10 +28,14 @@ vi.mock('next/navigation', () => ({
 vi.mock('@clerk/nextjs', () => ({
   SignOutButton: ({ children }: { children: React.ReactNode }) => children,
   useOrganization: () => ({ organization: { name: 'Test Tenant' } }),
-  useUser: () => ({ user: { publicMetadata: {} } }),
+  useUser: () => ({
+    user: {
+      publicMetadata: mocks.isPlatformAdmin ? { platform_role: 'PLATFORM_ADMIN' } : {},
+    },
+  }),
 }))
 
-vi.mock('@pathfinder/ui', () => ({ PathFinderBrand: () => <div>PathFinder</div> }))
+vi.mock('@pathfinder/ui', () => ({ TorchikoBrand: () => <div>Torchiko</div> }))
 
 vi.mock('../lib/generation-request-idempotency', () => ({
   getOrCreateGenerationRequestAttempt: mocks.getAttempt,
@@ -76,6 +81,7 @@ describe('weekly report capability controls', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.pathname = '/'
+    mocks.isPlatformAdmin = false
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     mocks.getAttempt.mockResolvedValue(requestAttempt)
   })
@@ -111,6 +117,18 @@ describe('weekly report capability controls', () => {
     expect(screen.queryByText('Analytics')).toBeNull()
   })
 
+  it('gives platform admins a direct, obvious route into the admin console', () => {
+    mocks.isPlatformAdmin = true
+    render(
+      <DashboardShell>
+        <div>content</div>
+      </DashboardShell>,
+    )
+
+    expect(screen.getByRole('link', { name: 'Admin console' }).getAttribute('href')).toBe('/admin')
+    expect(screen.getByRole('button', { name: 'Open admin console' })).toBeTruthy()
+  })
+
   it('sends an exact configuration revision and refreshes after enabling', async () => {
     mocks.updateConfiguration.mockResolvedValueOnce({ enabled: true })
     render(
@@ -132,8 +150,8 @@ describe('weekly report capability controls', () => {
         expectedUpdatedAt: null,
       }),
     )
+    expect(await screen.findByText('Current state: Enabled')).toBeTruthy()
     expect(mocks.refresh).toHaveBeenCalledOnce()
-    expect(screen.getByText('Current state: Enabled')).toBeTruthy()
     expect((await screen.findByRole('status')).textContent).toContain('updated')
   })
 

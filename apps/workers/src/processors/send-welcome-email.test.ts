@@ -71,7 +71,7 @@ describe('processSendWelcomeEmailJob', () => {
     expect(mocks.send).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'operator@example.com',
-        subject: 'Welcome to PathFinder',
+        subject: 'Welcome to Torchiko',
         html: expect.stringContaining('Ada Venues'),
       }),
       { idempotencyKey: providerKey },
@@ -81,6 +81,27 @@ describe('processSendWelcomeEmailJob', () => {
     expect(mocks.beginDeliveryAttempt).toHaveBeenCalledWith('tenant_1', deliveryId)
     expect(mocks.beginDeliveryAttempt.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.send.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it('uses the canonical Torchiko sender and dashboard when overrides are absent', async () => {
+    mocks.env.RESEND_FROM_EMAIL = undefined
+    mocks.env.DASHBOARD_URL = undefined
+
+    await processSendWelcomeEmailJob({
+      tenantId: 'tenant_1',
+      deliveryId,
+      to: 'operator@example.com',
+      recipientName: 'Ada Lovelace',
+      orgName: 'Ada Venues',
+    })
+
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'Torchiko <noreply@torchiko.com>',
+        html: expect.stringContaining('https://app.torchiko.com'),
+      }),
+      { idempotencyKey: providerKey },
     )
   })
 

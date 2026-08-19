@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 
-export const DEFAULT_WEEKLY_REPORT_TITLE = 'PathFinder Weekly Report'
+export const DEFAULT_WEEKLY_REPORT_TITLE = 'Torchiko Weekly Report'
+export const LEGACY_DEFAULT_WEEKLY_REPORT_TITLES = [
+  'Torchico Weekly Report',
+  'PathFinder Weekly Report',
+] as const
 
 type AnswerAnalysisIdentity = {
   kind: 'ANSWER_ANALYSIS'

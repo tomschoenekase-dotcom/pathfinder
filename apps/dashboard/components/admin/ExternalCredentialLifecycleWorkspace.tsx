@@ -389,7 +389,7 @@ function ExternalCredentialLifecycleScoped({
           </h3>
           <p className="mt-2 text-sm leading-6 text-pf-deep/75">
             {secret.plaintext
-              ? `This one-time ${secret.action} secret is for ${secret.scope}. PathFinder cannot show it again.`
+              ? `This one-time ${secret.action} secret is for ${secret.scope}. Torchiko cannot show it again.`
               : `The ${secret.action === 'issued' ? 'issuance' : 'rotation'} completed for ${secret.scope}, but its one-time secret cannot be recovered. Review the recorded prefix ${secret.prefix} and deliberately rotate it if a replacement is required.`}
           </p>
           {secret.plaintext ? (
