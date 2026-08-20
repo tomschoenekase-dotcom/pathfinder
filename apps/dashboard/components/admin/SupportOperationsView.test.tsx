@@ -53,7 +53,7 @@ import { SupportAgentRunLineagePanel } from './SupportAgentRunLineagePanel'
 describe('support operations UI', () => {
   afterEach(() => {
     cleanup()
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('visually and textually distinguishes client-visible messages from internal notes', () => {
