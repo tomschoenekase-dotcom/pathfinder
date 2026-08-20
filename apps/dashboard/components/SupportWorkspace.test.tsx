@@ -100,6 +100,20 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof SupportW
 }
 
 describe('SupportWorkspace', () => {
+  it('explains the operator-preview boundary and links to the full Support workspace', () => {
+    renderWorkspace({
+      operatorSupportHref: '/admin/clients/tenant-1/venues/venue-1/support-operations',
+    })
+    expect(
+      screen.getByText(/only conversations and eligible files belonging to your admin identity/),
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByRole('link', { name: 'Open this venue’s Support workspace' })
+        .getAttribute('href'),
+    ).toBe('/admin/clients/tenant-1/venues/venue-1/support-operations')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.listRequests.mockResolvedValue({ items: [], nextCursor: null })

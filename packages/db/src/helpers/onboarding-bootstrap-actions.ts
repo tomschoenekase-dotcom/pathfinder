@@ -357,7 +357,12 @@ export async function listOnboardingBootstrapDetails(input: {
   })
   if (!venue) throw new OnboardingBootstrapError('NOT_FOUND', 'Venue not found')
   return (input.client ?? db).intakeRun.findMany({
-    where: { tenantId: input.tenantId, venueId: input.venueId, sourceKind: 'STRUCTURED_BOOTSTRAP' },
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      NOT: { structuredBootstrap: { path: ['kind'], equals: 'OPTIONAL_NOTES' } },
+    },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: input.limit,
     select: {

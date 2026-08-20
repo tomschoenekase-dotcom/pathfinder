@@ -134,6 +134,50 @@ describe('canonical intake actions', () => {
     expect(runCreate).not.toHaveBeenCalled()
   })
 
+  it('stores optional notes as review-only structured evidence without leaking text to audit', async () => {
+    runCreate.mockResolvedValueOnce({
+      id: 'run-notes',
+      venueId: 'venue-a',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Optional notes',
+      createdAt: new Date(),
+    })
+    await createIntakeProposal({
+      db,
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      actor: { type: 'HUMAN', id: 'operator-a', role: 'OWNER' },
+      requestId: '168c2e1a-8ece-47ad-98dc-e4bde64872ca',
+      proposal: { kind: 'NOTES', notes: 'The east entrance is step-free.' },
+    })
+
+    expect(runCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceKind: 'STRUCTURED_BOOTSTRAP',
+          displayName: 'Optional notes',
+          structuredBootstrap: {
+            kind: 'OPTIONAL_NOTES',
+            notes: 'The east entrance is step-free.',
+          },
+        }),
+      }),
+    )
+    expect(evidenceCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        runId: 'run-notes',
+        sourceKind: 'STRUCTURED_BOOTSTRAP',
+        locator: 'optional-notes:run-notes',
+        normalizedHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    })
+    expect(eventCreate).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(auditCreate.mock.calls[0]?.[0]?.data)).not.toContain(
+      'The east entrance is step-free.',
+    )
+  })
+
   it('replays an exact actor-bound request without creating duplicate evidence or events', async () => {
     runFindFirst.mockResolvedValue({
       id: 'run-1',

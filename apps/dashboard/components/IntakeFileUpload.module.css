@@ -6,8 +6,10 @@
   --warm: #fbfaf6;
   color: var(--ink);
   background: var(--warm);
-  border-block: 1px solid rgba(16, 45, 72, 0.14);
-  padding: clamp(1.25rem, 3vw, 2.5rem) 0;
+  border: 1px solid rgba(16, 45, 72, 0.14);
+  border-radius: clamp(1rem, 2vw, 1.5rem);
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  box-shadow: 0 1rem 2.5rem rgba(16, 45, 72, 0.06);
 }
 
 .workbenchHeader,
@@ -411,7 +413,7 @@
 .iconButton:focus-visible,
 .loadMore:focus-visible,
 .categoryGrid button:focus-visible,
-.savedHeading button:focus-visible,
+.savedHeading:focus-visible,
 .sortControl select:focus-visible,
 .fileCategory select:focus-visible {
   outline: 3px solid rgba(34, 91, 145, 0.32);
@@ -481,24 +483,34 @@
 
 .savedHeading {
   display: flex;
+  width: 100%;
+  min-height: 3.25rem;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   margin-top: 1.8rem;
-}
-
-.savedHeading h4 {
-  margin: 0;
+  border: 1px solid rgba(16, 45, 72, 0.14);
+  border-radius: 0.75rem;
+  background: #fff;
+  color: var(--ink);
+  padding: 0.75rem 1rem;
   font-size: 0.9rem;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
 }
 
-.savedHeading button {
-  min-height: 2.75rem;
-  border: 0;
-  background: transparent;
-  color: var(--blue);
-  font-size: 0.76rem;
-  font-weight: 700;
+.savedHeading:hover {
+  background: var(--mist);
+}
+
+.savedHeading svg {
+  width: 1rem;
+  transition: transform 180ms ease;
+}
+
+.savedHeading[aria-expanded='true'] svg {
+  transform: rotate(180deg);
 }
 
 .emptyLibrary {
@@ -708,7 +720,8 @@
 @media (prefers-reduced-motion: reduce) {
   .dropField,
   .dropField::after,
-  .progressTrack span {
+  .progressTrack span,
+  .savedHeading svg {
     transition: none;
   }
 

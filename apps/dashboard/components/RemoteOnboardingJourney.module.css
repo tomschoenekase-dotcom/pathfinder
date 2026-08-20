@@ -176,9 +176,19 @@
 }
 
 .sourceDetails {
-  margin-top: 1.25rem;
-  border-top: 1px solid rgba(16, 45, 72, 0.18);
-  border-bottom: 1px solid rgba(16, 45, 72, 0.18);
+  margin-top: 1.5rem;
+  border: 1px solid rgba(16, 45, 72, 0.14);
+  border-radius: clamp(1rem, 2vw, 1.5rem);
+  background: rgba(255, 255, 255, 0.72);
+  padding: clamp(1.25rem, 3vw, 2rem);
+  box-shadow: 0 1rem 2.5rem rgba(16, 45, 72, 0.05);
+}
+
+.sourceDetails > h2 {
+  margin: 0;
+  color: var(--portal-ink);
+  font-size: clamp(1.25rem, 2.5vw, 1.7rem);
+  letter-spacing: -0.025em;
 }
 
 .sourceDetails > summary,
@@ -215,7 +225,7 @@
 
 .detailsIntro {
   max-width: 44rem;
-  margin: -0.3rem 0 1.25rem;
+  margin: 0.65rem 0 1.25rem;
   color: rgba(16, 45, 72, 0.72);
   font-size: 0.82rem;
   line-height: 1.6;

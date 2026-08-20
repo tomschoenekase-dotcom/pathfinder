@@ -141,7 +141,17 @@ export const adminAttentionConsoleRouter = router({
         }),
         db.supportRequest.findMany({
           where: {
-            status: { in: ['WAITING_FOR_CLIENT', 'VALIDATING', 'AWAITING_APPROVAL'] },
+            status: {
+              in: [
+                'OPEN',
+                'IN_REVIEW',
+                'WAITING_FOR_CLIENT',
+                'PATCH_DRAFTED',
+                'VALIDATING',
+                'AWAITING_APPROVAL',
+                'APPLYING',
+              ],
+            },
             ...after(query.supportCursor),
           },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

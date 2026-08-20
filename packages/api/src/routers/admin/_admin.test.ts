@@ -251,6 +251,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => {
     interviewProposalInput: z
       .object({ kind: z.literal('INTERVIEW'), displayName: z.string(), submission: z.unknown() })
       .strict(),
+    notesProposalInput: z.object({ kind: z.literal('NOTES'), notes: z.string() }).strict(),
     createIntakeProposal: vi.fn(),
     listIntakeProposals: vi.fn(),
     AI_COST_BUDGET_COVERAGE_VERSION: 'gateway-v1',

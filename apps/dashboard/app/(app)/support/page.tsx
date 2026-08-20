@@ -1,4 +1,6 @@
 import { redirect } from 'next/navigation'
+import { auth } from '@clerk/nextjs/server'
+import { cookies } from 'next/headers'
 
 import { SupportWorkspace } from '../../../components/SupportWorkspace'
 import { createDashboardCaller } from '../../../lib/server-caller'
@@ -13,6 +15,13 @@ type SupportPageProps = {
 }
 
 export default async function SupportPage({ searchParams }: SupportPageProps) {
+  const { sessionClaims } = await auth()
+  const isPlatformAdmin =
+    (sessionClaims?.publicMetadata as { platform_role?: unknown } | undefined)?.platform_role ===
+    'PLATFORM_ADMIN'
+  const adminTenantOverride = isPlatformAdmin
+    ? (await cookies()).get('pf_admin_tenant')?.value
+    : undefined
   const caller = await createDashboardCaller('/support')
   const venues = await caller.venue.list()
 
@@ -55,6 +64,11 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
       initialDetail={initialDetail}
       initialEligibleAttachments={eligibleAttachments.items}
       initialEligibleAttachmentsNextCursor={eligibleAttachments.nextCursor}
+      operatorSupportHref={
+        adminTenantOverride
+          ? `/admin/clients/${adminTenantOverride}/venues/${selectedVenue.id}/support-operations`
+          : undefined
+      }
       returnHref={returnHref}
     />
   )

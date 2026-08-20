@@ -626,6 +626,14 @@ describe('quarantined intake file upload', () => {
       />,
     )
 
+    expect(screen.queryByText('tour.mp4')).toBeNull()
+    expect(screen.queryByText('entrance.png')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
+    expect(screen.getByText('tour.mp4')).toBeTruthy()
+    expect(screen.getByText('entrance.png')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
+    expect(screen.queryByText('tour.mp4')).toBeNull()
+
     fireEvent.click(screen.getByRole('button', { name: /Videos or audio 1/ }))
     expect(screen.getByText('tour.mp4')).toBeTruthy()
     expect(screen.queryByText('entrance.png')).toBeNull()
@@ -702,6 +710,7 @@ describe('quarantined intake file upload', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
     fireEvent.click(screen.getByRole('button', { name: 'Complete security check' }))
     await waitFor(() =>
       expect(verify).toHaveBeenCalledWith({
@@ -745,6 +754,7 @@ describe('quarantined intake file upload', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
     fireEvent.click(screen.getByRole('button', { name: 'Retry file check' }))
     await waitFor(() =>
       expect(verify).toHaveBeenCalledWith({

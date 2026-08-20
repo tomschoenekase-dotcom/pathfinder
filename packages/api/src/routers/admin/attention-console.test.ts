@@ -105,9 +105,13 @@ describe('admin attention console', () => {
       expect(calls).not.toContain(forbidden)
     }
     expect(mocks.support.mock.calls[0]![0].where.status.in).toEqual([
+      'OPEN',
+      'IN_REVIEW',
       'WAITING_FOR_CLIENT',
+      'PATCH_DRAFTED',
       'VALIDATING',
       'AWAITING_APPROVAL',
+      'APPLYING',
     ])
     expect(mocks.agents).toHaveBeenCalledTimes(4)
     expect(mocks.agents.mock.calls[1]![0].where.status.in).toEqual(['QUEUED', 'RUNNING'])

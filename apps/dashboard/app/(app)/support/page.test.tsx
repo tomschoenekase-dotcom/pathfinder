@@ -7,7 +7,12 @@ const mocks = vi.hoisted(() => ({
   listRequests: vi.fn(),
   getRequest: vi.fn(),
   listEligibleAttachments: vi.fn(),
+  auth: vi.fn(),
+  cookieGet: vi.fn(),
 }))
+
+vi.mock('@clerk/nextjs/server', () => ({ auth: mocks.auth }))
+vi.mock('next/headers', () => ({ cookies: vi.fn(async () => ({ get: mocks.cookieGet })) }))
 
 vi.mock('../../../lib/server-caller', () => ({
   createDashboardCaller: vi.fn(async () => ({
@@ -35,6 +40,21 @@ describe('SupportPage', () => {
     })
     mocks.getRequest.mockResolvedValue({ id: 'request_beta', messages: [] })
     mocks.listEligibleAttachments.mockResolvedValue({ items: [], nextCursor: null })
+    mocks.auth.mockResolvedValue({ sessionClaims: {} })
+    mocks.cookieGet.mockReturnValue(undefined)
+  })
+
+  it('links an operator preview to the venue-wide Support workspace', async () => {
+    mocks.auth.mockResolvedValue({
+      sessionClaims: { publicMetadata: { platform_role: 'PLATFORM_ADMIN' } },
+    })
+    mocks.cookieGet.mockReturnValue({ value: 'tenant_alpha' })
+
+    const element = await SupportPage({ searchParams: Promise.resolve({}) })
+
+    expect(element.props.operatorSupportHref).toBe(
+      '/admin/clients/tenant_alpha/venues/venue_alpha/support-operations',
+    )
   })
 
   it('loads both list and detail using only the explicitly selected venue', async () => {

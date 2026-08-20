@@ -461,6 +461,9 @@ describe('platform admin intake operations', () => {
           tenantId: 'tenant-a',
           venueId: 'venue-a',
           sourceKind: 'STRUCTURED_BOOTSTRAP',
+          NOT: {
+            structuredBootstrap: { path: ['kind'], equals: 'OPTIONAL_NOTES' },
+          },
         },
       }),
     )

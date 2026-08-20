@@ -92,6 +92,26 @@ describe('IntakeProposalWorkspace', () => {
     expect(Array.from(classification.options).map((option) => option.value)).toEqual(['PRIVATE'])
   })
 
+  it('shares optional notes as a review-only source with useful guidance', async () => {
+    mocks.mutate.mockResolvedValue({ id: 'run-notes' })
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    expect(screen.getByText(/hours exceptions, accessibility details, visitor tips/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Notes'), {
+      target: { value: 'The east entrance is step-free.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Share notes' }))
+    await waitFor(() =>
+      expect(mocks.mutate).toHaveBeenCalledWith({
+        venueId: 'venue-1',
+        requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        kind: 'NOTES',
+        notes: 'The east entrance is step-free.',
+      }),
+    )
+    expect(await screen.findByText(/Information received/)).toBeTruthy()
+  })
+
   it('keeps package identity and operator workflow language out of client history', () => {
     render(
       <IntakeProposalWorkspace

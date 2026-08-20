@@ -131,7 +131,7 @@ describe('RemoteOnboardingJourney', () => {
     expect(html).toContain('Types of data to submit')
     expect(html).toContain('Videos or audio')
     expect(html).toContain('50 GB total')
-    expect(html).toContain('Share a website or staff knowledge')
+    expect(html).toContain('Add a website, staff knowledge, or optional notes')
     expect(html).toContain('Visitor preview')
     expect(html).toContain('3 supporting reference(s)')
     expect(html).toContain('Where this came from')

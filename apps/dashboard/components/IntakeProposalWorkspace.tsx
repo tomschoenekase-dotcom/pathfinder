@@ -18,9 +18,29 @@ export type IntakeProposalSummary = {
   displayName: string
   websiteUri: string | null
   interviewRole: string | null
+  structuredBootstrap?: unknown
   createdAt: Date
   _count: { evidence: number; events: number }
   packageHandoff: { packageDraftId: string; createdAt: Date } | null
+}
+
+function optionalNotes(proposal: IntakeProposalSummary): string | null {
+  if (
+    proposal.sourceKind !== 'STRUCTURED_BOOTSTRAP' ||
+    !proposal.structuredBootstrap ||
+    typeof proposal.structuredBootstrap !== 'object' ||
+    Array.isArray(proposal.structuredBootstrap)
+  )
+    return null
+  const value = proposal.structuredBootstrap as { kind?: unknown; notes?: unknown }
+  return value.kind === 'OPTIONAL_NOTES' && typeof value.notes === 'string' ? value.notes : null
+}
+
+function proposalSourceLabel(proposal: IntakeProposalSummary): string {
+  if (proposal.sourceKind === 'INTERVIEW') return 'Staff answers'
+  if (proposal.sourceKind === 'WEBSITE') return 'Website'
+  if (optionalNotes(proposal)) return 'Optional notes'
+  return 'Onboarding information'
 }
 
 function WebsiteProposalCapture({
@@ -109,6 +129,70 @@ function WebsiteProposalCapture({
   )
 }
 
+function OptionalNotesCapture({
+  disabled,
+  clientFacing,
+  onSubmit,
+}: {
+  disabled: boolean
+  clientFacing: boolean
+  onSubmit: (input: { notes: string; requestId: string }) => Promise<void>
+}) {
+  const [notes, setNotes] = useState('')
+  const [requestId, setRequestId] = useState(browserUuid)
+  const submittingRef = useRef(false)
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (submittingRef.current) return
+        submittingRef.current = true
+        void onSubmit({ notes: notes.trim(), requestId })
+          .then(() => {
+            setNotes('')
+            setRequestId(browserUuid())
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            submittingRef.current = false
+          })
+      }}
+    >
+      <fieldset disabled={disabled}>
+        <legend className="font-semibold text-pf-deep">Optional notes</legend>
+        <p className="mt-1 text-sm leading-6 text-pf-deep/75">
+          {clientFacing
+            ? 'Share anything else that would help Torchiko understand your venue—hours exceptions, accessibility details, visitor tips, policies, preferred wording, or information we have missed. Do not include passwords or payment details.'
+            : 'Record additional venue context for review. It remains a draft source and is never published directly.'}
+        </p>
+        <label className="mt-4 block text-sm font-medium text-pf-deep">
+          Notes
+          <textarea
+            required
+            rows={7}
+            maxLength={20_000}
+            value={notes}
+            placeholder="For example: The east entrance is step-free, holiday hours vary, and visitors often ask where to park."
+            onChange={(event) => {
+              setNotes(event.target.value)
+              setRequestId(browserUuid())
+            }}
+            className="mt-1 w-full rounded-xl border border-pf-light px-3 py-3 leading-6"
+          />
+        </label>
+      </fieldset>
+      <button
+        type="submit"
+        disabled={disabled || !notes.trim()}
+        className="min-h-11 rounded-xl bg-pf-primary px-5 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {disabled ? 'Sharing…' : clientFacing ? 'Share notes' : 'Record optional notes'}
+      </button>
+    </form>
+  )
+}
+
 export function IntakeProposalWorkspace({
   venueId,
   proposals,
@@ -121,7 +205,7 @@ export function IntakeProposalWorkspace({
   const client = useTRPCClient()
   const router = useRouter()
   const clientFacing = !adminTenantId
-  const [source, setSource] = useState<'WEBSITE' | 'INTERVIEW'>('WEBSITE')
+  const [source, setSource] = useState<'WEBSITE' | 'INTERVIEW' | 'NOTES'>('WEBSITE')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const creatingRef = useRef(false)
@@ -139,6 +223,11 @@ export function IntakeProposalWorkspace({
           displayName: string
           requestId: string
           submission: StaffInterviewSubmission
+        }
+      | {
+          kind: 'NOTES'
+          notes: string
+          requestId: string
         },
   ) {
     if (creatingRef.current) return
@@ -208,6 +297,14 @@ export function IntakeProposalWorkspace({
               />{' '}
               {clientFacing ? 'Staff questionnaire' : 'Text interview'}
             </label>
+            <label className="flex min-h-11 items-center gap-2">
+              <input
+                type="radio"
+                checked={source === 'NOTES'}
+                onChange={() => setSource('NOTES')}
+              />{' '}
+              Optional notes
+            </label>
           </div>
         </fieldset>
         <div className="mt-4">
@@ -217,11 +314,17 @@ export function IntakeProposalWorkspace({
               clientFacing={clientFacing}
               onSubmit={(input) => create({ kind: 'WEBSITE', ...input })}
             />
-          ) : (
+          ) : source === 'INTERVIEW' ? (
             <StaffInterviewCapture
               disabled={busy}
               clientFacing={clientFacing}
               onSubmit={(input) => create({ kind: 'INTERVIEW', ...input })}
+            />
+          ) : (
+            <OptionalNotesCapture
+              disabled={busy}
+              clientFacing={clientFacing}
+              onSubmit={(input) => create({ kind: 'NOTES', ...input })}
             />
           )}
         </div>
@@ -250,7 +353,7 @@ export function IntakeProposalWorkspace({
                 <p className="mt-1 text-sm text-pf-deep/75">
                   {clientFacing ? (
                     <>
-                      {proposal.sourceKind === 'INTERVIEW' ? 'Staff answers' : 'Website'} ·{' '}
+                      {proposalSourceLabel(proposal)} ·{' '}
                       {proposal.packageHandoff ? 'Prepared for Torchiko review' : 'Review pending'}
                     </>
                   ) : (
@@ -273,6 +376,11 @@ export function IntakeProposalWorkspace({
                     clientFacing={clientFacing}
                     {...(adminTenantId ? { adminTenantId } : {})}
                   />
+                ) : optionalNotes(proposal) ? (
+                  <details className="mt-3 rounded-xl bg-pf-surface p-3 text-sm text-pf-deep/80">
+                    <summary className="cursor-pointer font-medium">Read submitted notes</summary>
+                    <p className="mt-3 whitespace-pre-wrap leading-6">{optionalNotes(proposal)}</p>
+                  </details>
                 ) : null}
               </li>
             ))}
@@ -280,7 +388,7 @@ export function IntakeProposalWorkspace({
         ) : (
           <p className="mt-3 rounded-2xl border border-dashed border-pf-light p-6 text-sm text-pf-deep/75">
             {clientFacing
-              ? 'No websites or staff answers have been shared yet.'
+              ? 'No websites, staff answers, or optional notes have been shared yet.'
               : 'No intake proposals yet.'}
           </p>
         )}

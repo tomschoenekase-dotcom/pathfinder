@@ -74,6 +74,20 @@ function websiteLabel(uri: string) {
   }
 }
 
+function proposalLabel(proposal: IntakeProposalSummary): string {
+  if (proposal.sourceKind === 'INTERVIEW') return 'Staff knowledge'
+  if (proposal.sourceKind === 'WEBSITE') return 'Website source'
+  if (
+    proposal.sourceKind === 'STRUCTURED_BOOTSTRAP' &&
+    proposal.structuredBootstrap &&
+    typeof proposal.structuredBootstrap === 'object' &&
+    !Array.isArray(proposal.structuredBootstrap) &&
+    (proposal.structuredBootstrap as { kind?: unknown }).kind === 'OPTIONAL_NOTES'
+  )
+    return 'Optional notes'
+  return 'Onboarding information'
+}
+
 function primaryHref(data: JourneyData) {
   const home = `/venues/${data.venue.id}/onboarding`
   switch (data.projection.primaryAction.stage) {
@@ -201,14 +215,14 @@ export function RemoteOnboardingJourney({
             categoryCounts={data.materialTypes}
             nextCursor={nextCursor}
           />
-          <details className={styles.sourceDetails}>
-            <summary>Share a website or staff knowledge</summary>
+          <section className={styles.sourceDetails} aria-labelledby="more-information-title">
+            <h2 id="more-information-title">Add a website, staff knowledge, or optional notes</h2>
             <p className={styles.detailsIntro}>
-              A website or a few staff answers can be the fastest starting point. Sharing them does
-              not publish anything to visitors.
+              A website, a few staff answers, or a plain-language note can give Torchiko useful
+              context. Sharing them does not publish anything to visitors.
             </p>
             <IntakeProposalWorkspace venueId={data.venue.id} proposals={proposals} />
-          </details>
+          </section>
         </div>
 
         {data.questions.items.length ? (
@@ -291,9 +305,9 @@ export function RemoteOnboardingJourney({
                   <li key={proposal.id} className={styles.sourceItem}>
                     <h3>{proposal.displayName}</h3>
                     <p className={styles.sourceMeta}>
-                      {proposal.sourceKind === 'INTERVIEW' ? 'Staff knowledge' : 'Website source'} ·{' '}
-                      {proposal._count.evidence} supporting reference(s) · {proposal._count.events}{' '}
-                      update(s)
+                      {proposalLabel(proposal)} · {proposal._count.evidence} supporting reference(s)
+                      {' · '}
+                      {proposal._count.events} update(s)
                     </p>
                     <details className={styles.sourceEvidence}>
                       <summary>Where this came from</summary>
@@ -310,9 +324,14 @@ export function RemoteOnboardingJourney({
                               {websiteLabel(proposal.websiteUri)}
                             </a>
                           </p>
-                        ) : (
+                        ) : proposal.sourceKind === 'INTERVIEW' ? (
                           <p>
                             Staff questionnaire shared on{' '}
+                            {proposal.createdAt.toLocaleDateString('en-US')}.
+                          </p>
+                        ) : (
+                          <p>
+                            {proposalLabel(proposal)} shared on{' '}
                             {proposal.createdAt.toLocaleDateString('en-US')}.
                           </p>
                         )}

@@ -452,6 +452,7 @@ vi.mock('@pathfinder/db', async () => {
     interviewProposalInput: z
       .object({ kind: z.literal('INTERVIEW'), displayName: z.string(), submission: z.unknown() })
       .strict(),
+    notesProposalInput: z.object({ kind: z.literal('NOTES'), notes: z.string() }).strict(),
     createIntakeProposal: vi.fn(
       (input: { db: typeof harness.db; tenantId: string; venueId: string }) =>
         (input.db as { venue: { findFirst: (args: unknown) => unknown } }).venue.findFirst({

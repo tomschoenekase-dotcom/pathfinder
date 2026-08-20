@@ -194,6 +194,40 @@ describe('intake draft proposals', () => {
     expect(mocks.runCreate).not.toHaveBeenCalled()
   })
 
+  it('accepts bounded optional notes through the same review-only intake adapter', async () => {
+    mocks.runCreate.mockResolvedValueOnce({
+      id: 'run-notes',
+      venueId: 'venue-a',
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      displayName: 'Optional notes',
+      createdAt: new Date(),
+    })
+    const result = await caller.createCaller(context()).intake.createProposal({
+      venueId: 'venue-a',
+      requestId: '168c2e1a-8ece-47ad-98dc-e4bde64872ca',
+      kind: 'NOTES',
+      notes: 'Holiday hours vary; please confirm before publishing.',
+    })
+
+    expect(result).toMatchObject({
+      sourceKind: 'STRUCTURED_BOOTSTRAP',
+      status: 'AWAITING_REVIEW',
+      autoApprove: false,
+      autoApply: false,
+    })
+    expect(mocks.runCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          structuredBootstrap: {
+            kind: 'OPTIONAL_NOTES',
+            notes: 'Holiday hours vary; please confirm before publishing.',
+          },
+        }),
+      }),
+    )
+  })
+
   it('returns a privacy-safe exact-scope interview detail and timeline', async () => {
     mocks.runFind.mockResolvedValue({
       id: 'run-1',

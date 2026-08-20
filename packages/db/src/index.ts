@@ -523,6 +523,7 @@ export {
   IntakeActionError,
   intakeProposalInput,
   interviewProposalInput,
+  notesProposalInput,
   interviewSubmissionInput,
   listIntakeProposals,
   websiteProposalInput,

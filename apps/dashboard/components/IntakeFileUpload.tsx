@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   FileText,
   Film,
   FolderOpen,
@@ -286,7 +287,7 @@ export function IntakeFileUpload({
   })
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const [defaultCategory, setDefaultCategory] = useState<IntakeUploadCategory | 'AUTO'>('AUTO')
-  const [visibleCategory, setVisibleCategory] = useState<IntakeUploadCategory | 'ALL'>('ALL')
+  const [visibleCategory, setVisibleCategory] = useState<IntakeUploadCategory | 'ALL' | null>(null)
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [savedUploads, setSavedUploads] = useState(uploads)
   const [savedNextCursor, setSavedNextCursor] = useState(nextCursor)
@@ -319,9 +320,11 @@ export function IntakeFileUpload({
   const queue = queueState.venueId === venueId ? queueState.items : []
   const visibleSelectionError = queueState.venueId === venueId ? selectionError : null
   const visibleUploads =
-    visibleCategory === 'ALL'
-      ? savedUploads
-      : savedUploads.filter((upload) => upload.category === visibleCategory)
+    visibleCategory === null
+      ? []
+      : visibleCategory === 'ALL'
+        ? savedUploads
+        : savedUploads.filter((upload) => upload.category === visibleCategory)
 
   async function loadMoreUploads() {
     if (!loadMore || !savedNextCursor || loadingMore) return
@@ -916,7 +919,7 @@ export function IntakeFileUpload({
                 aria-label={`${category.label} ${count}`}
                 aria-pressed={selected}
                 className={selected ? styles.categorySelected : undefined}
-                onClick={() => setVisibleCategory(selected ? 'ALL' : category.value)}
+                onClick={() => setVisibleCategory(selected ? null : category.value)}
               >
                 <span>
                   <strong>{category.label}</strong>
@@ -928,71 +931,74 @@ export function IntakeFileUpload({
           })}
         </div>
 
-        <div className={styles.savedHeading}>
-          <h4>
-            {visibleCategory === 'ALL'
-              ? 'All shared files'
-              : MATERIAL_CATEGORIES.find((category) => category.value === visibleCategory)?.label}
-          </h4>
-          {visibleCategory !== 'ALL' ? (
-            <button type="button" onClick={() => setVisibleCategory('ALL')}>
-              Show all
-            </button>
-          ) : null}
-        </div>
-        {visibleUploads.length === 0 ? (
-          <p className={styles.emptyLibrary}>
-            Nothing in this category yet. Add it whenever it is ready.
-          </p>
-        ) : (
-          <ul className={styles.savedFiles}>
-            {visibleUploads.map((upload) => (
-              <li key={upload.id}>
-                <span className={styles.savedFileMark} aria-hidden="true">
-                  <FileText />
-                </span>
-                <span>
-                  <strong>{upload.displayName}</strong>
-                  <small>
-                    {formatBytes(upload.byteSize)} · {clientUploadStatus(upload.status)}
-                  </small>
-                </span>
-                {upload.status === 'PRECHECK_PASSED' || upload.status === 'VERIFYING' ? (
-                  <button
-                    type="button"
-                    disabled={savedChecks[upload.id] === 'busy'}
-                    onClick={() => void checkSavedUpload(upload)}
-                    className={styles.quietButton}
-                  >
-                    {upload.status === 'VERIFYING' ? (
-                      <RefreshCw aria-hidden="true" />
-                    ) : (
-                      <ShieldCheck aria-hidden="true" />
-                    )}
-                    {savedChecks[upload.id] === 'busy'
-                      ? 'Checking…'
-                      : upload.status === 'VERIFYING'
-                        ? 'Retry file check'
-                        : 'Complete security check'}
-                  </button>
-                ) : (
-                  <span className={styles.savedStatus}>
-                    {upload.status === 'AWAITING_REVIEW' ? <Check aria-hidden="true" /> : null}
-                    {clientUploadStatus(upload.status)}
+        <button
+          type="button"
+          className={styles.savedHeading}
+          aria-expanded={visibleCategory !== null}
+          onClick={() => setVisibleCategory(visibleCategory === null ? 'ALL' : null)}
+        >
+          <span>
+            {visibleCategory && visibleCategory !== 'ALL'
+              ? MATERIAL_CATEGORIES.find((category) => category.value === visibleCategory)?.label
+              : 'All shared files'}
+          </span>
+          <ChevronDown aria-hidden="true" />
+        </button>
+        {visibleCategory !== null ? (
+          visibleUploads.length === 0 ? (
+            <p className={styles.emptyLibrary}>
+              Nothing in this category yet. Add it whenever it is ready.
+            </p>
+          ) : (
+            <ul className={styles.savedFiles}>
+              {visibleUploads.map((upload) => (
+                <li key={upload.id}>
+                  <span className={styles.savedFileMark} aria-hidden="true">
+                    <FileText />
                   </span>
-                )}
-                {savedChecks[upload.id] === 'error' ? (
-                  <p className={styles.fileError} role="alert">
-                    {upload.status === 'VERIFYING'
-                      ? 'Torchiko could not confirm the file check. Try again.'
-                      : 'Security verification is unavailable. Try this check again.'}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-        {savedNextCursor && loadMore ? (
+                  <span>
+                    <strong>{upload.displayName}</strong>
+                    <small>
+                      {formatBytes(upload.byteSize)} · {clientUploadStatus(upload.status)}
+                    </small>
+                  </span>
+                  {upload.status === 'PRECHECK_PASSED' || upload.status === 'VERIFYING' ? (
+                    <button
+                      type="button"
+                      disabled={savedChecks[upload.id] === 'busy'}
+                      onClick={() => void checkSavedUpload(upload)}
+                      className={styles.quietButton}
+                    >
+                      {upload.status === 'VERIFYING' ? (
+                        <RefreshCw aria-hidden="true" />
+                      ) : (
+                        <ShieldCheck aria-hidden="true" />
+                      )}
+                      {savedChecks[upload.id] === 'busy'
+                        ? 'Checking…'
+                        : upload.status === 'VERIFYING'
+                          ? 'Retry file check'
+                          : 'Complete security check'}
+                    </button>
+                  ) : (
+                    <span className={styles.savedStatus}>
+                      {upload.status === 'AWAITING_REVIEW' ? <Check aria-hidden="true" /> : null}
+                      {clientUploadStatus(upload.status)}
+                    </span>
+                  )}
+                  {savedChecks[upload.id] === 'error' ? (
+                    <p className={styles.fileError} role="alert">
+                      {upload.status === 'VERIFYING'
+                        ? 'Torchiko could not confirm the file check. Try again.'
+                        : 'Security verification is unavailable. Try this check again.'}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
+        {visibleCategory !== null && savedNextCursor && loadMore ? (
           <button
             type="button"
             disabled={loadingMore}

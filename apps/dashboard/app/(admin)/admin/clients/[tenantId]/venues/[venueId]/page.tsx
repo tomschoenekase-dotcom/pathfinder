@@ -156,6 +156,26 @@ export default async function AdminVenueDetailPage({ params }: AdminVenueDetailP
         />
       </section>
 
+      {data.support.activeRequests > 0 ? (
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-sky-200 bg-sky-50 px-5 py-4">
+          <div>
+            <p className="text-sm font-semibold text-sky-950">
+              {data.support.activeRequests} open support request
+              {data.support.activeRequests === 1 ? '' : 's'}
+            </p>
+            <p className="mt-1 text-sm text-sky-900/75">
+              Client questions and change requests are waiting in this venue’s Support workspace.
+            </p>
+          </div>
+          <Link
+            href={`/admin/clients/${tenantId}/venues/${venueId}/support-operations`}
+            className="inline-flex min-h-11 items-center rounded-xl bg-pf-deep px-4 text-sm font-semibold text-white"
+          >
+            Review support requests
+          </Link>
+        </section>
+      ) : null}
+
       <section
         className="rounded-2xl border border-pf-light bg-pf-white p-5"
         aria-labelledby="onboarding-operations-heading"

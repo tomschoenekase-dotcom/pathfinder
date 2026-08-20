@@ -8,6 +8,7 @@ import {
   getIntakeProposalReview,
   getOnboardingBootstrapSubmission,
   interviewProposalInput,
+  notesProposalInput,
   listIntakeProposals,
   onboardingBootstrapSubmissionInput,
   submitOnboardingBootstrapAction,
@@ -26,6 +27,7 @@ const createInput = z.discriminatedUnion('kind', [
   interviewProposalInput
     .extend({ venueId: z.string().min(1), requestId: z.string().uuid() })
     .strict(),
+  notesProposalInput.extend({ venueId: z.string().min(1), requestId: z.string().uuid() }).strict(),
 ])
 
 function mapActionError(error: unknown): never {

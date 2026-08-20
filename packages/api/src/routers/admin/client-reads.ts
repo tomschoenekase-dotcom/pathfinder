@@ -170,6 +170,7 @@ export const adminClientReadsRouter = router({
           firstPreviewFeedback,
           correctionCount,
           missingKnowledgeRows,
+          activeSupportRequests,
         ] = await Promise.all([
           db.visitorSession.count({
             where: { tenantId: input.tenantId, venueId: input.venueId, startedAt: { gte: last7 } },
@@ -188,7 +189,11 @@ export const adminClientReadsRouter = router({
           }),
           db.intakeRun.groupBy({
             by: ['status'],
-            where: { tenantId: input.tenantId, venueId: input.venueId },
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              sourceKind: { in: ['WEBSITE', 'INTERVIEW', 'STRUCTURED_BOOTSTRAP'] },
+            },
             _count: { _all: true },
           }),
           db.venuePackage.groupBy({
@@ -246,6 +251,13 @@ export const adminClientReadsRouter = router({
             take: 500,
             select: { missingInformation: true },
           }),
+          db.supportRequest.count({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              status: { notIn: ['COMPLETED', 'CANCELLED'] },
+            },
+          }),
         ])
 
         const uploadCounts = new Map(uploadRows.map((row) => [row.status, row._count._all]))
@@ -282,6 +294,7 @@ export const adminClientReadsRouter = router({
           venue,
           places,
           engagement7d: { sessions: sessions7d, messages: messages7d },
+          support: { activeRequests: activeSupportRequests },
           onboarding: {
             materials: {
               received: [...uploadCounts.values()].reduce((sum, count) => sum + count, 0),

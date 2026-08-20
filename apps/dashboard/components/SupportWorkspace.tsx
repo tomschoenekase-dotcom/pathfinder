@@ -68,6 +68,7 @@ type SupportWorkspaceProps = {
   initialDetail: RequestDetail | null
   initialEligibleAttachments: EligibleAttachment[]
   initialEligibleAttachmentsNextCursor: EligibleAttachmentCursor | null
+  operatorSupportHref?: string | undefined
   returnHref?: string | undefined
 }
 
@@ -227,6 +228,7 @@ export function SupportWorkspace({
   initialEligibleAttachments,
   initialEligibleAttachmentsNextCursor,
   returnHref,
+  operatorSupportHref,
 }: SupportWorkspaceProps) {
   const router = useRouter()
   const client = useTRPCClient()
@@ -830,6 +832,17 @@ export function SupportWorkspace({
             </label>
           ) : null}
         </header>
+
+        {operatorSupportHref ? (
+          <aside className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+            <strong>Operator preview:</strong> this portal lists only conversations and eligible
+            files belonging to your admin identity, not everything submitted by the client’s users.{' '}
+            <Link className="font-semibold underline underline-offset-4" href={operatorSupportHref}>
+              Open this venue’s Support workspace
+            </Link>{' '}
+            to review all client requests.
+          </aside>
+        ) : null}
 
         <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(240px,0.72fr)_minmax(0,1.6fr)]">
           <aside className="border-y border-pf-light py-4 lg:border-y-0 lg:border-r lg:py-0 lg:pr-5">

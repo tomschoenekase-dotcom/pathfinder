@@ -83,9 +83,17 @@ export const interviewProposalInput = z
   })
   .strict()
 
+export const notesProposalInput = z
+  .object({
+    kind: z.literal('NOTES'),
+    notes: z.string().trim().min(1).max(20_000),
+  })
+  .strict()
+
 export const intakeProposalInput = z.discriminatedUnion('kind', [
   websiteProposalInput,
   interviewProposalInput,
+  notesProposalInput,
 ])
 export type IntakeProposalInput = z.infer<typeof intakeProposalInput>
 export type IntakeProposalActor = {
@@ -138,6 +146,8 @@ export async function createIntakeProposal(input: {
   const parsed = intakeProposalInput.safeParse(input.proposal)
   if (!parsed.success) throw new IntakeActionError('INVALID_INPUT', 'Invalid intake proposal')
   const proposal = parsed.data
+  const storedSourceKind = proposal.kind === 'NOTES' ? 'STRUCTURED_BOOTSTRAP' : proposal.kind
+  const displayName = proposal.kind === 'NOTES' ? 'Optional notes' : proposal.displayName
   const inputHash = createHash('sha256')
     .update(
       canonicalJson({
@@ -193,7 +203,7 @@ export async function createIntakeProposal(input: {
           replay.submissionInputHash !== inputHash ||
           replay.requestedBy !== input.actor.id ||
           replay.venueId !== input.venueId ||
-          replay.sourceKind !== proposal.kind
+          replay.sourceKind !== storedSourceKind
         ) {
           throw new IntakeActionError(
             'CONFLICT',
@@ -203,26 +213,37 @@ export async function createIntakeProposal(input: {
         return safeResult(replay, true)
       }
       const interview = proposal.kind === 'INTERVIEW' ? prepareInterview(proposal.submission) : null
+      const notesHash =
+        proposal.kind === 'NOTES'
+          ? createHash('sha256').update(proposal.notes.trim().replace(/\s+/gu, ' ')).digest('hex')
+          : null
       const run = await tx.intakeRun.create({
         data: {
           tenantId: input.tenantId,
           venueId: input.venueId,
-          sourceKind: proposal.kind,
+          sourceKind: storedSourceKind,
           status: 'AWAITING_REVIEW',
-          displayName: proposal.displayName,
+          displayName,
           requestedBy: input.actor.id,
           submissionRequestId: input.requestId,
           submissionInputHash: inputHash,
           ...(proposal.kind === 'WEBSITE'
             ? { websiteUri: proposal.websiteUri }
-            : {
-                interviewRole: proposal.submission.role,
-                interviewPublicAnswers: interview?.publicAnswers ?? [],
-                interviewAnswerManifest: interview?.manifest ?? [],
-                interviewConsentTextHash: createHash('sha256')
-                  .update(STAFF_INTERVIEW_CONSENT_TEXT)
-                  .digest('hex'),
-              }),
+            : proposal.kind === 'INTERVIEW'
+              ? {
+                  interviewRole: proposal.submission.role,
+                  interviewPublicAnswers: interview?.publicAnswers ?? [],
+                  interviewAnswerManifest: interview?.manifest ?? [],
+                  interviewConsentTextHash: createHash('sha256')
+                    .update(STAFF_INTERVIEW_CONSENT_TEXT)
+                    .digest('hex'),
+                }
+              : {
+                  structuredBootstrap: {
+                    kind: 'OPTIONAL_NOTES',
+                    notes: proposal.notes,
+                  },
+                }),
         },
         select: replaySelect,
       })
@@ -240,6 +261,20 @@ export async function createIntakeProposal(input: {
           })
         }
       }
+      if (proposal.kind === 'NOTES' && notesHash) {
+        await tx.intakeEvidenceRecord.create({
+          data: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: run.id,
+            sourceKind: 'STRUCTURED_BOOTSTRAP',
+            locator: `optional-notes:${run.id}`,
+            normalizedHash: notesHash,
+            confidence: 1,
+            capturedAt: new Date(),
+          },
+        })
+      }
       await tx.intakeRunEvent.create({
         data: {
           tenantId: input.tenantId,
@@ -247,7 +282,12 @@ export async function createIntakeProposal(input: {
           runId: run.id,
           kind: 'PROPOSAL_CREATED',
           actorId: input.actor.id,
-          metadata: { sourceKind: proposal.kind, autoApprove: false, autoApply: false },
+          metadata: {
+            sourceKind: storedSourceKind,
+            proposalKind: proposal.kind,
+            autoApprove: false,
+            autoApply: false,
+          },
         },
       })
       if (proposal.kind === 'INTERVIEW') {
@@ -266,6 +306,18 @@ export async function createIntakeProposal(input: {
           },
         })
       }
+      if (proposal.kind === 'NOTES') {
+        await tx.intakeRunEvent.create({
+          data: {
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            runId: run.id,
+            kind: 'EVIDENCE_RECORDED',
+            actorId: input.actor.id,
+            metadata: { evidenceKind: 'OPTIONAL_NOTES_HASH', evidenceCount: 1 },
+          },
+        })
+      }
       await writeAuditLogStrict(
         {
           tenantId: input.tenantId,
@@ -275,10 +327,11 @@ export async function createIntakeProposal(input: {
           targetType: 'IntakeRun',
           targetId: run.id,
           afterState: {
-            sourceKind: proposal.kind,
+            sourceKind: storedSourceKind,
+            proposalKind: proposal.kind,
             status: 'AWAITING_REVIEW',
             requestHash: inputHash,
-            evidenceCount: interview?.evidence.length ?? 0,
+            evidenceCount: interview?.evidence.length ?? (notesHash ? 1 : 0),
             publicAnswerCount: interview?.publicAnswers.length ?? 0,
             withheldAnswerCount: interview?.withheldCount ?? 0,
           },
@@ -298,7 +351,7 @@ export async function createIntakeProposal(input: {
         replay?.submissionInputHash === inputHash &&
         replay.requestedBy === input.actor.id &&
         replay.venueId === input.venueId &&
-        replay.sourceKind === proposal.kind
+        replay.sourceKind === storedSourceKind
       ) {
         return safeResult(replay, true)
       }
@@ -319,7 +372,11 @@ export async function listIntakeProposals(input: {
 }) {
   await requireVenue(input.db, input.tenantId, input.venueId)
   return input.db.intakeRun.findMany({
-    where: { tenantId: input.tenantId, venueId: input.venueId },
+    where: {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      sourceKind: { in: ['WEBSITE', 'INTERVIEW', 'STRUCTURED_BOOTSTRAP'] },
+    },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: input.limit,
     select: {
@@ -329,6 +386,7 @@ export async function listIntakeProposals(input: {
       displayName: true,
       websiteUri: true,
       interviewRole: true,
+      structuredBootstrap: true,
       createdAt: true,
       _count: { select: { evidence: true, events: true } },
       packageHandoff: { select: { packageDraftId: true, createdAt: true } },
