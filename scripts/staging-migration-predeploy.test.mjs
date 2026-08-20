@@ -60,6 +60,10 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
     ledgerState(rows.slice(0, EXPECTED.capabilityBaselineCount), manifest),
     'capability-baseline',
   )
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.stagingBaselineCount), manifest),
+    'staging-baseline',
+  )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,
