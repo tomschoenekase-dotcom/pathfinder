@@ -36,6 +36,7 @@ const rawEnvSchema = z
     // defaults off so its worker remains connectivity-only without provider
     // credentials, queues, consumers, schedulers, or accidental outbound calls.
     OUTBOUND_PROVIDER_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
+    CRM_BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Mutation dispatch is correctness infrastructure, separate from business
     // cron. Every worker environment requires explicit rollout authority.
@@ -122,8 +123,19 @@ const rawEnvSchema = z
     RESEND_FROM_EMAIL: z.string().optional(),
     RESEND_WEBHOOK_SECRET: z.string().optional(),
     PROSPECT_OUTREACH_DELIVERY_ENABLED: z.enum(['true', 'false']).default('false'),
-    PROSPECT_OUTREACH_REPLY_DOMAIN: z.string().trim().min(1).max(253).optional(),
-    PROSPECT_OUTREACH_REPLY_SECRET: z.string().min(32).optional(),
+    PROSPECT_OUTREACH_RECIPIENT_MODE: z
+      .enum(['internal_allowlist', 'production'])
+      .default('internal_allowlist'),
+    PROSPECT_OUTREACH_INTERNAL_ALLOWLIST: z.string().max(10_000).optional(),
+    GOOGLE_CLOUD_PROJECT_ID: z.string().trim().min(1).max(191).optional(),
+    GOOGLE_OAUTH_CLIENT_ID: z.string().trim().min(1).max(500).optional(),
+    GOOGLE_OAUTH_CLIENT_SECRET: z.string().trim().min(1).max(1000).optional(),
+    GMAIL_OAUTH_REDIRECT_URI: z.string().url().optional(),
+    GMAIL_PUBSUB_TOPIC: z.string().trim().min(1).max(500).optional(),
+    GMAIL_PUBSUB_PUSH_AUDIENCE: z.string().url().optional(),
+    GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT: z.string().email().optional(),
+    GMAIL_WATCH_RENEWAL_ENABLED: z.enum(['true', 'false']).default('false'),
+    GMAIL_RECONCILIATION_ENABLED: z.enum(['true', 'false']).default('false'),
     DASHBOARD_URL: z.string().optional(),
     OPERATIONAL_ALERT_DELIVERY_ENABLED: z.enum(['true', 'false']).optional(),
     OPERATIONAL_ALERT_EMAIL_TO: z.string().email().optional(),
@@ -155,12 +167,15 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   ...values,
   WORKER_SCHEDULERS_ENABLED: values.WORKER_SCHEDULERS_ENABLED === 'true',
   OUTBOUND_PROVIDER_WORKERS_ENABLED: values.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true',
+  CRM_BACKGROUND_WORKERS_ENABLED: values.CRM_BACKGROUND_WORKERS_ENABLED === 'true',
   EMBEDDING_DISPATCH_ENABLED: values.EMBEDDING_DISPATCH_ENABLED === 'true',
   GENERATION_DISPATCH_ENABLED: values.GENERATION_DISPATCH_ENABLED === 'true',
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',
   EVALUATION_RUNNER_ENABLED: values.EVALUATION_RUNNER_ENABLED === 'true',
   AGENT_RUNNER_ENABLED: values.AGENT_RUNNER_ENABLED === 'true',
   AGENT_BRIDGE_HTTP_ENABLED: values.AGENT_BRIDGE_HTTP_ENABLED === 'true',
+  GMAIL_WATCH_RENEWAL_ENABLED: values.GMAIL_WATCH_RENEWAL_ENABLED === 'true',
+  GMAIL_RECONCILIATION_ENABLED: values.GMAIL_RECONCILIATION_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',
   VOICE_MODE_ENABLED: values.VOICE_MODE_ENABLED === 'true',
   OPERATIONAL_ALERT_DELIVERY_ENABLED: values.OPERATIONAL_ALERT_DELIVERY_ENABLED === 'true',

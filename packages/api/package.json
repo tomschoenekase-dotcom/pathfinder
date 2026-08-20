@@ -7,7 +7,9 @@
     "./mcp": "./src/mcp/index.ts",
     "./partner-api": "./src/partner-api/index.ts",
     "./agent-bridge": "./src/agent-bridge/index.ts",
-    "./prospect-agent": "./src/prospect-agent/index.ts"
+    "./prospect-agent": "./src/prospect-agent/index.ts",
+    "./correspondence": "./src/correspondence/index.ts",
+    "./prospect-import-storage": "./src/prospect-import-storage.ts"
   },
   "types": "./src/index.ts",
   "scripts": {
@@ -21,8 +23,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1102.0",
     "@aws-sdk/s3-request-presigner": "^3.1102.0",
-    "@pathfinder/analytics": "workspace:*",
     "@pathfinder/ai": "workspace:*",
+    "@pathfinder/analytics": "workspace:*",
     "@pathfinder/auth": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/contracts": "workspace:*",
@@ -31,6 +33,7 @@
     "@pathfinder/jobs": "workspace:*",
     "@trpc/server": "^11.0.0",
     "ioredis": "^5.8.1",
+    "jose": "^6.1.3",
     "superjson": "^2.2.2",
     "zod": "^3.0.0"
   }

@@ -51,7 +51,72 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'TOCHI_VENUE_CHARACTER_ENABLED',
     defaultEnabled: false,
   },
+  crmCore: {
+    environmentVariable: 'CRM_CORE_ENABLED',
+    defaultEnabled: false,
+  },
+  crmProspectOutreach: {
+    environmentVariable: 'CRM_PROSPECT_OUTREACH_ENABLED',
+    defaultEnabled: false,
+  },
+  crmAutonomousOutreach: {
+    environmentVariable: 'CRM_AUTONOMOUS_OUTREACH_ENABLED',
+    defaultEnabled: false,
+  },
+  crmCalendar: {
+    environmentVariable: 'CRM_CALENDAR_ENABLED',
+    defaultEnabled: false,
+  },
+  crmMeet: {
+    environmentVariable: 'CRM_MEET_ENABLED',
+    defaultEnabled: false,
+  },
+  crmDrive: {
+    environmentVariable: 'CRM_DRIVE_ENABLED',
+    defaultEnabled: false,
+  },
+  crmBotMode: {
+    environmentVariable: 'CRM_BOT_MODE_ENABLED',
+    defaultEnabled: false,
+  },
 } as const
+
+export type CrmFeatureClassification = 'public' | 'pilot' | 'internal' | 'off'
+export type CrmFeatureKey =
+  | 'core'
+  | 'prospectOutreach'
+  | 'autonomousOutreach'
+  | 'calendar'
+  | 'meet'
+  | 'drive'
+  | 'botMode'
+
+export const CRM_FEATURE_POLICY = {
+  core: { classification: 'internal', flag: 'crmCore' },
+  prospectOutreach: { classification: 'pilot', flag: 'crmProspectOutreach' },
+  autonomousOutreach: { classification: 'off', flag: 'crmAutonomousOutreach' },
+  calendar: { classification: 'off', flag: 'crmCalendar' },
+  meet: { classification: 'off', flag: 'crmMeet' },
+  drive: { classification: 'off', flag: 'crmDrive' },
+  botMode: { classification: 'off', flag: 'crmBotMode' },
+} as const satisfies Record<
+  CrmFeatureKey,
+  { classification: CrmFeatureClassification; flag: FeatureFlagKey }
+>
+
+/** Server-owned visibility decision. `off` remains unavailable even if an env flag is set. */
+export function isCrmFeatureAvailable(
+  key: CrmFeatureKey,
+  actor: 'platform-admin' | 'tenant-user' | 'public',
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const policy = CRM_FEATURE_POLICY[key]
+  if (policy.classification === 'off') return false
+  if (policy.classification === 'internal' || policy.classification === 'pilot') {
+    if (actor !== 'platform-admin') return false
+  }
+  return isFeatureEnabled(policy.flag, environment)
+}
 
 export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

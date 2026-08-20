@@ -36,6 +36,10 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('INTEGRATION_ENCRYPTION_KEY'),
     value: canary('INTEGRATION_ENCRYPTION_KEY'),
   },
+  GOOGLE_OAUTH_CLIENT_SECRET: {
+    marker: canary('GOOGLE_OAUTH_CLIENT_SECRET'),
+    value: canary('GOOGLE_OAUTH_CLIENT_SECRET'),
+  },
   STORAGE_ACCESS_KEY_ID: {
     marker: canary('STORAGE_ACCESS_KEY_ID'),
     value: canary('STORAGE_ACCESS_KEY_ID'),
@@ -51,10 +55,6 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
   RESEND_WEBHOOK_SECRET: {
     marker: canary('RESEND_WEBHOOK_SECRET'),
     value: `whsec_${canary('RESEND_WEBHOOK_SECRET')}`,
-  },
-  PROSPECT_OUTREACH_REPLY_SECRET: {
-    marker: canary('PROSPECT_OUTREACH_REPLY_SECRET'),
-    value: canary('PROSPECT_OUTREACH_REPLY_SECRET'),
   },
 })
 
