@@ -26,4 +26,5 @@ This ledger maps the 2026-08-20 architectural-correction packet to code, verific
 - Pre-correction snapshot commit: `62e8237`
 - Local recovery branch: `codex/torchiko-crm-pre-correction-20260820`
 - Active staging reference inspected: `69f6e3a`
+- Staging-reconciled review branch: `codex/torchiko-crm-staging-reconciled-20260820`
 - Real delivery, credentials, DNS, provider watches, workbook import, deployment, push, and merge remain out of scope.

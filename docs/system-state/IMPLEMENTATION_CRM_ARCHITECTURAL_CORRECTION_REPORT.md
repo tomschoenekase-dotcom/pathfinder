@@ -2,14 +2,14 @@
 
 Date: 2026-08-20
 
-Worktree: `C:\Users\tomsc\Downloads\PathFinder-crm-foundation`
+Worktree: `C:\Users\tomsc\Downloads\PathFinder-crm-staging-reconciled`
 
-Branch: `codex/torchiko-crm-foundation-20260819`
+Branch: `codex/torchiko-crm-staging-reconciled-20260820`
 
 ## Executive verdict
 
-**The corrected architecture is ready for reviewable merge preparation with prospect delivery dark,
-but the current dirty tree must not be merged directly.**
+**The corrected, staging-reconciled branch is ready for human merge review with prospect delivery
+dark. It is not yet authorized for staging provider setup, real import, or email.**
 
 The P0 data, authority, send-safety, conversion, and agent-boundary corrections are materially implemented and database-tested. The worktree is much safer than the preserved pre-correction snapshot. It is not complete enough for an optimistic merge recommendation because:
 
@@ -20,9 +20,8 @@ The P0 data, authority, send-safety, conversion, and agent-boundary corrections 
 3. local in-app browser QA now covers the CRM directory, outreach center, campaign review, frozen
    content, URL state, back/forward behavior, and 390 px mobile rendering, but an authenticated
    staging run through the real admin routes remains required;
-4. the complete CRM delta was overlaid onto active staging successor `69f6e3a` in a disposable
-   detached worktree and passed typecheck, lint, build, full tests, and boundary gates, but reviewable
-   commit preparation and the actual repository-approved rebase remain.
+4. authenticated staging browser QA and operator-configured Google smoke tests remain external gates;
+   local fixture/browser and deterministic provider tests do not replace them.
 
 No real prospect email, provider account, credential, Pub/Sub watch, DNS record, workbook, deployment, merge, or push was changed.
 
@@ -244,9 +243,9 @@ Successful:
 - `pnpm verify:client-bundles`: forced 13/13 production builds and scanned 439 deliverable files across two apps for 13 server-only canaries and hardcoded credential patterns.
 - in-app browser QA: directory/outreach/campaign desktop and 390 px mobile, deep links,
   back/forward state, exact frozen content, dark send control, and a clean post-fix console.
-- detached full-delta rehearsal on staging successor `69f6e3a`: 23/23 typecheck tasks, 13/13 lint
-  tasks, 13/13 build tasks, the complete package/root test command, tenant registry, tenant bypass,
-  raw-SQL, public-surface, and script gates passed. The rehearsal exposed and corrected one missing
+- committed staging-reconciled branch based on `69f6e3a`: 23/23 typecheck tasks, 13/13 lint tasks,
+  13/13 build tasks, the complete package/root test command, tenant registry, tenant bypass, raw-SQL,
+  public-surface, and script gates passed. Reconciliation exposed and corrected one missing
   `next/navigation` accessibility-test mock for URL-backed directory state. One unrelated
   evaluation-panel timing assertion failed during an intermediate heavily concurrent run and
   passed immediately in isolation; the subsequent full repository test command passed.
@@ -267,15 +266,26 @@ Skipped or unproven:
 ## Merge and deployment reconciliation
 
 The original dirty work was preserved in local commit `62e8237` and recovery branch
-`codex/torchiko-crm-pre-correction-20260820`. Active staging was inspected at `69f6e3a`. It changes
-34 files relative to the shared `7b4ee32` base; only three overlap this working tree:
-`packages/db/src/index.ts` and the attention-console implementation/test. The working tree already
-preserves staging's expanded support-request attention statuses. During the actual rebase,
-`packages/db/src/index.ts` must retain staging's `notesProposalInput` export alongside the CRM
-exports and platform CRM attention stream. A detached worktree at the exact staging successor was
-populated with the full committed-plus-dirty CRM delta, that export was reconciled there, Prisma was
-regenerated, and all merge-shape gates listed above passed. This was a rehearsal, not a rebase,
-merge, commit, or push; the eventual reviewable rebased tree must rerun the gates.
+`codex/torchiko-crm-pre-correction-20260820`. The correction was organized into reviewable commits,
+then replayed onto active staging successor `69f6e3a` in branch
+`codex/torchiko-crm-staging-reconciled-20260820`. The attention-console conflict was resolved
+semantically: staging's expanded support-request states, CRM platform events, and the router
+modularity boundary all survive. `packages/db/src/index.ts` retains staging's `notesProposalInput`
+export alongside CRM exports. Prisma was regenerated and the committed reconciled tree passed lint,
+typecheck, full tests, build, and boundary gates. No merge or push occurred.
+
+Review sequence on the reconciled branch:
+
+- `21e2483` preserve the pre-correction CRM snapshot on staging;
+- `1888f0b` source-of-truth ADR and deterministic SQLite migration;
+- `681d6a7` canonical CRM schema, migrations, outbox, conversion, and contactability;
+- `41a87cf` verified Agent Run prospect tools and lineage;
+- `daa85f5` Gmail correspondence/OAuth/Pub/Sub/inbound runtime;
+- `387a2a2` recoverable delivery, synchronization, and import workers;
+- `1724244` scalable canonical CRM API and platform attention read model;
+- `eb740c8` protected CRM dashboard and exact frozen-batch/import surfaces;
+- `83ca4e6` architecture and operational handoff documentation;
+- `1e7f183` attention-router modularity reconciliation.
 
 Recommended order after blockers are resolved:
 
@@ -294,8 +304,6 @@ Recommended order after blockers are resolved:
 
 ### Blocks merge under this packet
 
-- clean review/commit structuring of the current working tree;
-- actual rebase onto `69f6e3a` (or its confirmed successor) and post-rebase gates;
 - authenticated staging browser QA on the real admin routes, required by the packet's strict
   definition of done even though local fixture browser QA now passes.
 
