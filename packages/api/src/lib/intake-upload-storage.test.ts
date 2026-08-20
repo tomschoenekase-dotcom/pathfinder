@@ -2,6 +2,7 @@ import {
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   ListPartsCommand,
   PutObjectCommand,
@@ -12,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   INTAKE_UPLOAD_GENERATION_METADATA_KEY,
+  INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX,
   INTAKE_UPLOAD_URL_EXPIRES_SECONDS,
   deleteInvalidIntakeUploadVersion,
   createIntakeUploadObjectKey,
@@ -21,6 +23,7 @@ import {
   beginIntakeUploadMultipart,
   completeIntakeUploadMultipart,
   listIntakeUploadMultipartParts,
+  readIntakeUploadVersion,
   signIntakeUploadPart,
   type IntakeUploadSigner,
   type IntakeUploadStorageTransport,
@@ -217,16 +220,30 @@ describe('intake upload storage contract', () => {
     })
   })
 
-  it.each([
-    [
-      {
-        ContentLength: 123,
-        ContentType: 'application/pdf',
-        ChecksumSHA256: checksumBase64,
-        Metadata: { [INTAKE_UPLOAD_GENERATION_METADATA_KEY]: 'generation-1' },
+  it('uses a checksum-bound identity when a compatible bucket has no object versions', async () => {
+    const result = await inspectIntakeUpload({
+      key: 'opaque',
+      generation: 'generation-1',
+      contentType: 'application/pdf',
+      bytes: 123,
+      checksumSha256: checksumHex,
+      storage: {
+        send: vi.fn(async () => ({
+          ContentLength: 123,
+          ContentType: 'application/pdf',
+          ChecksumSHA256: checksumBase64,
+          Metadata: { [INTAKE_UPLOAD_GENERATION_METADATA_KEY]: 'generation-1' },
+        })),
       },
-      'version',
-    ],
+    })
+
+    expect(result).toEqual({
+      state: 'verified',
+      versionId: `${INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX}${checksumHex}`,
+    })
+  })
+
+  it.each([
     [
       {
         VersionId: 'v1',
@@ -352,6 +369,31 @@ describe('intake upload storage contract', () => {
       deleteInvalidIntakeUploadVersion({ key: 'opaque', versionId: '', storage: { send } }),
     ).rejects.toThrow('immutable object version')
     expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads a checksum-bound versionless object without weakening versioned reads', async () => {
+    const send = vi.fn<IntakeUploadStorageTransport['send']>(async () => ({
+      Body: (async function* () {
+        yield new Uint8Array([1, 2, 3])
+      })(),
+    }))
+    await readIntakeUploadVersion({
+      key: 'opaque',
+      versionId: `${INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX}${checksumHex}`,
+      storage: { send },
+    })
+    expect(send.mock.calls[0]?.[0]).toBeInstanceOf(GetObjectCommand)
+    expect((send.mock.calls[0]?.[0] as GetObjectCommand).input).toEqual({
+      Bucket: 'disposable-private-bucket',
+      Key: 'opaque',
+    })
+    await expect(
+      readIntakeUploadVersion({
+        key: 'opaque',
+        versionId: `${INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX}bad`,
+        storage: { send },
+      }),
+    ).rejects.toThrow('versionless intake upload identity is invalid')
   })
 
   it('converts only a canonical hexadecimal SHA-256 value', () => {

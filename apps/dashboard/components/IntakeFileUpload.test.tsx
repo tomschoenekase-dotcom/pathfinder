@@ -714,6 +714,48 @@ describe('quarantined intake file upload', () => {
     expect(onCommitted).toHaveBeenCalledOnce()
   })
 
+  it('can retry a saved file left in format verification without selecting it again', async () => {
+    verify.mockResolvedValueOnce({
+      upload: {
+        id: 'upload-verifying',
+        displayName: 'visitor-guide.pdf',
+        fileName: 'visitor-guide.pdf',
+        mimeType: 'application/pdf',
+        byteSize: 5_000,
+        status: 'PRECHECK_PASSED',
+      },
+      retryable: true,
+      nextAction: 'MALWARE_SCAN_PENDING',
+    })
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        uploads={[
+          {
+            id: 'upload-verifying',
+            displayName: 'visitor-guide.pdf',
+            fileName: 'visitor-guide.pdf',
+            mimeType: 'application/pdf',
+            byteSize: 5_000,
+            status: 'VERIFYING',
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry file check' }))
+    await waitFor(() =>
+      expect(verify).toHaveBeenCalledWith({
+        venueId: 'venue-a',
+        uploadId: 'upload-verifying',
+        claimId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      }),
+    )
+    expect(await screen.findByRole('button', { name: 'Complete security check' })).toBeTruthy()
+  })
+
   it('has no automated accessibility violations in the pending-check state', async () => {
     const { container } = render(
       <IntakeFileUpload

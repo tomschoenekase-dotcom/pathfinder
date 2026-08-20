@@ -957,15 +957,23 @@ export function IntakeFileUpload({
                     {formatBytes(upload.byteSize)} · {clientUploadStatus(upload.status)}
                   </small>
                 </span>
-                {upload.status === 'PRECHECK_PASSED' ? (
+                {upload.status === 'PRECHECK_PASSED' || upload.status === 'VERIFYING' ? (
                   <button
                     type="button"
                     disabled={savedChecks[upload.id] === 'busy'}
                     onClick={() => void checkSavedUpload(upload)}
                     className={styles.quietButton}
                   >
-                    <ShieldCheck aria-hidden="true" />
-                    {savedChecks[upload.id] === 'busy' ? 'Checking…' : 'Complete security check'}
+                    {upload.status === 'VERIFYING' ? (
+                      <RefreshCw aria-hidden="true" />
+                    ) : (
+                      <ShieldCheck aria-hidden="true" />
+                    )}
+                    {savedChecks[upload.id] === 'busy'
+                      ? 'Checking…'
+                      : upload.status === 'VERIFYING'
+                        ? 'Retry file check'
+                        : 'Complete security check'}
                   </button>
                 ) : (
                   <span className={styles.savedStatus}>
@@ -975,7 +983,9 @@ export function IntakeFileUpload({
                 )}
                 {savedChecks[upload.id] === 'error' ? (
                   <p className={styles.fileError} role="alert">
-                    Security verification is unavailable. Try this check again.
+                    {upload.status === 'VERIFYING'
+                      ? 'Torchiko could not confirm the file check. Try again.'
+                      : 'Security verification is unavailable. Try this check again.'}
                   </p>
                 ) : null}
               </li>

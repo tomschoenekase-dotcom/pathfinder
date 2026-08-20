@@ -20,6 +20,7 @@ import { INTAKE_UPLOAD_MULTIPART_PART_BYTES } from '@pathfinder/contracts/intake
 export const INTAKE_UPLOAD_URL_EXPIRES_SECONDS = 15 * 60
 export const INTAKE_UPLOAD_GENERATION_METADATA_KEY = 'pf-intake-upload-generation'
 export const INTAKE_UPLOAD_MULTIPART_METADATA_KEY = 'pf-intake-upload-multipart'
+export const INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX = 'unversioned-sha256:'
 
 type IntakeUploadStorageCommand =
   | PutObjectCommand
@@ -345,6 +346,15 @@ function isMissingObject(error: unknown): boolean {
   )
 }
 
+function unversionedStorageIdentity(checksumSha256: string): string {
+  assertSha256Hex(checksumSha256)
+  return `${INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX}${checksumSha256}`
+}
+
+function isUnversionedStorageIdentity(versionId: string): boolean {
+  return new RegExp(`^${INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX}[a-f0-9]{64}$`, 'u').test(versionId)
+}
+
 export async function inspectIntakeUpload(input: {
   key: string
   generation: string
@@ -374,22 +384,25 @@ export async function inspectIntakeUpload(input: {
     throw error
   }
 
-  const versionId =
+  const persistedVersionId =
     typeof result.VersionId === 'string' && result.VersionId ? result.VersionId : null
-  if (!versionId) return { state: 'invalid', versionId: null, reason: 'version' }
   if (result.Metadata?.[INTAKE_UPLOAD_GENERATION_METADATA_KEY] !== input.generation) {
-    return { state: 'invalid', versionId, reason: 'generation' }
+    return { state: 'invalid', versionId: persistedVersionId, reason: 'generation' }
   }
-  if (result.ContentLength !== input.bytes) return { state: 'invalid', versionId, reason: 'bytes' }
+  if (result.ContentLength !== input.bytes)
+    return { state: 'invalid', versionId: persistedVersionId, reason: 'bytes' }
   if (result.ContentType !== input.contentType)
-    return { state: 'invalid', versionId, reason: 'mime' }
+    return { state: 'invalid', versionId: persistedVersionId, reason: 'mime' }
   if (
     result.Metadata?.[INTAKE_UPLOAD_MULTIPART_METADATA_KEY] !== 'true' &&
     result.ChecksumSHA256 !== expectedChecksum
   ) {
-    return { state: 'invalid', versionId, reason: 'checksum' }
+    return { state: 'invalid', versionId: persistedVersionId, reason: 'checksum' }
   }
-  return { state: 'verified', versionId }
+  return {
+    state: 'verified',
+    versionId: persistedVersionId ?? unversionedStorageIdentity(input.checksumSha256),
+  }
 }
 
 export async function deleteInvalidIntakeUploadVersion(input: {
@@ -400,6 +413,9 @@ export async function deleteInvalidIntakeUploadVersion(input: {
 }): Promise<void> {
   if (!input.versionId) {
     throw new Error('A confirmed immutable object version is required for intake upload deletion.')
+  }
+  if (isUnversionedStorageIdentity(input.versionId)) {
+    throw new Error('A versionless object cannot be deleted through the immutable-version path.')
   }
   const config = storageConfig()
   const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
@@ -416,10 +432,18 @@ export async function readIntakeUploadVersion(input: {
   signal?: AbortSignal
 }): Promise<AsyncIterable<Uint8Array>> {
   if (!input.versionId) throw new Error('An immutable intake upload version is required.')
+  const unversioned = isUnversionedStorageIdentity(input.versionId)
+  if (input.versionId.startsWith(INTAKE_UPLOAD_UNVERSIONED_SHA256_PREFIX) && !unversioned) {
+    throw new Error('The versionless intake upload identity is invalid.')
+  }
   const config = storageConfig()
   const storage = input.storage ?? (storageClient() as unknown as IntakeUploadStorageTransport)
   const result = (await storage.send(
-    new GetObjectCommand({ Bucket: config.bucket, Key: input.key, VersionId: input.versionId }),
+    new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: input.key,
+      ...(unversioned ? {} : { VersionId: input.versionId }),
+    }),
     input.signal ? { abortSignal: input.signal } : undefined,
   )) as { Body?: AsyncIterable<Uint8Array> }
   if (!result.Body || !(Symbol.asyncIterator in result.Body)) {
