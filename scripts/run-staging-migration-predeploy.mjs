@@ -17,9 +17,14 @@ const EXPECTED = Object.freeze({
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
   priorCompletePublicTableCount: 99,
+  // Exact synthetic staging lineage observed after the reviewed Tochi foundation
+  // tranche; ledger names and checksums are still verified below before deploy.
+  capabilityBaselineCount: 112,
+  capabilityBaselinePublicTableCount: 113,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
+  capabilityBaselineFinalMigration: '20260819130000_add_normalized_personality_dimensions',
   finalMigration: '20260819156000_add_operational_event_delivery_audit',
   manifestHash: 'ff84abc258ccf0013a198fa30db0cd926c0ab33b435f33e16c8822fddff61062',
   finalPublicTableCount: 126,
@@ -120,6 +125,12 @@ export function assertFrozenManifest(manifest) {
   if (manifest.names[EXPECTED.priorCompleteCount - 1] !== EXPECTED.priorFinalMigration) {
     fail('prior complete boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.capabilityBaselineCount - 1] !==
+    EXPECTED.capabilityBaselineFinalMigration
+  ) {
+    fail('capability baseline boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -127,6 +138,7 @@ function ledgerState(rows, manifest) {
   if (
     rows.length !== EXPECTED.baselineCount &&
     rows.length !== EXPECTED.priorCompleteCount &&
+    rows.length !== EXPECTED.capabilityBaselineCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -155,6 +167,7 @@ function ledgerState(rows, manifest) {
   }
   if (rows.length === EXPECTED.baselineCount) return 'baseline'
   if (rows.length === EXPECTED.priorCompleteCount) return 'prior-complete'
+  if (rows.length === EXPECTED.capabilityBaselineCount) return 'capability-baseline'
   return 'complete'
 }
 
@@ -282,7 +295,9 @@ async function main() {
     const expectedInitialTableCount =
       initialState === 'baseline'
         ? EXPECTED.baselinePublicTableCount
-        : EXPECTED.priorCompletePublicTableCount
+        : initialState === 'prior-complete'
+          ? EXPECTED.priorCompletePublicTableCount
+          : EXPECTED.capabilityBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

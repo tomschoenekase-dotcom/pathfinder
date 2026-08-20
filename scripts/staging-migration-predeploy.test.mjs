@@ -45,7 +45,7 @@ test('repository migration manifest remains frozen at the reviewed 125-file chai
   )
 })
 
-test('ledger accepts only exact finished baseline or final states', async () => {
+test('ledger accepts only exact reviewed baseline or final states', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -56,6 +56,10 @@ test('ledger accepts only exact finished baseline or final states', async () => 
   }))
   assert.equal(ledgerState(rows.slice(0, EXPECTED.baselineCount), manifest), 'baseline')
   assert.equal(ledgerState(rows.slice(0, EXPECTED.priorCompleteCount), manifest), 'prior-complete')
+  assert.equal(
+    ledgerState(rows.slice(0, EXPECTED.capabilityBaselineCount), manifest),
+    'capability-baseline',
+  )
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,
