@@ -77,6 +77,8 @@ type ImportDetail = {
     duplicateRows: number
     importedRows: number
     failedRows: number
+    progressCursor: string | null
+    reportHash: string | null
   }
   rows: Array<{
     id: string
@@ -269,12 +271,16 @@ export function ProspectImportWorkbench() {
     return result as ImportDetail
   }
 
-  async function resolveDuplicateRow(rowId: string, decision: 'IMPORT_AS_DISTINCT' | 'SKIP') {
+  async function resolveDuplicateRow(
+    rowId: string,
+    decision: 'CREATE_DISTINCT' | 'LINK_EXISTING' | 'UPDATE_EXISTING' | 'SKIP' | 'QUARANTINE',
+    targetOrganizationId?: string,
+  ) {
     if (!detail) return
     const note = window.prompt(
-      decision === 'IMPORT_AS_DISTINCT'
+      decision === 'CREATE_DISTINCT'
         ? 'Record the evidence that this row represents a distinct prospect.'
-        : 'Record why this possible duplicate should be skipped.',
+        : `Record the evidence for the ${decision.toLowerCase().replaceAll('_', ' ')} decision.`,
     )
     if (!note?.trim()) return
     setBusy(true)
@@ -285,6 +291,7 @@ export function ProspectImportWorkbench() {
         rowId,
         decision,
         note: note.trim(),
+        ...(targetOrganizationId ? { targetOrganizationId } : {}),
       })
       const result = await refreshImport(detail.prospectImport.id)
       setProgress(
@@ -309,52 +316,51 @@ export function ProspectImportWorkbench() {
         sha256(buffer),
         sha256(stableMapping(mapping, selectedSheets)),
       ])
-      const selected = sheets.filter((sheet) => selectedSheets.includes(sheet.name))
-      const started = await client.admin.beginProspectImport.mutate({
+      const reserved = await client.admin.reserveProspectImportUpload.mutate({
         fileName: file.name,
         fileType: file.name.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx',
         fileSize: file.size,
         fileHash,
+      })
+      const importId = reserved.importId
+      setProgress('Uploading the immutable source workbook…')
+      const upload = await fetch(reserved.url, {
+        method: 'PUT',
+        headers: reserved.requiredHeaders,
+        body: file,
+      })
+      if (!upload.ok) throw new Error(`Workbook upload failed (${upload.status})`)
+      await client.admin.completeProspectImportUpload.mutate({ importId })
+      setProgress('The durable worker is inspecting workbook structure and safety limits…')
+      let result = await refreshImport(importId)
+      for (
+        let poll = 0;
+        poll < 150 && result.prospectImport.progressCursor !== 'INSPECTED';
+        poll += 1
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000))
+        result = await refreshImport(importId)
+      }
+      if (result.prospectImport.progressCursor !== 'INSPECTED') {
+        throw new Error(
+          'Workbook inspection continues in the background; reopen this import shortly',
+        )
+      }
+      await client.admin.configureProspectImportMapping.mutate({
+        importId,
         mappingHash,
         mapping,
-        sheets: selected.map((sheet) => ({
-          sheetName: sheet.name,
-          sheetIndex: sheet.index,
-          detectedRows: sheet.rows,
-          columns: sheet.columns,
-        })),
+        selectedSheets,
       })
-      const importId = started.prospectImport.id
-      if (
-        started.prospectImport.status === 'DRAFT' ||
-        started.prospectImport.status === 'DRY_RUN_READY'
-      ) {
-        let sent = 0
-        const total = selected.reduce((sum, sheet) => sum + sheet.rows, 0)
-        for (const meta of selected) {
-          const sheet = workbook.Sheets[meta.name]
-          if (!sheet) continue
-          const sourceRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-            defval: '',
-            raw: false,
-            dateNF: 'yyyy-mm-dd',
-          })
-          for (let offset = 0; offset < sourceRows.length; offset += 250) {
-            const batch = sourceRows.slice(offset, offset + 250).map((sourceValues, index) => ({
-              sheetName: meta.name,
-              originalRowNumber: offset + index + 2,
-              sourceValues,
-              normalizedValues: mappedRow(sourceValues, mapping, meta.name),
-            }))
-            await client.admin.stageProspectImportRows.mutate({ importId, rows: batch })
-            sent += batch.length
-            setProgress(
-              `Dry run: validated ${sent.toLocaleString()} of ${total.toLocaleString()} rows…`,
-            )
-          }
-        }
+      setProgress('The durable worker is staging and checking duplicate candidates…')
+      for (let poll = 0; poll < 300; poll += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000))
+        result = await refreshImport(importId)
+        if (result.prospectImport.status === 'DRY_RUN_READY') break
       }
-      const result = await refreshImport(importId)
+      if (result.prospectImport.status !== 'DRY_RUN_READY') {
+        throw new Error('Dry-run staging continues in the background; reopen this import shortly')
+      }
       await refreshHistory()
       setProgress(
         `Dry run ready: ${result.prospectImport.totalRows.toLocaleString()} rows reviewed.`,
@@ -373,18 +379,21 @@ export function ProspectImportWorkbench() {
     setError(null)
     try {
       await client.admin.approveProspectImport.mutate({ importId: detail.prospectImport.id })
-      let done = false
-      let imported = detail.prospectImport.importedRows
-      while (!done) {
-        const batch = await client.admin.commitProspectImportBatch.mutate({
-          importId: detail.prospectImport.id,
-          limit: 100,
-        })
-        imported = batch.prospectImport.importedRows
-        done = batch.done
-        setProgress(`Importing approved rows… ${imported.toLocaleString()} complete`)
+      setProgress('Approved. The durable import worker is processing rows in the background…')
+      let result = await refreshImport(detail.prospectImport.id)
+      for (let poll = 0; poll < 300; poll += 1) {
+        if (['COMPLETE', 'PARTIAL', 'CANCELLED'].includes(result.prospectImport.status)) break
+        await new Promise((resolve) => setTimeout(resolve, 2_000))
+        result = await refreshImport(detail.prospectImport.id)
+        setProgress(
+          `Worker import ${result.prospectImport.status.toLowerCase()}: ${result.prospectImport.importedRows.toLocaleString()} complete`,
+        )
       }
-      const result = await refreshImport(detail.prospectImport.id)
+      if (!['COMPLETE', 'PARTIAL', 'CANCELLED'].includes(result.prospectImport.status)) {
+        setProgress(
+          'Import continues in the background. Closing this page will not stop the durable job.',
+        )
+      }
       await refreshHistory()
       setProgress(
         `Import ${result.prospectImport.status.toLowerCase()}: ${result.prospectImport.importedRows.toLocaleString()} rows imported.`,
@@ -395,6 +404,31 @@ export function ProspectImportWorkbench() {
         'Import paused safely. Retry uses the same row identities and will not duplicate completed rows.',
       )
       await refreshImport(detail.prospectImport.id).catch(() => undefined)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function cancelImport() {
+    if (!detail) return
+    const reason = window.prompt(
+      'Record why this import should be cancelled. Imported rows are retained.',
+    )
+    if (!reason?.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await client.admin.cancelProspectImport.mutate({
+        importId: detail.prospectImport.id,
+        reason: reason.trim(),
+      })
+      await refreshImport(detail.prospectImport.id)
+      await refreshHistory()
+      setProgress(
+        'Import cancelled. Completed rows and provenance were retained; pending rows were skipped.',
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Import cancellation failed.')
     } finally {
       setBusy(false)
     }
@@ -411,8 +445,9 @@ export function ProspectImportWorkbench() {
             Spreadsheet import workbench
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Files are parsed in your browser. Torchiko persists hashes, mappings, source rows,
-            warnings, and provenance—then imports only after an explicit dry run and approval.
+            Torchiko persists hashes, mappings, source rows, warnings, and provenance, then a
+            durable worker owns immutable source parsing, staging, duplicate review, and commit.
+            Closing this page does not stop the job, and approval remains a separate human gate.
           </p>
         </div>
         <Link href="/admin/prospects" className="text-sm font-semibold text-sky-700">
@@ -582,20 +617,32 @@ export function ProspectImportWorkbench() {
                 {detail.prospectImport.status}
               </p>
             </div>
-            {detail.prospectImport.status === 'DRY_RUN_READY' ? (
-              <button
-                type="button"
-                disabled={
-                  busy ||
-                  detail.prospectImport.duplicateRows > 0 ||
-                  detail.prospectImport.validRows + detail.prospectImport.warningRows === 0
-                }
-                onClick={() => void approveAndImport()}
-                className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                Approve reviewed rows and import
-              </button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {detail.prospectImport.status === 'DRY_RUN_READY' ? (
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    detail.prospectImport.duplicateRows > 0 ||
+                    detail.prospectImport.validRows + detail.prospectImport.warningRows === 0
+                  }
+                  onClick={() => void approveAndImport()}
+                  className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Approve reviewed rows and import
+                </button>
+              ) : null}
+              {!['COMPLETE', 'CANCELLED'].includes(detail.prospectImport.status) ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void cancelImport()}
+                  className="rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-sm font-semibold text-rose-800 disabled:opacity-50"
+                >
+                  Cancel import
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {[
@@ -613,6 +660,14 @@ export function ProspectImportWorkbench() {
               </div>
             ))}
           </div>
+          {detail.prospectImport.reportHash ? (
+            <a
+              href={`/api/admin/prospect-imports/${encodeURIComponent(detail.prospectImport.id)}/report`}
+              className="mt-4 inline-flex rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-900"
+            >
+              Download immutable dry-run report
+            </a>
+          ) : null}
           {detail.prospectImport.duplicateRows ? (
             <div className="mt-4 space-y-3">
               <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -631,6 +686,10 @@ export function ProspectImportWorkbench() {
                 const matches = Array.isArray(row.duplicateMatches)
                   ? (row.duplicateMatches as Array<Record<string, unknown>>)
                   : []
+                const bestOrganizationId =
+                  typeof matches[0]?.organizationId === 'string'
+                    ? matches[0].organizationId
+                    : undefined
                 return (
                   <article key={row.id} className="rounded-xl border border-slate-200 p-4">
                     <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
@@ -648,11 +707,31 @@ export function ProspectImportWorkbench() {
                             .join('; ') || 'Candidate evidence retained'}
                         </p>
                       </div>
-                      <div className="flex shrink-0 gap-2">
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={busy || !bestOrganizationId}
+                          onClick={() =>
+                            void resolveDuplicateRow(row.id, 'LINK_EXISTING', bestOrganizationId)
+                          }
+                          className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 disabled:opacity-50"
+                        >
+                          Link existing
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || !bestOrganizationId}
+                          onClick={() =>
+                            void resolveDuplicateRow(row.id, 'UPDATE_EXISTING', bestOrganizationId)
+                          }
+                          className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950 disabled:opacity-50"
+                        >
+                          Apply reviewed fields
+                        </button>
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() => void resolveDuplicateRow(row.id, 'IMPORT_AS_DISTINCT')}
+                          onClick={() => void resolveDuplicateRow(row.id, 'CREATE_DISTINCT')}
                           className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900"
                         >
                           Import as distinct
@@ -664,6 +743,14 @@ export function ProspectImportWorkbench() {
                           className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
                         >
                           Skip row
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void resolveDuplicateRow(row.id, 'QUARANTINE')}
+                          className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900"
+                        >
+                          Quarantine
                         </button>
                       </div>
                     </div>

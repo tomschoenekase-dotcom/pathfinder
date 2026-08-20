@@ -1,8 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowLeft, CheckCircle2, LockKeyhole, MailCheck, Send } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  LockKeyhole,
+  MailCheck,
+  Send,
+  X,
+} from 'lucide-react'
 
 import { useTRPCClient } from '../../lib/trpc'
 
@@ -29,6 +37,13 @@ export function ProspectCampaignWorkbench({
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [providerAccountId, setProviderAccountId] = useState('')
+  const [confirmation, setConfirmation] = useState<{
+    action: 'approve' | 'release'
+    batch: Campaign['sendBatches'][number]
+  } | null>(null)
+  const confirmationButtonRef = useRef<HTMLButtonElement>(null)
+  const confirmationDialogRef = useRef<HTMLElement>(null)
 
   const refresh = useCallback(async () => {
     if (fixture) return
@@ -42,6 +57,34 @@ export function ProspectCampaignWorkbench({
   useEffect(() => {
     void refresh()
   }, [refresh])
+  useEffect(() => {
+    if (!providerAccountId && readiness?.accounts?.length === 1)
+      setProviderAccountId(readiness.accounts[0]?.id ?? '')
+  }, [providerAccountId, readiness])
+  useEffect(() => {
+    if (!confirmation) return
+    confirmationButtonRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setConfirmation(null)
+      if (event.key === 'Tab') {
+        const focusable = confirmationDialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        )
+        if (!focusable?.length) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last?.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first?.focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [confirmation])
 
   const counts = useMemo(
     () =>
@@ -50,6 +93,15 @@ export function ProspectCampaignWorkbench({
         return result
       }, {}) ?? {},
     [campaign],
+  )
+  const selectedProviderAccount = readiness?.accounts?.find(
+    (account) => account.id === providerAccountId,
+  )
+  const selectedProviderReady = Boolean(
+    selectedProviderAccount?.connectionStatus === 'CONNECTED' &&
+    selectedProviderAccount.deliveryEnabled &&
+    !selectedProviderAccount.pausedAt &&
+    !selectedProviderAccount.healthErrorCode,
   )
   if (!campaign)
     return (
@@ -115,12 +167,6 @@ export function ProspectCampaignWorkbench({
   }
 
   async function approveBatch(batch: Campaign['sendBatches'][number]) {
-    if (
-      !window.confirm(
-        `Approve exactly ${batch.recipientCount} frozen recipients? This still does not send.`,
-      )
-    )
-      return
     setBusy(true)
     try {
       await client.admin.approveProspectSendBatch.mutate({
@@ -136,20 +182,18 @@ export function ProspectCampaignWorkbench({
   }
 
   async function sendBatch(batch: Campaign['sendBatches'][number]) {
-    if (
-      !window.confirm(
-        `FINAL RELEASE: send this exact batch to ${batch.recipientCount} recipients now?`,
-      )
-    )
-      return
+    if (!providerAccountId || !selectedProviderReady) return
     setBusy(true)
     try {
       const result = await client.admin.queueProspectSendBatch.mutate({
         batchId: batch.id,
         expectedRecipientCount: batch.recipientCount,
         expectedSnapshotHash: batch.snapshotHash,
+        providerAccountId,
       })
-      setNotice(`${result.queued} messages queued for provider delivery`)
+      setNotice(
+        `${result.pendingDispatch} frozen message${result.pendingDispatch === 1 ? '' : 's'} recorded in the transactional outbox; ${result.dispatched} dispatched`,
+      )
       await refresh()
     } finally {
       setBusy(false)
@@ -192,6 +236,70 @@ export function ProspectCampaignWorkbench({
           {notice}
         </div>
       ) : null}
+
+      <section
+        className="rounded-2xl border border-amber-300 bg-amber-50 p-5"
+        aria-labelledby="delivery-safety-heading"
+      >
+        <h2 id="delivery-safety-heading" className="font-semibold text-amber-950">
+          Prospect delivery is dark by default
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-amber-900">
+          Approval never sends. Final release remains unavailable unless the server kill switch,
+          global control, and a healthy Gmail mailbox all allow delivery.
+        </p>
+        <label className="mt-4 block max-w-xl text-xs font-bold text-slate-800">
+          Gmail mailbox for final release
+          <select
+            value={providerAccountId}
+            onChange={(event) => setProviderAccountId(event.target.value)}
+            className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"
+          >
+            <option value="">Choose a connected mailbox</option>
+            {readiness?.accounts?.map((account) => (
+              <option
+                key={account.id}
+                value={account.id}
+                disabled={
+                  account.connectionStatus !== 'CONNECTED' ||
+                  !account.deliveryEnabled ||
+                  Boolean(account.pausedAt)
+                }
+              >
+                {account.mailboxAddress} — {account.connectionStatus}
+                {account.pausedAt ? ' (paused)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="mt-3 grid gap-2 md:grid-cols-2" aria-label="Gmail mailbox health">
+          {readiness?.accounts?.length ? (
+            readiness.accounts.map((account) => (
+              <article key={account.id} className="rounded-xl border border-amber-200 bg-white p-3">
+                <p className="text-sm font-semibold text-slate-950">{account.mailboxAddress}</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {account.connectionStatus} · sync{' '}
+                  {account.lastSuccessfulSyncAt
+                    ? new Date(account.lastSuccessfulSyncAt).toLocaleString()
+                    : 'never'}{' '}
+                  · reconciliation{' '}
+                  {account.lastReconciliationAt
+                    ? new Date(account.lastReconciliationAt).toLocaleString()
+                    : 'never'}
+                </p>
+                {account.healthErrorSummary ? (
+                  <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">
+                    {account.healthErrorCode ? `${account.healthErrorCode}: ` : ''}
+                    {account.healthErrorSummary}
+                  </p>
+                ) : null}
+              </article>
+            ))
+          ) : (
+            <p className="text-sm text-amber-900">No Gmail mailbox is connected.</p>
+          )}
+        </div>
+      </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center">
@@ -366,52 +474,160 @@ export function ProspectCampaignWorkbench({
         ) : (
           <ul className="mt-4 space-y-3">
             {campaign.sendBatches.map((batch) => (
-              <li
-                key={batch.id}
-                className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-slate-950">
-                    {batch.recipientCount} recipients · {batch.status}
-                  </p>
-                  <p className="mt-1 font-mono text-[10px] text-slate-400">
-                    {batch.snapshotHash.slice(0, 20)}…
-                  </p>
+              <li key={batch.id} className="rounded-xl border border-slate-200 p-4">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">
+                      {batch.recipientCount} recipients · {batch.status}
+                    </p>
+                    <p className="mt-1 font-mono text-[10px] text-slate-400">
+                      {batch.snapshotHash.slice(0, 20)}…
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {batch.status === 'STAGED' ? (
+                      <button
+                        disabled={busy}
+                        onClick={() => setConfirmation({ action: 'approve', batch })}
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white"
+                      >
+                        <MailCheck className="h-4 w-4" />
+                        Approve exact batch
+                      </button>
+                    ) : null}
+                    {batch.status === 'APPROVED' ? (
+                      <button
+                        disabled={
+                          busy ||
+                          !readiness?.deliveryEnabled ||
+                          !readiness.providerConfigured ||
+                          !selectedProviderReady
+                        }
+                        onClick={() => setConfirmation({ action: 'release', batch })}
+                        title={
+                          !readiness?.deliveryEnabled
+                            ? 'Delivery is disabled by configuration'
+                            : !selectedProviderReady
+                              ? 'Choose a connected, unpaused, healthy Gmail mailbox'
+                              : undefined
+                        }
+                        className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Send className="h-4 w-4" />
+                        Send now
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  {batch.status === 'STAGED' ? (
-                    <button
-                      disabled={busy}
-                      onClick={() => void approveBatch(batch)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white"
-                    >
-                      <MailCheck className="h-4 w-4" />
-                      Approve exact batch
-                    </button>
-                  ) : null}
-                  {batch.status === 'APPROVED' ? (
-                    <button
-                      disabled={
-                        busy || !readiness?.deliveryEnabled || !readiness.providerConfigured
-                      }
-                      onClick={() => void sendBatch(batch)}
-                      title={
-                        !readiness?.deliveryEnabled
-                          ? 'Delivery is disabled by configuration'
-                          : undefined
-                      }
-                      className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Send className="h-4 w-4" />
-                      Send now
-                    </button>
-                  ) : null}
-                </div>
+                <details className="mt-3 border-t border-slate-100 pt-3">
+                  <summary className="cursor-pointer text-xs font-bold text-sky-800">
+                    Inspect exact frozen recipients and content
+                  </summary>
+                  <ul className="mt-3 space-y-3">
+                    {batch.items.map((item) => (
+                      <li key={item.id} className="rounded-lg bg-slate-50 p-3">
+                        <p className="break-all text-xs font-bold text-slate-900">
+                          To: {item.recipientEmailSnapshot}
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">
+                          {item.subjectSnapshot}
+                        </p>
+                        <p className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                          {item.textBodySnapshot}
+                        </p>
+                        <p className="mt-2 break-all font-mono text-[10px] text-slate-500">
+                          content {item.contentHashSnapshot}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {confirmation ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) setConfirmation(null)
+          }}
+        >
+          <section
+            ref={confirmationDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="batch-confirmation-title"
+            aria-describedby="batch-confirmation-description"
+            className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="batch-confirmation-title" className="text-lg font-bold text-slate-950">
+                  {confirmation.action === 'approve'
+                    ? 'Approve this exact frozen batch?'
+                    : 'Final release of this exact batch?'}
+                </h2>
+                <p id="batch-confirmation-description" className="mt-1 text-sm text-slate-600">
+                  Exact count: {confirmation.batch.recipientCount}. Snapshot:{' '}
+                  <span className="font-mono text-xs">{confirmation.batch.snapshotHash}</span>
+                </p>
+                {confirmation.action === 'release' ? (
+                  <p className="mt-2 text-sm font-semibold text-rose-800">
+                    Gmail mailbox: {selectedProviderAccount?.mailboxAddress ?? 'none selected'}
+                  </p>
+                ) : null}
+              </div>
+              <button
+                ref={confirmationButtonRef}
+                type="button"
+                onClick={() => setConfirmation(null)}
+                aria-label="Close confirmation"
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <ul className="mt-4 max-h-64 space-y-2 overflow-auto" aria-label="Frozen recipients">
+              {confirmation.batch.items.map((item) => (
+                <li key={item.id} className="rounded-lg border border-slate-200 p-3">
+                  <p className="break-all text-xs font-bold">{item.recipientEmailSnapshot}</p>
+                  <p className="mt-1 truncate text-sm text-slate-700">{item.subjectSnapshot}</p>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setConfirmation(null)}
+                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const pending = confirmation
+                  setConfirmation(null)
+                  if (pending.action === 'approve') void approveBatch(pending.batch)
+                  else void sendBatch(pending.batch)
+                }}
+                className={`rounded-xl px-4 py-2.5 text-sm font-bold text-white ${
+                  confirmation.action === 'approve' ? 'bg-emerald-700' : 'bg-rose-700'
+                }`}
+              >
+                {confirmation.action === 'approve'
+                  ? `Approve ${confirmation.batch.recipientCount}; do not send`
+                  : `Release ${confirmation.batch.recipientCount} through Gmail`}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }

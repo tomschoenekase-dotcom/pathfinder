@@ -59,15 +59,6 @@ export default async function ProspectPipelinePage() {
         </div>
       </div>
 
-      {pipeline.truncated ? (
-        <p
-          role="status"
-          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        >
-          Showing the first 1,000 active opportunities. Narrow operational work in the directory.
-        </p>
-      ) : null}
-
       <div className="space-y-4">
         {STAGES.map((stage) => {
           const items = pipeline.items.filter((item) => item.stage === stage)

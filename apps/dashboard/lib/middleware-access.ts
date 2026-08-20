@@ -2,7 +2,12 @@ const AUTH_ROUTES = ['/sign-in', '/sign-up']
 
 // Clerk sends webhook POST requests without a session cookie. Requiring auth
 // here would redirect the webhook and prevent automatic tenant creation.
-const PUBLIC_ROUTES = ['/api/webhooks/clerk', '/api/webhooks/resend', '/api/agent-bridge']
+const PUBLIC_ROUTES = [
+  '/api/agent-bridge',
+  '/api/integrations/gmail/pubsub',
+  '/api/webhooks/clerk',
+  '/api/webhooks/resend',
+]
 const PUBLIC_ROUTE_PREFIXES = ['/api/agent-bridge/']
 
 const INTERNAL_WORKSPACE_ROUTES = ['/analytics', '/chat-design', '/engagement-questions'] as const

@@ -5,7 +5,15 @@ import { useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 
-export function OperationalEventActions({ eventId, state }: { eventId: string; state: string }) {
+export function OperationalEventActions({
+  eventId,
+  state,
+  scope = 'tenant',
+}: {
+  eventId: string
+  state: string
+  scope?: 'tenant' | 'platform'
+}) {
   const client = useTRPCClient()
   const router = useRouter()
   const [pending, setPending] = useState<'acknowledge' | 'resolve' | null>(null)
@@ -16,9 +24,9 @@ export function OperationalEventActions({ eventId, state }: { eventId: string; s
     setError(null)
     try {
       if (action === 'acknowledge') {
-        await client.admin.acknowledgeOperationalEvent.mutate({ eventId })
+        await client.admin.acknowledgeOperationalEvent.mutate({ eventId, scope })
       } else {
-        await client.admin.resolveOperationalEvent.mutate({ eventId })
+        await client.admin.resolveOperationalEvent.mutate({ eventId, scope })
       }
       router.refresh()
     } catch {

@@ -50,6 +50,10 @@ export default async function AdminOperationsPage({
         ? { completedAgentsCursor: cursor(query.completedAgentsCursor) }
         : {}),
       ...(cursor(query.outcomesCursor) ? { outcomesCursor: cursor(query.outcomesCursor) } : {}),
+      ...(cursor(query.eventsCursor) ? { eventsCursor: cursor(query.eventsCursor) } : {}),
+      ...(cursor(query.platformEventsCursor)
+        ? { platformEventsCursor: cursor(query.platformEventsCursor) }
+        : {}),
     }),
     caller.admin.getGlobalAiControl(),
   ])

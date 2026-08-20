@@ -23,6 +23,7 @@ const empty = {
   completedAgents: { items: [], nextCursor: null },
   outcomes: { items: [], nextCursor: null },
   events: { items: [], nextCursor: null },
+  platformEvents: { items: [], nextCursor: null },
 }
 
 describe('operations attention console', () => {
@@ -41,6 +42,7 @@ describe('operations attention console', () => {
     expect(screen.getByText('No outcome observations are recorded yet.')).toBeTruthy()
     expect(screen.getByText(/review linked evidence/i)).toBeTruthy()
     expect(screen.getByText('No operational alerts currently need attention.')).toBeTruthy()
+    expect(screen.getByText('No platform CRM alerts currently need attention.')).toBeTruthy()
   })
 
   it('puts human questions first and links to the durable agent inbox', () => {
@@ -172,6 +174,42 @@ describe('operations attention console', () => {
 
     expect(screen.getByRole('link', { name: 'Open related workspace' }).getAttribute('href')).toBe(
       '/admin/clients/tenant_1/venues/venue_1/knowledge-proposals',
+    )
+  })
+
+  it('renders platform CRM attention without a fabricated tenant link', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          platformEvents: {
+            items: [
+              {
+                id: '00000000-0000-4000-8000-000000000001',
+                eventType: 'crm.import.completed_with_issues',
+                sourceSubsystem: 'prospect-crm',
+                severity: 'WARNING',
+                title: 'Prospect import completed with issues',
+                summary: 'Review quarantined rows.',
+                recommendedAction: 'Review the bounded report.',
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'ProspectImport',
+                linkedObjectId: 'import_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Prospect import completed with issues')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open related workspace' }).getAttribute('href')).toBe(
+      '/admin/prospects/imports',
     )
   })
 })

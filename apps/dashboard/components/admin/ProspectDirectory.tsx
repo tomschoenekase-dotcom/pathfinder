@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Building2,
@@ -52,14 +53,38 @@ function label(value: string) {
 
 export function ProspectDirectory({
   fixture,
-}: { fixture?: { result: DirectoryResult; savedViews?: SavedView[] } } = {}) {
+  outreachAvailable = false,
+}: {
+  fixture?: { result: DirectoryResult; savedViews?: SavedView[] }
+  outreachAvailable?: boolean
+} = {}) {
   const client = useTRPCClient()
-  const [search, setSearch] = useState('')
-  const [stage, setStage] = useState<Stage | ''>('')
-  const [priority, setPriority] = useState<Priority | ''>('')
-  const [tier, setTier] = useState<Tier | ''>('')
-  const [emailReadiness, setEmailReadiness] = useState<EmailReadiness | ''>('')
-  const [nextAction, setNextAction] = useState<'OVERDUE' | 'UPCOMING' | 'NONE' | ''>('')
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '')
+  const [stage, setStage] = useState<Stage | ''>(() => {
+    const value = searchParams.get('stage')
+    return STAGES.includes(value as Stage) ? (value as Stage) : ''
+  })
+  const [priority, setPriority] = useState<Priority | ''>(() => {
+    const value = searchParams.get('priority')
+    return ['LOW', 'NORMAL', 'HIGH', 'URGENT'].includes(value ?? '') ? (value as Priority) : ''
+  })
+  const [tier, setTier] = useState<Tier | ''>(() => {
+    const value = searchParams.get('tier')
+    return ['STANDARD', 'HIGH_VALUE', 'STRATEGIC'].includes(value ?? '') ? (value as Tier) : ''
+  })
+  const [emailReadiness, setEmailReadiness] = useState<EmailReadiness | ''>(() => {
+    const value = searchParams.get('emailReadiness')
+    return ['READY', 'MISSING', 'SUPPRESSED'].includes(value ?? '') ? (value as EmailReadiness) : ''
+  })
+  const [nextAction, setNextAction] = useState<'OVERDUE' | 'UPCOMING' | 'NONE' | ''>(() => {
+    const value = searchParams.get('nextAction')
+    return ['OVERDUE', 'UPCOMING', 'NONE'].includes(value ?? '')
+      ? (value as 'OVERDUE' | 'UPCOMING' | 'NONE')
+      : ''
+  })
   const [result, setResult] = useState<DirectoryResult | null>(fixture?.result ?? null)
   const [savedViews, setSavedViews] = useState<SavedView[]>(fixture?.savedViews ?? [])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -81,6 +106,25 @@ export function ProspectDirectory({
     }),
     [emailReadiness, nextAction, priority, search, stage, tier],
   )
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams.toString())
+    const values = {
+      search: search.trim(),
+      stage,
+      priority,
+      tier,
+      emailReadiness,
+      nextAction,
+    }
+    for (const [key, value] of Object.entries(values)) {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    const query = next.toString()
+    if (query !== searchParams.toString())
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }, [emailReadiness, nextAction, pathname, priority, router, search, searchParams, stage, tier])
 
   useEffect(() => {
     if (!fixture)
@@ -218,12 +262,14 @@ export function ProspectDirectory({
           >
             Pipeline
           </Link>
-          <Link
-            href="/admin/prospects/outreach"
-            className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm"
-          >
-            Outreach center
-          </Link>
+          {outreachAvailable ? (
+            <Link
+              href="/admin/prospects/outreach"
+              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm"
+            >
+              Outreach center
+            </Link>
+          ) : null}
           <Link
             href="/admin/prospects/imports"
             className="rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm"
@@ -318,7 +364,7 @@ export function ProspectDirectory({
         </div>
       </section>
 
-      {selected.size ? (
+      {selected.size && outreachAvailable ? (
         <section className="flex flex-col justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <CheckSquare2 className="h-5 w-5 text-sky-700" />

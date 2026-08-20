@@ -42,12 +42,20 @@ export function ProspectOutreachCenter({
             batch, then explicitly release only that batch.
           </p>
         </div>
-        <Link
-          href="/admin/prospects"
-          className="rounded-xl bg-sky-600 px-4 py-2.5 text-center text-sm font-semibold text-white"
-        >
-          Build a cohort
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/api/integrations/gmail/oauth/start"
+            className="rounded-xl border border-sky-300 px-4 py-2.5 text-center text-sm font-semibold text-sky-800"
+          >
+            Connect Gmail
+          </a>
+          <Link
+            href="/admin/prospects"
+            className="rounded-xl bg-sky-600 px-4 py-2.5 text-center text-sm font-semibold text-white"
+          >
+            Build a cohort
+          </Link>
+        </div>
       </div>
       <section className="grid gap-3 md:grid-cols-3" aria-label="Outreach readiness">
         <ReadinessCard
@@ -62,20 +70,87 @@ export function ProspectOutreachCenter({
           ready={readiness?.deliveryEnabled === true && readiness?.providerConfigured === true}
           detail={
             readiness?.deliveryEnabled
-              ? 'Provider configuration detected.'
+              ? 'Server delivery control is active; exact Gmail mailbox health still applies.'
               : 'Dark by default. No delivery can occur.'
           }
         />
         <ReadinessCard
-          title="Reply synchronization"
-          ready={readiness?.inboundConfigured === true}
+          title="Gmail synchronization"
+          ready={
+            readiness?.accounts?.some(
+              (account) =>
+                account.connectionStatus === 'CONNECTED' &&
+                Boolean(account.lastSuccessfulSyncAt) &&
+                !account.healthErrorCode,
+            ) === true
+          }
           detail={
-            readiness?.inboundConfigured
-              ? 'Verified webhook and reply domain configured.'
-              : 'Inbound adapter is present but not configured.'
+            readiness?.accounts?.length
+              ? `${readiness.accounts.length} mailbox account${readiness.accounts.length === 1 ? '' : 's'} registered.`
+              : 'No Gmail mailbox is connected. Provider fixtures do not count as configuration.'
           }
         />
       </section>
+      {readiness?.accounts?.length ? (
+        <section
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          aria-labelledby="mailbox-health-heading"
+        >
+          <h2 id="mailbox-health-heading" className="font-semibold text-slate-950">
+            Gmail mailbox health
+          </h2>
+          <ul className="mt-3 grid gap-3 lg:grid-cols-2">
+            {readiness.accounts.map((account) => (
+              <li key={account.id} className="rounded-xl border border-slate-200 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-slate-950">{account.mailboxAddress}</p>
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">
+                    {account.connectionStatus}
+                  </span>
+                </div>
+                <dl className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                  <div>
+                    <dt className="font-bold text-slate-800">Last sync</dt>
+                    <dd>
+                      {account.lastSuccessfulSyncAt
+                        ? new Date(account.lastSuccessfulSyncAt).toLocaleString()
+                        : 'Never'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-bold text-slate-800">Last reconciliation</dt>
+                    <dd>
+                      {account.lastReconciliationAt
+                        ? new Date(account.lastReconciliationAt).toLocaleString()
+                        : 'Never'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-bold text-slate-800">Watch expiration</dt>
+                    <dd>
+                      {account.watchExpiration
+                        ? new Date(account.watchExpiration).toLocaleString()
+                        : 'Not active'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-bold text-slate-800">Delivery</dt>
+                    <dd>
+                      {account.deliveryEnabled && !account.pausedAt ? 'eligible' : 'paused/off'}
+                    </dd>
+                  </div>
+                </dl>
+                {account.healthErrorSummary ? (
+                  <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
+                    {account.healthErrorCode ? `${account.healthErrorCode}: ` : ''}
+                    {account.healthErrorSummary}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
           <Mail className="h-4 w-4 text-sky-700" />

@@ -13,6 +13,7 @@ const readiness = {
   inboundConfigured: false,
   limits: { cohort: 5000, batch: 500 },
   policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
+  accounts: [],
 }
 
 const campaign = {
@@ -142,6 +143,16 @@ const campaign = {
       createdAt: now,
       updatedAt: now,
       _count: { items: 1 },
+      items: [
+        {
+          id: 'send-item-1',
+          recipientEmailSnapshot: 'jordan@example.test',
+          subjectSnapshot: 'Torchiko for Lakeside Art Center',
+          textBodySnapshot:
+            'Hi Jordan,\n\nTorchiko gives visitors a conversational guide built around the venue itself. I think it could be a great fit for helping guests explore the collection in a more personal way.\n\nBest,\nTom',
+          contentHashSnapshot: 'b'.repeat(64),
+        },
+      ],
     },
   ],
 }

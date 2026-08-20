@@ -93,6 +93,89 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
       </section>
 
       <section
+        className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm"
+        aria-labelledby="platform-operational-events-heading"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2
+              id="platform-operational-events-heading"
+              className="text-xl font-semibold text-slate-950"
+            >
+              Platform CRM attention
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Pre-conversion prospecting, import, correspondence, and provider-health events that do
+              not belong to a customer tenant.
+            </p>
+          </div>
+          <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-900">
+            {countLabel(data.platformEvents)} open
+          </span>
+        </div>
+        {data.platformEvents.items.length === 0 ? (
+          <div className="mt-4">
+            <Empty>No platform CRM alerts currently need attention.</Empty>
+          </div>
+        ) : (
+          <ul className="mt-4 grid gap-3 xl:grid-cols-2">
+            {data.platformEvents.items.map((event) => (
+              <li
+                key={event.id}
+                className="rounded-xl border border-violet-100 bg-violet-50/30 p-4"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
+                  <span
+                    className={
+                      event.severity === 'CRITICAL' || event.severity === 'ERROR'
+                        ? 'text-rose-700'
+                        : 'text-violet-800'
+                    }
+                  >
+                    {event.severity}
+                  </span>
+                  <span>·</span>
+                  <span>{event.sourceSubsystem}</span>
+                  <span>·</span>
+                  <span>{date(event.lastOccurredAt)}</span>
+                  {event.occurrenceCount > 1 ? (
+                    <span>· grouped ×{event.occurrenceCount}</span>
+                  ) : null}
+                </div>
+                <h3 className="mt-2 font-semibold text-slate-950">{event.title}</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{event.summary}</p>
+                {event.recommendedAction ? (
+                  <p className="mt-2 text-sm font-medium text-slate-800">
+                    Next: {event.recommendedAction}
+                  </p>
+                ) : null}
+                <Link
+                  href={
+                    event.eventType.startsWith('crm.import.')
+                      ? '/admin/prospects/imports'
+                      : event.eventType.startsWith('crm.duplicate.')
+                        ? '/admin/prospects/duplicates'
+                        : event.eventType.startsWith('crm.')
+                          ? '/admin/prospects'
+                          : '/admin/operations'
+                  }
+                  className="mt-3 inline-block text-sm font-semibold text-sky-700"
+                >
+                  Open related workspace
+                </Link>
+                <OperationalEventActions eventId={event.id} state={event.state} scope="platform" />
+              </li>
+            ))}
+          </ul>
+        )}
+        <More
+          param="platformEventsCursor"
+          cursor={data.platformEvents.nextCursor}
+          label="Older platform alerts"
+        />
+      </section>
+
+      <section
         className="rounded-2xl border border-orange-200 bg-white p-5 shadow-sm"
         aria-labelledby="operational-events-heading"
       >

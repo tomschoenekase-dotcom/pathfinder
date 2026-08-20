@@ -12,11 +12,16 @@ import { ProspectOutreachCenter } from './ProspectOutreachCenter'
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
+  replace: vi.fn(),
   history: [] as unknown[],
   listImports: vi.fn(),
 }))
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/admin/prospects',
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
+  useSearchParams: () => new URLSearchParams(),
+}))
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
     <a href={String(href)} {...props}>
@@ -47,14 +52,14 @@ describe('prospect CRM accessibility foundation', () => {
 
   it('has no automated accessibility violations in manual prospect capture', async () => {
     const { container } = render(<ProspectCreateForm />)
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    const result = await axe.run(container)
     expect(result.violations).toEqual([])
   })
 
   it('has no automated accessibility violations in the empty import workbench', async () => {
     mocks.listImports.mockResolvedValue(mocks.history)
     const { container } = render(<ProspectImportWorkbench />)
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    const result = await axe.run(container)
     expect(result.violations).toEqual([])
   })
 
@@ -62,7 +67,7 @@ describe('prospect CRM accessibility foundation', () => {
     const { container } = render(
       <ProspectDirectory fixture={{ result: { items: [], nextCursor: null } as never }} />,
     )
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    const result = await axe.run(container)
     expect(result.violations).toEqual([])
   })
 
@@ -73,15 +78,17 @@ describe('prospect CRM accessibility foundation', () => {
           campaigns: [] as never,
           readiness: {
             deliveryEnabled: false,
+            internalOnly: true,
             providerConfigured: false,
-            inboundConfigured: false,
+            provider: 'GMAIL',
+            accounts: [],
             limits: { cohort: 5000, batch: 500 },
             policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
           } as never,
         }}
       />,
     )
-    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    const result = await axe.run(container)
     expect(result.violations).toEqual([])
   })
 })
