@@ -13,6 +13,7 @@ import {
 import { z } from 'zod'
 import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
 import { PreviewFeedbackContext } from '@pathfinder/contracts/client-package-preview'
+import type { Prisma } from '@prisma/client'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -239,12 +240,8 @@ type ResolvedSupportAttachment = {
 
 function attachmentCreates(
   attachments: ResolvedSupportAttachment[],
-  scope: { tenantId: string; venueId: string; requestId: string },
-) {
+): Prisma.SupportMessageAttachmentUncheckedCreateWithoutSupportMessageInput[] {
   return attachments.map((attachment) => ({
-    tenantId: scope.tenantId,
-    venueId: scope.venueId,
-    supportRequestId: scope.requestId,
     filename: attachment.filename,
     mediaType: attachment.mediaType,
     byteSize: BigInt(attachment.byteSize),
@@ -619,11 +616,7 @@ async function createSupportRequestActionOnce(
         submissionInputHash,
         clientVersion: 1,
         attachments: {
-          create: attachmentCreates(attachments, {
-            tenantId: parsed.tenantId,
-            venueId: parsed.venueId,
-            requestId: request.id,
-          }),
+          create: attachmentCreates(attachments),
         },
       },
       select: messageSelect,
@@ -847,11 +840,7 @@ async function createPreviewFeedbackRequestActionOnce(
           submissionInputHash,
           clientVersion: 1,
           attachments: {
-            create: attachmentCreates(attachments, {
-              tenantId: parsed.tenantId,
-              venueId: parsed.venueId,
-              requestId: request.id,
-            }),
+            create: attachmentCreates(attachments),
           },
         },
         select: messageSelect,
@@ -1071,11 +1060,7 @@ async function appendSupportMessageActionOnce(
         submissionInputHash,
         clientVersion: parsed.visibility === 'CLIENT_VISIBLE' ? request.clientVersion + 1 : null,
         attachments: {
-          create: attachmentCreates(attachments, {
-            tenantId: parsed.tenantId,
-            venueId: parsed.venueId,
-            requestId: request.id,
-          }),
+          create: attachmentCreates(attachments),
         },
       },
       select: messageSelect,
@@ -1317,11 +1302,7 @@ async function manualSupportLoopActionOnce(
         requestVersion: nextVersion,
         createdAt: now,
         attachments: {
-          create: attachmentCreates(resolvedAttachments, {
-            tenantId: parsed.tenantId,
-            venueId: parsed.venueId,
-            requestId: request.id,
-          }),
+          create: attachmentCreates(resolvedAttachments),
         },
       },
       select: messageSelect,

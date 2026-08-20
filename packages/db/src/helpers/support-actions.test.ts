@@ -779,9 +779,12 @@ describe('support domain actions', () => {
         }),
       }),
     )
-    expect(
-      tx.supportMessage.create.mock.calls[0]?.[0]?.data.attachments.create[0],
-    ).not.toHaveProperty('sourceId')
+    const createdAttachment =
+      tx.supportMessage.create.mock.calls[0]?.[0]?.data.attachments.create[0]
+    expect(createdAttachment).not.toHaveProperty('sourceId')
+    expect(createdAttachment).not.toHaveProperty('tenantId')
+    expect(createdAttachment).not.toHaveProperty('venueId')
+    expect(createdAttachment).not.toHaveProperty('supportRequestId')
     expect(
       JSON.stringify(tx.auditLog.create.mock.calls, (_key, value) =>
         typeof value === 'bigint' ? value.toString() : value,
