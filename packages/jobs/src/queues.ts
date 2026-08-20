@@ -70,3 +70,13 @@ export const EVALUATION_RUN_RETRY_BACKOFF = 'evaluation-run-retry'
 export const AGENT_RUN_QUEUE = queueName('agent-run')
 export const AGENT_RUN_PROCESS_JOB = 'agent-run-process'
 export const AGENT_RUN_RETRY_BACKOFF = 'agent-run-retry'
+
+export const PROSPECT_IMPORT_QUEUE = queueName('prospect-import')
+export const PROSPECT_IMPORT_COMMIT_JOB = 'prospect-import-commit'
+export const PROSPECT_IMPORT_INSPECT_JOB = 'prospect-import-inspect'
+export const PROSPECT_IMPORT_STAGE_JOB = 'prospect-import-stage'
+export const PROSPECT_IMPORT_RETRY_BACKOFF = 'prospect-import-retry'
+export const GMAIL_SYNC_QUEUE = queueName('gmail-sync')
+export const GMAIL_SYNC_NOTIFICATION_JOB = 'gmail-sync-notification'
+export const GMAIL_SYNC_RECONCILIATION_JOB = 'gmail-sync-reconciliation'
+export const GMAIL_SYNC_WATCH_RENEWAL_JOB = 'gmail-sync-watch-renewal'

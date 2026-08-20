@@ -27,6 +27,10 @@ export {
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
   GENERATION_DISPATCH_SCHEDULER_JOB,
+  GMAIL_SYNC_NOTIFICATION_JOB,
+  GMAIL_SYNC_QUEUE,
+  GMAIL_SYNC_RECONCILIATION_JOB,
+  GMAIL_SYNC_WATCH_RENEWAL_JOB,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -51,6 +55,11 @@ export {
   EVALUATION_RUN_DISPATCH_JOB,
   EVALUATION_RUN_QUEUE,
   EVALUATION_RUN_RETRY_BACKOFF,
+  PROSPECT_IMPORT_COMMIT_JOB,
+  PROSPECT_IMPORT_INSPECT_JOB,
+  PROSPECT_IMPORT_STAGE_JOB,
+  PROSPECT_IMPORT_QUEUE,
+  PROSPECT_IMPORT_RETRY_BACKOFF,
 } from './queues'
 export { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 export {
@@ -88,6 +97,10 @@ export {
   enqueueMediaIngestion,
   enqueueEvaluationRun,
   enqueueAgentRun,
+  enqueueProspectImportCommit,
+  enqueueProspectImportInspection,
+  enqueueProspectImportStaging,
+  enqueueGmailSync,
   inspectQueueOperationalSnapshot,
 } from './enqueue'
 export type {
@@ -107,4 +120,8 @@ export type {
   WeeklyReportRecoveryJobPayload,
   MediaIngestionJobPayload,
   EvaluationRunJobPayload,
+  ProspectImportCommitJobPayload,
+  ProspectImportInspectionJobPayload,
+  ProspectImportStagingJobPayload,
+  GmailSyncJobPayload,
 } from './types'

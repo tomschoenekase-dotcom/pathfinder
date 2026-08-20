@@ -48,6 +48,11 @@ export async function bootstrapWorkers() {
     return runtime
   }
 
+  if (policy.mode === 'crm-only') {
+    const { startCrmBackgroundRuntime } = await import('./crm-background.js')
+    return startCrmBackgroundRuntime()
+  }
+
   const { startWorkers } = await import('./index.js')
   return startWorkers()
 }

@@ -39,6 +39,10 @@ import {
   GENERATION_DISPATCH_SCHEDULER_JOB,
   GENERATION_RECOVERY_QUEUE,
   GENERATION_RECOVERY_SCHEDULER_JOB,
+  GMAIL_SYNC_NOTIFICATION_JOB,
+  GMAIL_SYNC_QUEUE,
+  GMAIL_SYNC_RECONCILIATION_JOB,
+  GMAIL_SYNC_WATCH_RENEWAL_JOB,
   getBullMQConnection,
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
@@ -46,6 +50,11 @@ import {
   OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB,
   OPERATIONAL_EVENT_DELIVERY_QUEUE,
   OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB,
+  PROSPECT_IMPORT_COMMIT_JOB,
+  PROSPECT_IMPORT_INSPECT_JOB,
+  PROSPECT_IMPORT_QUEUE,
+  PROSPECT_IMPORT_RETRY_BACKOFF,
+  PROSPECT_IMPORT_STAGE_JOB,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -57,6 +66,7 @@ import {
   type EmbedPlaceJobPayload,
   type EvaluationRunJobPayload,
   type GenerationDispatchKickJobPayload,
+  type GmailSyncJobPayload,
   type SendWelcomeEmailJobPayload,
   type SendProspectOutreachJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
@@ -75,6 +85,9 @@ import {
   type WeeklyReportRecoveryJobPayload,
   type MediaIngestionJobPayload,
   type OperationalEventDeliveryJobPayload,
+  type ProspectImportCommitJobPayload,
+  type ProspectImportInspectionJobPayload,
+  type ProspectImportStagingJobPayload,
 } from '@pathfinder/jobs'
 
 import { processAnswerAnalysisJob } from './processors/answer-analysis'
@@ -88,12 +101,19 @@ import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
 import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
+import { processGmailSyncJob } from './processors/gmail-sync'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processSendProspectOutreachJob } from './processors/send-prospect-outreach'
+import { startProspectOutboxDispatcher } from './processors/prospect-outbox-dispatcher'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
 import { processOperationalEventDeliveries } from './processors/operational-event-delivery'
+import {
+  processProspectImportInspectionJob,
+  processProspectImportCommitJob,
+  processProspectImportStagingJob,
+} from './processors/prospect-import'
 import { applySchedulerState, utcCronSchedule } from './scheduler-control'
 import {
   enqueueScheduledAnalyticsEnrichment,
@@ -551,6 +571,40 @@ async function handleOperationalEventDeliveryJob(job: Job<OperationalEventDelive
   await processOperationalEventDeliveries()
 }
 
+type ProspectImportJobPayload =
+  | ProspectImportCommitJobPayload
+  | ProspectImportInspectionJobPayload
+  | ProspectImportStagingJobPayload
+
+async function handleProspectImportQueueJob(job: Job<ProspectImportJobPayload>) {
+  if (job.name === PROSPECT_IMPORT_INSPECT_JOB) {
+    await processProspectImportInspectionJob(job.data.importId)
+    return
+  }
+  if (job.name === PROSPECT_IMPORT_STAGE_JOB) {
+    await processProspectImportStagingJob(job.data.importId)
+    return
+  }
+  if (job.name === PROSPECT_IMPORT_COMMIT_JOB) {
+    await processProspectImportCommitJob(job.data)
+    return
+  }
+  throw new Error(`Unsupported prospect import job: ${job.name}`)
+}
+
+async function handleGmailSyncQueueJob(job: Job<GmailSyncJobPayload>) {
+  if (
+    ![
+      GMAIL_SYNC_NOTIFICATION_JOB,
+      GMAIL_SYNC_RECONCILIATION_JOB,
+      GMAIL_SYNC_WATCH_RENEWAL_JOB,
+    ].includes(job.name)
+  ) {
+    throw new Error(`Unsupported Gmail sync job: ${job.name}`)
+  }
+  await processGmailSyncJob(job.data)
+}
+
 export async function startWorkers() {
   if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
     const stopHeartbeat = await startOperationalHeartbeat('provider-disabled')
@@ -588,6 +642,8 @@ export async function startWorkers() {
   const operationalEventDeliveryQueue = new Queue(OPERATIONAL_EVENT_DELIVERY_QUEUE, {
     connection,
   })
+  const prospectImportQueue = new Queue(PROSPECT_IMPORT_QUEUE, { connection })
+  const gmailSyncQueue = new Queue(GMAIL_SYNC_QUEUE, { connection })
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
@@ -608,6 +664,8 @@ export async function startWorkers() {
       name: OPERATIONAL_EVENT_DELIVERY_QUEUE,
       close: () => operationalEventDeliveryQueue.close(),
     },
+    { name: PROSPECT_IMPORT_QUEUE, close: () => prospectImportQueue.close() },
+    { name: GMAIL_SYNC_QUEUE, close: () => gmailSyncQueue.close() },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
       : []),
@@ -647,6 +705,8 @@ export async function startWorkers() {
           ),
         remove: () => weeklyDigestQueue.removeJobScheduler(WEEKLY_DIGEST_SCHEDULER_JOB),
       },
+    ])
+    await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
       {
         upsert: () =>
           dailyRollupQueue.upsertJobScheduler(
@@ -773,6 +833,37 @@ export async function startWorkers() {
             },
           ),
         remove: () => generationRecoveryQueue.removeJobScheduler(GENERATION_RECOVERY_SCHEDULER_JOB),
+      },
+    ])
+
+    await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED && env.GMAIL_RECONCILIATION_ENABLED, [
+      {
+        upsert: () =>
+          gmailSyncQueue.upsertJobScheduler(
+            GMAIL_SYNC_RECONCILIATION_JOB,
+            { every: 15 * 60_000 },
+            {
+              name: GMAIL_SYNC_RECONCILIATION_JOB,
+              data: { providerAccountId: '*', trigger: 'SCHEDULED_RECONCILIATION' },
+              opts: { attempts: 8, backoff: { type: 'exponential', delay: 30_000 } },
+            },
+          ),
+        remove: () => gmailSyncQueue.removeJobScheduler(GMAIL_SYNC_RECONCILIATION_JOB),
+      },
+    ])
+    await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED && env.GMAIL_WATCH_RENEWAL_ENABLED, [
+      {
+        upsert: () =>
+          gmailSyncQueue.upsertJobScheduler(
+            GMAIL_SYNC_WATCH_RENEWAL_JOB,
+            { every: 24 * 60 * 60_000 },
+            {
+              name: GMAIL_SYNC_WATCH_RENEWAL_JOB,
+              data: { providerAccountId: '*', trigger: 'WATCH_RENEWAL' },
+              opts: { attempts: 8, backoff: { type: 'exponential', delay: 30_000 } },
+            },
+          ),
+        remove: () => gmailSyncQueue.removeJobScheduler(GMAIL_SYNC_WATCH_RENEWAL_JOB),
       },
     ])
 
@@ -954,6 +1045,28 @@ export async function startWorkers() {
     }),
   )
 
+  const prospectImportWorker = observeWorkerRuntime(
+    PROSPECT_IMPORT_QUEUE,
+    new Worker(PROSPECT_IMPORT_QUEUE, handleProspectImportQueueJob, {
+      connection,
+      concurrency: 1,
+      settings: {
+        backoffStrategy: (attemptsMade, type) =>
+          type === PROSPECT_IMPORT_RETRY_BACKOFF
+            ? Math.min(10_000 * 2 ** Math.max(0, attemptsMade - 1), 5 * 60_000)
+            : 0,
+      },
+    }),
+  )
+
+  const gmailSyncWorker = observeWorkerRuntime(
+    GMAIL_SYNC_QUEUE,
+    new Worker(GMAIL_SYNC_QUEUE, handleGmailSyncQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
     new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
@@ -1079,6 +1192,8 @@ export async function startWorkers() {
     { name: ANALYTICS_ENRICHMENT_QUEUE, worker: analyticsEnrichmentWorker },
     { name: SEND_EMAIL_QUEUE, worker: sendEmailWorker },
     { name: OPERATIONAL_EVENT_DELIVERY_QUEUE, worker: operationalEventDeliveryWorker },
+    { name: PROSPECT_IMPORT_QUEUE, worker: prospectImportWorker },
+    { name: GMAIL_SYNC_QUEUE, worker: gmailSyncWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
@@ -1091,6 +1206,7 @@ export async function startWorkers() {
     worker.on('failed', handleFailedJob)
   }
 
+  const stopProspectOutboxDispatcher = startProspectOutboxDispatcher()
   const stopHeartbeat = await startOperationalHeartbeat('provider-enabled')
 
   logger.info({
@@ -1116,6 +1232,8 @@ export async function startWorkers() {
       WEEKLY_REPORT_QUEUE,
       SEND_EMAIL_QUEUE,
       OPERATIONAL_EVENT_DELIVERY_QUEUE,
+      PROSPECT_IMPORT_QUEUE,
+      GMAIL_SYNC_QUEUE,
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
@@ -1127,7 +1245,10 @@ export async function startWorkers() {
     phases: [
       {
         name: 'heartbeat',
-        resources: [{ name: 'operational', close: async () => stopHeartbeat() }],
+        resources: [
+          { name: 'prospect-outbox-dispatcher', close: async () => stopProspectOutboxDispatcher() },
+          { name: 'operational', close: async () => stopHeartbeat() },
+        ],
       },
       {
         name: 'workers',
@@ -1169,6 +1290,10 @@ export async function startWorkers() {
     sendEmailWorker,
     operationalEventDeliveryWorker,
     operationalEventDeliveryQueue,
+    prospectImportQueue,
+    prospectImportWorker,
+    gmailSyncQueue,
+    gmailSyncWorker,
     mediaIngestionQueue,
     mediaIngestionWorker,
     evaluationRunWorker,

@@ -1,6 +1,7 @@
 export const WORKER_EXECUTION_FLAGS = [
   'WORKER_SCHEDULERS_ENABLED',
   'OUTBOUND_PROVIDER_WORKERS_ENABLED',
+  'CRM_BACKGROUND_WORKERS_ENABLED',
   'EMBEDDING_DISPATCH_ENABLED',
   'GENERATION_DISPATCH_ENABLED',
   'GENERATION_RECOVERY_ENABLED',
@@ -8,7 +9,8 @@ export const WORKER_EXECUTION_FLAGS = [
 ] as const
 
 const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
-  (flag) => flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED',
+  (flag) =>
+    flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' && flag !== 'CRM_BACKGROUND_WORKERS_ENABLED',
 )
 
 export type WorkerStartupEnvironment = Partial<
@@ -16,7 +18,7 @@ export type WorkerStartupEnvironment = Partial<
 >
 
 export type WorkerStartupPolicy = {
-  mode: 'provider-enabled' | 'provider-disabled'
+  mode: 'provider-enabled' | 'crm-only' | 'provider-disabled'
   requiredEnvironmentKeys: string[]
 }
 
@@ -39,6 +41,7 @@ export function resolveWorkerStartupPolicy(
   }
 
   const providerEnabled = environment.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true'
+  const crmBackgroundEnabled = environment.CRM_BACKGROUND_WORKERS_ENABLED === 'true'
   if (!providerEnabled) {
     const conflictingFlag = DEPENDENT_EXECUTION_FLAGS.find((flag) => environment[flag] === 'true')
     if (conflictingFlag) {
@@ -53,5 +56,10 @@ export function resolveWorkerStartupPolicy(
         mode: 'provider-enabled',
         requiredEnvironmentKeys: ['REDIS_URL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
       }
-    : { mode: 'provider-disabled', requiredEnvironmentKeys: ['REDIS_URL'] }
+    : crmBackgroundEnabled
+      ? {
+          mode: 'crm-only',
+          requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+        }
+      : { mode: 'provider-disabled', requiredEnvironmentKeys: ['REDIS_URL'] }
 }

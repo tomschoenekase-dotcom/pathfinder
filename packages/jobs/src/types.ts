@@ -67,7 +67,27 @@ export type SendWelcomeEmailJobPayload = {
 
 /** Carries only durable identity. The worker reloads the frozen approved snapshot. */
 export type SendProspectOutreachJobPayload = {
-  sendItemId: string
+  outboxId: string
+}
+
+/** Carries only durable import identity. Rows, decisions, and human approval
+ * are reloaded from Postgres by the worker. */
+export type ProspectImportCommitJobPayload = {
+  importId: string
+}
+
+export type ProspectImportInspectionJobPayload = {
+  importId: string
+}
+
+export type ProspectImportStagingJobPayload = {
+  importId: string
+}
+
+export type GmailSyncJobPayload = {
+  providerAccountId: string
+  trigger: 'PUBSUB_NOTIFICATION' | 'SCHEDULED_RECONCILIATION' | 'WATCH_RENEWAL'
+  receiptId?: string
 }
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>

@@ -29,6 +29,10 @@ import {
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
   GENERATION_RECOVERY_QUEUE,
+  GMAIL_SYNC_NOTIFICATION_JOB,
+  GMAIL_SYNC_QUEUE,
+  GMAIL_SYNC_RECONCILIATION_JOB,
+  GMAIL_SYNC_WATCH_RENEWAL_JOB,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -38,6 +42,11 @@ import {
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
   OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  PROSPECT_IMPORT_COMMIT_JOB,
+  PROSPECT_IMPORT_INSPECT_JOB,
+  PROSPECT_IMPORT_STAGE_JOB,
+  PROSPECT_IMPORT_QUEUE,
+  PROSPECT_IMPORT_RETRY_BACKOFF,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -64,6 +73,10 @@ import type {
   WeeklyReportJobPayload,
   MediaIngestionJobPayload,
   EvaluationRunJobPayload,
+  ProspectImportCommitJobPayload,
+  ProspectImportInspectionJobPayload,
+  ProspectImportStagingJobPayload,
+  GmailSyncJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -238,6 +251,67 @@ const agentRunJobOptions: JobsOptions = {
   backoff: { type: AGENT_RUN_RETRY_BACKOFF },
   removeOnComplete: 1000,
   removeOnFail: 5000,
+}
+
+const prospectImportJobOptions: JobsOptions = {
+  attempts: 6,
+  backoff: { type: PROSPECT_IMPORT_RETRY_BACKOFF },
+  removeOnComplete: 1000,
+  removeOnFail: 5000,
+}
+
+export async function enqueueProspectImportCommit(
+  payload: ProspectImportCommitJobPayload,
+): Promise<void> {
+  if (!payload.importId.trim() || payload.importId.length > 191) {
+    throw new Error('Prospect import payload requires an exact import identity')
+  }
+  const queue = getQueue(PROSPECT_IMPORT_QUEUE)
+  const jobId = `prospect-import-${payload.importId}`
+  const retained = await queue.getJob(jobId)
+  const retainedState = retained ? await retained.getState() : null
+  if (retained && retainedState === 'failed') {
+    await retained.retry('failed')
+    logger.info({ action: 'jobs.prospect-import.redriven', importId: payload.importId })
+    return
+  }
+  if (retainedState === 'completed') {
+    // Durable row state is already terminal for this exact approved import.
+    return
+  }
+  await queue.add(PROSPECT_IMPORT_COMMIT_JOB, payload, {
+    ...prospectImportJobOptions,
+    jobId,
+  })
+  logger.info({ action: 'jobs.prospect-import.enqueued', importId: payload.importId })
+}
+
+export async function enqueueProspectImportInspection(
+  payload: ProspectImportInspectionJobPayload,
+): Promise<void> {
+  if (!payload.importId || payload.importId.length > 191)
+    throw new Error('Valid import ID required')
+  await getQueue(PROSPECT_IMPORT_QUEUE).add(PROSPECT_IMPORT_INSPECT_JOB, payload, {
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    jobId: `prospect-import-inspect-${payload.importId}-${Date.now()}`,
+    removeOnComplete: 100,
+    removeOnFail: 500,
+  })
+}
+
+export async function enqueueProspectImportStaging(
+  payload: ProspectImportStagingJobPayload,
+): Promise<void> {
+  if (!payload.importId || payload.importId.length > 191)
+    throw new Error('Valid import ID required')
+  await getQueue(PROSPECT_IMPORT_QUEUE).add(PROSPECT_IMPORT_STAGE_JOB, payload, {
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    jobId: `prospect-import-stage-${payload.importId}-${Date.now()}`,
+    removeOnComplete: 100,
+    removeOnFail: 500,
+  })
 }
 
 /** Agent execution is default-off. The caller must pass the explicit runtime
@@ -572,16 +646,46 @@ export async function enqueueWelcomeEmail(
 export async function enqueueProspectOutreach(
   payload: SendProspectOutreachJobPayload,
 ): Promise<void> {
-  if (!payload.sendItemId || payload.sendItemId.length > 191)
-    throw new Error('Valid send item identity is required')
+  if (!payload.outboxId || payload.outboxId.length > 191)
+    throw new Error('Valid outbox identity is required')
   const identity = createHash('sha256')
-    .update(`torchiko-prospect-outreach-v1:${payload.sendItemId}`)
+    .update(`torchiko-prospect-outbox-v2:${payload.outboxId}`)
     .digest('hex')
   await getQueue(SEND_EMAIL_QUEUE).add(SEND_PROSPECT_OUTREACH_JOB, payload, {
     ...sendProspectOutreachJobOptions,
-    jobId: `send-prospect-outreach-${identity}`,
+    jobId: `send-prospect-outbox-${identity}`,
   })
-  logger.info({ action: 'jobs.send-prospect-outreach.enqueued', sendItemId: payload.sendItemId })
+  logger.info({ action: 'jobs.send-prospect-outbox.enqueued', outboxId: payload.outboxId })
+}
+
+export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<void> {
+  if (!payload.providerAccountId || payload.providerAccountId.length > 191) {
+    throw new Error('Valid Gmail provider account identity is required')
+  }
+  const receipt =
+    payload.receiptId ??
+    (payload.trigger === 'WATCH_RENEWAL'
+      ? `watch-day-${Math.floor(Date.now() / 86_400_000)}`
+      : `reconcile-window-${Math.floor(Date.now() / 900_000)}`)
+  const identity = createHash('sha256')
+    .update(`torchiko-gmail-sync-v1:${payload.providerAccountId}:${payload.trigger}:${receipt}`)
+    .digest('hex')
+  await getQueue(GMAIL_SYNC_QUEUE).add(
+    payload.trigger === 'WATCH_RENEWAL'
+      ? GMAIL_SYNC_WATCH_RENEWAL_JOB
+      : payload.trigger === 'SCHEDULED_RECONCILIATION'
+        ? GMAIL_SYNC_RECONCILIATION_JOB
+        : GMAIL_SYNC_NOTIFICATION_JOB,
+    payload,
+    {
+      attempts: 8,
+      backoff: { type: 'exponential', delay: 30_000 },
+      jobId: `gmail-sync-${identity}`,
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  )
+  logger.info({ action: 'jobs.gmail-sync.enqueued', providerAccountId: payload.providerAccountId })
 }
 
 const OPERATIONAL_QUEUE_NAMES = [
@@ -600,6 +704,7 @@ const OPERATIONAL_QUEUE_NAMES = [
   GENERATION_DISPATCH_QUEUE,
   GENERATION_RECOVERY_QUEUE,
   OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  GMAIL_SYNC_QUEUE,
 ] as const
 
 export async function inspectQueueOperationalSnapshot(now = new Date()) {

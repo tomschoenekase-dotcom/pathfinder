@@ -51,16 +51,31 @@ describe('worker startup policy', () => {
     })
   })
 
-  it.each(WORKER_EXECUTION_FLAGS.filter((flag) => flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED'))(
-    'rejects %s when provider workers are disabled',
-    (flag) => {
-      expect(() =>
-        resolveWorkerStartupPolicy({
-          RAILWAY_ENVIRONMENT: 'staging',
-          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
-          [flag]: 'true',
-        }),
-      ).toThrow(`${flag} cannot be enabled while outbound provider workers are disabled`)
-    },
-  )
+  it('permits a database-backed CRM import runtime while outbound providers stay disabled', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        CRM_BACKGROUND_WORKERS_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'crm-only',
+      requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+    })
+  })
+
+  it.each(
+    WORKER_EXECUTION_FLAGS.filter(
+      (flag) =>
+        flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' && flag !== 'CRM_BACKGROUND_WORKERS_ENABLED',
+    ),
+  )('rejects %s when provider workers are disabled', (flag) => {
+    expect(() =>
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        [flag]: 'true',
+      }),
+    ).toThrow(`${flag} cannot be enabled while outbound provider workers are disabled`)
+  })
 })
