@@ -164,4 +164,4 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 
 ## CRM/outreach branch delta (2026-08-20)
 
-On the isolated CRM foundation branch, platform prospect navigation, saved views, campaigns, read/draft agent tools, human-reviewed immutable send batches, Resend delivery/webhook adapters, reply synchronization, and linked live-venue intelligence are implemented and locally verifiable. Provider delivery remains configuration-disabled and has not received a live smoke test.
+On the isolated CRM correction branch, platform prospect navigation, saved views, campaigns, verified read/draft agent tools, human-reviewed frozen send batches, a transactional outbox, and linked live-venue intelligence are implemented. The former prospect Resend runtime is retired. Gmail adapter and inbound orchestration foundations are tested, but production OAuth/client, Pub/Sub persistence, watch/reconciliation scheduling, and provider-health composition remain incomplete. Delivery is configuration- and database-disabled and has not received a live smoke test.

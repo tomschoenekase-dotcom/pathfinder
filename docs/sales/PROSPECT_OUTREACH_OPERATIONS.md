@@ -1,10 +1,12 @@
 # Prospect CRM and outreach operations
 
-Status: implemented, provider-dark by default (2026-08-20)
+Status: architectural correction in progress; delivery dark (2026-08-20)
+
+> This document originally described the pre-correction Resend prospect runtime. `ADR-CRM-CANONICALIZATION-2026-08-20` supersedes that provider and state-ownership design. Historical wording is corrected below rather than treated as current capability.
 
 ## Operator model
 
-The platform CRM is the pre-customer system of record. A prospect remains platform-owned until an explicit `ProspectConversion` links it to a tenant and optional live venue. Conversion does not discard prospect research, activities, campaign membership, or correspondence.
+Postgres is the sole writable CRM system of record. An organization-level `ProspectCustomerRelationship` links a prospect organization to a tenant; child `ProspectLocationConversion` records link any number of prospect locations to live venues over time. Conversion does not discard prospect research, activities, campaign membership, or correspondence.
 
 The directory supports server-side search and filters for lifecycle stage, operational priority, relationship tier, email readiness, and next-action state. Results use cursor pagination in 100-row pages. Operators can save named filter definitions and select an exact set of prospect IDs to create a campaign. A campaign stores both those IDs and the filter snapshot used to reach them.
 
@@ -31,17 +33,15 @@ Pricing, travel, scheduling commitments, custom commitments, and strategic prosp
 4. The database freezes recipient count, each recipient/content snapshot, and a whole-batch hash.
 5. Human approves that exact count and hash. This does not send.
 6. Human performs a separate final release with the same count and hash.
-7. Only when `PROSPECT_OUTREACH_DELIVERY_ENABLED=true` and the provider is configured are per-recipient jobs enqueued.
+7. Final release atomically creates immutable outbox operations and the batch transition. Queue publication occurs only after commit and can be recovered from the outbox.
 
-The worker reloads all authoritative content from Postgres. Queue payloads contain only the send-item ID. Before provider access, it rechecks batch authority, frozen content hash, current contact email, and current suppression status. Each item uses a durable provider idempotency key and stores the provider message ID. Provider failures are durable and retryable. No live send is enabled by this implementation.
+The worker reloads only a frozen outbox operation from Postgres. Queue payloads contain only the outbox ID. Before provider access it obtains an exclusive expiring lease and rechecks global, mailbox, campaign, identity, permission, unsubscribe, and suppression state. Ambiguous provider acceptance is terminal pending reconciliation rather than blindly retried. The production Gmail OAuth/client composition root is not mounted, so no live send is enabled by this implementation.
 
 ## Correspondence synchronization
 
-Outbound delivery creates a CRM thread, message, activity, stage transition to `CONTACTED`, and a first follow-up due 13 days later. The email uses a cryptographically derived per-thread reply address when reply configuration is present.
+The former prospect Resend webhook returns HTTP 410 and performs no write. Resend remains only in separate transactional/opted-in product paths.
 
-The Resend webhook endpoint verifies the raw body with its Svix signature before any write. It stores an idempotent receipt for replay and audit. Delivery, delay, bounce, complaint, suppression, and failure events update the send item and CRM message. Bounce, complaint, and suppression events mark the contact do-not-contact.
-
-Inbound `email.received` events retrieve the full message through Resend's Receiving API. The worker matches the cryptographic reply token, stores bounded text/HTML and attachment metadata (not attachment bytes), moves the opportunity to `REPLIED`, cancels pending no-response follow-ups, and appends the activity. Unmatched inbound mail remains represented by the webhook receipt but is not attached to an arbitrary prospect.
+The Gmail inbound domain service persists a namespaced receipt before provider retrieval, matches provider threads plus RFC references and verified participants, bounds and marks external content untrusted, quarantines ambiguity, limits reply effects to the matched campaign member, and commits a history cursor only after a whole page is durable. Production Prisma persistence, authenticated Pub/Sub routing, OAuth, watch renewal, and scheduled reconciliation are still blocking integration work.
 
 ## Unified intelligence
 
@@ -52,19 +52,22 @@ The prospect intelligence read returns prospect research and relationship data. 
 All variables are optional and delivery defaults off:
 
 ```text
-RESEND_API_KEY=
-RESEND_FROM_EMAIL=
-RESEND_WEBHOOK_SECRET=
+CRM_PROSPECT_OUTREACH_ENABLED=false
 PROSPECT_OUTREACH_DELIVERY_ENABLED=false
-PROSPECT_OUTREACH_REPLY_DOMAIN=
-PROSPECT_OUTREACH_REPLY_SECRET= # at least 32 characters
+GOOGLE_CLOUD_PROJECT_ID=
+GMAIL_OAUTH_REDIRECT_URI=
+GMAIL_PUBSUB_TOPIC=
+GMAIL_PUBSUB_PUSH_AUDIENCE=
+GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT=
+GMAIL_WATCH_RENEWAL_ENABLED=false
+GMAIL_RECONCILIATION_ENABLED=false
 ```
 
-`RESEND_WEBHOOK_SECRET` must be the signing secret for the Resend webhook endpoint. Configure the provider webhook for email delivery lifecycle events and `email.received`. `PROSPECT_OUTREACH_REPLY_DOMAIN` must be a verified receiving domain. Keep delivery disabled until provider-domain verification, webhook replay tests, and a controlled internal-recipient smoke test have been approved.
+Keep the feature flag, environment kill switch, database global switch, and mailbox switch disabled until the production Gmail composition root and all internal-email gates are complete.
 
 ## Deliberate limitations
 
 - Attachments are metadata-only. Their temporary provider download URLs are not fetched or persisted.
 - The current UI stages at most 500 recipients per release and campaigns at most 5,000 members.
 - Email generation itself is performed by an external/internal agent using the registry; the UI does not silently invoke a model.
-- Provider configuration, real delivery, domain verification, and a live smoke test were not authorized and were not performed.
+- Production Gmail persistence/OAuth/Pub/Sub/scheduler wiring, real delivery, domain verification, and a live smoke test are not complete and were not performed.

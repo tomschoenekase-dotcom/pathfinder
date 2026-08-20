@@ -2,7 +2,9 @@
 
 Implemented on `codex/torchiko-crm-foundation-20260819` in the isolated CRM worktree.
 
-This layer extends the CRM foundation with large-volume navigation, saved views, relationship tiers, campaign cohorts, grounded versioned drafts, explicit escalation review, immutable human-approved send batches, fail-closed Resend delivery, verified webhook ingestion, inbound reply synchronization, correspondence history, follow-ups, a platform CRM agent registry, and cross-domain live venue intelligence.
+> Historical implementation note superseded by `ADR-CRM-CANONICALIZATION-2026-08-20`.
+
+This layer originally used Resend for prospect correspondence. That prospect runtime is retired. Gmail is the approved provider behind a provider-neutral adapter, but production OAuth/client, Pub/Sub persistence, watch renewal, reconciliation scheduling, and provider-health composition remain incomplete.
 
 Provider delivery remains dark by default. No credentials were read, no provider account was changed, no message was sent, and no real workbook was imported.
 
