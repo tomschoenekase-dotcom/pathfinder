@@ -1,0 +1,52 @@
+name: Staging deployment admission
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-admission
+  cancel-in-progress: true
+
+jobs:
+  admit-staging:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'codex/pathfinder-v2-staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.5
+
+      - name: Wait for and admit the exact Railway staging revision
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          for attempt in {1..60}; do
+            if node scripts/verify-staging-health.mjs \
+              --url https://staging-web-staging-bbeb.up.railway.app/api/health \
+              --expected-revision "$RELEASE_SHA" \
+              --confirm-environment staging \
+              --confirm-host staging-web-staging-bbeb.up.railway.app \
+              --expected-database-resource 7bd81064-588f-48a5-b138-1fc86691a09b \
+              --expected-redis-resource d53ab235-d403-4d7d-b525-3ace0ef07b92 \
+              --expected-storage-resource 0a9b3c58-0c9e-47de-96ae-38df297996e8 \
+              --timeout-ms 10000
+            then
+              exit 0
+            fi
+            sleep 15
+          done
+
+          echo "Exact staging revision did not become healthy within 15 minutes."
+          exit 1

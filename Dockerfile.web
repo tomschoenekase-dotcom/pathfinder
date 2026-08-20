@@ -10,6 +10,7 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=installer /app ./
 RUN pnpm --filter @pathfinder/db exec prisma generate
+RUN pnpm characters:sync
 RUN pnpm --filter @pathfinder/web build
 
 FROM base AS runner

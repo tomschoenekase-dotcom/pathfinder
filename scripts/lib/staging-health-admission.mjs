@@ -230,41 +230,50 @@ export async function verifyStagingHealth({
   }
   if (typeof fetchImpl !== 'function') fail('fetch-unavailable')
 
-  const signal = AbortSignal.timeout(timeoutMs)
-  let response
+  const controller = new AbortController()
+  const signal = controller.signal
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
   try {
-    response = await fetchImpl(url, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      cache: 'no-store',
-      redirect: 'error',
-      signal,
-    })
-  } catch {
-    fail('health-request-failed')
-  }
+    let response
+    try {
+      response = await fetchImpl(url, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        cache: 'no-store',
+        redirect: 'error',
+        signal,
+      })
+    } catch {
+      fail('health-request-failed')
+    }
 
-  if (response.status !== 200) fail('health-http-status')
-  const contentType = response.headers.get('content-type') ?? ''
-  if (contentType.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
-    fail('health-content-type')
-  }
-  const cacheControl = response.headers.get('cache-control') ?? ''
-  if (!cacheControl.split(',').some((directive) => directive.trim().toLowerCase() === 'no-store')) {
-    fail('health-cache-policy')
-  }
+    if (response.status !== 200) fail('health-http-status')
+    const contentType = response.headers.get('content-type') ?? ''
+    if (contentType.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
+      fail('health-content-type')
+    }
+    const cacheControl = response.headers.get('cache-control') ?? ''
+    if (
+      !cacheControl.split(',').some((directive) => directive.trim().toLowerCase() === 'no-store')
+    ) {
+      fail('health-cache-policy')
+    }
 
-  const text = await readBoundedResponseBody(response, signal)
+    const text = await readBoundedResponseBody(response, signal)
 
-  let payload
-  try {
-    payload = JSON.parse(text)
-  } catch {
-    fail('health-json-invalid')
-  }
+    let payload
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      fail('health-json-invalid')
+    }
 
-  return {
-    host,
-    ...validateStagingHealthPayload(payload, expectedRevision, expectedResources),
+    return {
+      host,
+      ...validateStagingHealthPayload(payload, expectedRevision, expectedResources),
+    }
+  } finally {
+    clearTimeout(timeout)
   }
 }

@@ -1,12 +1,16 @@
-# PathFinder V2 cutover execution status
+# PathFinder V2 / Torchiko cutover execution status
 
-**Status date:** 2026-08-13 America/Chicago
+`PathFinder V2` remains the historical packet and repository identifier. The current customer-facing
+product name is `Torchiko`; lower-case package names, routes, deployment identifiers, protocol
+headers, and historical migration evidence remain unchanged compatibility identifiers.
+
+**Status date:** 2026-08-16 America/Chicago
 
 **Release baseline:** `0d5a1ca9c715eb4a54d8ceffb24e9354a114a23d`
-**Current status:** verified logical backup and PostgreSQL 17.6 production-lineage migration and
-recovery rehearsals complete; isolated Railway PostgreSQL 17.6, Redis, dashboard, staging web, and
-dormant provider-disabled workers are online; the hosted lineage restore remains incomplete, while
-production cutover remains blocked
+**Current status:** verified logical backup, local recovery rehearsal, and isolated hosted
+PostgreSQL 17.6 production-lineage migration rehearsal complete; Railway PostgreSQL, Redis,
+dashboard, Torchiko staging web, dormant provider-disabled workers, isolated Clerk authentication,
+and basic isolated object storage are online; production cutover remains blocked
 
 ## Blocking control
 
@@ -69,6 +73,14 @@ previously rejected those truthful non-guest events. It now preserves them while
 that exact event/empty-session shape to a nullable session reference, retains fail-closed rejection
 for every other unresolved event, and application writers no longer invent an empty guest-session
 identity for venue administration events.
+
+Deployed Clerk webhook testing exposed a second provider-contract incompatibility. Clerk's current
+`organizationMembership.created` example supplies the primary email as
+`public_user_data.identifier`, while PathFinder accepted only the older optional
+`email_addresses[]` shape. The first membership deliveries correctly failed closed with HTTP 503.
+Commit `21005be` accepts a validated email-shaped identifier as a fallback for user sync and welcome
+admission; 38 focused database/dashboard tests and both package typechecks passed, and the exact
+signed membership example then succeeded against hosted staging.
 
 ## Local migration and recovery evidence
 
@@ -162,8 +174,11 @@ preserved files. They were not rewritten.
   `us-east-2` (East US/Ohio); dashboard status healthy.
 - Database: PostgreSQL 17.6, approximately 26.48 MB, vector 0.8.0, 43 public base tables, 129 public
   routines, and 33 public triggers.
-- Prisma ledger: 52 rows, all finished; zero unfinished, rolled-back, or non-empty-log rows. Every
-  applied checksum matches the corresponding current repository migration file.
+- Prisma ledger: 52 rows, all finished; zero unfinished, rolled-back, or non-empty-log rows. Three
+  applied checksums differ from the canonical LF-normalized files. Two differences are exactly the
+  CRLF-byte variants of the same SQL; the third, weekly-digest checksum is retained as an exact
+  production-lineage value and its resulting enum/table/constraint/index schema is fingerprinted
+  before any later migration is admitted.
 - Applied range: `001_identity_foundation` through
   `20260809150000_add_evaluation_persistence`. The remaining 38 repository migrations are unapplied.
 - Partial-attempt check: none of the sampled post-ledger agent/intake/item tables exists, and none of
@@ -215,6 +230,19 @@ preserved files. They were not rewritten.
 
 - Dedicated remote branch `codex/pathfinder-v2-staging` was created from commit `2023553`; the
   production branch `master` was not updated.
+- Web, dashboard, and workers all track only `codex/pathfinder-v2-staging`, retain automatic GitHub
+  deploys, and now have Railway `Wait for CI` enabled. Future branch pushes must finish their GitHub
+  Actions successfully before Railway starts those service deployments.
+- Checked-in release automation adds an exact-revision post-CI staging admission workflow and a
+  production-promotion pull-request gate that accepts only the dedicated staging branch and its
+  exact healthy deployed SHA. The post-CI `workflow_run` trigger becomes automatic after its file is
+  present on the default branch; until the first reviewed promotion, exact staging admission remains
+  the documented one-command operator check.
+- GitHub CI run `31913349620` passed for commit
+  `cc4cd3574add15bdd16a94b0ea63cb257d57b028`. Earlier red commits remained in Railway's
+  `Waiting for CI` state and did not replace the healthy deployment. After the green result,
+  Railway activated that exact web revision and the checked-in admission command passed against
+  the expected staging database, Redis, and storage resource IDs with database and queue `up`.
 - Staging web service `9fec9bdb-1915-4bee-8213-f6c3d434baa1`, dashboard service
   `b2f6989e-a7bc-4ad9-8ed4-a39dd67b947f`, and workers service
   `7c551d35-b2d4-4ab0-917f-9680ccdee86a` are connected only to that dedicated branch. Their
@@ -224,6 +252,48 @@ preserved files. They were not rewritten.
   `workers.started` with `mode: provider-disabled`, `outboundProviderWorkersEnabled: false`, and
   `queues: []`. No Anthropic, OpenAI, email, storage, or other outbound-provider credential was
   supplied.
+- The dashboard now has the staging-only public domain
+  `https://staging-dashboard-staging-dc4a.up.railway.app`. A distinct Clerk development application,
+  `PathFinder Staging`, is configured only for that service. Its publishable, secret, and webhook
+  signing values are held in Railway/Clerk provider stores and are not committed to the repository.
+  A replacement signed endpoint subscribes only to `organization.created` plus membership create,
+  update, and delete. Clerk reported successful hosted deliveries for `organization.created` and,
+  after the current-payload compatibility repair, `organizationMembership.created`.
+- A disposable Clerk test-format user was created through the deployed dashboard sign-up surface,
+  verified with Clerk's development-instance test code, and assigned as the sole member of
+  `PathFinder Staging QA` (`org_3HxlN3WTSsCOSlbn2hpdfWYJtMo`). The deployed app activated that
+  organization and reached its authenticated `/onboarding/setup` workspace. The generated password
+  was kept transient and cleared after sign-in. Clerk's real organization delivery succeeded; the
+  matching membership delivery retried from one failed attempt to success.
+- The same real-browser session completed the four-step onboarding flow with the explicitly
+  synthetic venue `PathFinder Staging QA Venue` (`pathfinder-staging-qa-venue`), non-location guide
+  mode, and a clearly labeled staging-only operating-hours example. The app created private venue
+  shell `cmsup60g80007p501qlsd4s0o`, retained the example as a review proposal, explicitly reported
+  that no guide content was created/applied/published, and redirected to the authenticated
+  `PathFinder review` home state.
+- A read-only authenticated route sweep then loaded Home, Visitor updates, Tone, Support, and Account
+  under the same QA organization. Every route preserved the `PathFinder Staging QA` scope, rendered
+  its expected headings, and showed no visible application or internal-server error. Observed
+  browser navigation times were 1.06-1.18 seconds; these are single samples, not performance proof.
+- A bounded tenant-visibility probe switched the same member session to its separate IANA
+  organization. That scope showed empty Step 1 onboarding and exposed neither the QA venue name nor
+  its ID; switching back restored the QA review home. This is useful rendered-page isolation evidence,
+  not a substitute for negative API/mutation authorization tests.
+- During endpoint inspection the first webhook signing secret was rendered into operator-visible
+  tool output. That endpoint was immediately deleted, invalidating the exposed secret. A replacement
+  endpoint and secret were created and transferred without rendering the value; only the replacement
+  endpoint remains active.
+- Railway bucket `reserved-tote`, resource ID `0a9b3c58-0c9e-47de-96ae-38df297996e8`, was created
+  only in the staging environment. Dashboard and workers hold the bucket endpoint, region, name,
+  access key, and secret in Railway variables; web holds only the non-secret resource fingerprint.
+  A first credential transfer used Railway's masked secret display and correctly failed S3 signing
+  with HTTP 403 without creating an object. The actual revealed secret replaced it in both services
+  and all transient copies were cleared.
+- The exact application S3 client configuration then passed a bounded PUT, HEAD metadata check, GET
+  byte comparison, DELETE, and post-delete 404. The validation object was removed. Railway returned
+  no version ID, consistent with its documented lack of object versioning. Basic media/export
+  storage is functional, but immutable quarantine intake cannot pass PathFinder's required version
+  check on this provider. CORS/presigned browser upload remains unproven.
 - The web service has the staging-only public domain
   `https://staging-web-staging-bbeb.up.railway.app`. Its first corrected-image admission exposed a
   missing Clerk SDK build-time variable. A synthetic, non-secret test-format value was added as
@@ -236,12 +306,26 @@ preserved files. They were not rewritten.
   execution controls are explicitly `false`; the worker has Redis only and no database, Clerk, or
   provider credential. Non-secret resource fingerprints identify the staging PostgreSQL and Redis
   service IDs, with storage explicitly marked `disabled`.
-- Computer Use successfully selected the verified production-lineage archive through the Windows
-  file picker. Railway uploaded `pathfinder-zpacmfkomonxeqdiadtz-20260813T222746Z.dump` into the
-  private PostgreSQL container root and displayed it as 3.6 MB. The authenticated browser-control
-  connection could not remain attached to Railway's live terminal, and Computer Use policy forbids
-  typing terminal commands, so no hosted restore or migration ran. The service remains private; no
-  TCP proxy or temporary database credential was created.
+- Computer Use selected the verified production-lineage archive through the Windows file picker.
+  Railway uploaded `pathfinder-zpacmfkomonxeqdiadtz-20260813T222746Z.dump` into the private
+  PostgreSQL container root. Tom ran the reviewed fail-closed restore block in that private
+  terminal; SHA-256 and archive-list verification passed and the postcheck returned
+  `RESTORE_OK: 43|52|52|0|0|0`.
+- A staging-only pre-deploy runner then admitted only the exact Railway environment, web service,
+  database resource, private hostname, database name, approval token, frozen 90-file manifest,
+  and verified 52-row ledger. Two dry attempts stopped before migration while exposing image and
+  checksum evidence. Deployment `687d82ed-af50-4f87-aaa4-2b4ce4b84d05` applied all 38 pending
+  migrations and reported `90/90 ledger and integrity checks passed`; all pre-existing business
+  table counts were unchanged, 99 public tables remained, and there were no invalid indexes or
+  unvalidated constraints. Revision `765f231f3b40d0a97dd14007bf80ad69455f5298` became active.
+- Follow-up deployment `0bc9ac93-06ad-490e-b55f-125a39cd9d14` admitted the exact completed
+  90-row ledger, reported `already complete (90/90); integrity checks passed`, applied nothing,
+  and activated revision `672dfdd95e6c3b9cdbbbe4a9532b338f05620ea2`.
+- The active public health response is HTTP 200 with `ok: true`, exact staging environment/database/
+  Redis/storage fingerprints, database and queue `up`, and revision
+  `cc4cd3574add15bdd16a94b0ea63cb257d57b028`. The
+  landing page plus `/riverside-aquarium` and `/riverside-aquarium/chat` returned HTTP 200; the
+  default-disabled embed surface returned 404 as configured. No production endpoint was invoked.
 - These are persistent, usage-billed staging resources. They are reversible and isolated, but they
   are not disposable until explicitly removed. Production services, variables, data, deployments,
   and `master` remain unchanged.
@@ -249,15 +333,82 @@ preserved files. They were not rewritten.
   usage and `$0.2076` current cost for `serene-inspiration`. Relative to the `$0.2023` pre-staging
   project observation, the displayed increase is `$0.0053`, well below the approved `$5` limit.
   No paid plan change, add-on, or purchase was created.
+- After the restore, migration builds, and repeat deployment, project usage was `$0.41` with a
+  `$1.59` estimate. The current increase from the `$0.2023` pre-staging observation is `$0.2077`;
+  even the displayed estimate remains below the approved `$5` incremental ceiling.
+
+### 2026-08-16 Torchiko staging validation update
+
+- Customer-visible web, dashboard, shared UI, worker-generated reports/prompts, and welcome-email
+  copy now use `Torchiko`. Exact capitalized `PathFinder` is retained only in reviewed compatibility
+  identifiers and the legacy weekly-report idempotency input. A source contract scans all visible
+  application surfaces, including workers, and fails on an unreviewed old-brand string.
+- Forward migration `20260816000000_rebrand_weekly_reports_torchico` changed the database default
+  and exact legacy default-title rows to `Torchiko Weekly Report`. The staging pre-deploy gate is
+  frozen to the exact 92-file manifest. GitHub CI run `31965154635` applied all 92 migrations to its
+  disposable target and passed in 10 minutes 32 seconds.
+- Full-suite CI exposed three asynchronous dashboard test patterns that could assert before the
+  actual React state transition; each test now awaits the visible enabled/reset state. The final
+  local run passed all 23 package test tasks; examples include
+  database 921 passed/77 integration-skipped, API 1011/47 skipped, dashboard 627, workers 354/one
+  skipped, and web 282. The subsequent admin and guest regression additions bring the focused
+  dashboard suite to 629 and web suite to 284. Separately, 151 script contracts passed with one
+  intentional skip. All 23
+  typecheck tasks and all 13 lint tasks passed; lint retained one nonblocking existing image-
+  optimization warning.
+- GitHub CI run `31971168890` passed every gate in 8 minutes 20 seconds on exact commit
+  `510f8732a9c5706a67ad69ea3a32ae4dd3ec1dd3`. Railway then activated that commit on staging web,
+  dashboard, and provider-disabled workers. The checked-in exact-revision health admission passed
+  with `environment: staging`, database/Redis/storage resource IDs matching the isolated services,
+  and database plus queue `up`.
+- A deployed route sweep caught two release-boundary defects without exposing production: the
+  marketing privacy link had fallen through to the dynamic venue route, and static social metadata
+  still used the production fallback origin. `/privacy` is now a dedicated 200 route with an honest
+  evaluation-stage notice. Web metadata uses `NEXT_PUBLIC_WEB_URL`; the staging Docker builder now
+  declares that public value before the Next.js build, and both the staging verifier and a script
+  contract fail if that build-time boundary is removed.
+- GitHub CI run `31971897997` passed every gate in 10 minutes 25 seconds on exact commit
+  `68a31a8f003c9192cf1117f3edcf378da9fb001a`. Railway activated that commit on all three staging
+  application services. Exact-revision health again admitted the isolated database, Redis, and
+  storage IDs with database and queue `up`; the deployed landing HTML contained the staging origin
+  in its Open Graph metadata and contained no production-origin reference.
+- A real in-app browser loaded the Torchiko landing page, synthetic venue entry, guest chat, and the
+  authenticated client Home, Visitor updates, Tone, Support, and Account routes. The landing title,
+  public marketing copy, powered-by copy, dashboard brand, and Support copy rendered as Torchiko.
+  The Clerk development application itself is now named `Torchiko Staging`. The synthetic Clerk
+  organization and venue display names still contain `PathFinder Staging QA`; these are staging
+  fixture data, not shipped product copy. Their stable slug and IDs were not changed during this
+  validation.
+- A follow-up mobile guest-chat check found that the visible `Torchiko` footer still linked to the
+  legacy production domain `pathfinder.app`. It now links to the current application root, keeping
+  staging users on staging and production users on their own origin. The visible-brand contract now
+  rejects both unreviewed `PathFinder` copy and the legacy public domain across shipped surfaces.
+- Admin navigation is bidirectional and test-protected: a `PLATFORM_ADMIN` sees `Admin console` in
+  the client portal plus `Open admin console` while viewing a client; Torchiko OS exposes
+  `Open client portal`.
+- Tom explicitly authorized the staging-only role change. The Clerk development user for
+  `tomschoenekase@gmail.com` now has public metadata `platform_role: PLATFORM_ADMIN`. The staging
+  session template now includes only the public-metadata object under the claim name already used
+  by the application; no private or unsafe metadata was added. A fresh sign-in proved `/admin`
+  admission and the client-portal return path.
+- Real-browser admin QA passed Command center, Client directory, Operations, Operator guide, New
+  client, one client workspace, portfolio analytics, offboarding, external credentials, and nine
+  venue workflow routes. The sweep found no route errors outside one deterministic hydration defect
+  on Venue overview: server and browser locale time formatting disagreed on the availability
+  revision. The fix uses a fixed UTC rendering and includes a regression test. The New client
+  screen's `Clients` back-link now returns to Client directory instead of Command center. The
+  client workspace content is now a labelled region inside the single application `main` landmark,
+  instead of an invalid nested `main`. Mobile navigation at 390 by 844 exposed every top-level
+  operator route and both portal transitions.
 
 ## External work not performed
 
 The following are unproven and block production promotion:
 
 - production variable values and backing-resource identities (not opened during this inventory);
-- production-lineage restore and migration rehearsal on the hosted staging PostgreSQL target;
-- isolated storage and functional Clerk staging identities;
-- deployed staging Guest, dashboard, worker, storage, browser, security, and performance evidence;
+- versioning-capable quarantine storage;
+- deployed guest message generation, worker consumption, broad browser, security, and
+  performance evidence;
 - production cutover and post-cutover smoke evidence.
 
 ## Human action required
@@ -289,35 +440,36 @@ tests be lifted together in a reviewed commit.
 This audit is against the 50,277-byte implementation packet last modified on 2026-08-12, SHA-256
 `19B7A5DE61E100588D6145C7A72521427E7770263CADE3F490AA064BE0689024`.
 
-| Packet requirement             | Status                 | Authoritative evidence or missing proof                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reality inventory              | Partial                | Repository structure and Supabase/Railway identities were inspected. Railway production contains web, dashboard, workers, and Redis services; source/config/revision/region/replicas were captured without opening variables. Exact variable values and backing-resource identities remain unproven.                                                                                                             |
-| Baseline verification          | Complete locally       | Starting branch/commit/worktree were recorded. Frozen install, tests, typecheck, lint, builds, browser-foundation, accessibility, Prisma, client-bundle, and static inventories passed.                                                                                                                                                                                                                          |
-| Migration audit                | Partial                | All 90 repository migrations were ordered and executed locally. Production has 52 finished rows through `20260809150000`, zero failed/rolled-back/logged rows, and zero checksum mismatches; the 38 later migrations and sampled post-ledger artifacts are absent. Staging rehearsal and full schema/data parity remain blocked.                                                                                 |
-| Production backup preparation  | Complete logical proof | A 3,732,162-byte custom-format archive was created with an interactive password prompt, verified by archive listing and SHA-256, retained outside the repository, and restored twice locally. Provider-native scheduled backup/PITR remains absent on the Free plan.                                                                                                                                             |
-| Representative target          | Complete local lineage | The verified production archive restored into isolated PostgreSQL 17.6/vector 0.8.0 with 43 tables, 3,707 rows, 22 non-empty tables, and the exact 52-migration ledger. This is exact local production lineage, not hosted deployed staging.                                                                                                                                                                     |
-| Migration rehearsal            | Complete local lineage | The first run exposed the 18-event legacy sentinel conflict. After a scoped repair, all 38 pending migrations passed in 2.200 seconds; all 90 ledger rows finished, object-validity checks passed, existing business-table counts were preserved, and the second deploy had no pending work.                                                                                                                     |
-| Restore rehearsal              | Complete local logical | The pre-migration archive restored into a distinct recovery database after the migrated clone existed; all 43 pre-migration table counts and all 52 finished ledger rows matched. Provider-native recovery remains unavailable.                                                                                                                                                                                  |
-| Permanent isolated staging     | Partial                | Isolated Railway PostgreSQL 17.6/vector 0.8.0 and Redis services are online with separate staging volumes. Dedicated-branch web, dashboard, and provider-disabled workers are online; public health proves the exact staging resource fingerprints, and the worker log proves zero queues and outbound providers disabled. Hosted lineage restore, storage, functional Clerk/auth, and analytics remain missing. |
-| Deterministic staging fixtures | Blocked                | Venue A/B/C fixtures were not seeded because the new isolated target is still empty and has not received the reviewed production-lineage restore/migrations.                                                                                                                                                                                                                                                     |
-| Deployed end-to-end validation | Partial                | The public staging health endpoint returned HTTP 200 with database and queue `up` and exact staging resource fingerprints. Clerk remains deliberately synthetic/nonfunctional, the hosted lineage restore is absent, and no Guest/dashboard/storage/provider end-to-end flow ran.                                                                                                                                |
-| Real-browser validation        | Blocked                | The 164 browser-foundation tests passed in jsdom, and six axe tests passed. No Chromium, mobile viewport, or WebKit run against deployed staging occurred.                                                                                                                                                                                                                                                       |
-| Worker/Redis/scheduler proof   | Partial                | Disposable Redis suites passed 2/2 each. The hosted staging worker is online and logged provider-disabled mode, outbound providers false, and zero queues without AI keys. This proves the reviewed process is dormant, but scheduler-enabled behavior, outage recovery, and provider cancellation remain unproven.                                                                                              |
-| Storage proof                  | Blocked                | Code contracts are covered locally, but no staging object store was configured or exercised.                                                                                                                                                                                                                                                                                                                     |
-| Security/isolation smoke       | Partial                | Tenant registries, procedure coverage, bypass inventory, public-surface inventory, raw-SQL inventory, bundle-secret scan, disabled external-credential boundary, and non-destructive offboarding contracts passed. Deployed cross-tenant and staging/production separation require staging.                                                                                                                      |
-| Performance sanity             | Blocked                | No representative deployed endpoint exists from which to record latency, query, memory, or worker evidence.                                                                                                                                                                                                                                                                                                      |
-| Production-cutover gate        | Not met                | Backup, ledger reconciliation, PostgreSQL 17.6 production-lineage rehearsal, logical recovery, and non-secret Railway service inventory are green. Hosted staging workflows, real-browser proof, storage/provider proof, exact resource identity, and production health/cutover authorization remain missing.                                                                                                    |
-| Production cutover             | Not authorized         | The incident stop supersedes the packet's cutover intent. No production database or application action ran.                                                                                                                                                                                                                                                                                                      |
-| Documentation                  | Partial                | The repository contains staging, incident-stop, disposable migration, and execution-status documentation. Actual environment topology, identifiers, URLs, provider workflows, and production recovery commands cannot be finalized without the inventory.                                                                                                                                                        |
-| Independent audits             | Partial                | Three independent Codex reviewers audited migration safety, packet fidelity, and staging controls. Hermes/DeepSeek was unavailable. Findings drove seed/resource-identity hardening, receipt serialization, enum idempotency, and corrected evidence claims. Staging-isolation, cutover, and post-deploy audits remain blocked.                                                                                  |
-| Final verification gate        | Partial                | Changed-file formatting and the other local gates passed, including Prisma format. The repository-wide Prettier gate remains red on 22 pre-existing mismatches; all environment and production proof is missing.                                                                                                                                                                                                 |
+| Packet requirement             | Status                  | Authoritative evidence or missing proof                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reality inventory              | Partial                 | Repository structure and Supabase/Railway identities were inspected. Railway production contains web, dashboard, workers, and Redis services; source/config/revision/region/replicas were captured without opening variables. Exact variable values and backing-resource identities remain unproven.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Baseline verification          | Complete locally        | Starting branch/commit/worktree were recorded. Frozen install, tests, typecheck, lint, builds, browser-foundation, accessibility, Prisma, client-bundle, and static inventories passed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Migration audit                | Partial                 | All 90 repository migrations were ordered and executed locally and on the isolated hosted production-lineage clone. Production has 52 finished rows through `20260809150000`, zero failed/rolled-back/logged rows, and three reconciled historical checksum differences. Full production schema/data parity and live-workload lock behavior remain unproven.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Production backup preparation  | Complete logical proof  | A 3,732,162-byte custom-format archive was created with an interactive password prompt, verified by archive listing and SHA-256, retained outside the repository, and restored twice locally. Provider-native scheduled backup/PITR remains absent on the Free plan.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Representative target          | Complete hosted lineage | The verified production archive restored into isolated Railway PostgreSQL 17.6/vector 0.8.0 with 43 public tables and the exact 52-row migration ledger. The target has a distinct staging-only service, volume, database name, and private resource identity.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Migration rehearsal            | Complete hosted lineage | The guarded hosted run reconciled the exact 52-row ledger, applied all 38 pending migrations, reached 90/90, passed object-validity checks, preserved every pre-existing business-table row count, and activated a healthy application revision. Local lineage and second-deploy evidence also remain green.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Restore rehearsal              | Complete local logical  | The pre-migration archive restored into a distinct recovery database after the migrated clone existed; all 43 pre-migration table counts and all 52 finished ledger rows matched. Provider-native recovery remains unavailable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Permanent isolated staging     | Partial                 | Isolated Railway PostgreSQL 17.6/vector 0.8.0, Redis, and a private S3-compatible bucket are online with separate staging identities. Dedicated-branch web, dashboard, and provider-disabled workers are online; health proves exact resource fingerprints. A distinct Clerk staging application, public dashboard domain, and signed webhook are functional. Versioning-capable quarantine storage remains missing.                                                                                                                                                                                                                                                                                                                                                                                             |
+| Deterministic staging fixtures | Partial                 | The production-lineage clone supplies real restored venues, including the existing Riverside Aquarium path. Packet-specific Venue A/B/C deterministic fixture coverage was not seeded because mixing synthetic fixtures into the lineage clone would weaken count-preservation evidence.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Deployed end-to-end validation | Partial                 | CI passed and health admitted exact revision `cc4cd3574add15bdd16a94b0ea63cb257d57b028` with database/queue `up` and exact database/Redis/storage fingerprints. Landing, Riverside Aquarium venue, and chat routes returned 200; dashboard root redirected to `/sign-in` and the sign-in route returned 200. A disposable real-browser Clerk user was created and verified, the `PathFinder Staging QA` organization and membership synchronized, and the complete onboarding flow created a private synthetic venue shell/review proposal without publishing guide content. Authenticated Home, Visitor updates, Tone, Support, and Account routes loaded in the same tenant scope. Application-style storage PUT/HEAD/GET/DELETE passed with cleanup. Browser upload and outbound-provider flows remain unrun. |
+| Real-browser validation        | Partial                 | The 164 browser-foundation tests and six axe tests passed. A real in-app browser completed deployed Clerk sign-up and development verification, selected `PathFinder Staging QA`, completed all four onboarding steps, and reached its authenticated review home. Engine/version and exact viewport were not independently reported; no mobile or WebKit flow ran.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Worker/Redis/scheduler proof   | Partial                 | Disposable Redis suites passed 2/2 each. The hosted staging worker is online and logged provider-disabled mode, outbound providers false, and zero queues without AI keys. This proves the reviewed process is dormant, but scheduler-enabled behavior, outage recovery, and provider cancellation remain unproven.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Storage proof                  | Partial                 | Isolated Railway storage passed application-style PUT, HEAD metadata, GET byte equality, DELETE, and post-delete 404 with cleanup. Exact health identity is green. Railway does not support object versioning, so Torchiko's immutable quarantine intake rejects this provider; CORS, presigned browser upload, multipart, and worker consumption remain unproven.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Security/isolation smoke       | Partial                 | Tenant registries, procedure coverage, bypass inventory, public-surface inventory, raw-SQL inventory, bundle-secret scan, disabled external-credential boundary, and non-destructive offboarding contracts passed. A real-browser alternate-organization visibility probe exposed no QA venue name/ID and restored the QA scope cleanly. Negative deployed API/mutation probes and staging/production separation evidence remain incomplete.                                                                                                                                                                                                                                                                                                                                                                     |
+| Performance sanity             | Partial                 | Hosted health and public route reachability passed, but no representative latency distribution, query plan, memory profile, or active-worker load evidence was recorded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Production-cutover gate        | Not met                 | Backup, ledger reconciliation, hosted PostgreSQL 17.6 lineage migration, logical recovery, exact staging resource identity, real-user Clerk authentication and onboarding, basic S3 storage, and deployed reachability are green. Versioning-capable quarantine storage, broader browser/provider, performance, production health, and explicit cutover authorization remain missing.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Production cutover             | Not authorized          | The incident stop supersedes the packet's cutover intent. No production database or application action ran.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Documentation                  | Partial                 | The repository records the staging topology, identifiers, public URLs, restore/migration evidence, real-user Clerk authentication/onboarding and webhook results, basic S3 round trip and versioning limitation, incident stop, and logical recovery procedure. Quarantine/browser storage, other provider workflows, and an approved production cutover procedure remain incomplete.                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Independent audits             | Partial                 | Three independent Codex reviewers audited migration safety, packet fidelity, and staging controls. Hermes/DeepSeek was unavailable. Findings drove seed/resource-identity hardening, receipt serialization, enum idempotency, and corrected evidence claims. Staging-isolation, cutover, and post-deploy audits remain blocked.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Final verification gate        | Partial                 | Changed-file formatting and the other local gates passed, including Prisma format. The repository-wide Prettier gate remains red on 22 pre-existing mismatches; functional environment and all production cutover proof remain missing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Required packet handoff
 
 ### A. Final status
 
-**Local production-lineage rehearsal complete; isolated hosted PostgreSQL, Redis, web, dashboard,
-and dormant workers are online; hosted lineage restore remains incomplete.**
+**Hosted production-lineage migration rehearsal and Torchiko staging release are complete;
+isolated PostgreSQL, Redis, web, dashboard, and dormant workers are online and healthy at exact
+revision `68a31a8f003c9192cf1117f3edcf378da9fb001a`.**
 Production remains blocked by the active database incident stop and requires a separate reviewed
 cutover approval.
 
@@ -328,7 +480,9 @@ cutover approval.
   `7d237cf docs: record Railway staging inventory`.
 - Earlier migration and staging hardening commits include `2ea64b9`, `c75135a`, `d0c0ef7`,
   `7d248b0`, `89cfad0`, and `9b18d34`.
-- Hosted Railway PostgreSQL/Redis and dedicated-branch application staging handoff: this commit.
+- Hosted Railway PostgreSQL/Redis, production-lineage runner, and dedicated-branch application
+  staging commits through admitted code revision `68a31a8`. The isolated runner worktree was clean
+  after that push; this evidence update is the only subsequent local change at the time recorded.
 - Preserved dirty entries: modified `.claude/settings.local.json`; untracked
   `build-report-s1b-task3.md` and `docs/PATHFINDER_CURRENT_ARCHITECTURE.md`.
 
@@ -359,8 +513,10 @@ unproven. Other provider identities remain unknown.
 
 - Production ledger: 52 finished migrations through
   `20260809150000_add_evaluation_persistence`; zero unfinished, rolled-back, or non-empty-log rows.
-- All 52 production checksums match the current repository files. The 38 later repository
-  migrations are unapplied.
+- The 52-row production ledger has three exact historical checksum differences. Two are proven
+  CRLF-only byte variants of the current SQL. The weekly-digest checksum is frozen as observed and
+  its resulting schema fingerprint is required. The 38 later migrations were unapplied in
+  production and applied only to the isolated clone.
 - Sampled post-ledger agent/intake/item tables and relevant pending enum types/labels are absent;
   there is no evidence of a partial/manual V2 attempt.
 - Production runtime: PostgreSQL 17.6, vector 0.8.0, approximately 26.48 MB, with 43 public base
@@ -372,23 +528,26 @@ unproven. Other provider identities remain unknown.
 - Migration set: 90 directories, from `001_identity_foundation` through
   `20260812001700_add_offboarding_export_finalization`.
 - Ordered name/file-SHA manifest hash (SHA-256 of newline-terminated, name-space-file-SHA rows):
-  `eab9578d000d7c0d2526404cf15cdc6ea32bb167c2028ca1e17664e61660ff83`.
+  `0a1fa6265665304dbdfdf190e9fbefe9fd275ce72052d022ccef042a554b0583`.
 - Migrations applied: full 90-migration chain on the fresh target; the populated fixture applied the
   chain after its 43-migration legacy baseline.
 - Issues found and fixed: four unsafe enum-add/use transactions, two invalid PL/pgSQL functions,
   and one production-lineage analytics sentinel incompatibility.
-- Rehearsal result: 38 pending migrations passed in 2.200 seconds; second application reported no
-  pending migrations.
+- Rehearsal result: locally, 38 pending migrations passed in 2.200 seconds and a second application
+  reported no pending work. Hosted staging then applied the same 38 migrations and passed the
+  90-row ledger, 99-table, index, constraint, and row-count-preservation gates. A subsequent hosted
+  pre-deploy run accepted the completed 90-row ledger, reran integrity checks, and applied nothing.
 - Production migration result: not run; only authorized read-only queries were executed.
 - Exact production-lineage duration was 2.200 seconds on the local disposable target. This is not a
   production downtime forecast; production timing and lock behavior still require the cutover gate.
 - Full production constraint/index/function parity, legacy/null distribution, application queries,
   and worker/report/content-resolution behavior remain unproven.
-- Commit `2ea64b9` inserted four predecessor enum migrations and edited six historical migrations.
-  `IF NOT EXISTS` protects enum labels from partial attempts, but it does not reconcile successful
-  old checksums. Before any external deploy, inspect affected ledger rows, checksums,
-  `finished_at`/`rolled_back_at`, logs, and enum/schema presence. Any successful old checksum or
-  unexplained state is a stop condition; never edit or blindly resolve the ledger.
+- Commit `2ea64b9` inserted four predecessor enum migrations and edited six later, unapplied
+  migration files. `IF NOT EXISTS` protects enum labels from partial attempts, but does not itself
+  reconcile successful old checksums. The hosted runner therefore requires the exact observed
+  baseline checksums, explicit CRLF equivalence where proven, and a schema fingerprint for the one
+  historical weekly-digest artifact not retained in Git. Any other checksum or state remains a
+  stop condition; the ledger was never edited or resolved.
 - Migration `20260619000000_remove_guest_sessions` is recorded successful and its checksum matches
   the current file. Its historical destructive join/drop risk therefore cannot be repaired by
   rewriting the migration; lost/misattributed legacy rows, if any, require independent retained
@@ -401,6 +560,9 @@ unproven. Other provider identities remain unknown.
 - Production artifact: 3,732,162 bytes; SHA-256
   `c2e34a10aae5063e60377493d7ca8f1e51bd949af6e2709e6b0c64ce095fca7a`.
 - Archive verification: `pg_restore --list` passed; manifest hash recheck matched.
+- Hosted restore verification: the archive hash recheck passed inside the exact private Railway
+  PostgreSQL service; the empty PostgreSQL 17 precheck passed, and the postcheck returned
+  `RESTORE_OK: 43|52|52|0|0|0` before any migration runner was deployed.
 - Recovery verification: a separate pre-migration recovery restore matched all 43 table counts and
   52/52 finished ledger rows.
 - Retention: the production-sensitive archive, listing, manifest, and row-count CSVs are outside
@@ -422,36 +584,63 @@ unproven. Other provider identities remain unknown.
 
 ### F. End-to-end evidence
 
-No deployed end-to-end workflow was tested. Local package, script-contract, and focused integration
-coverage passed, but authentication, venue setup, generalized content, Guest chat, Support, upload
-intake, Weekly Reports, native deployment, compatibility packages, evaluation, and offboarding must
-still be exercised through a deployed staging environment.
+Deployed health plus landing, restored venue, and chat route reachability passed. GitHub CI passed
+for `cc4cd3574add15bdd16a94b0ea63cb257d57b028`, Railway admitted that exact web revision, and the
+resource-identity health command passed. A disposable user completed the isolated dashboard's
+Clerk sign-up and development verification flow, selected `PathFinder Staging QA`, and reached its
+authenticated onboarding workspace. Signed organization and current-shape membership webhooks
+completed through the hosted database. This is supplemented by a cleaned-up S3 PUT/HEAD/GET/DELETE
+round trip. The same session completed all four onboarding steps, created a private synthetic venue
+shell and review proposal, and reached the authenticated review home without publishing visitor
+content. This is not a full end-to-end workflow: generalized content, Guest message generation,
+Support,
+versioned upload intake, Weekly Reports, native deployment, compatibility packages, evaluation,
+and offboarding still require functional staging providers and broader browser runs.
 
 ### G. Browser evidence
 
 - jsdom browser-foundation tests: 164/164 passed.
 - axe accessibility tests: 6/6 passed.
-- Real engines: none.
-- Real viewport categories: none.
-- Deployed browser flows: none.
-- Browser defects fixed: none, because deployed browser behavior was not exercised.
+- Real browser: in-app browser completed deployed Clerk sign-up, development verification, QA
+  organization selection, and authenticated onboarding; its engine/version was not independently
+  reported.
+- Real viewport categories: one default desktop surface; exact dimensions were not captured.
+- Deployed browser flows: unauthenticated redirect, isolated Clerk sign-up and verification,
+  organization selection, complete four-step onboarding, authenticated review home, and read-only
+  Home/Visitor updates/Tone/Support/Account route sweep.
+- Browser/provider defect fixed: current Clerk membership email moved from the legacy
+  `email_addresses[]` assumption to validated `identifier` fallback.
 - Deployed browser-console, network, hydration, focus, overflow, and stale-scope evidence: missing.
 
 ### H. Worker, storage, and provider evidence
 
 - Disposable Redis: four suites passed, two tests per suite.
-- Deployed worker and scheduler: not tested.
-- Object storage: not tested against a real store.
+- Deployed worker: online after storage configuration and reported provider-disabled mode,
+  outbound providers false, and zero queues. All three application services track the same
+  CI-gated staging branch. Railway showed web, dashboard, and workers active at exact revision
+  `d5f3eaa81b4f77ac0c9dae99e653c50e27591133`. Scheduler-enabled behavior remains untested.
+- Object storage: isolated Railway bucket passed application-style PUT, HEAD metadata verification,
+  GET, DELETE, and post-delete absence. It returned no version ID; Railway documents object
+  versioning as unsupported, so immutable intake quarantine is not admitted.
+- Clerk: isolated development application and dashboard domain are live. Signed
+  `organization.created` and `organizationMembership.created` deliveries succeeded; membership
+  create initially failed closed on the current payload shape and passed after commit `21005be`.
+  A disposable test-format user is the sole member of `PathFinder Staging QA`; its real membership
+  delivery retried from one failed attempt to success, and the organization loaded in the app.
 - AI, email, malware, resource-safety, credential, or other paid provider execution: not run.
 
 ### I. Security and isolation evidence
 
 Static tenant, SQL, public-surface, AI, Docker-context, and browser-bundle inventories passed. No
 secret was detected in the committed diff or bundle scan; disposable tests used synthetic
-credentials. External credentials and MCP remain disabled; destructive offboarding remains absent.
-Actual staging/production separation, deployed negative cross-tenant probes, server-error leakage,
-production-secret separation, raw-locator DTO behavior, and internal AgentRun/evaluation exposure
-remain unproven over deployed boundaries.
+credentials. Clerk credentials are held only by provider stores. The first webhook secret was
+briefly rendered to operator-visible tool output, then invalidated by deleting that endpoint; the
+replacement secret was transferred without rendering it and is the only active endpoint secret.
+External credentials and MCP remain disabled; destructive offboarding remains absent.
+A same-user alternate-organization rendered-page probe exposed no QA venue name/ID and restored the
+QA scope cleanly. Actual staging/production separation, negative deployed API/mutation cross-tenant
+probes, server-error leakage, production-secret separation, raw-locator DTO behavior, and internal
+AgentRun/evaluation exposure remain unproven over deployed boundaries.
 
 The staging seed now requires an exact explicit opt-in plus independently confirmed pooled host,
 direct host, and database name before its first mutation. Production-mode staging runtime also
@@ -460,23 +649,26 @@ admission commands require exact operator-confirmed fingerprints. These are conf
 not cryptographic proof of backing-resource ownership; provider-console identity evidence remains
 mandatory.
 
+Web health now exposes the exact non-secret storage resource ID alongside database and Redis. The
+bucket is private and isolated per Railway environment. Its access credentials are provider-held;
+no value was committed. Railway bucket versioning is unavailable, so this resource must not be
+treated as satisfying the stronger immutable-intake storage authority.
+
 ### J. Known limitations
 
 - Resource-safety and malware authorities are not enabled; uploads must remain quarantined without
   all three valid receipts.
+- Railway storage supports the basic S3 operations used by media and exports but not object
+  versioning. PathFinder intake verification deliberately rejects objects without a version ID;
+  use a separate versioning-capable private bucket before enabling quarantine intake.
 - External credentials and MCP authentication/use remain disabled.
 - Offboarding stops at non-delivered, non-revoked, non-deleted export readiness.
 - Evaluation remains advisory.
 - `NATIVE_CORE_V1` intentionally excludes ITEM; native ITEM deployment and `NATIVE_CORE_V2` are
   absent.
 - Payments are absent.
-- Local production-lineage migration compatibility is proven; hosted staging behavior, production
-  lock timing, and live performance remain unproven.
-- The verified lineage archive is present in the private staging PostgreSQL container, but the
-  hosted restore and migration rehearsal have not run. They require a real Railway terminal
-  session: browser control could not retain the live terminal connection, while Computer Use is
-  intentionally prohibited from entering terminal commands. This is a tooling limitation, not an
-  authorization gap.
+- Production-lineage migration compatibility is proven locally and on isolated hosted staging;
+  production lock timing and live performance remain unproven.
 - Provider-disabled workers now have a connectivity-only mode that requires Redis but creates no
   BullMQ queues, consumers, or schedulers and requires no outbound-provider key. This is only a
   per-process guarantee; staging still must prove old replicas are drained and only the reviewed SHA
@@ -485,28 +677,39 @@ mandatory.
 ### K. Human actions remaining
 
 1. **P0 — incident assessment complete.** The production ledger is a clean 52-migration pre-V2
-   candidate with matching checksums and no sampled partial artifacts.
-2. **P0 — complete the hosted staging rehearsal.** In Railway's `pgvector` service terminal,
-   restore the already-uploaded verified archive into the isolated PostgreSQL 17.6 database, then
-   run the reviewed migration and validation procedure. Do not target production. This step could
-   not be automated because the authenticated browser terminal connection repeatedly reset and
-   Computer Use may not type terminal commands.
+   candidate with three reconciled historical checksum differences and no sampled partial artifacts.
+2. **P0 — review the completed hosted staging rehearsal.** The exact archive restored successfully,
+   all 38 pending migrations applied only to the isolated clone, the repeat pre-deploy applied
+   nothing, and revision `68a31a8` is healthy.
 3. **P0 — review the completed local logical backup, PostgreSQL 17.6 lineage rehearsal, scoped
    analytics repair, and recovery restore.** No backup or provider add-on cost was incurred.
 4. **P0 — separately approve or reject a presented production cutover plan.** The prior approval
    authorizes no production migration or schema/data write.
 5. **P0 — keep staging isolated.** The dedicated branch is published and connected. Do not merge
    or push it to `master`; Railway production auto-deploys that branch.
-6. **P1 — provide remaining provider surfaces only when requested.** Clerk, object storage, and any
-   other staging identities must be configured through approved operator surfaces. Credentials must
-   remain in provider secret stores, not repository files.
+6. **P1 — use the staging release loop for feature work.** Push candidate work only to
+   `codex/pathfinder-v2-staging`; a failed GitHub CI result remains undeployed, while a green result
+   releases the three staging services. Run the exact health admission before QA. Production still
+   requires a reviewed pull request from that staging branch and remains incident-stopped.
+7. **P1 — finish staging provider surfaces.** Disposable Clerk sign-up, verification, organization
+   selection, and the complete four-step private venue onboarding flow are green. Basic Railway
+   object storage is configured, but a versioning-capable private provider is required before
+   quarantine intake. Any further credentials must remain in provider secret stores, not repository
+   files.
+8. **Complete — staging admin QA.** Tom's staging user has the exact `PLATFORM_ADMIN` public
+   metadata, the narrow session claim is configured, and the deployed admin/client navigation and
+   read-only workspace sweep passed. Keep this claim confined to the Clerk development instance.
 
 ### L. Readiness judgment
 
-**Not ready for real venue QA/onboarding.** Ledger reconciliation, a verified logical backup,
-PostgreSQL 17.6 production-lineage migration rehearsal, and a separate recovery restore are now
-complete. Isolated hosted PostgreSQL 17.6/vector 0.8.0, Redis, web, dashboard, and provider-disabled
-workers now exist on the dedicated staging branch, and the public staging health endpoint is green.
-The packet still requires hosted lineage restore/migration, functional auth/storage, and real
-browser/provider proof. Production requirements remain blocked by the active external database
-incident stop and require a separate approved cutover.
+**Ready for limited public-route and authenticated-onboarding staging QA, but not production
+cutover.** Ledger reconciliation, verified logical backup, hosted PostgreSQL 17.6
+production-lineage migration, and separate recovery restore are complete. Isolated PostgreSQL,
+Redis, web, dashboard, and provider-disabled workers are online at an admitted staging revision, and
+the public health endpoint is green. Torchiko public marketing, guest entry/chat, authenticated
+client navigation, and bidirectional admin navigation contracts are green. Disposable-user Clerk
+sign-up, organization selection, complete private venue onboarding, and signed organization/
+membership synchronization are green. Deployed admin-role QA is green; versioning-capable
+quarantine storage, outbound-provider flows, performance evidence, and production cutover approval
+remain required. The active production database incident
+stop remains in force.

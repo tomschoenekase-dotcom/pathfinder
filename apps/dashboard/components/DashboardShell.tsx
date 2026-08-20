@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { PathFinderBrand } from '@pathfinder/ui'
+import { TorchikoBrand } from '@pathfinder/ui'
 
 import { ClientTochiWorkspace } from './ClientTochiWorkspace'
 import { ClientTochiBoundary } from './ClientTochiBoundary'
@@ -167,7 +167,7 @@ export function DashboardShell({
             className="mt-4 flex min-h-11 items-center gap-3 border-t border-white/10 px-3.5 pt-5 text-sm font-medium text-pf-light/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
           >
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-            Admin
+            Admin console
           </Link>
         ) : null}
       </nav>
@@ -186,7 +186,7 @@ export function DashboardShell({
   return (
     <div className="min-h-screen bg-pf-surface text-pf-deep">
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/10 bg-pf-deep px-4 text-white lg:hidden">
-        <PathFinderBrand
+        <TorchikoBrand
           gapClassName="gap-2"
           textClassName="text-white"
           textSizeClassName="text-base"
@@ -228,7 +228,7 @@ export function DashboardShell({
       >
         <div className="border-b border-white/10 pb-6">
           <div className="hidden lg:block">
-            <PathFinderBrand
+            <TorchikoBrand
               gapClassName="gap-2"
               textClassName="text-white"
               textSizeClassName="text-base"
@@ -251,6 +251,7 @@ export function DashboardShell({
             </p>
             <button
               type="button"
+              aria-label="Open admin console"
               onClick={exitClientView}
               className="inline-flex min-h-11 shrink-0 items-center gap-1.5 border-l border-amber-300 pl-3 text-xs font-semibold text-amber-800 hover:text-amber-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 sm:text-sm"
             >

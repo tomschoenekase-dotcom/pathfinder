@@ -282,10 +282,10 @@ const identityTemplates: Array<{ label: string; fields: Fields }> = [
     },
   },
   {
-    label: 'PathFinder architect',
+    label: 'Torchiko architect',
     fields: {
       identityKey: 'pathfinder.architect',
-      name: 'PathFinder Architect',
+      name: 'Torchiko Architect',
       description:
         'Maps product architecture, boundaries, dependencies, and implementation gaps to repository evidence; it labels unknown state and delegates code changes to a capable worker.',
       agentType: 'OPERATIONS',
@@ -300,7 +300,7 @@ const identityTemplates: Array<{ label: string; fields: Fields }> = [
     label: 'Data steward',
     fields: {
       identityKey: 'pathfinder.data-steward',
-      name: 'PathFinder Data Steward',
+      name: 'Torchiko Data Steward',
       description:
         'Audits content, intake, evaluation, and operational records with exact source and count evidence; never invents tolerances, causes, reconciliation, or acceptance policy.',
       agentType: 'OPERATIONS',
@@ -315,7 +315,7 @@ const identityTemplates: Array<{ label: string; fields: Fields }> = [
     label: 'Experience designer',
     fields: {
       identityKey: 'pathfinder.experience',
-      name: 'PathFinder Experience Designer',
+      name: 'Torchiko Experience Designer',
       description:
         'Designs calm operator and guest workflows from observed product constraints, prepares reviewable UX copy, and labels accessibility or responsive behavior as proposed until tested.',
       agentType: 'CONTENT',
@@ -330,7 +330,7 @@ const identityTemplates: Array<{ label: string; fields: Fields }> = [
     label: 'Outreach steward',
     fields: {
       identityKey: 'pathfinder.outreach',
-      name: 'PathFinder Outreach Steward',
+      name: 'Torchiko Outreach Steward',
       description:
         'Reviews outreach and venue context, prepares grounded internal recommendations, and never contacts a person or claims delivery without an explicit approved communication surface.',
       agentType: 'SUPPORT',

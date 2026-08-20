@@ -3,7 +3,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./brand": "./src/PathFinderBrand.tsx",
+    "./brand": "./src/TorchikoBrand.tsx",
     "./character": "./src/character/index.ts",
     "./fade-in": "./src/FadeIn.tsx",
     "./theme": "./src/theme.ts"

@@ -16,8 +16,8 @@ describe('Packet 2 authenticated surface route states', () => {
   it('announces responsive Admin OS loading without exposing fake operational data', () => {
     render(<AdminLoading />)
 
-    const status = screen.getByRole('status', { name: 'Loading PathFinder operations' })
-    expect(status.textContent).toContain('Loading PathFinder operations')
+    const status = screen.getByRole('status', { name: 'Loading Torchiko operations' })
+    expect(status.textContent).toContain('Loading Torchiko operations')
     expect(status.querySelectorAll('.motion-reduce\\:animate-none').length).toBeGreaterThan(0)
     expect(document.body.textContent).not.toMatch(/client-|incident-|failed job/iu)
   })
@@ -29,7 +29,7 @@ describe('Packet 2 authenticated surface route states', () => {
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toContain('No client, job, incident, or agent state was changed.')
     expect(document.activeElement).toBe(
-      screen.getByRole('heading', { name: 'PathFinder OS is temporarily unavailable' }),
+      screen.getByRole('heading', { name: 'Torchiko OS is temporarily unavailable' }),
     )
     expect(alert.textContent).not.toContain('hidden detail')
     fireEvent.click(screen.getByRole('button', { name: 'Try loading again' }))

@@ -138,7 +138,9 @@ describe('EvaluationComparisonPanel', () => {
     fireEvent.change(screen.getByLabelText(/Conclusion for hours-question/), {
       target: { value: 'Investigate this regression.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Record conclusion' }))
+    const recordConclusion = screen.getByRole('button', { name: 'Record conclusion' })
+    await waitFor(() => expect((recordConclusion as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(recordConclusion)
     await waitFor(() =>
       expect(mocks.append).toHaveBeenCalledWith({
         tenantId: 'tenant-1',
@@ -183,7 +185,9 @@ describe('EvaluationComparisonPanel', () => {
     fireEvent.change(screen.getByLabelText(/Conclusion for hours-question/), {
       target: { value: 'Retry unchanged.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Record conclusion' }))
+    const recordConclusion = screen.getByRole('button', { name: 'Record conclusion' })
+    await waitFor(() => expect((recordConclusion as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(recordConclusion)
     expect(await screen.findByText(/Network response was lost/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Record conclusion' }))
     await waitFor(() => expect(mocks.append).toHaveBeenCalledTimes(2))
@@ -236,6 +240,7 @@ describe('EvaluationComparisonPanel', () => {
       target: { value: 'One conclusion.' },
     })
     const append = screen.getByRole('button', { name: 'Record conclusion' })
+    await waitFor(() => expect((append as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(append)
     fireEvent.click(append)
     expect(mocks.append).toHaveBeenCalledTimes(1)
@@ -254,7 +259,9 @@ describe('EvaluationComparisonPanel', () => {
     fireEvent.change(screen.getByLabelText(/Conclusion for hours-question/), {
       target: { value: 'Old scope conclusion.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Record conclusion' }))
+    const recordConclusion = screen.getByRole('button', { name: 'Record conclusion' })
+    await waitFor(() => expect((recordConclusion as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(recordConclusion)
     view.rerender(<EvaluationComparisonPanel tenantId="tenant-2" venueId="venue-2" runs={runs} />)
     resolve({ revision: 1, replayed: false } as never)
     await Promise.resolve()

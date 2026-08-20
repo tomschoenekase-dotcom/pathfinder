@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
@@ -165,6 +165,7 @@ describe('ReviewedVenuePackageDraftForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create DRAFT only' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     const firstKey = mutate.mock.calls[0]?.[0].draftKey
+    await screen.findByText(/outcome could not be confirmed/iu)
     fireEvent.click(screen.getByRole('button', { name: 'Create DRAFT only' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
     expect(mutate.mock.calls[1]?.[0].draftKey).toBe(firstKey)
@@ -189,7 +190,9 @@ describe('ReviewedVenuePackageDraftForm', () => {
     fireEvent.click(create)
     expect(mutate).toHaveBeenCalledTimes(1)
     const firstKey = mutate.mock.calls[0]?.[0].draftKey
-    rejectFirst(new Error('Response unavailable'))
+    await act(async () => {
+      rejectFirst(new Error('Response unavailable'))
+    })
     await screen.findByText(/outcome could not be confirmed/iu)
 
     fireEvent.change(editor, {

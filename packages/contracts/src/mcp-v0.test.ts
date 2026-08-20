@@ -20,7 +20,7 @@ const credential: VerifiedMcpCredentialScope = {
   capabilities: ['resources:read', 'content:read', 'packages:draft'],
 }
 
-describe('PathFinder MCP v0 contracts', () => {
+describe('Torchiko MCP v0 contracts', () => {
   it('publishes a valid deterministic resource and tool catalog with explicit security metadata', () => {
     expect(() => validatePathfinderMcpCatalog()).not.toThrow()
     expect(PATHFINDER_MCP_RESOURCES.map(({ name }) => name)).toEqual([

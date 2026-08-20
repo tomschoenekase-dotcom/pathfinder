@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { OrganizationList, SignOutButton, useClerk, useOrganizationList } from '@clerk/nextjs'
 import { ArrowRight, Check, LoaderCircle, ShieldCheck, Sparkles } from 'lucide-react'
 
-import { PathFinderBrand } from '@pathfinder/ui'
+import { TorchikoBrand } from '@pathfinder/ui'
 
 import styles from './onboarding.module.css'
 
@@ -103,7 +103,7 @@ export default function DashboardOnboardingPage() {
       <div className={styles.shell}>
         <section className={styles.storyPanel}>
           <div className={styles.brand}>
-            <PathFinderBrand
+            <TorchikoBrand
               gapClassName="gap-2"
               textClassName="text-white"
               textSizeClassName="text-lg"

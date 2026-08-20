@@ -27,6 +27,7 @@ function expectRefusal(callback, pattern) {
 
 test('requires matching explicit database confirmations and a disposable name', () => {
   assert.deepEqual(parseDisposableMigrationArgs(argv), { database })
+  assert.deepEqual(parseDisposableMigrationArgs(['--', ...argv]), { database })
   expectRefusal(() => parseDisposableMigrationArgs([]), /both required/)
   expectRefusal(() => parseDisposableMigrationArgs(['--database']), /requires a value/)
   expectRefusal(
@@ -52,7 +53,13 @@ test('requires matching explicit database confirmations and a disposable name', 
     /does not match/,
   )
   expectRefusal(
-    () => parseDisposableMigrationArgs(['--database', 'pathfinder_test', '--confirm-database', 'pathfinder_test']),
+    () =>
+      parseDisposableMigrationArgs([
+        '--database',
+        'pathfinder_test',
+        '--confirm-database',
+        'pathfinder_test',
+      ]),
     /prefix/,
   )
 })
@@ -104,7 +111,10 @@ test('rejects missing ports, alternate protocols, query options, fragments, and 
   ]
 
   for (const candidate of invalid) {
-    expectRefusal(() => validateDisposableDatabaseUrl(candidate, database), /port|PostgreSQL|query|database/)
+    expectRefusal(
+      () => validateDisposableDatabaseUrl(candidate, database),
+      /port|PostgreSQL|query|database/,
+    )
   }
 })
 
@@ -191,8 +201,7 @@ test('refuses before spawn without opt-in or with an external incident replay', 
         argv,
         env: {
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1',
-          PATHFINDER_DISPOSABLE_DATABASE_URL:
-            `postgresql://postgres:${password}@db.example.com:5432/${database}`,
+          PATHFINDER_DISPOSABLE_DATABASE_URL: `postgresql://postgres:${password}@db.example.com:5432/${database}`,
           DATABASE_URL: url,
           DIRECT_DATABASE_URL: 'postgresql://configured-external.invalid/db',
         },

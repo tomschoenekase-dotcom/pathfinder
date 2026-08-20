@@ -452,6 +452,7 @@ export function VenueChatExperience({
         if (turnIsCurrent(turn)) {
           setIsSending(false)
           if (reconciled) {
+            reconciliationRequiredRef.current = false
             pendingTurnRef.current = null
             setRecoveryMode(null)
             setSendError(

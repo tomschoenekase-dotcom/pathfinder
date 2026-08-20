@@ -596,7 +596,7 @@ function evaluationPrompt(
       {
         type: 'text',
         text: [
-          'Answer the final guest message using only the frozen PathFinder venue content below.',
+          'Answer the final guest message using only the frozen Torchiko venue content below.',
           'Follow the conversation turns. Do not mention this evaluation or the snapshot.',
           `Frozen venue content JSON:\n${canonicalEvaluationJson(content)}`,
         ].join('\n\n'),

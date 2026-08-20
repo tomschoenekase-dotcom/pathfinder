@@ -66,6 +66,17 @@ const membershipDataWithoutEmail = {
   role: 'org:admin',
 }
 
+const membershipDataWithIdentifier = {
+  organization: { id: TENANT_ID },
+  public_user_data: {
+    user_id: USER_ID,
+    first_name: 'Alice',
+    last_name: 'Smith',
+    identifier: 'alice@example.com',
+  },
+  role: 'org:admin',
+}
+
 beforeEach(() => {
   for (const mock of [
     tenantFindUniqueMock,
@@ -266,6 +277,28 @@ describe('membership synchronization', () => {
       expect.objectContaining({ data: { welcomeEmailMembershipId: 'mem_1' } }),
     )
     expect(auditLogCreateMock).toHaveBeenCalledOnce()
+  })
+
+  it('creates a first user from Clerk current identifier payloads', async () => {
+    tenantFindUniqueMock.mockResolvedValue({ id: TENANT_ID })
+    userUpsertMock.mockResolvedValue({ id: USER_ID })
+    const { handleClerkEvent } = await import('./membership-sync')
+
+    await handleClerkEvent(
+      {
+        type: 'organizationMembership.created',
+        data: membershipDataWithIdentifier,
+        timestamp: EVENT_TIMESTAMP,
+      },
+      VERIFIED_IDENTITY,
+    )
+
+    expect(userUpsertMock).toHaveBeenCalledWith({
+      where: { id: USER_ID },
+      create: { id: USER_ID, email: 'alice@example.com', fullName: 'Alice Smith' },
+      update: { email: 'alice@example.com', fullName: 'Alice Smith' },
+    })
+    expect(membershipCreateMock).toHaveBeenCalledOnce()
   })
 
   it('fails before user or membership writes when the tenant is absent', async () => {

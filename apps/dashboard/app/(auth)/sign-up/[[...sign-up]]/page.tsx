@@ -1,13 +1,13 @@
 import { SignUp } from '@clerk/nextjs'
 
-import { PathFinderBrand } from '@pathfinder/ui'
+import { TorchikoBrand } from '@pathfinder/ui'
 
 export default function DashboardSignUpPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-pf-surface px-6 py-12">
       <div className="flex flex-col items-center">
         <div className="mb-8 text-center">
-          <PathFinderBrand
+          <TorchikoBrand
             gapClassName="gap-2"
             textClassName="text-pf-deep"
             textSizeClassName="text-base"

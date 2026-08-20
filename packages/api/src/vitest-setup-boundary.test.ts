@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 describe('API unit-test environment boundary', () => {
-  it('unconditionally replaces inherited database targets with synthetic loopback URLs', () => {
+  it('replaces ordinary unit-test database targets with synthetic loopback URLs', () => {
     expect(process.env.DATABASE_URL).toBe(
       'postgresql://pathfinder_test:pathfinder_test@127.0.0.1:5432/pathfinder_test',
     )

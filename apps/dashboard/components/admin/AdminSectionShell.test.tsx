@@ -27,7 +27,7 @@ describe('AdminSectionShell browser foundation', () => {
     pathname = '/admin'
   })
 
-  it('exposes the PathFinder OS landmarks and marks the exact active route', () => {
+  it('exposes the Torchiko OS landmarks and marks the exact active route', () => {
     pathname = '/admin/operations'
     render(
       <AdminSectionShell>
@@ -35,7 +35,7 @@ describe('AdminSectionShell browser foundation', () => {
       </AdminSectionShell>,
     )
 
-    const navigations = screen.getAllByRole('navigation', { name: 'PathFinder OS navigation' })
+    const navigations = screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })
     expect(navigations).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'Operations' }).getAttribute('aria-current')).toBe(
       'page',
@@ -45,7 +45,7 @@ describe('AdminSectionShell browser foundation', () => {
     )
     expect(screen.getByRole('main').textContent).toContain('Operations attention')
     expect(screen.getByRole('link', { name: 'New client' }).getAttribute('href')).toBe('/admin/new')
-    expect(screen.getByRole('link', { name: 'Client portal' }).getAttribute('href')).toBe('/')
+    expect(screen.getByRole('link', { name: 'Open client portal' }).getAttribute('href')).toBe('/')
   })
 
   it('opens the responsive navigation, traps page scrolling, and restores focus on Escape', () => {
@@ -61,7 +61,7 @@ describe('AdminSectionShell browser foundation', () => {
     fireEvent.click(trigger)
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
-    expect(screen.getAllByRole('navigation', { name: 'PathFinder OS navigation' })).toHaveLength(2)
+    expect(screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })).toHaveLength(2)
     expect(document.body.style.overflow).toBe('hidden')
     expect(document.activeElement).toBe(
       screen.getAllByRole('button', { name: 'Close navigation' })[1],
@@ -71,7 +71,7 @@ describe('AdminSectionShell browser foundation', () => {
 
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open navigation' }))
     expect(document.body.style.overflow).toBe('')
-    expect(screen.getAllByRole('navigation', { name: 'PathFinder OS navigation' })).toHaveLength(1)
+    expect(screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })).toHaveLength(1)
   })
 
   it('keeps keyboard focus inside responsive navigation in both directions', () => {

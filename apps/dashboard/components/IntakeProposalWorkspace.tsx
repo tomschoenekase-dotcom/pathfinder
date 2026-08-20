@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
 import type { StaffInterviewSubmission } from '@pathfinder/contracts/staff-interview'
+import { normalizeTorchikoBrandText } from '@pathfinder/ui'
 
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
@@ -237,7 +238,7 @@ export function IntakeProposalWorkspace({
             {proposals.map((proposal) => (
               <li key={proposal.id} className="rounded-2xl border border-pf-light bg-white p-4">
                 <div className="flex flex-wrap justify-between gap-2">
-                  <strong>{proposal.displayName}</strong>
+                  <strong>{normalizeTorchikoBrandText(proposal.displayName)}</strong>
                   <span>
                     {clientFacing
                       ? proposal.status === 'AWAITING_REVIEW'

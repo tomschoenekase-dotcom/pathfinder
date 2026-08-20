@@ -42,6 +42,13 @@ const providerOperationSchema = claimSchema
   .extend({ kind: z.enum(['QUERY_EMBEDDING', 'RESPONSE_GENERATION']) })
   .strict()
 
+const providerObservationSchema = providerOperationSchema
+  .extend({
+    outcomeCode: z.string().trim().min(1).max(64),
+    usageReference: z.string().trim().min(1).max(191).nullable().optional(),
+  })
+  .strict()
+
 const failureClaimSchema = claimSchema
   .extend({ failureCode: z.string().trim().min(1).max(64) })
   .strict()
@@ -127,8 +134,7 @@ function isP2002(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
 }
 
-export function guestChatRequestHash(input: unknown): string {
-  const value = parse(requestSchema, input)
+function hashParsedGuestChatRequest(value: z.input<typeof requestObjectSchema>): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
@@ -146,6 +152,10 @@ export function guestChatRequestHash(input: unknown): string {
       }),
     )
     .digest('hex')
+}
+
+export function guestChatRequestHash(input: unknown): string {
+  return hashParsedGuestChatRequest(parse(requestSchema, input))
 }
 
 const turnSelect = {
@@ -824,37 +834,27 @@ export async function observeGuestChatProviderOperationAction(args: {
   }
   now?: Date
 }) {
-  const base = parse(providerOperationSchema, args?.operation)
-  const outcome = z.string().trim().min(1).max(64).safeParse(args?.operation?.outcomeCode)
-  const usage = z
-    .string()
-    .trim()
-    .min(1)
-    .max(191)
-    .nullable()
-    .optional()
-    .safeParse(args?.operation?.usageReference)
-  if (!outcome.success || !usage.success) invalidInput()
+  const operation = parse(providerObservationSchema, args?.operation)
   const client = args.client ?? db
   const now = args.now ?? new Date()
   const updated = await client.guestChatProviderOperation.updateMany({
     where: {
-      tenantId: base.tenantId,
-      venueId: base.venueId,
-      turnId: base.turnId,
-      kind: base.kind,
+      tenantId: operation.tenantId,
+      venueId: operation.venueId,
+      turnId: operation.turnId,
+      kind: operation.kind,
       status: 'DISPATCHED',
       turn: {
-        requestId: base.requestId,
-        leaseToken: base.claimId,
-        session: { anonymousToken: base.anonymousToken },
+        requestId: operation.requestId,
+        leaseToken: operation.claimId,
+        session: { anonymousToken: operation.anonymousToken },
       },
     },
     data: {
       status: 'OBSERVED',
       observedAt: now,
-      outcomeCode: outcome.data,
-      usageReference: usage.data ?? null,
+      outcomeCode: operation.outcomeCode,
+      usageReference: operation.usageReference ?? null,
     },
   })
   if (updated.count !== 1)
@@ -997,7 +997,7 @@ export async function finalizeGuestChatTurnAction(args: {
           select: { ...turnSelect, userMessageSequence: true, assistantMessageSequence: true },
         })
         if (!turn) throw new GuestChatTurnActionError('NOT_FOUND', 'Chat turn not found.')
-        if (turn.requestHash !== guestChatRequestHash(input)) {
+        if (turn.requestHash !== hashParsedGuestChatRequest(input)) {
           throw new GuestChatTurnActionError(
             'CONFLICT',
             'Finalization request does not match reservation.',

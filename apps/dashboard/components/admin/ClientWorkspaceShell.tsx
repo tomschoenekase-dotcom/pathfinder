@@ -214,7 +214,7 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
         className="flex flex-wrap items-center gap-2 text-xs font-medium text-pf-deep/70"
       >
         <Link href="/admin" className="transition hover:text-pf-primary">
-          PathFinder OS
+          Torchiko OS
         </Link>
         <span aria-hidden="true">/</span>
         <Link href="/admin/directory" className="transition hover:text-pf-primary">

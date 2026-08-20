@@ -263,7 +263,7 @@ export default function WebHomePage() {
               Contact
             </a>
             <Link href="/privacy" className="text-xs text-white/30 transition hover:text-white">
-              Privacy Policy
+              Privacy notice
             </Link>
           </div>
         </div>

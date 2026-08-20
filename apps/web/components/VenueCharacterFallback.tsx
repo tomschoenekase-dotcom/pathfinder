@@ -1,4 +1,4 @@
-import { PathFinderIcon } from '@pathfinder/ui/brand'
+import { TorchikoIcon } from '@pathfinder/ui/brand'
 
 export function VenueCharacterFallback({
   compact = false,
@@ -12,7 +12,7 @@ export function VenueCharacterFallback({
       className={`flex items-center justify-center gap-3 rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-4 ${compact ? 'min-h-16' : 'min-h-24'}`}
       role="status"
     >
-      <PathFinderIcon className={compact ? 'h-9 w-9' : 'h-12 w-12'} />
+      <TorchikoIcon className={compact ? 'h-9 w-9' : 'h-12 w-12'} />
       <p className="text-sm text-[var(--chat-text-muted)]">
         {status === 'loading'
           ? 'Character is getting ready. Text chat is ready now.'

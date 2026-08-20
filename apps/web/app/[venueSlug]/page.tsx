@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { appRouter, createTRPCContext } from '@pathfinder/api'
 
-import { PathFinderIcon } from '@pathfinder/ui/brand'
+import { TorchikoIcon } from '@pathfinder/ui/brand'
 import { VenueTemporarilyUnavailable } from '../../components/VenueTemporarilyUnavailable'
 import { classifyPublicVenueLookupError } from '../../lib/public-venue-error'
 
@@ -63,7 +63,7 @@ export default async function VenueLandingPage({ params }: VenueLandingPageProps
       <section className="w-full max-w-lg">
         <div className="rounded-3xl border border-pf-light bg-pf-white p-8 shadow-sm sm:p-10">
           <div className="flex flex-wrap items-center gap-3">
-            <PathFinderIcon className="h-8 w-8" />
+            <TorchikoIcon className="h-8 w-8" />
             {venue.category ? (
               <span className="rounded-full border border-pf-light bg-pf-surface px-3 py-1 text-xs font-semibold uppercase tracking-widest text-pf-primary">
                 {venue.category}

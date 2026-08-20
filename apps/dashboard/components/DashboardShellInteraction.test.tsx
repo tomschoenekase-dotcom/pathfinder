@@ -21,7 +21,7 @@ vi.mock('@clerk/nextjs', () => ({
   useOrganization: () => ({ organization: { name: 'Harbor Museum' } }),
   useUser: () => ({ user: { publicMetadata: { platform_role: platformRole } } }),
 }))
-vi.mock('@pathfinder/ui', () => ({ PathFinderBrand: () => <span>Torchiko</span> }))
+vi.mock('@pathfinder/ui', () => ({ TorchikoBrand: () => <span>Torchiko</span> }))
 vi.mock('../lib/trpc', () => ({ useTRPCClient: () => ({}) }))
 
 import { DashboardShell } from './DashboardShell'
@@ -70,6 +70,8 @@ describe('DashboardShell interaction semantics', () => {
     platformRole = 'PLATFORM_ADMIN'
     render(<DashboardShell impersonatedTenantName="Test venue">Journey</DashboardShell>)
 
-    expect(screen.getByRole('button', { name: 'Admin' }).className).toContain('min-h-11')
+    expect(screen.getByRole('button', { name: 'Open admin console' }).className).toContain(
+      'min-h-11',
+    )
   })
 })
