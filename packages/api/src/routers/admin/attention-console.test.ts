@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   outcomes: vi.fn(),
   events: vi.fn(),
   updateEvent: vi.fn(),
+  platformEvents: vi.fn(),
+  updatePlatformEvent: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -24,6 +26,10 @@ vi.mock('@pathfinder/db', () => ({
     agentQuestion: { findMany: mocks.questions },
     agentOutcomeObservation: { findMany: mocks.outcomes },
     operationalEvent: { findMany: mocks.events, updateMany: mocks.updateEvent },
+    platformOperationalEvent: {
+      findMany: mocks.platformEvents,
+      updateMany: mocks.updatePlatformEvent,
+    },
   },
 }))
 
@@ -58,6 +64,8 @@ describe('admin attention console', () => {
     mocks.outcomes.mockResolvedValue([])
     mocks.events.mockResolvedValue([])
     mocks.updateEvent.mockResolvedValue({ count: 1 })
+    mocks.platformEvents.mockResolvedValue([])
+    mocks.updatePlatformEvent.mockResolvedValue({ count: 1 })
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
@@ -79,6 +87,7 @@ describe('admin attention console', () => {
       mocks.questions,
       mocks.outcomes,
       mocks.events,
+      mocks.platformEvents,
     ]) {
       expect(query).toHaveBeenCalledWith(
         expect.objectContaining({ take: 8, select: expect.any(Object) }),
@@ -93,6 +102,7 @@ describe('admin attention console', () => {
       mocks.questions.mock.calls[0]![0],
       mocks.outcomes.mock.calls[0]![0],
       mocks.events.mock.calls[0]![0],
+      mocks.platformEvents.mock.calls[0]![0],
     ])
     for (const forbidden of [
       'payload',
@@ -194,5 +204,22 @@ describe('admin attention console', () => {
         data: expect.objectContaining({ state: 'RESOLVED', resolvedBy: 'operator_1' }),
       }),
     )
+  })
+
+  it('updates platform CRM attention without touching a tenant event', async () => {
+    const caller = testRouter.createCaller(context())
+    await expect(
+      caller.admin.acknowledgeOperationalEvent({
+        eventId: '11111111-1111-4111-8111-111111111111',
+        scope: 'platform',
+      }),
+    ).resolves.toEqual({ acknowledged: true })
+    expect(mocks.updatePlatformEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ state: 'OPEN' }),
+        data: expect.objectContaining({ acknowledgedBy: 'operator_1' }),
+      }),
+    )
+    expect(mocks.updateEvent).not.toHaveBeenCalled()
   })
 })

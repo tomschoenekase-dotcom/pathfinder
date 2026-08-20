@@ -4,6 +4,12 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import {
+  ACTIVE_SUPPORT_REQUEST_STATUSES,
+  after,
+  afterCondition,
+  page,
+} from './attention-pagination'
 
 const cursor = z.object({ createdAt: z.string().datetime(), id: z.string().min(1).max(191) })
 const input = z
@@ -20,44 +26,11 @@ const input = z
     completedAgentsCursor: cursor.optional(),
     outcomesCursor: cursor.optional(),
     eventsCursor: cursor.optional(),
+    platformEventsCursor: cursor.optional(),
   })
   .default({ limit: 10 })
 
-type Cursor = z.infer<typeof cursor>
-
-function after(value?: Cursor) {
-  if (!value) return {}
-  const createdAt = new Date(value.createdAt)
-  return {
-    AND: [
-      {
-        OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lt: value.id } }],
-      },
-    ],
-  }
-}
-
-function afterCondition(value?: Cursor) {
-  if (!value) return undefined
-  const createdAt = new Date(value.createdAt)
-  return { OR: [{ createdAt: { lt: createdAt } }, { createdAt, id: { lt: value.id } }] }
-}
-
-function page<T extends { id: string; createdAt: Date }>(rows: T[], limit: number) {
-  const items = rows.slice(0, limit)
-  const last = items.at(-1)
-  return {
-    items,
-    nextCursor:
-      rows.length > limit && last ? { createdAt: last.createdAt.toISOString(), id: last.id } : null,
-  }
-}
-
-/**
- * Bounded, metadata-only cross-tenant read model for internal operations triage.
- * It intentionally omits payloads, snapshots, artifacts, support messages, raw
- * provider errors, and action controls.
- */
+// Bounded metadata-only platform triage; no payloads, artifacts, messages, or raw provider errors.
 export const adminAttentionConsoleRouter = router({
   attentionConsole: adminProcedure.input(input).query(({ input: query }) =>
     withTenantIsolationBypass(async () => {
@@ -75,6 +48,7 @@ export const adminAttentionConsoleRouter = router({
         completedAgents,
         outcomes,
         events,
+        platformEvents,
       ] = await Promise.all([
         db.jobRecord.findMany({
           where: { status: 'FAILED', ...after(query.jobsCursor) },
@@ -141,17 +115,7 @@ export const adminAttentionConsoleRouter = router({
         }),
         db.supportRequest.findMany({
           where: {
-            status: {
-              in: [
-                'OPEN',
-                'IN_REVIEW',
-                'WAITING_FOR_CLIENT',
-                'PATCH_DRAFTED',
-                'VALIDATING',
-                'AWAITING_APPROVAL',
-                'APPLYING',
-              ],
-            },
+            status: { in: [...ACTIVE_SUPPORT_REQUEST_STATUSES] },
             ...after(query.supportCursor),
           },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -312,6 +276,30 @@ export const adminAttentionConsoleRouter = router({
             createdAt: true,
           },
         }),
+        db.platformOperationalEvent.findMany({
+          where: {
+            state: { in: ['OPEN', 'ACKNOWLEDGED'] },
+            ...after(query.platformEventsCursor),
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: {
+            id: true,
+            eventType: true,
+            sourceSubsystem: true,
+            severity: true,
+            title: true,
+            summary: true,
+            actionRequired: true,
+            linkedObjectType: true,
+            linkedObjectId: true,
+            recommendedAction: true,
+            state: true,
+            occurrenceCount: true,
+            lastOccurredAt: true,
+            createdAt: true,
+          },
+        }),
       ])
 
       return {
@@ -342,44 +330,73 @@ export const adminAttentionConsoleRouter = router({
         completedAgents: page(completedAgents, query.limit),
         outcomes: page(outcomes, query.limit),
         events: page(events, query.limit),
+        platformEvents: page(platformEvents, query.limit),
       }
     }),
   ),
 
   acknowledgeOperationalEvent: adminProcedure
-    .input(z.object({ eventId: z.string().uuid() }).strict())
+    .input(
+      z
+        .object({
+          eventId: z.string().uuid(),
+          scope: z.enum(['tenant', 'platform']).default('tenant'),
+        })
+        .strict(),
+    )
     .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(async () => {
         const now = new Date()
-        const updated = await db.operationalEvent.updateMany({
-          where: { id: input.eventId, state: 'OPEN' },
-          data: {
-            state: 'ACKNOWLEDGED',
-            readAt: now,
-            readBy: ctx.session.userId,
-            acknowledgedAt: now,
-            acknowledgedBy: ctx.session.userId,
-          },
-        })
+        const change = {
+          state: 'ACKNOWLEDGED' as const,
+          readAt: now,
+          readBy: ctx.session.userId,
+          acknowledgedAt: now,
+          acknowledgedBy: ctx.session.userId,
+        }
+        const updated =
+          input.scope === 'platform'
+            ? await db.platformOperationalEvent.updateMany({
+                where: { id: input.eventId, state: 'OPEN' },
+                data: change,
+              })
+            : await db.operationalEvent.updateMany({
+                where: { id: input.eventId, state: 'OPEN' },
+                data: change,
+              })
         return { acknowledged: updated.count === 1 }
       }),
     ),
 
   resolveOperationalEvent: adminProcedure
-    .input(z.object({ eventId: z.string().uuid() }).strict())
+    .input(
+      z
+        .object({
+          eventId: z.string().uuid(),
+          scope: z.enum(['tenant', 'platform']).default('tenant'),
+        })
+        .strict(),
+    )
     .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(async () => {
         const now = new Date()
-        const updated = await db.operationalEvent.updateMany({
-          where: { id: input.eventId, state: { in: ['OPEN', 'ACKNOWLEDGED'] } },
-          data: {
-            state: 'RESOLVED',
-            readAt: now,
-            readBy: ctx.session.userId,
-            resolvedAt: now,
-            resolvedBy: ctx.session.userId,
-          },
-        })
+        const change = {
+          state: 'RESOLVED' as const,
+          readAt: now,
+          readBy: ctx.session.userId,
+          resolvedAt: now,
+          resolvedBy: ctx.session.userId,
+        }
+        const updated =
+          input.scope === 'platform'
+            ? await db.platformOperationalEvent.updateMany({
+                where: { id: input.eventId, state: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+                data: change,
+              })
+            : await db.operationalEvent.updateMany({
+                where: { id: input.eventId, state: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+                data: change,
+              })
         return { resolved: updated.count === 1 }
       }),
     ),

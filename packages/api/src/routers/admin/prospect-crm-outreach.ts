@@ -6,6 +6,8 @@ import {
   createProspectCampaignAction,
   db,
   ProspectOutreachError,
+  publishCrmOperationalSignal,
+  releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
   saveProspectOutreachDraftAction,
   stageProspectSendBatchAction,
@@ -13,6 +15,7 @@ import {
 } from '@pathfinder/db'
 
 import { router } from '../../core'
+import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospect-outreach'
 import { adminProcedure } from '../../trpc'
 import { prospectActor, prospectBoundedText } from './prospect-crm-common'
 import { enqueueProspectOutreach } from '@pathfinder/jobs'
@@ -30,50 +33,6 @@ function mapError(error: unknown): never {
 }
 
 export const adminProspectCrmOutreachRouter = router({
-  listProspectSavedViews: adminProcedure.query(({ ctx }) =>
-    withTenantIsolationBypass(() =>
-      db.prospectSavedView.findMany({
-        where: { OR: [{ ownerId: ctx.session.userId }, { isShared: true }] },
-        orderBy: [{ ownerId: 'asc' }, { name: 'asc' }],
-      }),
-    ),
-  ),
-
-  saveProspectView: adminProcedure
-    .input(
-      z
-        .object({
-          name: prospectBoundedText(191),
-          filters: z.record(z.unknown()),
-          columns: z.array(z.string().trim().min(1).max(100)).max(20),
-          sort: z.record(z.unknown()).default({}),
-          isShared: z.boolean().default(false),
-        })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        db.prospectSavedView.upsert({
-          where: { ownerId_name: { ownerId: ctx.session.userId, name: input.name } },
-          create: { ...input, ownerId: ctx.session.userId },
-          update: input,
-        }),
-      ),
-    ),
-
-  deleteProspectView: adminProcedure
-    .input(z.object({ viewId: id }).strict())
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const deleted = await db.prospectSavedView.deleteMany({
-          where: { id: input.viewId, ownerId: ctx.session.userId },
-        })
-        if (!deleted.count)
-          throw new TRPCError({ code: 'NOT_FOUND', message: 'Saved view not found' })
-        return { deleted: true }
-      }),
-    ),
-
   getProspectIntelligence: adminProcedure
     .input(z.object({ organizationId: id }).strict())
     .query(({ input }) =>
@@ -87,14 +46,36 @@ export const adminProspectCrmOutreachRouter = router({
             description: true,
             researchProvenance: true,
             tags: true,
-            conversion: { select: { tenantId: true, venueId: true, convertedAt: true } },
+            customerRelationships: {
+              where: { status: 'ACTIVE' },
+              take: 10,
+              orderBy: { startedAt: 'desc' },
+              select: {
+                tenantId: true,
+                startedAt: true,
+                locationConversions: {
+                  where: { status: 'ACTIVE' },
+                  take: 50,
+                  orderBy: { convertedAt: 'desc' },
+                  select: { venueId: true, convertedAt: true },
+                },
+              },
+            },
           },
         })
         if (!prospect) throw new TRPCError({ code: 'NOT_FOUND', message: 'Prospect not found' })
-        if (!prospect.conversion?.venueId) return { prospect, liveVenue: null }
+        const links = prospect.customerRelationships.flatMap((relationship) =>
+          relationship.locationConversions.map((location) => ({
+            tenantId: relationship.tenantId,
+            venueId: location.venueId,
+            convertedAt: location.convertedAt,
+          })),
+        )
+        if (!links.length) return { prospect, liveVenue: null, liveVenues: [] }
+        const primary = links[0]!
         const [venue, places, knowledge] = await Promise.all([
           db.venue.findFirst({
-            where: { id: prospect.conversion.venueId, tenantId: prospect.conversion.tenantId },
+            where: { id: primary.venueId, tenantId: primary.tenantId },
             select: {
               id: true,
               tenantId: true,
@@ -107,8 +88,8 @@ export const adminProspectCrmOutreachRouter = router({
           }),
           db.place.findMany({
             where: {
-              venueId: prospect.conversion.venueId,
-              tenantId: prospect.conversion.tenantId,
+              venueId: primary.venueId,
+              tenantId: primary.tenantId,
               isActive: true,
             },
             orderBy: [{ importanceScore: 'desc' }, { name: 'asc' }],
@@ -126,8 +107,8 @@ export const adminProspectCrmOutreachRouter = router({
           }),
           db.venueKnowledgeEntry.findMany({
             where: {
-              venueId: prospect.conversion.venueId,
-              tenantId: prospect.conversion.tenantId,
+              venueId: primary.venueId,
+              tenantId: primary.tenantId,
               isEnabled: true,
             },
             orderBy: { updatedAt: 'desc' },
@@ -143,11 +124,22 @@ export const adminProspectCrmOutreachRouter = router({
             },
           }),
         ])
-        return { prospect, liveVenue: venue ? { ...venue, places, knowledge } : null }
+        const liveVenues = await db.venue.findMany({
+          where: { OR: links.map((link) => ({ id: link.venueId, tenantId: link.tenantId })) },
+          select: {
+            id: true,
+            tenantId: true,
+            name: true,
+            slug: true,
+            category: true,
+            isActive: true,
+          },
+        })
+        return { prospect, liveVenue: venue ? { ...venue, places, knowledge } : null, liveVenues }
       }),
     ),
 
-  listProspectCampaigns: adminProcedure.query(() =>
+  listProspectCampaigns: adminProcedure.use(requireCrmProspectOutreach).query(() =>
     withTenantIsolationBypass(() =>
       db.prospectOutreachCampaign.findMany({
         orderBy: { updatedAt: 'desc' },
@@ -158,6 +150,7 @@ export const adminProspectCrmOutreachRouter = router({
   ),
 
   getProspectCampaign: adminProcedure
+    .use(requireCrmProspectOutreach)
     .input(z.object({ campaignId: id }).strict())
     .query(({ input }) =>
       withTenantIsolationBypass(async () => {
@@ -179,7 +172,23 @@ export const adminProspectCrmOutreachRouter = router({
             },
             sendBatches: {
               orderBy: { createdAt: 'desc' },
-              include: { _count: { select: { items: true } } },
+              include: {
+                _count: { select: { items: true } },
+                items: {
+                  orderBy: { createdAt: 'asc' },
+                  select: {
+                    id: true,
+                    status: true,
+                    recipientEmailSnapshot: true,
+                    subjectSnapshot: true,
+                    textBodySnapshot: true,
+                    htmlBodySnapshot: true,
+                    contentHashSnapshot: true,
+                    providerAccountId: true,
+                    providerMessageId: true,
+                  },
+                },
+              },
             },
           },
         })
@@ -189,6 +198,7 @@ export const adminProspectCrmOutreachRouter = router({
     ),
 
   createProspectCampaign: adminProcedure
+    .use(requireCrmProspectOutreach)
     .input(
       z
         .object({
@@ -212,6 +222,7 @@ export const adminProspectCrmOutreachRouter = router({
     ),
 
   saveProspectOutreachDraft: adminProcedure
+    .use(requireCrmProspectOutreach)
     .input(
       z
         .object({
@@ -237,6 +248,7 @@ export const adminProspectCrmOutreachRouter = router({
     ),
 
   reviewProspectOutreachDraft: adminProcedure
+    .use(requireCrmProspectOutreach)
     .input(
       z
         .object({
@@ -262,6 +274,7 @@ export const adminProspectCrmOutreachRouter = router({
     ),
 
   stageProspectSendBatch: adminProcedure
+    .use(requireCrmProspectOutreach)
     .input(
       z
         .object({
@@ -279,6 +292,7 @@ export const adminProspectCrmOutreachRouter = router({
     ),
 
   approveProspectSendBatch: adminProcedure
+    .use(requireCrmProspectOutreach)
     .input(
       z
         .object({
@@ -289,25 +303,37 @@ export const adminProspectCrmOutreachRouter = router({
         .strict(),
     )
     .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        approveProspectSendBatchAction({
+      withTenantIsolationBypass(async () => {
+        const approved = await approveProspectSendBatchAction({
           ...input,
           actor: prospectActor(ctx.session.userId),
-        }).catch(mapError),
-      ),
+        }).catch(mapError)
+        await publishCrmOperationalSignal({
+          input: {
+            signal: 'batch_awaiting_release',
+            scope: { kind: 'platform' },
+            linkedObjectType: 'ProspectSendBatch',
+            linkedObjectId: approved.id,
+            summary: `A frozen batch of ${approved.recipientCount} recipients is approved and awaiting a separate final release.`,
+          },
+        })
+        return approved
+      }),
     ),
 
   queueProspectSendBatch: adminProcedure
+    .use(requireCrmProspectOutreach)
     .input(
       z
         .object({
           batchId: id,
           expectedRecipientCount: z.number().int().min(1).max(500),
           expectedSnapshotHash: z.string().length(64),
+          providerAccountId: id,
         })
         .strict(),
     )
-    .mutation(({ input }) =>
+    .mutation(({ ctx, input }) =>
       withTenantIsolationBypass(async () => {
         if (process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED !== 'true') {
           throw new TRPCError({
@@ -315,52 +341,55 @@ export const adminProspectCrmOutreachRouter = router({
             message: 'Prospect outreach delivery is disabled',
           })
         }
-        if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'Outreach provider is not configured',
-          })
-        }
-        const batch = await db.prospectSendBatch.findUnique({
-          where: { id: input.batchId },
-          include: { items: true },
-        })
-        if (!batch || batch.status !== 'APPROVED')
-          throw new TRPCError({ code: 'CONFLICT', message: 'Batch is not approved' })
-        if (
-          batch.recipientCount !== input.expectedRecipientCount ||
-          batch.snapshotHash !== input.expectedSnapshotHash ||
-          batch.items.length !== batch.recipientCount
-        ) {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'Send confirmation does not match the frozen batch',
-          })
-        }
-        await Promise.all(
-          batch.items.map((item) => enqueueProspectOutreach({ sendItemId: item.id })),
+        const released = await releaseProspectSendBatchAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }).catch(mapError)
+        const dispatch = await Promise.allSettled(
+          released.outboxIds.map((outboxId) => enqueueProspectOutreach({ outboxId })),
         )
-        await db.$transaction([
-          db.prospectSendItem.updateMany({
-            where: { batchId: batch.id, status: 'STAGED' },
-            data: { status: 'QUEUED' },
-          }),
-          db.prospectSendBatch.update({
-            where: { id: batch.id },
-            data: { status: 'QUEUED', queuedAt: new Date() },
-          }),
-        ])
-        return { queued: batch.items.length }
+        return {
+          ...released,
+          dispatched: dispatch.filter((result) => result.status === 'fulfilled').length,
+          pendingDispatch: dispatch.filter((result) => result.status === 'rejected').length,
+        }
       }),
     ),
 
-  getProspectOutreachReadiness: adminProcedure.query(() => ({
-    deliveryEnabled: process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED === 'true',
-    providerConfigured: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
-    inboundConfigured: Boolean(
-      process.env.RESEND_WEBHOOK_SECRET && process.env.PROSPECT_OUTREACH_REPLY_DOMAIN,
-    ),
-    limits: { cohort: 5000, batch: 500 },
-    policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
-  })),
+  getProspectOutreachReadiness: adminProcedure.use(requireCrmProspectOutreach).query(() =>
+    withTenantIsolationBypass(async () => {
+      const [control, accounts] = await Promise.all([
+        db.prospectDeliveryControl.findUnique({ where: { id: 'global' } }),
+        db.correspondenceProviderAccount.findMany({
+          where: { provider: 'GMAIL' },
+          select: {
+            id: true,
+            mailboxAddress: true,
+            connectionStatus: true,
+            deliveryEnabled: true,
+            pausedAt: true,
+            lastSuccessfulSyncAt: true,
+            lastReconciliationAt: true,
+            watchExpiration: true,
+            healthErrorCode: true,
+            healthErrorSummary: true,
+          },
+          orderBy: { mailboxAddress: 'asc' },
+        }),
+      ])
+      return {
+        deliveryEnabled:
+          process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED === 'true' &&
+          Boolean(control?.deliveryEnabled),
+        internalOnly: control?.internalOnly ?? true,
+        providerConfigured: accounts.some(
+          (account) => account.connectionStatus === 'CONNECTED' && account.deliveryEnabled,
+        ),
+        provider: 'GMAIL' as const,
+        accounts,
+        limits: { cohort: 5000, batch: 500 },
+        policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
+      }
+    }),
+  ),
 })

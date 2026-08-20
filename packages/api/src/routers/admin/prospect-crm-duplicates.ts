@@ -63,7 +63,7 @@ export const adminProspectCrmDuplicatesRouter = router({
     .input(
       z
         .object({
-          prospectLimit: z.number().int().min(1).max(20_000).optional(),
+          prospectLimit: z.number().int().min(1).max(500_000).optional(),
         })
         .strict()
         .optional(),

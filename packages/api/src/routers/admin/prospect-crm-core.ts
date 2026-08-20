@@ -1,151 +1,15 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-
-import {
-  addProspectNoteAction,
-  archiveProspectAction,
-  createProspectAction,
-  db,
-  linkProspectConversionAction,
-  updateProspectPipelineAction,
-  withTenantIsolationBypass,
-} from '@pathfinder/db'
+import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { prospectStage } from './prospect-crm-common'
 import {
-  mapProspectActionError,
-  prospectActor,
-  prospectBoundedText,
-  prospectPriority,
-  prospectStage,
-} from './prospect-crm-common'
-
+  decodeProspectCursor,
+  encodeProspectCursor,
+  prospectCursorWhere,
+} from './prospect-crm-pagination'
 export const adminProspectCrmCoreRouter = router({
-  listProspectTerritories: adminProcedure.query(() =>
-    withTenantIsolationBypass(() =>
-      db.prospectTerritory.findMany({
-        where: { archivedAt: null },
-        orderBy: { name: 'asc' },
-        select: { id: true, code: true, name: true, region: true },
-      }),
-    ),
-  ),
-
-  listProspects: adminProcedure
-    .input(
-      z
-        .object({
-          search: z.string().trim().max(200).optional(),
-          stage: prospectStage.optional(),
-          territoryId: z.string().min(1).max(191).optional(),
-          category: z.string().trim().max(200).optional(),
-          priority: prospectPriority.optional(),
-          relationshipTier: z.enum(['STANDARD', 'HIGH_VALUE', 'STRATEGIC']).optional(),
-          emailReadiness: z.enum(['READY', 'MISSING', 'SUPPRESSED']).optional(),
-          ownerId: z.string().trim().max(191).optional(),
-          nextAction: z.enum(['OVERDUE', 'UPCOMING', 'NONE']).optional(),
-          includeArchived: z.boolean().default(false),
-          limit: z.number().int().min(1).max(100).default(50),
-          cursor: z.string().min(1).max(191).optional(),
-        })
-        .strict(),
-    )
-    .query(({ input }) =>
-      withTenantIsolationBypass(async () => {
-        const now = new Date()
-        const rows = await db.prospectOrganization.findMany({
-          where: {
-            ...(input.includeArchived ? {} : { archivedAt: null }),
-            ...(input.territoryId ? { territoryId: input.territoryId } : {}),
-            ...(input.priority ? { priority: input.priority } : {}),
-            ...(input.relationshipTier ? { relationshipTier: input.relationshipTier } : {}),
-            ...(input.emailReadiness === 'READY'
-              ? {
-                  contacts: {
-                    some: { archivedAt: null, doNotContact: false, normalizedEmail: { not: null } },
-                  },
-                }
-              : {}),
-            ...(input.emailReadiness === 'MISSING'
-              ? { contacts: { none: { archivedAt: null, normalizedEmail: { not: null } } } }
-              : {}),
-            ...(input.emailReadiness === 'SUPPRESSED'
-              ? { contacts: { some: { archivedAt: null, doNotContact: true } } }
-              : {}),
-            ...(input.category ? { organizationType: input.category } : {}),
-            ...(input.search
-              ? {
-                  OR: [
-                    { canonicalName: { contains: input.search, mode: 'insensitive' as const } },
-                    { normalizedDomain: { contains: input.search.toLowerCase() } },
-                    {
-                      venues: {
-                        some: { name: { contains: input.search, mode: 'insensitive' as const } },
-                      },
-                    },
-                    {
-                      contacts: {
-                        some: { email: { contains: input.search, mode: 'insensitive' as const } },
-                      },
-                    },
-                  ],
-                }
-              : {}),
-            opportunity: {
-              ...(input.stage ? { stage: input.stage } : {}),
-              ...(input.ownerId ? { ownerId: input.ownerId } : {}),
-              ...(input.nextAction === 'OVERDUE' ? { nextActionAt: { lt: now } } : {}),
-              ...(input.nextAction === 'UPCOMING' ? { nextActionAt: { gte: now } } : {}),
-              ...(input.nextAction === 'NONE' ? { nextActionAt: null } : {}),
-            },
-          },
-          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-          take: input.limit + 1,
-          ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
-          select: {
-            id: true,
-            canonicalName: true,
-            website: true,
-            normalizedDomain: true,
-            organizationType: true,
-            priority: true,
-            relationshipTier: true,
-            ownerId: true,
-            archivedAt: true,
-            updatedAt: true,
-            territory: { select: { id: true, name: true, code: true } },
-            opportunity: {
-              select: {
-                stage: true,
-                priority: true,
-                ownerId: true,
-                nextAction: true,
-                nextActionAt: true,
-                lastActivityAt: true,
-              },
-            },
-            venues: {
-              where: { archivedAt: null },
-              orderBy: { createdAt: 'asc' },
-              take: 3,
-              select: { id: true, name: true, city: true, region: true, venueType: true },
-            },
-            contacts: {
-              where: { archivedAt: null },
-              orderBy: { createdAt: 'asc' },
-              take: 3,
-              select: { id: true, fullName: true, email: true, doNotContact: true },
-            },
-            _count: { select: { venues: true, contacts: true, activities: true } },
-          },
-        })
-        return {
-          items: rows.slice(0, input.limit),
-          nextCursor: rows.length > input.limit ? (rows[input.limit - 1]?.id ?? null) : null,
-        }
-      }),
-    ),
-
   getProspect: adminProcedure
     .input(z.object({ organizationId: z.string().min(1).max(191) }).strict())
     .query(({ input }) =>
@@ -154,13 +18,16 @@ export const adminProspectCrmCoreRouter = router({
           where: { id: input.organizationId },
           include: {
             territory: true,
-            opportunity: { include: { stageHistory: { orderBy: { createdAt: 'desc' } } } },
+            opportunity: {
+              include: { stageHistory: { orderBy: { createdAt: 'desc' }, take: 100 } },
+            },
             venues: { orderBy: [{ archivedAt: 'asc' }, { name: 'asc' }] },
             contacts: { orderBy: [{ archivedAt: 'asc' }, { fullName: 'asc' }] },
             sources: { orderBy: { createdAt: 'desc' }, take: 200 },
-            activities: { orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }] },
+            activities: { orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }], take: 100 },
             emailThreads: {
               orderBy: { lastMessageAt: 'desc' },
+              take: 50,
               include: { messages: { orderBy: { occurredAt: 'desc' }, take: 100 } },
             },
             followups: { orderBy: { dueAt: 'asc' }, take: 100 },
@@ -175,177 +42,244 @@ export const adminProspectCrmCoreRouter = router({
                 venue: { select: { id: true, name: true, slug: true } },
               },
             },
-          },
-        })
-        if (!prospect) throw new TRPCError({ code: 'NOT_FOUND', message: 'Prospect not found' })
-        return prospect
-      }),
-    ),
-
-  getProspectPipeline: adminProcedure.query(() =>
-    withTenantIsolationBypass(async () => {
-      const rows = await db.prospectOpportunity.findMany({
-        where: { organization: { archivedAt: null } },
-        orderBy: [{ priority: 'desc' }, { nextActionAt: 'asc' }, { updatedAt: 'desc' }],
-        take: 1000,
-        select: {
-          id: true,
-          stage: true,
-          priority: true,
-          ownerId: true,
-          nextAction: true,
-          nextActionAt: true,
-          lastActivityAt: true,
-          organization: {
-            select: {
-              id: true,
-              canonicalName: true,
-              territory: { select: { name: true } },
-              venues: {
-                where: { archivedAt: null },
-                take: 1,
-                select: { city: true, region: true },
+            customerRelationships: {
+              orderBy: [{ status: 'asc' }, { startedAt: 'desc' }],
+              include: {
+                tenant: { select: { id: true, name: true, slug: true } },
+                locationConversions: {
+                  orderBy: { convertedAt: 'desc' },
+                  include: { venue: { select: { id: true, name: true, slug: true } } },
+                },
               },
             },
           },
-        },
-      })
-      return { items: rows, truncated: rows.length === 1000 }
-    }),
-  ),
-
-  createProspect: adminProcedure
+        })
+        if (!prospect) throw new TRPCError({ code: 'NOT_FOUND', message: 'Prospect not found' })
+        const currentRelationship = prospect.customerRelationships.find(
+          (relationship) => relationship.status === 'ACTIVE',
+        )
+        const currentLocation = currentRelationship?.locationConversions.find(
+          (location) => location.status === 'ACTIVE',
+        )
+        return {
+          ...prospect,
+          // Temporary read-only compatibility projection for the pre-correction dashboard.
+          conversion: currentRelationship
+            ? {
+                id: currentRelationship.id,
+                tenantId: currentRelationship.tenantId,
+                venueId: currentLocation?.venueId ?? null,
+                convertedAt: currentLocation?.convertedAt ?? currentRelationship.startedAt,
+                tenant: currentRelationship.tenant,
+                venue: currentLocation?.venue ?? null,
+              }
+            : prospect.conversion,
+        }
+      }),
+    ),
+  getProspectPipeline: adminProcedure
     .input(
       z
         .object({
-          organization: z
-            .object({
-              canonicalName: prospectBoundedText(300),
-              aliases: z.array(prospectBoundedText(300)).max(20).optional(),
-              website: z.string().trim().max(2000).optional(),
-              organizationType: z.string().trim().max(200).optional(),
-              description: z.string().trim().max(5000).optional(),
-              territoryId: z.string().min(1).max(191).optional(),
-              source: z.string().trim().max(500).optional(),
-              ownerId: z.string().trim().max(191).optional(),
-              priority: prospectPriority.optional(),
-              notes: z.string().trim().max(10000).optional(),
-              tags: z.array(prospectBoundedText(100)).max(30).optional(),
-            })
-            .strict(),
-          venue: z
-            .object({
-              name: prospectBoundedText(300),
-              website: z.string().trim().max(2000).optional(),
-              venueType: z.string().trim().max(200).optional(),
-              city: z.string().trim().max(200).optional(),
-              region: z.string().trim().max(100).optional(),
-              country: z.string().trim().max(100).optional(),
-              notes: z.string().trim().max(10000).optional(),
-            })
-            .strict()
-            .optional(),
-          contact: z
-            .object({
-              fullName: z.string().trim().max(300).optional(),
-              title: z.string().trim().max(300).optional(),
-              email: z.string().trim().max(320).optional(),
-              phone: z.string().trim().max(200).optional(),
-              source: z.string().trim().max(500).optional(),
-              doNotContact: z.boolean().optional(),
-              notes: z.string().trim().max(5000).optional(),
-            })
-            .strict()
-            .optional(),
+          stage: prospectStage.optional(),
+          limit: z.number().int().min(1).max(200).default(100),
+          cursor: z.string().min(1).max(1000).optional(),
         })
-        .strict(),
+        .strict()
+        .default({ limit: 100 }),
     )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        createProspectAction({ ...input, actor: prospectActor(ctx.session.userId) }).catch(
-          mapProspectActionError,
-        ),
-      ),
-    ),
-
-  updateProspectPipeline: adminProcedure
-    .input(
-      z
-        .object({
-          organizationId: z.string().min(1).max(191),
-          stage: prospectStage,
-          priority: prospectPriority.optional(),
-          ownerId: z.string().trim().max(191).nullable().optional(),
-          nextAction: z.string().trim().max(2000).nullable().optional(),
-          nextActionAt: z.string().datetime().nullable().optional(),
-          reason: z.string().trim().max(2000).optional(),
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        let cursorWhere: ReturnType<typeof prospectCursorWhere> | undefined
+        if (input.cursor) {
+          try {
+            cursorWhere = prospectCursorWhere(decodeProspectCursor(input.cursor))
+          } catch {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid pagination cursor' })
+          }
+        }
+        const rows = await db.prospectOpportunity.findMany({
+          where: {
+            organization: { archivedAt: null },
+            ...(input.stage ? { stage: input.stage } : {}),
+            ...(cursorWhere ? { AND: [cursorWhere] } : {}),
+          },
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          take: input.limit + 1,
+          select: {
+            id: true,
+            updatedAt: true,
+            stage: true,
+            priority: true,
+            ownerId: true,
+            nextAction: true,
+            nextActionAt: true,
+            lastActivityAt: true,
+            organization: {
+              select: {
+                id: true,
+                canonicalName: true,
+                territory: { select: { name: true } },
+                venues: {
+                  where: { archivedAt: null },
+                  take: 1,
+                  select: { city: true, region: true },
+                },
+              },
+            },
+          },
         })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        updateProspectPipelineAction({
-          ...input,
-          nextActionAt:
-            input.nextActionAt === undefined
-              ? undefined
-              : input.nextActionAt === null
-                ? null
-                : new Date(input.nextActionAt),
-          actor: prospectActor(ctx.session.userId),
-        }).catch(mapProspectActionError),
-      ),
+        const totals = await db.prospectOpportunity.groupBy({
+          by: ['stage'],
+          where: { organization: { archivedAt: null } },
+          _count: { _all: true },
+        })
+        return {
+          items: rows.slice(0, input.limit),
+          nextCursor:
+            rows.length > input.limit && rows[input.limit - 1]
+              ? encodeProspectCursor(rows[input.limit - 1]!)
+              : null,
+          totals: Object.fromEntries(totals.map((item) => [item.stage, item._count._all])),
+          // Compatibility for the current board while it adopts cursor navigation.
+          truncated: rows.length > input.limit,
+        }
+      }),
     ),
 
-  addProspectNote: adminProcedure
-    .input(
-      z
-        .object({ organizationId: z.string().min(1).max(191), note: prospectBoundedText(10000) })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        addProspectNoteAction({ ...input, actor: prospectActor(ctx.session.userId) }).catch(
-          mapProspectActionError,
-        ),
-      ),
-    ),
-
-  archiveProspect: adminProcedure
+  listProspectActivities: adminProcedure
     .input(
       z
         .object({
           organizationId: z.string().min(1).max(191),
-          archived: z.boolean(),
-          reason: prospectBoundedText(2000),
+          limit: z.number().int().min(1).max(200).default(100),
+          beforeOccurredAt: z.string().datetime().optional(),
+          beforeId: z.string().min(1).max(191).optional(),
         })
         .strict(),
     )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        archiveProspectAction({ ...input, actor: prospectActor(ctx.session.userId) }).catch(
-          mapProspectActionError,
-        ),
-      ),
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        if (Boolean(input.beforeOccurredAt) !== Boolean(input.beforeId)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Both activity cursor fields are required',
+          })
+        }
+        const occurredAt = input.beforeOccurredAt ? new Date(input.beforeOccurredAt) : null
+        const rows = await db.prospectActivity.findMany({
+          where: {
+            organizationId: input.organizationId,
+            ...(occurredAt && input.beforeId
+              ? {
+                  OR: [
+                    { occurredAt: { lt: occurredAt } },
+                    { occurredAt, id: { lt: input.beforeId } },
+                  ],
+                }
+              : {}),
+          },
+          orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+          take: input.limit + 1,
+        })
+        const last = rows[input.limit - 1]
+        return {
+          items: rows.slice(0, input.limit),
+          nextCursor:
+            rows.length > input.limit && last
+              ? { beforeOccurredAt: last.occurredAt.toISOString(), beforeId: last.id }
+              : null,
+        }
+      }),
     ),
 
-  linkProspectConversion: adminProcedure
+  listProspectThreads: adminProcedure
     .input(
       z
         .object({
           organizationId: z.string().min(1).max(191),
-          prospectVenueId: z.string().min(1).max(191).optional(),
-          tenantId: z.string().min(1).max(191),
-          venueId: z.string().min(1).max(191).optional(),
-          evidence: z.record(z.unknown()).optional(),
+          limit: z.number().int().min(1).max(100).default(50),
+          beforeUpdatedAt: z.string().datetime().optional(),
+          beforeId: z.string().min(1).max(191).optional(),
         })
         .strict(),
     )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(() =>
-        linkProspectConversionAction({ ...input, actor: prospectActor(ctx.session.userId) }).catch(
-          mapProspectActionError,
-        ),
-      ),
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        if (Boolean(input.beforeUpdatedAt) !== Boolean(input.beforeId)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Both thread cursor fields are required',
+          })
+        }
+        const updatedAt = input.beforeUpdatedAt ? new Date(input.beforeUpdatedAt) : null
+        const rows = await db.prospectEmailThread.findMany({
+          where: {
+            organizationId: input.organizationId,
+            ...(updatedAt && input.beforeId
+              ? {
+                  OR: [{ updatedAt: { lt: updatedAt } }, { updatedAt, id: { lt: input.beforeId } }],
+                }
+              : {}),
+          },
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          take: input.limit + 1,
+          include: { _count: { select: { messages: true } } },
+        })
+        const last = rows[input.limit - 1]
+        return {
+          items: rows.slice(0, input.limit),
+          nextCursor:
+            rows.length > input.limit && last
+              ? { beforeUpdatedAt: last.updatedAt.toISOString(), beforeId: last.id }
+              : null,
+        }
+      }),
+    ),
+
+  listProspectThreadMessages: adminProcedure
+    .input(
+      z
+        .object({
+          threadId: z.string().min(1).max(191),
+          limit: z.number().int().min(1).max(200).default(100),
+          beforeOccurredAt: z.string().datetime().optional(),
+          beforeId: z.string().min(1).max(191).optional(),
+        })
+        .strict(),
+    )
+    .query(({ input }) =>
+      withTenantIsolationBypass(async () => {
+        if (Boolean(input.beforeOccurredAt) !== Boolean(input.beforeId)) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Both message cursor fields are required',
+          })
+        }
+        const occurredAt = input.beforeOccurredAt ? new Date(input.beforeOccurredAt) : null
+        const rows = await db.prospectEmailMessage.findMany({
+          where: {
+            threadId: input.threadId,
+            ...(occurredAt && input.beforeId
+              ? {
+                  OR: [
+                    { occurredAt: { lt: occurredAt } },
+                    { occurredAt, id: { lt: input.beforeId } },
+                  ],
+                }
+              : {}),
+          },
+          orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+          take: input.limit + 1,
+        })
+        const last = rows[input.limit - 1]
+        return {
+          items: rows.slice(0, input.limit),
+          nextCursor:
+            rows.length > input.limit && last
+              ? { beforeOccurredAt: last.occurredAt.toISOString(), beforeId: last.id }
+              : null,
+        }
+      }),
     ),
 })

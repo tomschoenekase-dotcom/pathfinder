@@ -128,6 +128,36 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts",
+      "methods": ["GET"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.test.ts"
+      ]
+    },
+    {
+      "source": "apps/dashboard/app/api/integrations/gmail/oauth/callback/route.ts",
+      "methods": ["GET"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": ["packages/api/src/correspondence/gmail-oauth.test.ts"]
+    },
+    {
+      "source": "apps/dashboard/app/api/integrations/gmail/oauth/start/route.ts",
+      "methods": ["GET"],
+      "exposure": "handler-platform-admin",
+      "controlProfile": "handler-platform-admin",
+      "behavioralEvidence": ["packages/api/src/correspondence/gmail-oauth.test.ts"]
+    },
+    {
+      "source": "apps/dashboard/app/api/integrations/gmail/pubsub/route.ts",
+      "methods": ["POST"],
+      "exposure": "signature-authenticated-public-ingress",
+      "controlProfile": "bounded-signed-webhook",
+      "behavioralEvidence": ["packages/api/src/correspondence/google-pubsub.test.ts"]
+    },
+    {
       "source": "apps/dashboard/app/api/trpc/[trpc]/route.ts",
       "methods": ["GET", "POST"],
       "exposure": "middleware-and-procedure-controlled",
@@ -179,5 +209,10 @@
       "behavioralEvidence": ["apps/web/app/api/widget-ready/[venueSlug]/route.test.ts"]
     }
   ],
-  "dashboardPublicApiPaths": ["/api/agent-bridge", "/api/webhooks/clerk", "/api/webhooks/resend"]
+  "dashboardPublicApiPaths": [
+    "/api/agent-bridge",
+    "/api/integrations/gmail/pubsub",
+    "/api/webhooks/clerk",
+    "/api/webhooks/resend"
+  ]
 }
