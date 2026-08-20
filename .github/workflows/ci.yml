@@ -31,9 +31,9 @@ jobs:
           --health-retries 5
     env:
       RAILWAY_ENVIRONMENT: staging
-      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
-      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
-      REDIS_URL: redis://localhost:6379
+      DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      DIRECT_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
+      REDIS_URL: redis://127.0.0.1:6379
       CLERK_SECRET_KEY: test_clerk_secret
       CLERK_PUBLISHABLE_KEY: test_clerk_pub
       CLERK_WEBHOOK_SECRET: test_webhook_secret
@@ -89,7 +89,7 @@ jobs:
           fi
         env:
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
-          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
       - name: Start disposable S3-compatible storage
         run: |
           docker run --name pathfinder-disposable-media-ci --detach \
@@ -187,7 +187,7 @@ jobs:
         env:
           RUN_VENUE_PACKAGE_DUPLICATE_MIGRATION_INTEGRATION: '1'
           PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS: '1'
-          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/pathfinder_disposable_ci
+          PATHFINDER_DISPOSABLE_DATABASE_URL: postgresql://postgres:testpassword@127.0.0.1:5432/pathfinder_disposable_ci
           PATHFINDER_DISPOSABLE_DATABASE: pathfinder_disposable_ci
       - name: Verify Clerk webhook receipt concurrency and rollback
         run: pnpm --dir packages/db exec vitest run src/helpers/membership-sync.integration.test.ts --pool=forks --maxWorkers=1
