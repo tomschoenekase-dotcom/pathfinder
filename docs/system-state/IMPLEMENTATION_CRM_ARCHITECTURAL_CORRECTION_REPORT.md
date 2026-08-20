@@ -8,22 +8,23 @@ Branch: `codex/torchiko-crm-staging-reconciled-20260820`
 
 ## Executive verdict
 
-**The corrected, staging-reconciled branch is ready for human merge review with prospect delivery
-dark. It is not yet authorized for staging provider setup, real import, or email.**
+**The corrected, staging-reconciled branch is safe for human merge review and controlled staging
+with prospect delivery dark. It is not ready for real import or email.**
 
-The P0 data, authority, send-safety, conversion, and agent-boundary corrections are materially implemented and database-tested. The worktree is much safer than the preserved pre-correction snapshot. It is not complete enough for an optimistic merge recommendation because:
+The P0 data, authority, send-safety, conversion, and agent-boundary corrections are materially implemented and database-tested. The worktree is much safer than the preserved pre-correction snapshot. Merge review can proceed with delivery dark, but real import and correspondence remain gated because:
 
 1. Gmail OAuth, encrypted credentials, HTTP transport, Pub/Sub verification, Prisma inbound storage,
    and scheduled sync/watch runtime are mounted, but no real credentialed smoke test is authorized;
-2. the full synthetic import pipeline is now durable and tested locally, but still requires an
-   authenticated staging rehearsal and Tom's real-workbook dry-run review;
-3. local in-app browser QA now covers the CRM directory, outreach center, campaign review, frozen
-   content, URL state, back/forward behavior, and 390 px mobile rendering, but an authenticated
-   staging run through the real admin routes remains required;
-4. authenticated staging browser QA and operator-configured Google smoke tests remain external gates;
-   local fixture/browser and deterministic provider tests do not replace them.
+2. the full synthetic import pipeline is now durable and tested locally, but staging still has no
+   retained import and Tom's real-workbook dry-run review remains required;
+3. authenticated exact-revision staging QA covers the directory, pipeline, imports, operations,
+   deep-linked filter state, browser back/forward, dark outreach gate, desktop, and 390 px mobile;
+4. operator-configured Google smoke tests remain external gates; deterministic provider tests do
+   not replace them.
 
-No real prospect email, provider account, credential, Pub/Sub watch, DNS record, workbook, deployment, merge, or push was changed.
+No real prospect email, provider account, credential, Pub/Sub watch, DNS record, workbook, production
+deployment, or merge was changed. The isolated staging branch was pushed and deployed to Railway
+under the existing synthetic-only staging controls.
 
 ## Architecture decisions implemented
 
@@ -197,13 +198,14 @@ The real 16,397-row workbook must not be imported yet.
 Implemented UI protections include server-owned feature policy, route/API/navigation gates, exact Gmail mailbox selection and health display, exact frozen recipient/content/hash inspection, separate approval/release confirmations, exact count/scope copy, keyboard focus entry, Tab trap, and Escape handling. Core CRM and human prospect outreach are off by default; autonomous and deferred Google features are hard-off.
 
 Component and automated accessibility tests pass. Axe's color-contrast rule is not disabled, but
-jsdom logs its missing canvas implementation. In-app browser QA against the local Clerk development
-fixture verified desktop and 390 x 844 mobile layouts, directory filters, deep-linked filter state,
-URL updates, browser back/forward restoration, outreach readiness, exact frozen recipient/content
-inspection, and fail-closed final release. It found and corrected two partial-readiness fixture crashes
-(`accounts` and frozen `items` were assumed present). A fresh post-fix browser session rendered the
-campaign and outreach views with zero console errors and `Send now` disabled. Real staging auth,
-real-route keyboard coverage, and instrumented contrast remain staging gates rather than claimed proof.
+jsdom logs its missing canvas implementation. Local Clerk-fixture QA verified campaign review,
+frozen content, and fail-closed release behavior. Authenticated exact-revision staging QA then verified
+the empty directory and pipeline, durable import workbench, platform CRM operations region, URL-backed
+search, browser back/forward restoration, server-gated outreach 404, and mobile navigation focus/Escape.
+The visual 390 x 844 pass exposed a collapsed admin content column that DOM-only checks had missed;
+`AdminSectionShell` now gives its wrapper and main region explicit full width/min-width behavior, and
+the corrected staging screenshot shows readable full-width copy, filters, and queue. Instrumented
+real-browser contrast measurement remains unclaimed; visual contrast and automated axe coverage pass.
 
 ## Security, privacy, audit, and operational events
 
@@ -252,13 +254,27 @@ Successful:
 - changed-file Prettier check and `git diff --check` passed after formatting.
 - legacy SQLite Python tests: 6/6; root wrapper: 1/1.
 - Gmail/fake provider tests: 8 total; inbound sync tests: 14.
+- GitHub CI run `32399555947` for `962e7cb`: success in 10m24s.
+- GitHub CI run `32401667854` attempt 2 for `0fbd054`: success in 12m50s. Attempt 1
+  failed only on the unrelated timing-sensitive `OffboardingExportFinalizer` call-count assertion;
+  the exact test passed 7/7 locally and the immutable rerun passed the complete suite.
+- disposable PostgreSQL rehearsal from the exact 125-row/126-table staging boundary to 132 rows/164
+  tables: pass, with zero invalid indexes and zero unvalidated constraints.
+- Railway staging migration deployment `2148e661-d82d-402d-a05b-89f664b7de00`: accepted the exact
+  125-row ledger, applied seven migrations, and passed 132/132 ledger and integrity checks. A duplicate
+  concurrent deployment failed closed on the temporary unfinished final migration.
+- final Railway web deployment `6c164613-857c-4d4a-8172-0f107261f921`: active at exact revision
+  `0fbd054da68f85e4d83de0da4fc2dd22cff3b2a2`; exact database, Redis, and storage resource identities
+  admitted; DB and queue healthy.
+- authenticated staging browser QA: directory, pipeline, import, operations/event center, dark
+  outreach gate, URL/back-forward state, desktop, corrected 390 x 844 visual layout, and keyboard
+  focus/Escape behavior passed.
 
 Skipped or unproven:
 
 - routine suites skip credentialed provider integrations by design; the CRM disposable DB suites
   and PC-local immutable object-storage integration were run explicitly.
 - no real Gmail/OAuth/Pub/Sub test, because no credentials or external state were authorized.
-- no authenticated staging browser run against the real admin routes.
 - no real workbook import.
 - no sanitized snapshot containing real production data; both fresh-chain and populated synthetic
   pre-correction upgrade rehearsals passed.
@@ -272,7 +288,9 @@ then replayed onto active staging successor `69f6e3a` in branch
 semantically: staging's expanded support-request states, CRM platform events, and the router
 modularity boundary all survive. `packages/db/src/index.ts` retains staging's `notesProposalInput`
 export alongside CRM exports. Prisma was regenerated and the committed reconciled tree passed lint,
-typecheck, full tests, build, and boundary gates. No merge or push occurred.
+typecheck, full tests, build, and boundary gates. The isolated staging branch was fast-forwarded to
+`codex/pathfinder-v2-staging`, then corrected through `962e7cb` and `0fbd054`; no production branch was
+merged or pushed.
 
 Review sequence on the reconciled branch:
 
@@ -285,27 +303,28 @@ Review sequence on the reconciled branch:
 - `1724244` scalable canonical CRM API and platform attention read model;
 - `eb740c8` protected CRM dashboard and exact frozen-batch/import surfaces;
 - `83ca4e6` architecture and operational handoff documentation;
-- `1e7f183` attention-router modularity reconciliation.
+- `1e7f183` attention-router modularity reconciliation;
+- `962e7cb` admit the reviewed 125-migration pre-CRM staging lineage;
+- `0fbd054` preserve full-width authenticated admin layout on mobile.
 
-Recommended order after blockers are resolved:
+Completed staging order and remaining provider sequence:
 
-1. production-like backup and migration rehearsal;
-2. apply migrations;
-3. deploy workers with delivery disabled;
-4. deploy API/dashboard;
-5. verify CRM without provider credentials;
-6. run synthetic import and reconciliation;
-7. complete authenticated staging browser QA on real admin routes;
-8. configure staging Google/Pub/Sub through operator actions;
-9. run fixture/replay plus one separately approved internal smoke test;
-10. re-disable prospect delivery.
+1. exact 125-to-132 migration rehearsal completed on disposable PostgreSQL;
+2. seven migrations applied to synthetic-only staging through the guarded predeploy;
+3. API/dashboard/workers deployed with prospect delivery dark;
+4. exact-revision health and authenticated CRM UI verified without provider credentials;
+5. next, run a synthetic staging import/reconciliation rehearsal;
+6. configure staging Google/Pub/Sub through operator actions;
+7. run fixture/replay plus one separately approved internal smoke test;
+8. re-disable prospect delivery after that test.
 
 ## Remaining blockers by gate
 
 ### Blocks merge under this packet
 
-- authenticated staging browser QA on the real admin routes, required by the packet's strict
-  definition of done even though local fixture browser QA now passes.
+- no known code, migration, CI, or authenticated staging-UI blocker remains for human merge review
+  with delivery dark;
+- merge authority and review remain human actions and were not exercised.
 
 ### Blocks staging provider setup
 
@@ -351,7 +370,7 @@ Recommended order after blockers are resolved:
 
 ## Operator-only actions for Tom
 
-After merge review and authenticated staging are ready:
+After merge review:
 
 1. confirm Google Cloud project `winged-precinct-506104-h1`;
 2. configure OAuth consent and create the web OAuth client;
