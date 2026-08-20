@@ -260,7 +260,7 @@ describe('SupportWorkspace', () => {
     )
     expect((await screen.findByRole('alert')).textContent).toMatch(/not sent.*changed/i)
     expect(screen.queryByText('Your reply was sent.')).toBeNull()
-    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe(
+    expect((await screen.findByLabelText<HTMLTextAreaElement>('Reply')).value).toBe(
       'The revised wording looks right.',
     )
 
@@ -271,7 +271,7 @@ describe('SupportWorkspace', () => {
         requestId: request.id,
       }),
     )
-    expect(screen.getByLabelText<HTMLTextAreaElement>('Reply').value).toBe(
+    expect((await screen.findByLabelText<HTMLTextAreaElement>('Reply')).value).toBe(
       'The revised wording looks right.',
     )
   })
