@@ -70,10 +70,10 @@ function defaultAdapter(
     provider: 'resend',
     async send(message) {
       const response = await resend.emails.send({
-        from: `PathFinder Operations <${env.RESEND_FROM_EMAIL ?? 'noreply@pathfinder.ai'}>`,
+        from: `Torchiko Operations <${env.RESEND_FROM_EMAIL ?? 'noreply@torchiko.com'}>`,
         to: policy.destination,
         subject: message.subject,
-        text: `${message.text}\n\nOpen the PathFinder OS record: ${message.recordUrl}`,
+        text: `${message.text}\n\nOpen the Torchiko operations record: ${message.recordUrl}`,
       })
       if (response.error) throw new Error('Operational alert provider rejected the request')
       return response.data?.id ? { providerRef: response.data.id } : {}

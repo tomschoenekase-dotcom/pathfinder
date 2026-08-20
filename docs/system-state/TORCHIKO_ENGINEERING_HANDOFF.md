@@ -1,5 +1,7 @@
 # Torchiko Engineering Handoff
 
+> **Migration instruction status: STAGING-ONLY AUTHORIZED — PRODUCTION COMMANDS REMAIN STOPPED.**
+
 **Purpose:** give a future coding agent enough verified context to work safely without rediscovering the repository. Read `TORCHIKO_STATE_OF_SYSTEM.md` for product conclusions and `TORCHIKO_CAPABILITY_MATRIX.md` before claiming a feature exists.
 
 **Snapshot:** 2026-08-19 · repo `C:\Users\tomsc\Downloads\PathFinder` · branch `codex/torchiko-cloud-staging-20260819` · HEAD `4cbf8a677d0b4f8f4dc76e935ea0d00d6dcf0b8b` plus a large pre-existing dirty working tree.

@@ -1,5 +1,7 @@
 # Production Readiness Implementation — 2026-08-19
 
+> **Migration instruction status: HISTORICAL — DO NOT EXECUTE.**
+
 Packet: `CODEX_PACKET_01_PRODUCTION_READINESS.md`
 
 ## Baseline and preservation
