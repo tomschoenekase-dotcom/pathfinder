@@ -49,6 +49,7 @@ import { adminSecondLayerRouter } from './second-layer'
 import { adminTochiRolloutRouter } from './tochi-rollout'
 import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
 import { adminProductEntitlementsRouter } from './product-entitlements'
+import { adminProspectCrmRouter } from './prospect-crm'
 import { adminOperationsReadinessRouter } from './operations-readiness'
 
 export const adminRouter = mergeRouters(
@@ -56,6 +57,7 @@ export const adminRouter = mergeRouters(
   adminAttentionConsoleRouter,
   adminKnowledgeProposalsRouter,
   adminProductEntitlementsRouter,
+  adminProspectCrmRouter,
   adminOperationsReadinessRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,

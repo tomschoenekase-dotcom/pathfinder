@@ -8,15 +8,23 @@ import { AdminCreateClientForm } from './AdminCreateClientForm'
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
+  linkConversion: vi.fn(),
   push: vi.fn(),
   refresh: vi.fn(),
   uuid: vi.fn(() => '123e4567-e89b-42d3-a456-426614174000'),
+  searchParams: new URLSearchParams(),
 }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.push, refresh: mocks.refresh }),
+  useSearchParams: () => mocks.searchParams,
 }))
 vi.mock('../../lib/trpc', () => ({
-  useTRPCClient: () => ({ admin: { createClientAndVenue: { mutate: mocks.create } } }),
+  useTRPCClient: () => ({
+    admin: {
+      createClientAndVenue: { mutate: mocks.create },
+      linkProspectConversion: { mutate: mocks.linkConversion },
+    },
+  }),
 }))
 vi.mock('../../lib/browser-uuid', () => ({ browserUuid: mocks.uuid }))
 
@@ -24,6 +32,7 @@ describe('AdminCreateClientForm', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+    mocks.searchParams = new URLSearchParams()
   })
 
   it('synchronously fences same-tick duplicate provider-backed creation', () => {
@@ -70,6 +79,42 @@ describe('AdminCreateClientForm', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
     expect(mocks.push).toHaveBeenCalledWith('/venues/venue%20%2F%201/onboarding')
     expect(mocks.refresh).toHaveBeenCalledOnce()
+    fetchMock.mockRestore()
+  })
+
+  it('prefills and permanently links a converted prospect after retry-safe client creation', async () => {
+    mocks.searchParams = new URLSearchParams({
+      prospectId: 'prospect_1',
+      prospectVenueId: 'prospect_venue_1',
+      clientName: 'Northstar Arts',
+      venueName: 'Northstar Hall',
+      primaryContactEmail: 'owner@northstar.example',
+    })
+    mocks.create.mockResolvedValue({
+      tenant: { id: 'tenant_1' },
+      venue: { id: 'venue_1' },
+      invitation: { id: 'invite_1', replayed: false },
+    })
+    mocks.linkConversion.mockResolvedValue({ conversion: { id: 'conversion_1' }, replayed: false })
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 200 }))
+
+    render(<AdminCreateClientForm />)
+    expect((screen.getByLabelText('Client name') as HTMLInputElement).value).toBe('Northstar Arts')
+    expect(screen.getByText(/retain a permanent link/i)).toBeTruthy()
+    fireEvent.submit(screen.getByRole('button', { name: /Create client/ }).closest('form')!)
+
+    await vi.waitFor(() =>
+      expect(mocks.linkConversion).toHaveBeenCalledWith({
+        organizationId: 'prospect_1',
+        prospectVenueId: 'prospect_venue_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        evidence: { clientCreateRequestId: '123e4567-e89b-42d3-a456-426614174000' },
+      }),
+    )
+    expect(fetchMock).toHaveBeenCalledOnce()
     fetchMock.mockRestore()
   })
 })

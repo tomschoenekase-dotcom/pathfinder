@@ -86,7 +86,7 @@ model Tenant {
   updatedAt                      DateTime                                  @updatedAt @map("updated_at")
   memberships                    TenantMembership[]
   featureFlags                   TenantFeatureFlag[]
-  entitlementOverrides          ProductEntitlementOverride[]
+  entitlementOverrides           ProductEntitlementOverride[]
   venues                         Venue[]
   operationalUpdates             OperationalUpdate[]
   analyticsEvents                AnalyticsEvent[]
@@ -109,7 +109,7 @@ model Tenant {
   operationalEvents              OperationalEvent[]
   operationalEventDeliveries     OperationalEventDelivery[]
   knowledgeChangeProposals       KnowledgeChangeProposal[]
-  messageFeedback               MessageFeedback[]
+  messageFeedback                MessageFeedback[]
   venueFloors                    VenueFloor[]
   venueLocations                 VenueLocation[]
   venueLocationConnections       VenueLocationConnection[]
@@ -181,7 +181,8 @@ model Tenant {
   clientAssistantTurns           ClientAssistantTurn[]
   clientAssistantSupportHandoffs ClientAssistantSupportHandoff[]
   voiceSessions                  VoiceSession[]
-  voiceTranscriptSegments       VoiceTranscriptSegment[]
+  voiceTranscriptSegments        VoiceTranscriptSegment[]
+  prospectConversion             ProspectConversion?
 
   @@map("tenants")
 }
@@ -726,6 +727,7 @@ model Venue {
   entitlementOverrides                ProductEntitlementOverride[]
   voiceSessions                       VoiceSession[]
   voiceTranscriptSegments             VoiceTranscriptSegment[]
+  prospectConversion                  ProspectConversion?
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -781,29 +783,29 @@ model Place {
 }
 
 model VenueKnowledgeEntry {
-  id               String        @id @default(cuid())
-  tenantId         String        @map("tenant_id")
-  venueId          String        @map("venue_id")
-  title            String
-  category         String
-  content          String
-  isEnabled        Boolean       @default(true) @map("is_enabled")
-  visibility       String        @default("PUBLIC")
-  sourceType       String        @default("UNKNOWN") @map("source_type")
-  authorship       String        @default("UNKNOWN")
-  sourceName       String?       @map("source_name")
-  sourceUrl        String?       @map("source_url")
-  importedAt       DateTime?     @map("imported_at")
-  humanConfirmedAt DateTime?     @map("human_confirmed_at")
-  humanConfirmedBy String?       @map("human_confirmed_by")
-  lastReviewedAt   DateTime?     @map("last_reviewed_at")
-  lastReviewedBy   String?       @map("last_reviewed_by")
-  sourcePackageId  String?       @map("source_package_id")
-  createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
-  venue            Venue         @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  sourcePackage    VenuePackage? @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  targetedByProposals KnowledgeChangeProposal[] @relation("KnowledgeProposalTarget")
+  id                     String                    @id @default(cuid())
+  tenantId               String                    @map("tenant_id")
+  venueId                String                    @map("venue_id")
+  title                  String
+  category               String
+  content                String
+  isEnabled              Boolean                   @default(true) @map("is_enabled")
+  visibility             String                    @default("PUBLIC")
+  sourceType             String                    @default("UNKNOWN") @map("source_type")
+  authorship             String                    @default("UNKNOWN")
+  sourceName             String?                   @map("source_name")
+  sourceUrl              String?                   @map("source_url")
+  importedAt             DateTime?                 @map("imported_at")
+  humanConfirmedAt       DateTime?                 @map("human_confirmed_at")
+  humanConfirmedBy       String?                   @map("human_confirmed_by")
+  lastReviewedAt         DateTime?                 @map("last_reviewed_at")
+  lastReviewedBy         String?                   @map("last_reviewed_by")
+  sourcePackageId        String?                   @map("source_package_id")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+  venue                  Venue                     @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  sourcePackage          VenuePackage?             @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  targetedByProposals    KnowledgeChangeProposal[] @relation("KnowledgeProposalTarget")
   publishedFromProposals KnowledgeChangeProposal[] @relation("KnowledgeProposalPublishedEntry")
 
   @@unique([id, tenantId, venueId])
@@ -1719,7 +1721,7 @@ model AiUsageEvent {
   requestType              String?              @map("request_type") @db.VarChar(100)
   routeModelKey            String?              @map("route_model_key") @db.VarChar(100)
   providerRequestId        String?              @map("provider_request_id") @db.VarChar(191)
-  fallbackUsed             Boolean               @default(false) @map("fallback_used")
+  fallbackUsed             Boolean              @default(false) @map("fallback_used")
   surface                  String
   provider                 String
   model                    String
@@ -1743,10 +1745,10 @@ model AiUsageEvent {
   session                  VisitorSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   clientAssistantTurn      ClientAssistantTurn? @relation(fields: [clientAssistantTurnId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
+  @@unique([tenantId, venueId, provider, providerRequestId], map: "ai_usage_events_provider_request_key")
   @@index([tenantId, createdAt])
   @@index([tenantId, venueId, createdAt])
   @@index([tenantId, venueId, capability, createdAt])
-  @@unique([tenantId, venueId, provider, providerRequestId], map: "ai_usage_events_provider_request_key")
   @@index([sessionId])
   @@index([clientAssistantTurnId])
   @@index([feature, createdAt])
@@ -1770,33 +1772,33 @@ enum VoiceTranscriptSpeaker {
 /// Provider-neutral voice lifecycle. Ephemeral provider secrets and audio bytes
 /// are never persisted. Entitlement and bot snapshots make authorization auditable.
 model VoiceSession {
-  id                       String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                 String             @map("tenant_id")
-  venueId                  String             @map("venue_id")
-  visitorSessionId         String             @map("visitor_session_id")
-  status                   VoiceSessionStatus @default(AUTHORIZING)
-  provider                 String             @db.VarChar(32)
-  model                    String             @db.VarChar(191)
-  capability               String             @db.VarChar(64)
-  tier                     String             @db.VarChar(32)
-  locale                   String             @db.VarChar(35)
-  voice                    String             @db.VarChar(80)
-  entitlementSnapshot      Json               @map("entitlement_snapshot")
-  botConfigurationSnapshot Json               @map("bot_configuration_snapshot")
-  providerSessionId        String?            @map("provider_session_id") @db.VarChar(191)
-  clientSecretExpiresAt    DateTime?          @map("client_secret_expires_at")
-  maxDurationSeconds       Int                @map("max_duration_seconds")
-  connectedAt              DateTime?          @map("connected_at")
-  endedAt                  DateTime?          @map("ended_at")
-  lastActiveAt             DateTime           @default(now()) @map("last_active_at")
-  durationSeconds          Int                @default(0) @map("duration_seconds")
-  fallbackToText           Boolean            @default(false) @map("fallback_to_text")
-  errorCode                String?            @map("error_code") @db.VarChar(100)
-  createdAt                DateTime           @default(now()) @map("created_at")
-  updatedAt                DateTime           @updatedAt @map("updated_at")
-  tenant                   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                    Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  visitorSession           VisitorSession     @relation(fields: [visitorSessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id                       String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String                   @map("tenant_id")
+  venueId                  String                   @map("venue_id")
+  visitorSessionId         String                   @map("visitor_session_id")
+  status                   VoiceSessionStatus       @default(AUTHORIZING)
+  provider                 String                   @db.VarChar(32)
+  model                    String                   @db.VarChar(191)
+  capability               String                   @db.VarChar(64)
+  tier                     String                   @db.VarChar(32)
+  locale                   String                   @db.VarChar(35)
+  voice                    String                   @db.VarChar(80)
+  entitlementSnapshot      Json                     @map("entitlement_snapshot")
+  botConfigurationSnapshot Json                     @map("bot_configuration_snapshot")
+  providerSessionId        String?                  @map("provider_session_id") @db.VarChar(191)
+  clientSecretExpiresAt    DateTime?                @map("client_secret_expires_at")
+  maxDurationSeconds       Int                      @map("max_duration_seconds")
+  connectedAt              DateTime?                @map("connected_at")
+  endedAt                  DateTime?                @map("ended_at")
+  lastActiveAt             DateTime                 @default(now()) @map("last_active_at")
+  durationSeconds          Int                      @default(0) @map("duration_seconds")
+  fallbackToText           Boolean                  @default(false) @map("fallback_to_text")
+  errorCode                String?                  @map("error_code") @db.VarChar(100)
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+  tenant                   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  visitorSession           VisitorSession           @relation(fields: [visitorSessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   transcriptSegments       VoiceTranscriptSegment[]
 
   @@unique([id, tenantId, venueId])
@@ -1865,31 +1867,31 @@ enum ConversationInsightReviewStatus {
 /// Structured, reviewable intelligence derived from one tenant-owned conversation.
 /// Evidence contains message identifiers only; raw conversation text remains canonical in Message.
 model ConversationInsight {
-  id                     String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId               String                          @map("tenant_id")
-  venueId                String                          @map("venue_id")
-  sessionId              String                          @map("session_id")
-  guestChatTurnId        String?                         @map("guest_chat_turn_id") @db.Uuid
-  category               ConversationInsightCategory
-  confidence             Decimal                         @db.Decimal(5, 4)
-  severity               ConversationInsightSeverity    @default(INFO)
-  summary                String                          @db.VarChar(1000)
-  suggestedAction        String?                         @map("suggested_action") @db.VarChar(1000)
-  evidenceMessageIds     Json                            @default("[]") @map("evidence_message_ids")
-  messageSequenceStart   Int?                            @map("message_sequence_start")
-  messageSequenceEnd     Int?                            @map("message_sequence_end")
-  capability             String                          @db.VarChar(64)
-  provider               String                          @db.VarChar(32)
-  model                  String                          @db.VarChar(191)
-  analyzerVersion        String                          @map("analyzer_version") @db.VarChar(64)
-  reviewStatus           ConversationInsightReviewStatus @default(UNREVIEWED) @map("review_status")
-  reviewedBy             String?                         @map("reviewed_by") @db.VarChar(191)
-  reviewedAt             DateTime?                       @map("reviewed_at")
-  createdAt              DateTime                        @default(now()) @map("created_at")
-  tenant                 Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                  Venue                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  session                VisitorSession                  @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  guestChatTurn          GuestChatTurn?                  @relation(fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  id                       String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String                          @map("tenant_id")
+  venueId                  String                          @map("venue_id")
+  sessionId                String                          @map("session_id")
+  guestChatTurnId          String?                         @map("guest_chat_turn_id") @db.Uuid
+  category                 ConversationInsightCategory
+  confidence               Decimal                         @db.Decimal(5, 4)
+  severity                 ConversationInsightSeverity     @default(INFO)
+  summary                  String                          @db.VarChar(1000)
+  suggestedAction          String?                         @map("suggested_action") @db.VarChar(1000)
+  evidenceMessageIds       Json                            @default("[]") @map("evidence_message_ids")
+  messageSequenceStart     Int?                            @map("message_sequence_start")
+  messageSequenceEnd       Int?                            @map("message_sequence_end")
+  capability               String                          @db.VarChar(64)
+  provider                 String                          @db.VarChar(32)
+  model                    String                          @db.VarChar(191)
+  analyzerVersion          String                          @map("analyzer_version") @db.VarChar(64)
+  reviewStatus             ConversationInsightReviewStatus @default(UNREVIEWED) @map("review_status")
+  reviewedBy               String?                         @map("reviewed_by") @db.VarChar(191)
+  reviewedAt               DateTime?                       @map("reviewed_at")
+  createdAt                DateTime                        @default(now()) @map("created_at")
+  tenant                   Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session                  VisitorSession                  @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  guestChatTurn            GuestChatTurn?                  @relation(fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
   knowledgeChangeProposals KnowledgeChangeProposal[]
 
   @@unique([tenantId, venueId, guestChatTurnId, category, analyzerVersion], map: "conversation_insights_turn_category_version_key")
@@ -1933,33 +1935,33 @@ enum OperationalEventDeliveryStatus {
 /// Channel-agnostic, actionable operational signal. High-frequency telemetry
 /// remains in analytics; only events requiring human awareness belong here.
 model OperationalEvent {
-  id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String                   @map("tenant_id")
-  venueId           String?                  @map("venue_id")
-  eventType         String                   @map("event_type") @db.VarChar(100)
-  sourceSubsystem   String                   @map("source_subsystem") @db.VarChar(64)
-  severity          OperationalEventSeverity @default(INFO)
-  title             String                   @db.VarChar(191)
-  summary           String                   @db.VarChar(2000)
-  actionRequired    Boolean                  @default(false) @map("action_required")
-  linkedObjectType  String?                  @map("linked_object_type") @db.VarChar(64)
-  linkedObjectId    String?                  @map("linked_object_id") @db.VarChar(191)
-  recommendedAction String?                  @map("recommended_action") @db.VarChar(1000)
-  state             OperationalEventState    @default(OPEN)
-  deduplicationKey  String                   @map("deduplication_key") @db.VarChar(191)
-  occurrenceCount   Int                      @default(1) @map("occurrence_count")
-  lastOccurredAt    DateTime                 @default(now()) @map("last_occurred_at")
-  readAt            DateTime?                @map("read_at")
-  readBy            String?                  @map("read_by") @db.VarChar(191)
-  acknowledgedAt    DateTime?                @map("acknowledged_at")
-  acknowledgedBy    String?                  @map("acknowledged_by") @db.VarChar(191)
-  resolvedAt        DateTime?                @map("resolved_at")
-  resolvedBy        String?                  @map("resolved_by") @db.VarChar(191)
-  expiresAt         DateTime?                @map("expires_at")
-  createdAt         DateTime                 @default(now()) @map("created_at")
-  updatedAt         DateTime                 @updatedAt @map("updated_at")
-  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue             Venue?                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id                String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String                     @map("tenant_id")
+  venueId           String?                    @map("venue_id")
+  eventType         String                     @map("event_type") @db.VarChar(100)
+  sourceSubsystem   String                     @map("source_subsystem") @db.VarChar(64)
+  severity          OperationalEventSeverity   @default(INFO)
+  title             String                     @db.VarChar(191)
+  summary           String                     @db.VarChar(2000)
+  actionRequired    Boolean                    @default(false) @map("action_required")
+  linkedObjectType  String?                    @map("linked_object_type") @db.VarChar(64)
+  linkedObjectId    String?                    @map("linked_object_id") @db.VarChar(191)
+  recommendedAction String?                    @map("recommended_action") @db.VarChar(1000)
+  state             OperationalEventState      @default(OPEN)
+  deduplicationKey  String                     @map("deduplication_key") @db.VarChar(191)
+  occurrenceCount   Int                        @default(1) @map("occurrence_count")
+  lastOccurredAt    DateTime                   @default(now()) @map("last_occurred_at")
+  readAt            DateTime?                  @map("read_at")
+  readBy            String?                    @map("read_by") @db.VarChar(191)
+  acknowledgedAt    DateTime?                  @map("acknowledged_at")
+  acknowledgedBy    String?                    @map("acknowledged_by") @db.VarChar(191)
+  resolvedAt        DateTime?                  @map("resolved_at")
+  resolvedBy        String?                    @map("resolved_by") @db.VarChar(191)
+  expiresAt         DateTime?                  @map("expires_at")
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  tenant            Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   deliveries        OperationalEventDelivery[]
 
   @@unique([tenantId, deduplicationKey], map: "operational_events_tenant_deduplication_key")
@@ -1973,20 +1975,20 @@ model OperationalEvent {
 /// Delivery attempt projection; business event creation never depends on a
 /// particular email, SMS, push, Slack, or webhook implementation.
 model OperationalEventDelivery {
-  id             String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String                         @map("tenant_id")
-  eventId        String                         @map("event_id") @db.Uuid
+  id             String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String                            @map("tenant_id")
+  eventId        String                            @map("event_id") @db.Uuid
   channel        OperationalEventDeliveryChannel
-  destinationKey String?                        @map("destination_key") @db.VarChar(191)
-  status         OperationalEventDeliveryStatus @default(PENDING)
-  attemptCount   Int                            @default(0) @map("attempt_count")
-  lastErrorCode  String?                        @map("last_error_code") @db.VarChar(100)
-  nextAttemptAt  DateTime?                      @map("next_attempt_at")
-  sentAt         DateTime?                      @map("sent_at")
-  createdAt      DateTime                       @default(now()) @map("created_at")
-  updatedAt      DateTime                       @updatedAt @map("updated_at")
-  tenant         Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  event          OperationalEvent               @relation(fields: [eventId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  destinationKey String?                           @map("destination_key") @db.VarChar(191)
+  status         OperationalEventDeliveryStatus    @default(PENDING)
+  attemptCount   Int                               @default(0) @map("attempt_count")
+  lastErrorCode  String?                           @map("last_error_code") @db.VarChar(100)
+  nextAttemptAt  DateTime?                         @map("next_attempt_at")
+  sentAt         DateTime?                         @map("sent_at")
+  createdAt      DateTime                          @default(now()) @map("created_at")
+  updatedAt      DateTime                          @updatedAt @map("updated_at")
+  tenant         Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  event          OperationalEvent                  @relation(fields: [eventId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   attempts       OperationalEventDeliveryAttempt[]
 
   @@unique([eventId, channel, destinationKey], map: "operational_event_deliveries_target_key")
@@ -1998,16 +2000,16 @@ model OperationalEventDelivery {
 /// Append-only, sanitized audit for each adapter invocation. Response bodies,
 /// provider credentials, prompts, and recipient addresses are never stored.
 model OperationalEventDeliveryAttempt {
-  id             String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String                         @map("tenant_id")
-  deliveryId     String                         @map("delivery_id") @db.Uuid
-  attemptNumber  Int                            @map("attempt_number")
-  status         OperationalEventDeliveryStatus
-  provider       String                         @db.VarChar(64)
-  providerRef    String?                        @map("provider_ref") @db.VarChar(191)
-  errorCode      String?                        @map("error_code") @db.VarChar(100)
-  attemptedAt    DateTime                       @default(now()) @map("attempted_at")
-  delivery       OperationalEventDelivery       @relation(fields: [deliveryId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  id            String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String                         @map("tenant_id")
+  deliveryId    String                         @map("delivery_id") @db.Uuid
+  attemptNumber Int                            @map("attempt_number")
+  status        OperationalEventDeliveryStatus
+  provider      String                         @db.VarChar(64)
+  providerRef   String?                        @map("provider_ref") @db.VarChar(191)
+  errorCode     String?                        @map("error_code") @db.VarChar(100)
+  attemptedAt   DateTime                       @default(now()) @map("attempted_at")
+  delivery      OperationalEventDelivery       @relation(fields: [deliveryId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([deliveryId, attemptNumber], map: "operational_event_delivery_attempt_number_key")
   @@index([tenantId, attemptedAt])
@@ -2026,35 +2028,35 @@ enum KnowledgeChangeProposalStatus {
 /// Human-reviewed bridge from conversational evidence to canonical venue knowledge.
 /// Approval never mutates the target entry; publishing remains a distinct audited action.
 model KnowledgeChangeProposal {
-  id                       String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                 String                        @map("tenant_id")
-  venueId                  String                        @map("venue_id")
-  sessionId                String?                       @map("session_id")
-  conversationInsightId    String?                       @map("conversation_insight_id") @db.Uuid
-  targetKnowledgeEntryId   String?                       @map("target_knowledge_entry_id")
-  publishedKnowledgeEntryId String?                      @map("published_knowledge_entry_id")
-  observedVisitorClaim     String?                       @map("observed_visitor_claim") @db.VarChar(2000)
-  aiInference              String?                       @map("ai_inference") @db.VarChar(2000)
-  proposedChange           String                        @map("proposed_change") @db.VarChar(10000)
-  reason                   String                        @db.VarChar(2000)
-  confidence               Decimal                       @db.Decimal(5, 4)
-  evidenceMessageIds       Json                          @default("[]") @map("evidence_message_ids")
-  status                   KnowledgeChangeProposalStatus @default(DRAFT)
-  createdByType            String                        @map("created_by_type") @db.VarChar(32)
-  createdById              String                        @map("created_by_id") @db.VarChar(191)
-  reviewerId               String?                       @map("reviewer_id") @db.VarChar(191)
-  reviewNote               String?                       @map("review_note") @db.VarChar(2000)
-  reviewedAt               DateTime?                     @map("reviewed_at")
-  publishedAt              DateTime?                     @map("published_at")
-  publishErrorCode         String?                       @map("publish_error_code") @db.VarChar(100)
-  createdAt                DateTime                      @default(now()) @map("created_at")
-  updatedAt                DateTime                      @updatedAt @map("updated_at")
-  tenant                   Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                    Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  session                  VisitorSession?               @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  conversationInsight      ConversationInsight?          @relation(fields: [conversationInsightId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  targetKnowledgeEntry     VenueKnowledgeEntry?          @relation("KnowledgeProposalTarget", fields: [targetKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  publishedKnowledgeEntry  VenueKnowledgeEntry?          @relation("KnowledgeProposalPublishedEntry", fields: [publishedKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id                        String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                  String                        @map("tenant_id")
+  venueId                   String                        @map("venue_id")
+  sessionId                 String?                       @map("session_id")
+  conversationInsightId     String?                       @map("conversation_insight_id") @db.Uuid
+  targetKnowledgeEntryId    String?                       @map("target_knowledge_entry_id")
+  publishedKnowledgeEntryId String?                       @map("published_knowledge_entry_id")
+  observedVisitorClaim      String?                       @map("observed_visitor_claim") @db.VarChar(2000)
+  aiInference               String?                       @map("ai_inference") @db.VarChar(2000)
+  proposedChange            String                        @map("proposed_change") @db.VarChar(10000)
+  reason                    String                        @db.VarChar(2000)
+  confidence                Decimal                       @db.Decimal(5, 4)
+  evidenceMessageIds        Json                          @default("[]") @map("evidence_message_ids")
+  status                    KnowledgeChangeProposalStatus @default(DRAFT)
+  createdByType             String                        @map("created_by_type") @db.VarChar(32)
+  createdById               String                        @map("created_by_id") @db.VarChar(191)
+  reviewerId                String?                       @map("reviewer_id") @db.VarChar(191)
+  reviewNote                String?                       @map("review_note") @db.VarChar(2000)
+  reviewedAt                DateTime?                     @map("reviewed_at")
+  publishedAt               DateTime?                     @map("published_at")
+  publishErrorCode          String?                       @map("publish_error_code") @db.VarChar(100)
+  createdAt                 DateTime                      @default(now()) @map("created_at")
+  updatedAt                 DateTime                      @updatedAt @map("updated_at")
+  tenant                    Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                     Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session                   VisitorSession?               @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  conversationInsight       ConversationInsight?          @relation(fields: [conversationInsightId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  targetKnowledgeEntry      VenueKnowledgeEntry?          @relation("KnowledgeProposalTarget", fields: [targetKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  publishedKnowledgeEntry   VenueKnowledgeEntry?          @relation("KnowledgeProposalPublishedEntry", fields: [publishedKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, status, createdAt])
@@ -2114,32 +2116,32 @@ model VenueFloor {
 /// Verified structured anchor. Model-authored coordinates never enter this table
 /// without an authorized write path and `verifiedBy` evidence.
 model VenueLocation {
-  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId              String            @map("tenant_id")
-  venueId               String            @map("venue_id")
-  floorId               String?           @map("floor_id") @db.Uuid
-  parentLocationId      String?           @map("parent_location_id") @db.Uuid
-  stableKey             String            @map("stable_key") @db.VarChar(100)
+  id                    String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String                    @map("tenant_id")
+  venueId               String                    @map("venue_id")
+  floorId               String?                   @map("floor_id") @db.Uuid
+  parentLocationId      String?                   @map("parent_location_id") @db.Uuid
+  stableKey             String                    @map("stable_key") @db.VarChar(100)
   kind                  VenueLocationKind
-  displayName           String            @map("display_name") @db.VarChar(191)
-  description           String?           @db.VarChar(2000)
-  visibility            String            @default("PUBLIC") @db.VarChar(32)
-  latitude              Decimal?          @db.Decimal(10, 7)
-  longitude             Decimal?          @db.Decimal(10, 7)
-  mapX                  Decimal?          @map("map_x") @db.Decimal(12, 4)
-  mapY                  Decimal?          @map("map_y") @db.Decimal(12, 4)
-  externalMapReference  String?           @map("external_map_reference") @db.VarChar(2000)
-  accessibilityMetadata Json              @default("{}") @map("accessibility_metadata")
-  verifiedAt            DateTime           @map("verified_at")
-  verifiedBy            String             @map("verified_by") @db.VarChar(191)
-  isActive              Boolean            @default(true) @map("is_active")
-  createdAt             DateTime           @default(now()) @map("created_at")
-  updatedAt             DateTime           @updatedAt @map("updated_at")
-  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  floor                 VenueFloor?         @relation(fields: [floorId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  parent                VenueLocation?      @relation("VenueLocationHierarchy", fields: [parentLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  children              VenueLocation[]     @relation("VenueLocationHierarchy")
+  displayName           String                    @map("display_name") @db.VarChar(191)
+  description           String?                   @db.VarChar(2000)
+  visibility            String                    @default("PUBLIC") @db.VarChar(32)
+  latitude              Decimal?                  @db.Decimal(10, 7)
+  longitude             Decimal?                  @db.Decimal(10, 7)
+  mapX                  Decimal?                  @map("map_x") @db.Decimal(12, 4)
+  mapY                  Decimal?                  @map("map_y") @db.Decimal(12, 4)
+  externalMapReference  String?                   @map("external_map_reference") @db.VarChar(2000)
+  accessibilityMetadata Json                      @default("{}") @map("accessibility_metadata")
+  verifiedAt            DateTime                  @map("verified_at")
+  verifiedBy            String                    @map("verified_by") @db.VarChar(191)
+  isActive              Boolean                   @default(true) @map("is_active")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+  tenant                Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  floor                 VenueFloor?               @relation(fields: [floorId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  parent                VenueLocation?            @relation("VenueLocationHierarchy", fields: [parentLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  children              VenueLocation[]           @relation("VenueLocationHierarchy")
   outboundConnections   VenueLocationConnection[] @relation("LocationConnectionFrom")
   inboundConnections    VenueLocationConnection[] @relation("LocationConnectionTo")
 
@@ -2151,24 +2153,24 @@ model VenueLocation {
 }
 
 model VenueLocationConnection {
-  id                    String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId              String                      @map("tenant_id")
-  venueId               String                      @map("venue_id")
-  fromLocationId        String                      @map("from_location_id") @db.Uuid
-  toLocationId          String                      @map("to_location_id") @db.Uuid
-  kind                  VenueLocationConnectionKind
-  bidirectional         Boolean                     @default(true)
-  accessible            Boolean                     @default(false)
-  directions            String?                     @db.VarChar(2000)
-  verifiedAt            DateTime                    @map("verified_at")
-  verifiedBy            String                      @map("verified_by") @db.VarChar(191)
-  isActive              Boolean                     @default(true) @map("is_active")
-  createdAt             DateTime                    @default(now()) @map("created_at")
-  updatedAt             DateTime                    @updatedAt @map("updated_at")
-  tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue                 Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  fromLocation          VenueLocation               @relation("LocationConnectionFrom", fields: [fromLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  toLocation            VenueLocation               @relation("LocationConnectionTo", fields: [toLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  id             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String                      @map("tenant_id")
+  venueId        String                      @map("venue_id")
+  fromLocationId String                      @map("from_location_id") @db.Uuid
+  toLocationId   String                      @map("to_location_id") @db.Uuid
+  kind           VenueLocationConnectionKind
+  bidirectional  Boolean                     @default(true)
+  accessible     Boolean                     @default(false)
+  directions     String?                     @db.VarChar(2000)
+  verifiedAt     DateTime                    @map("verified_at")
+  verifiedBy     String                      @map("verified_by") @db.VarChar(191)
+  isActive       Boolean                     @default(true) @map("is_active")
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  updatedAt      DateTime                    @updatedAt @map("updated_at")
+  tenant         Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  fromLocation   VenueLocation               @relation("LocationConnectionFrom", fields: [fromLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  toLocation     VenueLocation               @relation("LocationConnectionTo", fields: [toLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, venueId, fromLocationId, toLocationId, kind])
   @@index([tenantId, venueId, isActive])
@@ -2743,19 +2745,19 @@ enum MessageFeedbackRating {
 /// One visitor-owned rating for an assistant message. The composite foreign
 /// keys make the tenant, venue, session, and message scope inseparable.
 model MessageFeedback {
-  id          String                @id @default(cuid())
-  tenantId    String                @map("tenant_id")
-  venueId     String                @map("venue_id")
-  sessionId   String                @map("session_id")
-  messageId   String                @map("message_id")
-  rating      MessageFeedbackRating
-  reason      String?               @db.VarChar(1000)
-  createdAt   DateTime              @default(now()) @map("created_at")
-  updatedAt   DateTime              @updatedAt @map("updated_at")
-  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue       Venue                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  session     VisitorSession        @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  message     Message               @relation(fields: [messageId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  id        String                @id @default(cuid())
+  tenantId  String                @map("tenant_id")
+  venueId   String                @map("venue_id")
+  sessionId String                @map("session_id")
+  messageId String                @map("message_id")
+  rating    MessageFeedbackRating
+  reason    String?               @db.VarChar(1000)
+  createdAt DateTime              @default(now()) @map("created_at")
+  updatedAt DateTime              @updatedAt @map("updated_at")
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue     Venue                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session   VisitorSession        @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  message   Message               @relation(fields: [messageId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, venueId, sessionId, messageId])
   @@index([tenantId, venueId, rating, createdAt])
@@ -3543,34 +3545,34 @@ model ApprovalRequest {
 /// A durable clarification raised by an agent and answered by a human operator.
 /// Questions are coordination state, not approvals and never grant execution authority.
 model AgentQuestion {
-  id              String                  @id @default(cuid())
-  operationId     String                  @map("operation_id") @db.Uuid
-  tenantId        String                  @map("tenant_id")
-  venueId         String                  @map("venue_id")
-  agentIdentityId String                  @map("agent_identity_id")
-  agentRunId      String?                 @map("agent_run_id")
-  question        String                  @db.VarChar(2000)
-  context         String?                 @db.VarChar(2000)
-  questionType    AgentQuestionType       @default(SHORT_TEXT) @map("question_type")
-  category        String                  @default("general") @db.VarChar(100)
-  urgency         AgentQuestionUrgency    @default(NORMAL)
-  choices         String[]                @default([])
-  dueAt           DateTime?               @map("due_at")
-  evidence        Json                    @default("[]")
-  proposedAnswer  Json?                   @map("proposed_answer")
-  callbackMetadata Json?                  @map("callback_metadata")
-  blocking        Boolean                 @default(true)
-  status          AgentQuestionStatus     @default(PENDING)
-  answer          String?                 @db.VarChar(5000)
-  answeredById    String?                 @map("answered_by_id") @db.VarChar(191)
-  answeredAt      DateTime?               @map("answered_at")
-  createdAt       DateTime                @default(now()) @map("created_at")
-  updatedAt       DateTime                @updatedAt @map("updated_at")
-  tenant          Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue           Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity   AgentIdentity           @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun        AgentRun?               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
-  onboardingLink  OnboardingQuestionLink?
+  id               String                  @id @default(cuid())
+  operationId      String                  @map("operation_id") @db.Uuid
+  tenantId         String                  @map("tenant_id")
+  venueId          String                  @map("venue_id")
+  agentIdentityId  String                  @map("agent_identity_id")
+  agentRunId       String?                 @map("agent_run_id")
+  question         String                  @db.VarChar(2000)
+  context          String?                 @db.VarChar(2000)
+  questionType     AgentQuestionType       @default(SHORT_TEXT) @map("question_type")
+  category         String                  @default("general") @db.VarChar(100)
+  urgency          AgentQuestionUrgency    @default(NORMAL)
+  choices          String[]                @default([])
+  dueAt            DateTime?               @map("due_at")
+  evidence         Json                    @default("[]")
+  proposedAnswer   Json?                   @map("proposed_answer")
+  callbackMetadata Json?                   @map("callback_metadata")
+  blocking         Boolean                 @default(true)
+  status           AgentQuestionStatus     @default(PENDING)
+  answer           String?                 @db.VarChar(5000)
+  answeredById     String?                 @map("answered_by_id") @db.VarChar(191)
+  answeredAt       DateTime?               @map("answered_at")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue            Venue                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity    AgentIdentity           @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun         AgentRun?               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  onboardingLink   OnboardingQuestionLink?
 
   @@unique([id, tenantId])
   @@unique([id, tenantId, venueId], map: "agent_questions_id_tenant_venue_key")
@@ -4406,4 +4408,749 @@ enum SupportParticipantKind {
 enum SupportMessageVisibility {
   CLIENT_VISIBLE
   INTERNAL_ONLY
+}
+
+enum ProspectStage {
+  DISCOVERED
+  RESEARCHED
+  NEEDS_REVIEW
+  READY_FOR_OUTREACH
+  CONTACTED
+  FOLLOW_UP_DUE
+  REPLIED
+  CONVERSATION
+  QUALIFIED
+  PROPOSAL_DECISION
+  WON
+  LOST
+  PARKED
+  DO_NOT_CONTACT
+}
+
+enum ProspectPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ProspectActivityType {
+  DISCOVERED
+  IMPORTED
+  RESEARCH_ADDED
+  STAGE_CHANGED
+  CONTACT_ADDED
+  NOTE_ADDED
+  OUTREACH_DRAFTED
+  OUTREACH_SENT
+  REPLY_RECEIVED
+  MEETING_OCCURRED
+  AI_RESEARCH_COMPLETED
+  CONVERTED_TO_CUSTOMER
+  ARCHIVED
+  RESTORED
+}
+
+enum ProspectDuplicateStatus {
+  OPEN
+  CONFIRMED_DUPLICATE
+  CONFIRMED_DISTINCT
+  DISMISSED
+}
+
+enum ProspectImportStatus {
+  DRAFT
+  DRY_RUN_READY
+  APPROVED
+  PROCESSING
+  COMPLETE
+  PARTIAL
+  FAILED
+}
+
+enum ProspectImportRowStatus {
+  VALID
+  WARNING
+  DUPLICATE_REVIEW
+  IMPORTED
+  FAILED
+  SKIPPED
+}
+
+enum ProspectRelationshipTier {
+  STANDARD
+  HIGH_VALUE
+  STRATEGIC
+}
+
+enum ProspectCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETE
+  CANCELLED
+}
+
+enum ProspectCampaignMemberStatus {
+  SELECTED
+  DRAFTED
+  NEEDS_REVIEW
+  APPROVED
+  QUEUED
+  SENT
+  REPLIED
+  BOUNCED
+  SUPPRESSED
+  FAILED
+  CANCELLED
+}
+
+enum ProspectDraftStatus {
+  NEEDS_REVIEW
+  APPROVED
+  REJECTED
+  SUPERSEDED
+  QUEUED
+  SENT
+}
+
+enum ProspectSendBatchStatus {
+  STAGED
+  APPROVED
+  QUEUED
+  PROCESSING
+  COMPLETE
+  PARTIAL
+  CANCELLED
+}
+
+enum ProspectSendItemStatus {
+  STAGED
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  DELAYED
+  BOUNCED
+  COMPLAINED
+  SUPPRESSED
+  FAILED
+  CANCELLED
+}
+
+enum ProspectEmailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum ProspectEmailMessageStatus {
+  RECEIVED
+  STAGED
+  QUEUED
+  SENT
+  DELIVERED
+  DELAYED
+  BOUNCED
+  COMPLAINED
+  SUPPRESSED
+  FAILED
+}
+
+/// Platform-owned sales territory. Prospects remain outside tenant scope until conversion.
+model ProspectTerritory {
+  id            String                 @id @default(cuid())
+  name          String
+  code          String                 @unique
+  description   String?
+  region        String?
+  archivedAt    DateTime?              @map("archived_at")
+  createdBy     String                 @map("created_by")
+  updatedBy     String                 @map("updated_by")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  organizations ProspectOrganization[]
+  venues        ProspectVenue[]
+
+  @@index([archivedAt, name])
+  @@map("prospect_territories")
+}
+
+model ProspectOrganization {
+  id                   String                       @id @default(cuid())
+  canonicalName        String                       @map("canonical_name")
+  normalizedName       String                       @map("normalized_name")
+  aliases              Json                         @default("[]")
+  website              String?
+  normalizedDomain     String?                      @map("normalized_domain")
+  organizationType     String?                      @map("organization_type")
+  description          String?
+  headquartersCity     String?                      @map("headquarters_city")
+  headquartersRegion   String?                      @map("headquarters_region")
+  headquartersCountry  String?                      @map("headquarters_country")
+  territoryId          String?                      @map("territory_id")
+  source               String?
+  researchProvenance   Json                         @default("[]") @map("research_provenance")
+  ownerId              String?                      @map("owner_id")
+  priority             ProspectPriority             @default(NORMAL)
+  relationshipTier     ProspectRelationshipTier     @default(STANDARD) @map("relationship_tier")
+  notes                String?
+  tags                 Json                         @default("[]")
+  archivedAt           DateTime?                    @map("archived_at")
+  createdBy            String                       @map("created_by")
+  updatedBy            String                       @map("updated_by")
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  updatedAt            DateTime                     @updatedAt @map("updated_at")
+  territory            ProspectTerritory?           @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  venues               ProspectVenue[]
+  contacts             ProspectContact[]
+  opportunity          ProspectOpportunity?
+  activities           ProspectActivity[]
+  sources              ProspectSourceEvidence[]
+  duplicateCandidatesA ProspectDuplicateCandidate[] @relation("prospect_duplicate_a")
+  duplicateCandidatesB ProspectDuplicateCandidate[] @relation("prospect_duplicate_b")
+  conversion           ProspectConversion?
+  campaignMembers      ProspectCampaignMember[]
+  outreachDrafts       ProspectOutreachDraft[]
+  emailThreads         ProspectEmailThread[]
+  emailMessages        ProspectEmailMessage[]
+  followups            ProspectFollowup[]
+
+  @@index([normalizedName])
+  @@index([normalizedDomain])
+  @@index([territoryId, archivedAt])
+  @@index([ownerId, archivedAt])
+  @@index([relationshipTier, archivedAt])
+  @@map("prospect_organizations")
+}
+
+model ProspectVenue {
+  id                String                   @id @default(cuid())
+  organizationId    String                   @map("organization_id")
+  territoryId       String?                  @map("territory_id")
+  name              String
+  normalizedName    String                   @map("normalized_name")
+  website           String?
+  normalizedDomain  String?                  @map("normalized_domain")
+  venueType         String?                  @map("venue_type")
+  addressLine1      String?                  @map("address_line_1")
+  addressLine2      String?                  @map("address_line_2")
+  city              String?
+  region            String?
+  postalCode        String?                  @map("postal_code")
+  country           String?
+  estimatedSize     String?                  @map("estimated_size")
+  fitAttributes     Json                     @default("{}") @map("fit_attributes")
+  visitorOperations Json                     @default("{}") @map("visitor_operations")
+  notes             String?
+  researchSources   Json                     @default("[]") @map("research_sources")
+  stage             ProspectStage            @default(DISCOVERED)
+  priority          ProspectPriority         @default(NORMAL)
+  nextAction        String?                  @map("next_action")
+  nextActionAt      DateTime?                @map("next_action_at")
+  lastActivityAt    DateTime?                @map("last_activity_at")
+  archivedAt        DateTime?                @map("archived_at")
+  sourceImportRowId String?                  @map("source_import_row_id")
+  createdBy         String                   @map("created_by")
+  updatedBy         String                   @map("updated_by")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  organization      ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  territory         ProspectTerritory?       @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  contacts          ProspectContact[]
+  activities        ProspectActivity[]
+  sources           ProspectSourceEvidence[]
+  sourceImportRow   ProspectImportRow?       @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
+  conversion        ProspectConversion?
+  campaignMembers   ProspectCampaignMember[]
+  outreachDrafts    ProspectOutreachDraft[]
+  emailThreads      ProspectEmailThread[]
+  emailMessages     ProspectEmailMessage[]
+
+  @@index([organizationId, archivedAt])
+  @@index([normalizedName])
+  @@index([normalizedDomain])
+  @@index([territoryId, stage, priority])
+  @@index([nextActionAt, archivedAt])
+  @@map("prospect_venues")
+}
+
+model ProspectContact {
+  id                     String                   @id @default(cuid())
+  organizationId         String                   @map("organization_id")
+  venueId                String?                  @map("venue_id")
+  fullName               String?
+  title                  String?
+  email                  String?
+  normalizedEmail        String?                  @map("normalized_email")
+  phone                  String?
+  source                 String?
+  provenance             Json                     @default("[]")
+  preferredCommunication String?                  @map("preferred_communication")
+  doNotContact           Boolean                  @default(false) @map("do_not_contact")
+  suppressionReason      String?                  @map("suppression_reason")
+  notes                  String?
+  sourceImportRowId      String?                  @map("source_import_row_id")
+  archivedAt             DateTime?                @map("archived_at")
+  createdBy              String                   @map("created_by")
+  updatedBy              String                   @map("updated_by")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  organization           ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue                  ProspectVenue?           @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  activities             ProspectActivity[]
+  sources                ProspectSourceEvidence[]
+  sourceImportRow        ProspectImportRow?       @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
+  campaignMembers        ProspectCampaignMember[]
+  outreachDrafts         ProspectOutreachDraft[]
+  emailThreads           ProspectEmailThread[]
+  emailMessages          ProspectEmailMessage[]
+
+  @@index([organizationId, archivedAt])
+  @@index([venueId, archivedAt])
+  @@index([normalizedEmail])
+  @@map("prospect_contacts")
+}
+
+model ProspectOpportunity {
+  id               String                 @id @default(cuid())
+  organizationId   String                 @unique @map("organization_id")
+  stage            ProspectStage          @default(DISCOVERED)
+  ownerId          String?                @map("owner_id")
+  priority         ProspectPriority       @default(NORMAL)
+  nextAction       String?                @map("next_action")
+  nextActionAt     DateTime?              @map("next_action_at")
+  lostParkedReason String?                @map("lost_parked_reason")
+  source           String?
+  notes            String?
+  lastActivityAt   DateTime?              @map("last_activity_at")
+  createdBy        String                 @map("created_by")
+  updatedBy        String                 @map("updated_by")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+  organization     ProspectOrganization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  stageHistory     ProspectStageHistory[]
+  followups        ProspectFollowup[]
+
+  @@index([stage, priority, nextActionAt])
+  @@index([ownerId, stage])
+  @@map("prospect_opportunities")
+}
+
+model ProspectStageHistory {
+  id            String              @id @default(cuid())
+  opportunityId String              @map("opportunity_id")
+  fromStage     ProspectStage?      @map("from_stage")
+  toStage       ProspectStage       @map("to_stage")
+  reason        String?
+  actorId       String              @map("actor_id")
+  evidence      Json                @default("{}")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  opportunity   ProspectOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+
+  @@index([opportunityId, createdAt])
+  @@map("prospect_stage_history")
+}
+
+model ProspectActivity {
+  id             String               @id @default(cuid())
+  organizationId String               @map("organization_id")
+  venueId        String?              @map("venue_id")
+  contactId      String?              @map("contact_id")
+  type           ProspectActivityType
+  summary        String
+  detail         String?
+  evidence       Json                 @default("{}")
+  actorId        String               @map("actor_id")
+  occurredAt     DateTime             @default(now()) @map("occurred_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  organization   ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue          ProspectVenue?       @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact        ProspectContact?     @relation(fields: [contactId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, occurredAt])
+  @@index([venueId, occurredAt])
+  @@index([contactId, occurredAt])
+  @@map("prospect_activities")
+}
+
+model ProspectSourceEvidence {
+  id             String               @id @default(cuid())
+  organizationId String               @map("organization_id")
+  venueId        String?              @map("venue_id")
+  contactId      String?              @map("contact_id")
+  sourceType     String               @map("source_type")
+  sourceUrl      String?              @map("source_url")
+  sourceLabel    String?              @map("source_label")
+  capturedValue  Json?                @map("captured_value")
+  importRowId    String?              @map("import_row_id")
+  researchedAt   DateTime?            @map("researched_at")
+  createdBy      String               @map("created_by")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  organization   ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue          ProspectVenue?       @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact        ProspectContact?     @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  importRow      ProspectImportRow?   @relation(fields: [importRowId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([importRowId])
+  @@map("prospect_source_evidence")
+}
+
+model ProspectDuplicateCandidate {
+  id              String                  @id @default(cuid())
+  organizationAId String                  @map("organization_a_id")
+  organizationBId String                  @map("organization_b_id")
+  status          ProspectDuplicateStatus @default(OPEN)
+  confidence      Float
+  reasons         Json                    @default("[]")
+  resolutionNote  String?                 @map("resolution_note")
+  reviewedBy      String?                 @map("reviewed_by")
+  reviewedAt      DateTime?               @map("reviewed_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+  organizationA   ProspectOrganization    @relation("prospect_duplicate_a", fields: [organizationAId], references: [id], onDelete: Restrict)
+  organizationB   ProspectOrganization    @relation("prospect_duplicate_b", fields: [organizationBId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationAId, organizationBId])
+  @@index([status, confidence])
+  @@map("prospect_duplicate_candidates")
+}
+
+model ProspectImport {
+  id                 String                @id @default(cuid())
+  fileName           String                @map("file_name")
+  fileType           String                @map("file_type")
+  fileSize           Int                   @map("file_size")
+  fileHash           String                @map("file_hash") @db.Char(64)
+  mappingHash        String                @map("mapping_hash") @db.Char(64)
+  importIdentityHash String                @unique @map("import_identity_hash") @db.Char(64)
+  mapping            Json
+  status             ProspectImportStatus  @default(DRAFT)
+  totalRows          Int                   @default(0) @map("total_rows")
+  validRows          Int                   @default(0) @map("valid_rows")
+  warningRows        Int                   @default(0) @map("warning_rows")
+  duplicateRows      Int                   @default(0) @map("duplicate_rows")
+  importedRows       Int                   @default(0) @map("imported_rows")
+  failedRows         Int                   @default(0) @map("failed_rows")
+  approvedBy         String?               @map("approved_by")
+  approvedAt         DateTime?             @map("approved_at")
+  createdBy          String                @map("created_by")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  sheets             ProspectImportSheet[]
+  rows               ProspectImportRow[]
+
+  @@index([status, createdAt])
+  @@index([fileHash])
+  @@map("prospect_imports")
+}
+
+model ProspectImportSheet {
+  id           String         @id @default(cuid())
+  importId     String         @map("import_id")
+  sheetName    String         @map("sheet_name")
+  sheetIndex   Int            @map("sheet_index")
+  detectedRows Int            @map("detected_rows")
+  columns      Json
+  createdAt    DateTime       @default(now()) @map("created_at")
+  import       ProspectImport @relation(fields: [importId], references: [id], onDelete: Restrict)
+
+  @@unique([importId, sheetName])
+  @@index([importId, sheetIndex])
+  @@map("prospect_import_sheets")
+}
+
+model ProspectImportRow {
+  id                     String                   @id @default(cuid())
+  importId               String                   @map("import_id")
+  sheetName              String                   @map("sheet_name")
+  originalRowNumber      Int                      @map("original_row_number")
+  rowFingerprint         String                   @map("row_fingerprint") @db.Char(64)
+  sourceValues           Json                     @map("source_values")
+  normalizedValues       Json                     @map("normalized_values")
+  status                 ProspectImportRowStatus
+  warnings               Json                     @default("[]")
+  errors                 Json                     @default("[]")
+  duplicateMatches       Json                     @default("[]") @map("duplicate_matches")
+  importedOrganizationId String?                  @map("imported_organization_id")
+  importedVenueId        String?                  @map("imported_venue_id")
+  importedContactId      String?                  @map("imported_contact_id")
+  errorCode              String?                  @map("error_code")
+  errorMessage           String?                  @map("error_message")
+  processedAt            DateTime?                @map("processed_at")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  import                 ProspectImport           @relation(fields: [importId], references: [id], onDelete: Restrict)
+  importedVenues         ProspectVenue[]
+  importedContacts       ProspectContact[]
+  sourceEvidence         ProspectSourceEvidence[]
+
+  @@unique([importId, sheetName, originalRowNumber])
+  @@index([importId, status, originalRowNumber])
+  @@index([rowFingerprint])
+  @@map("prospect_import_rows")
+}
+
+model ProspectConversion {
+  id              String               @id @default(cuid())
+  organizationId  String               @unique @map("organization_id")
+  prospectVenueId String?              @unique @map("prospect_venue_id")
+  tenantId        String               @unique @map("tenant_id")
+  venueId         String?              @unique @map("venue_id")
+  actorId         String               @map("actor_id")
+  evidence        Json                 @default("{}")
+  convertedAt     DateTime             @default(now()) @map("converted_at")
+  organization    ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  prospectVenue   ProspectVenue?       @relation(fields: [prospectVenueId], references: [id], onDelete: Restrict)
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  venue           Venue?               @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@index([convertedAt])
+  @@map("prospect_conversions")
+}
+
+/// A user-owned, portable view definition. Filters are data, never executable SQL.
+model ProspectSavedView {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(191)
+  ownerId   String   @map("owner_id") @db.VarChar(191)
+  filters   Json     @default("{}")
+  columns   String[] @default([])
+  sort      Json     @default("{}")
+  isShared  Boolean  @default(false) @map("is_shared")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([ownerId, name])
+  @@index([ownerId, updatedAt])
+  @@map("prospect_saved_views")
+}
+
+model ProspectOutreachCampaign {
+  id              String                   @id @default(cuid())
+  name            String                   @db.VarChar(191)
+  description     String?
+  status          ProspectCampaignStatus   @default(DRAFT)
+  cohortSnapshot  Json                     @map("cohort_snapshot")
+  playbookVersion String                   @map("playbook_version") @db.VarChar(100)
+  createdBy       String                   @map("created_by") @db.VarChar(191)
+  updatedBy       String                   @map("updated_by") @db.VarChar(191)
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  members         ProspectCampaignMember[]
+  drafts          ProspectOutreachDraft[]
+  sendBatches     ProspectSendBatch[]
+
+  @@index([status, updatedAt])
+  @@map("prospect_outreach_campaigns")
+}
+
+model ProspectCampaignMember {
+  id             String                       @id @default(cuid())
+  campaignId     String                       @map("campaign_id")
+  organizationId String                       @map("organization_id")
+  venueId        String?                      @map("venue_id")
+  contactId      String?                      @map("contact_id")
+  status         ProspectCampaignMemberStatus @default(SELECTED)
+  selection      Json                         @default("{}")
+  createdAt      DateTime                     @default(now()) @map("created_at")
+  updatedAt      DateTime                     @updatedAt @map("updated_at")
+  campaign       ProspectOutreachCampaign     @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  organization   ProspectOrganization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue          ProspectVenue?               @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact        ProspectContact?             @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  drafts         ProspectOutreachDraft[]
+  sendItems      ProspectSendItem[]
+
+  @@unique([campaignId, organizationId, contactId])
+  @@index([campaignId, status])
+  @@index([organizationId, createdAt])
+  @@map("prospect_campaign_members")
+}
+
+/// Versioned draft. Approval freezes the content hash and recipient snapshot.
+model ProspectOutreachDraft {
+  id                String                   @id @default(cuid())
+  campaignId        String                   @map("campaign_id")
+  memberId          String                   @map("member_id")
+  organizationId    String                   @map("organization_id")
+  venueId           String?                  @map("venue_id")
+  contactId         String?                  @map("contact_id")
+  version           Int                      @default(1)
+  status            ProspectDraftStatus      @default(NEEDS_REVIEW)
+  toEmail           String                   @map("to_email") @db.VarChar(320)
+  subject           String                   @db.VarChar(998)
+  textBody          String                   @map("text_body")
+  htmlBody          String?                  @map("html_body")
+  contentHash       String                   @map("content_hash") @db.Char(64)
+  groundingSnapshot Json                     @map("grounding_snapshot")
+  escalationFlags   String[]                 @default([]) @map("escalation_flags")
+  generatedByType   ActorType                @map("generated_by_type")
+  generatedById     String                   @map("generated_by_id") @db.VarChar(191)
+  approvedBy        String?                  @map("approved_by") @db.VarChar(191)
+  approvedAt        DateTime?                @map("approved_at")
+  rejectedReason    String?                  @map("rejected_reason") @db.VarChar(2000)
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  campaign          ProspectOutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  member            ProspectCampaignMember   @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  organization      ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue             ProspectVenue?           @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact           ProspectContact?         @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  sendItems         ProspectSendItem[]
+
+  @@unique([memberId, version])
+  @@index([campaignId, status, createdAt])
+  @@map("prospect_outreach_drafts")
+}
+
+model ProspectSendBatch {
+  id              String                   @id @default(cuid())
+  campaignId      String                   @map("campaign_id")
+  status          ProspectSendBatchStatus  @default(STAGED)
+  recipientCount  Int                      @map("recipient_count")
+  snapshotHash    String                   @map("snapshot_hash") @db.Char(64)
+  createdBy       String                   @map("created_by") @db.VarChar(191)
+  approvedBy      String?                  @map("approved_by") @db.VarChar(191)
+  approvedAt      DateTime?                @map("approved_at")
+  queuedAt        DateTime?                @map("queued_at")
+  completedAt     DateTime?                @map("completed_at")
+  cancelledReason String?                  @map("cancelled_reason") @db.VarChar(2000)
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  campaign        ProspectOutreachCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  items           ProspectSendItem[]
+
+  @@index([campaignId, status, createdAt])
+  @@map("prospect_send_batches")
+}
+
+model ProspectSendItem {
+  id                     String                 @id @default(cuid())
+  batchId                String                 @map("batch_id")
+  memberId               String                 @map("member_id")
+  draftId                String                 @map("draft_id")
+  status                 ProspectSendItemStatus @default(STAGED)
+  recipientEmailSnapshot String                 @map("recipient_email_snapshot") @db.VarChar(320)
+  subjectSnapshot        String                 @map("subject_snapshot") @db.VarChar(998)
+  contentHashSnapshot    String                 @map("content_hash_snapshot") @db.Char(64)
+  idempotencyKey         String                 @unique @map("idempotency_key") @db.VarChar(256)
+  providerMessageId      String?                @unique @map("provider_message_id") @db.VarChar(191)
+  attemptCount           Int                    @default(0) @map("attempt_count")
+  lastErrorCode          String?                @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage       String?                @map("last_error_message") @db.VarChar(2000)
+  sentAt                 DateTime?              @map("sent_at")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  batch                  ProspectSendBatch      @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  member                 ProspectCampaignMember @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  draft                  ProspectOutreachDraft  @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  message                ProspectEmailMessage?
+  events                 ProspectEmailEvent[]
+
+  @@unique([batchId, draftId])
+  @@index([batchId, status])
+  @@map("prospect_send_items")
+}
+
+model ProspectEmailThread {
+  id             String                 @id @default(cuid())
+  organizationId String                 @map("organization_id")
+  venueId        String?                @map("venue_id")
+  contactId      String?                @map("contact_id")
+  subject        String?                @db.VarChar(998)
+  replyTokenHash String                 @unique @map("reply_token_hash") @db.Char(64)
+  lastMessageAt  DateTime?              @map("last_message_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  organization   ProspectOrganization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue          ProspectVenue?         @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact        ProspectContact?       @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  messages       ProspectEmailMessage[]
+
+  @@index([organizationId, lastMessageAt])
+  @@map("prospect_email_threads")
+}
+
+model ProspectEmailMessage {
+  id                 String                     @id @default(cuid())
+  threadId           String                     @map("thread_id")
+  organizationId     String                     @map("organization_id")
+  venueId            String?                    @map("venue_id")
+  contactId          String?                    @map("contact_id")
+  sendItemId         String?                    @unique @map("send_item_id")
+  direction          ProspectEmailDirection
+  status             ProspectEmailMessageStatus
+  providerMessageId  String?                    @unique @map("provider_message_id") @db.VarChar(191)
+  internetMessageId  String?                    @map("internet_message_id") @db.VarChar(998)
+  inReplyTo          String?                    @map("in_reply_to") @db.VarChar(998)
+  fromAddress        String                     @map("from_address") @db.VarChar(320)
+  toAddresses        String[]                   @map("to_addresses")
+  subject            String                     @db.VarChar(998)
+  textBody           String?                    @map("text_body")
+  htmlBody           String?                    @map("html_body")
+  attachmentMetadata Json                       @default("[]") @map("attachment_metadata")
+  occurredAt         DateTime                   @map("occurred_at")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  thread             ProspectEmailThread        @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  organization       ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue              ProspectVenue?             @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact            ProspectContact?           @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  sendItem           ProspectSendItem?          @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
+  events             ProspectEmailEvent[]
+
+  @@index([threadId, occurredAt])
+  @@index([organizationId, occurredAt])
+  @@map("prospect_email_messages")
+}
+
+model ProspectEmailEvent {
+  id              String                @id @default(cuid())
+  sendItemId      String?               @map("send_item_id")
+  emailMessageId  String?               @map("email_message_id")
+  providerEventId String                @unique @map("provider_event_id") @db.VarChar(191)
+  eventType       String                @map("event_type") @db.VarChar(100)
+  payload         Json                  @default("{}")
+  occurredAt      DateTime              @map("occurred_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  sendItem        ProspectSendItem?     @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
+  emailMessage    ProspectEmailMessage? @relation(fields: [emailMessageId], references: [id], onDelete: Restrict)
+
+  @@index([sendItemId, occurredAt])
+  @@map("prospect_email_events")
+}
+
+model ProspectFollowup {
+  id             String               @id @default(cuid())
+  organizationId String               @map("organization_id")
+  opportunityId  String               @map("opportunity_id")
+  dueAt          DateTime             @map("due_at")
+  sequenceNumber Int                  @map("sequence_number")
+  status         String               @default("PENDING") @db.VarChar(32)
+  reason         String?              @db.VarChar(1000)
+  completedAt    DateTime?            @map("completed_at")
+  cancelledAt    DateTime?            @map("cancelled_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  organization   ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  opportunity    ProspectOpportunity  @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+
+  @@index([status, dueAt])
+  @@index([organizationId, createdAt])
+  @@map("prospect_followups")
+}
+
+/// Raw webhook envelope evidence used for signature verification, idempotency and replay.
+model ProspectEmailWebhookReceipt {
+  id              String    @id @default(cuid())
+  provider        String    @db.VarChar(50)
+  providerEventId String    @map("provider_event_id") @db.VarChar(191)
+  eventType       String    @map("event_type") @db.VarChar(100)
+  payload         Json
+  processedAt     DateTime? @map("processed_at")
+  processingError String?   @map("processing_error") @db.VarChar(2000)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@unique([provider, providerEventId])
+  @@index([processedAt, createdAt])
+  @@map("prospect_email_webhook_receipts")
 }

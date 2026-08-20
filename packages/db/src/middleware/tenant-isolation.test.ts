@@ -194,6 +194,7 @@ describe('tenantIsolationMiddleware', () => {
       'IntakeUploadVerificationReceipt',
       'AiScopedWorkloadConfigurationOverride',
       'AiScopedWorkloadConfigurationHistory',
+      'ProspectConversion',
     ])
     expect(PLATFORM_TABLES_LIST).toEqual([
       'User',
@@ -205,6 +206,18 @@ describe('tenantIsolationMiddleware', () => {
       'ClientCreateIntent',
       'ClientCreateIntentEvent',
       'ProductPlanCapability',
+      'ProspectTerritory',
+      'ProspectOrganization',
+      'ProspectVenue',
+      'ProspectContact',
+      'ProspectOpportunity',
+      'ProspectStageHistory',
+      'ProspectActivity',
+      'ProspectSourceEvidence',
+      'ProspectDuplicateCandidate',
+      'ProspectImport',
+      'ProspectImportSheet',
+      'ProspectImportRow',
     ])
     expect(SHARED_SCOPE_TABLES_LIST).toEqual(['AuditLog', 'JobRecord'])
   })

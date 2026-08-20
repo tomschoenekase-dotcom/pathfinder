@@ -113,6 +113,8 @@ export const TENANTED_TABLES = [
   'IntakeUploadVerificationReceipt',
   'AiScopedWorkloadConfigurationOverride',
   'AiScopedWorkloadConfigurationHistory',
+  // Durable bridge from a platform prospect to one exact customer tenant.
+  'ProspectConversion',
 ] as const
 
 export const PLATFORM_TABLES = [
@@ -125,6 +127,29 @@ export const PLATFORM_TABLES = [
   'ClientCreateIntent',
   'ClientCreateIntentEvent',
   'ProductPlanCapability',
+  'ProspectTerritory',
+  'ProspectOrganization',
+  'ProspectVenue',
+  'ProspectContact',
+  'ProspectOpportunity',
+  'ProspectStageHistory',
+  'ProspectActivity',
+  'ProspectSourceEvidence',
+  'ProspectDuplicateCandidate',
+  'ProspectImport',
+  'ProspectImportSheet',
+  'ProspectImportRow',
+  'ProspectSavedView',
+  'ProspectOutreachCampaign',
+  'ProspectCampaignMember',
+  'ProspectOutreachDraft',
+  'ProspectSendBatch',
+  'ProspectSendItem',
+  'ProspectEmailThread',
+  'ProspectEmailMessage',
+  'ProspectEmailEvent',
+  'ProspectFollowup',
+  'ProspectEmailWebhookReceipt',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and

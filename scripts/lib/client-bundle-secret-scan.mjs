@@ -48,6 +48,14 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('RESEND_API_KEY'),
     value: `re_${canary('RESEND_API_KEY')}`,
   },
+  RESEND_WEBHOOK_SECRET: {
+    marker: canary('RESEND_WEBHOOK_SECRET'),
+    value: `whsec_${canary('RESEND_WEBHOOK_SECRET')}`,
+  },
+  PROSPECT_OUTREACH_REPLY_SECRET: {
+    marker: canary('PROSPECT_OUTREACH_REPLY_SECRET'),
+    value: canary('PROSPECT_OUTREACH_REPLY_SECRET'),
+  },
 })
 
 const secretKeyPattern =

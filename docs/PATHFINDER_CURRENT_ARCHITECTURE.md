@@ -957,3 +957,7 @@ Concrete, staged recommendations toward the stated scaling goals:
 8. `docs/codebase-overview.md` — a good, mostly-current companion narrative (missing the newest
    tables/features this document adds: knowledge base, engagement questions, weekly reports, answer
    analysis, media ingestion lab).
+
+## 2026-08-20 CRM and outreach addendum
+
+The isolated CRM foundation branch now includes a platform-owned prospect CRM and a provider-dark outreach operations layer. It supports saved and cursor-paged directory views, exact campaign cohorts, versioned grounded drafts, explicit escalation review, immutable human-approved batches, per-recipient idempotent Resend jobs, verified delivery/inbound webhooks, correspondence and follow-up synchronization, and a dedicated read/draft-only platform CRM agent registry. Converted prospects resolve their live tenant/venue places and knowledge without collapsing the platform/tenant boundary. See `docs/sales/PROSPECT_OUTREACH_OPERATIONS.md`. No provider deployment or live send is implied.

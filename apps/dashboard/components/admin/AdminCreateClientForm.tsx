@@ -1,7 +1,7 @@
 'use client'
 
 import { type FormEvent, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 import { browserUuid } from '../../lib/browser-uuid'
 import { useTRPCClient } from '../../lib/trpc'
@@ -17,11 +17,16 @@ function getErrorMessage(error: unknown) {
 export function AdminCreateClientForm() {
   const client = useTRPCClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const prospectId = searchParams.get('prospectId')
+  const prospectVenueId = searchParams.get('prospectVenueId')
 
-  const [clientName, setClientName] = useState('')
-  const [venueName, setVenueName] = useState('')
+  const [clientName, setClientName] = useState(searchParams.get('clientName') ?? '')
+  const [venueName, setVenueName] = useState(searchParams.get('venueName') ?? '')
   const [venueCategory, setVenueCategory] = useState('')
-  const [primaryContactEmail, setPrimaryContactEmail] = useState('')
+  const [primaryContactEmail, setPrimaryContactEmail] = useState(
+    searchParams.get('primaryContactEmail') ?? '',
+  )
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const submitInFlightRef = useRef(false)
@@ -49,6 +54,16 @@ export function AdminCreateClientForm() {
         },
       })
 
+      if (prospectId) {
+        await client.admin.linkProspectConversion.mutate({
+          organizationId: prospectId,
+          ...(prospectVenueId ? { prospectVenueId } : {}),
+          tenantId: tenant.id,
+          venueId: venue.id,
+          evidence: { clientCreateRequestId: requestIdRef.current },
+        })
+      }
+
       // Drop the admin straight into the new client's dashboard (impersonated)
       // so they can keep configuring it right away.
       await fetch('/api/admin/impersonate', {
@@ -70,6 +85,12 @@ export function AdminCreateClientForm() {
       onSubmit={handleSubmit}
       className="space-y-6 rounded-3xl border border-pf-light bg-pf-white p-8 shadow-sm"
     >
+      {prospectId ? (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          This customer workspace will retain a permanent link to the prospect, contacts,
+          provenance, and activity history.
+        </div>
+      ) : null}
       <div className="space-y-2">
         <label htmlFor="primary-contact-email" className="text-sm font-medium text-pf-deep">
           Primary client contact

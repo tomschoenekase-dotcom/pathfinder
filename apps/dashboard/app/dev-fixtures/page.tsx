@@ -50,6 +50,18 @@ export default function VisualFixtureIndex() {
         </ul>
       </section>
 
+      <section className="mt-10 border-t border-pf-light pt-6" aria-labelledby="crm-fixtures">
+        <h2 id="crm-fixtures" className="text-xl font-semibold">
+          Prospect CRM
+        </h2>
+        <Link
+          href="/dev-fixtures/prospect-crm"
+          className="mt-4 flex min-h-12 items-center justify-between border-y border-pf-light py-3 font-medium text-pf-primary"
+        >
+          Directory, outreach, and campaign review <span aria-hidden="true">→</span>
+        </Link>
+      </section>
+
       <section
         className="mt-10 border-t border-pf-light pt-6"
         aria-labelledby="client-tochi-fixtures"

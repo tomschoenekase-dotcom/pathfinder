@@ -161,3 +161,7 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 - There is no implemented CRM, sales pipeline, outreach sequence engine, meeting scheduler, refund system, Stripe/billing collection, general email composer/sender, inbound email, turn-by-turn navigation, autonomous agent learning, database RLS, or operational multichannel event dispatcher.
 - Citations, billing visibility, outcome observations, event delivery rows, and agent identity model names must not be interpreted as proof that their implied end-to-end capabilities exist.
 - Passing tests/builds do not prove current cloud deployment, provider keys, live AI quality, mail deliverability, backup/PITR, or real customer adoption.
+
+## CRM/outreach branch delta (2026-08-20)
+
+On the isolated CRM foundation branch, platform prospect navigation, saved views, campaigns, read/draft agent tools, human-reviewed immutable send batches, Resend delivery/webhook adapters, reply synchronization, and linked live-venue intelligence are implemented and locally verifiable. Provider delivery remains configuration-disabled and has not received a live smoke test.

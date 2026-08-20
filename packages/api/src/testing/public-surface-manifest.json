@@ -148,6 +148,16 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/webhooks/resend/route.ts",
+      "methods": ["POST"],
+      "exposure": "signature-authenticated-public-ingress",
+      "controlProfile": "bounded-signed-webhook",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/webhooks/resend/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
       "source": "apps/web/app/api/health/route.ts",
       "methods": ["GET"],
       "exposure": "intentional-public",
@@ -169,5 +179,5 @@
       "behavioralEvidence": ["apps/web/app/api/widget-ready/[venueSlug]/route.test.ts"]
     }
   ],
-  "dashboardPublicApiPaths": ["/api/agent-bridge", "/api/webhooks/clerk"]
+  "dashboardPublicApiPaths": ["/api/agent-bridge", "/api/webhooks/clerk", "/api/webhooks/resend"]
 }

@@ -49,6 +49,8 @@ import {
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
+  SEND_PROSPECT_OUTREACH_JOB,
+  SEND_PROSPECT_OUTREACH_RETRY_BACKOFF,
   type AnalyticsEnrichmentJobPayload,
   type AgentRunJobPayload,
   type EmbedKnowledgeEntryJobPayload,
@@ -56,6 +58,7 @@ import {
   type EvaluationRunJobPayload,
   type GenerationDispatchKickJobPayload,
   type SendWelcomeEmailJobPayload,
+  type SendProspectOutreachJobPayload,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -86,6 +89,7 @@ import { processEmbeddingDispatches } from './processors/dispatch-embeddings'
 import { processGenerationDispatches } from './processors/generation-dispatch'
 import { processGenerationRecovery } from './processors/generation-recovery'
 import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
+import { processSendProspectOutreachJob } from './processors/send-prospect-outreach'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
@@ -467,9 +471,19 @@ async function handleWeeklyReportQueueJob(
   throw new Error(`Unsupported weekly report job: ${job.name}`)
 }
 
-async function handleSendEmailQueueJob(job: Job<SendWelcomeEmailJobPayload>) {
+async function handleSendEmailQueueJob(
+  job: Job<SendWelcomeEmailJobPayload | SendProspectOutreachJobPayload>,
+) {
   if (job.name === SEND_WELCOME_EMAIL_JOB) {
-    await processSendWelcomeEmailJob(job.data, getJobExecutionMetadata(job))
+    await processSendWelcomeEmailJob(
+      job.data as SendWelcomeEmailJobPayload,
+      getJobExecutionMetadata(job),
+    )
+    return
+  }
+
+  if (job.name === SEND_PROSPECT_OUTREACH_JOB) {
+    await processSendProspectOutreachJob(job.data as SendProspectOutreachJobPayload)
     return
   }
 
@@ -920,6 +934,10 @@ export async function startWorkers() {
         backoffStrategy: (attemptsMade, type) => {
           if (type === SEND_WELCOME_EMAIL_RETRY_BACKOFF) {
             return getSendWelcomeEmailBackoffDelay(attemptsMade)
+          }
+
+          if (type === SEND_PROSPECT_OUTREACH_RETRY_BACKOFF) {
+            return Math.min(60_000, 2_000 * 2 ** Math.max(0, attemptsMade - 1))
           }
 
           return 0

@@ -77,6 +77,38 @@ export type {
 export { withTenantIsolationBypass } from './middleware/tenant-isolation'
 export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
+  addProspectNoteAction,
+  approveProspectImportAction,
+  archiveProspectAction,
+  beginProspectImportAction,
+  commitProspectImportBatchAction,
+  createProspectAction,
+  linkProspectConversionAction,
+  PROSPECT_IMPORT_BATCH_MAX,
+  PROSPECT_IMPORT_COMMIT_BATCH_MAX,
+  ProspectActionError,
+  resolveProspectDuplicateAction,
+  resolveProspectImportRowAction,
+  scanProspectDuplicatesAction,
+  stageProspectImportRowsAction,
+  updateProspectPipelineAction,
+} from './helpers/prospect-actions'
+export type {
+  CreateProspectInput,
+  ProspectActionClient,
+  ProspectActionErrorCode,
+  ProspectActor,
+  ProspectImportNormalizedRow,
+} from './helpers/prospect-actions'
+export {
+  canonicalJson as canonicalProspectJson,
+  normalizeProspectDomain,
+  normalizeProspectEmail,
+  normalizeProspectName,
+  prospectSha256,
+  scoreProspectDuplicate,
+} from './helpers/prospect-normalization'
+export {
   AgentRunCancellationError,
   requestAgentRunCancellationAction,
 } from './helpers/agent-run-cancellation-actions'
@@ -834,3 +866,15 @@ export type {
   AgentOutcomeActionClient,
   RecordAgentOutcomeInput,
 } from './helpers/agent-outcome-actions'
+export {
+  approveProspectSendBatchAction,
+  createProspectCampaignAction,
+  detectProspectDraftEscalations,
+  PROSPECT_OUTREACH_MAX_BATCH,
+  PROSPECT_OUTREACH_MAX_COHORT,
+  PROSPECT_PLAYBOOK_VERSION,
+  ProspectOutreachError,
+  reviewProspectOutreachDraftAction,
+  saveProspectOutreachDraftAction,
+  stageProspectSendBatchAction,
+} from './helpers/prospect-outreach-actions'

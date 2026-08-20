@@ -65,6 +65,11 @@ export type SendWelcomeEmailJobPayload = {
   orgName: string
 }
 
+/** Carries only durable identity. The worker reloads the frozen approved snapshot. */
+export type SendProspectOutreachJobPayload = {
+  sendItemId: string
+}
+
 export type OperationalEventDeliveryJobPayload = Record<string, never>
 
 export type MediaIngestionJobPayload = {

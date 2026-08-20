@@ -6,7 +6,8 @@
     "./schemas": "./src/schemas.ts",
     "./mcp": "./src/mcp/index.ts",
     "./partner-api": "./src/partner-api/index.ts",
-    "./agent-bridge": "./src/agent-bridge/index.ts"
+    "./agent-bridge": "./src/agent-bridge/index.ts",
+    "./prospect-agent": "./src/prospect-agent/index.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

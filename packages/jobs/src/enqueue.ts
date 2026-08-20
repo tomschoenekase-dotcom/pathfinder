@@ -32,6 +32,8 @@ import {
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
+  SEND_PROSPECT_OUTREACH_JOB,
+  SEND_PROSPECT_OUTREACH_RETRY_BACKOFF,
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
@@ -57,6 +59,7 @@ import type {
   EmbedPlaceJobPayload,
   GenerationDispatchKickJobPayload,
   SendWelcomeEmailJobPayload,
+  SendProspectOutreachJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
   MediaIngestionJobPayload,
@@ -207,6 +210,13 @@ const sendWelcomeEmailJobOptions: JobsOptions = {
   },
   removeOnComplete: 1000,
   removeOnFail: 5000,
+}
+
+const sendProspectOutreachJobOptions: JobsOptions = {
+  attempts: 4,
+  backoff: { type: SEND_PROSPECT_OUTREACH_RETRY_BACKOFF },
+  removeOnComplete: 5000,
+  removeOnFail: 10000,
 }
 
 const mediaIngestionJobOptions: JobsOptions = {
@@ -557,6 +567,21 @@ export async function enqueueWelcomeEmail(
     action: 'jobs.send-welcome-email.enqueued',
     tenantId: payload.tenantId,
   })
+}
+
+export async function enqueueProspectOutreach(
+  payload: SendProspectOutreachJobPayload,
+): Promise<void> {
+  if (!payload.sendItemId || payload.sendItemId.length > 191)
+    throw new Error('Valid send item identity is required')
+  const identity = createHash('sha256')
+    .update(`torchiko-prospect-outreach-v1:${payload.sendItemId}`)
+    .digest('hex')
+  await getQueue(SEND_EMAIL_QUEUE).add(SEND_PROSPECT_OUTREACH_JOB, payload, {
+    ...sendProspectOutreachJobOptions,
+    jobId: `send-prospect-outreach-${identity}`,
+  })
+  logger.info({ action: 'jobs.send-prospect-outreach.enqueued', sendItemId: payload.sendItemId })
 }
 
 const OPERATIONAL_QUEUE_NAMES = [

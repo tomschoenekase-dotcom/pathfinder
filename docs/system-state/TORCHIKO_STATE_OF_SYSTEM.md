@@ -360,3 +360,7 @@ The best news is that the core is strong enough for controlled customers. The ca
 ## Audit limitations
 
 No credentials, production data, provider dashboards, browser profiles, or external services were accessed. The current remote CI/deployment state, production/staging database migration parity, current Supabase backup/PITR configuration, actual email delivery, real AI output quality, live voice/WebRTC, external agent bridges, and mobile visual rendering remain unverified. Browser viewport emulation did not change the active tab, so responsive conclusions rely on code and passing DOM/accessibility tests rather than a separate mobile screenshot review.
+
+## CRM/outreach branch delta (2026-08-20)
+
+The isolated CRM foundation branch adds the prospect and outreach operational system described in `IMPLEMENTATION_CRM_FOUNDATION.md` and `IMPLEMENTATION_PROSPECT_OUTREACH_OPERATIONS.md`. Outbound and inbound adapters are implemented but dark by default; this does not change the deployed-production claim in this document.

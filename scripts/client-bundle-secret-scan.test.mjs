@@ -46,8 +46,10 @@ test('the canary registry covers every secret-shaped config key without stale en
     'DIRECT_DATABASE_URL',
     'INTEGRATION_ENCRYPTION_KEY',
     'OPENAI_API_KEY',
+    'PROSPECT_OUTREACH_REPLY_SECRET',
     'REDIS_URL',
     'RESEND_API_KEY',
+    'RESEND_WEBHOOK_SECRET',
     'STORAGE_ACCESS_KEY_ID',
     'STORAGE_SECRET_ACCESS_KEY',
   ])

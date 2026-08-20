@@ -120,6 +120,10 @@ const rawEnvSchema = z
     // Required when email is wired (post-MVP scaffolding)
     RESEND_API_KEY: z.string().optional(),
     RESEND_FROM_EMAIL: z.string().optional(),
+    RESEND_WEBHOOK_SECRET: z.string().optional(),
+    PROSPECT_OUTREACH_DELIVERY_ENABLED: z.enum(['true', 'false']).default('false'),
+    PROSPECT_OUTREACH_REPLY_DOMAIN: z.string().trim().min(1).max(253).optional(),
+    PROSPECT_OUTREACH_REPLY_SECRET: z.string().min(32).optional(),
     DASHBOARD_URL: z.string().optional(),
     OPERATIONAL_ALERT_DELIVERY_ENABLED: z.enum(['true', 'false']).optional(),
     OPERATIONAL_ALERT_EMAIL_TO: z.string().email().optional(),
