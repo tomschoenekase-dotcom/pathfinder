@@ -13,7 +13,6 @@ import {
 import { z } from 'zod'
 import { INTAKE_UPLOAD_MAX_BYTES, IntakeUploadMimeType } from '@pathfinder/contracts/intake-upload'
 import { PreviewFeedbackContext } from '@pathfinder/contracts/client-package-preview'
-import type { Prisma } from '@prisma/client'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -238,9 +237,7 @@ type ResolvedSupportAttachment = {
   byteSize: number
 }
 
-function attachmentCreates(
-  attachments: ResolvedSupportAttachment[],
-): Prisma.SupportMessageAttachmentUncheckedCreateWithoutSupportMessageInput[] {
+function attachmentCreates(attachments: ResolvedSupportAttachment[]) {
   return attachments.map((attachment) => ({
     filename: attachment.filename,
     mediaType: attachment.mediaType,
