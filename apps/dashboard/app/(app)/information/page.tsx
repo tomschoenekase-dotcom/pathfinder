@@ -52,14 +52,16 @@ export default async function InformationPage({ searchParams }: InformationPageP
             uploads={uploadPage.items}
             nextCursor={uploadPage.nextCursor}
           />
-          <details className={styles.sourceDetails}>
-            <summary>Add a website or staff knowledge</summary>
+          <section className={styles.sourceSection} aria-labelledby="additional-information-title">
+            <h2 id="additional-information-title">
+              Add a website, staff knowledge, or optional notes
+            </h2>
             <p>
               These are optional source paths. Sharing them creates reviewable evidence; it does not
               publish visitor content.
             </p>
             <IntakeProposalWorkspace venueId={venue.id} proposals={proposals} />
-          </details>
+          </section>
         </div>
       </div>
     </div>

@@ -1,8 +1,6 @@
 .page {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 92% 5%, rgb(157 212 216 / 20%), transparent 22rem),
-    #f4f8f7;
+  background: radial-gradient(circle at 92% 5%, rgb(157 212 216 / 20%), transparent 22rem), #f4f8f7;
   color: #102f50;
   padding: clamp(1rem, 4vw, 3rem);
 }
@@ -39,8 +37,7 @@
   color: #102f50;
 }
 
-.venueRail a:focus-visible,
-.sourceDetails > summary:focus-visible {
+.venueRail a:focus-visible {
   outline: 3px solid rgb(34 91 145 / 32%);
   outline-offset: 2px;
 }
@@ -49,41 +46,24 @@
   margin-top: clamp(2rem, 5vw, 4rem);
 }
 
-.sourceDetails {
+.sourceSection {
   margin-top: 1.25rem;
-  border-block: 1px solid rgb(16 47 80 / 16%);
+  border: 1px solid rgb(16 47 80 / 16%);
+  border-radius: 1.25rem;
+  background: rgb(255 255 255 / 72%);
+  padding: clamp(1rem, 3vw, 1.5rem);
 }
 
-.sourceDetails > summary {
-  display: flex;
-  min-height: 4rem;
-  align-items: center;
-  justify-content: space-between;
+.sourceSection > h2 {
+  margin: 0;
   color: #102f50;
-  font-size: 0.86rem;
+  font-size: 1rem;
   font-weight: 750;
-  cursor: pointer;
-  list-style: none;
 }
 
-.sourceDetails > summary::-webkit-details-marker {
-  display: none;
-}
-
-.sourceDetails > summary::after {
-  content: '+';
-  color: #225b91;
-  font-size: 1.3rem;
-  font-weight: 400;
-}
-
-.sourceDetails[open] > summary::after {
-  content: '−';
-}
-
-.sourceDetails > p {
+.sourceSection > p {
   max-width: 44rem;
-  margin: -0.2rem 0 1.25rem;
+  margin: 0.5rem 0 1.25rem;
   color: rgb(16 47 80 / 64%);
   font-size: 0.8rem;
   line-height: 1.6;
