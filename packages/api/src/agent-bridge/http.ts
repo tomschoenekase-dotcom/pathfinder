@@ -13,6 +13,7 @@ const methodSchema = z.enum([
   'heartbeatTask',
   'completeTask',
   'failTask',
+  'callProspectTool',
 ])
 const envelopeSchema = z.object({ method: methodSchema, params: z.unknown() }).strict()
 const routeScopeSchema = z
@@ -165,6 +166,9 @@ export async function handleAgentBridgeHttpRequest(
         break
       case 'failTask':
         result = await registry.failTask(envelope.params, context)
+        break
+      case 'callProspectTool':
+        result = await registry.callProspectTool(envelope.params, context)
         break
     }
     return json(200, { ok: true, result }, requestId)

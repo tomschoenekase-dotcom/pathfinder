@@ -1,41 +1,255 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createProspectAgentRegistry, ProspectAgentRegistryError } from './registry'
+const mocks = vi.hoisted(() => ({
+  agentRunFindFirst: vi.fn(),
+  organizationFindMany: vi.fn(),
+  organizationFindFirst: vi.fn(),
+  memberFindMany: vi.fn(),
+  memberFindFirst: vi.fn(),
+  saveDraft: vi.fn(),
+  askQuestion: vi.fn(),
+}))
+
+vi.mock('@pathfinder/db', () => ({
+  db: {
+    agentRun: { findFirst: mocks.agentRunFindFirst },
+    prospectOrganization: {
+      findMany: mocks.organizationFindMany,
+      findFirst: mocks.organizationFindFirst,
+    },
+    prospectCampaignMember: {
+      findMany: mocks.memberFindMany,
+      findFirst: mocks.memberFindFirst,
+    },
+    venue: { findFirst: vi.fn() },
+    place: { findMany: vi.fn() },
+    venueKnowledgeEntry: { findMany: vi.fn() },
+  },
+  withTenantIsolationBypass: (operation: () => unknown) => operation(),
+  saveProspectOutreachDraftAction: mocks.saveDraft,
+  askAgentQuestionAction: mocks.askQuestion,
+}))
+
+import {
+  createProspectAgentRegistry,
+  ProspectAgentRegistryError,
+  resolveVerifiedProspectAgentContext,
+  type ProspectAgentInvocation,
+  type VerifiedProspectAgentContext,
+} from './registry'
+
+const invocation: ProspectAgentInvocation = {
+  tenantId: 'tenant-1',
+  venueId: 'venue-1',
+  sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  agentRunId: 'run-1',
+  leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  credentialId: 'credential-1',
+  correlationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+}
+
+function context(
+  overrides: Partial<VerifiedProspectAgentContext> = {},
+): VerifiedProspectAgentContext {
+  return {
+    tenantId: 'tenant-1',
+    venueId: 'venue-1',
+    agentRunId: 'run-1',
+    actorId: 'agent-1',
+    initiatorId: 'admin-1',
+    capabilities: ['prospects.read'],
+    scope: { mode: 'ALL' },
+    modelProvider: 'codex-bridge',
+    modelName: 'gpt-test',
+    promptIdentity: 'crm-playbook@1',
+    requestedOperation: 'operator_task',
+    correlationId: invocation.correlationId,
+    ...overrides,
+  }
+}
 
 describe('prospect agent registry', () => {
-  it('exposes read and draft tools but no approval or send authority', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('exposes advisory, read, draft, and question tools but no high-risk authority', () => {
     const names = createProspectAgentRegistry()
       .listTools()
       .map((tool) => tool.name)
     expect(names).toContain('torchiko.prospects.save_outreach_draft')
-    expect(names.some((name) => /approve|send|queue/u.test(name))).toBe(false)
+    expect(names).toContain('torchiko.prospects.ask_operator')
+    expect(
+      names.some((name) => /approve|send|queue|convert|merge|delete|unsuppress/u.test(name)),
+    ).toBe(false)
   })
 
-  it('rejects a draft call without the verified draft capability before database access', async () => {
+  it('rejects caller capability escalation because authority comes from the resolver', async () => {
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context({ capabilities: ['prospects.read'] })),
+    })
     await expect(
-      createProspectAgentRegistry().callTool(
-        'torchiko.prospects.save_outreach_draft',
-        {},
-        {
-          actorId: 'agent-1',
-          capabilities: ['prospects:read'],
-        },
-      ),
+      registry.callTool('torchiko.prospects.save_outreach_draft', {}, invocation),
     ).rejects.toMatchObject({
       code: 'CAPABILITY_REQUIRED',
     } satisfies Partial<ProspectAgentRegistryError>)
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
   })
 
-  it('rejects unknown tools', async () => {
+  it('intersects live identity capabilities with the frozen AgentRun snapshot', async () => {
+    mocks.agentRunFindFirst.mockResolvedValue({
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      initiatedById: 'admin-1',
+      requestedOperation: 'operator_task',
+      scopeSnapshot: {
+        accessCapabilities: ['prospects.read', 'prospects.draft'],
+        prospectScope: { mode: 'ALL' },
+        promptIdentity: 'crm-playbook@1',
+      },
+      modelProvider: 'codex-bridge',
+      modelName: 'gpt-test',
+      agentIdentity: { id: 'agent-1', accessCapabilities: ['prospects.read'] },
+    })
+    const verified = await resolveVerifiedProspectAgentContext(invocation)
+    expect(verified.capabilities).toEqual(['prospects.read'])
+    expect(mocks.agentRunFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          executionLeaseToken: invocation.leaseToken,
+          executionBridgeSessionId: invocation.sessionId,
+        }),
+      }),
+    )
+  })
+
+  it('fails closed when a leased run has no explicit prospect scope', async () => {
+    mocks.agentRunFindFirst.mockResolvedValue({
+      id: 'run-1',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      initiatedById: 'admin-1',
+      requestedOperation: 'operator_task',
+      scopeSnapshot: { accessCapabilities: ['prospects.read'] },
+      modelProvider: null,
+      modelName: null,
+      agentIdentity: { id: 'agent-1', accessCapabilities: ['prospects.read'] },
+    })
+    await expect(resolveVerifiedProspectAgentContext(invocation)).rejects.toMatchObject({
+      code: 'SCOPE_REQUIRED',
+    })
+  })
+
+  it('enforces frozen territory scope on reads and draft membership', async () => {
+    mocks.organizationFindMany.mockResolvedValue([])
+    const scoped = context({
+      capabilities: ['prospects.read', 'prospects.draft'],
+      scope: { mode: 'TERRITORIES', territoryIds: ['territory-1'] },
+    })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(scoped),
+    })
+    await registry.callTool('torchiko.prospects.search', {}, invocation)
+    expect(mocks.organizationFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ territoryId: { in: ['territory-1'] } }),
+      }),
+    )
+
+    mocks.memberFindFirst.mockResolvedValue(null)
     await expect(
-      createProspectAgentRegistry().callTool(
+      registry.callTool(
+        'torchiko.prospects.save_outreach_draft',
+        {
+          memberId: 'member-outside-scope',
+          subject: 'Hello',
+          textBody: 'Body',
+          evidence: [{ kind: 'CRM_FIELD', reference: 'prospect.name' }],
+          template: { id: 'intro', version: '1' },
+          prompt: { id: 'draft', version: '1' },
+        },
+        invocation,
+      ),
+    ).rejects.toMatchObject({ code: 'OUT_OF_SCOPE' })
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('stores verified run/model/prompt/evidence lineage on a grounded draft', async () => {
+    mocks.memberFindFirst.mockResolvedValue({ id: 'member-1' })
+    mocks.saveDraft.mockResolvedValue({ id: 'draft-1' })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi
+        .fn()
+        .mockResolvedValue(context({ capabilities: ['prospects.read', 'prospects.draft'] })),
+    })
+    await registry.callTool(
+      'torchiko.prospects.save_outreach_draft',
+      {
+        memberId: 'member-1',
+        subject: 'Hello',
+        textBody: 'Body',
+        evidence: [{ kind: 'SOURCE_EVIDENCE', reference: 'source-1', summary: 'Verified fact' }],
+        template: { id: 'intro', version: '1' },
+        prompt: { id: 'draft', version: '2' },
+      },
+      invocation,
+    )
+    expect(mocks.saveDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { type: 'AGENT', id: 'agent-1', capabilities: ['prospects:draft'] },
+        groundingSnapshot: expect.objectContaining({
+          evidence: [
+            {
+              kind: 'SOURCE_EVIDENCE',
+              reference: 'source-1',
+              summary: 'Verified fact',
+              trust: 'UNTRUSTED_EXTERNAL_EVIDENCE',
+            },
+          ],
+          lineage: expect.objectContaining({
+            agentRunId: 'run-1',
+            agentIdentityId: 'agent-1',
+            modelName: 'gpt-test',
+            correlationId: invocation.correlationId,
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('creates a scoped Agent Question without granting approval authority', async () => {
+    mocks.askQuestion.mockResolvedValue({ question: { id: 'question-1' } })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(context({ capabilities: ['prospects.question'] })),
+    })
+    await registry.callTool(
+      'torchiko.prospects.ask_operator',
+      {
+        operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        question: 'Which contact should I draft for?',
+        evidence: [{ kind: 'CRM_FIELD', reference: 'contact:ambiguous' }],
+      },
+      invocation,
+    )
+    expect(mocks.askQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        category: 'prospect-crm',
+      }),
+    )
+  })
+
+  it('rejects unknown and forbidden high-risk tool names before resolving authority', async () => {
+    const resolveContext = vi.fn()
+    await expect(
+      createProspectAgentRegistry({ resolveContext }).callTool(
         'torchiko.prospects.send',
         {},
-        {
-          actorId: 'agent-1',
-          capabilities: ['prospects:read', 'prospects:draft'],
-        },
+        invocation,
       ),
     ).rejects.toMatchObject({ code: 'UNKNOWN_TOOL' } satisfies Partial<ProspectAgentRegistryError>)
+    expect(resolveContext).not.toHaveBeenCalled()
   })
 })

@@ -10,6 +10,8 @@ import {
   registerAgentBridgeSession,
 } from '@pathfinder/db'
 
+import { createProspectAgentRegistry } from '../prospect-agent/registry'
+
 const sessionScope = z
   .object({
     sessionId: z.string().uuid(),
@@ -31,6 +33,7 @@ export type VerifiedAgentBridgeContext = Readonly<{
 /** Transport-neutral authenticated bridge service. An HTTP/MCP transport must
  * verify the machine secret and construct the credential context before call. */
 export function createAgentBridgeRegistry() {
+  const prospectRegistry = createProspectAgentRegistry()
   return {
     register: (raw: unknown, rawContext: unknown) => {
       const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
@@ -99,6 +102,34 @@ export function createAgentBridgeRegistry() {
         })
         .parse(raw)
       return failAgentBridgeTask({ ...input, credential: context.credential })
+    },
+    callProspectTool: (raw: unknown, rawContext: unknown) => {
+      const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      const input = sessionScope
+        .extend({
+          runId: z.string().trim().min(1).max(191),
+          leaseToken: z.string().uuid(),
+          correlationId: z.string().uuid(),
+          toolName: z.string().trim().min(1).max(191),
+          arguments: z.unknown(),
+        })
+        .parse(raw)
+      if (
+        context.credential.tenantId !== context.credential.clientId ||
+        !context.credential.venueIds.includes(input.venueId) ||
+        !context.credential.capabilities.includes('agent-runs:execute')
+      ) {
+        throw new Error('Prospect tools require an authenticated first-party agent bridge')
+      }
+      return prospectRegistry.callTool(input.toolName, input.arguments, {
+        tenantId: context.credential.tenantId,
+        venueId: input.venueId,
+        sessionId: input.sessionId,
+        agentRunId: input.runId,
+        leaseToken: input.leaseToken,
+        credentialId: context.credential.credentialId,
+        correlationId: input.correlationId,
+      })
     },
   } as const
 }

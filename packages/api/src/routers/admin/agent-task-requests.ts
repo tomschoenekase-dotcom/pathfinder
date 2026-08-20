@@ -22,6 +22,18 @@ export const adminAgentTaskRequestsRouter = router({
         venueId: z.string().min(1),
         agentIdentityId: z.string().min(1),
         prompt: z.string().trim().min(1).max(10_000),
+        promptIdentity: z.string().trim().min(1).max(191).optional(),
+        prospectScope: z
+          .discriminatedUnion('mode', [
+            z.object({ mode: z.literal('ALL') }).strict(),
+            z
+              .object({
+                mode: z.literal('TERRITORIES'),
+                territoryIds: z.array(z.string().trim().min(1).max(191)).min(1).max(100),
+              })
+              .strict(),
+          ])
+          .optional(),
       }),
     )
     .mutation(({ ctx, input }) =>

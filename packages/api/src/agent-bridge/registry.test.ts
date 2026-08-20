@@ -7,6 +7,10 @@ const mocks = vi.hoisted(() => ({
   heartbeatTask: vi.fn(),
   complete: vi.fn(),
   fail: vi.fn(),
+  prospectCall: vi.fn(),
+}))
+vi.mock('../prospect-agent/registry', () => ({
+  createProspectAgentRegistry: () => ({ callTool: mocks.prospectCall }),
 }))
 vi.mock('@pathfinder/db', () => ({
   registerAgentBridgeSession: mocks.register,
@@ -81,5 +85,35 @@ describe('agent bridge registry', () => {
       { credential },
     )
     expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({ costE8Usd: 1250n }))
+  })
+
+  it('mounts prospect tools through the authenticated bridge and derives authority fields', async () => {
+    mocks.prospectCall.mockResolvedValue({ id: 'draft-1' })
+    const result = await createAgentBridgeRegistry().callProspectTool(
+      {
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        runId: 'run-1',
+        leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        correlationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        toolName: 'torchiko.prospects.save_outreach_draft',
+        arguments: { subject: 'Hello' },
+      },
+      { credential },
+    )
+    expect(result).toEqual({ id: 'draft-1' })
+    expect(mocks.prospectCall).toHaveBeenCalledWith(
+      'torchiko.prospects.save_outreach_draft',
+      { subject: 'Hello' },
+      {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        agentRunId: 'run-1',
+        leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        credentialId: 'credential-1',
+        correlationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      },
+    )
   })
 })
