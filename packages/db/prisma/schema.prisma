@@ -171,6 +171,8 @@ model Tenant {
   credentialRotations            ExternalCredentialRotation[]
   credentialRevocations          ExternalCredentialRevocation[]
   credentialActivations          ExternalCredentialActivation[]
+  prospectCustomerRelationships  ProspectCustomerRelationship[]
+  prospectLocationConversions    ProspectLocationConversion[]
   aiConfigurationOverrides       AiScopedWorkloadConfigurationOverride[]
   aiConfigurationHistory         AiScopedWorkloadConfigurationHistory[]
   venueBotConfigurations         VenueBotConfiguration[]
@@ -728,6 +730,7 @@ model Venue {
   voiceSessions                       VoiceSession[]
   voiceTranscriptSegments             VoiceTranscriptSegment[]
   prospectConversion                  ProspectConversion?
+  prospectLocationConversions         ProspectLocationConversion[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -2014,6 +2017,37 @@ model OperationalEventDeliveryAttempt {
   @@unique([deliveryId, attemptNumber], map: "operational_event_delivery_attempt_number_key")
   @@index([tenantId, attemptedAt])
   @@map("operational_event_delivery_attempts")
+}
+
+/// Platform-owned attention signal for pre-conversion CRM and provider health.
+model PlatformOperationalEvent {
+  id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  eventType         String                   @map("event_type") @db.VarChar(100)
+  sourceSubsystem   String                   @map("source_subsystem") @db.VarChar(64)
+  severity          OperationalEventSeverity @default(INFO)
+  title             String                   @db.VarChar(191)
+  summary           String                   @db.VarChar(2000)
+  actionRequired    Boolean                  @default(false) @map("action_required")
+  linkedObjectType  String?                  @map("linked_object_type") @db.VarChar(64)
+  linkedObjectId    String?                  @map("linked_object_id") @db.VarChar(191)
+  recommendedAction String?                  @map("recommended_action") @db.VarChar(1000)
+  state             OperationalEventState    @default(OPEN)
+  deduplicationKey  String                   @unique @map("deduplication_key") @db.VarChar(191)
+  occurrenceCount   Int                      @default(1) @map("occurrence_count")
+  lastOccurredAt    DateTime                 @default(now()) @map("last_occurred_at")
+  readAt            DateTime?                @map("read_at")
+  readBy            String?                  @map("read_by") @db.VarChar(191)
+  acknowledgedAt    DateTime?                @map("acknowledged_at")
+  acknowledgedBy    String?                  @map("acknowledged_by") @db.VarChar(191)
+  resolvedAt        DateTime?                @map("resolved_at")
+  resolvedBy        String?                  @map("resolved_by") @db.VarChar(191)
+  expiresAt         DateTime?                @map("expires_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+
+  @@index([state, severity, createdAt])
+  @@index([eventType, lastOccurredAt])
+  @@map("platform_operational_events")
 }
 
 enum KnowledgeChangeProposalStatus {
@@ -4466,15 +4500,28 @@ enum ProspectImportStatus {
   COMPLETE
   PARTIAL
   FAILED
+  CANCELLED
+  REPAIRED
 }
 
 enum ProspectImportRowStatus {
   VALID
   WARNING
   DUPLICATE_REVIEW
+  PROCESSING
   IMPORTED
   FAILED
   SKIPPED
+  QUARANTINED
+}
+
+enum ProspectImportRowDecision {
+  CREATE_DISTINCT
+  LINK_EXISTING
+  UPDATE_EXISTING
+  SKIP
+  QUARANTINE
+  NOT_DUPLICATE
 }
 
 enum ProspectRelationshipTier {
@@ -4521,6 +4568,7 @@ enum ProspectSendBatchStatus {
   PROCESSING
   COMPLETE
   PARTIAL
+  ATTENTION_REQUIRED
   CANCELLED
 }
 
@@ -4535,6 +4583,9 @@ enum ProspectSendItemStatus {
   COMPLAINED
   SUPPRESSED
   FAILED
+  PERMANENTLY_FAILED
+  AMBIGUOUS
+  SKIPPED_IDENTITY_CHANGED
   CANCELLED
 }
 
@@ -4556,6 +4607,96 @@ enum ProspectEmailMessageStatus {
   FAILED
 }
 
+enum CorrespondenceProviderKey {
+  GMAIL
+  RESEND
+  FAKE
+}
+
+enum CorrespondenceAccountStatus {
+  DISCONNECTED
+  CONNECTING
+  CONNECTED
+  DEGRADED
+  AUTH_FAILED
+  DISABLED
+}
+
+enum CorrespondenceCapability {
+  SEND
+  RECEIVE
+  WATCH
+  RECONCILE
+}
+
+enum ProspectContactReadiness {
+  UNKNOWN
+  UNVERIFIED
+  REVIEW_REQUIRED
+  VALID
+  INVALID
+}
+
+enum ProspectPermissionState {
+  UNKNOWN
+  REVIEW_REQUIRED
+  LEGITIMATE_INTEREST_RECORDED
+  OPTED_IN
+  OPTED_OUT
+  PROHIBITED
+}
+
+enum ProspectSuppressionEventType {
+  SUPPRESSED
+  UNSUBSCRIBED
+  HARD_BOUNCE
+  SOFT_BOUNCE
+  COMPLAINT
+  RESTORED
+}
+
+enum ProspectSuppressionSource {
+  HUMAN
+  IMPORT
+  PROVIDER
+  INBOUND_MESSAGE
+  POLICY
+  SYSTEM
+}
+
+enum ProspectSendOutboxStatus {
+  PENDING
+  CLAIMED
+  SENT
+  SUPPRESSED
+  CANCELLED
+  RETRYABLE
+  PERMANENTLY_FAILED
+  AMBIGUOUS
+}
+
+enum ProspectInboundReceiptStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  QUARANTINED
+  RETRYABLE
+  PERMANENTLY_FAILED
+}
+
+enum ProspectCustomerRelationshipStatus {
+  ACTIVE
+  INACTIVE
+  OFFBOARDED
+  SUPERSEDED
+}
+
+enum ProspectLocationConversionStatus {
+  ACTIVE
+  REPLACED
+  OFFBOARDED
+}
+
 /// Platform-owned sales territory. Prospects remain outside tenant scope until conversion.
 model ProspectTerritory {
   id            String                 @id @default(cuid())
@@ -4575,48 +4716,179 @@ model ProspectTerritory {
   @@map("prospect_territories")
 }
 
-model ProspectOrganization {
-  id                   String                       @id @default(cuid())
-  canonicalName        String                       @map("canonical_name")
-  normalizedName       String                       @map("normalized_name")
-  aliases              Json                         @default("[]")
-  website              String?
-  normalizedDomain     String?                      @map("normalized_domain")
-  organizationType     String?                      @map("organization_type")
-  description          String?
-  headquartersCity     String?                      @map("headquarters_city")
-  headquartersRegion   String?                      @map("headquarters_region")
-  headquartersCountry  String?                      @map("headquarters_country")
-  territoryId          String?                      @map("territory_id")
-  source               String?
-  researchProvenance   Json                         @default("[]") @map("research_provenance")
-  ownerId              String?                      @map("owner_id")
-  priority             ProspectPriority             @default(NORMAL)
-  relationshipTier     ProspectRelationshipTier     @default(STANDARD) @map("relationship_tier")
-  notes                String?
-  tags                 Json                         @default("[]")
-  archivedAt           DateTime?                    @map("archived_at")
-  createdBy            String                       @map("created_by")
-  updatedBy            String                       @map("updated_by")
-  createdAt            DateTime                     @default(now()) @map("created_at")
-  updatedAt            DateTime                     @updatedAt @map("updated_at")
-  territory            ProspectTerritory?           @relation(fields: [territoryId], references: [id], onDelete: Restrict)
-  venues               ProspectVenue[]
-  contacts             ProspectContact[]
-  opportunity          ProspectOpportunity?
-  activities           ProspectActivity[]
-  sources              ProspectSourceEvidence[]
-  duplicateCandidatesA ProspectDuplicateCandidate[] @relation("prospect_duplicate_a")
-  duplicateCandidatesB ProspectDuplicateCandidate[] @relation("prospect_duplicate_b")
-  conversion           ProspectConversion?
-  campaignMembers      ProspectCampaignMember[]
-  outreachDrafts       ProspectOutreachDraft[]
-  emailThreads         ProspectEmailThread[]
-  emailMessages        ProspectEmailMessage[]
-  followups            ProspectFollowup[]
+model ProspectTag {
+  id          String                    @id @default(cuid())
+  label       String                    @db.VarChar(100)
+  slug        String                    @unique @db.VarChar(100)
+  color       String?                   @db.VarChar(32)
+  description String?                   @db.VarChar(1000)
+  archivedAt  DateTime?                 @map("archived_at")
+  createdBy   String                    @map("created_by") @db.VarChar(191)
+  updatedBy   String                    @map("updated_by") @db.VarChar(191)
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+  assignments ProspectOrganizationTag[]
 
+  @@index([archivedAt, label])
+  @@map("prospect_tags")
+}
+
+model ProspectOrganizationTag {
+  organizationId String               @map("organization_id")
+  tagId          String               @map("tag_id")
+  addedBy        String               @map("added_by") @db.VarChar(191)
+  addedAt        DateTime             @default(now()) @map("added_at")
+  organization   ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  tag            ProspectTag          @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, tagId])
+  @@index([tagId, addedAt])
+  @@map("prospect_organization_tags")
+}
+
+/// Provider account metadata only. OAuth material lives behind credentialReferenceId.
+model CorrespondenceProviderAccount {
+  id                    String                        @id @default(cuid())
+  provider              CorrespondenceProviderKey
+  externalAccountId     String                        @map("external_account_id") @db.VarChar(191)
+  mailboxAddress        String                        @map("mailbox_address") @db.VarChar(320)
+  displayName           String?                       @map("display_name") @db.VarChar(191)
+  capabilities          CorrespondenceCapability[]    @default([])
+  connectionStatus      CorrespondenceAccountStatus   @default(DISCONNECTED) @map("connection_status")
+  credentialReferenceId String?                       @map("credential_reference_id") @db.VarChar(191)
+  syncCursor            String?                       @map("sync_cursor") @db.VarChar(512)
+  watchExpiration       DateTime?                     @map("watch_expiration")
+  lastSuccessfulSyncAt  DateTime?                     @map("last_successful_sync_at")
+  lastReconciliationAt  DateTime?                     @map("last_reconciliation_at")
+  lastHealthCheckAt     DateTime?                     @map("last_health_check_at")
+  healthErrorCode       String?                       @map("health_error_code") @db.VarChar(100)
+  healthErrorSummary    String?                       @map("health_error_summary") @db.VarChar(2000)
+  dailySendCap          Int                           @default(10) @map("daily_send_cap")
+  perDomainDailyCap     Int                           @default(2) @map("per_domain_daily_cap")
+  minimumDelaySeconds   Int                           @default(180) @map("minimum_delay_seconds")
+  jitterSeconds         Int                           @default(120) @map("jitter_seconds")
+  deliveryEnabled       Boolean                       @default(false) @map("delivery_enabled")
+  pausedAt              DateTime?                     @map("paused_at")
+  createdBy             String                        @map("created_by") @db.VarChar(191)
+  updatedBy             String                        @map("updated_by") @db.VarChar(191)
+  createdAt             DateTime                      @default(now()) @map("created_at")
+  updatedAt             DateTime                      @updatedAt @map("updated_at")
+  threadMappings        ProspectEmailThreadProvider[]
+  messages              ProspectEmailMessage[]
+  events                ProspectEmailEvent[]
+  sendItems             ProspectSendItem[]
+  outboxOperations      ProspectSendOutbox[]
+  inboundReceipts       ProspectEmailWebhookReceipt[]
+  inboundQuarantines    ProspectInboundQuarantine[]
+
+  @@unique([provider, externalAccountId])
+  @@unique([provider, mailboxAddress])
+  @@index([provider, connectionStatus, updatedAt])
+  @@map("correspondence_provider_accounts")
+}
+
+/// Dedicated encrypted secret storage. Ciphertext is useless without the
+/// separately managed integration key; access tokens are never persisted.
+model EncryptedIntegrationCredential {
+  id                   String   @id @default(cuid())
+  provider             String   @db.VarChar(64)
+  subject              String   @db.VarChar(320)
+  encryptedSecret      Bytes    @map("encrypted_secret")
+  initializationVector Bytes    @map("initialization_vector")
+  authenticationTag    Bytes    @map("authentication_tag")
+  keyVersion           Int      @default(1) @map("key_version")
+  createdBy            String   @map("created_by") @db.VarChar(191)
+  revokedAt            DateTime? @map("revoked_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([provider, subject, revokedAt])
+  @@map("encrypted_integration_credentials")
+}
+
+/// One-time OAuth state and encrypted PKCE verifier. Attempts are consumed
+/// before token exchange so callback replay cannot mint a second credential.
+model GmailOAuthAttempt {
+  id                        String    @id @default(cuid())
+  stateHash                 String    @unique @map("state_hash") @db.Char(64)
+  encryptedCodeVerifier     Bytes     @map("encrypted_code_verifier")
+  initializationVector      Bytes     @map("initialization_vector")
+  authenticationTag         Bytes     @map("authentication_tag")
+  redirectUri               String    @map("redirect_uri") @db.VarChar(1000)
+  requestedBy               String    @map("requested_by") @db.VarChar(191)
+  expiresAt                 DateTime  @map("expires_at")
+  consumedAt                DateTime? @map("consumed_at")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+
+  @@index([expiresAt, consumedAt])
+  @@map("gmail_oauth_attempts")
+}
+
+/// Singleton platform kill switch. Delivery is dark unless this and the mailbox are enabled.
+model ProspectDeliveryControl {
+  id                  String   @id @default("global") @db.VarChar(32)
+  deliveryEnabled     Boolean  @default(false) @map("delivery_enabled")
+  internalOnly        Boolean  @default(true) @map("internal_only")
+  internalAllowlist   String[] @default([]) @map("internal_allowlist")
+  physicalContactLine String?  @map("physical_contact_line") @db.VarChar(500)
+  changedBy           String   @default("system") @map("changed_by") @db.VarChar(191)
+  changedReason       String?  @map("changed_reason") @db.VarChar(2000)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("prospect_delivery_control")
+}
+
+model ProspectOrganization {
+  id                    String                         @id @default(cuid())
+  canonicalName         String                         @map("canonical_name")
+  normalizedName        String                         @map("normalized_name")
+  aliases               Json                           @default("[]")
+  website               String?
+  normalizedDomain      String?                        @map("normalized_domain")
+  organizationType      String?                        @map("organization_type")
+  description           String?
+  headquartersCity      String?                        @map("headquarters_city")
+  headquartersRegion    String?                        @map("headquarters_region")
+  headquartersCountry   String?                        @map("headquarters_country")
+  territoryId           String?                        @map("territory_id")
+  source                String?
+  researchProvenance    Json                           @default("[]") @map("research_provenance")
+  /// Deprecated compatibility projection. ProspectOpportunity is the sole writer.
+  ownerId               String?                        @map("owner_id")
+  /// Deprecated compatibility projection. ProspectOpportunity is the sole writer.
+  priority              ProspectPriority               @default(NORMAL)
+  relationshipTier      ProspectRelationshipTier       @default(STANDARD) @map("relationship_tier")
+  notes                 String?
+  /// Deprecated compatibility projection. Normalized ProspectTag associations are canonical.
+  tags                  Json                           @default("[]")
+  archivedAt            DateTime?                      @map("archived_at")
+  createdBy             String                         @map("created_by")
+  updatedBy             String                         @map("updated_by")
+  createdAt             DateTime                       @default(now()) @map("created_at")
+  updatedAt             DateTime                       @updatedAt @map("updated_at")
+  territory             ProspectTerritory?             @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  venues                ProspectVenue[]
+  contacts              ProspectContact[]
+  opportunity           ProspectOpportunity?
+  activities            ProspectActivity[]
+  sources               ProspectSourceEvidence[]
+  duplicateCandidatesA  ProspectDuplicateCandidate[]   @relation("prospect_duplicate_a")
+  duplicateCandidatesB  ProspectDuplicateCandidate[]   @relation("prospect_duplicate_b")
+  conversion            ProspectConversion?
+  customerRelationships ProspectCustomerRelationship[]
+  tagAssignments        ProspectOrganizationTag[]
+  campaignMembers       ProspectCampaignMember[]
+  outreachDrafts        ProspectOutreachDraft[]
+  emailThreads          ProspectEmailThread[]
+  emailMessages         ProspectEmailMessage[]
+  followups             ProspectFollowup[]
+
+  @@unique([updatedAt, id], map: "prospect_organizations_updated_at_id_key")
   @@index([normalizedName])
   @@index([normalizedDomain])
+  @@index([canonicalName(ops: raw("gin_trgm_ops"))], type: Gin, map: "prospect_org_name_trgm_idx")
+  @@index([normalizedDomain(ops: raw("gin_trgm_ops"))], type: Gin, map: "prospect_org_domain_trgm_idx")
   @@index([territoryId, archivedAt])
   @@index([ownerId, archivedAt])
   @@index([relationshipTier, archivedAt])
@@ -4624,91 +4896,125 @@ model ProspectOrganization {
 }
 
 model ProspectVenue {
-  id                String                   @id @default(cuid())
-  organizationId    String                   @map("organization_id")
-  territoryId       String?                  @map("territory_id")
-  name              String
-  normalizedName    String                   @map("normalized_name")
-  website           String?
-  normalizedDomain  String?                  @map("normalized_domain")
-  venueType         String?                  @map("venue_type")
-  addressLine1      String?                  @map("address_line_1")
-  addressLine2      String?                  @map("address_line_2")
-  city              String?
-  region            String?
-  postalCode        String?                  @map("postal_code")
-  country           String?
-  estimatedSize     String?                  @map("estimated_size")
-  fitAttributes     Json                     @default("{}") @map("fit_attributes")
-  visitorOperations Json                     @default("{}") @map("visitor_operations")
-  notes             String?
-  researchSources   Json                     @default("[]") @map("research_sources")
-  stage             ProspectStage            @default(DISCOVERED)
-  priority          ProspectPriority         @default(NORMAL)
-  nextAction        String?                  @map("next_action")
-  nextActionAt      DateTime?                @map("next_action_at")
-  lastActivityAt    DateTime?                @map("last_activity_at")
-  archivedAt        DateTime?                @map("archived_at")
-  sourceImportRowId String?                  @map("source_import_row_id")
-  createdBy         String                   @map("created_by")
-  updatedBy         String                   @map("updated_by")
-  createdAt         DateTime                 @default(now()) @map("created_at")
-  updatedAt         DateTime                 @updatedAt @map("updated_at")
-  organization      ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  territory         ProspectTerritory?       @relation(fields: [territoryId], references: [id], onDelete: Restrict)
-  contacts          ProspectContact[]
-  activities        ProspectActivity[]
-  sources           ProspectSourceEvidence[]
-  sourceImportRow   ProspectImportRow?       @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
-  conversion        ProspectConversion?
-  campaignMembers   ProspectCampaignMember[]
-  outreachDrafts    ProspectOutreachDraft[]
-  emailThreads      ProspectEmailThread[]
-  emailMessages     ProspectEmailMessage[]
+  id                  String                       @id @default(cuid())
+  organizationId      String                       @map("organization_id")
+  territoryId         String?                      @map("territory_id")
+  name                String
+  normalizedName      String                       @map("normalized_name")
+  website             String?
+  normalizedDomain    String?                      @map("normalized_domain")
+  venueType           String?                      @map("venue_type")
+  addressLine1        String?                      @map("address_line_1")
+  addressLine2        String?                      @map("address_line_2")
+  city                String?
+  region              String?
+  postalCode          String?                      @map("postal_code")
+  country             String?
+  estimatedSize       String?                      @map("estimated_size")
+  fitAttributes       Json                         @default("{}") @map("fit_attributes")
+  visitorOperations   Json                         @default("{}") @map("visitor_operations")
+  notes               String?
+  researchSources     Json                         @default("[]") @map("research_sources")
+  /// Deprecated compatibility projections. ProspectOpportunity is the sole writer.
+  stage               ProspectStage                @default(DISCOVERED)
+  priority            ProspectPriority             @default(NORMAL)
+  nextAction          String?                      @map("next_action")
+  nextActionAt        DateTime?                    @map("next_action_at")
+  lastActivityAt      DateTime?                    @map("last_activity_at")
+  archivedAt          DateTime?                    @map("archived_at")
+  sourceImportRowId   String?                      @map("source_import_row_id")
+  createdBy           String                       @map("created_by")
+  updatedBy           String                       @map("updated_by")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
+  organization        ProspectOrganization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  territory           ProspectTerritory?           @relation(fields: [territoryId], references: [id], onDelete: Restrict)
+  contacts            ProspectContact[]
+  activities          ProspectActivity[]
+  sources             ProspectSourceEvidence[]
+  sourceImportRow     ProspectImportRow?           @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
+  conversion          ProspectConversion?
+  locationConversions ProspectLocationConversion[]
+  campaignMembers     ProspectCampaignMember[]
+  outreachDrafts      ProspectOutreachDraft[]
+  emailThreads        ProspectEmailThread[]
+  emailMessages       ProspectEmailMessage[]
 
   @@index([organizationId, archivedAt])
   @@index([normalizedName])
   @@index([normalizedDomain])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "prospect_venue_name_trgm_idx")
   @@index([territoryId, stage, priority])
   @@index([nextActionAt, archivedAt])
   @@map("prospect_venues")
 }
 
 model ProspectContact {
-  id                     String                   @id @default(cuid())
-  organizationId         String                   @map("organization_id")
-  venueId                String?                  @map("venue_id")
+  id                     String                            @id @default(cuid())
+  organizationId         String                            @map("organization_id")
+  venueId                String?                           @map("venue_id")
   fullName               String?
   title                  String?
   email                  String?
-  normalizedEmail        String?                  @map("normalized_email")
+  normalizedEmail        String?                           @map("normalized_email")
   phone                  String?
   source                 String?
-  provenance             Json                     @default("[]")
-  preferredCommunication String?                  @map("preferred_communication")
-  doNotContact           Boolean                  @default(false) @map("do_not_contact")
-  suppressionReason      String?                  @map("suppression_reason")
+  provenance             Json                              @default("[]")
+  preferredCommunication String?                           @map("preferred_communication")
+  emailReadiness         ProspectContactReadiness          @default(UNKNOWN) @map("email_readiness")
+  permissionState        ProspectPermissionState           @default(UNKNOWN) @map("permission_state")
+  permissionEvidence     Json                              @default("{}") @map("permission_evidence")
+  doNotContact           Boolean                           @default(false) @map("do_not_contact")
+  suppressionReason      String?                           @map("suppression_reason")
+  suppressedAt           DateTime?                         @map("suppressed_at")
+  unsubscribedAt         DateTime?                         @map("unsubscribed_at")
+  complainedAt           DateTime?                         @map("complained_at")
+  lastHardBounceAt       DateTime?                         @map("last_hard_bounce_at")
+  lastSoftBounceAt       DateTime?                         @map("last_soft_bounce_at")
   notes                  String?
-  sourceImportRowId      String?                  @map("source_import_row_id")
-  archivedAt             DateTime?                @map("archived_at")
-  createdBy              String                   @map("created_by")
-  updatedBy              String                   @map("updated_by")
-  createdAt              DateTime                 @default(now()) @map("created_at")
-  updatedAt              DateTime                 @updatedAt @map("updated_at")
-  organization           ProspectOrganization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  venue                  ProspectVenue?           @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  sourceImportRowId      String?                           @map("source_import_row_id")
+  archivedAt             DateTime?                         @map("archived_at")
+  createdBy              String                            @map("created_by")
+  updatedBy              String                            @map("updated_by")
+  createdAt              DateTime                          @default(now()) @map("created_at")
+  updatedAt              DateTime                          @updatedAt @map("updated_at")
+  organization           ProspectOrganization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue                  ProspectVenue?                    @relation(fields: [venueId], references: [id], onDelete: Restrict)
   activities             ProspectActivity[]
   sources                ProspectSourceEvidence[]
-  sourceImportRow        ProspectImportRow?       @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
+  sourceImportRow        ProspectImportRow?                @relation(fields: [sourceImportRowId], references: [id], onDelete: SetNull)
   campaignMembers        ProspectCampaignMember[]
   outreachDrafts         ProspectOutreachDraft[]
   emailThreads           ProspectEmailThread[]
   emailMessages          ProspectEmailMessage[]
+  suppressionEvents      ProspectContactSuppressionEvent[]
 
   @@index([organizationId, archivedAt])
   @@index([venueId, archivedAt])
   @@index([normalizedEmail])
+  @@index([normalizedEmail(ops: raw("gin_trgm_ops"))], type: Gin, map: "prospect_contact_email_trgm_idx")
   @@map("prospect_contacts")
+}
+
+/// Append-only contactability evidence. Current contact fields are a projection of this ledger.
+model ProspectContactSuppressionEvent {
+  id         String                       @id @default(cuid())
+  contactId  String                       @map("contact_id")
+  eventType  ProspectSuppressionEventType @map("event_type")
+  source     ProspectSuppressionSource
+  reasonCode String                       @map("reason_code") @db.VarChar(100)
+  reason     String?                      @db.VarChar(2000)
+  provider   CorrespondenceProviderKey?
+  actorType  ActorType                    @map("actor_type")
+  actorId    String                       @map("actor_id") @db.VarChar(191)
+  evidence   Json                         @default("{}")
+  occurredAt DateTime                     @default(now()) @map("occurred_at")
+  createdAt  DateTime                     @default(now()) @map("created_at")
+  contact    ProspectContact              @relation(fields: [contactId], references: [id], onDelete: Restrict)
+
+  @@index([contactId, occurredAt, id])
+  @@index([eventType, occurredAt])
+  @@map("prospect_contact_suppression_events")
 }
 
 model ProspectOpportunity {
@@ -4832,6 +5138,21 @@ model ProspectImport {
   duplicateRows      Int                   @default(0) @map("duplicate_rows")
   importedRows       Int                   @default(0) @map("imported_rows")
   failedRows         Int                   @default(0) @map("failed_rows")
+  sourceObjectKey    String?               @map("source_object_key") @db.VarChar(500)
+  sourceObjectVersion String?              @map("source_object_version") @db.VarChar(500)
+  sourceObjectGeneration String?           @map("source_object_generation") @db.Uuid
+  expandedSizeBytes  Int?                  @map("expanded_size_bytes")
+  progressCursor     String?               @map("progress_cursor") @db.VarChar(500)
+  jobClaimToken      String?               @map("job_claim_token") @db.Uuid
+  jobClaimPhase      String?               @map("job_claim_phase") @db.VarChar(50)
+  jobClaimOwner      String?               @map("job_claim_owner") @db.VarChar(191)
+  jobClaimExpiresAt  DateTime?             @map("job_claim_expires_at")
+  cancelRequestedAt DateTime?              @map("cancel_requested_at")
+  canceledBy         String?               @map("canceled_by") @db.VarChar(191)
+  reportObjectKey    String?               @map("report_object_key") @db.VarChar(500)
+  reportHash         String?               @map("report_hash") @db.Char(64)
+  reconciliation    Json?                  @map("reconciliation")
+  completedAt        DateTime?             @map("completed_at")
   approvedBy         String?               @map("approved_by")
   approvedAt         DateTime?             @map("approved_at")
   createdBy          String                @map("created_by")
@@ -4839,10 +5160,31 @@ model ProspectImport {
   updatedAt          DateTime              @updatedAt @map("updated_at")
   sheets             ProspectImportSheet[]
   rows               ProspectImportRow[]
+  reportEntries      ProspectImportReportEntry[]
 
   @@index([status, createdAt])
+  @@index([status, jobClaimExpiresAt])
   @@index([fileHash])
   @@map("prospect_imports")
+}
+
+model ProspectImportReportEntry {
+  id                String         @id @default(cuid())
+  importId          String         @map("import_id")
+  importRowId       String         @map("import_row_id")
+  sheetName         String         @map("sheet_name") @db.VarChar(300)
+  originalRowNumber Int            @map("original_row_number")
+  rowFingerprint    String         @map("row_fingerprint") @db.Char(64)
+  status            ProspectImportRowStatus
+  warnings          Json           @default("[]")
+  errors            Json           @default("[]")
+  duplicateMatches  Json           @default("[]") @map("duplicate_matches")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  import            ProspectImport @relation(fields: [importId], references: [id], onDelete: Restrict)
+
+  @@unique([importId, importRowId])
+  @@index([importId, sheetName, originalRowNumber])
+  @@map("prospect_import_report_entries")
 }
 
 model ProspectImportSheet {
@@ -4852,6 +5194,7 @@ model ProspectImportSheet {
   sheetIndex   Int            @map("sheet_index")
   detectedRows Int            @map("detected_rows")
   columns      Json
+  selected     Boolean        @default(false)
   createdAt    DateTime       @default(now()) @map("created_at")
   import       ProspectImport @relation(fields: [importId], references: [id], onDelete: Restrict)
 
@@ -4872,6 +5215,16 @@ model ProspectImportRow {
   warnings               Json                     @default("[]")
   errors                 Json                     @default("[]")
   duplicateMatches       Json                     @default("[]") @map("duplicate_matches")
+  decision               ProspectImportRowDecision?
+  decisionNote           String?                  @map("decision_note") @db.VarChar(2000)
+  decisionBy             String?                  @map("decision_by") @db.VarChar(191)
+  decisionAt             DateTime?                @map("decision_at")
+  targetOrganizationId   String?                  @map("target_organization_id")
+  targetVenueId          String?                  @map("target_venue_id")
+  targetContactId        String?                  @map("target_contact_id")
+  claimToken             String?                  @map("claim_token") @db.Uuid
+  claimOwner             String?                  @map("claim_owner") @db.VarChar(191)
+  claimExpiresAt         DateTime?                @map("claim_expires_at")
   importedOrganizationId String?                  @map("imported_organization_id")
   importedVenueId        String?                  @map("imported_venue_id")
   importedContactId      String?                  @map("imported_contact_id")
@@ -4887,6 +5240,7 @@ model ProspectImportRow {
 
   @@unique([importId, sheetName, originalRowNumber])
   @@index([importId, status, originalRowNumber])
+  @@index([importId, status, claimExpiresAt, originalRowNumber])
   @@index([rowFingerprint])
   @@map("prospect_import_rows")
 }
@@ -4907,6 +5261,60 @@ model ProspectConversion {
 
   @@index([convertedAt])
   @@map("prospect_conversions")
+}
+
+/// Organization-level commercial/customer relationship. It does not imply every location converted.
+model ProspectCustomerRelationship {
+  id                  String                             @id @default(cuid())
+  organizationId      String                             @map("organization_id")
+  tenantId            String                             @map("tenant_id")
+  idempotencyKey      String                             @unique @map("idempotency_key") @db.VarChar(191)
+  status              ProspectCustomerRelationshipStatus @default(ACTIVE)
+  relationshipVersion Int                                @default(1) @map("relationship_version")
+  evidence            Json                               @default("{}")
+  createdBy           String                             @map("created_by") @db.VarChar(191)
+  endedBy             String?                            @map("ended_by") @db.VarChar(191)
+  startedAt           DateTime                           @default(now()) @map("started_at")
+  endedAt             DateTime?                          @map("ended_at")
+  createdAt           DateTime                           @default(now()) @map("created_at")
+  updatedAt           DateTime                           @updatedAt @map("updated_at")
+  organization        ProspectOrganization               @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  tenant              Tenant                             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  locationConversions ProspectLocationConversion[]
+
+  @@unique([organizationId, tenantId, relationshipVersion], map: "prospect_customer_relationship_version_key")
+  @@index([organizationId, status, startedAt])
+  @@index([tenantId, status, startedAt])
+  @@map("prospect_customer_relationships")
+}
+
+/// Historical link from one prospect location to one live venue for a relationship generation.
+model ProspectLocationConversion {
+  id              String                           @id @default(cuid())
+  tenantId        String                           @map("tenant_id")
+  relationshipId  String                           @map("relationship_id")
+  prospectVenueId String                           @map("prospect_venue_id")
+  venueId         String                           @map("venue_id")
+  idempotencyKey  String                           @unique @map("idempotency_key") @db.VarChar(191)
+  generation      Int                              @default(1)
+  status          ProspectLocationConversionStatus @default(ACTIVE)
+  evidence        Json                             @default("{}")
+  convertedBy     String                           @map("converted_by") @db.VarChar(191)
+  endedBy         String?                          @map("ended_by") @db.VarChar(191)
+  convertedAt     DateTime                         @default(now()) @map("converted_at")
+  endedAt         DateTime?                        @map("ended_at")
+  createdAt       DateTime                         @default(now()) @map("created_at")
+  updatedAt       DateTime                         @updatedAt @map("updated_at")
+  relationship    ProspectCustomerRelationship     @relation(fields: [relationshipId], references: [id], onDelete: Restrict)
+  tenant          Tenant                           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  prospectVenue   ProspectVenue                    @relation(fields: [prospectVenueId], references: [id], onDelete: Restrict)
+  venue           Venue                            @relation(fields: [venueId], references: [id], onDelete: Restrict)
+
+  @@unique([relationshipId, prospectVenueId, venueId, generation], map: "prospect_location_conversion_generation_key")
+  @@index([prospectVenueId, status, convertedAt])
+  @@index([venueId, status, convertedAt])
+  @@index([tenantId, status, convertedAt])
+  @@map("prospect_location_conversions")
 }
 
 /// A user-owned, portable view definition. Filters are data, never executable SQL.
@@ -4933,6 +5341,8 @@ model ProspectOutreachCampaign {
   status          ProspectCampaignStatus   @default(DRAFT)
   cohortSnapshot  Json                     @map("cohort_snapshot")
   playbookVersion String                   @map("playbook_version") @db.VarChar(100)
+  dailySendCap    Int                      @default(10) @map("daily_send_cap")
+  pausedAt        DateTime?                @map("paused_at")
   createdBy       String                   @map("created_by") @db.VarChar(191)
   updatedBy       String                   @map("updated_by") @db.VarChar(191)
   createdAt       DateTime                 @default(now()) @map("created_at")
@@ -5013,6 +5423,8 @@ model ProspectSendBatch {
   approvedBy      String?                  @map("approved_by") @db.VarChar(191)
   approvedAt      DateTime?                @map("approved_at")
   queuedAt        DateTime?                @map("queued_at")
+  releasedBy      String?                  @map("released_by") @db.VarChar(191)
+  releasedAt      DateTime?                @map("released_at")
   completedAt     DateTime?                @map("completed_at")
   cancelledReason String?                  @map("cancelled_reason") @db.VarChar(2000)
   createdAt       DateTime                 @default(now()) @map("created_at")
@@ -5025,96 +5437,158 @@ model ProspectSendBatch {
 }
 
 model ProspectSendItem {
-  id                     String                 @id @default(cuid())
-  batchId                String                 @map("batch_id")
-  memberId               String                 @map("member_id")
-  draftId                String                 @map("draft_id")
-  status                 ProspectSendItemStatus @default(STAGED)
-  recipientEmailSnapshot String                 @map("recipient_email_snapshot") @db.VarChar(320)
-  subjectSnapshot        String                 @map("subject_snapshot") @db.VarChar(998)
-  contentHashSnapshot    String                 @map("content_hash_snapshot") @db.Char(64)
-  idempotencyKey         String                 @unique @map("idempotency_key") @db.VarChar(256)
-  providerMessageId      String?                @unique @map("provider_message_id") @db.VarChar(191)
-  attemptCount           Int                    @default(0) @map("attempt_count")
-  lastErrorCode          String?                @map("last_error_code") @db.VarChar(100)
-  lastErrorMessage       String?                @map("last_error_message") @db.VarChar(2000)
-  sentAt                 DateTime?              @map("sent_at")
-  createdAt              DateTime               @default(now()) @map("created_at")
-  updatedAt              DateTime               @updatedAt @map("updated_at")
-  batch                  ProspectSendBatch      @relation(fields: [batchId], references: [id], onDelete: Restrict)
-  member                 ProspectCampaignMember @relation(fields: [memberId], references: [id], onDelete: Restrict)
-  draft                  ProspectOutreachDraft  @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  id                     String                         @id @default(cuid())
+  batchId                String                         @map("batch_id")
+  memberId               String                         @map("member_id")
+  draftId                String                         @map("draft_id")
+  status                 ProspectSendItemStatus         @default(STAGED)
+  recipientEmailSnapshot String                         @map("recipient_email_snapshot") @db.VarChar(320)
+  recipientIdentityHash  String                         @map("recipient_identity_hash") @db.Char(64)
+  subjectSnapshot        String                         @map("subject_snapshot") @db.VarChar(998)
+  textBodySnapshot       String                         @map("text_body_snapshot")
+  htmlBodySnapshot       String?                        @map("html_body_snapshot")
+  headerSnapshot         Json                           @default("{}") @map("header_snapshot")
+  contentHashSnapshot    String                         @map("content_hash_snapshot") @db.Char(64)
+  idempotencyKey         String                         @unique @map("idempotency_key") @db.VarChar(256)
+  providerAccountId      String?                        @map("provider_account_id")
+  providerOperationId    String?                        @map("provider_operation_id") @db.VarChar(191)
+  providerMessageId      String?                        @map("provider_message_id") @db.VarChar(191)
+  attemptCount           Int                            @default(0) @map("attempt_count")
+  lastErrorCode          String?                        @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage       String?                        @map("last_error_message") @db.VarChar(2000)
+  sentAt                 DateTime?                      @map("sent_at")
+  createdAt              DateTime                       @default(now()) @map("created_at")
+  updatedAt              DateTime                       @updatedAt @map("updated_at")
+  batch                  ProspectSendBatch              @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  member                 ProspectCampaignMember         @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  draft                  ProspectOutreachDraft          @relation(fields: [draftId], references: [id], onDelete: Restrict)
+  providerAccount        CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+  outbox                 ProspectSendOutbox?
   message                ProspectEmailMessage?
   events                 ProspectEmailEvent[]
 
   @@unique([batchId, draftId])
+  @@unique([providerAccountId, providerOperationId], map: "prospect_send_items_provider_operation_key")
+  @@unique([providerAccountId, providerMessageId], map: "prospect_send_items_provider_message_key")
   @@index([batchId, status])
   @@map("prospect_send_items")
 }
 
+/// Transactional outbox and exclusive leased operation state for one frozen send item.
+model ProspectSendOutbox {
+  id                     String                        @id @default(cuid())
+  operationId            String                        @unique @map("operation_id") @db.Uuid
+  sendItemId             String                        @unique @map("send_item_id")
+  providerAccountId      String                        @map("provider_account_id")
+  status                 ProspectSendOutboxStatus      @default(PENDING)
+  availableAt            DateTime                      @default(now()) @map("available_at")
+  claimOwner             String?                       @map("claim_owner") @db.VarChar(191)
+  claimExpiresAt         DateTime?                     @map("claim_expires_at")
+  attemptCount           Int                           @default(0) @map("attempt_count")
+  providerIdempotencyKey String                        @map("provider_idempotency_key") @db.VarChar(256)
+  lastErrorCode          String?                       @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage       String?                       @map("last_error_message") @db.VarChar(2000)
+  lastErrorRetryable     Boolean?                      @map("last_error_retryable")
+  ambiguousSince         DateTime?                     @map("ambiguous_since")
+  terminalAt             DateTime?                     @map("terminal_at")
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @updatedAt @map("updated_at")
+  sendItem               ProspectSendItem              @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
+  providerAccount        CorrespondenceProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([providerAccountId, providerIdempotencyKey], map: "prospect_send_outbox_provider_idempotency_key")
+  @@index([status, availableAt, claimExpiresAt])
+  @@map("prospect_send_outbox")
+}
+
 model ProspectEmailThread {
-  id             String                 @id @default(cuid())
-  organizationId String                 @map("organization_id")
-  venueId        String?                @map("venue_id")
-  contactId      String?                @map("contact_id")
-  subject        String?                @db.VarChar(998)
-  replyTokenHash String                 @unique @map("reply_token_hash") @db.Char(64)
-  lastMessageAt  DateTime?              @map("last_message_at")
-  createdAt      DateTime               @default(now()) @map("created_at")
-  updatedAt      DateTime               @updatedAt @map("updated_at")
-  organization   ProspectOrganization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  venue          ProspectVenue?         @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  contact        ProspectContact?       @relation(fields: [contactId], references: [id], onDelete: Restrict)
-  messages       ProspectEmailMessage[]
+  id               String                        @id @default(cuid())
+  organizationId   String                        @map("organization_id")
+  venueId          String?                       @map("venue_id")
+  contactId        String?                       @map("contact_id")
+  subject          String?                       @db.VarChar(998)
+  replyTokenHash   String                        @unique @map("reply_token_hash") @db.Char(64)
+  lastMessageAt    DateTime?                     @map("last_message_at")
+  createdAt        DateTime                      @default(now()) @map("created_at")
+  updatedAt        DateTime                      @updatedAt @map("updated_at")
+  organization     ProspectOrganization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue            ProspectVenue?                @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact          ProspectContact?              @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  messages         ProspectEmailMessage[]
+  providerMappings ProspectEmailThreadProvider[]
 
   @@index([organizationId, lastMessageAt])
   @@map("prospect_email_threads")
 }
 
+model ProspectEmailThreadProvider {
+  id                String                        @id @default(cuid())
+  threadId          String                        @map("thread_id")
+  providerAccountId String                        @map("provider_account_id")
+  providerThreadId  String                        @map("provider_thread_id") @db.VarChar(191)
+  firstSeenAt       DateTime                      @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime                      @default(now()) @map("last_seen_at")
+  thread            ProspectEmailThread           @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  providerAccount   CorrespondenceProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([providerAccountId, providerThreadId], map: "prospect_email_thread_provider_key")
+  @@unique([threadId, providerAccountId], map: "prospect_email_thread_account_key")
+  @@map("prospect_email_thread_providers")
+}
+
 model ProspectEmailMessage {
-  id                 String                     @id @default(cuid())
-  threadId           String                     @map("thread_id")
-  organizationId     String                     @map("organization_id")
-  venueId            String?                    @map("venue_id")
-  contactId          String?                    @map("contact_id")
-  sendItemId         String?                    @unique @map("send_item_id")
+  id                 String                         @id @default(cuid())
+  threadId           String                         @map("thread_id")
+  organizationId     String                         @map("organization_id")
+  venueId            String?                        @map("venue_id")
+  contactId          String?                        @map("contact_id")
+  sendItemId         String?                        @unique @map("send_item_id")
   direction          ProspectEmailDirection
   status             ProspectEmailMessageStatus
-  providerMessageId  String?                    @unique @map("provider_message_id") @db.VarChar(191)
-  internetMessageId  String?                    @map("internet_message_id") @db.VarChar(998)
-  inReplyTo          String?                    @map("in_reply_to") @db.VarChar(998)
-  fromAddress        String                     @map("from_address") @db.VarChar(320)
-  toAddresses        String[]                   @map("to_addresses")
-  subject            String                     @db.VarChar(998)
-  textBody           String?                    @map("text_body")
-  htmlBody           String?                    @map("html_body")
-  attachmentMetadata Json                       @default("[]") @map("attachment_metadata")
-  occurredAt         DateTime                   @map("occurred_at")
-  createdAt          DateTime                   @default(now()) @map("created_at")
-  thread             ProspectEmailThread        @relation(fields: [threadId], references: [id], onDelete: Restrict)
-  organization       ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  venue              ProspectVenue?             @relation(fields: [venueId], references: [id], onDelete: Restrict)
-  contact            ProspectContact?           @relation(fields: [contactId], references: [id], onDelete: Restrict)
-  sendItem           ProspectSendItem?          @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
+  providerAccountId  String?                        @map("provider_account_id")
+  providerMessageId  String?                        @map("provider_message_id") @db.VarChar(191)
+  internetMessageId  String?                        @map("internet_message_id") @db.VarChar(998)
+  inReplyTo          String?                        @map("in_reply_to") @db.VarChar(998)
+  references         String[]                       @default([])
+  fromAddress        String                         @map("from_address") @db.VarChar(320)
+  toAddresses        String[]                       @map("to_addresses")
+  ccAddresses        String[]                       @default([]) @map("cc_addresses")
+  bccAddresses       String[]                       @default([]) @map("bcc_addresses")
+  subject            String                         @db.VarChar(998)
+  textBody           String?                        @map("text_body")
+  htmlBody           String?                        @map("html_body")
+  attachmentMetadata Json                           @default("[]") @map("attachment_metadata")
+  occurredAt         DateTime                       @map("occurred_at")
+  createdAt          DateTime                       @default(now()) @map("created_at")
+  thread             ProspectEmailThread            @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  organization       ProspectOrganization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  venue              ProspectVenue?                 @relation(fields: [venueId], references: [id], onDelete: Restrict)
+  contact            ProspectContact?               @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  sendItem           ProspectSendItem?              @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
+  providerAccount    CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
   events             ProspectEmailEvent[]
 
+  @@unique([providerAccountId, providerMessageId], map: "prospect_email_messages_provider_message_key")
   @@index([threadId, occurredAt])
   @@index([organizationId, occurredAt])
   @@map("prospect_email_messages")
 }
 
 model ProspectEmailEvent {
-  id              String                @id @default(cuid())
-  sendItemId      String?               @map("send_item_id")
-  emailMessageId  String?               @map("email_message_id")
-  providerEventId String                @unique @map("provider_event_id") @db.VarChar(191)
-  eventType       String                @map("event_type") @db.VarChar(100)
-  payload         Json                  @default("{}")
-  occurredAt      DateTime              @map("occurred_at")
-  createdAt       DateTime              @default(now()) @map("created_at")
-  sendItem        ProspectSendItem?     @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
-  emailMessage    ProspectEmailMessage? @relation(fields: [emailMessageId], references: [id], onDelete: Restrict)
+  id                String                         @id @default(cuid())
+  sendItemId        String?                        @map("send_item_id")
+  emailMessageId    String?                        @map("email_message_id")
+  providerAccountId String?                        @map("provider_account_id")
+  providerEventId   String                         @map("provider_event_id") @db.VarChar(191)
+  eventType         String                         @map("event_type") @db.VarChar(100)
+  payload           Json                           @default("{}")
+  occurredAt        DateTime                       @map("occurred_at")
+  createdAt         DateTime                       @default(now()) @map("created_at")
+  sendItem          ProspectSendItem?              @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
+  emailMessage      ProspectEmailMessage?          @relation(fields: [emailMessageId], references: [id], onDelete: Restrict)
+  providerAccount   CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
 
+  @@unique([providerAccountId, providerEventId], map: "prospect_email_events_provider_event_key")
   @@index([sendItemId, occurredAt])
   @@map("prospect_email_events")
 }
@@ -5141,16 +5615,46 @@ model ProspectFollowup {
 
 /// Raw webhook envelope evidence used for signature verification, idempotency and replay.
 model ProspectEmailWebhookReceipt {
-  id              String    @id @default(cuid())
-  provider        String    @db.VarChar(50)
-  providerEventId String    @map("provider_event_id") @db.VarChar(191)
-  eventType       String    @map("event_type") @db.VarChar(100)
-  payload         Json
-  processedAt     DateTime? @map("processed_at")
-  processingError String?   @map("processing_error") @db.VarChar(2000)
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id                String                         @id @default(cuid())
+  provider          String                         @db.VarChar(50)
+  providerAccountId String?                        @map("provider_account_id")
+  providerMailboxKey String                         @map("provider_mailbox_key") @db.VarChar(320)
+  providerEventId   String                         @map("provider_event_id") @db.VarChar(191)
+  eventType         String                         @map("event_type") @db.VarChar(100)
+  payload           Json
+  status            ProspectInboundReceiptStatus   @default(RECEIVED)
+  attemptCount      Int                            @default(0) @map("attempt_count")
+  nextAttemptAt     DateTime?                      @map("next_attempt_at")
+  quarantineReason  String?                        @map("quarantine_reason") @db.VarChar(2000)
+  processedAt       DateTime?                      @map("processed_at")
+  processingError   String?                        @map("processing_error") @db.VarChar(2000)
+  createdAt         DateTime                       @default(now()) @map("created_at")
+  providerAccount   CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+  quarantines       ProspectInboundQuarantine[]
 
-  @@unique([provider, providerEventId])
+  @@unique([provider, providerAccountId, providerEventId], map: "prospect_email_receipts_provider_account_event_key")
+  @@unique([provider, providerMailboxKey, providerEventId], map: "prospect_email_receipts_provider_mailbox_event_key")
   @@index([processedAt, createdAt])
   @@map("prospect_email_webhook_receipts")
+}
+
+model ProspectInboundQuarantine {
+  id                 String                         @id @default(cuid())
+  receiptId          String?                        @map("receipt_id")
+  providerAccountId  String?                        @map("provider_account_id")
+  reason             String                         @db.VarChar(100)
+  detail             String                         @db.VarChar(2000)
+  messageSnapshot    Json?                          @map("message_snapshot")
+  candidateThreadIds String[]                       @default([]) @map("candidate_thread_ids")
+  status             String                         @default("OPEN") @db.VarChar(32)
+  occurredAt         DateTime                       @map("occurred_at")
+  resolvedAt         DateTime?                      @map("resolved_at")
+  resolvedBy         String?                        @map("resolved_by") @db.VarChar(191)
+  createdAt          DateTime                       @default(now()) @map("created_at")
+  receipt            ProspectEmailWebhookReceipt?   @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  providerAccount    CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+
+  @@index([status, occurredAt])
+  @@index([providerAccountId, occurredAt])
+  @@map("prospect_inbound_quarantines")
 }

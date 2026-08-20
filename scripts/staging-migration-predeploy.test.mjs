@@ -36,7 +36,7 @@ test('accepts only the exact private Railway staging target', () => {
   }
 })
 
-test('repository migration manifest remains frozen at the reviewed 127-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 132-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(

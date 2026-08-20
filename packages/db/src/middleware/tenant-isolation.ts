@@ -78,6 +78,12 @@ const APPEND_ONLY_MODELS = [
   'NativeVenueDeploymentCommand',
   'NativeVenueDeploymentPublicationLineage',
   'NativeVenueDeploymentEvaluationEvidence',
+  'ProspectStageHistory',
+  'ProspectActivity',
+  'ProspectSourceEvidence',
+  'ProspectContactSuppressionEvent',
+  'ProspectEmailEvent',
+  'ProspectImportReportEntry',
 ] as const
 const AUDIT_LIFECYCLE_MODELS = [
   'AgentBridgeSession',

@@ -25,6 +25,7 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/evaluation-dispatch.ts', 2],
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
+  ['apps/workers/src/processors/gmail-sync.ts', 4],
   // Worker reconciles approved-package onboarding milestones for the exact job tenant+venue.
   ['apps/workers/src/processors/evaluation-run.ts', 9],
   // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.
@@ -80,12 +81,21 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/product-entitlements.ts', 3],
   // Human platform-admin-only prospect CRM reads/writes. Platform-owned prospect
   // records stay outside tenant scope; conversion validates one exact customer tenant+venue.
-  ['packages/api/src/routers/admin/prospect-crm-core.ts', 9],
-  ['packages/api/src/routers/admin/prospect-crm-import.ts', 7],
+  ['packages/api/src/routers/admin/prospect-crm-core.ts', 5],
+  ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
+  ['packages/api/src/routers/admin/prospect-crm-import.ts', 12],
+  ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
+  ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 5],
+  ['packages/api/src/routers/admin/prospect-crm-saved-views.ts', 3],
+  ['packages/api/src/routers/admin/prospect-crm-territories.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 12],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 10],
+  ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
+  ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
+  ['packages/api/src/correspondence/gmail-oauth.ts', 4],
+  ['packages/api/src/correspondence/prisma-inbound-store.ts', 11],
   // Capability-checked platform CRM agent tools have no tenant authority or send capability.
   ['packages/api/src/prospect-agent/registry.ts', 1],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
@@ -113,7 +123,6 @@ const approvedCallCounts = new Map([
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
   // Signature-verified Resend events reconcile platform-owned CRM correspondence only.
-  ['apps/dashboard/app/api/webhooks/resend/route.ts', 2],
 ])
 
 async function collectFiles(directory) {

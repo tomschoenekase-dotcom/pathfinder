@@ -5,6 +5,7 @@ import {
   beginProspectImportAction,
   createProspectAction,
   resolveProspectDuplicateAction,
+  scanProspectDuplicatesAction,
   stageProspectImportRowsAction,
   updateProspectPipelineAction,
 } from './prospect-actions'
@@ -82,5 +83,45 @@ describe('prospect action safety boundaries', () => {
         actor,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    await expect(
+      stageProspectImportRowsAction({
+        importId: 'import',
+        rows: [
+          {
+            sheetName: 'Data',
+            originalRowNumber: 2,
+            sourceValues: { Venue: { formula: '=1+1' } },
+            normalizedValues: { venueName: 'Unsafe nested cell' },
+          },
+        ],
+        actor,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('scans beyond the former 20,000-organization duplicate ceiling in bounded chunks', async () => {
+    const organizations = Array.from({ length: 20_001 }, (_, index) => ({
+      id: `org-${String(index).padStart(6, '0')}`,
+      normalizedName: `unique-${index}`,
+      normalizedDomain: null,
+      venues: [],
+      contacts: [],
+    }))
+    let offset = 0
+    const findMany = async ({ take }: { take: number }) => {
+      const chunk = organizations.slice(offset, offset + take)
+      offset += chunk.length
+      return chunk
+    }
+    const auditLog = { create: async () => ({}) }
+    const client = {
+      prospectOrganization: { findMany, findFirst: async () => null },
+      $transaction: async (callback: (tx: unknown) => unknown) => callback({ auditLog }),
+    }
+
+    await expect(
+      scanProspectDuplicatesAction({ actor, prospectLimit: 20_001 }, client as never),
+    ).resolves.toMatchObject({ organizationsScanned: 20_001, truncated: false })
+    expect(offset).toBe(20_001)
   })
 })

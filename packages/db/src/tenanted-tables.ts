@@ -115,6 +115,10 @@ export const TENANTED_TABLES = [
   'AiScopedWorkloadConfigurationHistory',
   // Durable bridge from a platform prospect to one exact customer tenant.
   'ProspectConversion',
+  // Customer relationship bridges are exact-tenant scoped even though the
+  // prospect records on their other side are platform-owned.
+  'ProspectCustomerRelationship',
+  'ProspectLocationConversion',
 ] as const
 
 export const PLATFORM_TABLES = [
@@ -128,9 +132,14 @@ export const PLATFORM_TABLES = [
   'ClientCreateIntentEvent',
   'ProductPlanCapability',
   'ProspectTerritory',
+  'ProspectTag',
+  'ProspectOrganizationTag',
+  'CorrespondenceProviderAccount',
+  'ProspectDeliveryControl',
   'ProspectOrganization',
   'ProspectVenue',
   'ProspectContact',
+  'ProspectContactSuppressionEvent',
   'ProspectOpportunity',
   'ProspectStageHistory',
   'ProspectActivity',
@@ -139,17 +148,24 @@ export const PLATFORM_TABLES = [
   'ProspectImport',
   'ProspectImportSheet',
   'ProspectImportRow',
+  'ProspectImportReportEntry',
   'ProspectSavedView',
   'ProspectOutreachCampaign',
   'ProspectCampaignMember',
   'ProspectOutreachDraft',
   'ProspectSendBatch',
   'ProspectSendItem',
+  'ProspectSendOutbox',
   'ProspectEmailThread',
+  'ProspectEmailThreadProvider',
   'ProspectEmailMessage',
   'ProspectEmailEvent',
   'ProspectFollowup',
   'ProspectEmailWebhookReceipt',
+  'PlatformOperationalEvent',
+  'EncryptedIntegrationCredential',
+  'GmailOAuthAttempt',
+  'ProspectInboundQuarantine',
 ] as const
 
 // Models in this list deliberately support both tenant-attributed and

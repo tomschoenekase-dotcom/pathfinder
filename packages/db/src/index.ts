@@ -9,6 +9,16 @@ export {
   type PublishOperationalEventInput,
 } from './helpers/operational-events'
 export {
+  publishPlatformOperationalEvent,
+  type PublishPlatformOperationalEventInput,
+} from './helpers/platform-operational-events'
+export {
+  publishCrmOperationalSignal,
+  type CrmOperationalSignal,
+  type PublishCrmOperationalSignalInput,
+  type PublishCrmOperationalSignalResult,
+} from './helpers/crm-operational-events'
+export {
   OperationalEventRoutingPolicy,
   materializeOperationalEventDeliveries,
   operationalEventDestinationKey,
@@ -79,8 +89,13 @@ export { writeAuditLog, writeAuditLogStrict } from './helpers/audit'
 export {
   addProspectNoteAction,
   approveProspectImportAction,
+  cancelProspectImportAction,
+  previewProspectImportRepairAction,
+  repairProspectImportAction,
   archiveProspectAction,
   beginProspectImportAction,
+  reserveProspectImportUploadAction,
+  configureProspectImportMappingAction,
   commitProspectImportBatchAction,
   createProspectAction,
   linkProspectConversionAction,
@@ -874,7 +889,23 @@ export {
   PROSPECT_OUTREACH_MAX_COHORT,
   PROSPECT_PLAYBOOK_VERSION,
   ProspectOutreachError,
+  releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
   saveProspectOutreachDraftAction,
   stageProspectSendBatchAction,
 } from './helpers/prospect-outreach-actions'
+export {
+  claimProspectSendOutboxAction,
+  finalizeProspectSendBatch,
+  foldProspectEmailStatus,
+  ProspectSendOutboxError,
+  recordProspectSendFailureAction,
+  recordProspectSendSuccessAction,
+} from './helpers/prospect-send-outbox-actions'
+export type { FrozenProspectSend } from './helpers/prospect-send-outbox-actions'
+export {
+  ProspectContactabilityError,
+  recordProspectSuppressionAction,
+  reviewProspectContactReadinessAction,
+  restoreProspectContactabilityAction,
+} from './helpers/prospect-contactability-actions'

@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { db } from '../client'
+import { writeAuditLogStrict } from './audit'
 
 export const PROSPECT_PLAYBOOK_VERSION = 'torchiko-email-playbook-2026-08-18'
 export const PROSPECT_OUTREACH_MAX_COHORT = 5_000
@@ -74,7 +75,15 @@ export async function createProspectCampaignAction(
           select: { id: true },
         },
         contacts: {
-          where: { archivedAt: null, doNotContact: false, normalizedEmail: { not: null } },
+          where: {
+            archivedAt: null,
+            doNotContact: false,
+            normalizedEmail: { not: null },
+            emailReadiness: 'VALID',
+            permissionState: { notIn: ['OPTED_OUT', 'PROHIBITED'] },
+            suppressedAt: null,
+            unsubscribedAt: null,
+          },
           orderBy: [{ venueId: 'asc' }, { createdAt: 'asc' }],
           take: 1,
           select: { id: true, venueId: true },
@@ -167,7 +176,15 @@ export async function saveProspectOutreachDraftAction(
       },
     })
     if (!member) throw new ProspectOutreachError('NOT_FOUND', 'Campaign member not found')
-    if (!member.contact?.normalizedEmail || member.contact.doNotContact) {
+    if (
+      !member.contact?.normalizedEmail ||
+      member.contact.doNotContact ||
+      member.contact.emailReadiness !== 'VALID' ||
+      member.contact.permissionState === 'OPTED_OUT' ||
+      member.contact.permissionState === 'PROHIBITED' ||
+      member.contact.suppressedAt ||
+      member.contact.unsubscribedAt
+    ) {
       throw new ProspectOutreachError('SUPPRESSED', 'The selected contact is not email-ready')
     }
     const previous = member.drafts[0]
@@ -280,12 +297,32 @@ export async function stageProspectSendBatchAction(
   return client.$transaction(async (tx) => {
     const drafts = await tx.prospectOutreachDraft.findMany({
       where: { id: { in: ids }, campaignId: input.campaignId, status: 'APPROVED' },
-      include: { contact: { select: { doNotContact: true, normalizedEmail: true } } },
+      include: {
+        contact: {
+          select: {
+            doNotContact: true,
+            normalizedEmail: true,
+            emailReadiness: true,
+            permissionState: true,
+            suppressedAt: true,
+            unsubscribedAt: true,
+          },
+        },
+      },
       orderBy: { id: 'asc' },
     })
     if (
       drafts.length !== ids.length ||
-      drafts.some((draft) => draft.contact?.doNotContact || !draft.contact?.normalizedEmail)
+      drafts.some(
+        (draft) =>
+          draft.contact?.doNotContact ||
+          !draft.contact?.normalizedEmail ||
+          draft.contact.emailReadiness !== 'VALID' ||
+          draft.contact.permissionState === 'OPTED_OUT' ||
+          draft.contact.permissionState === 'PROHIBITED' ||
+          Boolean(draft.contact.suppressedAt) ||
+          Boolean(draft.contact.unsubscribedAt),
+      )
     ) {
       throw new ProspectOutreachError(
         'SUPPRESSED',
@@ -306,7 +343,14 @@ export async function stageProspectSendBatchAction(
             memberId: draft.memberId,
             draftId: draft.id,
             recipientEmailSnapshot: draft.toEmail,
+            recipientIdentityHash: hash(draft.toEmail.toLowerCase()),
             subjectSnapshot: draft.subject,
+            textBodySnapshot: draft.textBody,
+            htmlBodySnapshot: draft.htmlBody,
+            headerSnapshot: {
+              playbookVersion: PROSPECT_PLAYBOOK_VERSION,
+              draftVersion: draft.version,
+            },
             contentHashSnapshot: draft.contentHash,
             idempotencyKey: `torchiko-prospect-${hash(`${input.campaignId}:${draft.id}:${draft.contentHash}`)}`,
           })),
@@ -345,6 +389,150 @@ export async function approveProspectSendBatchAction(
         'Batch confirmation does not match the frozen recipient snapshot',
       )
     }
+    const approved = await tx.prospectSendBatch.update({
+      where: { id: batch.id },
+      data: { status: 'APPROVED', approvedBy: input.actor.id, approvedAt: new Date() },
+    })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'prospect.send-batch.approve',
+        targetType: 'ProspectSendBatch',
+        targetId: batch.id,
+        beforeState: { status: batch.status },
+        afterState: {
+          status: approved.status,
+          recipientCount: batch.recipientCount,
+          snapshotHash: batch.snapshotHash,
+        },
+      },
+      tx,
+    )
+    return approved
+  })
+}
+
+/** Human-only final release. The immutable operations and batch transition commit atomically. */
+export async function releaseProspectSendBatchAction(
+  input: {
+    batchId: string
+    providerAccountId: string
+    expectedRecipientCount: number
+    expectedSnapshotHash: string
+    actor: HumanActor
+  },
+  client: Client = db,
+) {
+  requireHuman(input.actor)
+  return client.$transaction(async (tx) => {
+    const [control, providerAccount, batch] = await Promise.all([
+      tx.prospectDeliveryControl.findUnique({ where: { id: 'global' } }),
+      tx.correspondenceProviderAccount.findUnique({ where: { id: input.providerAccountId } }),
+      tx.prospectSendBatch.findUnique({
+        where: { id: input.batchId },
+        include: {
+          campaign: true,
+          items: {
+            orderBy: { id: 'asc' },
+            include: {
+              draft: {
+                include: {
+                  contact: {
+                    select: {
+                      normalizedEmail: true,
+                      doNotContact: true,
+                      archivedAt: true,
+                      emailReadiness: true,
+                      permissionState: true,
+                      suppressedAt: true,
+                      unsubscribedAt: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ])
+
+    if (!control?.deliveryEnabled) {
+      throw new ProspectOutreachError('APPROVAL_REQUIRED', 'Prospect delivery is globally disabled')
+    }
+    if (
+      !providerAccount ||
+      providerAccount.provider !== 'GMAIL' ||
+      providerAccount.connectionStatus !== 'CONNECTED' ||
+      !providerAccount.deliveryEnabled ||
+      providerAccount.pausedAt
+    ) {
+      throw new ProspectOutreachError(
+        'APPROVAL_REQUIRED',
+        'A connected, explicitly enabled Gmail mailbox is required',
+      )
+    }
+    if (!batch || batch.status !== 'APPROVED') {
+      throw new ProspectOutreachError('CONFLICT', 'Batch is not approved for release')
+    }
+    if (batch.campaign.pausedAt || batch.campaign.status === 'CANCELLED') {
+      throw new ProspectOutreachError('CONFLICT', 'Campaign is paused or cancelled')
+    }
+    if (
+      batch.recipientCount !== input.expectedRecipientCount ||
+      batch.snapshotHash !== input.expectedSnapshotHash ||
+      batch.items.length !== batch.recipientCount
+    ) {
+      throw new ProspectOutreachError('CONFLICT', 'Release confirmation does not match the batch')
+    }
+
+    for (const item of batch.items) {
+      const contact = item.draft.contact
+      const identityHash = contact?.normalizedEmail
+        ? hash(contact.normalizedEmail.toLowerCase())
+        : null
+      const eligible =
+        contact &&
+        !contact.archivedAt &&
+        !contact.doNotContact &&
+        contact.emailReadiness === 'VALID' &&
+        contact.permissionState !== 'OPTED_OUT' &&
+        contact.permissionState !== 'PROHIBITED' &&
+        !contact.suppressedAt &&
+        !contact.unsubscribedAt &&
+        identityHash === item.recipientIdentityHash
+      if (!eligible) {
+        throw new ProspectOutreachError(
+          'SUPPRESSED',
+          `Recipient ${item.id} is no longer eligible; release was not created`,
+        )
+      }
+      if (
+        control.internalOnly &&
+        !control.internalAllowlist.some(
+          (allowed) => allowed.toLowerCase() === item.recipientEmailSnapshot.toLowerCase(),
+        )
+      ) {
+        throw new ProspectOutreachError(
+          'APPROVAL_REQUIRED',
+          'Delivery is restricted to the reviewed internal allowlist',
+        )
+      }
+    }
+
+    const releasedAt = new Date()
+    const operations = batch.items.map((item) => ({
+      id: `outbox_${randomUUID()}`,
+      operationId: randomUUID(),
+      sendItemId: item.id,
+      providerAccountId: providerAccount.id,
+      providerIdempotencyKey: item.idempotencyKey,
+    }))
+    await tx.prospectSendOutbox.createMany({ data: operations })
+    await tx.prospectSendItem.updateMany({
+      where: { batchId: batch.id, status: 'STAGED' },
+      data: { status: 'QUEUED', providerAccountId: providerAccount.id },
+    })
     await tx.prospectOutreachDraft.updateMany({
       where: { id: { in: batch.items.map((item) => item.draftId) }, status: 'APPROVED' },
       data: { status: 'QUEUED' },
@@ -353,9 +541,36 @@ export async function approveProspectSendBatchAction(
       where: { id: { in: batch.items.map((item) => item.memberId) } },
       data: { status: 'QUEUED' },
     })
-    return tx.prospectSendBatch.update({
+    const released = await tx.prospectSendBatch.update({
       where: { id: batch.id },
-      data: { status: 'APPROVED', approvedBy: input.actor.id, approvedAt: new Date() },
+      data: {
+        status: 'QUEUED',
+        queuedAt: releasedAt,
+        releasedAt,
+        releasedBy: input.actor.id,
+      },
     })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'prospect.send-batch.release',
+        targetType: 'ProspectSendBatch',
+        targetId: batch.id,
+        beforeState: { status: batch.status },
+        afterState: {
+          status: released.status,
+          providerAccountId: providerAccount.id,
+          recipientCount: batch.recipientCount,
+          snapshotHash: batch.snapshotHash,
+        },
+      },
+      tx,
+    )
+    return {
+      batch: released,
+      outboxIds: operations.map((operation) => operation.id),
+      operationIds: operations.map((operation) => operation.operationId),
+    }
   })
 }

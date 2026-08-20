@@ -12,6 +12,18 @@ const inputSchema = z
     venueId: z.string().trim().min(1).max(191),
     agentIdentityId: z.string().trim().min(1).max(191),
     prompt: z.string().trim().min(1).max(10_000),
+    promptIdentity: z.string().trim().min(1).max(191).optional(),
+    prospectScope: z
+      .discriminatedUnion('mode', [
+        z.object({ mode: z.literal('ALL') }).strict(),
+        z
+          .object({
+            mode: z.literal('TERRITORIES'),
+            territoryIds: z.array(z.string().trim().min(1).max(191)).min(1).max(100),
+          })
+          .strict(),
+      ])
+      .optional(),
     actor: z
       .object({
         actorType: z.literal('HUMAN'),
@@ -48,6 +60,7 @@ export async function createAgentTaskAction(
         venueId: true,
         agentIdentityId: true,
         requestPrompt: true,
+        scopeSnapshot: true,
         status: true,
         createdAt: true,
       },
@@ -56,7 +69,19 @@ export async function createAgentTaskAction(
       if (
         replay.venueId !== input.venueId ||
         replay.agentIdentityId !== input.agentIdentityId ||
-        replay.requestPrompt !== input.prompt
+        replay.requestPrompt !== input.prompt ||
+        (() => {
+          const snapshot = replay.scopeSnapshot as {
+            prospectScope?: unknown
+            promptIdentity?: unknown
+          }
+          return (
+            JSON.stringify(snapshot.prospectScope ?? null) !==
+              JSON.stringify(input.prospectScope ?? null) ||
+            (snapshot.promptIdentity ?? null) !==
+              (input.prospectScope ? (input.promptIdentity ?? 'operator-task') : null)
+          )
+        })()
       ) {
         throw new AgentTaskActionError(
           'CONFLICT',
@@ -87,6 +112,27 @@ export async function createAgentTaskAction(
     if (!identity) {
       throw new AgentTaskActionError('FORBIDDEN', 'Enabled agent identity is not in scope')
     }
+    const prospectCapabilities = identity.accessCapabilities.filter((capability) =>
+      capability.startsWith('prospects.'),
+    )
+    if (input.prospectScope && prospectCapabilities.length === 0) {
+      throw new AgentTaskActionError(
+        'FORBIDDEN',
+        'Agent identity has no prospect capability for the requested scope',
+      )
+    }
+    if (input.prospectScope?.mode === 'TERRITORIES') {
+      const territoryIds = [...new Set(input.prospectScope.territoryIds)]
+      const territoryCount = await transaction.prospectTerritory.count({
+        where: { id: { in: territoryIds }, archivedAt: null },
+      })
+      if (territoryCount !== territoryIds.length) {
+        throw new AgentTaskActionError(
+          'BAD_REQUEST',
+          'Prospect scope contains an unknown territory',
+        )
+      }
+    }
 
     const run = await transaction.agentRun.create({
       data: {
@@ -102,6 +148,12 @@ export async function createAgentTaskAction(
           accessCapabilities: identity.accessCapabilities,
           autonomyLevel: identity.autonomyLevel,
           autonomousActions: identity.autonomousActions,
+          ...(input.prospectScope
+            ? {
+                prospectScope: input.prospectScope,
+                promptIdentity: input.promptIdentity ?? 'operator-task',
+              }
+            : {}),
         },
         status: 'QUEUED',
         modelProvider: identity.defaultProvider,

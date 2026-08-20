@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import {
@@ -10,6 +12,10 @@ import {
 
 export const PROSPECT_IMPORT_BATCH_MAX = 250
 export const PROSPECT_IMPORT_COMMIT_BATCH_MAX = 100
+export const PROSPECT_IMPORT_ROW_MAX = 100_000
+export const PROSPECT_IMPORT_COLUMN_MAX = 100
+export const PROSPECT_IMPORT_CELL_CHARACTER_MAX = 10_000
+export const PROSPECT_IMPORT_SOURCE_ROW_BYTE_MAX = 256 * 1024
 
 export type ProspectActor = { type: 'HUMAN'; id: string; role: 'PLATFORM_ADMIN' }
 export type ProspectActionClient = typeof db
@@ -33,6 +39,34 @@ function requireActor(actor: ProspectActor): void {
 
 function jsonValue(value: unknown): object | unknown[] {
   return JSON.parse(JSON.stringify(value)) as object | unknown[]
+}
+
+function assertImportSourceValues(sourceValues: Record<string, unknown>): void {
+  const entries = Object.entries(sourceValues)
+  if (entries.length > PROSPECT_IMPORT_COLUMN_MAX) {
+    throw new ProspectActionError('INVALID_INPUT', 'Import row exceeds the column limit')
+  }
+  for (const [column, value] of entries) {
+    if (column.length > 300) {
+      throw new ProspectActionError('INVALID_INPUT', 'Import column name is too long')
+    }
+    const scalar =
+      value === null ||
+      typeof value === 'boolean' ||
+      typeof value === 'number' ||
+      typeof value === 'string'
+    if (!scalar) {
+      throw new ProspectActionError('INVALID_INPUT', 'Import cells must be inert scalar values')
+    }
+    if (typeof value === 'string' && value.length > PROSPECT_IMPORT_CELL_CHARACTER_MAX) {
+      throw new ProspectActionError('INVALID_INPUT', 'Import cell exceeds the character limit')
+    }
+  }
+  if (
+    Buffer.byteLength(JSON.stringify(sourceValues), 'utf8') > PROSPECT_IMPORT_SOURCE_ROW_BYTE_MAX
+  ) {
+    throw new ProspectActionError('INVALID_INPUT', 'Import row exceeds the encoded-size limit')
+  }
 }
 
 export type CreateProspectInput = {
@@ -162,6 +196,26 @@ export async function createProspectAction(
           },
         })
       : null
+    for (const rawTag of input.organization.tags ?? []) {
+      const label = rawTag.trim()
+      if (!label) continue
+      const slug = normalizeProspectName(label).replace(/\s+/gu, '-').slice(0, 100)
+      const tag = await tx.prospectTag.upsert({
+        where: { slug },
+        create: {
+          label,
+          slug,
+          createdBy: input.actor.id,
+          updatedBy: input.actor.id,
+        },
+        update: { label, updatedBy: input.actor.id },
+      })
+      await tx.prospectOrganizationTag.upsert({
+        where: { organizationId_tagId: { organizationId: organization.id, tagId: tag.id } },
+        create: { organizationId: organization.id, tagId: tag.id, addedBy: input.actor.id },
+        update: {},
+      })
+    }
     const contact = input.contact
       ? await tx.prospectContact.create({
           data: {
@@ -174,12 +228,32 @@ export async function createProspectAction(
             phone: input.contact.phone ?? null,
             source: input.contact.source ?? null,
             doNotContact: input.contact.doNotContact ?? false,
+            emailReadiness: normalizedEmail ? 'REVIEW_REQUIRED' : 'UNKNOWN',
+            permissionState: input.contact.doNotContact ? 'PROHIBITED' : 'REVIEW_REQUIRED',
+            suppressedAt: input.contact.doNotContact ? now : null,
+            suppressionReason: input.contact.doNotContact
+              ? 'Marked do-not-contact at creation'
+              : null,
             notes: input.contact.notes ?? null,
             createdBy: input.actor.id,
             updatedBy: input.actor.id,
           },
         })
       : null
+    if (contact?.doNotContact) {
+      await tx.prospectContactSuppressionEvent.create({
+        data: {
+          contactId: contact.id,
+          eventType: 'SUPPRESSED',
+          source: 'HUMAN',
+          reasonCode: 'DO_NOT_CONTACT_AT_CREATION',
+          reason: 'Marked do-not-contact when the contact was created',
+          actorType: 'HUMAN',
+          actorId: input.actor.id,
+          occurredAt: now,
+        },
+      })
+    }
     await tx.prospectActivity.create({
       data: {
         organizationId: organization.id,
@@ -272,10 +346,6 @@ export async function updateProspectPipelineAction(
           reason: input.reason ?? null,
           actorId: input.actor.id,
         },
-      })
-      await tx.prospectVenue.updateMany({
-        where: { organizationId: input.organizationId, archivedAt: null },
-        data: { stage: saved.stage, lastActivityAt: now, updatedBy: input.actor.id },
       })
     }
     await tx.prospectActivity.create({
@@ -408,20 +478,40 @@ export async function linkProspectConversionAction(
 ) {
   requireActor(input.actor)
   return client.$transaction(async (tx) => {
-    const [organization, tenant, venue, existing] = await Promise.all([
-      tx.prospectOrganization.findUnique({
-        where: { id: input.organizationId },
-        include: { opportunity: true },
-      }),
-      tx.tenant.findUnique({ where: { id: input.tenantId }, select: { id: true, name: true } }),
-      input.venueId
-        ? tx.venue.findFirst({
-            where: { id: input.venueId, tenantId: input.tenantId },
-            select: { id: true, name: true },
-          })
-        : null,
-      tx.prospectConversion.findUnique({ where: { organizationId: input.organizationId } }),
-    ])
+    if (Boolean(input.prospectVenueId) !== Boolean(input.venueId)) {
+      throw new ProspectActionError(
+        'INVALID_INPUT',
+        'A location conversion requires both prospectVenueId and venueId',
+      )
+    }
+    const [organization, tenant, venue, activeRelationship, relationshipHistory] =
+      await Promise.all([
+        tx.prospectOrganization.findUnique({
+          where: { id: input.organizationId },
+          include: { opportunity: true },
+        }),
+        tx.tenant.findUnique({ where: { id: input.tenantId }, select: { id: true, name: true } }),
+        input.venueId
+          ? tx.venue.findFirst({
+              where: { id: input.venueId, tenantId: input.tenantId },
+              select: { id: true, name: true },
+            })
+          : null,
+        tx.prospectCustomerRelationship.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            status: 'ACTIVE',
+          },
+          orderBy: { relationshipVersion: 'desc' },
+        }),
+        tx.prospectCustomerRelationship.findMany({
+          where: { organizationId: input.organizationId, tenantId: input.tenantId },
+          select: { relationshipVersion: true },
+          orderBy: { relationshipVersion: 'desc' },
+          take: 1,
+        }),
+      ])
     if (!organization) throw new ProspectActionError('NOT_FOUND', 'Prospect not found')
     if (!tenant) throw new ProspectActionError('NOT_FOUND', 'Customer account not found')
     if (input.venueId && !venue)
@@ -434,28 +524,71 @@ export async function linkProspectConversionAction(
       if (!prospectVenue)
         throw new ProspectActionError('INVALID_INPUT', 'Prospect venue does not belong to prospect')
     }
-    if (existing) {
-      if (existing.tenantId === input.tenantId && existing.venueId === (input.venueId ?? null)) {
-        return { conversion: existing, replayed: true }
+    const relationshipVersion = activeRelationship
+      ? activeRelationship.relationshipVersion
+      : (relationshipHistory[0]?.relationshipVersion ?? 0) + 1
+    const relationship =
+      activeRelationship ??
+      (await tx.prospectCustomerRelationship.create({
+        data: {
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          relationshipVersion,
+          idempotencyKey: `prospect-customer:${input.organizationId}:${input.tenantId}:${relationshipVersion}`,
+          evidence: jsonValue(input.evidence ?? {}),
+          createdBy: input.actor.id,
+        },
+      }))
+    let locationConversion = null
+    let locationReplayed = false
+    if (input.prospectVenueId && input.venueId) {
+      const existingLocation = await tx.prospectLocationConversion.findFirst({
+        where: {
+          relationshipId: relationship.id,
+          prospectVenueId: input.prospectVenueId,
+          venueId: input.venueId,
+          status: 'ACTIVE',
+        },
+        orderBy: { generation: 'desc' },
+      })
+      if (existingLocation) {
+        locationConversion = existingLocation
+        locationReplayed = true
+      } else {
+        const prior = await tx.prospectLocationConversion.findFirst({
+          where: {
+            relationshipId: relationship.id,
+            prospectVenueId: input.prospectVenueId,
+            venueId: input.venueId,
+          },
+          orderBy: { generation: 'desc' },
+          select: { generation: true },
+        })
+        const generation = (prior?.generation ?? 0) + 1
+        locationConversion = await tx.prospectLocationConversion.create({
+          data: {
+            tenantId: input.tenantId,
+            relationshipId: relationship.id,
+            prospectVenueId: input.prospectVenueId,
+            venueId: input.venueId,
+            generation,
+            idempotencyKey: `prospect-location:${relationship.id}:${input.prospectVenueId}:${input.venueId}:${generation}`,
+            evidence: jsonValue(input.evidence ?? {}),
+            convertedBy: input.actor.id,
+          },
+        })
       }
-      throw new ProspectActionError('CONFLICT', 'Prospect has already been converted')
     }
-    const conversion = await tx.prospectConversion.create({
-      data: {
-        organizationId: input.organizationId,
-        prospectVenueId: input.prospectVenueId ?? null,
-        tenantId: input.tenantId,
-        venueId: input.venueId ?? null,
-        actorId: input.actor.id,
-        evidence: jsonValue(input.evidence ?? {}),
-      },
-    })
-    if (organization.opportunity) {
+    if (activeRelationship && (!input.venueId || locationReplayed)) {
+      return { relationship, locationConversion, replayed: true }
+    }
+    const convertedAt = locationConversion?.convertedAt ?? relationship.startedAt
+    if (organization.opportunity && organization.opportunity.stage !== 'WON') {
       await tx.prospectOpportunity.update({
         where: { id: organization.opportunity.id },
         data: {
           stage: 'WON',
-          lastActivityAt: conversion.convertedAt,
+          lastActivityAt: convertedAt,
           updatedBy: input.actor.id,
         },
       })
@@ -466,7 +599,10 @@ export async function linkProspectConversionAction(
           toStage: 'WON',
           reason: 'Converted to customer',
           actorId: input.actor.id,
-          evidence: { conversionId: conversion.id },
+          evidence: {
+            customerRelationshipId: relationship.id,
+            locationConversionId: locationConversion?.id ?? null,
+          },
         },
       })
     }
@@ -477,12 +613,13 @@ export async function linkProspectConversionAction(
         type: 'CONVERTED_TO_CUSTOMER',
         summary: `Converted to customer ${tenant.name}`,
         evidence: {
-          conversionId: conversion.id,
+          customerRelationshipId: relationship.id,
+          locationConversionId: locationConversion?.id ?? null,
           tenantId: input.tenantId,
           venueId: input.venueId ?? null,
         },
         actorId: input.actor.id,
-        occurredAt: conversion.convertedAt,
+        occurredAt: convertedAt,
       },
     })
     await writeAuditLogStrict(
@@ -491,8 +628,8 @@ export async function linkProspectConversionAction(
         actorId: input.actor.id,
         actorRole: input.actor.role,
         action: 'admin.prospect.converted',
-        targetType: 'ProspectConversion',
-        targetId: conversion.id,
+        targetType: 'ProspectCustomerRelationship',
+        targetId: relationship.id,
         afterState: {
           organizationId: input.organizationId,
           tenantId: input.tenantId,
@@ -501,7 +638,11 @@ export async function linkProspectConversionAction(
       },
       tx,
     )
-    return { conversion, replayed: false }
+    return {
+      relationship,
+      locationConversion,
+      replayed: Boolean(activeRelationship) && (!locationConversion || locationReplayed),
+    }
   })
 }
 
@@ -566,6 +707,12 @@ export async function beginProspectImportAction(
       'Spreadsheet must contain 1 to 100 selected sheets',
     )
   }
+  if (input.sheets.reduce((sum, sheet) => sum + sheet.detectedRows, 0) > PROSPECT_IMPORT_ROW_MAX) {
+    throw new ProspectActionError('INVALID_INPUT', 'Spreadsheet exceeds the total row limit')
+  }
+  if (input.sheets.some((sheet) => sheet.columns.length > PROSPECT_IMPORT_COLUMN_MAX)) {
+    throw new ProspectActionError('INVALID_INPUT', 'Spreadsheet exceeds the column limit')
+  }
   const importIdentityHash = prospectSha256({
     version: 1,
     fileHash: input.fileHash,
@@ -610,6 +757,138 @@ export async function beginProspectImportAction(
       tx,
     )
     return { prospectImport, replayed: false }
+  })
+}
+
+export async function reserveProspectImportUploadAction(
+  input: {
+    fileName: string
+    fileType: 'csv' | 'xlsx'
+    fileSize: number
+    fileHash: string
+    sourceObjectKey: string
+    sourceObjectGeneration: string
+    actor: ProspectActor
+  },
+  client: ProspectActionClient = db,
+) {
+  requireActor(input.actor)
+  if (!/^[a-f0-9]{64}$/.test(input.fileHash)) {
+    throw new ProspectActionError('INVALID_INPUT', 'Import hash must be a SHA-256 value')
+  }
+  if (input.fileSize <= 0 || input.fileSize > 25 * 1024 * 1024) {
+    throw new ProspectActionError('INVALID_INPUT', 'Spreadsheet must be between 1 byte and 25 MB')
+  }
+  const mappingHash = prospectSha256({ version: 1, state: 'mapping-pending' })
+  const importIdentityHash = prospectSha256({
+    version: 2,
+    fileHash: input.fileHash,
+    generation: input.sourceObjectGeneration,
+  })
+  return client.$transaction(async (tx) => {
+    const replay = await tx.prospectImport.findUnique({ where: { importIdentityHash } })
+    if (replay) return { prospectImport: replay, replayed: true }
+    const prospectImport = await tx.prospectImport.create({
+      data: {
+        fileName: input.fileName,
+        fileType: input.fileType,
+        fileSize: input.fileSize,
+        fileHash: input.fileHash,
+        mappingHash,
+        importIdentityHash,
+        mapping: {},
+        sourceObjectKey: input.sourceObjectKey,
+        sourceObjectGeneration: input.sourceObjectGeneration,
+        createdBy: input.actor.id,
+      },
+    })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'admin.prospect_import.upload_reserved',
+        targetType: 'ProspectImport',
+        targetId: prospectImport.id,
+        afterState: {
+          fileName: input.fileName,
+          fileHash: input.fileHash,
+          fileSize: input.fileSize,
+        },
+      },
+      tx,
+    )
+    return { prospectImport, replayed: false }
+  })
+}
+
+export async function configureProspectImportMappingAction(
+  input: {
+    importId: string
+    mappingHash: string
+    mapping: Record<string, unknown>
+    selectedSheets: string[]
+    actor: ProspectActor
+  },
+  client: ProspectActionClient = db,
+) {
+  requireActor(input.actor)
+  if (!/^[a-f0-9]{64}$/.test(input.mappingHash)) {
+    throw new ProspectActionError('INVALID_INPUT', 'Mapping hash must be a SHA-256 value')
+  }
+  if (!input.selectedSheets.length || input.selectedSheets.length > 100) {
+    throw new ProspectActionError('INVALID_INPUT', 'Select between 1 and 100 inspected sheets')
+  }
+  return client.$transaction(async (tx) => {
+    const prospectImport = await tx.prospectImport.findUnique({
+      where: { id: input.importId },
+      include: { sheets: { select: { sheetName: true } } },
+    })
+    if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+    if (prospectImport.status !== 'DRAFT' || prospectImport.progressCursor !== 'INSPECTED') {
+      throw new ProspectActionError('CONFLICT', 'Workbook inspection is not ready for mapping')
+    }
+    const inspected = new Set(prospectImport.sheets.map((sheet) => sheet.sheetName))
+    if (input.selectedSheets.some((sheet) => !inspected.has(sheet))) {
+      throw new ProspectActionError('INVALID_INPUT', 'Selected sheet was not inspected')
+    }
+    const importIdentityHash = prospectSha256({
+      version: 1,
+      fileHash: prospectImport.fileHash,
+      mappingHash: input.mappingHash,
+    })
+    const existing = await tx.prospectImport.findUnique({ where: { importIdentityHash } })
+    if (existing && existing.id !== input.importId) {
+      throw new ProspectActionError('CONFLICT', 'This file and mapping were already imported')
+    }
+    await tx.prospectImportSheet.updateMany({
+      where: { importId: input.importId },
+      data: { selected: false },
+    })
+    await tx.prospectImportSheet.updateMany({
+      where: { importId: input.importId, sheetName: { in: input.selectedSheets } },
+      data: { selected: true },
+    })
+    const saved = await tx.prospectImport.update({
+      where: { id: input.importId },
+      data: {
+        mappingHash: input.mappingHash,
+        importIdentityHash,
+        mapping: jsonValue(input.mapping),
+        progressCursor: 'MAPPED',
+      },
+    })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'admin.prospect_import.mapping_confirmed',
+        targetType: 'ProspectImport',
+        targetId: input.importId,
+        afterState: { mappingHash: input.mappingHash, selectedSheets: input.selectedSheets },
+      },
+      tx,
+    )
+    return saved
   })
 }
 
@@ -669,6 +948,7 @@ export async function stageProspectImportRowsAction(
       `Import batches must contain 1 to ${PROSPECT_IMPORT_BATCH_MAX} rows`,
     )
   }
+  for (const row of input.rows) assertImportSourceValues(row.sourceValues)
   return client.$transaction(async (tx) => {
     const prospectImport = await tx.prospectImport.findUnique({ where: { id: input.importId } })
     if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
@@ -836,7 +1116,16 @@ export async function resolveProspectImportRowAction(
   input: {
     importId: string
     rowId: string
-    decision: 'IMPORT_AS_DISTINCT' | 'SKIP'
+    decision:
+      | 'CREATE_DISTINCT'
+      | 'LINK_EXISTING'
+      | 'UPDATE_EXISTING'
+      | 'SKIP'
+      | 'QUARANTINE'
+      | 'NOT_DUPLICATE'
+    targetOrganizationId?: string | undefined
+    targetVenueId?: string | undefined
+    targetContactId?: string | undefined
     note: string
     actor: ProspectActor
   },
@@ -852,17 +1141,61 @@ export async function resolveProspectImportRowAction(
     if (row.status !== 'DUPLICATE_REVIEW') {
       throw new ProspectActionError('CONFLICT', 'Only duplicate-review rows can be resolved')
     }
+    const needsTarget = input.decision === 'LINK_EXISTING' || input.decision === 'UPDATE_EXISTING'
+    if (needsTarget && !input.targetOrganizationId) {
+      throw new ProspectActionError(
+        'INVALID_INPUT',
+        'This decision requires an existing organization',
+      )
+    }
+    if (input.targetOrganizationId) {
+      const target = await tx.prospectOrganization.findUnique({
+        where: { id: input.targetOrganizationId },
+        select: {
+          id: true,
+          venues: input.targetVenueId
+            ? { where: { id: input.targetVenueId }, select: { id: true }, take: 1 }
+            : false,
+          contacts: input.targetContactId
+            ? { where: { id: input.targetContactId }, select: { id: true }, take: 1 }
+            : false,
+        },
+      })
+      if (!target) throw new ProspectActionError('NOT_FOUND', 'Target organization not found')
+      if (input.targetVenueId && (!target.venues || target.venues.length !== 1)) {
+        throw new ProspectActionError('INVALID_INPUT', 'Target venue is outside the organization')
+      }
+      if (input.targetContactId && (!target.contacts || target.contacts.length !== 1)) {
+        throw new ProspectActionError('INVALID_INPUT', 'Target contact is outside the organization')
+      }
+    }
+    const importable = [
+      'CREATE_DISTINCT',
+      'NOT_DUPLICATE',
+      'LINK_EXISTING',
+      'UPDATE_EXISTING',
+    ].includes(input.decision)
     const saved = await tx.prospectImportRow.update({
       where: { id: row.id },
       data: {
-        status: input.decision === 'IMPORT_AS_DISTINCT' ? 'WARNING' : 'SKIPPED',
-        warnings:
-          input.decision === 'IMPORT_AS_DISTINCT'
-            ? [
-                ...(Array.isArray(row.warnings) ? row.warnings : []),
-                `duplicate-reviewed-distinct:${input.note.trim()}`,
-              ]
-            : jsonValue(Array.isArray(row.warnings) ? row.warnings : []),
+        status: importable
+          ? 'WARNING'
+          : input.decision === 'QUARANTINE'
+            ? 'QUARANTINED'
+            : 'SKIPPED',
+        decision: input.decision,
+        decisionNote: input.note.trim(),
+        decisionBy: input.actor.id,
+        decisionAt: new Date(),
+        targetOrganizationId: input.targetOrganizationId ?? null,
+        targetVenueId: input.targetVenueId ?? null,
+        targetContactId: input.targetContactId ?? null,
+        warnings: importable
+          ? [
+              ...(Array.isArray(row.warnings) ? row.warnings : []),
+              `duplicate-reviewed:${input.decision.toLowerCase()}`,
+            ]
+          : jsonValue(Array.isArray(row.warnings) ? row.warnings : []),
       },
     })
     const [warningRows, duplicateRows] = await Promise.all([
@@ -938,9 +1271,194 @@ export async function approveProspectImportAction(
   })
 }
 
+export async function cancelProspectImportAction(
+  input: { importId: string; reason: string; actor: ProspectActor },
+  client: ProspectActionClient = db,
+) {
+  requireActor(input.actor)
+  if (!input.reason.trim())
+    throw new ProspectActionError('INVALID_INPUT', 'Cancellation reason is required')
+  return client.$transaction(async (tx) => {
+    const before = await tx.prospectImport.findUnique({ where: { id: input.importId } })
+    if (!before) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+    if (before.status === 'COMPLETE') {
+      throw new ProspectActionError(
+        'CONFLICT',
+        'A completed import requires the repair/archive procedure',
+      )
+    }
+    if (before.status === 'CANCELLED') return { prospectImport: before, replayed: true }
+    const canceledAt = new Date()
+    const prospectImport = await tx.prospectImport.update({
+      where: { id: input.importId },
+      data: {
+        status: 'CANCELLED',
+        cancelRequestedAt: canceledAt,
+        canceledBy: input.actor.id,
+        completedAt: canceledAt,
+      },
+    })
+    await tx.prospectImportRow.updateMany({
+      where: { importId: input.importId, status: { in: ['VALID', 'WARNING', 'PROCESSING'] } },
+      data: {
+        status: 'SKIPPED',
+        errorCode: 'IMPORT_CANCELLED',
+        errorMessage: input.reason.trim().slice(0, 500),
+        processedAt: canceledAt,
+        claimToken: null,
+        claimOwner: null,
+        claimExpiresAt: null,
+      },
+    })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'admin.prospect_import.cancelled',
+        targetType: 'ProspectImport',
+        targetId: input.importId,
+        beforeState: { status: before.status },
+        afterState: { status: 'CANCELLED', reason: input.reason.trim() },
+      },
+      tx,
+    )
+    return { prospectImport, replayed: false }
+  })
+}
+
+async function prospectImportRepairPlan(importId: string, client: ProspectActionClient) {
+  const source = `spreadsheet-import:${importId}`
+  const organizations = await client.prospectOrganization.findMany({
+    where: { source },
+    select: { id: true, archivedAt: true },
+    orderBy: { id: 'asc' },
+  })
+  const organizationIds = organizations.map((item) => item.id)
+  const [venues, contacts, campaignMembers, messages, relationships] = organizationIds.length
+    ? await Promise.all([
+        client.prospectVenue.count({ where: { organizationId: { in: organizationIds } } }),
+        client.prospectContact.count({ where: { organizationId: { in: organizationIds } } }),
+        client.prospectCampaignMember.count({ where: { organizationId: { in: organizationIds } } }),
+        client.prospectEmailMessage.count({ where: { organizationId: { in: organizationIds } } }),
+        client.prospectCustomerRelationship.count({
+          where: { organizationId: { in: organizationIds } },
+        }),
+      ])
+    : [0, 0, 0, 0, 0]
+  const blockers = { campaignMembers, messages, relationships }
+  const planHash = prospectSha256({
+    version: 1,
+    importId,
+    organizationIds,
+    venues,
+    contacts,
+    blockers,
+  })
+  return {
+    importId,
+    planHash,
+    organizations: organizations.length,
+    alreadyArchived: organizations.filter((item) => item.archivedAt).length,
+    venues,
+    contacts,
+    blockers,
+  }
+}
+
+export async function previewProspectImportRepairAction(
+  input: { importId: string; actor: ProspectActor },
+  client: ProspectActionClient = db,
+) {
+  requireActor(input.actor)
+  const prospectImport = await client.prospectImport.findUnique({ where: { id: input.importId } })
+  if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+  if (!['COMPLETE', 'PARTIAL', 'CANCELLED'].includes(prospectImport.status)) {
+    throw new ProspectActionError('CONFLICT', 'Import must be terminal before repair')
+  }
+  return prospectImportRepairPlan(input.importId, client)
+}
+
+export async function repairProspectImportAction(
+  input: { importId: string; expectedPlanHash: string; reason: string; actor: ProspectActor },
+  client: ProspectActionClient = db,
+) {
+  requireActor(input.actor)
+  if (!input.reason.trim())
+    throw new ProspectActionError('INVALID_INPUT', 'Repair reason is required')
+  return client.$transaction(async (tx) => {
+    const prospectImport = await tx.prospectImport.findUnique({ where: { id: input.importId } })
+    if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+    if (prospectImport.status === 'REPAIRED') return { prospectImport, replayed: true }
+    if (!['COMPLETE', 'PARTIAL', 'CANCELLED'].includes(prospectImport.status)) {
+      throw new ProspectActionError('CONFLICT', 'Import must be terminal before repair')
+    }
+    const plan = await prospectImportRepairPlan(input.importId, tx as ProspectActionClient)
+    if (plan.planHash !== input.expectedPlanHash) {
+      throw new ProspectActionError('CONFLICT', 'Repair plan changed; review a fresh preview')
+    }
+    if (Object.values(plan.blockers).some((value) => value > 0)) {
+      throw new ProspectActionError(
+        'CONFLICT',
+        'Repair is blocked by campaign, correspondence, or customer-relationship history',
+      )
+    }
+    const source = `spreadsheet-import:${input.importId}`
+    const organizations = await tx.prospectOrganization.findMany({
+      where: { source },
+      select: { id: true },
+    })
+    const organizationIds = organizations.map((item) => item.id)
+    const archivedAt = new Date()
+    if (organizationIds.length) {
+      await tx.prospectVenue.updateMany({
+        where: { organizationId: { in: organizationIds }, archivedAt: null },
+        data: { archivedAt, updatedBy: input.actor.id },
+      })
+      await tx.prospectContact.updateMany({
+        where: { organizationId: { in: organizationIds }, archivedAt: null },
+        data: { archivedAt, updatedBy: input.actor.id },
+      })
+      await tx.prospectOrganization.updateMany({
+        where: { id: { in: organizationIds }, archivedAt: null },
+        data: { archivedAt, updatedBy: input.actor.id },
+      })
+    }
+    const saved = await tx.prospectImport.update({
+      where: { id: input.importId },
+      data: {
+        status: 'REPAIRED',
+        reconciliation: {
+          repair: {
+            planHash: plan.planHash,
+            reason: input.reason.trim(),
+            archivedAt,
+            organizations: plan.organizations,
+            venues: plan.venues,
+            contacts: plan.contacts,
+          },
+        },
+      },
+    })
+    await writeAuditLogStrict(
+      {
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+        action: 'admin.prospect_import.repaired',
+        targetType: 'ProspectImport',
+        targetId: input.importId,
+        beforeState: { status: prospectImport.status },
+        afterState: { status: 'REPAIRED', planHash: plan.planHash, reason: input.reason.trim() },
+      },
+      tx,
+    )
+    return { prospectImport: saved, replayed: false, plan }
+  })
+}
+
 async function importOneProspectRow(
   importId: string,
   rowId: string,
+  claimToken: string,
   actor: ProspectActor,
   client: ProspectActionClient,
 ) {
@@ -949,14 +1467,119 @@ async function importOneProspectRow(
     if (!row || row.importId !== importId)
       throw new ProspectActionError('NOT_FOUND', 'Import row not found')
     if (row.status === 'IMPORTED') return row
-    if (row.status !== 'VALID' && row.status !== 'WARNING') {
-      throw new ProspectActionError('CONFLICT', 'Import row is not approved for import')
+    if (row.status !== 'PROCESSING' || row.claimToken !== claimToken) {
+      throw new ProspectActionError('CONFLICT', 'Import row lease is not owned by this worker')
     }
     const value = row.normalizedValues as ProspectImportNormalizedRow & {
       normalizedOrganizationName: string
       normalizedVenueName: string
       normalizedDomain: string | null
       normalizedEmail: string | null
+    }
+    if (row.decision === 'LINK_EXISTING' || row.decision === 'UPDATE_EXISTING') {
+      if (!row.targetOrganizationId) {
+        throw new ProspectActionError('INVALID_INPUT', 'Reviewed existing-record target is missing')
+      }
+      const target = await tx.prospectOrganization.findUnique({
+        where: { id: row.targetOrganizationId },
+      })
+      if (!target)
+        throw new ProspectActionError('NOT_FOUND', 'Reviewed organization no longer exists')
+      const targetVenue = row.targetVenueId
+        ? await tx.prospectVenue.findFirst({
+            where: { id: row.targetVenueId, organizationId: target.id },
+          })
+        : null
+      const targetContact = row.targetContactId
+        ? await tx.prospectContact.findFirst({
+            where: { id: row.targetContactId, organizationId: target.id },
+          })
+        : null
+      if (row.targetVenueId && !targetVenue) {
+        throw new ProspectActionError('CONFLICT', 'Reviewed venue target changed or disappeared')
+      }
+      if (row.targetContactId && !targetContact) {
+        throw new ProspectActionError('CONFLICT', 'Reviewed contact target changed or disappeared')
+      }
+      if (row.decision === 'UPDATE_EXISTING') {
+        await tx.prospectOrganization.update({
+          where: { id: target.id },
+          data: {
+            ...(value.website
+              ? { website: value.website, normalizedDomain: value.normalizedDomain }
+              : {}),
+            ...(value.shortDescription ? { description: value.shortDescription } : {}),
+            ...(value.city ? { headquartersCity: value.city } : {}),
+            ...(value.region ? { headquartersRegion: value.region } : {}),
+            ...(value.country ? { headquartersCountry: value.country } : {}),
+            updatedBy: actor.id,
+          },
+        })
+        if (targetVenue) {
+          const reviewedVenueType = value.venueSubtype || value.venueType
+          await tx.prospectVenue.update({
+            where: { id: targetVenue.id },
+            data: {
+              ...(value.website
+                ? { website: value.website, normalizedDomain: value.normalizedDomain }
+                : {}),
+              ...(reviewedVenueType ? { venueType: reviewedVenueType } : {}),
+              ...(value.city ? { city: value.city } : {}),
+              ...(value.region ? { region: value.region } : {}),
+              ...(value.country ? { country: value.country } : {}),
+              updatedBy: actor.id,
+            },
+          })
+        }
+      }
+      await tx.prospectSourceEvidence.create({
+        data: {
+          organizationId: target.id,
+          venueId: targetVenue?.id ?? null,
+          contactId: targetContact?.id ?? null,
+          sourceType: 'spreadsheet-row',
+          sourceLabel: `${row.sheetName} row ${row.originalRowNumber}`,
+          sourceUrl: value.sourceUrls?.[0] ?? null,
+          capturedValue: jsonValue(row.sourceValues),
+          importRowId: row.id,
+          researchedAt: value.researchDate ? new Date(value.researchDate) : null,
+          createdBy: actor.id,
+        },
+      })
+      await tx.prospectActivity.create({
+        data: {
+          organizationId: target.id,
+          venueId: targetVenue?.id ?? null,
+          contactId: targetContact?.id ?? null,
+          type: 'IMPORTED',
+          summary:
+            row.decision === 'UPDATE_EXISTING'
+              ? `Reviewed spreadsheet fields applied from ${row.sheetName} row ${row.originalRowNumber}`
+              : `Spreadsheet row linked from ${row.sheetName} row ${row.originalRowNumber}`,
+          evidence: {
+            importId,
+            importRowId: row.id,
+            reviewedDecision: row.decision,
+            decisionBy: row.decisionBy,
+          },
+          actorId: actor.id,
+        },
+      })
+      return tx.prospectImportRow.update({
+        where: { id: row.id },
+        data: {
+          status: 'IMPORTED',
+          importedOrganizationId: target.id,
+          importedVenueId: targetVenue?.id ?? null,
+          importedContactId: targetContact?.id ?? null,
+          processedAt: new Date(),
+          claimToken: null,
+          claimOwner: null,
+          claimExpiresAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      })
     }
     const territoryName = value.territory?.trim() || row.sheetName
     const territoryCode = normalizeProspectName(territoryName).replace(/\s+/g, '-').slice(0, 80)
@@ -1076,6 +1699,8 @@ async function importOneProspectRow(
           phone: value.phone ?? null,
           source: importSource,
           provenance: value.sourceUrls ?? [],
+          emailReadiness: value.normalizedEmail ? 'REVIEW_REQUIRED' : 'UNKNOWN',
+          permissionState: 'REVIEW_REQUIRED',
           sourceImportRowId: row.id,
           createdBy: actor.id,
           updatedBy: actor.id,
@@ -1115,6 +1740,9 @@ async function importOneProspectRow(
         importedVenueId: venue.id,
         importedContactId: contact?.id ?? null,
         processedAt: new Date(),
+        claimToken: null,
+        claimOwner: null,
+        claimExpiresAt: null,
         errorCode: null,
         errorMessage: null,
       },
@@ -1123,7 +1751,12 @@ async function importOneProspectRow(
 }
 
 export async function commitProspectImportBatchAction(
-  input: { importId: string; limit?: number | undefined; actor: ProspectActor },
+  input: {
+    importId: string
+    limit?: number | undefined
+    workerId?: string | undefined
+    actor: ProspectActor
+  },
   client: ProspectActionClient = db,
 ) {
   requireActor(input.actor)
@@ -1133,6 +1766,9 @@ export async function commitProspectImportBatchAction(
   )
   const prospectImport = await client.prospectImport.findUnique({ where: { id: input.importId } })
   if (!prospectImport) throw new ProspectActionError('NOT_FOUND', 'Import not found')
+  if (prospectImport.cancelRequestedAt) {
+    return { processed: 0, failed: 0, done: true, prospectImport }
+  }
   if (
     prospectImport.status !== 'APPROVED' &&
     prospectImport.status !== 'PROCESSING' &&
@@ -1147,28 +1783,61 @@ export async function commitProspectImportBatchAction(
     where: { id: input.importId },
     data: { status: 'PROCESSING' },
   })
-  const rows = await client.prospectImportRow.findMany({
-    where: { importId: input.importId, status: { in: ['VALID', 'WARNING'] } },
+  const claimToken = randomUUID()
+  const claimOwner = (input.workerId ?? `prospect-import:${input.actor.id}`).slice(0, 191)
+  const now = new Date()
+  const candidates = await client.prospectImportRow.findMany({
+    where: {
+      importId: input.importId,
+      OR: [
+        { status: { in: ['VALID', 'WARNING'] } },
+        { status: 'PROCESSING', claimExpiresAt: { lt: now } },
+      ],
+    },
     orderBy: [{ sheetName: 'asc' }, { originalRowNumber: 'asc' }],
-    take: limit,
+    take: limit * 2,
     select: { id: true },
   })
+  const rows: Array<{ id: string }> = []
+  for (const candidate of candidates) {
+    if (rows.length >= limit) break
+    const claimed = await client.prospectImportRow.updateMany({
+      where: {
+        id: candidate.id,
+        importId: input.importId,
+        OR: [
+          { status: { in: ['VALID', 'WARNING'] } },
+          { status: 'PROCESSING', claimExpiresAt: { lt: now } },
+        ],
+      },
+      data: {
+        status: 'PROCESSING',
+        claimToken,
+        claimOwner,
+        claimExpiresAt: new Date(now.getTime() + 5 * 60_000),
+      },
+    })
+    if (claimed.count === 1) rows.push(candidate)
+  }
   let processed = 0
   let failed = 0
   for (const row of rows) {
     try {
-      await importOneProspectRow(input.importId, row.id, input.actor, client)
+      await importOneProspectRow(input.importId, row.id, claimToken, input.actor, client)
       processed += 1
     } catch (error) {
       failed += 1
-      await client.prospectImportRow.update({
-        where: { id: row.id },
+      await client.prospectImportRow.updateMany({
+        where: { id: row.id, claimToken },
         data: {
           status: 'FAILED',
           errorCode: error instanceof ProspectActionError ? error.code : 'UNEXPECTED',
           errorMessage:
             error instanceof Error ? error.message.slice(0, 500) : 'Unexpected import error',
           processedAt: new Date(),
+          claimToken: null,
+          claimOwner: null,
+          claimExpiresAt: null,
         },
       })
     }
@@ -1179,14 +1848,19 @@ export async function commitProspectImportBatchAction(
     _count: { _all: true },
   })
   const count = (status: string) => counts.find((item) => item.status === status)?._count._all ?? 0
-  const remaining = count('VALID') + count('WARNING')
-  const terminalProblems = count('FAILED') + count('DUPLICATE_REVIEW') + count('SKIPPED')
+  const remaining = count('VALID') + count('WARNING') + count('PROCESSING')
+  const terminalProblems =
+    count('FAILED') + count('DUPLICATE_REVIEW') + count('SKIPPED') + count('QUARANTINED')
   const status = remaining ? 'PROCESSING' : terminalProblems ? 'PARTIAL' : 'COMPLETE'
   const saved = await client.$transaction(async (tx) => {
+    const cancellation = await tx.prospectImport.findUnique({
+      where: { id: input.importId },
+      select: { cancelRequestedAt: true },
+    })
     const updated = await tx.prospectImport.update({
       where: { id: input.importId },
       data: {
-        status,
+        status: cancellation?.cancelRequestedAt ? 'CANCELLED' : status,
         importedRows: count('IMPORTED'),
         failedRows: count('FAILED'),
         duplicateRows: count('DUPLICATE_REVIEW'),
@@ -1259,23 +1933,50 @@ export async function scanProspectDuplicatesAction(
   client: ProspectActionClient = db,
 ) {
   requireActor(input.actor)
-  const prospectLimit = Math.min(Math.max(input.prospectLimit ?? 20_000, 1), 20_000)
-  const organizations = await client.prospectOrganization.findMany({
-    where: { archivedAt: null },
-    orderBy: { id: 'asc' },
-    take: prospectLimit,
-    select: {
-      id: true,
-      normalizedName: true,
-      normalizedDomain: true,
-      venues: { where: { archivedAt: null }, select: { normalizedName: true }, take: 20 },
-      contacts: {
-        where: { archivedAt: null, normalizedEmail: { not: null } },
-        select: { normalizedEmail: true },
-        take: 20,
+  const prospectLimit = Math.min(Math.max(input.prospectLimit ?? 100_000, 1), 500_000)
+  const organizations: Array<{
+    id: string
+    normalizedName: string
+    normalizedDomain: string | null
+    venues: Array<{ normalizedName: string }>
+    contacts: Array<{ normalizedEmail: string | null }>
+  }> = []
+  const scanChunkSize = 5_000
+  let cursor: string | undefined
+  while (organizations.length < prospectLimit) {
+    const chunk = await client.prospectOrganization.findMany({
+      where: { archivedAt: null },
+      orderBy: { id: 'asc' },
+      take: Math.min(scanChunkSize, prospectLimit - organizations.length),
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        normalizedName: true,
+        normalizedDomain: true,
+        venues: { where: { archivedAt: null }, select: { normalizedName: true }, take: 20 },
+        contacts: {
+          where: { archivedAt: null, normalizedEmail: { not: null } },
+          select: { normalizedEmail: true },
+          take: 20,
+        },
       },
-    },
-  })
+    })
+    organizations.push(...chunk)
+    if (chunk.length < scanChunkSize) break
+    cursor = chunk.at(-1)?.id
+    if (!cursor) break
+  }
+  const scanBoundaryId = organizations.at(-1)?.id
+  const moreOrganizationsExist =
+    organizations.length === prospectLimit &&
+    Boolean(scanBoundaryId) &&
+    Boolean(
+      await client.prospectOrganization.findFirst({
+        where: { archivedAt: null, id: { gt: scanBoundaryId ?? '' } },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+      }),
+    )
   const indexes = {
     organizationName: new Map<string, string[]>(),
     domain: new Map<string, string[]>(),
@@ -1360,7 +2061,8 @@ export async function scanProspectDuplicatesAction(
           organizationsScanned: organizations.length,
           candidatesCreated: created,
           candidatesUpdated: updated,
-          truncated: organizations.length === prospectLimit || pairSignals.size === 5_000,
+          truncated: moreOrganizationsExist || pairSignals.size === 5_000,
+          scanChunkSize,
         },
       },
       tx,
@@ -1370,6 +2072,6 @@ export async function scanProspectDuplicatesAction(
     organizationsScanned: organizations.length,
     candidatesCreated: created,
     candidatesUpdated: updated,
-    truncated: organizations.length === prospectLimit || pairSignals.size === 5_000,
+    truncated: moreOrganizationsExist || pairSignals.size === 5_000,
   }
 }

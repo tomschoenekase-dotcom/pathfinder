@@ -9,6 +9,8 @@ import {
   createProspectAction,
   db,
   linkProspectConversionAction,
+  previewProspectImportRepairAction,
+  repairProspectImportAction,
   resolveProspectImportRowAction,
   stageProspectImportRowsAction,
   withTenantIsolationBypass,
@@ -132,7 +134,9 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
       await resolveProspectImportRowAction({
         importId,
         rowId: rows[2]!.id,
-        decision: 'SKIP',
+        decision: 'LINK_EXISTING',
+        targetOrganizationId: existing.organization.id,
+        targetVenueId: existing.venue?.id,
         note: 'Exact existing name and domain verified in disposable test',
         actor,
       })
@@ -142,9 +146,14 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
         where: { id: rows[1]!.id },
         data: { normalizedValues: { deliberatelyCorrupted: true } },
       })
-      const committed = await commitProspectImportBatchAction({ importId, limit: 100, actor })
-      expect(committed).toMatchObject({ processed: 1, failed: 1, done: true })
-      expect(committed.prospectImport.status).toBe('PARTIAL')
+      const concurrent = await Promise.all([
+        commitProspectImportBatchAction({ importId, limit: 100, workerId: 'worker-a', actor }),
+        commitProspectImportBatchAction({ importId, limit: 100, workerId: 'worker-b', actor }),
+      ])
+      expect(concurrent.reduce((sum, item) => sum + item.processed, 0)).toBe(2)
+      expect(concurrent.reduce((sum, item) => sum + item.failed, 0)).toBe(1)
+      const committed = await db.prospectImport.findUniqueOrThrow({ where: { id: importId } })
+      expect(committed.status).toBe('PARTIAL')
       const replayCommit = await commitProspectImportBatchAction({ importId, limit: 100, actor })
       expect(replayCommit).toMatchObject({ processed: 0, failed: 0, done: true })
 
@@ -174,6 +183,39 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
       expect(replayImport).toMatchObject({ replayed: true })
       expect(replayImport.prospectImport.id).toBe(importId)
 
+      const repairPlan = await previewProspectImportRepairAction({ importId, actor })
+      expect(repairPlan).toMatchObject({
+        organizations: 1,
+        blockers: { campaignMembers: 0, messages: 0, relationships: 0 },
+      })
+      await expect(
+        repairProspectImportAction({
+          importId,
+          expectedPlanHash: '0'.repeat(64),
+          reason: 'Disposable stale preview check',
+          actor,
+        }),
+      ).rejects.toMatchObject({ code: 'CONFLICT' })
+      const repaired = await repairProspectImportAction({
+        importId,
+        expectedPlanHash: repairPlan.planHash,
+        reason: 'Disposable reviewed archive repair',
+        actor,
+      })
+      expect(repaired.prospectImport.status).toBe('REPAIRED')
+      expect(
+        await db.prospectOrganization.findUniqueOrThrow({
+          where: { id: importedRow.importedOrganizationId! },
+          select: { archivedAt: true },
+        }),
+      ).toMatchObject({ archivedAt: expect.any(Date) })
+      expect(
+        await db.prospectOrganization.findUniqueOrThrow({
+          where: { id: existing.organization.id },
+          select: { archivedAt: true },
+        }),
+      ).toEqual({ archivedAt: null })
+
       const tenantId = `tenant-prospect-${suffix}`
       const venueId = `venue-prospect-${suffix}`
       await db.tenant.create({ data: { id: tenantId, name: 'Converted customer', slug: tenantId } })
@@ -198,7 +240,9 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
       })
       expect(conversionReplay.replayed).toBe(true)
       expect(
-        await db.prospectConversion.count({ where: { organizationId: existing.organization.id } }),
+        await db.prospectCustomerRelationship.count({
+          where: { organizationId: existing.organization.id },
+        }),
       ).toBe(1)
       expect(
         await db.prospectStageHistory.count({

@@ -8,6 +8,7 @@ import {
   createProspectCampaignAction,
   db,
   reviewProspectOutreachDraftAction,
+  reviewProspectContactReadinessAction,
   saveProspectOutreachDraftAction,
   stageProspectSendBatchAction,
   withTenantIsolationBypass,
@@ -36,6 +37,13 @@ describe.skipIf(!enabled)('prospect outreach disposable lifecycle', () => {
           email: `avery-${suffix}@example.test`,
           source: 'disposable-test',
         },
+        actor,
+      })
+      await reviewProspectContactReadinessAction({
+        contactId: prospect.contact!.id,
+        emailReadiness: 'VALID',
+        permissionState: 'LEGITIMATE_INTEREST_RECORDED',
+        evidence: { source: 'disposable-test', reviewedFor: 'internal-fixture' },
         actor,
       })
       const campaign = await createProspectCampaignAction({
