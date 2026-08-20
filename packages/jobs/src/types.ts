@@ -65,6 +65,8 @@ export type SendWelcomeEmailJobPayload = {
   orgName: string
 }
 
+export type OperationalEventDeliveryJobPayload = Record<string, never>
+
 export type MediaIngestionJobPayload = {
   tenantId: string
   venueId: string

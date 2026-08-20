@@ -5,6 +5,10 @@ import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { inferRouterInputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
+import {
+  GuestPublicErrorCode,
+  type GuestPublicErrorCode as GuestPublicErrorCodeType,
+} from '@pathfinder/contracts'
 
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useSession } from '../hooks/useSession'
@@ -40,6 +44,13 @@ function trpcErrorCode(error: unknown): string | null {
   const candidate = error as { code?: unknown; data?: { code?: unknown } }
   const code = typeof candidate.code === 'string' ? candidate.code : candidate.data?.code
   return typeof code === 'string' ? code : null
+}
+
+function publicGuestErrorCode(error: unknown): GuestPublicErrorCodeType | null {
+  if (!error || typeof error !== 'object') return null
+  const value = (error as { data?: { publicCode?: unknown } }).data?.publicCode
+  const parsed = GuestPublicErrorCode.safeParse(value)
+  return parsed.success ? parsed.data : null
 }
 
 export function VenueChatExperience({
@@ -87,12 +98,18 @@ export function VenueChatExperience({
   const visitorId = useVisitorId()
   currentVenueIdRef.current = venue?.id ?? null
   currentAnonymousTokenRef.current = anonymousToken
-  const { endSession, resetAnalytics, sessionStartedAtRef, trackPlaceEvent, viewedPlaceIdsRef } =
-    useVenueChatAnalytics({
-      venue: secondLayerKey ? null : venue,
-      anonymousToken: secondLayerKey ? null : anonymousToken,
-      visitorId,
-    })
+  const {
+    endSession,
+    resetAnalytics,
+    sessionStartedAtRef,
+    trackPlaceEvent,
+    trackVisitorAction,
+    viewedPlaceIdsRef,
+  } = useVenueChatAnalytics({
+    venue: secondLayerKey ? null : venue,
+    anonymousToken: secondLayerKey ? null : anonymousToken,
+    visitorId,
+  })
 
   const clearCharacterReset = useCallback(() => {
     if (characterResetTimerRef.current !== null) {
@@ -318,6 +335,7 @@ export function VenueChatExperience({
             : message,
         ),
         {
+          ...(result.assistantMessageId ? { id: result.assistantMessageId } : {}),
           role: 'assistant',
           content: response,
           places: resultPlaces as NonNullable<ChatMessage['places']>,
@@ -330,14 +348,19 @@ export function VenueChatExperience({
     } catch (error) {
       if (!turnIsCurrent(turn)) return
       const code = trpcErrorCode(error)
-      if (code === 'CONFLICT' || code === 'PRECONDITION_FAILED') {
+      const publicCode = publicGuestErrorCode(error)
+      if (
+        publicCode === 'OUTCOME_AMBIGUOUS' ||
+        code === 'CONFLICT' ||
+        code === 'PRECONDITION_FAILED'
+      ) {
         const reconciled = await reconcileTurn(turn)
         if (!turnIsCurrent(turn)) return
         if (reconciled) {
           pendingTurnRef.current = null
           setRecoveryMode(null)
           setSendError(
-            code === 'PRECONDITION_FAILED'
+            publicCode === 'OUTCOME_AMBIGUOUS' || code === 'PRECONDITION_FAILED'
               ? 'The original message outcome could not be confirmed and will not be retried. The conversation was refreshed; you may send a new message.'
               : 'The conversation changed while this message was being checked. Review the refreshed conversation before sending a new message.',
           )
@@ -348,13 +371,29 @@ export function VenueChatExperience({
             'The conversation changed, but its current history could not be confirmed. Check the conversation before sending a new message.',
           )
         }
-      } else if (code === 'BAD_REQUEST' || code === 'NOT_FOUND') {
+      } else if (
+        publicCode === 'PROVIDER_UNAVAILABLE' ||
+        publicCode === 'CONTENT_UNAVAILABLE' ||
+        publicCode === 'REJECTED' ||
+        publicCode === 'TRANSIENT_FAILURE' ||
+        code === 'BAD_REQUEST' ||
+        code === 'NOT_FOUND'
+      ) {
+        pendingTurnRef.current = null
         setRecoveryMode(null)
-        setSendError('This message could not be accepted. Review it before sending a new message.')
+        setSendError(
+          publicCode === 'PROVIDER_UNAVAILABLE'
+            ? 'The guide service is temporarily unavailable. Wait a moment, then send a new message.'
+            : publicCode === 'CONTENT_UNAVAILABLE'
+              ? 'This venue content is not available right now. Try again later or ask venue staff.'
+              : publicCode === 'TRANSIENT_FAILURE'
+                ? 'The guide could not start this message. Wait a moment, then send it again as a new message.'
+                : 'This message could not be accepted. Review it before sending a new message.',
+        )
       } else {
         setRecoveryMode('retry-turn')
         setSendError(
-          code === 'TOO_MANY_REQUESTS'
+          publicCode === 'RATE_LIMITED' || code === 'TOO_MANY_REQUESTS'
             ? 'This message is still being checked. Wait a moment, then retry the same message.'
             : 'The outcome of this message is not confirmed. Retry the same message safely.',
         )
@@ -499,6 +538,7 @@ export function VenueChatExperience({
       onRetry={recoveryMode ? handleRetry : null}
       retryLabel={recoveryMode === 'check-history' ? 'Check conversation' : 'Retry same message'}
       onNewConversation={handleNewConversation}
+      onVoiceCharacterState={setStableCharacterState}
       onPlaceView={(placeId) => {
         if (!viewedPlaceIdsRef.current.has(placeId)) {
           viewedPlaceIdsRef.current.add(placeId)
@@ -507,6 +547,19 @@ export function VenueChatExperience({
       }}
       onPlaceClick={(placeId) => trackPlaceEvent('place_card.clicked', placeId)}
       onDirections={(placeId) => trackPlaceEvent('directions.opened', placeId)}
+      onVisitorAction={trackVisitorAction}
+      {...(!secondLayerKey && anonymousToken
+        ? {
+            onMessageFeedback: async (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => {
+              await client.feedback.submit.mutate({
+                venueId: venue.id,
+                anonymousToken,
+                messageId,
+                rating,
+              })
+            },
+          }
+        : {})}
     />
   )
 }

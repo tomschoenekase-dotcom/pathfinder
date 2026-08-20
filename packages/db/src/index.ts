@@ -1,6 +1,30 @@
 export { db } from './client'
 export { recordApprovedPackageEvaluationMilestones } from './helpers/evaluation-onboarding-milestones'
 export {
+  recordConversationInsightSignals,
+  type ConversationInsightSignal,
+} from './helpers/conversation-insights'
+export {
+  publishOperationalEvent,
+  type PublishOperationalEventInput,
+} from './helpers/operational-events'
+export {
+  OperationalEventRoutingPolicy,
+  materializeOperationalEventDeliveries,
+  operationalEventDestinationKey,
+  readNextOperationalEventDelivery,
+  recordOperationalEventDeliveryAttempt,
+  type OperationalEventRoutingPolicy as OperationalEventRoutingPolicyType,
+} from './helpers/operational-event-deliveries'
+export {
+  EXPECTED_LATEST_MIGRATION,
+  WORKER_HEARTBEAT_KEY,
+  readAppliedMigrationStatus,
+  readOperationalHealth,
+  recordWorkerHeartbeat,
+} from './helpers/operational-health'
+
+export {
   AgentBridgeActionError,
   claimAgentBridgeTask,
   completeAgentBridgeTask,
@@ -464,6 +488,7 @@ export {
   configurationOverrideFromRow,
   configurationValuesFromRow,
   resetAiWorkloadConfigurationOverrideAction,
+  resolveRuntimeAiWorkloadConfiguration,
   saveAiWorkloadConfigurationOverrideAction,
 } from './helpers/ai-workload-configuration-actions'
 export type {
@@ -797,6 +822,12 @@ export type {
   TrustedIntakeUploadObjectIdentity,
 } from './helpers/intake-upload-actions'
 export { AgentOutcomeActionError, recordAgentOutcomeAction } from './helpers/agent-outcome-actions'
+export {
+  ProductEntitlementError,
+  requireProductEntitlement,
+  resolveProductEntitlement,
+} from './helpers/product-entitlements'
+export type { ProductEntitlementClient } from './helpers/product-entitlements'
 export type {
   AgentOutcomeActionClient,
   RecordAgentOutcomeInput,

@@ -46,7 +46,9 @@ export const adminAgentQuestionsRouter = router({
   listAgentQuestions: adminProcedure
     .input(
       tenantScopeInput.merge(pageInput).extend({
-        status: z.enum(['PENDING', 'ANSWERED', 'DISMISSED', 'ALL']).default('PENDING'),
+        status: z
+          .enum(['PENDING', 'ANSWERED', 'DISMISSED', 'EXPIRED', 'CANCELLED', 'ALL'])
+          .default('PENDING'),
         agentIdentityId: z.string().min(1).optional(),
         agentRunId: z.string().min(1).optional(),
       }),
@@ -72,7 +74,14 @@ export const adminAgentQuestionsRouter = router({
             agentRunId: true,
             question: true,
             context: true,
+            questionType: true,
+            category: true,
+            urgency: true,
             choices: true,
+            dueAt: true,
+            evidence: true,
+            proposedAnswer: true,
+            callbackMetadata: true,
             blocking: true,
             status: true,
             answer: true,

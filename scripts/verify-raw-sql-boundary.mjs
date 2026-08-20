@@ -58,6 +58,7 @@ const approvedPolicies = new Set([
   'tenant-support-agent-run-operation-lock',
   'tenant-support-request-lineage-lock',
   'tenant-guest-chat-turn-lock',
+  'tenant-venue-voice-quota-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
@@ -223,6 +224,12 @@ const approvedOperations = [
     file: 'packages/db/src/helpers/health.ts',
     method: '$queryRaw',
     hash: '1730fc082ddaf286020215008c78754a2d980d4e7aefc39e339c6684fca76e7c',
+    policy: 'system-probe',
+  },
+  {
+    file: 'packages/db/src/helpers/operational-health.ts',
+    method: '$queryRaw',
+    hash: 'f3213179c524faf7a45f25668f8e8ea8066b50a4f716a18ca8208a098c3f5a76',
     policy: 'system-probe',
   },
   {
@@ -568,6 +575,36 @@ const approvedOperations = [
     method: '$executeRaw',
     hash: '62067bac1ff9fc9bdb241f6d57cc1087edcdd7b8b7b981684fd767c158f0b2a3',
     policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/api/src/routers/feedback.ts',
+    method: '$queryRaw',
+    hash: '4657c2e7c6c7b9e21b8f7779c5f8590315a4efb1062480e571404334a3a24db3',
+    policy: 'public-venue-session-token',
+  },
+  {
+    file: 'packages/api/src/routers/location.ts',
+    method: '$queryRaw',
+    hash: '852d4a3607edeed3a0c82e091c86aa619f54c046c39a05b52181c56a0b9ce7ca',
+    policy: 'public-venue-session-token',
+  },
+  {
+    file: 'packages/api/src/routers/voice.ts',
+    method: '$executeRaw',
+    hash: '4a88ffd044aff187c68868de6333be95795afed26f5256b4df67a55ab050120d',
+    policy: 'tenant-venue-voice-quota-lock',
+  },
+  {
+    file: 'packages/api/src/routers/voice.ts',
+    method: '$queryRaw',
+    hash: '1d4774bf0591eae85be4d3405f95da8fc6f21a6cd51df44276160ca6eb2e97cf',
+    policy: 'public-venue-session-token',
+  },
+  {
+    file: 'packages/api/src/routers/widget.ts',
+    method: '$queryRaw',
+    hash: 'c459b550f7fb55a4454ca8c33f8959b27c97bfe844e3c99d37a980f5df913d58',
+    policy: 'public-venue-slug',
   },
 ]
 

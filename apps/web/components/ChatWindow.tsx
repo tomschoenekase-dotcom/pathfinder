@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { GuestPlaceCard } from '@pathfinder/api'
 import type { GuestResponseBlock } from '@pathfinder/contracts/guest-response'
+import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 
 import { MessageBubble } from './MessageBubble'
 import { TypingIndicator } from './TypingIndicator'
 
 type Message = {
+  id?: string
   role: 'user' | 'assistant'
   content: string
   places?: GuestPlaceCard[]
@@ -32,6 +34,8 @@ type ChatWindowProps = {
   onPlaceCardClick?: (placeId: string) => void
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
+  onVisitorAction?: (action: GuestVisitorAction) => void
+  onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
 }
 
 export function ChatWindow({
@@ -51,6 +55,8 @@ export function ChatWindow({
   onPlaceCardClick,
   onPlaceCardView,
   onDirectionsClick,
+  onVisitorAction,
+  onMessageFeedback,
 }: ChatWindowProps) {
   const [draft, setDraft] = useState(initialDraft)
   const [liveAnnouncement, setLiveAnnouncement] = useState<
@@ -157,6 +163,10 @@ export function ChatWindow({
               {...(onPlaceCardClick ? { onPlaceCardClick } : {})}
               {...(onPlaceCardView ? { onPlaceCardView } : {})}
               {...(onDirectionsClick ? { onDirectionsClick } : {})}
+              {...(onVisitorAction ? { onVisitorAction } : {})}
+              {...(message.id && onMessageFeedback
+                ? { messageId: message.id, onFeedback: onMessageFeedback }
+                : {})}
               {...(message.role === 'assistant' && !isLoading ? { onChoiceSelect: onSend } : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
               {...(message.role === 'user' && accentContrastColor

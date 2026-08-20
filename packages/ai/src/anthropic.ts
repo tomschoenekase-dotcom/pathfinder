@@ -72,6 +72,10 @@ export type AiUsageRecord = {
   attempts: number
   success: boolean
   errorCode?: string
+  capability?: string
+  requestType?: string
+  routeModelKey?: string
+  fallbackUsed?: boolean
 }
 
 export type AiUsageSink = (record: AiUsageRecord) => Promise<void>

@@ -6,6 +6,7 @@ import {
   legacyGuestResponseToBlocks,
   type GuestResponseBlock,
   type GuestResponsePlace,
+  type GuestVisitorAction,
 } from '@pathfinder/contracts/guest-response'
 
 import { PlaceCard } from './PlaceCard'
@@ -18,6 +19,7 @@ type ResponseRendererProps = {
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onChoiceSelect?: (value: string) => void
+  onVisitorAction?: (action: GuestVisitorAction) => void
 }
 
 function safeHttpsHref(href: string): string | null {
@@ -100,6 +102,7 @@ export function ResponseRenderer({
   onPlaceCardView,
   onDirectionsClick,
   onChoiceSelect,
+  onVisitorAction,
 }: ResponseRendererProps) {
   const citationsHeadingId = useId()
   const sectionHeadingId = useId()
@@ -148,22 +151,80 @@ export function ResponseRenderer({
             return (
               <div key={index} className="flex flex-wrap gap-2" aria-label="Response actions">
                 {block.actions.map((action) => {
-                  const href = safeWebHref(action.href)
+                  if ('href' in action) {
+                    const href = safeWebHref(action.href)
+                    return href ? (
+                      <a
+                        key={`${action.label}-${href}`}
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`inline-flex min-h-10 items-center rounded-full px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 ${
+                          action.style === 'primary'
+                            ? 'bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)] hover:opacity-90'
+                            : 'border border-[var(--chat-border)] bg-[var(--chat-bg)] text-[var(--chat-accent-text)] hover:border-[var(--chat-accent)]'
+                        }`}
+                      >
+                        {action.label}
+                        <span className="sr-only"> (opens in a new tab)</span>
+                      </a>
+                    ) : null
+                  }
+                  if (action.permissionRequirement !== 'PUBLIC') return null
+                  const href =
+                    action.target.kind === 'URL'
+                      ? safeHttpsHref(action.target.url)
+                      : action.target.kind === 'PHONE'
+                        ? `tel:${action.target.phone}`
+                        : action.fallbackUrl
+                          ? safeHttpsHref(action.fallbackUrl)
+                          : null
+                  const activate = () => {
+                    if (
+                      action.confirmationRequired &&
+                      !window.confirm(`Continue with “${action.label}”?`)
+                    )
+                      return
+                    onVisitorAction?.(action)
+                  }
+                  const actionClass = `inline-flex min-h-10 items-center rounded-full px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 ${
+                    action.style === 'primary'
+                      ? 'bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)] hover:opacity-90'
+                      : 'border border-[var(--chat-border)] bg-[var(--chat-bg)] text-[var(--chat-accent-text)] hover:border-[var(--chat-accent)]'
+                  }`
                   return href ? (
                     <a
-                      key={`${action.label}-${href}`}
+                      key={action.analyticsKey}
                       href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`inline-flex min-h-10 items-center rounded-full px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)] focus-visible:ring-offset-2 ${
-                        action.style === 'primary'
-                          ? 'bg-[var(--chat-accent)] text-[var(--chat-accent-contrast)] hover:opacity-90'
-                          : 'border border-[var(--chat-border)] bg-[var(--chat-bg)] text-[var(--chat-accent-text)] hover:border-[var(--chat-accent)]'
-                      }`}
+                      {...(href.startsWith('https:')
+                        ? { target: '_blank', rel: 'noopener noreferrer' }
+                        : {})}
+                      className={actionClass}
+                      onClick={(event) => {
+                        if (
+                          action.confirmationRequired &&
+                          !window.confirm(`Continue with “${action.label}”?`)
+                        ) {
+                          event.preventDefault()
+                          return
+                        }
+                        onVisitorAction?.(action)
+                      }}
                     >
                       {action.label}
-                      <span className="sr-only"> (opens in a new tab)</span>
+                      {href.startsWith('https:') ? (
+                        <span className="sr-only"> (opens in a new tab)</span>
+                      ) : null}
                     </a>
+                  ) : onVisitorAction ? (
+                    <button
+                      key={action.analyticsKey}
+                      type="button"
+                      className={actionClass}
+                      onClick={activate}
+                    >
+                      {action.label}
+                    </button>
                   ) : null
                 })}
               </div>

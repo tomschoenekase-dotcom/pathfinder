@@ -4,6 +4,7 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
+import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 import { PathFinderIcon } from '@pathfinder/ui/brand'
 import { CHAT_FONT_OPTIONS, getChatPalette } from '@pathfinder/ui/theme'
 
@@ -19,6 +20,7 @@ import { LocationBanner } from './LocationBanner'
 import { QuickPromptChips } from './QuickPromptChips'
 import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
+import { VoiceControl } from './VoiceControl'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 
 const LazyVenueCharacterStage = dynamic(
@@ -61,6 +63,9 @@ export function VenueChatShell(props: {
   onPlaceView: (placeId: string) => void
   onPlaceClick: (placeId: string) => void
   onDirections: (placeId: string) => void
+  onVoiceCharacterState?: (state: CharacterState) => void
+  onVisitorAction?: (action: GuestVisitorAction) => void
+  onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
 }) {
   const {
     venue,
@@ -84,6 +89,9 @@ export function VenueChatShell(props: {
     onPlaceView,
     onPlaceClick,
     onDirections,
+    onVoiceCharacterState,
+    onVisitorAction,
+    onMessageFeedback,
   } = props
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
@@ -184,6 +192,13 @@ export function VenueChatShell(props: {
           />
         </div>
         <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
+          <VoiceControl
+            venueId={venue.id}
+            anonymousToken={anonymousToken}
+            language={language}
+            disabled={isSending}
+            {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
+          />
           <ChatWindow
             messages={messages}
             assistantLabel={guideName}
@@ -226,6 +241,8 @@ export function VenueChatShell(props: {
             onPlaceCardView={onPlaceView}
             onPlaceCardClick={onPlaceClick}
             onDirectionsClick={onDirections}
+            {...(onVisitorAction ? { onVisitorAction } : {})}
+            {...(onMessageFeedback ? { onMessageFeedback } : {})}
           />
         </div>
       </main>

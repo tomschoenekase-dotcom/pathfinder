@@ -10,7 +10,7 @@ import {
   type AiMessage,
   type AiSystemBlock,
 } from '@pathfinder/ai'
-import { env } from '@pathfinder/config'
+import { env, logger } from '@pathfinder/config'
 import {
   canonicalEvaluationJson,
   createEvalObservation,
@@ -41,6 +41,7 @@ import {
   isVerifiedEvaluationRunIdentity,
   persistEvaluationResultWithCostReservation,
   persistEvaluationResultWithLease,
+  publishOperationalEvent,
   reserveEvaluationRunCaseCost,
   renewEvaluationRunLease,
   recordApprovedPackageEvaluationMilestones,
@@ -70,6 +71,86 @@ import {
 export const EVALUATION_RUN_MAX_CASES = 50
 export const EVALUATION_RUNNER_FLAG = 'evaluation-runner-v1'
 const CONTENT_SNAPSHOT_HASH_DOMAIN = 'pathfinder-venue-content-snapshot-v1'
+
+export function detectEvaluationRegression(input: {
+  currentPassed: number
+  currentScored: number
+  previousPassed: number
+  previousScored: number
+  minimumDrop?: number
+}) {
+  if (input.currentScored <= 0 || input.previousScored <= 0) return null
+  const currentRate = input.currentPassed / input.currentScored
+  const previousRate = input.previousPassed / input.previousScored
+  const drop = Math.round((previousRate - currentRate) * 1_000_000_000_000) / 1_000_000_000_000
+  if (drop < (input.minimumDrop ?? 0.05)) return null
+  return { currentRate, previousRate, drop }
+}
+
+async function publishEvaluationRegressionIfPresent(
+  payload: EvaluationRunJobPayload,
+): Promise<void> {
+  await withTenantIsolationBypass(async () => {
+    const current = await db.evalRun.findFirst({
+      where: {
+        id: payload.runId,
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        status: 'COMPLETED',
+      },
+      select: {
+        id: true,
+        corpusHash: true,
+        modelProvider: true,
+        modelName: true,
+        results: { where: { outcome: 'SCORED' }, select: { passed: true } },
+      },
+    })
+    if (!current) return
+    const previous = await db.evalRun.findFirst({
+      where: {
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        corpusHash: current.corpusHash,
+        status: 'COMPLETED',
+        id: { not: current.id },
+      },
+      orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        modelProvider: true,
+        modelName: true,
+        results: { where: { outcome: 'SCORED' }, select: { passed: true } },
+      },
+    })
+    if (!previous) return
+    const regression = detectEvaluationRegression({
+      currentPassed: current.results.filter((result) => result.passed === true).length,
+      currentScored: current.results.length,
+      previousPassed: previous.results.filter((result) => result.passed === true).length,
+      previousScored: previous.results.length,
+    })
+    if (!regression) return
+    const percent = (value: number) => `${Math.round(value * 1000) / 10}%`
+    await publishOperationalEvent({
+      client: db,
+      event: {
+        tenantId: payload.tenantId,
+        venueId: payload.venueId,
+        eventType: 'evaluation.regression.detected',
+        sourceSubsystem: 'evaluation-runner',
+        severity: regression.drop >= 0.15 ? 'ERROR' : 'WARNING',
+        title: 'Evaluation quality regression detected',
+        summary: `Pass rate declined from ${percent(regression.previousRate)} to ${percent(regression.currentRate)} on the same evaluation corpus.`,
+        actionRequired: true,
+        linkedObjectType: 'evaluation-run',
+        linkedObjectId: current.id,
+        recommendedAction: `Compare ${previous.modelProvider}/${previous.modelName} with ${current.modelProvider}/${current.modelName} and inspect failed cases before changing routing.`,
+        deduplicationKey: `evaluation-regression:${current.id}`,
+      },
+    })
+  })
+}
 
 export type FrozenEvaluationRun = {
   id: string
@@ -812,6 +893,13 @@ export async function processEvaluationRunJob(
     })
     if (!advanced) throw new Error('EVALUATION_RUN_LIFECYCLE_STALE')
     await reconcileOnboardingMilestones()
+    await publishEvaluationRegressionIfPresent(payload).catch((error: unknown) => {
+      logger.warn({
+        action: 'evaluation.regression-event-failed',
+        runId: payload.runId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      })
+    })
     await updateJobRecord(jobRecordId, { status: 'COMPLETE' })
   } catch (error) {
     if (acquiredClaim && error instanceof ExecutionLeaseCancelledError) {

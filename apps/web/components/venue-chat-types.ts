@@ -22,6 +22,7 @@ export type VenueSummary = {
 }
 
 export type ChatMessage = {
+  id?: string
   role: 'user' | 'assistant'
   content: string
   places?: GuestPlaceCard[]

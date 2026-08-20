@@ -1,6 +1,7 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
 import { env, logger } from '@pathfinder/config'
+import { recordWorkerHeartbeat } from '@pathfinder/db'
 import {
   AGENT_RUN_PROCESS_JOB,
   AGENT_RUN_QUEUE,
@@ -42,6 +43,9 @@ import {
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
+  OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB,
+  OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -67,6 +71,7 @@ import {
   type WeeklyReportJobPayload,
   type WeeklyReportRecoveryJobPayload,
   type MediaIngestionJobPayload,
+  type OperationalEventDeliveryJobPayload,
 } from '@pathfinder/jobs'
 
 import { processAnswerAnalysisJob } from './processors/answer-analysis'
@@ -84,6 +89,7 @@ import { processSendWelcomeEmailJob } from './processors/send-welcome-email'
 import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
+import { processOperationalEventDeliveries } from './processors/operational-event-delivery'
 import { applySchedulerState, utcCronSchedule } from './scheduler-control'
 import {
   enqueueScheduledAnalyticsEnrichment,
@@ -111,6 +117,24 @@ const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
 const EMBEDDING_DISPATCH_CRON = '* * * * *'
 const GENERATION_DISPATCH_CRON = '* * * * *'
 const GENERATION_RECOVERY_CRON = '* * * * *'
+
+async function startOperationalHeartbeat(mode: 'provider-enabled' | 'provider-disabled') {
+  const write = () =>
+    recordWorkerHeartbeat({
+      mode,
+      schedulersEnabled: env.WORKER_SCHEDULERS_ENABLED,
+      revision: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
+    }).catch((error: unknown) => {
+      logger.error({
+        action: 'workers.heartbeat.failed',
+        error: error instanceof Error ? error.message : 'Unknown worker heartbeat error',
+      })
+    })
+  await write()
+  const timer = setInterval(() => void write(), 30_000)
+  timer.unref()
+  return () => clearInterval(timer)
+}
 
 function registerShutdownSignals(shutdown: () => Promise<void>): void {
   const handleShutdownSignal = createEscalatingShutdownHandler(
@@ -506,8 +530,16 @@ async function handleAgentRunQueueJob(
   })
 }
 
+async function handleOperationalEventDeliveryJob(job: Job<OperationalEventDeliveryJobPayload>) {
+  if (job.name !== OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB) {
+    throw new Error(`Unsupported operational event delivery job: ${job.name}`)
+  }
+  await processOperationalEventDeliveries()
+}
+
 export async function startWorkers() {
   if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
+    const stopHeartbeat = await startOperationalHeartbeat('provider-disabled')
     const runtime = await startProviderDisabledRuntime({
       checkConnection: () => checkBullMQConnection(5_000),
       closeConnection: closeBullMQConnection,
@@ -520,8 +552,12 @@ export async function startWorkers() {
       outboundProviderWorkersEnabled: false,
       queues: runtime.queues,
     })
-    registerShutdownSignals(runtime.shutdown)
-    return runtime
+    const shutdown = async () => {
+      stopHeartbeat()
+      await runtime.shutdown()
+    }
+    registerShutdownSignals(shutdown)
+    return { ...runtime, shutdown }
   }
 
   const connection = getBullMQConnection()
@@ -535,6 +571,9 @@ export async function startWorkers() {
   const answerAnalysisQueue = new Queue(ANSWER_ANALYSIS_QUEUE, { connection })
   const weeklyReportQueue = new Queue(WEEKLY_REPORT_QUEUE, { connection })
   const mediaIngestionQueue = new Queue(MEDIA_INGESTION_QUEUE, { connection })
+  const operationalEventDeliveryQueue = new Queue(OPERATIONAL_EVENT_DELIVERY_QUEUE, {
+    connection,
+  })
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
@@ -551,6 +590,10 @@ export async function startWorkers() {
     { name: ANSWER_ANALYSIS_QUEUE, close: () => answerAnalysisQueue.close() },
     { name: WEEKLY_REPORT_QUEUE, close: () => weeklyReportQueue.close() },
     { name: MEDIA_INGESTION_QUEUE, close: () => mediaIngestionQueue.close() },
+    {
+      name: OPERATIONAL_EVENT_DELIVERY_QUEUE,
+      close: () => operationalEventDeliveryQueue.close(),
+    },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
       : []),
@@ -628,6 +671,33 @@ export async function startWorkers() {
           analyticsEnrichmentQueue.removeJobScheduler(ANALYTICS_ENRICHMENT_SCHEDULER_JOB),
       },
     ])
+
+    await applySchedulerState(
+      env.OPERATIONAL_ALERT_DEV_SINK_ENABLED || env.OPERATIONAL_ALERT_DELIVERY_ENABLED,
+      [
+        {
+          upsert: () =>
+            operationalEventDeliveryQueue.upsertJobScheduler(
+              OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB,
+              { every: 60_000 },
+              {
+                name: OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB,
+                data: {},
+                opts: {
+                  attempts: 3,
+                  backoff: { type: 'exponential', delay: 5_000 },
+                  removeOnComplete: 100,
+                  removeOnFail: 500,
+                },
+              },
+            ),
+          remove: () =>
+            operationalEventDeliveryQueue.removeJobScheduler(
+              OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB,
+            ),
+        },
+      ],
+    )
 
     await applySchedulerState(env.EMBEDDING_DISPATCH_ENABLED, [
       {
@@ -858,6 +928,14 @@ export async function startWorkers() {
     }),
   )
 
+  const operationalEventDeliveryWorker = observeWorkerRuntime(
+    OPERATIONAL_EVENT_DELIVERY_QUEUE,
+    new Worker(OPERATIONAL_EVENT_DELIVERY_QUEUE, handleOperationalEventDeliveryJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
     new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
@@ -982,6 +1060,7 @@ export async function startWorkers() {
     { name: GENERATION_RECOVERY_QUEUE, worker: generationRecoveryWorker },
     { name: ANALYTICS_ENRICHMENT_QUEUE, worker: analyticsEnrichmentWorker },
     { name: SEND_EMAIL_QUEUE, worker: sendEmailWorker },
+    { name: OPERATIONAL_EVENT_DELIVERY_QUEUE, worker: operationalEventDeliveryWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
@@ -993,6 +1072,8 @@ export async function startWorkers() {
     worker.on('completed', handleCompletedJob)
     worker.on('failed', handleFailedJob)
   }
+
+  const stopHeartbeat = await startOperationalHeartbeat('provider-enabled')
 
   logger.info({
     action: 'workers.started',
@@ -1016,6 +1097,7 @@ export async function startWorkers() {
       ANSWER_ANALYSIS_QUEUE,
       WEEKLY_REPORT_QUEUE,
       SEND_EMAIL_QUEUE,
+      OPERATIONAL_EVENT_DELIVERY_QUEUE,
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
@@ -1025,6 +1107,10 @@ export async function startWorkers() {
   const shutdown = createShutdownCoordinator({
     onStart: () => logger.info({ action: 'workers.shutdown' }),
     phases: [
+      {
+        name: 'heartbeat',
+        resources: [{ name: 'operational', close: async () => stopHeartbeat() }],
+      },
       {
         name: 'workers',
         resources: workers.map(({ name, worker }) => ({ name, close: () => worker.close() })),
@@ -1063,6 +1149,8 @@ export async function startWorkers() {
     embedPlaceQueue,
     embedPlaceWorker,
     sendEmailWorker,
+    operationalEventDeliveryWorker,
+    operationalEventDeliveryQueue,
     mediaIngestionQueue,
     mediaIngestionWorker,
     evaluationRunWorker,

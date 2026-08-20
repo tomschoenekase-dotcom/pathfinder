@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 import type { VenueSummary } from '../components/venue-chat-types'
+import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
 import { useTRPCClient } from '../lib/trpc'
 
 type PlaceEvent = 'place_card.viewed' | 'place_card.clicked' | 'directions.opened'
@@ -94,5 +95,39 @@ export function useVenueChatAnalytics({
     viewedPlaceIdsRef.current.clear()
   }, [])
 
-  return { endSession, resetAnalytics, sessionStartedAtRef, trackPlaceEvent, viewedPlaceIdsRef }
+  const trackVisitorAction = useCallback(
+    (action: GuestVisitorAction) => {
+      if (!venue || !anonymousToken) return
+      const targetId =
+        action.target.kind === 'LOCATION_ID'
+          ? action.target.locationId
+          : action.target.kind === 'PLACE_ID'
+            ? action.target.placeId
+            : undefined
+      runBestEffortAnalytics(() =>
+        client.analytics.trackEvent.mutate({
+          venueId: venue.id,
+          sessionId: anonymousToken,
+          ...(visitorId ? { visitorId } : {}),
+          eventType: 'visitor.action.clicked',
+          metadata: {
+            actionType: action.type,
+            analyticsKey: action.analyticsKey,
+            targetKind: action.target.kind,
+            ...(targetId ? { targetId } : {}),
+          },
+        }),
+      )
+    },
+    [anonymousToken, client, venue, visitorId],
+  )
+
+  return {
+    endSession,
+    resetAnalytics,
+    sessionStartedAtRef,
+    trackPlaceEvent,
+    trackVisitorAction,
+    viewedPlaceIdsRef,
+  }
 }

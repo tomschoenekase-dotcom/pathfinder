@@ -41,7 +41,8 @@ export async function GET(
       // Host-page headers never become tenant or widget authority.
       req: new Request(`https://pathfinder.local/api/widget-ready/${venueSlug}`),
     })
-    await appRouter.createCaller(ctx).venue.getBySlug({ slug: venueSlug })
+    const availability = await appRouter.createCaller(ctx).widget.availability({ venueSlug })
+    if (!availability.enabled) return unavailable(404)
     return new Response(null, {
       status: 204,
       headers: {

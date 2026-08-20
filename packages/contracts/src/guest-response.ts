@@ -28,6 +28,17 @@ const safeHttpsHref = z
 
 const isoDateTime = z.string().datetime({ offset: true })
 
+export const GuestPublicErrorCode = z.enum([
+  'PROVIDER_UNAVAILABLE',
+  'RATE_LIMITED',
+  'OUTCOME_AMBIGUOUS',
+  'CONTENT_UNAVAILABLE',
+  'REJECTED',
+  'TRANSIENT_FAILURE',
+])
+
+export type GuestPublicErrorCode = z.infer<typeof GuestPublicErrorCode>
+
 export const GuestResponsePlace = z
   .object({
     id: nonEmptyText,
@@ -59,19 +70,102 @@ export const GuestResponseCalloutBlock = z
   })
   .strict()
 
+export const GuestVisitorActionType = z.enum([
+  'NAVIGATE',
+  'SHOW_ON_MAP',
+  'CALL',
+  'OPEN_WEBSITE',
+  'BUY_TICKETS',
+  'LEARN_MORE',
+  'ASK_STAFF',
+  'OPEN_EXHIBIT',
+  'START_DIRECTIONS',
+  'VIEW_ACCESSIBILITY_INFO',
+])
+
+const GuestVisitorActionTarget = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('URL'), url: safeHttpsHref }).strict(),
+  z
+    .object({
+      kind: z.literal('PHONE'),
+      phone: z
+        .string()
+        .trim()
+        .regex(/^\+[1-9][0-9]{6,14}$/u),
+    })
+    .strict(),
+  z.object({ kind: z.literal('LOCATION_ID'), locationId: nonEmptyText.max(191) }).strict(),
+  z.object({ kind: z.literal('PLACE_ID'), placeId: nonEmptyText.max(191) }).strict(),
+  z.object({ kind: z.literal('STAFF') }).strict(),
+])
+
+export const GuestVisitorAction = z
+  .object({
+    type: GuestVisitorActionType,
+    label: nonEmptyText.max(120),
+    target: GuestVisitorActionTarget,
+    style: z.enum(['primary', 'secondary']).default('secondary'),
+    icon: z
+      .enum([
+        'map',
+        'directions',
+        'phone',
+        'external-link',
+        'ticket',
+        'info',
+        'staff',
+        'accessibility',
+      ])
+      .optional(),
+    analyticsKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u),
+    permissionRequirement: z
+      .enum(['PUBLIC', 'AUTHENTICATED', 'EMPLOYEE', 'ADMIN'])
+      .default('PUBLIC'),
+    confirmationRequired: z.boolean().default(false),
+    fallbackUrl: safeHttpsHref.optional(),
+  })
+  .strict()
+  .superRefine((action, ctx) => {
+    const targetKind = action.target.kind
+    const allowed =
+      (action.type === 'CALL' && targetKind === 'PHONE') ||
+      (['NAVIGATE', 'SHOW_ON_MAP', 'START_DIRECTIONS'].includes(action.type) &&
+        (targetKind === 'LOCATION_ID' || targetKind === 'PLACE_ID')) ||
+      (action.type === 'ASK_STAFF' && targetKind === 'STAFF') ||
+      ([
+        'OPEN_WEBSITE',
+        'BUY_TICKETS',
+        'LEARN_MORE',
+        'OPEN_EXHIBIT',
+        'VIEW_ACCESSIBILITY_INFO',
+      ].includes(action.type) &&
+        (targetKind === 'URL' || targetKind === 'PLACE_ID' || targetKind === 'LOCATION_ID'))
+    if (!allowed)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['target'],
+        message: 'Action target is not valid for this action type',
+      })
+  })
+
+const LegacyGuestVisitorAction = z
+  .object({
+    label: nonEmptyText,
+    href: webHref,
+    style: z.enum(['primary', 'secondary']).default('secondary'),
+  })
+  .strict()
+
 export const GuestResponseActionsBlock = z
   .object({
     type: z.literal('actions'),
     actions: z
-      .array(
-        z
-          .object({
-            label: nonEmptyText,
-            href: webHref,
-            style: z.enum(['primary', 'secondary']).default('secondary'),
-          })
-          .strict(),
-      )
+      .array(z.union([GuestVisitorAction, LegacyGuestVisitorAction]))
       .min(1)
       .max(6),
   })
@@ -223,6 +317,7 @@ export const GuestStructuredResponse = z
   .strict()
 
 export type GuestResponsePlace = z.infer<typeof GuestResponsePlace>
+export type GuestVisitorAction = z.infer<typeof GuestVisitorAction>
 export type GuestResponseBlock = z.infer<typeof GuestResponseBlock>
 export type GuestStructuredResponse = z.infer<typeof GuestStructuredResponse>
 

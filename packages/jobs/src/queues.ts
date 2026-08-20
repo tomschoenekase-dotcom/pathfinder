@@ -51,6 +51,10 @@ export const ANALYTICS_ENRICHMENT_RETRY_BACKOFF = 'analytics-enrichment-retry'
 export const SEND_EMAIL_QUEUE = queueName('send-email')
 export const SEND_WELCOME_EMAIL_JOB = 'send-welcome-email'
 export const SEND_WELCOME_EMAIL_RETRY_BACKOFF = 'send-welcome-email-retry'
+export const OPERATIONAL_EVENT_DELIVERY_QUEUE = queueName('operational-event-delivery')
+export const OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB = 'operational-event-delivery-process'
+export const OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB = 'operational-event-delivery-scheduler'
+export const OPERATIONAL_EVENT_DELIVERY_RETRY_BACKOFF = 'operational-event-delivery-retry'
 
 export const MEDIA_INGESTION_QUEUE = queueName('media-ingestion')
 export const MEDIA_INGESTION_PROCESS_JOB = 'media-ingestion-process'

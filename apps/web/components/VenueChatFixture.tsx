@@ -5,6 +5,7 @@ import type {
   PublicCharacterProjection,
 } from '@pathfinder/contracts/character-system'
 
+import { TRPCProvider } from '../lib/trpc'
 import { VenueChatShell } from './VenueChatShell'
 import type { ChatMessage, VenueSummary } from './venue-chat-types'
 
@@ -120,34 +121,36 @@ export function VenueChatFixture({
   motion: 'system' | 'reduced' | 'full'
 }) {
   return (
-    <div
-      data-fixture="visitor-chat"
-      data-fixture-mode={mode}
-      data-fixture-state={state}
-      data-fixture-conversation={conversation}
-      data-fixture-asset={asset}
-    >
-      <VenueChatShell
-        venue={fixtureVenue(mode, asset)}
-        venueSlug="fixture-great-lakes-museum"
-        presentation="standalone"
-        messages={conversation === 'long' ? LONG_CONVERSATION : []}
-        isSending={state === 'thinking'}
-        sendError={state === 'error' ? 'The test response could not be loaded.' : null}
-        anonymousToken="fixture-anonymous-token"
-        language="English"
-        setLanguage={() => undefined}
-        initialDraft={state === 'listening' ? 'Tell me about the family exhibits' : ''}
-        characterState={state}
-        characterMotion={motion}
-        location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
-        onSend={() => undefined}
-        onDraftChange={() => undefined}
-        onNewConversation={() => undefined}
-        onPlaceView={() => undefined}
-        onPlaceClick={() => undefined}
-        onDirections={() => undefined}
-      />
-    </div>
+    <TRPCProvider scopeKey="visitor-chat-visual-fixture">
+      <div
+        data-fixture="visitor-chat"
+        data-fixture-mode={mode}
+        data-fixture-state={state}
+        data-fixture-conversation={conversation}
+        data-fixture-asset={asset}
+      >
+        <VenueChatShell
+          venue={fixtureVenue(mode, asset)}
+          venueSlug="fixture-great-lakes-museum"
+          presentation="standalone"
+          messages={conversation === 'long' ? LONG_CONVERSATION : []}
+          isSending={state === 'thinking'}
+          sendError={state === 'error' ? 'The test response could not be loaded.' : null}
+          anonymousToken="fixture-anonymous-token"
+          language="English"
+          setLanguage={() => undefined}
+          initialDraft={state === 'listening' ? 'Tell me about the family exhibits' : ''}
+          characterState={state}
+          characterMotion={motion}
+          location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
+          onSend={() => undefined}
+          onDraftChange={() => undefined}
+          onNewConversation={() => undefined}
+          onPlaceView={() => undefined}
+          onPlaceClick={() => undefined}
+          onDirections={() => undefined}
+        />
+      </div>
+    </TRPCProvider>
   )
 }

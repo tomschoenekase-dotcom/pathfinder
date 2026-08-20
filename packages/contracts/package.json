@@ -21,6 +21,7 @@
     "./offboarding-export-preview": "./src/offboarding-export-preview.ts",
     "./offboarding-export-finalization": "./src/offboarding-export-finalization.ts",
     "./partner-read-api": "./src/partner-read-api.ts",
+    "./product-entitlements": "./src/product-entitlements.ts",
     "./retention-policy": "./src/retention-policy.ts",
     "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts",
     "./remote-onboarding": "./src/remote-onboarding.ts",

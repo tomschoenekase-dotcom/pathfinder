@@ -25,14 +25,17 @@ import {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
+  EMBEDDING_DISPATCH_QUEUE,
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
+  GENERATION_RECOVERY_QUEUE,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
+  OPERATIONAL_EVENT_DELIVERY_QUEUE,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -554,6 +557,61 @@ export async function enqueueWelcomeEmail(
     action: 'jobs.send-welcome-email.enqueued',
     tenantId: payload.tenantId,
   })
+}
+
+const OPERATIONAL_QUEUE_NAMES = [
+  WEEKLY_DIGEST_QUEUE,
+  ANSWER_ANALYSIS_QUEUE,
+  WEEKLY_REPORT_QUEUE,
+  DAILY_ROLLUP_QUEUE,
+  EMBED_PLACE_QUEUE,
+  EMBED_KNOWLEDGE_ENTRY_QUEUE,
+  EMBEDDING_DISPATCH_QUEUE,
+  ANALYTICS_ENRICHMENT_QUEUE,
+  SEND_EMAIL_QUEUE,
+  MEDIA_INGESTION_QUEUE,
+  EVALUATION_RUN_QUEUE,
+  AGENT_RUN_QUEUE,
+  GENERATION_DISPATCH_QUEUE,
+  GENERATION_RECOVERY_QUEUE,
+  OPERATIONAL_EVENT_DELIVERY_QUEUE,
+] as const
+
+export async function inspectQueueOperationalSnapshot(now = new Date()) {
+  const queues = await Promise.all(
+    OPERATIONAL_QUEUE_NAMES.map(async (name) => {
+      const queue = getQueue(name)
+      const [counts, oldest] = await Promise.all([
+        queue.getJobCounts('wait', 'active', 'delayed', 'prioritized', 'failed'),
+        queue.getJobs(['waiting', 'delayed', 'prioritized'], 0, 0, true),
+      ])
+      const oldestTimestamp = oldest[0]?.timestamp ?? null
+      return {
+        name,
+        depth:
+          (counts.wait ?? 0) +
+          (counts.active ?? 0) +
+          (counts.delayed ?? 0) +
+          (counts.prioritized ?? 0),
+        failed: counts.failed ?? 0,
+        oldestQueuedAt: oldestTimestamp === null ? null : new Date(oldestTimestamp),
+        oldestAgeMs: oldestTimestamp === null ? null : Math.max(0, now.getTime() - oldestTimestamp),
+      }
+    }),
+  )
+  return {
+    totalDepth: queues.reduce((sum, queue) => sum + queue.depth, 0),
+    oldestAgeMs: queues.reduce<number | null>(
+      (oldest, queue) =>
+        queue.oldestAgeMs === null
+          ? oldest
+          : oldest === null
+            ? queue.oldestAgeMs
+            : Math.max(oldest, queue.oldestAgeMs),
+      null,
+    ),
+    queues,
+  }
 }
 
 export async function closeJobQueues(): Promise<void> {

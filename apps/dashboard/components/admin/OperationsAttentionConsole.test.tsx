@@ -1,7 +1,11 @@
 /* @vitest-environment jsdom */
 import React from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('./OperationalEventActions', () => ({
+  OperationalEventActions: () => <span>Event actions</span>,
+}))
 
 import { OperationsAttentionConsole } from './OperationsAttentionConsole'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -18,6 +22,7 @@ const empty = {
   blockedAgents: { items: [], nextCursor: null },
   completedAgents: { items: [], nextCursor: null },
   outcomes: { items: [], nextCursor: null },
+  events: { items: [], nextCursor: null },
 }
 
 describe('operations attention console', () => {
@@ -34,7 +39,8 @@ describe('operations attention console', () => {
     expect(screen.getByText('No agent runs are blocked or failed.')).toBeTruthy()
     expect(screen.getByText('No completed agent runs are recorded.')).toBeTruthy()
     expect(screen.getByText('No outcome observations are recorded yet.')).toBeTruthy()
-    expect(screen.getByText(/console is read-only/i)).toBeTruthy()
+    expect(screen.getByText(/review linked evidence/i)).toBeTruthy()
+    expect(screen.getByText('No operational alerts currently need attention.')).toBeTruthy()
   })
 
   it('puts human questions first and links to the durable agent inbox', () => {
@@ -51,7 +57,13 @@ describe('operations attention console', () => {
                 agentRunId: 'run_1',
                 question: 'Which pricing assumption should I use?',
                 context: 'Two sources disagree.',
+                questionType: 'MULTIPLE_CHOICE',
+                category: 'pricing',
+                urgency: 'HIGH',
                 choices: ['Current list price', 'Last signed agreement'],
+                dueAt: null,
+                evidence: [],
+                proposedAnswer: null,
                 blocking: true,
                 createdAt: new Date(),
                 agentIdentity: { name: 'Research' },
@@ -124,5 +136,42 @@ describe('operations attention console', () => {
     )
     expect(screen.getByText('Lease expired')).toBeTruthy()
     expect(screen.queryByText('secret provider payload')).toBeNull()
+  })
+
+  it('routes knowledge proposal events to the review workspace', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          events: {
+            items: [
+              {
+                id: 'event_1',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'knowledge.proposal.created',
+                sourceSubsystem: 'knowledge',
+                severity: 'WARNING',
+                title: 'Knowledge update proposed',
+                summary: 'A grounded update is ready for review.',
+                recommendedAction: 'Review the evidence.',
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'KnowledgeChangeProposal',
+                linkedObjectId: 'proposal_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Open related workspace' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant_1/venues/venue_1/knowledge-proposals',
+    )
   })
 })

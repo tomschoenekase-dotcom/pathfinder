@@ -36,6 +36,10 @@ export function createApiAiUsageRecorder(params: {
             ? { clientAssistantTurnId: params.clientAssistantTurnId }
             : {}),
           feature: params.feature,
+          capability: usage.capability ?? 'UNCLASSIFIED',
+          ...(usage.requestType ? { requestType: usage.requestType } : {}),
+          ...(usage.routeModelKey ? { routeModelKey: usage.routeModelKey } : {}),
+          fallbackUsed: usage.fallbackUsed ?? false,
           surface: params.surface,
           provider: usage.provider,
           model: usage.model,

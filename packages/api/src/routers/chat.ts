@@ -4,9 +4,10 @@ import { TRPCError } from '@trpc/server'
 
 import {
   AiGatewayError,
-  AI_MODEL_KEYS,
   generateText,
+  routeAiCapability,
   setAnthropicClientForTesting,
+  type AiModelKey,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
@@ -24,13 +25,16 @@ import {
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
+  recordConversationInsightSignals,
+  publishOperationalEvent,
+  resolveRuntimeAiWorkloadConfiguration,
 } from '@pathfinder/db'
 
 import { logger } from '@pathfinder/config'
 import { isFeatureEnabled, TOCHI_TENANT_FLAG_KEYS } from '@pathfinder/config/feature-flags'
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 
-import { router } from '../core'
+import { publicTRPCError, router } from '../core'
 import type { TRPCContext } from '../context'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { resolveSystemCharacterProjection } from '../lib/character-registry'
@@ -46,16 +50,18 @@ import { MAX_GUEST_OPERATIONAL_UPDATES } from '../schemas/operational-update'
 import { publicProcedure } from '../trpc'
 
 function aiUnavailable(): TRPCError {
-  return new TRPCError({
+  return publicTRPCError({
     code: 'SERVICE_UNAVAILABLE',
     message: GLOBAL_AI_UNAVAILABLE_MESSAGE,
+    publicCode: 'PROVIDER_UNAVAILABLE',
   })
 }
 
 function venueUnavailable(): TRPCError {
-  return new TRPCError({
+  return publicTRPCError({
     code: 'SERVICE_UNAVAILABLE',
     message: 'This venue guide is temporarily unavailable.',
+    publicCode: 'CONTENT_UNAVAILABLE',
   })
 }
 
@@ -73,7 +79,19 @@ function guestChatTurnError(error: unknown): never {
             : error.code === 'FAILED'
               ? 'PRECONDITION_FAILED'
               : 'CONFLICT'
-  throw new TRPCError({ code, message: error.message })
+  const publicCode =
+    error.code === 'UNKNOWN_PROVIDER_OUTCOME'
+      ? 'OUTCOME_AMBIGUOUS'
+      : error.code === 'INVALID_INPUT'
+        ? 'REJECTED'
+        : error.code === 'IN_PROGRESS'
+          ? 'RATE_LIMITED'
+          : error.code === 'NOT_FOUND'
+            ? 'CONTENT_UNAVAILABLE'
+            : error.code === 'FAILED'
+              ? 'TRANSIENT_FAILURE'
+              : 'REJECTED'
+  throw publicTRPCError({ code, message: error.message, publicCode })
 }
 
 // ---------------------------------------------------------------------------
@@ -173,9 +191,10 @@ const admittedChatSendProcedure = publicProcedure
       60,
     )
     if (!globallyAllowed) {
-      throw new TRPCError({
+      throw publicTRPCError({
         code: 'TOO_MANY_REQUESTS',
         message: 'Chat is receiving too many requests. Please try again in a moment.',
+        publicCode: 'RATE_LIMITED',
       })
     }
 
@@ -221,7 +240,11 @@ const admittedChatSendProcedure = publicProcedure
     `
 
     if (!chatVenue) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found' })
+      throw publicTRPCError({
+        code: 'NOT_FOUND',
+        message: 'Venue not found',
+        publicCode: 'CONTENT_UNAVAILABLE',
+      })
     }
     if (!chatVenue.isActive) throw venueUnavailable()
 
@@ -236,9 +259,10 @@ const admittedChatSendProcedure = publicProcedure
       60,
     )
     if (!ingressAllowed) {
-      throw new TRPCError({
+      throw publicTRPCError({
         code: 'TOO_MANY_REQUESTS',
         message: 'This venue is receiving too many requests. Please try again in a moment.',
+        publicCode: 'RATE_LIMITED',
       })
     }
 
@@ -248,17 +272,19 @@ const admittedChatSendProcedure = publicProcedure
       3600,
     )
     if (!sessionAllowed) {
-      throw new TRPCError({
+      throw publicTRPCError({
         code: 'TOO_MANY_REQUESTS',
         message: 'You have reached the message limit. Please try again later.',
+        publicCode: 'RATE_LIMITED',
       })
     }
 
     const venueAllowed = await checkRateLimit(`ratelimit:chat:venue:${ctx.chatVenue.id}`, 30, 60)
     if (!venueAllowed) {
-      throw new TRPCError({
+      throw publicTRPCError({
         code: 'TOO_MANY_REQUESTS',
         message: 'This venue is receiving too many requests. Please try again in a moment.',
+        publicCode: 'RATE_LIMITED',
       })
     }
 
@@ -458,10 +484,11 @@ export const chatRouter = router({
       }
     }
     if (reservation.state === 'AMBIGUOUS') {
-      throw new TRPCError({
+      throw publicTRPCError({
         code: 'PRECONDITION_FAILED',
         message:
           'The original provider outcome could not be committed. Start a new message; the original operation will not be repeated.',
+        publicCode: 'OUTCOME_AMBIGUOUS',
       })
     }
     const claimId = randomUUID()
@@ -522,6 +549,27 @@ export const chatRouter = router({
       turnId: reservation.turnId,
       claimId,
     }
+    const recordGuestAiFailure = async (
+      category: 'provider-unavailable' | 'pre-dispatch-failure' | 'provider-failure',
+    ) => {
+      await publishOperationalEvent({
+        client: ctx.db,
+        event: {
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+          eventType: `guest-chat.${category}`,
+          sourceSubsystem: 'guest-chat',
+          severity: category === 'provider-failure' ? 'ERROR' : 'WARNING',
+          title: 'Guest guide AI failure',
+          summary: 'A guest chat turn encountered a sanitized AI service failure.',
+          actionRequired: category === 'provider-failure',
+          linkedObjectType: 'guest-chat-turn',
+          linkedObjectId: reservation.turnId,
+          recommendedAction: 'Inspect the turn and recent provider outcomes in PathFinder OS.',
+          deduplicationKey: `guest-chat-failure:${reservation.turnId}:${category}`,
+        },
+      }).catch(() => undefined)
+    }
     let embeddingDispatched = false
     const queryEmbeddingPromise = generateGuestQueryEmbedding(
       trimmedInput,
@@ -569,10 +617,15 @@ export const chatRouter = router({
                 : 'PRE_DISPATCH_FAILURE',
             },
           })
-          if (isAiAdmissionControlError(error)) throw aiUnavailable()
-          throw new TRPCError({
+          if (isAiAdmissionControlError(error)) {
+            await recordGuestAiFailure('provider-unavailable')
+            throw aiUnavailable()
+          }
+          await recordGuestAiFailure('pre-dispatch-failure')
+          throw publicTRPCError({
             code: 'SERVICE_UNAVAILABLE',
-            message: 'Chat is temporarily unavailable.',
+            message: 'The guide could not start this message. Please send it again in a moment.',
+            publicCode: 'TRANSIENT_FAILURE',
           })
         }
         await observeGuestChatProviderOperationAction({
@@ -590,6 +643,7 @@ export const chatRouter = router({
             client: ctx.db,
             claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
           })
+          await recordGuestAiFailure('provider-unavailable')
           throw aiUnavailable()
         }
         return null
@@ -892,8 +946,27 @@ export const chatRouter = router({
     })
     let generationDispatched = false
     try {
+      const configuration = await resolveRuntimeAiWorkloadConfiguration(
+        {
+          workloadId: 'guest-chat',
+          tenantId: venue.tenantId,
+          venueId: input.venueId,
+        },
+        ctx.db,
+      )
+      const route = routeAiCapability({
+        capability: 'STANDARD',
+        workloadId: 'guest-chat',
+        configuration,
+      })
+      const selectedRoute = route.candidates[0]!
       const result = await generateText({
-        modelKey: AI_MODEL_KEYS.GUEST_CHAT,
+        modelKey: selectedRoute.modelKey as AiModelKey,
+        timeoutMs: configuration.timeoutMs,
+        maxAttempts: configuration.maxAttempts,
+        ...(configuration.maxOutputTokens !== null
+          ? { maxOutputTokens: configuration.maxOutputTokens }
+          : {}),
         admissionGuard: () =>
           assertVenueAiAvailable(ctx.db, {
             tenantId: venue.tenantId,
@@ -911,7 +984,14 @@ export const chatRouter = router({
           })),
           { role: 'user', content: trimmedInput },
         ],
-        usageSink: chatAccounting.sink,
+        usageSink: (usage) =>
+          chatAccounting.sink({
+            ...usage,
+            capability: route.capability,
+            requestType: route.workloadId,
+            routeModelKey: selectedRoute.modelKey,
+            fallbackUsed: selectedRoute.fallback,
+          }),
         invocationId: generationInvocationId,
         onBeforeFirstDispatch: async () => {
           try {
@@ -949,10 +1029,15 @@ export const chatRouter = router({
             failureCode: isAiAdmissionControlError(err) ? 'AI_UNAVAILABLE' : 'PRE_DISPATCH_FAILURE',
           },
         })
-        if (isAiAdmissionControlError(err)) throw aiUnavailable()
-        throw new TRPCError({
+        if (isAiAdmissionControlError(err)) {
+          await recordGuestAiFailure('provider-unavailable')
+          throw aiUnavailable()
+        }
+        await recordGuestAiFailure('pre-dispatch-failure')
+        throw publicTRPCError({
           code: 'SERVICE_UNAVAILABLE',
-          message: 'Chat is temporarily unavailable.',
+          message: 'The guide could not start this message. Please send it again in a moment.',
+          publicCode: 'TRANSIENT_FAILURE',
         })
       }
       await observeGuestChatProviderOperationAction({
@@ -968,6 +1053,7 @@ export const chatRouter = router({
           client: ctx.db,
           claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
         })
+        await recordGuestAiFailure('provider-unavailable')
         throw aiUnavailable()
       }
       fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
@@ -978,6 +1064,7 @@ export const chatRouter = router({
         failureCode: fallbackFailureCode,
         errorName: err instanceof AiGatewayError ? 'AiGatewayError' : 'UnexpectedError',
       })
+      await recordGuestAiFailure('provider-failure')
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
     } finally {
       modelMs = elapsedMilliseconds(modelStartedAt)
@@ -1155,11 +1242,76 @@ export const chatRouter = router({
         } catch {
           // Low-confidence analytics are best-effort and must not break guest chat.
         }
+
+        try {
+          await recordConversationInsightSignals({
+            client: ctx.db,
+            signals: [
+              {
+                tenantId: venue.tenantId,
+                venueId: input.venueId,
+                sessionId: session.id,
+                guestChatTurnId: reservation.turnId,
+                category: 'LOW_CONFIDENCE_ANSWER',
+                confidence: topDistance === null ? 0.7 : Math.min(1, Math.max(0, topDistance)),
+                severity: 'LOW',
+                summary:
+                  'The guest answer was generated without sufficiently strong trusted retrieval evidence.',
+                suggestedAction:
+                  'Review the source conversation and determine whether venue knowledge needs improvement.',
+                evidenceMessageIds: [userMessageId],
+                capability: 'CLASSIFICATION',
+                provider: 'pathfinder',
+                model: 'retrieval-confidence-rules',
+                analyzerVersion: 'guest-turn-signals-v1',
+              },
+              {
+                tenantId: venue.tenantId,
+                venueId: input.venueId,
+                sessionId: session.id,
+                guestChatTurnId: reservation.turnId,
+                category: 'KNOWLEDGE_GAP',
+                confidence: topDistance === null ? 0.65 : Math.min(1, Math.max(0, topDistance)),
+                severity: 'MEDIUM',
+                summary:
+                  'This conversation may identify missing or hard-to-retrieve public venue knowledge.',
+                suggestedAction:
+                  'Verify the visitor question against canonical public knowledge before proposing an update.',
+                evidenceMessageIds: [userMessageId],
+                capability: 'CLASSIFICATION',
+                provider: 'pathfinder',
+                model: 'retrieval-confidence-rules',
+                analyzerVersion: 'guest-turn-signals-v1',
+              },
+            ],
+          })
+          await publishOperationalEvent({
+            client: ctx.db,
+            event: {
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+              eventType: 'knowledge.gap.detected',
+              sourceSubsystem: 'conversation-intelligence',
+              severity: 'WARNING',
+              title: 'Possible visitor knowledge gap',
+              summary: 'A public answer lacked sufficiently strong trusted retrieval evidence.',
+              actionRequired: true,
+              linkedObjectType: 'guest-chat-turn',
+              linkedObjectId: reservation.turnId,
+              recommendedAction:
+                'Review the source conversation before proposing a canonical knowledge change.',
+              deduplicationKey: `knowledge-gap:${reservation.turnId}`,
+            },
+          })
+        } catch {
+          // Conversation intelligence is post-response evidence and cannot fail a guest turn.
+        }
       }
     }
 
     return {
       response: finalized.response,
+      assistantMessageId: finalized.assistantMessageId,
       sessionId: finalized.sessionId,
       places: finalized.places,
       replayed: finalized.replayed,
@@ -1244,11 +1396,12 @@ export const chatRouter = router({
       where: { sessionId: session.id, tenantId: session.tenantId },
       orderBy: [{ sessionSequence: 'desc' }, { id: 'desc' }],
       take: HISTORY_LOAD_LIMIT,
-      select: { role: true, content: true },
+      select: { id: true, role: true, content: true },
     })
 
     return {
       messages: rows.reverse().map((m) => ({
+        id: m.id,
         role: m.role as 'user' | 'assistant',
         content: m.content,
       })),

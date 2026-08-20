@@ -10,9 +10,15 @@ export const ANALYTICS_EVENT_TYPES = [
   // reply matched a "no-info" pattern). Never surfaced to guests; powers content-gap
   // analytics. Emitted best-effort from chat.send, like the other message events.
   'message.low_confidence',
+  'voice.session.started',
+  'voice.session.ended',
+  'voice.session.failed',
+  'voice.fallback_to_text',
   'place_card.viewed',
   'place_card.clicked',
   'directions.opened',
+  'visitor.action.clicked',
+  'chat.response.feedback',
   'operational_update.viewed',
   'venue.updated',
   'engagement_question.asked',
@@ -43,6 +49,7 @@ export const PUBLIC_ANALYTICS_EVENT_TYPES = [
   'place_card.viewed',
   'place_card.clicked',
   'directions.opened',
+  'visitor.action.clicked',
   'operational_update.viewed',
 ] as const satisfies readonly AnalyticsEventType[]
 

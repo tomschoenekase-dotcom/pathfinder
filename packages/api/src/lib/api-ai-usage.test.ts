@@ -52,6 +52,8 @@ describe('API AI usage recorder', () => {
         tenantId: 'tenant_1',
         venueId: 'venue_1',
         feature: 'venue-package-semantic-analysis',
+        capability: 'UNCLASSIFIED',
+        fallbackUsed: false,
         surface: 'venue-package-create-draft',
         provider: 'openai',
         model: 'text-embedding-3-small',

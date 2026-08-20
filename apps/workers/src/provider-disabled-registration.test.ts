@@ -9,7 +9,7 @@ describe('provider-disabled worker registration boundary', () => {
   it('returns through the connectivity-only runtime before constructing any queue', () => {
     const start = source.indexOf('export async function startWorkers()')
     const disabledBranch = source.indexOf('if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED)', start)
-    const disabledReturn = source.indexOf('return runtime', disabledBranch)
+    const disabledReturn = source.indexOf('return { ...runtime, shutdown }', disabledBranch)
     const firstConnection = source.indexOf('const connection = getBullMQConnection()', start)
     const firstQueue = source.indexOf('new Queue(', start)
     const firstWorker = source.indexOf('new Worker(', start)

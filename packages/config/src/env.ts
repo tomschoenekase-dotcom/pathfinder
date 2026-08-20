@@ -65,6 +65,10 @@ const rawEnvSchema = z
     // Controlled prerequisite for the hosted widget. It remains default-off
     // until the origin/key boundary and third-party staging proof exist.
     EMBED_PREVIEW_ENABLED: z.enum(['true', 'false']).optional(),
+    VOICE_MODE_ENABLED: z.enum(['true', 'false']).optional(),
+    OPENAI_REALTIME_PREMIUM_MODEL: z.string().min(1).max(100).optional(),
+    OPENAI_REALTIME_ECONOMY_MODEL: z.string().min(1).max(100).optional(),
+    OPENAI_REALTIME_TRANSCRIPTION_MODEL: z.string().min(1).max(100).optional(),
     // Server-only, bounded static policy for the staging framing kernel. Runtime
     // parsing applies the exact per-venue origin shape and fails closed.
     WIDGET_PREVIEW_ORIGINS_JSON: z.string().max(16_384).optional(),
@@ -117,6 +121,10 @@ const rawEnvSchema = z
     RESEND_API_KEY: z.string().optional(),
     RESEND_FROM_EMAIL: z.string().optional(),
     DASHBOARD_URL: z.string().optional(),
+    OPERATIONAL_ALERT_DELIVERY_ENABLED: z.enum(['true', 'false']).optional(),
+    OPERATIONAL_ALERT_EMAIL_TO: z.string().email().optional(),
+    OPERATIONAL_ALERT_MIN_SEVERITY: z.enum(['INFO', 'WARNING', 'ERROR', 'CRITICAL']).optional(),
+    OPERATIONAL_ALERT_DEV_SINK_ENABLED: z.enum(['true', 'false']).optional(),
   })
   .superRefine((values, ctx) => {
     if (values.RAILWAY_ENVIRONMENT === 'production' && !values.REDIS_URL) {
@@ -150,6 +158,9 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   AGENT_RUNNER_ENABLED: values.AGENT_RUNNER_ENABLED === 'true',
   AGENT_BRIDGE_HTTP_ENABLED: values.AGENT_BRIDGE_HTTP_ENABLED === 'true',
   EMBED_PREVIEW_ENABLED: values.EMBED_PREVIEW_ENABLED === 'true',
+  VOICE_MODE_ENABLED: values.VOICE_MODE_ENABLED === 'true',
+  OPERATIONAL_ALERT_DELIVERY_ENABLED: values.OPERATIONAL_ALERT_DELIVERY_ENABLED === 'true',
+  OPERATIONAL_ALERT_DEV_SINK_ENABLED: values.OPERATIONAL_ALERT_DEV_SINK_ENABLED === 'true',
 }))
 
 // During Next.js build (NEXT_PHASE=phase-production-build) env vars may not

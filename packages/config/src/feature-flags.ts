@@ -3,6 +3,10 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'EMBED_PREVIEW_ENABLED',
     defaultEnabled: false,
   },
+  voiceMode: {
+    environmentVariable: 'VOICE_MODE_ENABLED',
+    defaultEnabled: false,
+  },
   richerGuestComponents: {
     environmentVariable: 'RICHER_GUEST_COMPONENTS_ENABLED',
     defaultEnabled: false,

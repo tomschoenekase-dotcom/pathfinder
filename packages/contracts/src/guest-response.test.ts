@@ -1,10 +1,24 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  GuestPublicErrorCode,
   GuestResponseBlock,
   GuestStructuredResponse,
   legacyGuestResponseToBlocks,
 } from './guest-response'
+
+describe('GuestPublicErrorCode', () => {
+  it('exposes the complete stable public failure taxonomy', () => {
+    expect(GuestPublicErrorCode.options).toEqual([
+      'PROVIDER_UNAVAILABLE',
+      'RATE_LIMITED',
+      'OUTCOME_AMBIGUOUS',
+      'CONTENT_UNAVAILABLE',
+      'REJECTED',
+      'TRANSIENT_FAILURE',
+    ])
+  })
+})
 
 describe('GuestStructuredResponse', () => {
   it('accepts a versioned mix of browser-safe response blocks', () => {
@@ -37,6 +51,42 @@ describe('GuestStructuredResponse', () => {
       ).toBe(false)
     },
   )
+
+  it('accepts typed actions only when their validated target matches the action type', () => {
+    expect(
+      GuestResponseBlock.safeParse({
+        type: 'actions',
+        actions: [
+          {
+            type: 'START_DIRECTIONS',
+            label: 'Directions to the west entrance',
+            target: { kind: 'LOCATION_ID', locationId: 'west-entrance' },
+            analyticsKey: 'directions.west-entrance',
+          },
+          {
+            type: 'CALL',
+            label: 'Call the front desk',
+            target: { kind: 'PHONE', phone: '+13125550100' },
+            analyticsKey: 'call.front-desk',
+            confirmationRequired: true,
+          },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(
+      GuestResponseBlock.safeParse({
+        type: 'actions',
+        actions: [
+          {
+            type: 'CALL',
+            label: 'Unsafe mismatch',
+            target: { kind: 'URL', url: 'https://example.com' },
+            analyticsKey: 'call.bad',
+          },
+        ],
+      }).success,
+    ).toBe(false)
+  })
 
   it('rejects unknown blocks so clients do not guess at future payloads', () => {
     expect(GuestResponseBlock.safeParse({ type: 'html', html: '<b>unsafe</b>' }).success).toBe(

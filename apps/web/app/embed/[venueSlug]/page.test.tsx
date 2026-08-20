@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   createContext: vi.fn(async () => ({})),
   enabled: vi.fn(),
   getBySlug: vi.fn(),
+  availability: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NEXT_NOT_FOUND')
   }),
@@ -13,7 +14,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@pathfinder/api', () => ({
   appRouter: {
-    createCaller: () => ({ venue: { getBySlug: mocks.getBySlug } }),
+    createCaller: () => ({
+      venue: { getBySlug: mocks.getBySlug },
+      widget: { availability: mocks.availability },
+    }),
   },
   createTRPCContext: mocks.createContext,
 }))
@@ -53,6 +57,7 @@ describe('controlled embed preview', () => {
     cleanup()
     vi.clearAllMocks()
     mocks.enabled.mockReturnValue(true)
+    mocks.availability.mockResolvedValue({ enabled: true })
     vi.stubGlobal('React', React)
   })
 

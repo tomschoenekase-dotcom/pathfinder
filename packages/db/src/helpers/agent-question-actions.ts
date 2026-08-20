@@ -6,6 +6,7 @@ import { writeAuditLogStrict } from './audit'
 export type AgentQuestionClient = Pick<typeof db, '$transaction'>
 
 const id = z.string().trim().min(1).max(191)
+const metadataValue = z.union([z.string().max(2000), z.number().finite(), z.boolean(), z.null()])
 const questionFields = z
   .object({
     operationId: z.string().uuid(),
@@ -15,10 +16,57 @@ const questionFields = z
     agentRunId: id.optional(),
     question: z.string().trim().min(1).max(2000),
     context: z.string().trim().min(1).max(2000).optional(),
+    questionType: z
+      .enum([
+        'YES_NO',
+        'MULTIPLE_CHOICE',
+        'MULTI_SELECT',
+        'SHORT_TEXT',
+        'LONG_TEXT',
+        'APPROVAL_REJECT',
+        'DATE_TIME',
+        'STRUCTURED_OBJECT',
+      ])
+      .default('SHORT_TEXT'),
+    category: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u)
+      .default('general'),
+    urgency: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).default('NORMAL'),
     choices: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
+    dueAt: z.date().optional(),
+    evidence: z
+      .array(
+        z
+          .object({
+            label: z.string().trim().min(1).max(200),
+            reference: z.string().trim().min(1).max(500),
+            summary: z.string().trim().min(1).max(1000).optional(),
+          })
+          .strict(),
+      )
+      .max(20)
+      .default([]),
+    proposedAnswer: z.record(z.string().max(100), metadataValue).optional(),
+    callbackMetadata: z.record(z.string().max(100), metadataValue).optional(),
     blocking: z.boolean().default(true),
   })
   .strict()
+  .superRefine((value, ctx) => {
+    if (
+      (value.questionType === 'MULTIPLE_CHOICE' || value.questionType === 'MULTI_SELECT') &&
+      value.choices.length < 2
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['choices'],
+        message: 'Choice questions require at least two choices.',
+      })
+    }
+  })
 
 const answerFields = z
   .object({
@@ -60,6 +108,13 @@ function sameQuestion(
     context: string | null
     choices: string[]
     blocking: boolean
+    questionType: string
+    category: string
+    urgency: string
+    dueAt: Date | null
+    evidence: unknown
+    proposedAnswer: unknown
+    callbackMetadata: unknown
   },
   input: z.output<typeof questionFields>,
 ) {
@@ -70,6 +125,13 @@ function sameQuestion(
     existing.question === input.question &&
     existing.context === (input.context ?? null) &&
     existing.blocking === input.blocking &&
+    existing.questionType === input.questionType &&
+    existing.category === input.category &&
+    existing.urgency === input.urgency &&
+    existing.dueAt?.toISOString() === input.dueAt?.toISOString() &&
+    JSON.stringify(existing.evidence) === JSON.stringify(input.evidence) &&
+    JSON.stringify(existing.proposedAnswer) === JSON.stringify(input.proposedAnswer ?? null) &&
+    JSON.stringify(existing.callbackMetadata) === JSON.stringify(input.callbackMetadata ?? null) &&
     JSON.stringify(existing.choices) === JSON.stringify(input.choices)
   )
 }
@@ -92,6 +154,13 @@ export async function askAgentQuestionAction(
         context: true,
         choices: true,
         blocking: true,
+        questionType: true,
+        category: true,
+        urgency: true,
+        dueAt: true,
+        evidence: true,
+        proposedAnswer: true,
+        callbackMetadata: true,
         status: true,
         answer: true,
         updatedAt: true,
@@ -144,6 +213,13 @@ export async function askAgentQuestionAction(
         question: input.question,
         context: input.context ?? null,
         choices: input.choices,
+        questionType: input.questionType,
+        category: input.category,
+        urgency: input.urgency,
+        dueAt: input.dueAt ?? null,
+        evidence: input.evidence,
+        ...(input.proposedAnswer ? { proposedAnswer: input.proposedAnswer } : {}),
+        ...(input.callbackMetadata ? { callbackMetadata: input.callbackMetadata } : {}),
         blocking: input.blocking,
       },
       select: {
@@ -155,6 +231,13 @@ export async function askAgentQuestionAction(
         context: true,
         choices: true,
         blocking: true,
+        questionType: true,
+        category: true,
+        urgency: true,
+        dueAt: true,
+        evidence: true,
+        proposedAnswer: true,
+        callbackMetadata: true,
         status: true,
         answer: true,
         updatedAt: true,

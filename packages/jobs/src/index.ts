@@ -30,6 +30,10 @@ export {
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
+  OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  OPERATIONAL_EVENT_DELIVERY_PROCESS_JOB,
+  OPERATIONAL_EVENT_DELIVERY_SCHEDULER_JOB,
+  OPERATIONAL_EVENT_DELIVERY_RETRY_BACKOFF,
   WEEKLY_DIGEST_PROCESS_JOB,
   WEEKLY_DIGEST_QUEUE,
   WEEKLY_DIGEST_RETRY_BACKOFF,
@@ -81,6 +85,7 @@ export {
   enqueueMediaIngestion,
   enqueueEvaluationRun,
   enqueueAgentRun,
+  inspectQueueOperationalSnapshot,
 } from './enqueue'
 export type {
   AgentRunJobPayload,
@@ -92,6 +97,7 @@ export type {
   EmbedPlaceJobPayload,
   GenerationDispatchKickJobPayload,
   SendWelcomeEmailJobPayload,
+  OperationalEventDeliveryJobPayload,
   WeeklyDigestJobPayload,
   WeeklyReportJobPayload,
   WeeklyReportRecoveryJobPayload,

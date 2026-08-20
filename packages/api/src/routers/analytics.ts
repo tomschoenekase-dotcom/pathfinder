@@ -83,6 +83,35 @@ const analyticsTrackEventInput = z.discriminatedUnion('eventType', [
       metadata: z.object({ operationalUpdateId: z.string().cuid() }).strict(),
     })
     .strict(),
+  z
+    .object({
+      ...publicEventIdentity,
+      eventType: z.literal('visitor.action.clicked'),
+      metadata: z
+        .object({
+          actionType: z.enum([
+            'NAVIGATE',
+            'SHOW_ON_MAP',
+            'CALL',
+            'OPEN_WEBSITE',
+            'BUY_TICKETS',
+            'LEARN_MORE',
+            'ASK_STAFF',
+            'OPEN_EXHIBIT',
+            'START_DIRECTIONS',
+            'VIEW_ACCESSIBILITY_INFO',
+          ]),
+          analyticsKey: z
+            .string()
+            .min(1)
+            .max(100)
+            .regex(/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u),
+          targetKind: z.enum(['URL', 'PHONE', 'LOCATION_ID', 'PLACE_ID', 'STAFF']),
+          targetId: z.string().min(1).max(191).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
 ])
 
 const PUBLIC_ANALYTICS_SESSION_LIMIT_PER_MINUTE = 120
@@ -277,7 +306,9 @@ export const analyticsRouter = router({
     }
 
     const metadata =
-      input.eventType === 'session.ended' || input.eventType === 'operational_update.viewed'
+      input.eventType === 'session.ended' ||
+      input.eventType === 'operational_update.viewed' ||
+      input.eventType === 'visitor.action.clicked'
         ? input.metadata
         : undefined
 

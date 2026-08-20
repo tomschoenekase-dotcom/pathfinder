@@ -11,6 +11,7 @@ export type AiEmbeddingModelKey =
 export type AiEmbeddingModelSpec = {
   provider: 'openai'
   model: string
+  costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   dimensions: number
   timeoutMs: number
   maxAttempts: number
@@ -23,6 +24,7 @@ export type AiEmbeddingModelSpec = {
 const TEXT_EMBEDDING_3_SMALL = {
   provider: 'openai',
   model: 'text-embedding-3-small',
+  costTier: 'ECONOMY',
   dimensions: 1_536,
   timeoutMs: 10_000,
   pricingVersion: 'openai-public-2026-08-07',

@@ -19,6 +19,7 @@ const input = z
     blockedAgentsCursor: cursor.optional(),
     completedAgentsCursor: cursor.optional(),
     outcomesCursor: cursor.optional(),
+    eventsCursor: cursor.optional(),
   })
   .default({ limit: 10 })
 
@@ -73,6 +74,7 @@ export const adminAttentionConsoleRouter = router({
         blockedAgents,
         completedAgents,
         outcomes,
+        events,
       ] = await Promise.all([
         db.jobRecord.findMany({
           where: { status: 'FAILED', ...after(query.jobsCursor) },
@@ -187,7 +189,13 @@ export const adminAttentionConsoleRouter = router({
             agentRunId: true,
             question: true,
             context: true,
+            questionType: true,
+            category: true,
+            urgency: true,
             choices: true,
+            dueAt: true,
+            evidence: true,
+            proposedAnswer: true,
             blocking: true,
             createdAt: true,
             agentIdentity: { select: { name: true } },
@@ -268,6 +276,32 @@ export const adminAttentionConsoleRouter = router({
             agentIdentity: { select: { name: true } },
           },
         }),
+        db.operationalEvent.findMany({
+          where: {
+            state: { in: ['OPEN', 'ACKNOWLEDGED'] },
+            ...after(query.eventsCursor),
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: {
+            id: true,
+            tenantId: true,
+            venueId: true,
+            eventType: true,
+            sourceSubsystem: true,
+            severity: true,
+            title: true,
+            summary: true,
+            actionRequired: true,
+            linkedObjectType: true,
+            linkedObjectId: true,
+            recommendedAction: true,
+            state: true,
+            occurrenceCount: true,
+            lastOccurredAt: true,
+            createdAt: true,
+          },
+        }),
       ])
 
       return {
@@ -297,7 +331,46 @@ export const adminAttentionConsoleRouter = router({
         blockedAgents: page(blockedAgents, query.limit),
         completedAgents: page(completedAgents, query.limit),
         outcomes: page(outcomes, query.limit),
+        events: page(events, query.limit),
       }
     }),
   ),
+
+  acknowledgeOperationalEvent: adminProcedure
+    .input(z.object({ eventId: z.string().uuid() }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        const now = new Date()
+        const updated = await db.operationalEvent.updateMany({
+          where: { id: input.eventId, state: 'OPEN' },
+          data: {
+            state: 'ACKNOWLEDGED',
+            readAt: now,
+            readBy: ctx.session.userId,
+            acknowledgedAt: now,
+            acknowledgedBy: ctx.session.userId,
+          },
+        })
+        return { acknowledged: updated.count === 1 }
+      }),
+    ),
+
+  resolveOperationalEvent: adminProcedure
+    .input(z.object({ eventId: z.string().uuid() }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        const now = new Date()
+        const updated = await db.operationalEvent.updateMany({
+          where: { id: input.eventId, state: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+          data: {
+            state: 'RESOLVED',
+            readAt: now,
+            readBy: ctx.session.userId,
+            resolvedAt: now,
+            resolvedBy: ctx.session.userId,
+          },
+        })
+        return { resolved: updated.count === 1 }
+      }),
+    ),
 })

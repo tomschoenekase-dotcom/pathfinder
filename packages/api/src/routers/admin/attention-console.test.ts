@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   agents: vi.fn(),
   questions: vi.fn(),
   outcomes: vi.fn(),
+  events: vi.fn(),
+  updateEvent: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -21,6 +23,7 @@ vi.mock('@pathfinder/db', () => ({
     agentRun: { findMany: mocks.agents },
     agentQuestion: { findMany: mocks.questions },
     agentOutcomeObservation: { findMany: mocks.outcomes },
+    operationalEvent: { findMany: mocks.events, updateMany: mocks.updateEvent },
   },
 }))
 
@@ -53,6 +56,8 @@ describe('admin attention console', () => {
     mocks.agents.mockResolvedValue([])
     mocks.questions.mockResolvedValue([])
     mocks.outcomes.mockResolvedValue([])
+    mocks.events.mockResolvedValue([])
+    mocks.updateEvent.mockResolvedValue({ count: 1 })
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
@@ -73,6 +78,7 @@ describe('admin attention console', () => {
       mocks.agents,
       mocks.questions,
       mocks.outcomes,
+      mocks.events,
     ]) {
       expect(query).toHaveBeenCalledWith(
         expect.objectContaining({ take: 8, select: expect.any(Object) }),
@@ -86,6 +92,7 @@ describe('admin attention console', () => {
       mocks.agents.mock.calls[0]![0],
       mocks.questions.mock.calls[0]![0],
       mocks.outcomes.mock.calls[0]![0],
+      mocks.events.mock.calls[0]![0],
     ])
     for (const forbidden of [
       'payload',
@@ -156,5 +163,32 @@ describe('admin attention console', () => {
     expect(result.evaluations.items[0]).toMatchObject({ id: 'eval_2', expiredLease: true })
     expect(result.evaluations.nextCursor).toEqual({ createdAt: old.toISOString(), id: 'eval_2' })
     expect(result.approvals.items[0]).toMatchObject({ id: 'approval_1', expired: true })
+  })
+
+  it('acknowledges and resolves only active event states with the operator identity', async () => {
+    const caller = testRouter.createCaller(context())
+    await expect(
+      caller.admin.acknowledgeOperationalEvent({
+        eventId: '11111111-1111-4111-8111-111111111111',
+      }),
+    ).resolves.toEqual({ acknowledged: true })
+    expect(mocks.updateEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ state: 'OPEN' }),
+        data: expect.objectContaining({ state: 'ACKNOWLEDGED', acknowledgedBy: 'operator_1' }),
+      }),
+    )
+
+    await expect(
+      caller.admin.resolveOperationalEvent({
+        eventId: '11111111-1111-4111-8111-111111111111',
+      }),
+    ).resolves.toEqual({ resolved: true })
+    expect(mocks.updateEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ state: { in: ['OPEN', 'ACKNOWLEDGED'] } }),
+        data: expect.objectContaining({ state: 'RESOLVED', resolvedBy: 'operator_1' }),
+      }),
+    )
   })
 })

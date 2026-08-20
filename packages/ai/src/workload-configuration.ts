@@ -18,6 +18,7 @@ export type AiCentralModel = {
   key: AiWorkloadId
   provider: AiProviderId
   model: string
+  costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   kind: AiModelKind
   pricingVersion: string
   pricingUsdPerMillionTokens: Readonly<{
@@ -46,6 +47,7 @@ const textModels = (
         key,
         provider: spec.provider,
         model: spec.model,
+        costTier: spec.costTier,
         kind: 'TEXT',
         pricingVersion: spec.pricingVersion,
         pricingUsdPerMillionTokens: spec.pricingUsdPerMillionTokens,
@@ -73,6 +75,7 @@ const embeddingModels = (
         key,
         provider: spec.provider,
         model: spec.model,
+        costTier: spec.costTier,
         kind: 'EMBEDDING',
         pricingVersion: spec.pricingVersion,
         pricingUsdPerMillionTokens: { input: spec.inputUsdPerMillionTokens },

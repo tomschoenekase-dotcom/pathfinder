@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "golden-venue-riverside-aquarium-v1",
+  "synthetic": true,
+  "tenantId": "demo-tenant",
+  "venueId": "demo-venue-riverside-aquarium",
+  "venueSlug": "riverside-aquarium",
+  "seedCommand": "pnpm --filter @pathfinder/db seed",
+  "requiredPhases": [
+    "client",
+    "venue",
+    "onboarding",
+    "upload-intake",
+    "review",
+    "content-package-eval",
+    "release",
+    "guest-retrieval-chat",
+    "feedback",
+    "report",
+    "support",
+    "update",
+    "export-offboarding"
+  ],
+  "expectedQuestions": [
+    { "question": "When is the shark feeding?", "expectedFacts": ["3:00 PM", "Shark Tank"] },
+    {
+      "question": "Where are accessible family restrooms?",
+      "expectedFacts": ["North Shore", "South Current"]
+    },
+    { "question": "What is a good family highlight?", "expectedFacts": ["Penguin Cove"] }
+  ],
+  "failureInjections": [
+    "provider-outage",
+    "rate-limit",
+    "bad-upload",
+    "duplicate-request",
+    "failed-worker",
+    "report-failure",
+    "ambiguous-provider-outcome"
+  ]
+}

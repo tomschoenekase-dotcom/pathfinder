@@ -47,10 +47,16 @@ import { adminVenueAvailabilityRouter } from './venue-availability'
 import { adminVenuePackageOperationsRouter } from './venue-package-operations'
 import { adminSecondLayerRouter } from './second-layer'
 import { adminTochiRolloutRouter } from './tochi-rollout'
+import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
+import { adminProductEntitlementsRouter } from './product-entitlements'
+import { adminOperationsReadinessRouter } from './operations-readiness'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
   adminAttentionConsoleRouter,
+  adminKnowledgeProposalsRouter,
+  adminProductEntitlementsRouter,
+  adminOperationsReadinessRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,

@@ -43,12 +43,45 @@ vi.mock('@pathfinder/config', () => ({
 
 import {
   assertFinalEvaluationProviderAdmission,
+  detectEvaluationRegression,
   executeFrozenEvaluationRun,
   evaluationPromptCostCeiling,
   frozenContent,
   processEvaluationRunJob,
   type EvaluationRunnerDependencies,
 } from './evaluation-run'
+
+describe('evaluation regression detection', () => {
+  it('flags a material pass-rate drop and ignores noise below the threshold', () => {
+    expect(
+      detectEvaluationRegression({
+        currentPassed: 8,
+        currentScored: 10,
+        previousPassed: 10,
+        previousScored: 10,
+      }),
+    ).toMatchObject({ currentRate: 0.8, previousRate: 1, drop: 0.2 })
+    expect(
+      detectEvaluationRegression({
+        currentPassed: 96,
+        currentScored: 100,
+        previousPassed: 98,
+        previousScored: 100,
+      }),
+    ).toBeNull()
+  })
+
+  it('does not infer quality from runs without scored cases', () => {
+    expect(
+      detectEvaluationRegression({
+        currentPassed: 0,
+        currentScored: 0,
+        previousPassed: 4,
+        previousScored: 5,
+      }),
+    ).toBeNull()
+  })
+})
 
 const id = '11111111-1111-4111-8111-111111111111'
 const identityHash = 'a'.repeat(64)

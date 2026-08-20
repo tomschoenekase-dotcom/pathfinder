@@ -65,6 +65,28 @@ export {
   sumAiCostDecimals,
 } from './cost-decimal'
 export {
+  estimateRealtimeVoiceCostUsd,
+  openAiRealtimeVoiceAdapter,
+  REALTIME_VOICE_PRICING_VERSION,
+  RealtimeVoiceTier,
+  resolveRealtimeVoiceRoute,
+  type RealtimeVoiceAuthorization,
+  type RealtimeVoiceProviderAdapter,
+  type RealtimeVoiceRoute,
+  type RealtimeVoiceUsage,
+} from './realtime-voice'
+export { generateTextForCapability, type RoutedAiTextResult } from './routed-generation'
+export {
+  AI_CAPABILITIES,
+  AI_WORKLOAD_CAPABILITIES,
+  AiCapability,
+  AiRoutingError,
+  routeAiCapability,
+  type AiRouteCandidate,
+  type AiRoutePlan,
+  type AiRoutingErrorCode,
+} from './capability-routing'
+export {
   AI_CENTRAL_MODEL_REGISTRY,
   AI_CONFIGURATION_VERSION,
   AI_PROVIDER_REGISTRY,

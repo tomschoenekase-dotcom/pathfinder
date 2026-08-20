@@ -7,11 +7,15 @@ const mocks = vi.hoisted(() => ({
   }),
   enabled: vi.fn(),
   getBySlug: vi.fn(),
+  availability: vi.fn(),
 }))
 
 vi.mock('@pathfinder/api', () => ({
   appRouter: {
-    createCaller: () => ({ venue: { getBySlug: mocks.getBySlug } }),
+    createCaller: () => ({
+      venue: { getBySlug: mocks.getBySlug },
+      widget: { availability: mocks.availability },
+    }),
   },
   createTRPCContext: mocks.createContext,
 }))
@@ -36,6 +40,7 @@ describe('widget fail-invisible readiness probe', () => {
     vi.clearAllMocks()
     mocks.enabled.mockReturnValue(true)
     mocks.getBySlug.mockResolvedValue({ id: 'venue-1' })
+    mocks.availability.mockResolvedValue({ enabled: true })
   })
 
   it('returns only a non-cacheable public readiness bit for an available venue', async () => {
@@ -63,7 +68,7 @@ describe('widget fail-invisible readiness probe', () => {
       'x-pathfinder-revision',
       'x-pathfinder-widget-ready',
     ])
-    expect(mocks.getBySlug).toHaveBeenCalledWith({ slug: 'museum' })
+    expect(mocks.availability).toHaveBeenCalledWith({ venueSlug: 'museum' })
     const contextInput = mocks.createContext.mock.calls[0]?.[0] as { req: Request }
     const contextRequest = contextInput.req
     expect(contextRequest.headers.get('origin')).toBeNull()
@@ -96,7 +101,7 @@ describe('widget fail-invisible readiness probe', () => {
     [{ code: 'SERVICE_UNAVAILABLE' }, 503],
     [new Error('unexpected internal failure'), 503],
   ] as const)('returns a bodyless failure for %o', async (error, status) => {
-    mocks.getBySlug.mockRejectedValue(error)
+    mocks.availability.mockRejectedValue(error)
 
     const response = await request('missing')
 

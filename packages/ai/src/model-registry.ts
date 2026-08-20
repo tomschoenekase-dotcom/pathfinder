@@ -14,6 +14,7 @@ export type AiModelKey = (typeof AI_MODEL_KEYS)[keyof typeof AI_MODEL_KEYS]
 export type AiModelSpec = {
   provider: 'anthropic'
   model: string
+  costTier: 'ECONOMY' | 'STANDARD' | 'PREMIUM'
   maxOutputTokens: number
   timeoutMs: number
   maxAttempts: number
@@ -39,6 +40,7 @@ function haikuSpec(maxOutputTokens: number, timeoutMs = 10_000): AiModelSpec {
   return {
     provider: 'anthropic',
     model: 'claude-haiku-4-5-20251001',
+    costTier: 'ECONOMY',
     maxOutputTokens,
     timeoutMs,
     maxAttempts: 2,
@@ -55,6 +57,7 @@ function sonnetSpec(maxOutputTokens: number): AiModelSpec {
   return {
     provider: 'anthropic',
     model: 'claude-sonnet-4-6',
+    costTier: 'PREMIUM',
     maxOutputTokens,
     timeoutMs: 30_000,
     // BullMQ owns retries for fail-closed background jobs. Avoid multiplying

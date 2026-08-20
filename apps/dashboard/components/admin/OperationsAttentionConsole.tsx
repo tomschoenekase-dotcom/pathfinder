@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
+import { OperationalEventActions } from './OperationalEventActions'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
 type Cursor = { createdAt: string; id: string }
@@ -44,7 +45,8 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
   return (
     <div className="space-y-6" aria-label="Operational attention queues">
       <p className="text-xs text-slate-500">
-        Snapshot generated {date(data.generatedAt)}. This console is read-only.
+        Snapshot generated {date(data.generatedAt)}. Review linked evidence before acknowledging or
+        resolving an alert.
       </p>
 
       <section
@@ -91,6 +93,82 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
       </section>
 
       <section
+        className="rounded-2xl border border-orange-200 bg-white p-5 shadow-sm"
+        aria-labelledby="operational-events-heading"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="operational-events-heading" className="text-xl font-semibold text-slate-950">
+              Alerts and recommendations
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Grouped AI, knowledge, cost, quality, and system events that merit operator attention.
+            </p>
+          </div>
+          <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-900">
+            {countLabel(data.events)} open
+          </span>
+        </div>
+        {data.events.items.length === 0 ? (
+          <div className="mt-4">
+            <Empty>No operational alerts currently need attention.</Empty>
+          </div>
+        ) : (
+          <ul className="mt-4 grid gap-3 xl:grid-cols-2">
+            {data.events.items.map((event) => {
+              const scopeHref = event.venueId
+                ? event.eventType.startsWith('evaluation.')
+                  ? `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`
+                  : event.eventType.startsWith('knowledge.proposal.')
+                    ? `/admin/clients/${event.tenantId}/venues/${event.venueId}/knowledge-proposals`
+                    : `/admin/clients/${event.tenantId}/venues/${event.venueId}/chatlogs`
+                : `/admin/clients/${event.tenantId}`
+              return (
+                <li
+                  key={event.id}
+                  className="rounded-xl border border-orange-100 bg-orange-50/30 p-4"
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
+                    <span
+                      className={
+                        event.severity === 'CRITICAL' || event.severity === 'ERROR'
+                          ? 'text-rose-700'
+                          : 'text-amber-800'
+                      }
+                    >
+                      {event.severity}
+                    </span>
+                    <span>·</span>
+                    <span>{event.sourceSubsystem}</span>
+                    <span>·</span>
+                    <span>{date(event.lastOccurredAt)}</span>
+                    {event.occurrenceCount > 1 ? (
+                      <span>· grouped ×{event.occurrenceCount}</span>
+                    ) : null}
+                  </div>
+                  <h3 className="mt-2 font-semibold text-slate-950">{event.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{event.summary}</p>
+                  {event.recommendedAction ? (
+                    <p className="mt-2 text-sm font-medium text-slate-800">
+                      Next: {event.recommendedAction}
+                    </p>
+                  ) : null}
+                  <Link
+                    href={scopeHref}
+                    className="mt-3 inline-block text-sm font-semibold text-sky-700"
+                  >
+                    Open related workspace
+                  </Link>
+                  <OperationalEventActions eventId={event.id} state={event.state} />
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        <More param="eventsCursor" cursor={data.events.nextCursor} label="Older alerts" />
+      </section>
+
+      <section
         className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm"
         aria-labelledby="needs-you-heading"
       >
@@ -124,12 +202,26 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   <span>·</span>
                   <span>{question.blocking ? 'Blocking' : 'Non-blocking'}</span>
                   <span>·</span>
+                  <span>{question.urgency.toLowerCase()} priority</span>
+                  <span>·</span>
+                  <span>{question.questionType.replaceAll('_', ' ').toLowerCase()}</span>
+                  <span>·</span>
                   <span>{date(question.createdAt)}</span>
                 </div>
                 <h3 className="mt-2 font-semibold text-slate-950">{question.question}</h3>
                 {question.context ? (
                   <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">
                     {question.context}
+                  </p>
+                ) : null}
+                {question.dueAt ? (
+                  <p className="mt-2 text-xs font-semibold text-amber-800">
+                    Due {date(question.dueAt)}
+                  </p>
+                ) : null}
+                {question.choices.length ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Options: {question.choices.join(' · ')}
                   </p>
                 ) : null}
                 <Link

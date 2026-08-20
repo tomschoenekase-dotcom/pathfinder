@@ -37,6 +37,10 @@ export class AiConfigurationActionError extends Error {
 
 export type AiConfigurationValues = AiConfigurationOverride['values']
 export type AiConfigurationActionClient = Pick<typeof db, '$transaction'>
+export type AiRuntimeConfigurationClient = Pick<
+  typeof db,
+  'aiWorkloadConfigurationOverride' | 'aiScopedWorkloadConfigurationOverride'
+>
 
 type PersistedOverride = {
   id: string
@@ -340,6 +344,88 @@ function conflict(): never {
     'CONFLICT',
     'AI configuration changed after this page loaded; refresh and try again',
   )
+}
+
+/** Reads the effective platform -> tenant -> venue runtime configuration. */
+export async function resolveRuntimeAiWorkloadConfiguration(
+  input: { workloadId: AiWorkloadId; tenantId?: string; venueId?: string },
+  client: AiRuntimeConfigurationClient = db,
+) {
+  if (input.venueId && !input.tenantId) {
+    throw new AiConfigurationActionError(
+      'INVALID_INPUT',
+      'Venue AI configuration resolution requires its tenant',
+    )
+  }
+  // Preserve the built-in registry during rolling deploys and in narrow test
+  // doubles that predate the configuration delegates. An unavailable override
+  // store must not invent or broaden a route.
+  const available = client as Partial<AiRuntimeConfigurationClient>
+  if (
+    !available.aiWorkloadConfigurationOverride?.findFirst ||
+    !available.aiScopedWorkloadConfigurationOverride?.findFirst
+  ) {
+    return resolveAiWorkloadConfiguration({
+      workloadId: input.workloadId,
+      ...(input.tenantId ? { clientId: input.tenantId } : {}),
+      ...(input.venueId ? { venueId: input.venueId } : {}),
+    })
+  }
+  const overrides: AiConfigurationOverride[] = []
+  const workload = await client.aiWorkloadConfigurationOverride.findFirst({
+    where: { workloadId: input.workloadId },
+    select,
+  })
+  if (workload) {
+    const parsed = configurationOverrideFromRow(workload, {
+      level: 'WORKLOAD',
+      workloadId: input.workloadId,
+    })
+    if (parsed) overrides.push(parsed)
+  }
+  if (input.tenantId) {
+    const clientOverride = await client.aiScopedWorkloadConfigurationOverride.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        venueScopeKey: '__client__',
+        workloadId: input.workloadId,
+      },
+      select,
+    })
+    if (clientOverride) {
+      const parsed = configurationOverrideFromRow(clientOverride, {
+        level: 'CLIENT',
+        tenantId: input.tenantId,
+        workloadId: input.workloadId,
+      })
+      if (parsed) overrides.push(parsed)
+    }
+  }
+  if (input.tenantId && input.venueId) {
+    const venueOverride = await client.aiScopedWorkloadConfigurationOverride.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        venueScopeKey: input.venueId,
+        workloadId: input.workloadId,
+      },
+      select,
+    })
+    if (venueOverride) {
+      const parsed = configurationOverrideFromRow(venueOverride, {
+        level: 'VENUE',
+        tenantId: input.tenantId,
+        venueId: input.venueId,
+        workloadId: input.workloadId,
+      })
+      if (parsed) overrides.push(parsed)
+    }
+  }
+  return resolveAiWorkloadConfiguration({
+    workloadId: input.workloadId,
+    ...(input.tenantId ? { clientId: input.tenantId } : {}),
+    ...(input.venueId ? { venueId: input.venueId } : {}),
+    overrides,
+  })
 }
 
 export async function saveAiWorkloadConfigurationOverrideAction(

@@ -1,10 +1,8 @@
-import { TRPCError } from '@trpc/server'
-
 import { GLOBAL_AI_UNAVAILABLE_MESSAGE } from '@pathfinder/config/incident-control'
 import { logger } from '@pathfinder/config/logger'
 import { assertGlobalAiAvailable } from '@pathfinder/db'
 
-import { t } from '../core'
+import { publicTRPCError, t } from '../core'
 
 export const requireGlobalAi = t.middleware(async ({ ctx, next }) => {
   try {
@@ -17,9 +15,10 @@ export const requireGlobalAi = t.middleware(async ({ ctx, next }) => {
           ? 'control-denied'
           : 'control-unavailable',
     })
-    throw new TRPCError({
+    throw publicTRPCError({
       code: 'SERVICE_UNAVAILABLE',
       message: GLOBAL_AI_UNAVAILABLE_MESSAGE,
+      publicCode: 'PROVIDER_UNAVAILABLE',
     })
   }
 

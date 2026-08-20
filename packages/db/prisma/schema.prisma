@@ -86,6 +86,7 @@ model Tenant {
   updatedAt                      DateTime                                  @updatedAt @map("updated_at")
   memberships                    TenantMembership[]
   featureFlags                   TenantFeatureFlag[]
+  entitlementOverrides          ProductEntitlementOverride[]
   venues                         Venue[]
   operationalUpdates             OperationalUpdate[]
   analyticsEvents                AnalyticsEvent[]
@@ -104,6 +105,14 @@ model Tenant {
   aiUsageDailyRollups            AiUsageDailyRollup[]
   aiCostBudgets                  AiCostBudget[]
   aiCostReservations             AiCostReservation[]
+  conversationInsights           ConversationInsight[]
+  operationalEvents              OperationalEvent[]
+  operationalEventDeliveries     OperationalEventDelivery[]
+  knowledgeChangeProposals       KnowledgeChangeProposal[]
+  messageFeedback               MessageFeedback[]
+  venueFloors                    VenueFloor[]
+  venueLocations                 VenueLocation[]
+  venueLocationConnections       VenueLocationConnection[]
   embeddingWorkClaims            EmbeddingWorkClaim[]
   embeddingDispatches            EmbeddingDispatch[]
   venueContentImportReceipts     VenueContentImportReceipt[]
@@ -171,6 +180,8 @@ model Tenant {
   clientAssistantThreads         ClientAssistantThread[]
   clientAssistantTurns           ClientAssistantTurn[]
   clientAssistantSupportHandoffs ClientAssistantSupportHandoff[]
+  voiceSessions                  VoiceSession[]
+  voiceTranscriptSegments       VoiceTranscriptSegment[]
 
   @@map("tenants")
 }
@@ -235,6 +246,60 @@ model TenantFeatureFlag {
   @@unique([tenantId, flagKey])
   @@index([tenantId])
   @@map("tenant_feature_flags")
+}
+
+/// Platform-owned plan-to-capability assignment. Billing may select planTier,
+/// but it does not own or resolve product authorization.
+model ProductPlanCapability {
+  id         String   @id @default(cuid())
+  planTier   String   @map("plan_tier") @db.VarChar(64)
+  capability String   @db.VarChar(100)
+  enabled    Boolean  @default(false)
+  settings   Json     @default("{}")
+  createdBy  String   @map("created_by") @db.VarChar(191)
+  updatedBy  String   @map("updated_by") @db.VarChar(191)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([planTier, capability])
+  @@index([capability, enabled])
+  @@map("product_plan_capabilities")
+}
+
+enum ProductEntitlementEffect {
+  GRANT
+  DENY
+}
+
+enum ProductEntitlementOverrideKind {
+  EXPLICIT
+  TRIAL
+  PROMOTION
+  ADMIN
+}
+
+/// Time-bounded tenant or venue override. Rows are append-only authorization
+/// evidence; the resolver selects the newest active venue row, then tenant row.
+model ProductEntitlementOverride {
+  id         String                         @id @default(cuid())
+  tenantId   String                         @map("tenant_id")
+  venueId    String?                        @map("venue_id")
+  capability String                         @db.VarChar(100)
+  effect     ProductEntitlementEffect
+  kind       ProductEntitlementOverrideKind
+  startsAt   DateTime                       @default(now()) @map("starts_at")
+  endsAt     DateTime?                      @map("ends_at")
+  settings   Json                           @default("{}")
+  setBy      String                         @map("set_by") @db.VarChar(191)
+  reason     String                         @db.VarChar(500)
+  createdAt  DateTime                       @default(now()) @map("created_at")
+  tenant     Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue      Venue?                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, venueId, capability, startsAt, createdAt])
+  @@index([tenantId, capability, startsAt, createdAt])
+  @@map("product_entitlement_overrides")
 }
 
 enum VenueBotPresentationMode {
@@ -592,6 +657,13 @@ model Venue {
   aiUsageEvents                       AiUsageEvent[]
   aiUsageDailyRollups                 AiUsageDailyRollup[]
   aiCostReservations                  AiCostReservation[]
+  conversationInsights                ConversationInsight[]
+  operationalEvents                   OperationalEvent[]
+  knowledgeChangeProposals            KnowledgeChangeProposal[]
+  messageFeedback                     MessageFeedback[]
+  floors                              VenueFloor[]
+  structuredLocations                 VenueLocation[]
+  locationConnections                 VenueLocationConnection[]
   embeddingWorkClaims                 EmbeddingWorkClaim[]
   embeddingDispatches                 EmbeddingDispatch[]
   contentImportReceipts               VenueContentImportReceipt[]
@@ -651,6 +723,9 @@ model Venue {
   clientAssistantThreads              ClientAssistantThread[]
   clientAssistantTurns                ClientAssistantTurn[]
   clientAssistantSupportHandoffs      ClientAssistantSupportHandoff[]
+  entitlementOverrides                ProductEntitlementOverride[]
+  voiceSessions                       VoiceSession[]
+  voiceTranscriptSegments             VoiceTranscriptSegment[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -728,7 +803,10 @@ model VenueKnowledgeEntry {
   updatedAt        DateTime      @updatedAt @map("updated_at")
   venue            Venue         @relation(fields: [venueId], references: [id], onDelete: Restrict)
   sourcePackage    VenuePackage? @relation(fields: [sourcePackageId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  targetedByProposals KnowledgeChangeProposal[] @relation("KnowledgeProposalTarget")
+  publishedFromProposals KnowledgeChangeProposal[] @relation("KnowledgeProposalPublishedEntry")
 
+  @@unique([id, tenantId, venueId])
   @@index([tenantId])
   @@index([venueId])
   @@index([tenantId, sourcePackageId])
@@ -1615,6 +1693,10 @@ model VisitorSession {
   adminNotes                      AdminChatlogNote[]
   aiUsageEvents                   AiUsageEvent[]
   analyticsEvents                 AnalyticsEvent[]
+  voiceSessions                   VoiceSession[]
+  conversationInsights            ConversationInsight[]
+  knowledgeChangeProposals        KnowledgeChangeProposal[]
+  messageFeedback                 MessageFeedback[]
 
   @@unique([venueId, anonymousToken])
   @@unique([id, tenantId, venueId])
@@ -1633,12 +1715,20 @@ model AiUsageEvent {
   sessionId                String?              @map("session_id")
   clientAssistantTurnId    String?              @map("client_assistant_turn_id")
   feature                  String
+  capability               String               @default("UNCLASSIFIED") @db.VarChar(64)
+  requestType              String?              @map("request_type") @db.VarChar(100)
+  routeModelKey            String?              @map("route_model_key") @db.VarChar(100)
+  providerRequestId        String?              @map("provider_request_id") @db.VarChar(191)
+  fallbackUsed             Boolean               @default(false) @map("fallback_used")
   surface                  String
   provider                 String
   model                    String
   pricingVersion           String               @map("pricing_version")
   inputTokens              Int                  @default(0) @map("input_tokens")
   outputTokens             Int                  @default(0) @map("output_tokens")
+  audioInputTokens         Int                  @default(0) @map("audio_input_tokens")
+  audioOutputTokens        Int                  @default(0) @map("audio_output_tokens")
+  cachedAudioInputTokens   Int                  @default(0) @map("cached_audio_input_tokens")
   cacheCreationInputTokens Int                  @default(0) @map("cache_creation_input_tokens")
   cacheReadInputTokens     Int                  @default(0) @map("cache_read_input_tokens")
   totalTokens              Int                  @default(0) @map("total_tokens")
@@ -1655,10 +1745,434 @@ model AiUsageEvent {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, venueId, createdAt])
+  @@index([tenantId, venueId, capability, createdAt])
+  @@unique([tenantId, venueId, provider, providerRequestId], map: "ai_usage_events_provider_request_key")
   @@index([sessionId])
   @@index([clientAssistantTurnId])
   @@index([feature, createdAt])
   @@map("ai_usage_events")
+}
+
+enum VoiceSessionStatus {
+  AUTHORIZING
+  READY
+  ACTIVE
+  ENDED
+  FAILED
+  EXPIRED
+}
+
+enum VoiceTranscriptSpeaker {
+  VISITOR
+  ASSISTANT
+}
+
+/// Provider-neutral voice lifecycle. Ephemeral provider secrets and audio bytes
+/// are never persisted. Entitlement and bot snapshots make authorization auditable.
+model VoiceSession {
+  id                       String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String             @map("tenant_id")
+  venueId                  String             @map("venue_id")
+  visitorSessionId         String             @map("visitor_session_id")
+  status                   VoiceSessionStatus @default(AUTHORIZING)
+  provider                 String             @db.VarChar(32)
+  model                    String             @db.VarChar(191)
+  capability               String             @db.VarChar(64)
+  tier                     String             @db.VarChar(32)
+  locale                   String             @db.VarChar(35)
+  voice                    String             @db.VarChar(80)
+  entitlementSnapshot      Json               @map("entitlement_snapshot")
+  botConfigurationSnapshot Json               @map("bot_configuration_snapshot")
+  providerSessionId        String?            @map("provider_session_id") @db.VarChar(191)
+  clientSecretExpiresAt    DateTime?          @map("client_secret_expires_at")
+  maxDurationSeconds       Int                @map("max_duration_seconds")
+  connectedAt              DateTime?          @map("connected_at")
+  endedAt                  DateTime?          @map("ended_at")
+  lastActiveAt             DateTime           @default(now()) @map("last_active_at")
+  durationSeconds          Int                @default(0) @map("duration_seconds")
+  fallbackToText           Boolean            @default(false) @map("fallback_to_text")
+  errorCode                String?            @map("error_code") @db.VarChar(100)
+  createdAt                DateTime           @default(now()) @map("created_at")
+  updatedAt                DateTime           @updatedAt @map("updated_at")
+  tenant                   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  visitorSession           VisitorSession     @relation(fields: [visitorSessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  transcriptSegments       VoiceTranscriptSegment[]
+
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, venueId, status, createdAt])
+  @@index([tenantId, venueId, createdAt])
+  @@index([visitorSessionId, createdAt])
+  @@map("voice_sessions")
+}
+
+/// Append-only transcript evidence reported from the ephemeral browser session.
+/// It is not trusted as canonical venue knowledge or assistant-authored history.
+model VoiceTranscriptSegment {
+  id              String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String                 @map("tenant_id")
+  venueId         String                 @map("venue_id")
+  voiceSessionId  String                 @map("voice_session_id") @db.Uuid
+  providerEventId String                 @map("provider_event_id") @db.VarChar(191)
+  sequence        Int
+  speaker         VoiceTranscriptSpeaker
+  text            String                 @db.VarChar(8000)
+  language        String?                @db.VarChar(35)
+  createdAt       DateTime               @default(now()) @map("created_at")
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  voiceSession    VoiceSession           @relation(fields: [voiceSessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, voiceSessionId, providerEventId], map: "voice_transcript_segments_event_key")
+  @@unique([tenantId, venueId, voiceSessionId, sequence], map: "voice_transcript_segments_sequence_key")
+  @@index([tenantId, venueId, voiceSessionId, createdAt])
+  @@map("voice_transcript_segments")
+}
+
+enum ConversationInsightCategory {
+  VISITOR_INTENT
+  NAVIGATION_REQUEST
+  UNANSWERED_QUESTION
+  LOW_CONFIDENCE_ANSWER
+  KNOWLEDGE_GAP
+  CONFUSION_POINT
+  COMPLAINT
+  COMPLIMENT
+  ACCESSIBILITY_CONCERN
+  AMENITY_REQUEST
+  EXHIBIT_INTEREST
+  PURCHASE_INTENT
+  STAFF_ASSISTANCE_NEEDED
+  CONTENT_UPDATE_CANDIDATE
+  SENTIMENT_SIGNAL
+}
+
+enum ConversationInsightSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ConversationInsightReviewStatus {
+  UNREVIEWED
+  ACKNOWLEDGED
+  ACTIONED
+  DISMISSED
+}
+
+/// Structured, reviewable intelligence derived from one tenant-owned conversation.
+/// Evidence contains message identifiers only; raw conversation text remains canonical in Message.
+model ConversationInsight {
+  id                     String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId               String                          @map("tenant_id")
+  venueId                String                          @map("venue_id")
+  sessionId              String                          @map("session_id")
+  guestChatTurnId        String?                         @map("guest_chat_turn_id") @db.Uuid
+  category               ConversationInsightCategory
+  confidence             Decimal                         @db.Decimal(5, 4)
+  severity               ConversationInsightSeverity    @default(INFO)
+  summary                String                          @db.VarChar(1000)
+  suggestedAction        String?                         @map("suggested_action") @db.VarChar(1000)
+  evidenceMessageIds     Json                            @default("[]") @map("evidence_message_ids")
+  messageSequenceStart   Int?                            @map("message_sequence_start")
+  messageSequenceEnd     Int?                            @map("message_sequence_end")
+  capability             String                          @db.VarChar(64)
+  provider               String                          @db.VarChar(32)
+  model                  String                          @db.VarChar(191)
+  analyzerVersion        String                          @map("analyzer_version") @db.VarChar(64)
+  reviewStatus           ConversationInsightReviewStatus @default(UNREVIEWED) @map("review_status")
+  reviewedBy             String?                         @map("reviewed_by") @db.VarChar(191)
+  reviewedAt             DateTime?                       @map("reviewed_at")
+  createdAt              DateTime                        @default(now()) @map("created_at")
+  tenant                 Tenant                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session                VisitorSession                  @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  guestChatTurn          GuestChatTurn?                  @relation(fields: [guestChatTurnId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+  knowledgeChangeProposals KnowledgeChangeProposal[]
+
+  @@unique([tenantId, venueId, guestChatTurnId, category, analyzerVersion], map: "conversation_insights_turn_category_version_key")
+  @@unique([id, tenantId, venueId], map: "conversation_insights_id_tenant_venue_key")
+  @@index([tenantId, venueId, category, createdAt])
+  @@index([tenantId, venueId, reviewStatus, severity, createdAt], map: "conversation_insights_review_queue_idx")
+  @@index([sessionId, createdAt])
+  @@map("conversation_insights")
+}
+
+enum OperationalEventSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum OperationalEventState {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  EXPIRED
+}
+
+enum OperationalEventDeliveryChannel {
+  IN_APP
+  EMAIL
+  SMS
+  PUSH
+  SLACK
+  WEBHOOK
+}
+
+enum OperationalEventDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SUPPRESSED
+}
+
+/// Channel-agnostic, actionable operational signal. High-frequency telemetry
+/// remains in analytics; only events requiring human awareness belong here.
+model OperationalEvent {
+  id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String                   @map("tenant_id")
+  venueId           String?                  @map("venue_id")
+  eventType         String                   @map("event_type") @db.VarChar(100)
+  sourceSubsystem   String                   @map("source_subsystem") @db.VarChar(64)
+  severity          OperationalEventSeverity @default(INFO)
+  title             String                   @db.VarChar(191)
+  summary           String                   @db.VarChar(2000)
+  actionRequired    Boolean                  @default(false) @map("action_required")
+  linkedObjectType  String?                  @map("linked_object_type") @db.VarChar(64)
+  linkedObjectId    String?                  @map("linked_object_id") @db.VarChar(191)
+  recommendedAction String?                  @map("recommended_action") @db.VarChar(1000)
+  state             OperationalEventState    @default(OPEN)
+  deduplicationKey  String                   @map("deduplication_key") @db.VarChar(191)
+  occurrenceCount   Int                      @default(1) @map("occurrence_count")
+  lastOccurredAt    DateTime                 @default(now()) @map("last_occurred_at")
+  readAt            DateTime?                @map("read_at")
+  readBy            String?                  @map("read_by") @db.VarChar(191)
+  acknowledgedAt    DateTime?                @map("acknowledged_at")
+  acknowledgedBy    String?                  @map("acknowledged_by") @db.VarChar(191)
+  resolvedAt        DateTime?                @map("resolved_at")
+  resolvedBy        String?                  @map("resolved_by") @db.VarChar(191)
+  expiresAt         DateTime?                @map("expires_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue             Venue?                   @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  deliveries        OperationalEventDelivery[]
+
+  @@unique([tenantId, deduplicationKey], map: "operational_events_tenant_deduplication_key")
+  @@unique([id, tenantId], map: "operational_events_id_tenant_key")
+  @@index([tenantId, venueId, state, severity, createdAt])
+  @@index([state, severity, createdAt], map: "operational_events_platform_attention_idx")
+  @@index([tenantId, eventType, lastOccurredAt])
+  @@map("operational_events")
+}
+
+/// Delivery attempt projection; business event creation never depends on a
+/// particular email, SMS, push, Slack, or webhook implementation.
+model OperationalEventDelivery {
+  id             String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String                         @map("tenant_id")
+  eventId        String                         @map("event_id") @db.Uuid
+  channel        OperationalEventDeliveryChannel
+  destinationKey String?                        @map("destination_key") @db.VarChar(191)
+  status         OperationalEventDeliveryStatus @default(PENDING)
+  attemptCount   Int                            @default(0) @map("attempt_count")
+  lastErrorCode  String?                        @map("last_error_code") @db.VarChar(100)
+  nextAttemptAt  DateTime?                      @map("next_attempt_at")
+  sentAt         DateTime?                      @map("sent_at")
+  createdAt      DateTime                       @default(now()) @map("created_at")
+  updatedAt      DateTime                       @updatedAt @map("updated_at")
+  tenant         Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  event          OperationalEvent               @relation(fields: [eventId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  attempts       OperationalEventDeliveryAttempt[]
+
+  @@unique([eventId, channel, destinationKey], map: "operational_event_deliveries_target_key")
+  @@unique([id, tenantId], map: "operational_event_deliveries_id_tenant_key")
+  @@index([tenantId, status, nextAttemptAt])
+  @@map("operational_event_deliveries")
+}
+
+/// Append-only, sanitized audit for each adapter invocation. Response bodies,
+/// provider credentials, prompts, and recipient addresses are never stored.
+model OperationalEventDeliveryAttempt {
+  id             String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String                         @map("tenant_id")
+  deliveryId     String                         @map("delivery_id") @db.Uuid
+  attemptNumber  Int                            @map("attempt_number")
+  status         OperationalEventDeliveryStatus
+  provider       String                         @db.VarChar(64)
+  providerRef    String?                        @map("provider_ref") @db.VarChar(191)
+  errorCode      String?                        @map("error_code") @db.VarChar(100)
+  attemptedAt    DateTime                       @default(now()) @map("attempted_at")
+  delivery       OperationalEventDelivery       @relation(fields: [deliveryId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([deliveryId, attemptNumber], map: "operational_event_delivery_attempt_number_key")
+  @@index([tenantId, attemptedAt])
+  @@map("operational_event_delivery_attempts")
+}
+
+enum KnowledgeChangeProposalStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  PUBLISHED
+  PUBLISH_FAILED
+}
+
+/// Human-reviewed bridge from conversational evidence to canonical venue knowledge.
+/// Approval never mutates the target entry; publishing remains a distinct audited action.
+model KnowledgeChangeProposal {
+  id                       String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String                        @map("tenant_id")
+  venueId                  String                        @map("venue_id")
+  sessionId                String?                       @map("session_id")
+  conversationInsightId    String?                       @map("conversation_insight_id") @db.Uuid
+  targetKnowledgeEntryId   String?                       @map("target_knowledge_entry_id")
+  publishedKnowledgeEntryId String?                      @map("published_knowledge_entry_id")
+  observedVisitorClaim     String?                       @map("observed_visitor_claim") @db.VarChar(2000)
+  aiInference              String?                       @map("ai_inference") @db.VarChar(2000)
+  proposedChange           String                        @map("proposed_change") @db.VarChar(10000)
+  reason                   String                        @db.VarChar(2000)
+  confidence               Decimal                       @db.Decimal(5, 4)
+  evidenceMessageIds       Json                          @default("[]") @map("evidence_message_ids")
+  status                   KnowledgeChangeProposalStatus @default(DRAFT)
+  createdByType            String                        @map("created_by_type") @db.VarChar(32)
+  createdById              String                        @map("created_by_id") @db.VarChar(191)
+  reviewerId               String?                       @map("reviewer_id") @db.VarChar(191)
+  reviewNote               String?                       @map("review_note") @db.VarChar(2000)
+  reviewedAt               DateTime?                     @map("reviewed_at")
+  publishedAt              DateTime?                     @map("published_at")
+  publishErrorCode         String?                       @map("publish_error_code") @db.VarChar(100)
+  createdAt                DateTime                      @default(now()) @map("created_at")
+  updatedAt                DateTime                      @updatedAt @map("updated_at")
+  tenant                   Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                    Venue                         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session                  VisitorSession?               @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  conversationInsight      ConversationInsight?          @relation(fields: [conversationInsightId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  targetKnowledgeEntry     VenueKnowledgeEntry?          @relation("KnowledgeProposalTarget", fields: [targetKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  publishedKnowledgeEntry  VenueKnowledgeEntry?          @relation("KnowledgeProposalPublishedEntry", fields: [publishedKnowledgeEntryId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, venueId, status, createdAt])
+  @@index([conversationInsightId])
+  @@index([targetKnowledgeEntryId])
+  @@map("knowledge_change_proposals")
+}
+
+enum VenueLocationKind {
+  VENUE
+  FLOOR
+  ZONE
+  ROOM
+  POI
+  ENTRANCE
+  EXIT
+  RESTROOM
+  EXHIBIT
+  ACCESSIBILITY_POINT
+  SERVICE_DESK
+  FOOD
+  PARKING
+}
+
+enum VenueLocationConnectionKind {
+  WALKWAY
+  DOOR
+  STAIRS
+  ELEVATOR
+  ESCALATOR
+  OUTDOOR_PATH
+  SHUTTLE
+}
+
+model VenueFloor {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String          @map("tenant_id")
+  venueId     String          @map("venue_id")
+  stableKey   String          @map("stable_key") @db.VarChar(100)
+  name        String          @db.VarChar(160)
+  level       Int?
+  sortOrder   Int             @default(0) @map("sort_order")
+  mapImageUrl String?         @map("map_image_url") @db.VarChar(2000)
+  isActive    Boolean         @default(true) @map("is_active")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue       Venue           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  locations   VenueLocation[]
+
+  @@unique([tenantId, venueId, stableKey])
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, venueId, sortOrder])
+  @@map("venue_floors")
+}
+
+/// Verified structured anchor. Model-authored coordinates never enter this table
+/// without an authorized write path and `verifiedBy` evidence.
+model VenueLocation {
+  id                    String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String            @map("tenant_id")
+  venueId               String            @map("venue_id")
+  floorId               String?           @map("floor_id") @db.Uuid
+  parentLocationId      String?           @map("parent_location_id") @db.Uuid
+  stableKey             String            @map("stable_key") @db.VarChar(100)
+  kind                  VenueLocationKind
+  displayName           String            @map("display_name") @db.VarChar(191)
+  description           String?           @db.VarChar(2000)
+  visibility            String            @default("PUBLIC") @db.VarChar(32)
+  latitude              Decimal?          @db.Decimal(10, 7)
+  longitude             Decimal?          @db.Decimal(10, 7)
+  mapX                  Decimal?          @map("map_x") @db.Decimal(12, 4)
+  mapY                  Decimal?          @map("map_y") @db.Decimal(12, 4)
+  externalMapReference  String?           @map("external_map_reference") @db.VarChar(2000)
+  accessibilityMetadata Json              @default("{}") @map("accessibility_metadata")
+  verifiedAt            DateTime           @map("verified_at")
+  verifiedBy            String             @map("verified_by") @db.VarChar(191)
+  isActive              Boolean            @default(true) @map("is_active")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue              @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  floor                 VenueFloor?         @relation(fields: [floorId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  parent                VenueLocation?      @relation("VenueLocationHierarchy", fields: [parentLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  children              VenueLocation[]     @relation("VenueLocationHierarchy")
+  outboundConnections   VenueLocationConnection[] @relation("LocationConnectionFrom")
+  inboundConnections    VenueLocationConnection[] @relation("LocationConnectionTo")
+
+  @@unique([tenantId, venueId, stableKey])
+  @@unique([id, tenantId, venueId])
+  @@index([tenantId, venueId, kind, isActive])
+  @@index([floorId])
+  @@map("venue_locations")
+}
+
+model VenueLocationConnection {
+  id                    String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String                      @map("tenant_id")
+  venueId               String                      @map("venue_id")
+  fromLocationId        String                      @map("from_location_id") @db.Uuid
+  toLocationId          String                      @map("to_location_id") @db.Uuid
+  kind                  VenueLocationConnectionKind
+  bidirectional         Boolean                     @default(true)
+  accessible            Boolean                     @default(false)
+  directions            String?                     @db.VarChar(2000)
+  verifiedAt            DateTime                    @map("verified_at")
+  verifiedBy            String                      @map("verified_by") @db.VarChar(191)
+  isActive              Boolean                     @default(true) @map("is_active")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+  tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  fromLocation          VenueLocation               @relation("LocationConnectionFrom", fields: [fromLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  toLocation            VenueLocation               @relation("LocationConnectionTo", fields: [toLocationId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, fromLocationId, toLocationId, kind])
+  @@index([tenantId, venueId, isActive])
+  @@map("venue_location_connections")
 }
 
 model AiUsageDailyRollup {
@@ -1674,6 +2188,9 @@ model AiUsageDailyRollup {
   outputTokens             Int      @default(0) @map("output_tokens")
   cacheCreationInputTokens Int      @default(0) @map("cache_creation_input_tokens")
   cacheReadInputTokens     Int      @default(0) @map("cache_read_input_tokens")
+  audioInputTokens         Int      @default(0) @map("audio_input_tokens")
+  audioOutputTokens        Int      @default(0) @map("audio_output_tokens")
+  cachedAudioInputTokens   Int      @default(0) @map("cached_audio_input_tokens")
   totalTokens              Int      @default(0) @map("total_tokens")
   estimatedCostUsd         Decimal  @default(0) @map("estimated_cost_usd") @db.Decimal(18, 8)
   tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -2206,6 +2723,7 @@ model Message {
   userForGuestChatTurn      GuestChatTurn?               @relation("GuestChatTurnUserMessage")
   assistantForGuestChatTurn GuestChatTurn?               @relation("GuestChatTurnAssistantMessage")
   analyticsEvents           AnalyticsEvent[]             @relation("AnalyticsEventUserMessage")
+  feedback                  MessageFeedback[]
 
   @@unique([id, tenantId, venueId, sessionId])
   @@unique([id, tenantId, venueId, sessionId, guestChatTurnId])
@@ -2215,6 +2733,33 @@ model Message {
   @@index([sessionId])
   @@index([topic])
   @@map("messages")
+}
+
+enum MessageFeedbackRating {
+  HELPFUL
+  NOT_HELPFUL
+}
+
+/// One visitor-owned rating for an assistant message. The composite foreign
+/// keys make the tenant, venue, session, and message scope inseparable.
+model MessageFeedback {
+  id          String                @id @default(cuid())
+  tenantId    String                @map("tenant_id")
+  venueId     String                @map("venue_id")
+  sessionId   String                @map("session_id")
+  messageId   String                @map("message_id")
+  rating      MessageFeedbackRating
+  reason      String?               @db.VarChar(1000)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue       Venue                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  session     VisitorSession        @relation(fields: [sessionId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  message     Message               @relation(fields: [messageId, tenantId, venueId, sessionId], references: [id, tenantId, venueId, sessionId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, venueId, sessionId, messageId])
+  @@index([tenantId, venueId, rating, createdAt])
+  @@map("message_feedback")
 }
 
 enum GuestChatTurnStatus {
@@ -2273,6 +2818,7 @@ model GuestChatTurn {
   engagementResponses      EngagementQuestionResponse[]
   userMessage              Message?                     @relation("GuestChatTurnUserMessage", fields: [userMessageId, tenantId, venueId, sessionId, id], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
   assistantMessage         Message?                     @relation("GuestChatTurnAssistantMessage", fields: [assistantMessageId, tenantId, venueId, sessionId, id], references: [id, tenantId, venueId, sessionId, guestChatTurnId], onDelete: Restrict, onUpdate: Restrict)
+  conversationInsights     ConversationInsight[]
 
   @@unique([id, tenantId, venueId, sessionId])
   @@unique([userMessageId, tenantId, venueId, sessionId, id])
@@ -3005,7 +3551,14 @@ model AgentQuestion {
   agentRunId      String?                 @map("agent_run_id")
   question        String                  @db.VarChar(2000)
   context         String?                 @db.VarChar(2000)
+  questionType    AgentQuestionType       @default(SHORT_TEXT) @map("question_type")
+  category        String                  @default("general") @db.VarChar(100)
+  urgency         AgentQuestionUrgency    @default(NORMAL)
   choices         String[]                @default([])
+  dueAt           DateTime?               @map("due_at")
+  evidence        Json                    @default("[]")
+  proposedAnswer  Json?                   @map("proposed_answer")
+  callbackMetadata Json?                  @map("callback_metadata")
   blocking        Boolean                 @default(true)
   status          AgentQuestionStatus     @default(PENDING)
   answer          String?                 @db.VarChar(5000)
@@ -3025,6 +3578,7 @@ model AgentQuestion {
   @@index([tenantId, venueId, status, createdAt], map: "agent_questions_scope_status_created_idx")
   @@index([tenantId, agentIdentityId, createdAt], map: "agent_questions_identity_created_idx")
   @@index([tenantId, agentRunId, createdAt], map: "agent_questions_run_created_idx")
+  @@index([tenantId, venueId, urgency, dueAt], map: "agent_questions_tenant_id_venue_id_urgency_due_at_idx")
   @@index([status, createdAt], map: "agent_questions_status_created_idx")
   @@map("agent_questions")
 }
@@ -3178,6 +3732,26 @@ enum AgentQuestionStatus {
   PENDING
   ANSWERED
   DISMISSED
+  EXPIRED
+  CANCELLED
+}
+
+enum AgentQuestionType {
+  YES_NO
+  MULTIPLE_CHOICE
+  MULTI_SELECT
+  SHORT_TEXT
+  LONG_TEXT
+  APPROVAL_REJECT
+  DATE_TIME
+  STRUCTURED_OBJECT
+}
+
+enum AgentQuestionUrgency {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
 }
 
 enum ApprovalRiskCategory {

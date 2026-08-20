@@ -185,6 +185,11 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
           description: 'Stale sources and metadata gaps',
         },
         {
+          href: `${venueRoot}/knowledge-proposals`,
+          label: 'Knowledge proposals',
+          description: 'Review evidence-backed change suggestions',
+        },
+        {
           href: `${venueRoot}/agents`,
           label: 'Agent operations',
           description: 'Runs, actions and approvals',

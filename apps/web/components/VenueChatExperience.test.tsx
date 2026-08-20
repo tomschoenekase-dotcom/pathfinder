@@ -66,6 +66,7 @@ vi.mock('@pathfinder/ui/brand', () => ({ PathFinderIcon: () => <span>Icon</span>
 vi.mock('@pathfinder/ui/character', () => ({
   PublicCharacterPresence: ({ state }: { state: string }) => <span>Character visual: {state}</span>,
 }))
+vi.mock('./VoiceControl', () => ({ VoiceControl: () => null }))
 vi.mock('./ChatWindow', () => ({
   ChatWindow: ({
     emptyState,
@@ -190,8 +191,8 @@ const characterVenue = {
   },
 }
 
-function codedError(code: string) {
-  return Object.assign(new Error(code), { data: { code } })
+function codedError(code: string, publicCode?: string) {
+  return Object.assign(new Error(code), { data: { code, ...(publicCode ? { publicCode } : {}) } })
 }
 
 describe('VenueChatExperience presentation boundary', () => {
@@ -416,6 +417,26 @@ describe('VenueChatExperience presentation boundary', () => {
       expect(await screen.findByText(/could not be accepted/i)).toBeTruthy()
       expect(screen.queryByRole('button', { name: 'Retry same message' })).toBeNull()
       expect(mocks.client.chat.history.query).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ['PROVIDER_UNAVAILABLE', /guide service is temporarily unavailable/i],
+    ['CONTENT_UNAVAILABLE', /venue content is not available/i],
+    ['TRANSIENT_FAILURE', /could not start this message/i],
+  ])(
+    'shows definite recovery guidance for %s without unsafe same-operation retry',
+    async (publicCode, message) => {
+      mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174105'
+      mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+      mocks.client.chat.send.mutate.mockRejectedValueOnce(
+        codedError('SERVICE_UNAVAILABLE', publicCode),
+      )
+      render(<VenueChatExperience venueSlug="museum" />)
+      await screen.findByRole('heading', { name: 'Museum Guide' })
+      fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+      expect(await screen.findByText(message)).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Retry same message' })).toBeNull()
     },
   )
 

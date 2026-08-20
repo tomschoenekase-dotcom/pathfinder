@@ -1,4 +1,10 @@
-import type { GuestResponseBlock, GuestResponsePlace } from '@pathfinder/contracts/guest-response'
+import { useState } from 'react'
+import { ThumbsDown, ThumbsUp } from 'lucide-react'
+import type {
+  GuestResponseBlock,
+  GuestResponsePlace,
+  GuestVisitorAction,
+} from '@pathfinder/contracts/guest-response'
 
 import { ResponseRenderer } from './ResponseRenderer'
 
@@ -14,6 +20,9 @@ type MessageBubbleProps = {
   onPlaceCardView?: (placeId: string) => void
   onDirectionsClick?: (placeId: string) => void
   onChoiceSelect?: (value: string) => void
+  onVisitorAction?: (action: GuestVisitorAction) => void
+  messageId?: string
+  onFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
 }
 
 export function MessageBubble({
@@ -28,9 +37,25 @@ export function MessageBubble({
   onPlaceCardView,
   onDirectionsClick,
   onChoiceSelect,
+  onVisitorAction,
+  messageId,
+  onFeedback,
 }: MessageBubbleProps) {
   const isUser = role === 'user'
   const speaker = isUser ? 'You' : assistantLabel
+  const [feedback, setFeedback] = useState<'HELPFUL' | 'NOT_HELPFUL' | null>(null)
+  const [feedbackPending, setFeedbackPending] = useState(false)
+
+  async function submitFeedback(rating: 'HELPFUL' | 'NOT_HELPFUL') {
+    if (!messageId || !onFeedback || feedbackPending) return
+    setFeedbackPending(true)
+    try {
+      await onFeedback(messageId, rating)
+      setFeedback(rating)
+    } finally {
+      setFeedbackPending(false)
+    }
+  }
 
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -61,8 +86,35 @@ export function MessageBubble({
             {...(onPlaceCardView ? { onPlaceCardView } : {})}
             {...(onDirectionsClick ? { onDirectionsClick } : {})}
             {...(onChoiceSelect ? { onChoiceSelect } : {})}
+            {...(onVisitorAction ? { onVisitorAction } : {})}
           />
         )}
+        {!isUser && messageId && onFeedback ? (
+          <div
+            className="mt-2 flex items-center gap-1 border-t border-[var(--chat-border)] pt-2"
+            aria-label="Rate this answer"
+          >
+            <span className="mr-1 text-xs text-[var(--chat-text-muted)]">Was this helpful?</span>
+            {(
+              [
+                ['HELPFUL', ThumbsUp, 'Helpful'],
+                ['NOT_HELPFUL', ThumbsDown, 'Not helpful'],
+              ] as const
+            ).map(([rating, Icon, label]) => (
+              <button
+                key={rating}
+                type="button"
+                aria-label={label}
+                aria-pressed={feedback === rating}
+                disabled={feedbackPending}
+                onClick={() => void submitFeedback(rating)}
+                className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-full text-[var(--chat-text-muted)] hover:bg-[var(--chat-card)] hover:text-[var(--chat-text)] disabled:opacity-50 aria-pressed:bg-[var(--chat-accent)] aria-pressed:text-[var(--chat-accent-contrast)]"
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </article>
   )

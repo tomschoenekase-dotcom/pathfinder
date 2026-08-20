@@ -24,9 +24,13 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/weekly-report.ts', 2],
   ['apps/workers/src/processors/evaluation-dispatch.ts', 2],
   // Worker reconciles approved-package onboarding milestones for the exact job tenant+venue.
-  ['apps/workers/src/processors/evaluation-run.ts', 8],
+  ['apps/workers/src/processors/evaluation-run.ts', 9],
+  // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.
+  ['apps/workers/src/processors/operational-event-delivery.ts', 4],
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
-  ['packages/api/src/routers/admin/attention-console.ts', 1],
+  ['packages/api/src/routers/admin/attention-console.ts', 3],
+  // Platform-admin-only bounded readiness projection over platform-wide operational evidence.
+  ['packages/api/src/routers/admin/operations-readiness.ts', 1],
   ['packages/api/src/routers/admin/agent-operations.ts', 6],
   ['packages/api/src/routers/admin/agent-identity-reads.ts', 2],
   ['packages/api/src/routers/admin/agent-bridge-operations.ts', 2],
@@ -68,6 +72,10 @@ const approvedCallCounts = new Map([
   // Guest design exposes two platform-admin-only, exact tenant+venue scoped operations.
   ['packages/api/src/routers/admin/guest-design.ts', 2],
   ['packages/api/src/routers/admin/legacy-content.ts', 7],
+  // Platform-admin proposal review is always constrained to the requested tenant and venue.
+  ['packages/api/src/routers/admin/knowledge-proposals.ts', 3],
+  // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.
+  ['packages/api/src/routers/admin/product-entitlements.ts', 3],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
   ['packages/api/src/routers/admin/weekly-report-lifecycle.ts', 1],
   ['packages/db/src/helpers/evaluation-run-lifecycle.ts', 7],

@@ -35,6 +35,8 @@ export default async function EmbedVenuePage({ params, searchParams }: EmbedVenu
   })
 
   try {
+    const availability = await appRouter.createCaller(ctx).widget.availability({ venueSlug })
+    if (!availability.enabled) notFound()
     await appRouter.createCaller(ctx).venue.getBySlug({ slug: venueSlug })
   } catch (error) {
     const failure = classifyPublicVenueLookupError(error)

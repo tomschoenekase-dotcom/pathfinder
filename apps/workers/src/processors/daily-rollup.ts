@@ -30,6 +30,9 @@ type AiUsageRow = {
   outputTokens: number
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
+  audioInputTokens: number
+  audioOutputTokens: number
+  cachedAudioInputTokens: number
   totalTokens: number
   estimatedCostUsd: unknown
   success: boolean
@@ -47,6 +50,9 @@ type AiCostRollupRow = {
   outputTokens: number
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
+  audioInputTokens: number
+  audioOutputTokens: number
+  cachedAudioInputTokens: number
   totalTokens: number
   estimatedCostUsd: string
 }
@@ -145,6 +151,9 @@ export function buildAiCostRollups(params: {
       outputTokens: 0,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      audioInputTokens: 0,
+      audioOutputTokens: 0,
+      cachedAudioInputTokens: 0,
       totalTokens: 0,
       costUnits: 0n,
     }
@@ -156,6 +165,9 @@ export function buildAiCostRollups(params: {
     existing.outputTokens += event.outputTokens
     existing.cacheCreationInputTokens += event.cacheCreationInputTokens
     existing.cacheReadInputTokens += event.cacheReadInputTokens
+    existing.audioInputTokens += event.audioInputTokens
+    existing.audioOutputTokens += event.audioOutputTokens
+    existing.cachedAudioInputTokens += event.cachedAudioInputTokens
     existing.totalTokens += event.totalTokens
     existing.costUnits += aiCostDecimalToUnits(event.estimatedCostUsd)
     grouped.set(key, existing)
@@ -404,6 +416,9 @@ export async function processDailyRollupJob(
             outputTokens: true,
             cacheCreationInputTokens: true,
             cacheReadInputTokens: true,
+            audioInputTokens: true,
+            audioOutputTokens: true,
+            cachedAudioInputTokens: true,
             totalTokens: true,
             estimatedCostUsd: true,
           },
@@ -422,6 +437,9 @@ export async function processDailyRollupJob(
         outputTokens: group._sum.outputTokens ?? 0,
         cacheCreationInputTokens: group._sum.cacheCreationInputTokens ?? 0,
         cacheReadInputTokens: group._sum.cacheReadInputTokens ?? 0,
+        audioInputTokens: group._sum.audioInputTokens ?? 0,
+        audioOutputTokens: group._sum.audioOutputTokens ?? 0,
+        cachedAudioInputTokens: group._sum.cachedAudioInputTokens ?? 0,
         totalTokens: group._sum.totalTokens ?? 0,
         estimatedCostUsd: group._sum.estimatedCostUsd ?? 0,
       })),

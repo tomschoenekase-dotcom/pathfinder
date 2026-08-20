@@ -14,6 +14,7 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }))
+vi.mock('./VoiceControl', () => ({ VoiceControl: () => null }))
 
 async function expectNoAutomatedViolations(container: HTMLElement) {
   expect(document.body.contains(container)).toBe(true)

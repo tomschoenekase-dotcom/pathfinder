@@ -30,6 +30,13 @@
       "behavioralEvidence": ["packages/api/src/routers/chat.test.ts"]
     },
     {
+      "path": "feedback.submit",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-telemetry-write",
+      "behavioralEvidence": ["packages/api/src/routers/feedback.test.ts"]
+    },
+    {
       "path": "health",
       "kind": "query",
       "exposure": "public",
@@ -38,11 +45,67 @@
       "exceptionReason": "Returns a fixed process-local object and performs no input, database, queue, provider, or tenant work."
     },
     {
+      "path": "location.resolve",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
+    },
+    {
       "path": "venue.getBySlug",
       "kind": "query",
       "exposure": "public",
       "controlProfile": "bounded-resource-read",
       "behavioralEvidence": ["packages/api/src/routers/venue.test.ts"]
+    },
+    {
+      "path": "voice.availability",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
+      "path": "voice.connected",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-session-write",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
+      "path": "voice.end",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-session-write",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
+      "path": "voice.start",
+      "kind": "mutation",
+      "exposure": "public-ai",
+      "controlProfile": "bounded-ai-write",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
+      "path": "voice.transcript",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-session-write",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
+      "path": "voice.usage",
+      "kind": "mutation",
+      "exposure": "public",
+      "controlProfile": "bounded-telemetry-write",
+      "behavioralEvidence": ["packages/api/src/routers/voice.test.ts"]
+    },
+    {
+      "path": "widget.availability",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-resource-read",
+      "behavioralEvidence": ["packages/api/src/routers/widget.test.ts"]
     }
   ],
   "http": [
