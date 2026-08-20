@@ -1,18 +1,30 @@
+import { resolveDatabaseTestEnvironment } from '../db/src/test-environment-boundary'
+
 const syntheticTestEnvironment = {
-  DATABASE_URL: 'postgresql://pathfinder_test:pathfinder_test@127.0.0.1:5432/pathfinder_test',
-  DIRECT_DATABASE_URL:
-    'postgresql://pathfinder_test:pathfinder_test@127.0.0.1:5432/pathfinder_test',
   CLERK_SECRET_KEY: 'sk_test_pathfinder_unit_tests',
   CLERK_PUBLISHABLE_KEY: 'pk_test_pathfinder_unit_tests',
 } as const
 
-const remoteOnboardingDisposableProof = process.env.RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION === '1'
+const databaseTarget = resolveDatabaseTestEnvironment(process.env)
+
+for (const name of [
+  'PGHOST',
+  'PGPORT',
+  'PGDATABASE',
+  'PGUSER',
+  'PGPASSWORD',
+  'PGSERVICE',
+  'PGSERVICEFILE',
+  'PGPASSFILE',
+  'PGOPTIONS',
+  'PGSSLMODE',
+]) {
+  delete process.env[name]
+}
+
+process.env.DATABASE_URL = databaseTarget.databaseUrl
+process.env.DIRECT_DATABASE_URL = databaseTarget.directDatabaseUrl
 
 for (const [name, value] of Object.entries(syntheticTestEnvironment)) {
-  if (
-    remoteOnboardingDisposableProof &&
-    (name === 'DATABASE_URL' || name === 'DIRECT_DATABASE_URL')
-  )
-    continue
   process.env[name] = value
 }
