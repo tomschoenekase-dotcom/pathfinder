@@ -167,7 +167,7 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
         </div>
       ) : null}
 
-      <div className="lg:pl-72">
+      <div className="min-w-0 w-full lg:pl-72">
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className="flex min-h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
             <div className="flex items-center gap-3">
@@ -196,7 +196,9 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
           </div>
         </header>
 
-        <main className="mx-auto max-w-[96rem] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[96rem] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          {children}
+        </main>
       </div>
     </div>
   )
