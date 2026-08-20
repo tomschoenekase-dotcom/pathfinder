@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 export type AttentionCursor = { createdAt: string; id: string }
 
 export const ACTIVE_SUPPORT_REQUEST_STATUSES = [
@@ -9,6 +11,26 @@ export const ACTIVE_SUPPORT_REQUEST_STATUSES = [
   'AWAITING_APPROVAL',
   'APPLYING',
 ] as const
+
+const cursor = z.object({ createdAt: z.string().datetime(), id: z.string().min(1).max(191) })
+
+export const attentionConsoleInput = z
+  .object({
+    limit: z.number().int().min(1).max(25).default(10),
+    jobsCursor: cursor.optional(),
+    evaluationsCursor: cursor.optional(),
+    approvalsCursor: cursor.optional(),
+    supportCursor: cursor.optional(),
+    agentsCursor: cursor.optional(),
+    questionsCursor: cursor.optional(),
+    workingAgentsCursor: cursor.optional(),
+    blockedAgentsCursor: cursor.optional(),
+    completedAgentsCursor: cursor.optional(),
+    outcomesCursor: cursor.optional(),
+    eventsCursor: cursor.optional(),
+    platformEventsCursor: cursor.optional(),
+  })
+  .default({ limit: 10 })
 
 export function after(value?: AttentionCursor) {
   if (!value) return {}

@@ -8,31 +8,13 @@ import {
   ACTIVE_SUPPORT_REQUEST_STATUSES,
   after,
   afterCondition,
+  attentionConsoleInput,
   page,
 } from './attention-pagination'
 
-const cursor = z.object({ createdAt: z.string().datetime(), id: z.string().min(1).max(191) })
-const input = z
-  .object({
-    limit: z.number().int().min(1).max(25).default(10),
-    jobsCursor: cursor.optional(),
-    evaluationsCursor: cursor.optional(),
-    approvalsCursor: cursor.optional(),
-    supportCursor: cursor.optional(),
-    agentsCursor: cursor.optional(),
-    questionsCursor: cursor.optional(),
-    workingAgentsCursor: cursor.optional(),
-    blockedAgentsCursor: cursor.optional(),
-    completedAgentsCursor: cursor.optional(),
-    outcomesCursor: cursor.optional(),
-    eventsCursor: cursor.optional(),
-    platformEventsCursor: cursor.optional(),
-  })
-  .default({ limit: 10 })
-
 // Bounded metadata-only platform triage; no payloads, artifacts, messages, or raw provider errors.
 export const adminAttentionConsoleRouter = router({
-  attentionConsole: adminProcedure.input(input).query(({ input: query }) =>
+  attentionConsole: adminProcedure.input(attentionConsoleInput).query(({ input: query }) =>
     withTenantIsolationBypass(async () => {
       const now = new Date()
       const take = query.limit + 1
