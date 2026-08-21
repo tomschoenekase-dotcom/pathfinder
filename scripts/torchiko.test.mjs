@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   buildBootstrapReport,
+  buildConversationReplay,
   buildDoctorReport,
   buildRepositoryMap,
   buildToolCoverageReport,
@@ -12,6 +13,9 @@ import {
   findTests,
   listAgentTools,
   listFixtures,
+  loadScenarioRegistry,
+  simulateScenarioLocation,
+  simulateScenarioTime,
 } from './lib/torchiko-developer-tools.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -88,4 +92,30 @@ test('bootstrap is inspect-only and retains explicit safety gates', async () => 
   assert.match(report.note, /seeding/u)
   assert.ok(report.nextCommands.includes('pnpm torchiko doctor --json'))
   assert.ok(report.nextCommands.includes('pnpm --filter @pathfinder/db db:generate'))
+})
+
+test('synthetic scenario registry covers canonical venue shapes', async () => {
+  const registry = await loadScenarioRegistry(root)
+  assert.equal(registry.healthy, true)
+  assert.deepEqual(
+    registry.scenarios.map((scenario) => scenario.id),
+    ['small-museum', 'outdoor-park', 'attraction', 'large-museum'],
+  )
+})
+
+test('time and location simulations are deterministic and provider-free', async () => {
+  const time = await simulateScenarioTime(root, 'small-museum', '2026-08-24T16:00:00.000Z')
+  assert.equal(time.localTime, '11:00')
+  assert.equal(time.open, true)
+  const location = await simulateScenarioLocation(root, 'small-museum', 41.881, -87.623)
+  assert.equal(location.matches[0].id, 'entrance')
+  assert.equal(location.matches[0].inside, true)
+})
+
+test('conversation replay emits assertions without visitor identity or provider dispatch', async () => {
+  const replay = await buildConversationReplay(root, 'large-museum')
+  assert.equal(replay.synthetic, true)
+  assert.equal(replay.providerDispatch, false)
+  assert.ok(replay.assertions.some((item) => item.fact === 'Family Lab'))
+  assert.doesNotMatch(JSON.stringify(replay), /visitorId|email|phone|coordinate/iu)
 })

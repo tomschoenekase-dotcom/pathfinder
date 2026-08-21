@@ -62,6 +62,16 @@ Then run the narrow package test before the broader repository suites. The compl
 
 `pnpm torchiko fixtures list --json` lists repository-owned local visual routes and the Golden Venue fixture. Visual fixtures are sanitized, development-only UI states; they are not database lifecycle fixtures.
 
+`pnpm torchiko scenarios validate --json` verifies four explicitly synthetic venue worlds. The time, location, and conversation-replay commands are deterministic and do not touch a database or provider:
+
+```powershell
+pnpm torchiko simulate time small-museum 2026-08-24T16:00:00.000Z --json
+pnpm torchiko simulate location outdoor-park 41.89 -87.61 --json
+pnpm torchiko replay conversation large-museum --json
+```
+
+Replay preparation emits a synthetic transcript and required-fact assertions. Provider-backed execution and scoring remain separate, explicitly enabled evaluation operations.
+
 The Golden Venue contract is reused rather than replaced:
 
 ```powershell

@@ -282,6 +282,7 @@ export async function listFixtures(root) {
     include: (relative) => relative.includes('/dev-fixtures/') && /page\.tsx$/u.test(relative),
     descend: (_relative, name) => !['node_modules', '.git', '.next', 'dist'].includes(name),
   })
+  const scenarioRegistry = await loadScenarioRegistry(root)
   return {
     schemaVersion: 1,
     visual: files.map((file) => {
@@ -298,6 +299,123 @@ export async function listFixtures(root) {
         validate: 'pnpm golden-venue:validate',
       },
     ],
+    scenarios: scenarioRegistry.scenarios.map((scenario) => ({
+      id: scenario.id,
+      venueType: scenario.venue.name,
+      timezone: scenario.venue.timezone,
+      source: 'scripts/fixtures/agent-scenarios.json',
+    })),
+  }
+}
+
+export async function loadScenarioRegistry(root) {
+  const registry = await readJson(path.join(root, 'scripts/fixtures/agent-scenarios.json'))
+  const errors = []
+  if (registry.schemaVersion !== 1) errors.push('schemaVersion must be 1')
+  if (registry.synthetic !== true) errors.push('scenario registry must be explicitly synthetic')
+  if (!Array.isArray(registry.scenarios) || registry.scenarios.length !== 4)
+    errors.push('exactly four canonical scenarios are required')
+  const ids = new Set()
+  for (const scenario of registry.scenarios ?? []) {
+    if (!scenario.id || ids.has(scenario.id)) errors.push('scenario ids must be present and unique')
+    ids.add(scenario.id)
+    if (!scenario.venue?.timezone) errors.push(`${scenario.id}: timezone is required`)
+    if (!Array.isArray(scenario.locations) || scenario.locations.length === 0)
+      errors.push(`${scenario.id}: at least one location is required`)
+    for (const location of scenario.locations ?? []) {
+      if (!Number.isFinite(location.latitude) || !Number.isFinite(location.longitude))
+        errors.push(`${scenario.id}: location coordinates must be finite`)
+      if (!Number.isFinite(location.radiusMeters) || location.radiusMeters <= 0)
+        errors.push(`${scenario.id}: location radius must be positive`)
+    }
+    if (!Array.isArray(scenario.conversation?.messages) || !scenario.conversation.messages.length)
+      errors.push(`${scenario.id}: conversation messages are required`)
+    if (!Array.isArray(scenario.conversation?.expectedFacts))
+      errors.push(`${scenario.id}: expected facts are required`)
+  }
+  return { ...registry, errors, healthy: errors.length === 0 }
+}
+
+function getScenario(registry, id) {
+  const scenario = registry.scenarios.find((candidate) => candidate.id === id)
+  if (!scenario) throw new Error(`Unknown synthetic scenario: ${id}`)
+  return scenario
+}
+
+export async function simulateScenarioTime(root, id, instant) {
+  const registry = await loadScenarioRegistry(root)
+  if (!registry.healthy) throw new Error('Synthetic scenario registry is invalid')
+  const scenario = getScenario(registry, id)
+  const parsed = new Date(instant)
+  if (Number.isNaN(parsed.getTime())) throw new Error('Simulation instant must be ISO-8601')
+  const local = new Intl.DateTimeFormat('en-US', {
+    timeZone: scenario.venue.timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(parsed)
+  const weekday = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[
+    local.find((part) => part.type === 'weekday')?.value
+  ]
+  const localTime = `${local.find((part) => part.type === 'hour')?.value}:${local.find((part) => part.type === 'minute')?.value}`
+  const hours = scenario.weeklyHours[String(weekday)] ?? null
+  return {
+    schemaVersion: 1,
+    synthetic: true,
+    scenarioId: id,
+    instant: parsed.toISOString(),
+    timezone: scenario.venue.timezone,
+    localTime,
+    hours,
+    open: Boolean(hours && localTime >= hours[0] && localTime < hours[1]),
+  }
+}
+
+function distanceMeters(a, b) {
+  const radians = (value) => (value * Math.PI) / 180
+  const latitudeDelta = radians(b.latitude - a.latitude)
+  const longitudeDelta = radians(b.longitude - a.longitude)
+  const value =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(radians(a.latitude)) *
+      Math.cos(radians(b.latitude)) *
+      Math.sin(longitudeDelta / 2) ** 2
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+}
+
+export async function simulateScenarioLocation(root, id, latitude, longitude) {
+  const registry = await loadScenarioRegistry(root)
+  if (!registry.healthy) throw new Error('Synthetic scenario registry is invalid')
+  if (![latitude, longitude].every(Number.isFinite)) throw new Error('Coordinates must be finite')
+  const scenario = getScenario(registry, id)
+  const matches = scenario.locations
+    .map((location) => {
+      const distance = distanceMeters({ latitude, longitude }, location)
+      return {
+        id: location.id,
+        name: location.name,
+        distanceMeters: Math.round(distance),
+        inside: distance <= location.radiusMeters,
+      }
+    })
+    .sort((a, b) => a.distanceMeters - b.distanceMeters)
+  return { schemaVersion: 1, synthetic: true, scenarioId: id, matches }
+}
+
+export async function buildConversationReplay(root, id) {
+  const registry = await loadScenarioRegistry(root)
+  if (!registry.healthy) throw new Error('Synthetic scenario registry is invalid')
+  const scenario = getScenario(registry, id)
+  return {
+    schemaVersion: 1,
+    synthetic: true,
+    scenarioId: id,
+    venue: scenario.venue,
+    messages: scenario.conversation.messages,
+    assertions: scenario.conversation.expectedFacts.map((fact) => ({ fact, required: true })),
+    providerDispatch: false,
+    note: 'Replay preparation is deterministic and does not call an AI provider.',
   }
 }
 
