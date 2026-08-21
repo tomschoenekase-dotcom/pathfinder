@@ -27,6 +27,7 @@ describe('publishOperationalEvent', () => {
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
+          tenantId: 'tenant-1',
           tenantId_deduplicationKey: {
             tenantId: 'tenant-1',
             deduplicationKey: 'knowledge-gap:turn-1',
