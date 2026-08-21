@@ -241,6 +241,42 @@ export async function listAgentTools(root) {
   }
 }
 
+export function classifyRouter(routerName, policy) {
+  return policy.categories.filter((category) => new RegExp(category.pattern, 'iu').test(routerName))
+}
+
+export async function buildToolCoverageReport(root) {
+  const [repository, policy] = await Promise.all([
+    buildRepositoryMap(root),
+    readJson(path.join(root, 'scripts/agent-tool-coverage.json')),
+  ])
+  const routers = [
+    ...repository.entryPoints.applicationRouters,
+    ...repository.entryPoints.adminRouters,
+  ].filter((name) => /Router$/u.test(name))
+  const entries = [...new Set(routers)].sort().map((router) => {
+    const matches = classifyRouter(router, policy)
+    return {
+      router,
+      categories: matches.map((category) => category.id),
+      status:
+        matches.length === 1 ? 'classified' : matches.length === 0 ? 'unclassified' : 'ambiguous',
+    }
+  })
+  return {
+    schemaVersion: 1,
+    totalRouters: entries.length,
+    classified: entries.filter((entry) => entry.status === 'classified').length,
+    unclassified: entries
+      .filter((entry) => entry.status === 'unclassified')
+      .map((entry) => entry.router),
+    ambiguous: entries.filter((entry) => entry.status === 'ambiguous'),
+    categories: policy.categories,
+    entries,
+    healthy: entries.every((entry) => entry.status === 'classified'),
+  }
+}
+
 export async function listFixtures(root) {
   const files = await walk(root, {
     include: (relative) => relative.includes('/dev-fixtures/') && /page\.tsx$/u.test(relative),

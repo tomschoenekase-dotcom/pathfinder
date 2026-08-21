@@ -42,6 +42,8 @@ Canonical sources remain:
 
 Run `pnpm torchiko tools list --json`. The command discovers the operational MCP and prospect-agent tools from their canonical registries. It does not imply that a transport, credential, write gate, or provider is enabled.
 
+Run `pnpm verify:agent-tools` before handoff. The coverage gate requires every mounted application/admin router to match exactly one explicit agent/developer coverage decision. Restricted and human-controlled decisions are valid; silent omission is not.
+
 The first-party tRPC application surface is broader than the external agent surface. See `docs/agents/CAPABILITY_MATRIX.md` and `docs/agents/GAP_REPORT.md` before assuming UI/API parity.
 
 ## Targeted tests

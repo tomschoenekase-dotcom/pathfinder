@@ -17,7 +17,7 @@ Baseline date: 2026-08-21. This report is updated as Packet A closes gaps.
 3. Report generation/regeneration, source inspection, explanation, and delivery status lack a coherent agent namespace.
 4. System jobs, queues, migrations, service health, integration health, feature flags, and deployment identity are only partially visible to agents.
 5. Agent activity is visible in existing admin workspaces, but tool calls and changes are not yet presented as one unified run trace.
-6. Tool coverage CI does not yet fail when a significant new admin capability lacks an agent/developer coverage decision.
+6. The new tool-coverage CI gate classifies mounted routers, but it does not yet measure operation-level parity within each router.
 
 ## Intentionally restricted or deferred
 
@@ -31,5 +31,6 @@ Baseline date: 2026-08-21. This report is updated as Packet A closes gaps.
 
 - Implemented the inspect-only `pnpm torchiko` developer entry point for bootstrap, environment doctor, repository mapping, tool discovery, fixture discovery, targeted-test discovery, and Golden Venue validation.
 - Expanded the existing `pathfinder.read` surface with permission-scoped, paginated, privacy-bounded reports, conversations, integration access, agent runs, operational events, native deployments, and feature flags.
+- Added `pnpm verify:agent-tools`, which fails when a mounted application/admin router has no explicit or has an ambiguous agent/developer coverage decision.
 - Added the initial capability matrix, developer guide, tool reference, and this gap ledger.
 - Preserved all existing credential, outreach, billing, tenant, approval, publication, and production gates.

@@ -42,6 +42,7 @@
     "verify:staging-health": "node scripts/verify-staging-health.mjs",
     "verify:staging-widget": "node scripts/verify-staging-widget.mjs",
     "verify:public-surfaces": "node scripts/verify-public-surface-boundary.mjs",
+    "verify:agent-tools": "node scripts/torchiko.mjs tools coverage --json",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "prepare": "husky"
   },

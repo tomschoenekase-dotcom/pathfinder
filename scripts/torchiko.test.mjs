@@ -7,6 +7,8 @@ import {
   buildBootstrapReport,
   buildDoctorReport,
   buildRepositoryMap,
+  buildToolCoverageReport,
+  classifyRouter,
   findTests,
   listAgentTools,
   listFixtures,
@@ -64,6 +66,20 @@ test('targeted test discovery is bounded and useful', async () => {
   const report = await findTests(root, 'agent-bridge')
   assert.ok(report.matches.some((file) => file.includes('agent-bridge')))
   assert.ok(report.matches.length <= 100)
+})
+
+test('every mounted router has exactly one explicit agent/developer coverage decision', async () => {
+  const report = await buildToolCoverageReport(root)
+  assert.equal(report.healthy, true)
+  assert.equal(report.classified, report.totalRouters)
+  assert.equal(report.unclassified.length, 0)
+  assert.equal(report.ambiguous.length, 0)
+  assert.ok(report.totalRouters > 60)
+})
+
+test('coverage classification fails new unreviewed router names', () => {
+  const policy = { categories: [{ id: 'known', pattern: '^knownRouter$' }] }
+  assert.equal(classifyRouter('newUnreviewedRouter', policy).length, 0)
 })
 
 test('bootstrap is inspect-only and retains explicit safety gates', async () => {

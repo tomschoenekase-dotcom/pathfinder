@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "categories": [
+    {
+      "id": "platform-admin",
+      "pattern": "^admin(?:Overview)?Router$",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "The platform-admin aggregate is represented through its domain routers; no generic super-admin agent tool is permitted.",
+      "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "agent-evaluation",
+      "pattern": "(?<!Support)Agent|AiWorkload|CostBudget|Evaluation",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Expose bounded reads, questions, delegation, outcomes, and governed evaluation requests while keeping identity and model rollout privileged.",
+      "evidence": "packages/contracts/src/mcp-v0.ts"
+    },
+    {
+      "id": "crm-billing",
+      "pattern": "Prospect|Billing",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "CRM agents may read and draft but never approve/send; billing agents may read and propose but never mutate Stripe or access.",
+      "evidence": "docs/agents/TOOL_REFERENCE.md"
+    },
+    {
+      "id": "venue-content-deployment",
+      "pattern": "Venue|Place|Knowledge|Content|Package|Deployment(?!Evaluations)|SecondLayer|Tochi|GuestDesign|Engagement",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Expose safe reads and reviewable drafts; publication, deployment application, and broad mutation remain approval-bound.",
+      "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "intake-media",
+      "pattern": "Intake|Media",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Readiness and job state are agent-readable; upload quarantine, malware, and review transitions retain canonical human/system gates.",
+      "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "support",
+      "pattern": "Support",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Agents may inspect support state and create approved drafts; participant, resolution, and attachment boundaries remain canonical.",
+      "evidence": "docs/agents/TOOL_REFERENCE.md"
+    },
+    {
+      "id": "client-tenant-portal",
+      "pattern": "Client(?!Analytics)|Tenant|Portal",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Client identity and venue state are readable; account lifecycle mutations remain privileged and auditable.",
+      "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "operations-reporting",
+      "pattern": "Operational|OperationsReadiness|Report|Analytics|Attention|Incident|Digest|Freshness",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Expose bounded operational intelligence and drafts; provider execution, incident control, and publication stay gated.",
+      "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "conversation-experience",
+      "pattern": "Chat|Answer|Feedback|Voice|Location|Widget",
+      "agentCoverage": "partial",
+      "developerCoverage": "partial",
+      "decision": "Session metadata is privacy-bounded; raw replay and simulation require a separate synthetic developer contract.",
+      "evidence": "docs/agents/GAP_REPORT.md"
+    },
+    {
+      "id": "access-configuration",
+      "pattern": "ExternalCredential|ProductEntitlement",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "Agents may inspect safe state but cannot issue credentials or change entitlements autonomously.",
+      "evidence": "docs/agents/CAPABILITY_MATRIX.md"
+    },
+    {
+      "id": "offboarding",
+      "pattern": "Offboarding",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "Finalization is high consequence; agents may gain preview/read support but not autonomous finalization.",
+      "evidence": "docs/agents/GAP_REPORT.md"
+    }
+  ]
+}

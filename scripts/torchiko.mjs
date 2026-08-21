@@ -7,6 +7,7 @@ import {
   buildBootstrapReport,
   buildDoctorReport,
   buildRepositoryMap,
+  buildToolCoverageReport,
   findTests,
   listAgentTools,
   listFixtures,
@@ -18,7 +19,7 @@ const json = args.includes('--json')
 const positional = args.filter((arg) => arg !== '--json')
 
 function usage() {
-  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  fixtures list [--json]\n  tests find <query> [--json]\n  golden validate\n`
+  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  tests find <query> [--json]\n  golden validate\n`
 }
 
 function emit(value) {
@@ -37,6 +38,12 @@ async function main() {
   }
   if (group === 'repo' && action === 'map') return emit(await buildRepositoryMap(root))
   if (group === 'tools' && action === 'list') return emit(await listAgentTools(root))
+  if (group === 'tools' && action === 'coverage') {
+    const report = await buildToolCoverageReport(root)
+    emit(report)
+    if (!report.healthy) process.exitCode = 1
+    return
+  }
   if (group === 'fixtures' && action === 'list') return emit(await listFixtures(root))
   if (group === 'tests' && action === 'find' && rest.length > 0)
     return emit(await findTests(root, rest.join(' ')))
