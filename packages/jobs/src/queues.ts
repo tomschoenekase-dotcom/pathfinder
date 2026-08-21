@@ -85,3 +85,6 @@ export const GMAIL_SYNC_WATCH_RENEWAL_JOB = 'gmail-sync-watch-renewal'
 export const BILLING_RECONCILIATION_QUEUE = queueName('billing-reconciliation')
 export const BILLING_RECONCILIATION_PROCESS_JOB = 'billing-reconciliation-process'
 export const BILLING_RECONCILIATION_SCHEDULER_JOB = 'billing-reconciliation-scheduler'
+
+export const ACCOUNT_SUMMARY_REFRESH_QUEUE = queueName('account-summary-refresh')
+export const ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB = 'account-summary-refresh-scheduler'

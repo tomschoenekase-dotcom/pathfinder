@@ -133,6 +133,10 @@ describe('bounded account history projections', () => {
         textBody: `Here is the map. ${'x'.repeat(500)}`,
         attachmentMetadata: [{ name: 'map.pdf' }],
         occurredAt: new Date('2030-01-03T00:00:00.000Z'),
+        providerAccountId: 'gmail_account_1',
+        providerMessageId: 'gmail_message_1',
+        internetMessageId: '<message-1@example.com>',
+        providerAccount: { provider: 'GMAIL', mailboxAddress: 'team@torchiko.com' },
       },
     ])
     const result = await listAccountCorrespondence(
@@ -142,6 +146,15 @@ describe('bounded account history projections', () => {
     expect(result.items[0]?.snippet?.length).toBeLessThanOrEqual(320)
     expect(result.items[0]?.hasAttachments).toBe(true)
     expect(result.items[0]).not.toHaveProperty('textBody')
+    expect(result.items[0]?.provenance).toEqual(
+      expect.objectContaining({
+        canonicalAuthority: 'GMAIL',
+        providerAccountId: 'gmail_account_1',
+        providerMessageId: 'gmail_message_1',
+        originalSourceUrl:
+          'https://mail.google.com/mail/u/team%40torchiko.com/#search/rfc822msgid%3A%3Cmessage-1%40example.com%3E',
+      }),
+    )
   })
 
   it('does not query history when the active tenant relationship cannot be resolved', async () => {

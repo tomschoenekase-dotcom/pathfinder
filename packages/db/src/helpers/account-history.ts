@@ -63,6 +63,10 @@ function snippet(value: string | null, max = 320) {
   return compact.length <= max ? compact : `${compact.slice(0, max - 1)}…`
 }
 
+function gmailSourceLink(mailboxAddress: string, internetMessageId: string) {
+  return `https://mail.google.com/mail/u/${encodeURIComponent(mailboxAddress)}/#search/${encodeURIComponent(`rfc822msgid:${internetMessageId}`)}`
+}
+
 export async function getAccountTimeline(
   rawInput: AccountHistoryRequest,
   client: AccountHistoryClient = db,
@@ -326,25 +330,43 @@ export async function listAccountCorrespondence(
       textBody: true,
       attachmentMetadata: true,
       occurredAt: true,
+      providerAccountId: true,
+      providerMessageId: true,
+      internetMessageId: true,
+      providerAccount: { select: { provider: true, mailboxAddress: true } },
     },
   })
   const result = page(
-    rows.map((row) => ({
-      id: row.id,
-      threadId: row.threadId,
-      contactId: row.contactId,
-      direction: row.direction,
-      status: row.status,
-      fromAddress: row.fromAddress,
-      toAddresses: row.toAddresses,
-      subject: row.subject,
-      snippet: snippet(row.textBody),
-      hasAttachments: Array.isArray(row.attachmentMetadata)
-        ? row.attachmentMetadata.length > 0
-        : Boolean(row.attachmentMetadata),
-      occurredAt: row.occurredAt.toISOString(),
-      provenance: { sourceType: 'EMAIL', sourceId: row.id },
-    })),
+    rows.map((row) => {
+      const gmail = row.providerAccount?.provider === 'GMAIL' ? row.providerAccount : null
+      return {
+        id: row.id,
+        threadId: row.threadId,
+        contactId: row.contactId,
+        direction: row.direction,
+        status: row.status,
+        fromAddress: row.fromAddress,
+        toAddresses: row.toAddresses,
+        subject: row.subject,
+        snippet: snippet(row.textBody),
+        hasAttachments: Array.isArray(row.attachmentMetadata)
+          ? row.attachmentMetadata.length > 0
+          : Boolean(row.attachmentMetadata),
+        occurredAt: row.occurredAt.toISOString(),
+        provenance: {
+          sourceType: 'EMAIL',
+          sourceId: row.id,
+          canonicalAuthority: gmail ? 'GMAIL' : 'TORCHIKO',
+          providerAccountId: row.providerAccountId,
+          providerMessageId: row.providerMessageId,
+          internetMessageId: row.internetMessageId,
+          originalSourceUrl:
+            gmail && row.internetMessageId
+              ? gmailSourceLink(gmail.mailboxAddress, row.internetMessageId)
+              : null,
+        },
+      }
+    }),
     input.limit,
   )
   return { schemaVersion: 'account-correspondence.v1', organization, ...result }

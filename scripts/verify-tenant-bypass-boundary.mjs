@@ -29,6 +29,9 @@ const approvedCallCounts = new Map([
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
   ['apps/workers/src/processors/gmail-sync.ts', 4],
+  // Platform maintenance scans a bounded set of STALE summaries, then each
+  // canonical refresh re-enters one exact tenant+organization scope.
+  ['apps/workers/src/processors/account-summary-refresh.ts', 1],
   // Worker reconciles approved-package onboarding milestones for the exact job tenant+venue.
   ['apps/workers/src/processors/evaluation-run.ts', 9],
   // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.

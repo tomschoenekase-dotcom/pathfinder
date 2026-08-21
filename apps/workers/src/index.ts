@@ -3,6 +3,8 @@ import { Queue, Worker, type Job } from 'bullmq'
 import { env, logger } from '@pathfinder/config'
 import { recordWorkerHeartbeat } from '@pathfinder/db'
 import {
+  ACCOUNT_SUMMARY_REFRESH_QUEUE,
+  ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
   AGENT_RUN_PROCESS_JOB,
   AGENT_RUN_QUEUE,
   AGENT_RUN_RETRY_BACKOFF,
@@ -97,6 +99,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { processAnswerAnalysisJob } from './processors/answer-analysis'
+import { processStaleAccountSummaries } from './processors/account-summary-refresh'
 import { processAgentRunJob } from './processors/agent-run'
 import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment'
 import { processDailyRollupJob } from './processors/daily-rollup'
@@ -149,6 +152,13 @@ const ANALYTICS_ENRICHMENT_CRON = '30 1 * * *'
 const EMBEDDING_DISPATCH_CRON = '* * * * *'
 const GENERATION_DISPATCH_CRON = '* * * * *'
 const GENERATION_RECOVERY_CRON = '* * * * *'
+
+async function handleAccountSummaryRefreshQueueJob(job: Job<Record<string, never>>) {
+  if (job.name !== ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB) {
+    throw new Error(`Unsupported account summary refresh job: ${job.name}`)
+  }
+  await processStaleAccountSummaries({ systemJobId: String(job.id ?? job.name) })
+}
 
 async function startOperationalHeartbeat(mode: 'provider-enabled' | 'provider-disabled') {
   const write = () =>
@@ -676,6 +686,7 @@ export async function startWorkers() {
   const prospectImportQueue = new Queue(PROSPECT_IMPORT_QUEUE, { connection })
   const gmailSyncQueue = new Queue(GMAIL_SYNC_QUEUE, { connection })
   const billingReconciliationQueue = new Queue(BILLING_RECONCILIATION_QUEUE, { connection })
+  const accountSummaryRefreshQueue = new Queue(ACCOUNT_SUMMARY_REFRESH_QUEUE, { connection })
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
@@ -699,6 +710,7 @@ export async function startWorkers() {
     { name: PROSPECT_IMPORT_QUEUE, close: () => prospectImportQueue.close() },
     { name: GMAIL_SYNC_QUEUE, close: () => gmailSyncQueue.close() },
     { name: BILLING_RECONCILIATION_QUEUE, close: () => billingReconciliationQueue.close() },
+    { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, close: () => accountSummaryRefreshQueue.close() },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
       : []),
@@ -719,6 +731,27 @@ export async function startWorkers() {
   await runStartupWithCleanup(async () => {
     await configureMediaIngestionGlobalConcurrency(mediaIngestionQueue)
 
+    await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
+      {
+        upsert: () =>
+          accountSummaryRefreshQueue.upsertJobScheduler(
+            ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
+            { every: 5 * 60_000 },
+            {
+              name: ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
+              data: {},
+              opts: {
+                attempts: 5,
+                backoff: { type: 'exponential', delay: 10_000 },
+                removeOnComplete: 20,
+                removeOnFail: 100,
+              },
+            },
+          ),
+        remove: () =>
+          accountSummaryRefreshQueue.removeJobScheduler(ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB),
+      },
+    ])
     await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED, [
       {
         upsert: () =>
@@ -1130,6 +1163,14 @@ export async function startWorkers() {
     }),
   )
 
+  const accountSummaryRefreshWorker = observeWorkerRuntime(
+    ACCOUNT_SUMMARY_REFRESH_QUEUE,
+    new Worker(ACCOUNT_SUMMARY_REFRESH_QUEUE, handleAccountSummaryRefreshQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
     new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
@@ -1258,6 +1299,7 @@ export async function startWorkers() {
     { name: PROSPECT_IMPORT_QUEUE, worker: prospectImportWorker },
     { name: GMAIL_SYNC_QUEUE, worker: gmailSyncWorker },
     { name: BILLING_RECONCILIATION_QUEUE, worker: billingReconciliationWorker },
+    { name: ACCOUNT_SUMMARY_REFRESH_QUEUE, worker: accountSummaryRefreshWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
@@ -1299,6 +1341,7 @@ export async function startWorkers() {
       PROSPECT_IMPORT_QUEUE,
       GMAIL_SYNC_QUEUE,
       BILLING_RECONCILIATION_QUEUE,
+      ACCOUNT_SUMMARY_REFRESH_QUEUE,
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),

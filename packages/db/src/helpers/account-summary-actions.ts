@@ -102,12 +102,14 @@ export async function refreshAccountSummaryAction(
       where: { organizationId: input.organizationId },
       _max: { version: true },
     })
-    if (current) {
-      await tx.accountSummary.updateMany({
-        where: { organizationId: input.organizationId, status: 'CURRENT' },
-        data: { status: 'SUPERSEDED' },
-      })
-    }
+    await tx.accountSummary.updateMany({
+      where: {
+        organizationId: input.organizationId,
+        tenantId: input.clientId,
+        status: { in: ['CURRENT', 'STALE'] },
+      },
+      data: { status: 'SUPERSEDED' },
+    })
     const created = await tx.accountSummary.create({
       data: {
         tenantId: input.clientId,
