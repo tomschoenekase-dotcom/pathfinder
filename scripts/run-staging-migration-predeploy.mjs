@@ -27,6 +27,8 @@ const EXPECTED = Object.freeze({
   preBillingPublicTableCount: 164,
   billingFoundationCount: 133,
   billingFoundationPublicTableCount: 175,
+  previousReleaseCount: 134,
+  previousReleasePublicTableCount: 175,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -34,6 +36,7 @@ const EXPECTED = Object.freeze({
   stagingBaselineFinalMigration: '20260819156000_add_operational_event_delivery_audit',
   preBillingFinalMigration: '20260820190000_harden_prospect_import_jobs',
   billingFoundationFinalMigration: '20260820210000_add_stripe_billing_foundation',
+  previousReleaseFinalMigration: '20260821032000_allow_pending_stripe_customer_link',
   finalMigration: '20260821201000_add_meeting_processing_capability',
   manifestHash: '42ed987e8e05e3b54786adde743dead33f6fda1290d084cc166066736798586b',
   finalPublicTableCount: 193,
@@ -153,6 +156,11 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('billing foundation boundary changed')
   }
+  if (
+    manifest.names[EXPECTED.previousReleaseCount - 1] !== EXPECTED.previousReleaseFinalMigration
+  ) {
+    fail('previous staging release boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -164,6 +172,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.stagingBaselineCount &&
     rows.length !== EXPECTED.preBillingCount &&
     rows.length !== EXPECTED.billingFoundationCount &&
+    rows.length !== EXPECTED.previousReleaseCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -196,7 +205,14 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.stagingBaselineCount) return 'staging-baseline'
   if (rows.length === EXPECTED.preBillingCount) return 'pre-billing'
   if (rows.length === EXPECTED.billingFoundationCount) return 'billing-foundation'
+  if (rows.length === EXPECTED.previousReleaseCount) return 'previous-release'
   return 'complete'
+}
+
+function remainingMigrationNames(rows, manifest) {
+  const state = ledgerState(rows, manifest)
+  if (state === 'complete') return []
+  return manifest.names.slice(rows.length)
 }
 
 async function assertVerifiedBaselineSchema(database, rows) {
@@ -331,7 +347,9 @@ async function main() {
               ? EXPECTED.preBillingPublicTableCount
               : initialState === 'billing-foundation'
                 ? EXPECTED.billingFoundationPublicTableCount
-                : EXPECTED.stagingBaselinePublicTableCount
+                : initialState === 'previous-release'
+                  ? EXPECTED.previousReleasePublicTableCount
+                  : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }
@@ -363,4 +381,4 @@ if (isMain) {
   })
 }
 
-export { EXPECTED, VERIFIED_BASELINE_CHECKSUMS, ledgerState }
+export { EXPECTED, VERIFIED_BASELINE_CHECKSUMS, ledgerState, remainingMigrationNames }
