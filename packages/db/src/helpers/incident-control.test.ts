@@ -145,6 +145,7 @@ describe('setGlobalAiControlAction', () => {
       data: {
         actorId: 'admin-1',
         actorRole: 'PLATFORM_ADMIN',
+        actorType: 'HUMAN',
         action: 'admin.global-ai.paused',
         targetType: 'PlatformConfig',
         targetId: 'global-ai-control-v1',

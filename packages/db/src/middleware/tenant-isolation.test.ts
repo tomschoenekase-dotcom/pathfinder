@@ -159,6 +159,7 @@ describe('tenantIsolationMiddleware', () => {
       'EmbeddingDispatch',
       'AgentIdentity',
       'AgentBridgeSession',
+      'AgentWorker',
       'AgentRun',
       'AgentAction',
       'AgentTimelineEvent',
@@ -168,6 +169,8 @@ describe('tenantIsolationMiddleware', () => {
       'OnboardingQuestionLink',
       'ApprovalRequest',
       'ApprovalDecision',
+      'ApprovalGrant',
+      'ApprovalGrantConsumption',
       'SupportRequest',
       'SupportRequestParticipant',
       'SupportMessage',
@@ -255,7 +258,25 @@ describe('tenantIsolationMiddleware', () => {
       'GmailOAuthAttempt',
       'ProspectInboundQuarantine',
     ])
-    expect(SHARED_SCOPE_TABLES_LIST).toEqual(['AuditLog', 'JobRecord'])
+    expect(SHARED_SCOPE_TABLES_LIST).toEqual([
+      'AuditLog',
+      'JobRecord',
+      'CompanyKnowledgeItem',
+      'CompanyKnowledgeRevision',
+      'CompanyKnowledgeSource',
+      'CompanyKnowledgeEntityLink',
+      'CompanyKnowledgeRelation',
+      'CompanyDecision',
+      'CompanyPriority',
+      'AccountRelationshipNote',
+      'AccountMilestone',
+      'AccountOpenLoop',
+      'AccountCommitment',
+      'AccountSummary',
+      'CompanyMeeting',
+      'CompanyMeetingParticipant',
+      'CompanyMeetingExtraction',
+    ])
   })
 
   it('findMany on a tenanted table with tenantId passes', async () => {

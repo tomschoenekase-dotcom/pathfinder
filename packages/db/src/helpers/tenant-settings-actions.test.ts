@@ -58,6 +58,7 @@ describe('setTenantEngagementModeAction', () => {
         tenantId: 'tenant-1',
         actorId: 'manager-1',
         actorRole: 'MANAGER',
+        actorType: 'HUMAN',
         action: 'tenant.engagement-mode.updated',
         targetType: 'Tenant',
         targetId: 'tenant-1',

@@ -53,6 +53,7 @@ export const McpCapability = z.enum([
   'accounts:read',
   'knowledge:read',
   'meetings:read',
+  'workers:read',
   'questions:ask',
   'delegations:create',
   'agent-runs:execute',
@@ -479,6 +480,10 @@ export const McpPackageDraftInput = McpRequestedScope.extend({
 export type McpPackageDraftInput = z.infer<typeof McpPackageDraftInput>
 
 export const McpUpdateDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
   title: z.string().trim().min(1).max(160),
   body: z.string().trim().min(1).max(4_000),
   startsAt: z.string().datetime({ offset: true }),
@@ -831,18 +836,32 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     inputSchema: strictObject(
       {
         ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
         title: { type: 'string', minLength: 1, maxLength: 160 },
         body: { type: 'string', minLength: 1, maxLength: 4000 },
         startsAt: { type: 'string', format: 'date-time' },
         expiresAt: { type: 'string', format: 'date-time' },
       },
-      [...scopeRequired, 'title', 'body', 'startsAt', 'expiresAt'],
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'title',
+        'body',
+        'startsAt',
+        'expiresAt',
+      ],
     ),
     outputSchema: resultSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: false,
+      idempotentHint: true,
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'updates:draft', 'draft') },

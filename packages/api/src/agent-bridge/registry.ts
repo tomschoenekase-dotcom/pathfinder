@@ -7,6 +7,9 @@ import {
   failAgentBridgeTask,
   heartbeatAgentBridgeSession,
   heartbeatAgentBridgeTask,
+  heartbeatAgentWorkerAction,
+  listAgentWorkerHealth,
+  registerAgentWorkerAction,
   registerAgentBridgeSession,
 } from '@pathfinder/db'
 
@@ -42,6 +45,44 @@ export function createAgentBridgeRegistry(
   let operationalRegistry = dependencies.operationalRegistry
   const operational = () => (operationalRegistry ??= createSafeOperationalMcpRegistry())
   return {
+    registerWorker: (raw: unknown, rawContext: unknown) => {
+      const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      const input = z
+        .object({
+          workerKey: z.string().trim().min(1).max(191),
+          runtimeType: z.enum(['HERMES', 'CODEX', 'CLAUDE', 'OPENAI_COMPATIBLE', 'CUSTOM']),
+          label: z.string().trim().min(1).max(200),
+          protocolVersion: z.string().trim().min(1).max(100),
+          softwareVersion: z.string().trim().min(1).max(100),
+          capabilities: z.array(z.string().trim().min(1).max(191)).max(100),
+          agentRoles: z.array(z.string().trim().min(1).max(191)).max(50),
+          modelProvider: z.string().trim().min(1).max(100).optional(),
+          modelName: z.string().trim().min(1).max(191).optional(),
+          safeHealth: z.record(z.unknown()).default({}),
+        })
+        .strict()
+        .parse(raw)
+      return registerAgentWorkerAction(input, context.credential)
+    },
+    heartbeatWorker: (raw: unknown, rawContext: unknown) => {
+      const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      const input = z
+        .object({
+          workerKey: z.string().trim().min(1).max(191),
+          safeHealth: z.record(z.unknown()).default({}),
+        })
+        .strict()
+        .parse(raw)
+      return heartbeatAgentWorkerAction(input, context.credential)
+    },
+    listWorkers: (raw: unknown, rawContext: unknown) => {
+      z.object({}).strict().parse(raw)
+      const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      if (!context.credential.capabilities.includes('workers:read')) {
+        throw new Error('Worker health requires workers:read')
+      }
+      return listAgentWorkerHealth({ clientId: context.credential.clientId })
+    },
     listOperationalTools: (_raw: unknown, rawContext: unknown) => {
       z.object({}).strict().parse(_raw)
       z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
@@ -95,7 +136,15 @@ export function createAgentBridgeRegistry(
     },
     claimTask: (raw: unknown, rawContext: unknown) => {
       const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
-      return claimAgentBridgeTask({ ...sessionScope.parse(raw), credential: context.credential })
+      const input = sessionScope
+        .extend({ workerKey: z.string().trim().min(1).max(191).optional() })
+        .parse(raw)
+      return claimAgentBridgeTask({
+        sessionId: input.sessionId,
+        venueId: input.venueId,
+        ...(input.workerKey ? { workerKey: input.workerKey } : {}),
+        credential: context.credential,
+      })
     },
     heartbeatTask: (raw: unknown, rawContext: unknown) => {
       const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)

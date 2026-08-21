@@ -78,6 +78,7 @@ export const TENANTED_TABLES = [
   'EmbeddingDispatch',
   'AgentIdentity',
   'AgentBridgeSession',
+  'AgentWorker',
   'AgentRun',
   'AgentAction',
   'AgentTimelineEvent',

@@ -410,6 +410,12 @@ export {
   ingestCompanyMeetingAction,
   recordCompanyMeetingExtractionAction,
 } from './helpers/company-meeting-actions'
+export {
+  AgentWorkerActionError,
+  heartbeatAgentWorkerAction,
+  listAgentWorkerHealth,
+  registerAgentWorkerAction,
+} from './helpers/agent-worker-actions'
 export type {
   AiCostAttemptIdentity,
   AiCostReservationRef,
@@ -614,6 +620,7 @@ export {
 } from './helpers/operational-update-actions'
 export type {
   OperationalUpdateActionClient,
+  OperationalUpdateActor,
   OperationalUpdateActionErrorCode,
   OperationalUpdateActionResult,
   OperationalUpdateFields,

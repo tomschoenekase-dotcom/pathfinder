@@ -126,6 +126,8 @@ describe('dashboard middleware access policy', () => {
     '/api/webhooks/resend',
     '/api/agent-bridge',
     '/api/agent-bridge/tenant_1/venue_1',
+    '/api/mcp',
+    '/api/mcp/tenant_1/venue_1',
   ])('preserves the public boundary for %s', (pathname) => {
     expect(
       resolveDashboardAccess({
@@ -144,6 +146,7 @@ describe('dashboard middleware access policy', () => {
     '/api/webhooks/stripe-attacker',
     '/api/webhooks/resend-attacker',
     '/api/agent-bridge-attacker/tenant_1/venue_1',
+    '/api/mcp-attacker/tenant_1/venue_1',
   ])('does not make the prefix-adjacent path %s public', (pathname) => {
     expect(
       resolveDashboardAccess({

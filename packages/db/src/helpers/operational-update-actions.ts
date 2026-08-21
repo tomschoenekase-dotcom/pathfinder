@@ -1,3 +1,5 @@
+import type { MachineActorContext } from '@pathfinder/contracts/actor'
+
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 import {
@@ -25,6 +27,7 @@ export type OperationalUpdateHumanActor = {
   id: string
   role: 'MANAGER' | 'OWNER'
 }
+export type OperationalUpdateActor = OperationalUpdateHumanActor | MachineActorContext
 
 export type OperationalUpdateFields = {
   venueId: string
@@ -126,8 +129,17 @@ export function buildOperationalUpdatePreview(
   }
 }
 
-function validateActor(actor: OperationalUpdateHumanActor): void {
-  if (actor.type !== 'HUMAN' || !actor.id || !['MANAGER', 'OWNER'].includes(actor.role)) {
+function validateActor(actor: OperationalUpdateActor, schedule: boolean): void {
+  if (actor.type === 'AGENT') {
+    if (schedule || actor.capability !== 'updates:draft') {
+      throw new OperationalUpdateActionError(
+        'INVALID_INPUT',
+        'Machine actors may only create drafts with updates:draft capability',
+      )
+    }
+    return
+  }
+  if (!actor.id || !['MANAGER', 'OWNER'].includes(actor.role)) {
     throw new OperationalUpdateActionError('INVALID_INPUT', 'A manager human actor is required')
   }
 }
@@ -231,15 +243,19 @@ async function assertCapacity(
   }
 }
 
-async function prepare(tx: typeof db, actor: OperationalUpdateHumanActor): Promise<void> {
-  validateActor(actor)
-  await setContentVersionContext(tx, { actorId: actor.id })
+async function prepare(
+  tx: typeof db,
+  actor: OperationalUpdateActor,
+  schedule: boolean,
+): Promise<void> {
+  validateActor(actor, schedule)
+  await setContentVersionContext(tx, { actorId: actor.type === 'AGENT' ? actor.actorId : actor.id })
 }
 
 export async function createOperationalUpdateAction(
   input: {
     tenantId: string
-    actor: OperationalUpdateHumanActor
+    actor: OperationalUpdateActor
     fields: OperationalUpdateFields
     schedule: boolean
     now?: Date
@@ -253,7 +269,7 @@ export async function createOperationalUpdateAction(
   }
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    await prepare(tx, input.actor)
+    await prepare(tx, input.actor, input.schedule)
     await assertScope(tx, input.tenantId, input.fields)
     if (input.schedule) await assertCapacity(tx, { tenantId: input.tenantId, ...input.fields })
     const created = await tx.operationalUpdate.create({
@@ -271,8 +287,8 @@ export async function createOperationalUpdateAction(
         expiresAt: input.fields.expiresAt,
         status: input.schedule ? 'PUBLISHED' : 'DRAFT',
         isActive: input.schedule,
-        createdBy: input.actor.id,
-        publishedBy: input.schedule ? input.actor.id : null,
+        createdBy: input.actor.type === 'AGENT' ? input.actor.actorId : input.actor.id,
+        publishedBy: input.schedule && input.actor.type === 'HUMAN' ? input.actor.id : null,
         publishedAt: input.schedule ? now : null,
       },
       select: operationalUpdateActionSelect,
@@ -280,8 +296,9 @@ export async function createOperationalUpdateAction(
     await writeAuditLogStrict(
       {
         tenantId: input.tenantId,
-        actorId: input.actor.id,
-        actorRole: input.actor.role,
+        ...(input.actor.type === 'AGENT'
+          ? { actor: input.actor }
+          : { actorId: input.actor.id, actorRole: input.actor.role }),
         action: input.schedule
           ? 'operational-update.created-published'
           : 'operational-update.created-draft',
@@ -311,7 +328,7 @@ export async function updateOperationalUpdateAction(
   const now = input.now ?? new Date()
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    await prepare(tx, input.actor)
+    await prepare(tx, input.actor, input.schedule)
     await lockContentVersionEntity(tx, {
       tenantId: input.tenantId,
       entityType: 'OPERATIONAL_UPDATE',
@@ -398,7 +415,7 @@ export async function scheduleOperationalUpdateAction(
   const now = input.now ?? new Date()
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    await prepare(tx, input.actor)
+    await prepare(tx, input.actor, true)
     await lockContentVersionEntity(tx, {
       tenantId: input.tenantId,
       entityType: 'OPERATIONAL_UPDATE',
@@ -462,7 +479,7 @@ export async function expireOperationalUpdateAction(
   const now = input.now ?? new Date()
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
-    await prepare(tx, input.actor)
+    await prepare(tx, input.actor, true)
     await lockContentVersionEntity(tx, {
       tenantId: input.tenantId,
       entityType: 'OPERATIONAL_UPDATE',

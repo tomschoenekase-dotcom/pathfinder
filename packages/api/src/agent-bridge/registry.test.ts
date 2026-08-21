@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   heartbeatTask: vi.fn(),
   complete: vi.fn(),
   fail: vi.fn(),
+  registerWorker: vi.fn(),
+  heartbeatWorker: vi.fn(),
+  listWorkers: vi.fn(),
   prospectCall: vi.fn(),
   operationalList: vi.fn(),
   operationalCall: vi.fn(),
@@ -21,6 +24,9 @@ vi.mock('@pathfinder/db', () => ({
   heartbeatAgentBridgeTask: mocks.heartbeatTask,
   completeAgentBridgeTask: mocks.complete,
   failAgentBridgeTask: mocks.fail,
+  registerAgentWorkerAction: mocks.registerWorker,
+  heartbeatAgentWorkerAction: mocks.heartbeatWorker,
+  listAgentWorkerHealth: mocks.listWorkers,
 }))
 
 import { createAgentBridgeRegistry } from './registry'
@@ -69,6 +75,63 @@ describe('agent bridge registry', () => {
         { credential },
       ),
     ).toThrow()
+  })
+
+  it('registers a provider-neutral worker under the verified machine credential', async () => {
+    mocks.registerWorker.mockResolvedValue({ id: 'worker-id-1', status: 'ONLINE' })
+    const workerCredential = {
+      ...credential,
+      capabilities: ['agent-runs:execute', 'updates:draft', 'workers:read'],
+    }
+    const registry = createAgentBridgeRegistry()
+    await registry.registerWorker(
+      {
+        workerKey: 'secondary-admin-hermes-1',
+        runtimeType: 'HERMES',
+        label: 'Secondary admin worker',
+        protocolVersion: '1.0',
+        softwareVersion: '2.4.1',
+        capabilities: ['agent-runs:execute', 'updates:draft'],
+        agentRoles: ['client-operations'],
+        modelProvider: 'nous',
+        modelName: 'deepseek-v4-flash',
+        safeHealth: { queueDepth: 0 },
+      },
+      { credential: workerCredential },
+    )
+    expect(mocks.registerWorker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerKey: 'secondary-admin-hermes-1',
+        runtimeType: 'HERMES',
+        capabilities: ['agent-runs:execute', 'updates:draft'],
+      }),
+      workerCredential,
+    )
+  })
+
+  it('binds a claimed run to an optional portable worker and protects worker health discovery', async () => {
+    mocks.claim.mockResolvedValue({ task: { id: 'run-1' } })
+    mocks.listWorkers.mockResolvedValue([{ workerKey: 'worker-1', status: 'ONLINE' }])
+    const workerCredential = {
+      ...credential,
+      capabilities: ['agent-runs:execute', 'workers:read'],
+    }
+    const registry = createAgentBridgeRegistry()
+    await registry.claimTask(
+      {
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        venueId: 'venue-1',
+        workerKey: 'worker-1',
+      },
+      { credential: workerCredential },
+    )
+    expect(mocks.claim).toHaveBeenCalledWith(
+      expect.objectContaining({ workerKey: 'worker-1', credential: workerCredential }),
+    )
+    expect(() => registry.listWorkers({}, { credential })).toThrow(/workers:read/u)
+    await expect(registry.listWorkers({}, { credential: workerCredential })).resolves.toEqual([
+      { workerKey: 'worker-1', status: 'ONLINE' },
+    ])
   })
 
   it('parses decimal cost units to bigint and bounds bridge artifacts', async () => {

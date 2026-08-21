@@ -83,6 +83,7 @@ describe('createOffboardingDraftAction', () => {
         tenantId: 'tenant-1',
         actorId: 'admin-1',
         actorRole: 'PLATFORM_ADMIN',
+        actorType: 'HUMAN',
         action: 'offboarding-plan.draft-created',
         targetType: 'OffboardingPlan',
         targetId: 'plan-1',

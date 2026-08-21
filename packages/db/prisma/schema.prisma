@@ -180,6 +180,7 @@ model Tenant {
   intakeUploads                  IntakeUpload[]
   externalCredentials            ExternalAccessCredential[]
   agentBridgeSessions            AgentBridgeSession[]
+  agentWorkers                   AgentWorker[]
   credentialRotations            ExternalCredentialRotation[]
   credentialRevocations          ExternalCredentialRevocation[]
   credentialActivations          ExternalCredentialActivation[]
@@ -4031,6 +4032,7 @@ model AgentRun {
   cancelRequestedAt        DateTime?                 @map("cancel_requested_at")
   executionLeaseToken      String?                   @map("execution_lease_token") @db.Uuid
   executionBridgeSessionId String?                   @map("execution_bridge_session_id")
+  executionWorkerId        String?                   @map("execution_worker_id")
   executionLeaseExpiresAt  DateTime?                 @map("execution_lease_expires_at")
   lastHeartbeatAt          DateTime?                 @map("last_heartbeat_at")
   attemptNumber            Int                       @default(0) @map("attempt_number")
@@ -4052,6 +4054,7 @@ model AgentRun {
   parentAgentRun           AgentRun?                 @relation("AgentRunDelegations", fields: [parentAgentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   delegatedRuns            AgentRun[]                @relation("AgentRunDelegations")
   executionBridgeSession   AgentBridgeSession?       @relation(fields: [executionBridgeSessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  executionWorker          AgentWorker?              @relation(fields: [executionWorkerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   approvalGrantConsumptions ApprovalGrantConsumption[]
 
   @@unique([id, tenantId])
@@ -4062,6 +4065,7 @@ model AgentRun {
   @@index([tenantId, agentIdentityId, createdAt])
   @@index([tenantId, parentAgentRunId, createdAt], map: "agent_runs_parent_created_idx")
   @@index([status, executionLeaseExpiresAt], map: "agent_runs_status_lease_expiry_idx")
+  @@index([executionWorkerId, status, updatedAt], map: "agent_runs_worker_status_idx")
   @@index([status, createdAt], map: "agent_runs_status_created_idx")
   @@map("agent_runs")
 }
@@ -4768,6 +4772,7 @@ model ExternalAccessCredential {
   operationReceipts      ExternalCredentialOperationReceipt[] @relation("credential_operation_result")
   priorOperationReceipts ExternalCredentialOperationReceipt[] @relation("credential_operation_previous")
   bridgeSessions         AgentBridgeSession[]
+  workers                AgentWorker[]
   activation             ExternalCredentialActivation?
 
   @@unique([id, tenantId, clientId, scopeKey], map: "external_credentials_exact_scope_key")
@@ -6329,6 +6334,56 @@ model ProspectInboundQuarantine {
   @@index([status, occurredAt])
   @@index([providerAccountId, occurredAt])
   @@map("prospect_inbound_quarantines")
+}
+
+enum AgentWorkerRuntime {
+  HERMES
+  CODEX
+  CLAUDE
+  OPENAI_COMPATIBLE
+  CUSTOM
+}
+
+enum AgentWorkerStatus {
+  ONLINE
+  DRAINING
+  OFFLINE
+  REVOKED
+}
+
+/// Provider-neutral durable worker identity. Worker presence is replaceable;
+/// company state and queued work remain in Torchiko.
+model AgentWorker {
+  id                 String                   @id @default(cuid())
+  workerKey          String                   @unique @map("worker_key") @db.VarChar(191)
+  tenantId           String                   @map("tenant_id")
+  clientId           String                   @map("client_id")
+  credentialId       String                   @map("credential_id")
+  credentialScopeKey String                   @map("credential_scope_key") @db.VarChar(191)
+  ownerAdminId       String                   @map("owner_admin_id") @db.VarChar(191)
+  runtimeType        AgentWorkerRuntime       @map("runtime_type")
+  label              String                   @db.VarChar(200)
+  protocolVersion    String                   @map("protocol_version") @db.VarChar(100)
+  softwareVersion    String                   @map("software_version") @db.VarChar(100)
+  capabilities       String[]                 @default([])
+  agentRoles         String[]                 @default([]) @map("agent_roles")
+  modelProvider      String?                  @map("model_provider") @db.VarChar(100)
+  modelName          String?                  @map("model_name") @db.VarChar(191)
+  safeHealth         Json                     @default("{}") @map("safe_health")
+  status             AgentWorkerStatus        @default(ONLINE)
+  lastHeartbeatAt    DateTime                 @default(now()) @map("last_heartbeat_at")
+  leaseExpiresAt     DateTime                 @map("lease_expires_at")
+  offlineAt          DateTime?                @map("offline_at")
+  registeredAt       DateTime                 @default(now()) @map("registered_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  credential         ExternalAccessCredential @relation(fields: [credentialId, tenantId, clientId, credentialScopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+  runs               AgentRun[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status, lastHeartbeatAt], map: "agent_workers_tenant_status_idx")
+  @@index([credentialId, status], map: "agent_workers_credential_status_idx")
+  @@map("agent_workers")
 }
 
 enum CompanyKnowledgeType {

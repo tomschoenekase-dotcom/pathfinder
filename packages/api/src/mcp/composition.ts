@@ -1,4 +1,7 @@
 import {
+  buildOperationalUpdatePreview,
+  consumeApprovalGrantAction,
+  createOperationalUpdateAction,
   db,
   getCompactAccountContext,
   getCompanyKnowledgeItem,
@@ -26,22 +29,176 @@ function jsonData(value: unknown): JsonValue {
 
 /**
  * Production composition for the safe operational catalog. It reuses canonical reads and durable
- * agent interactions. Approval-bound writes stay disabled until their domain actions can attribute
- * a machine actor without impersonating a human user.
+ * agent interactions. Only writes with canonical machine attribution and exact approval
+ * consumption are bound; all other write contracts remain unavailable.
  */
 export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   const unavailableActions: Omit<
     PathfinderMcpDomainActions,
-    'read' | 'accountContext' | 'knowledgeSearch' | 'knowledgeGet'
+    | 'read'
+    | 'accountContext'
+    | 'knowledgeSearch'
+    | 'knowledgeGet'
+    | 'verifyApprovalGrant'
+    | 'createUpdateDraft'
   > = {
-    verifyApprovalGrant: async () => unavailable('Approval verification'),
     askOperator: async () => unavailable('Operator question'),
     delegateSpecialist: async () => unavailable('Specialist delegation'),
     proposeBillingAction: async () => unavailable('Billing proposal'),
     createPackageDraft: async () => unavailable('Package draft'),
-    createUpdateDraft: async () => unavailable('Operational update draft'),
     createSupportDraft: async () => unavailable('Support draft'),
     requestEvaluation: async () => unavailable('Evaluation request'),
+  }
+  const approvedWrites: Pick<
+    PathfinderMcpDomainActions,
+    'verifyApprovalGrant' | 'createUpdateDraft'
+  > = {
+    async verifyApprovalGrant(request, context) {
+      const now = new Date()
+      const grant = await database.approvalGrant.findFirst({
+        where: {
+          id: request.approvalGrantId,
+          tenantId: context.credential.tenantId,
+          venueId: request.venueId,
+          actionName: request.toolName,
+          capability: request.capability,
+          revokedAt: null,
+          notBefore: { lte: now },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        select: { id: true, maxUses: true, useCount: true },
+      })
+      if (!grant || (grant.maxUses !== null && grant.useCount >= grant.maxUses)) {
+        throw new McpActionBindingError('Approval grant is unavailable or exhausted')
+      }
+    },
+    async createUpdateDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Operational update drafts require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'updates:draft' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified worker run is unavailable')
+      if (!context.approvalGrantId) throw new McpActionBindingError('Approval grant is required')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        approvalGrantId: context.approvalGrantId,
+        capability: 'updates:draft',
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const parameters = {
+        clientId: context.credential.clientId,
+        venueId,
+        updateType: 'GENERAL_NOTICE',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: input.title,
+        body: input.body,
+        startsAt: input.startsAt,
+        expiresAt: input.expiresAt,
+      }
+      const result = await database.$transaction(async (tx) => {
+        const sameTransaction = {
+          $transaction: async (callback: (inner: typeof tx) => unknown) => callback(tx),
+        } as never
+        const consumption = await consumeApprovalGrantAction(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            approvalGrantId: context.approvalGrantId!,
+            operationId: input.operationId,
+            actionName: 'pathfinder.create_update_draft',
+            capability: 'updates:draft',
+            parameters,
+            actor,
+            now,
+          },
+          sameTransaction,
+        )
+        if (consumption.replayed && consumption.consumption.resultReference) {
+          const updateId = consumption.consumption.resultReference.replace(
+            /^OperationalUpdate:/u,
+            '',
+          )
+          const update = await tx.operationalUpdate.findFirst({
+            where: {
+              id: updateId,
+              tenantId: context.credential.tenantId,
+              venueId,
+            },
+          })
+          if (!update)
+            throw new McpActionBindingError('Approved draft replay target is unavailable')
+          return { update, preview: buildOperationalUpdatePreview(update, now), replayed: true }
+        }
+        const created = await createOperationalUpdateAction(
+          {
+            tenantId: context.credential.tenantId,
+            actor,
+            fields: {
+              venueId,
+              updateType: 'GENERAL_NOTICE',
+              severity: 'INFO',
+              priority: 'NORMAL',
+              title: input.title,
+              body: input.body,
+              startsAt: new Date(input.startsAt),
+              expiresAt: new Date(input.expiresAt),
+            },
+            schedule: false,
+            now,
+          },
+          sameTransaction,
+        )
+        await tx.approvalGrantConsumption.update({
+          where: { id: consumption.consumption.id },
+          data: { resultReference: `OperationalUpdate:${created.update.id}` },
+        })
+        return { ...created, replayed: false }
+      })
+      return {
+        kind: 'torchiko.operational-update-draft',
+        summary: result.replayed ? 'Existing approved draft returned.' : 'Approved draft created.',
+        data: jsonData({
+          id: result.update.id,
+          status: result.update.status,
+          preview: result.preview,
+          replayed: result.replayed,
+        }),
+      }
+    },
   }
   const companyBrainReads: Pick<
     PathfinderMcpDomainActions,
@@ -103,8 +260,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   }
   const reads = createPathfinderMcpReadActions(
     database as unknown as Parameters<typeof createPathfinderMcpReadActions>[0],
-    { ...unavailableActions, ...companyBrainReads },
+    { ...unavailableActions, ...companyBrainReads, ...approvedWrites },
   )
   const actions = createPathfinderMcpAgentActions(database, reads)
-  return createPathfinderMcpRegistry(actions, { writeToolsEnabled: false })
+  return createPathfinderMcpRegistry(actions, { writeToolsEnabled: true })
 }
