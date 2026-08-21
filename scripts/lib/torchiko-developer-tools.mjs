@@ -64,6 +64,15 @@ function databaseTarget(value) {
   }
 }
 
+function mcpResourceNames(source) {
+  const start = source.indexOf('const resourceSeeds')
+  const end = source.indexOf('export const McpResourceKind')
+  if (start < 0 || end <= start) return []
+  return [...source.slice(start, end).matchAll(/\[\s*'([a-z0-9-]+)',\s*'[^']+'/gu)].map(
+    (match) => `pathfinder.${match[1]}`,
+  )
+}
+
 export async function buildRepositoryMap(root) {
   const packageJson = await readJson(path.join(root, 'package.json'))
   const [files, rootRouter, adminRouter, mcpContract] = await Promise.all([
@@ -101,6 +110,7 @@ export async function buildRepositoryMap(root) {
       testFiles: tests.length,
       migrations: migrations.filter((entry) => entry.isDirectory()).length,
       mcpTools: new Set(mcpTools).size,
+      mcpResources: mcpResourceNames(mcpContract).length,
     },
     canonicalSources: {
       api: 'packages/api/src/root.ts',
@@ -216,6 +226,11 @@ export async function listAgentTools(root) {
   ])
   return {
     schemaVersion: 1,
+    resources: mcpResourceNames(mcp).map((name) => ({
+      name,
+      family: 'operational-mcp-resource',
+      source: 'packages/contracts/src/mcp-v0.ts',
+    })),
     tools: [...names].sort().map((name) => ({
       name,
       family: name.startsWith('pathfinder.') ? 'operational-mcp' : 'prospect-agent',

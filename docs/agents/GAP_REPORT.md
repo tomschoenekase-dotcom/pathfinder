@@ -5,10 +5,10 @@ Baseline date: 2026-08-21. This report is updated as Packet A closes gaps.
 ## P0 gaps
 
 1. **Operational MCP is not composed as a deployable authenticated service.** The contracts, registry, reads, approval seam, credential schema, and default-dark agent bridge exist, but the MCP registry has no production composition root or protocol dispatcher.
-2. **Agent/API parity is incomplete.** Torchiko's typed first-party API is much broader than the 13 currently discoverable operational/prospect tools. Venue lifecycle, intake, reports, conversations, integrations, offboarding, and broad system intelligence lack agent interfaces.
+2. **Agent/API parity is incomplete.** Torchiko's typed first-party API is much broader than the 13 currently discoverable operational/prospect tools. Packet A has added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads, but venue lifecycle, intake, report operations, conversation replay, provider health, and offboarding still lack adequate agent interfaces.
 3. **Tool metadata is split.** MCP definitions are rich and machine-readable; prospect definitions expose only name/capability/mutation. A unified catalog needs consistent arguments, outputs, permissions, side effects, environments, approval, idempotency, examples, and related tools.
 4. **No reusable data-scenario framework.** Visual fixtures and the Golden Venue contract exist, but named resettable database scenarios such as minimal venue, degraded operations, rich report, or support escalation are not implemented.
-5. **No unified integration-health registry.** Configuration and credential surfaces exist, but agents cannot safely query configured/healthy/last-success/last-failure capability projections across providers.
+5. **Provider integration health remains fragmented.** Agents can now query safe venue-scoped access-credential configuration and last-use state, but configured/healthy/last-success/last-failure projections across email, storage, payments, models, analytics, and workers are not unified.
 
 ## P1 gaps
 
@@ -30,5 +30,6 @@ Baseline date: 2026-08-21. This report is updated as Packet A closes gaps.
 ## Packet A progress
 
 - Implemented the inspect-only `pnpm torchiko` developer entry point for bootstrap, environment doctor, repository mapping, tool discovery, fixture discovery, targeted-test discovery, and Golden Venue validation.
+- Expanded the existing `pathfinder.read` surface with permission-scoped, paginated, privacy-bounded reports, conversations, integration access, agent runs, operational events, native deployments, and feature flags.
 - Added the initial capability matrix, developer guide, tool reference, and this gap ledger.
 - Preserved all existing credential, outreach, billing, tenant, approval, publication, and production gates.

@@ -21,7 +21,9 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `pathfinder.create_support_draft`   | Reviewable support draft            | Canonical action policy    | Verified approval grant      | Write tools default off                       |
 | `pathfinder.request_evaluation`     | Bounded evaluation request          | Canonical request identity | Verified approval grant      | Write tools and runner default off            |
 
-`pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage, jobs, evaluations, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets.
+`pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage, jobs, evaluations, weekly reports, privacy-bounded conversation sessions, integration access health, agent runs, operational events, native deployments, feature flags, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets.
+
+The expanded operational-intelligence resources deliberately exclude report content/errors, visitor tokens and coordinates, message bodies, credential hashes/prefixes, agent prompts/scope snapshots/artifacts, deployment plans/state hashes, and feature-flag metadata/actor IDs.
 
 ## Prospect agent tools
 

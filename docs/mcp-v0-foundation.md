@@ -47,6 +47,17 @@ The bindings expose:
   the payload and error text are never selected or returned, and unmarked jobs are invisible;
 - evaluation lifecycle/model/budget metadata without errors, corpus, model, run-config, identity,
   package, or content snapshots;
+- weekly-report lifecycle/count/publication metadata without report content or error text;
+- privacy-bounded visitor session metadata without anonymous tokens, visitor identifiers,
+  coordinates, or message content;
+- venue-scoped external access credential capability/state/expiry/last-use metadata without secret
+  hashes, secret prefixes, or rotation material;
+- agent-run status/model/attempt/cost/lineage metadata without request prompts, frozen scope
+  snapshots, artifacts, provider errors, or initiating-user identifiers;
+- operational attention events and recommended recovery actions without delivery destinations;
+- native deployment lifecycle metadata without plans, state snapshots, replacement universes, or
+  hashes;
+- tenant feature-flag keys/state without metadata or setter identities;
 - derived readiness counts/state without configuration blobs;
 - venue-scoped agent questions and operator responses without credential or raw execution data; and
 - explicit venue-scoped agent outcome observations without operation IDs or human actor identifiers.

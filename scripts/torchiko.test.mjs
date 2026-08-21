@@ -21,6 +21,7 @@ test('developer repository map exposes canonical structured entry points', async
   assert.ok(report.entryPoints.adminRouters.includes('adminAgentOperationsRouter'))
   assert.ok(report.counts.testFiles > 500)
   assert.ok(report.counts.migrations > 100)
+  assert.ok(report.counts.mcpResources > 20)
 })
 
 test('doctor never returns database credentials and makes environment identity explicit', async () => {
@@ -52,6 +53,7 @@ test('tool and fixture discovery reuse canonical sources', async () => {
   const names = tools.tools.map((tool) => tool.name)
   assert.ok(names.includes('pathfinder.read'))
   assert.ok(names.includes('torchiko.prospects.search'))
+  assert.ok(tools.resources.some((resource) => resource.name === 'pathfinder.reports'))
   const fixtures = await listFixtures(root)
   assert.ok(fixtures.visual.some((fixture) => fixture.route === '/dev-fixtures/billing'))
   assert.ok(fixtures.visual.some((fixture) => fixture.route === '/dev-fixtures'))

@@ -87,6 +87,24 @@ describe('PathFinder MCP server-side adapter registry', () => {
     expect(domain.read).not.toHaveBeenCalled()
   })
 
+  it('requires an explicit capability for expanded operational intelligence', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    await expect(
+      registry.callTool(
+        'pathfinder.read',
+        {
+          resource: 'reports',
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          limit: 25,
+        },
+        { credential },
+      ),
+    ).rejects.toThrow('Capability denied')
+    expect(domain.read).not.toHaveBeenCalled()
+  })
+
   it('keeps every draft/evaluation action default-off and approval-gated', async () => {
     const input = {
       clientId: 'client-1',
