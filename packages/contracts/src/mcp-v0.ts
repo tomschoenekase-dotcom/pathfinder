@@ -427,6 +427,18 @@ export const McpAccountContextInput = McpRequestedScope.extend({
 }).strict()
 export type McpAccountContextInput = z.infer<typeof McpAccountContextInput>
 
+export const McpAccountHistoryInput = McpRequestedScope.extend({
+  organizationId: Identifier.optional(),
+  before: z.string().datetime().optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+}).strict()
+export type McpAccountHistoryInput = z.infer<typeof McpAccountHistoryInput>
+
+export const McpAccountMeetingGetInput = McpRequestedScope.extend({
+  meetingId: Identifier,
+}).strict()
+export type McpAccountMeetingGetInput = z.infer<typeof McpAccountMeetingGetInput>
+
 export const McpIntegrationHealthInput = McpRequestedScope
 export type McpIntegrationHealthInput = z.infer<typeof McpIntegrationHealthInput>
 
@@ -603,6 +615,10 @@ export type McpToolResult = z.infer<typeof McpToolResult>
 export type PathfinderMcpToolName =
   | 'pathfinder.read'
   | 'torchiko.account.get_context'
+  | 'torchiko.account.timeline'
+  | 'torchiko.account.meetings'
+  | 'torchiko.account.meeting_get'
+  | 'torchiko.account.correspondence'
   | 'torchiko.knowledge.search'
   | 'torchiko.knowledge.get'
   | 'torchiko.integrations.health'
@@ -625,6 +641,93 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
         ...scopeProperties,
         organizationId: { type: 'string', minLength: 1, maxLength: 120 },
         recentLimit: { type: 'integer', minimum: 1, maximum: 20, default: 8 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'accounts:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.timeline',
+    title: 'Get account relationship timeline',
+    description:
+      'Return a bounded merged timeline of significant CRM activity, correspondence, meetings, milestones, and support changes.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        before: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'accounts:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.meetings',
+    title: 'List account meetings',
+    description:
+      'List bounded structured meeting summaries and processing state without loading raw transcripts or source artifacts.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        before: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'meetings:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.meeting_get',
+    title: 'Get account meeting detail',
+    description:
+      'Retrieve one authorized structured meeting with participants, extraction candidates, provenance, and an optional original-artifact reference.',
+    inputSchema: strictObject(
+      { ...scopeProperties, meetingId: { type: 'string', minLength: 1, maxLength: 120 } },
+      ['clientId', 'meetingId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'meetings:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.correspondence',
+    title: 'List account correspondence',
+    description:
+      'List bounded correspondence metadata and short plain-text snippets; full message bodies remain in exact source records.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        before: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
       },
       ['clientId'],
     ),

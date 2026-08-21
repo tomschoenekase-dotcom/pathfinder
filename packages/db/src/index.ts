@@ -390,6 +390,15 @@ export type { ApprovalGrantHumanActor } from './helpers/approval-grants'
 export { AccountContextError, getCompactAccountContext } from './helpers/account-context'
 export type { AccountContextClient } from './helpers/account-context'
 export {
+  AccountHistoryError,
+  getAccountMeeting,
+  getAccountTimeline,
+  listAccountCorrespondence,
+  listAccountMeetings,
+} from './helpers/account-history'
+export type { AccountHistoryClient } from './helpers/account-history'
+export { proposeCorrespondenceKnowledgeAction } from './helpers/correspondence-knowledge-actions'
+export {
   AccountSummaryActionError,
   refreshAccountSummaryAction,
 } from './helpers/account-summary-actions'

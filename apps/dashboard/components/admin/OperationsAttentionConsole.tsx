@@ -92,6 +92,55 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
         ))}
       </section>
 
+      <section className="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-sky-700">AI workforce</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">Registered workers</h2>
+          </div>
+          <p className="text-xs text-slate-500">Lease-derived state; no secret material shown.</p>
+        </div>
+        {!data.workers.length ? (
+          <div className="mt-4">
+            <Empty>No compatible workers have registered.</Empty>
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="pb-2 pr-4">Worker</th>
+                  <th className="pb-2 pr-4">Runtime</th>
+                  <th className="pb-2 pr-4">State</th>
+                  <th className="pb-2 pr-4">Model route</th>
+                  <th className="pb-2">Heartbeat</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.workers.map((worker) => (
+                  <tr key={worker.id}>
+                    <td className="py-3 pr-4 font-semibold text-slate-900">{worker.workerKey}</td>
+                    <td className="py-3 pr-4 text-slate-600">{worker.runtimeType}</td>
+                    <td className="py-3 pr-4">
+                      <span
+                        className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${worker.effectiveStatus === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}
+                      >
+                        {worker.effectiveStatus}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 text-slate-600">
+                      {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
+                        'Runtime managed'}
+                    </td>
+                    <td className="py-3 text-slate-600">{date(worker.lastHeartbeatAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section
         className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm"
         aria-labelledby="platform-operational-events-heading"

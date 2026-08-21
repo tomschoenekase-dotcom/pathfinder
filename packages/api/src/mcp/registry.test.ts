@@ -18,6 +18,7 @@ const credential: VerifiedMcpCredentialScope = {
     'delegations:create',
     'accounts:read',
     'knowledge:read',
+    'meetings:read',
   ],
 }
 
@@ -32,6 +33,10 @@ function actions(): PathfinderMcpDomainActions {
     proposeBillingAction: vi.fn().mockResolvedValue(result),
     read: vi.fn().mockResolvedValue(result),
     accountContext: vi.fn().mockResolvedValue(result),
+    accountTimeline: vi.fn().mockResolvedValue(result),
+    accountMeetings: vi.fn().mockResolvedValue(result),
+    accountMeetingGet: vi.fn().mockResolvedValue(result),
+    accountCorrespondence: vi.fn().mockResolvedValue(result),
     knowledgeSearch: vi.fn().mockResolvedValue(result),
     knowledgeGet: vi.fn().mockResolvedValue(result),
     integrationHealth: vi.fn().mockResolvedValue(result),
@@ -52,6 +57,10 @@ describe('PathFinder MCP server-side adapter registry', () => {
     expect(tools).toEqual(
       expect.arrayContaining([
         'torchiko.account.get_context',
+        'torchiko.account.timeline',
+        'torchiko.account.meetings',
+        'torchiko.account.meeting_get',
+        'torchiko.account.correspondence',
         'torchiko.knowledge.search',
         'torchiko.knowledge.get',
         'torchiko.integrations.health',
@@ -63,11 +72,35 @@ describe('PathFinder MCP server-side adapter registry', () => {
       { credential },
     )
     await registry.callTool(
+      'torchiko.account.timeline',
+      { clientId: 'client-1', organizationId: 'org-1', limit: 20 },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.account.meetings',
+      { clientId: 'client-1', organizationId: 'org-1', limit: 20 },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.account.meeting_get',
+      { clientId: 'client-1', meetingId: 'meeting-1' },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.account.correspondence',
+      { clientId: 'client-1', organizationId: 'org-1', limit: 20 },
+      { credential },
+    )
+    await registry.callTool(
       'torchiko.knowledge.search',
       { clientId: 'client-1', query: 'pricing decision', limit: 5 },
       { credential },
     )
     expect(domain.accountContext).toHaveBeenCalled()
+    expect(domain.accountTimeline).toHaveBeenCalled()
+    expect(domain.accountMeetings).toHaveBeenCalled()
+    expect(domain.accountMeetingGet).toHaveBeenCalled()
+    expect(domain.accountCorrespondence).toHaveBeenCalled()
     expect(domain.knowledgeSearch).toHaveBeenCalled()
   })
 

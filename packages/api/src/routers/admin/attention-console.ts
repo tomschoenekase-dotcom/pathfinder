@@ -31,6 +31,7 @@ export const adminAttentionConsoleRouter = router({
         outcomes,
         events,
         platformEvents,
+        workers,
       ] = await Promise.all([
         db.jobRecord.findMany({
           where: { status: 'FAILED', ...after(query.jobsCursor) },
@@ -282,6 +283,24 @@ export const adminAttentionConsoleRouter = router({
             createdAt: true,
           },
         }),
+        db.agentWorker.findMany({
+          orderBy: [{ lastHeartbeatAt: 'desc' }, { id: 'desc' }],
+          take: 25,
+          select: {
+            id: true,
+            workerKey: true,
+            runtimeType: true,
+            status: true,
+            capabilities: true,
+            protocolVersion: true,
+            softwareVersion: true,
+            modelProvider: true,
+            modelName: true,
+            lastHeartbeatAt: true,
+            leaseExpiresAt: true,
+            tenantId: true,
+          },
+        }),
       ])
 
       return {
@@ -313,6 +332,11 @@ export const adminAttentionConsoleRouter = router({
         outcomes: page(outcomes, query.limit),
         events: page(events, query.limit),
         platformEvents: page(platformEvents, query.limit),
+        workers: workers.map((worker) => ({
+          ...worker,
+          effectiveStatus:
+            worker.status === 'ONLINE' && worker.leaseExpiresAt <= now ? 'OFFLINE' : worker.status,
+        })),
       }
     }),
   ),

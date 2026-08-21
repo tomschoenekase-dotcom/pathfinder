@@ -25,6 +25,57 @@ export const adminProspectCrmCoreRouter = router({
             contacts: { orderBy: [{ archivedAt: 'asc' }, { fullName: 'asc' }] },
             sources: { orderBy: { createdAt: 'desc' }, take: 200 },
             activities: { orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }], take: 100 },
+            summaries: {
+              where: { status: { in: ['CURRENT', 'STALE'] } },
+              orderBy: { version: 'desc' },
+              take: 1,
+            },
+            relationshipNotes: {
+              where: { promotionStatus: 'PROMOTED', archivedAt: null },
+              orderBy: [{ lastConfirmedAt: 'desc' }, { updatedAt: 'desc' }],
+              take: 20,
+            },
+            openLoops: {
+              where: { status: { in: ['OPEN', 'BLOCKED'] } },
+              orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
+              take: 20,
+            },
+            commitments: {
+              where: { status: 'OPEN' },
+              orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
+              take: 20,
+            },
+            companyMeetings: {
+              orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+              take: 20,
+              include: {
+                participants: {
+                  orderBy: { createdAt: 'asc' },
+                  take: 20,
+                  select: { id: true, displayName: true, role: true, isTorchiko: true },
+                },
+                extractions: {
+                  where: { promotionStatus: { in: ['CANDIDATE', 'PROMOTED'] } },
+                  orderBy: { createdAt: 'asc' },
+                  take: 30,
+                  select: { id: true, type: true, content: true, promotionStatus: true },
+                },
+              },
+            },
+            companyKnowledgeItems: {
+              where: { promotionStatus: 'PROMOTED', archivedAt: null },
+              orderBy: [{ effectiveAt: 'desc' }, { updatedAt: 'desc' }],
+              take: 20,
+              select: {
+                id: true,
+                type: true,
+                title: true,
+                summary: true,
+                authority: true,
+                effectiveAt: true,
+                lastConfirmedAt: true,
+              },
+            },
             emailThreads: {
               orderBy: { lastMessageAt: 'desc' },
               take: 50,

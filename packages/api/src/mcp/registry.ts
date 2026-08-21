@@ -3,6 +3,8 @@ import {
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
   McpAccountContextInput,
+  McpAccountHistoryInput,
+  McpAccountMeetingGetInput,
   McpBillingProposalInput,
   McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
@@ -42,6 +44,10 @@ export type PathfinderMcpDomainActions = Readonly<{
         PathfinderMcpToolName,
         | 'pathfinder.read'
         | 'torchiko.account.get_context'
+        | 'torchiko.account.timeline'
+        | 'torchiko.account.meetings'
+        | 'torchiko.account.meeting_get'
+        | 'torchiko.account.correspondence'
         | 'torchiko.knowledge.search'
         | 'torchiko.knowledge.get'
         | 'torchiko.integrations.health'
@@ -58,6 +64,22 @@ export type PathfinderMcpDomainActions = Readonly<{
   read: (input: McpReadInput, context: VerifiedMcpInvocationContext) => Promise<McpToolResult>
   accountContext: (
     input: McpAccountContextInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountTimeline: (
+    input: McpAccountHistoryInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountMeetings: (
+    input: McpAccountHistoryInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountMeetingGet: (
+    input: McpAccountMeetingGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountCorrespondence: (
+    input: McpAccountHistoryInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   knowledgeSearch: (
@@ -180,6 +202,30 @@ export function createPathfinderMcpRegistry(
           result = await actions.accountContext(input, context)
           break
         }
+        case 'torchiko.account.timeline': {
+          const input = McpAccountHistoryInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountTimeline(input, context)
+          break
+        }
+        case 'torchiko.account.meetings': {
+          const input = McpAccountHistoryInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountMeetings(input, context)
+          break
+        }
+        case 'torchiko.account.meeting_get': {
+          const input = McpAccountMeetingGetInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountMeetingGet(input, context)
+          break
+        }
+        case 'torchiko.account.correspondence': {
+          const input = McpAccountHistoryInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountCorrespondence(input, context)
+          break
+        }
         case 'torchiko.knowledge.search': {
           const input = McpKnowledgeSearchInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
@@ -281,6 +327,10 @@ async function verifyApproval(
     PathfinderMcpToolName,
     | 'pathfinder.read'
     | 'torchiko.account.get_context'
+    | 'torchiko.account.timeline'
+    | 'torchiko.account.meetings'
+    | 'torchiko.account.meeting_get'
+    | 'torchiko.account.correspondence'
     | 'torchiko.knowledge.search'
     | 'torchiko.knowledge.get'
     | 'torchiko.integrations.health'

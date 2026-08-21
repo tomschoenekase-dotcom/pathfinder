@@ -40,6 +40,26 @@ export const AccountContextRequest = z
   .strict()
 export type AccountContextRequest = z.input<typeof AccountContextRequest>
 
+export const AccountHistoryRequest = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191).optional(),
+    organizationId: z.string().trim().min(1).max(191).optional(),
+    before: z.string().datetime().optional(),
+    limit: z.number().int().min(1).max(50).default(20),
+  })
+  .strict()
+export type AccountHistoryRequest = z.input<typeof AccountHistoryRequest>
+
+export const AccountMeetingGetRequest = z
+  .object({
+    clientId: z.string().trim().min(1).max(191),
+    venueId: z.string().trim().min(1).max(191).optional(),
+    meetingId: z.string().trim().min(1).max(191),
+  })
+  .strict()
+export type AccountMeetingGetRequest = z.input<typeof AccountMeetingGetRequest>
+
 export const CompanyKnowledgeSearchRequest = z
   .object({
     query: z.string().trim().min(2).max(1000),

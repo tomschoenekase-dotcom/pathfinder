@@ -6,8 +6,12 @@ import {
   createOperationalUpdateAction,
   db,
   getCompactAccountContext,
+  getAccountMeeting,
+  getAccountTimeline,
   getCompanyKnowledgeItem,
   readUnifiedIntegrationHealth,
+  listAccountCorrespondence,
+  listAccountMeetings,
   searchCompanyKnowledge,
 } from '@pathfinder/db'
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
@@ -41,6 +45,10 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     PathfinderMcpDomainActions,
     | 'read'
     | 'accountContext'
+    | 'accountTimeline'
+    | 'accountMeetings'
+    | 'accountMeetingGet'
+    | 'accountCorrespondence'
     | 'knowledgeSearch'
     | 'knowledgeGet'
     | 'integrationHealth'
@@ -207,7 +215,14 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   }
   const companyBrainReads: Pick<
     PathfinderMcpDomainActions,
-    'accountContext' | 'knowledgeSearch' | 'knowledgeGet' | 'integrationHealth'
+    | 'accountContext'
+    | 'accountTimeline'
+    | 'accountMeetings'
+    | 'accountMeetingGet'
+    | 'accountCorrespondence'
+    | 'knowledgeSearch'
+    | 'knowledgeGet'
+    | 'integrationHealth'
   > = {
     async accountContext(input, context) {
       const data = await getCompactAccountContext(
@@ -222,6 +237,72 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
       return {
         kind: 'torchiko.account-context',
         summary: `Compact account context for ${data.identity.canonicalName}.`,
+        data: jsonData(data),
+      }
+    },
+    async accountTimeline(input, context) {
+      const data = await getAccountTimeline(
+        {
+          clientId: context.credential.clientId,
+          ...(input.venueId ? { venueId: input.venueId } : {}),
+          ...(input.organizationId ? { organizationId: input.organizationId } : {}),
+          ...(input.before ? { before: input.before } : {}),
+          limit: input.limit,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.account-timeline',
+        summary: `${data.items.length} account timeline event(s).`,
+        data: jsonData(data),
+      }
+    },
+    async accountMeetings(input, context) {
+      const data = await listAccountMeetings(
+        {
+          clientId: context.credential.clientId,
+          ...(input.venueId ? { venueId: input.venueId } : {}),
+          ...(input.organizationId ? { organizationId: input.organizationId } : {}),
+          ...(input.before ? { before: input.before } : {}),
+          limit: input.limit,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.account-meetings',
+        summary: `${data.items.length} account meeting(s).`,
+        data: jsonData(data),
+      }
+    },
+    async accountMeetingGet(input, context) {
+      const data = await getAccountMeeting(
+        {
+          clientId: context.credential.clientId,
+          ...(input.venueId ? { venueId: input.venueId } : {}),
+          meetingId: input.meetingId,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.account-meeting',
+        summary: data.meeting.title,
+        data: jsonData(data),
+      }
+    },
+    async accountCorrespondence(input, context) {
+      const data = await listAccountCorrespondence(
+        {
+          clientId: context.credential.clientId,
+          ...(input.venueId ? { venueId: input.venueId } : {}),
+          ...(input.organizationId ? { organizationId: input.organizationId } : {}),
+          ...(input.before ? { before: input.before } : {}),
+          limit: input.limit,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.account-correspondence',
+        summary: `${data.items.length} correspondence record(s).`,
         data: jsonData(data),
       }
     },

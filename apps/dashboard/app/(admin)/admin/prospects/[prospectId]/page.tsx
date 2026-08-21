@@ -113,6 +113,148 @@ export default async function ProspectDetailPage({
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(20rem,.8fr)]">
         <div className="space-y-6">
+          {prospect.summaries[0] ? (
+            <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-semibold text-slate-950">Current relationship summary</h2>
+                <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-indigo-800">
+                  AI summary · {prospect.summaries[0].status.toLowerCase()}
+                </span>
+              </div>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                {prospect.summaries[0].summary}
+              </p>
+              <p className="mt-3 text-xs text-slate-500">
+                Version {prospect.summaries[0].version} · updated{' '}
+                {new Date(prospect.summaries[0].updatedAt).toLocaleString()}
+              </p>
+            </section>
+          ) : null}
+
+          {prospect.openLoops.length || prospect.commitments.length ? (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-950">Open loops and commitments</h2>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                    Waiting
+                  </h3>
+                  <ul className="mt-2 space-y-2">
+                    {prospect.openLoops.map((loop) => (
+                      <li
+                        key={loop.id}
+                        className="rounded-xl border border-amber-200 bg-white p-3 text-sm"
+                      >
+                        <p className="font-semibold text-slate-900">{loop.title}</p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Waiting on {label(loop.waitingOn)}
+                          {loop.dueAt ? ` · due ${new Date(loop.dueAt).toLocaleDateString()}` : ''}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                    Promises
+                  </h3>
+                  <ul className="mt-2 space-y-2">
+                    {prospect.commitments.map((commitment) => (
+                      <li
+                        key={commitment.id}
+                        className="rounded-xl border border-amber-200 bg-white p-3 text-sm"
+                      >
+                        <p className="font-semibold text-slate-900">{commitment.statement}</p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          {label(commitment.party)}
+                          {commitment.dueAt
+                            ? ` · due ${new Date(commitment.dueAt).toLocaleDateString()}`
+                            : ''}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {prospect.relationshipNotes.length ? (
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-950">Relationship knowledge</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {prospect.relationshipNotes.map((note) => (
+                  <article key={note.id} className="rounded-xl border border-slate-200 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                      {label(note.category)} · {label(note.authority)}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{note.body}</p>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Source: {label(note.sourceType)}
+                      {note.lastConfirmedAt
+                        ? ` · confirmed ${new Date(note.lastConfirmedAt).toLocaleDateString()}`
+                        : ''}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {prospect.companyMeetings.length ? (
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-950">Meetings</h2>
+              <div className="mt-4 space-y-3">
+                {prospect.companyMeetings.map((meeting) => (
+                  <article key={meeting.id} className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="font-semibold text-slate-900">{meeting.title}</h3>
+                      <time className="text-xs text-slate-400">
+                        {new Date(meeting.startedAt).toLocaleString()}
+                      </time>
+                    </div>
+                    <p className="mt-1 text-xs font-semibold uppercase text-slate-500">
+                      {label(meeting.meetingType)} · {label(meeting.processingStatus)}
+                    </p>
+                    {meeting.summary ? (
+                      <p className="mt-3 text-sm leading-6 text-slate-700">{meeting.summary}</p>
+                    ) : null}
+                    {meeting.extractions.length ? (
+                      <ul className="mt-3 space-y-1 text-xs text-slate-600">
+                        {meeting.extractions.slice(0, 5).map((extraction) => (
+                          <li key={extraction.id}>
+                            <span className="font-semibold">{label(extraction.type)}:</span>{' '}
+                            {extraction.content}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {prospect.companyKnowledgeItems.length ? (
+            <section className="rounded-2xl border border-violet-200 bg-violet-50 p-5 shadow-sm">
+              <h2 className="font-semibold text-slate-950">Company knowledge</h2>
+              <div className="mt-4 space-y-3">
+                {prospect.companyKnowledgeItems.map((item) => (
+                  <article
+                    key={item.id}
+                    className="rounded-xl border border-violet-200 bg-white p-4"
+                  >
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700">
+                      {label(item.type)} · {label(item.authority)}
+                    </p>
+                    <h3 className="mt-1 font-semibold text-slate-900">{item.title}</h3>
+                    <p className="mt-2 text-sm text-slate-600">{item.summary}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="font-semibold text-slate-950">Venue intelligence</h2>
             {!prospect.venues.length ? (
