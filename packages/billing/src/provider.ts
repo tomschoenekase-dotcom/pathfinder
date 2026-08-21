@@ -107,6 +107,7 @@ export class StripeBillingProvider implements BillingProvider {
     const session = await this.stripe.checkout.sessions.create(
       {
         mode: 'subscription',
+        managed_payments: { enabled: false },
         payment_method_types: ['card'],
         integration_identifier: checkoutIntegrationIdentifier(input.operationId),
         customer: input.customerId,
