@@ -115,6 +115,60 @@ describe('negotiated Checkout boundary', () => {
     })
   })
 
+  it('lets Prisma inherit tenant scope for nested covered-venue creation', async () => {
+    const providerError = new Error('stop before provider work')
+    const commercialAgreementCreate = vi.fn().mockResolvedValue({
+      id: 'agreement-a',
+      internalPlanKey: 'torchiko_pilot_test',
+    })
+    const tx = {
+      billingCheckoutAttempt: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'attempt-a' }),
+      },
+      tenant: { findUnique: vi.fn().mockResolvedValue({ id: 'tenant-a', name: 'Tenant A' }) },
+      venue: { findMany: vi.fn().mockResolvedValue([{ id: 'venue-a' }]) },
+      commercialAgreement: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: commercialAgreementCreate,
+      },
+      billingAccount: {
+        upsert: vi.fn().mockResolvedValue({
+          id: 'account-a',
+          stripeCustomerId: null,
+          billingEmail: null,
+        }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-a' }) },
+    }
+    const client = {
+      $transaction: async (callback: (value: typeof tx) => unknown) => callback(tx),
+    }
+
+    await expect(
+      createTenantCheckout({
+        tenantId: 'tenant-a',
+        actorId: 'admin-a',
+        actorRole: 'PLATFORM_ADMIN',
+        planKey: 'torchiko_pilot_test',
+        venueIds: ['venue-a'],
+        negotiatedTerms: {
+          amountMinor: 2500n,
+          currency: 'usd',
+          interval: 'month',
+          intervalCount: 1,
+          reason: 'Approved sandbox lifecycle test',
+          reference: 'SANDBOX-QA',
+        },
+        provider: { createCustomer: vi.fn().mockRejectedValue(providerError) } as never,
+        client: client as never,
+        environment: checkoutEnvironment,
+      }),
+    ).rejects.toBe(providerError)
+    const nestedCreate = commercialAgreementCreate.mock.calls[0]?.[0]?.data?.coveredVenues?.create
+    expect(nestedCreate).toEqual([{ venueId: 'venue-a', createdBy: 'admin-a' }])
+  })
+
   it('rejects negotiated pricing outside the platform-admin boundary before touching storage', async () => {
     await expect(
       createTenantCheckout({

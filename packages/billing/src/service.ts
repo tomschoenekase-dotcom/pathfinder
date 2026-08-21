@@ -379,7 +379,6 @@ export async function createTenantCheckout(params: {
         updatedBy: params.actorId,
         coveredVenues: {
           create: venueIds.map((venueId) => ({
-            tenantId: params.tenantId,
             venueId,
             createdBy: params.actorId,
           })),
