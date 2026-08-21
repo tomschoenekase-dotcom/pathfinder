@@ -16,6 +16,8 @@ const credential: VerifiedMcpCredentialScope = {
     'evaluations:request',
     'questions:ask',
     'delegations:create',
+    'accounts:read',
+    'knowledge:read',
   ],
 }
 
@@ -29,6 +31,9 @@ function actions(): PathfinderMcpDomainActions {
     verifyApprovalGrant: vi.fn().mockResolvedValue(undefined),
     proposeBillingAction: vi.fn().mockResolvedValue(result),
     read: vi.fn().mockResolvedValue(result),
+    accountContext: vi.fn().mockResolvedValue(result),
+    knowledgeSearch: vi.fn().mockResolvedValue(result),
+    knowledgeGet: vi.fn().mockResolvedValue(result),
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),
     createPackageDraft: vi.fn().mockResolvedValue(result),
@@ -39,6 +44,43 @@ function actions(): PathfinderMcpDomainActions {
 }
 
 describe('PathFinder MCP server-side adapter registry', () => {
+  it('exposes governed account and knowledge reads through the existing catalog', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    const tools = registry.listTools().map((tool) => tool.name)
+    expect(tools).toEqual(
+      expect.arrayContaining([
+        'torchiko.account.get_context',
+        'torchiko.knowledge.search',
+        'torchiko.knowledge.get',
+      ]),
+    )
+    await registry.callTool(
+      'torchiko.account.get_context',
+      { clientId: 'client-1', organizationId: 'org-1', recentLimit: 8 },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.knowledge.search',
+      { clientId: 'client-1', query: 'pricing decision', limit: 5 },
+      { credential },
+    )
+    expect(domain.accountContext).toHaveBeenCalled()
+    expect(domain.knowledgeSearch).toHaveBeenCalled()
+  })
+
+  it('denies company-brain reads for a different client before the action runs', async () => {
+    const domain = actions()
+    await expect(
+      createPathfinderMcpRegistry(domain).callTool(
+        'torchiko.knowledge.search',
+        { clientId: 'client-2', query: 'pricing decision' },
+        { credential },
+      ),
+    ).rejects.toThrow('Client scope denied')
+    expect(domain.knowledgeSearch).not.toHaveBeenCalled()
+  })
+
   it('denies cross-client and cross-venue reads before a canonical action is called', async () => {
     const domain = actions()
     const registry = createPathfinderMcpRegistry(domain)

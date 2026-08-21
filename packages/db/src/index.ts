@@ -389,11 +389,27 @@ export type { ApprovalGrantHumanActor } from './helpers/approval-grants'
 export { AccountContextError, getCompactAccountContext } from './helpers/account-context'
 export type { AccountContextClient } from './helpers/account-context'
 export {
+  AccountSummaryActionError,
+  refreshAccountSummaryAction,
+} from './helpers/account-summary-actions'
+export {
   CompanyKnowledgeError,
   getCompanyKnowledgeItem,
   searchCompanyKnowledge,
 } from './helpers/company-knowledge'
 export type { CompanyKnowledgeClient, KnowledgeAccessContext } from './helpers/company-knowledge'
+export {
+  CompanyKnowledgeActionError,
+  createCompanyKnowledgeCandidateAction,
+  promoteCompanyKnowledgeAction,
+  supersedeCompanyKnowledgeAction,
+} from './helpers/company-knowledge-actions'
+export {
+  CompanyMeetingActionError,
+  completeCompanyMeetingProcessingAction,
+  ingestCompanyMeetingAction,
+  recordCompanyMeetingExtractionAction,
+} from './helpers/company-meeting-actions'
 export type {
   AiCostAttemptIdentity,
   AiCostReservationRef,

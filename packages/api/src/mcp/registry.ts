@@ -2,10 +2,13 @@ import {
   assertMcpScope,
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
+  McpAccountContextInput,
   McpBillingProposalInput,
   McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
+  McpKnowledgeGetInput,
+  McpKnowledgeSearchInput,
   McpReadInput,
   McpSupportDraftInput,
   McpToolResult,
@@ -37,6 +40,9 @@ export type PathfinderMcpDomainActions = Readonly<{
       toolName: Exclude<
         PathfinderMcpToolName,
         | 'pathfinder.read'
+        | 'torchiko.account.get_context'
+        | 'torchiko.knowledge.search'
+        | 'torchiko.knowledge.get'
         | 'pathfinder.ask_operator'
         | 'pathfinder.delegate_specialist'
         | 'pathfinder.propose_billing_action'
@@ -48,6 +54,18 @@ export type PathfinderMcpDomainActions = Readonly<{
     context: VerifiedMcpInvocationContext,
   ) => Promise<void>
   read: (input: McpReadInput, context: VerifiedMcpInvocationContext) => Promise<McpToolResult>
+  accountContext: (
+    input: McpAccountContextInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  knowledgeSearch: (
+    input: McpKnowledgeSearchInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  knowledgeGet: (
+    input: McpKnowledgeGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
   askOperator: (
     input: McpAskOperatorInput,
     context: VerifiedMcpInvocationContext,
@@ -150,6 +168,24 @@ export function createPathfinderMcpRegistry(
           result = await actions.read(input, context)
           break
         }
+        case 'torchiko.account.get_context': {
+          const input = McpAccountContextInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountContext(input, context)
+          break
+        }
+        case 'torchiko.knowledge.search': {
+          const input = McpKnowledgeSearchInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.knowledgeSearch(input, context)
+          break
+        }
+        case 'torchiko.knowledge.get': {
+          const input = McpKnowledgeGetInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.knowledgeGet(input, context)
+          break
+        }
         case 'pathfinder.ask_operator': {
           const input = McpAskOperatorInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -232,6 +268,9 @@ async function verifyApproval(
   toolName: Exclude<
     PathfinderMcpToolName,
     | 'pathfinder.read'
+    | 'torchiko.account.get_context'
+    | 'torchiko.knowledge.search'
+    | 'torchiko.knowledge.get'
     | 'pathfinder.ask_operator'
     | 'pathfinder.delegate_specialist'
     | 'pathfinder.propose_billing_action'

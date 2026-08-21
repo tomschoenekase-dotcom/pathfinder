@@ -50,6 +50,9 @@ export const McpCapability = z.enum([
   'readiness:read',
   'questions:read',
   'outcomes:read',
+  'accounts:read',
+  'knowledge:read',
+  'meetings:read',
   'questions:ask',
   'delegations:create',
   'agent-runs:execute',
@@ -417,6 +420,57 @@ export const McpReadInput = McpRequestedScope.extend({
 }).strict()
 export type McpReadInput = z.infer<typeof McpReadInput>
 
+export const McpAccountContextInput = McpRequestedScope.extend({
+  organizationId: Identifier.optional(),
+  recentLimit: z.number().int().min(1).max(20).default(8),
+}).strict()
+export type McpAccountContextInput = z.infer<typeof McpAccountContextInput>
+
+const McpKnowledgeType = z.enum([
+  'DECISION',
+  'STRATEGY',
+  'MEETING_SUMMARY',
+  'CLIENT_INSIGHT',
+  'SALES_LESSON',
+  'PRODUCT_RATIONALE',
+  'TECHNICAL_LESSON',
+  'POSTMORTEM',
+  'POLICY_CONTEXT',
+  'MARKET_RESEARCH',
+  'COMPETITOR_INSIGHT',
+  'COMPANY_HISTORY',
+  'OPERATIONAL_LESSON',
+  'OPEN_QUESTION',
+  'PRIORITY',
+  'COMMITMENT',
+  'OTHER',
+])
+const McpKnowledgeAuthority = z.enum([
+  'AUTHORITATIVE_CURRENT',
+  'DURABLE_CONTEXT',
+  'HISTORICAL',
+  'INFERENCE',
+  'SUPERSEDED',
+])
+
+export const McpKnowledgeSearchInput = McpRequestedScope.extend({
+  query: z.string().trim().min(2).max(1000),
+  organizationId: Identifier.optional(),
+  types: z.array(McpKnowledgeType).max(McpKnowledgeType.options.length).default([]),
+  authorities: z
+    .array(McpKnowledgeAuthority)
+    .max(McpKnowledgeAuthority.options.length)
+    .default(['AUTHORITATIVE_CURRENT', 'DURABLE_CONTEXT']),
+  includeHistorical: z.boolean().default(false),
+  limit: z.number().int().min(1).max(20).default(5),
+}).strict()
+export type McpKnowledgeSearchInput = z.infer<typeof McpKnowledgeSearchInput>
+
+export const McpKnowledgeGetInput = McpRequestedScope.extend({
+  knowledgeItemId: Identifier,
+}).strict()
+export type McpKnowledgeGetInput = z.infer<typeof McpKnowledgeGetInput>
+
 export const McpPackageDraftInput = McpRequestedScope.extend({
   title: z.string().trim().min(1).max(160),
   changeRequest: z.string().trim().min(1).max(10_000),
@@ -540,6 +594,9 @@ export type McpToolResult = z.infer<typeof McpToolResult>
 
 export type PathfinderMcpToolName =
   | 'pathfinder.read'
+  | 'torchiko.account.get_context'
+  | 'torchiko.knowledge.search'
+  | 'torchiko.knowledge.get'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
   | 'pathfinder.propose_billing_action'
@@ -549,6 +606,72 @@ export type PathfinderMcpToolName =
   | 'pathfinder.request_evaluation'
 
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
+  {
+    name: 'torchiko.account.get_context',
+    title: 'Get compact account context',
+    description:
+      'Return the bounded Level-0/1 organization relationship projection for ordinary account work, with provenance and deeper-tool pointers.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        recentLimit: { type: 'integer', minimum: 1, maximum: 20, default: 8 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'accounts:read', 'read') },
+  },
+  {
+    name: 'torchiko.knowledge.search',
+    title: 'Search Company Knowledge',
+    description:
+      'Search promoted institutional memory with authority, entity, and tenant filters applied before result selection.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        query: { type: 'string', minLength: 2, maxLength: 1000 },
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        types: { type: 'array', maxItems: 17, items: { type: 'string' }, default: [] },
+        authorities: { type: 'array', maxItems: 5, items: { type: 'string' } },
+        includeHistorical: { type: 'boolean', default: false },
+        limit: { type: 'integer', minimum: 1, maximum: 20, default: 5 },
+      },
+      ['clientId', 'query'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'knowledge:read', 'read') },
+  },
+  {
+    name: 'torchiko.knowledge.get',
+    title: 'Get Company Knowledge detail',
+    description:
+      'Retrieve one exact authorized knowledge item with its current revision, provenance, decision data, and supersession state.',
+    inputSchema: strictObject(
+      { ...scopeProperties, knowledgeItemId: { type: 'string', minLength: 1, maxLength: 120 } },
+      ['clientId', 'knowledgeItemId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'knowledge:read', 'read') },
+  },
   {
     name: 'pathfinder.propose_billing_action',
     title: 'Propose a billing action',

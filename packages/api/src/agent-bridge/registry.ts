@@ -51,20 +51,20 @@ export function createAgentBridgeRegistry(
       const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
       const input = z
         .object({
-          venueId: z.string().trim().min(1).max(191),
+          venueId: z.string().trim().min(1).max(191).optional(),
           toolName: z.string().trim().min(1).max(191),
           arguments: z.record(z.unknown()),
         })
         .strict()
         .parse(raw)
-      if (!context.credential.venueIds.includes(input.venueId))
+      if (input.venueId && !context.credential.venueIds.includes(input.venueId))
         throw new Error('Operational tools require exact credential venue scope')
       return operational().callTool(
         input.toolName,
         {
           ...input.arguments,
           clientId: context.credential.clientId,
-          venueId: input.venueId,
+          ...(input.venueId ? { venueId: input.venueId } : {}),
         },
         context,
       )
