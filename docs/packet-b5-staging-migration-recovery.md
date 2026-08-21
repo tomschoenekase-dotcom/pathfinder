@@ -61,6 +61,37 @@ A disposable pgvector/PostgreSQL 16 rehearsal using canonical Git LF bytes prove
 the recovery branch. Live Railway evidence and the final admitted merge SHA are recorded after the
 owner-approved recovery PR is merged and deployed.
 
+## Live staging baseline before recovery
+
+Read-only inspection on 2026-08-21 established:
+
+- `staging-web` remains online on the previously admitted release
+  `c128e63d206479673eda0f5d417a560476ee6bc0`;
+- the failed B.5 web deployment used the owner-approved merge
+  `04fa565907bc8092274f22fae75bb3f15d13ed78` and stopped at predeploy with
+  `unexpected ledger row count 134`, before Prisma or the application started;
+- the public staging health endpoint returns HTTP 200 with database and queue dependencies up, but
+  reports revision `unknown`, so it cannot yet prove exact-SHA admission;
+- the database, Redis, and storage resource identities match the approved Railway staging packet;
+- `staging-workers` is online on B.5 but logs `mode: provider-disabled` and `queues: []`;
+- none of the seven worker execution variable names is present on `staging-workers`, so the empty
+  queue list is the expected safe-off result, not CRM-only readiness.
+
+The minimal owner-controlled release path is:
+
+1. review and merge `codex/torchiko-staging-migration-recovery-20260821` into
+   `codex/pathfinder-v2-staging` after its required check passes;
+2. set `PATHFINDER_RELEASE_SHA` on `staging-web` to that resulting full merge SHA and redeploy;
+3. set `OUTBOUND_PROVIDER_WORKERS_ENABLED=false` and `CRM_BACKGROUND_WORKERS_ENABLED=true` on
+   `staging-workers`; no other execution flag needs to be enabled for CRM-only mode;
+4. admit the web deployment only if the repaired predeploy proves the exact live 134-row prefix,
+   applies exactly the seven-migration suffix, and reaches the frozen 141-row/193-table state;
+5. require postdeploy health to report the same merge SHA, database and queue dependencies up, and
+   worker startup to report `mode: crm-only` with only `prospect-import` and
+   `account-summary-refresh` queues.
+
+No manual database mutation or migration repair is authorized by this runbook.
+
 ## Production boundary
 
 This recovery changes only the Railway staging admission path. It does not merge to `master`, touch
