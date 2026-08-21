@@ -55,6 +55,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-reads.ts', 3],
   // Platform-admin billing portfolio intentionally aggregates customer billing and CRM links.
   ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
+  // Founder-only billing rollout reads and changes only allowlisted flags for one exact tenant;
+  // the mutation records the platform-admin actor and before/after state in the same transaction.
+  ['packages/api/src/routers/admin/billing-rollout.ts', 2],
   ['packages/api/src/routers/admin/cost-budget.ts', 3],
   ['packages/api/src/routers/admin/digest.ts', 1],
   // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
