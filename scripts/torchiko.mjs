@@ -1,0 +1,61 @@
+#!/usr/bin/env node
+import path from 'node:path'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+import {
+  buildBootstrapReport,
+  buildDoctorReport,
+  buildRepositoryMap,
+  findTests,
+  listAgentTools,
+  listFixtures,
+} from './lib/torchiko-developer-tools.mjs'
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const args = process.argv.slice(2)
+const json = args.includes('--json')
+const positional = args.filter((arg) => arg !== '--json')
+
+function usage() {
+  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  fixtures list [--json]\n  tests find <query> [--json]\n  golden validate\n`
+}
+
+function emit(value) {
+  if (json || typeof value !== 'string') console.log(JSON.stringify(value, null, 2))
+  else console.log(value)
+}
+
+async function main() {
+  const [group, action, ...rest] = positional
+  if (group === 'dev' && action === 'bootstrap') return emit(await buildBootstrapReport(root))
+  if (group === 'doctor' && action === undefined) {
+    const report = await buildDoctorReport(root)
+    emit(report)
+    if (!report.healthy) process.exitCode = 1
+    return
+  }
+  if (group === 'repo' && action === 'map') return emit(await buildRepositoryMap(root))
+  if (group === 'tools' && action === 'list') return emit(await listAgentTools(root))
+  if (group === 'fixtures' && action === 'list') return emit(await listFixtures(root))
+  if (group === 'tests' && action === 'find' && rest.length > 0)
+    return emit(await findTests(root, rest.join(' ')))
+  if (group === 'golden' && action === 'validate') {
+    const child = spawn(process.execPath, [path.join(root, 'scripts/golden-venue/validate.mjs')], {
+      cwd: root,
+      shell: false,
+      stdio: 'inherit',
+    })
+    child.once('error', () => {
+      process.exitCode = 1
+    })
+    child.once('exit', (code, signal) => {
+      process.exitCode = signal ? 1 : (code ?? 1)
+    })
+    return
+  }
+  process.stderr.write(usage())
+  process.exitCode = 2
+}
+
+await main()
