@@ -36,6 +36,29 @@ test('admits only the exact approved staging release and target', () => {
   assert.equal(stagingMigrationPolicy.maximumSpendUsd, 10)
 })
 
+test('admits an explicitly approved local upload when Railway has no Git SHA', () => {
+  assert.deepEqual(
+    assertStagingMigrationAdmission({
+      ...admitted,
+      RAILWAY_GIT_COMMIT_SHA: undefined,
+      PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL:
+        'torchiko-stripe-billing-local-upload-20260820',
+    }),
+    assertStagingMigrationAdmission(admitted),
+  )
+})
+
+test('rejects a local upload without the exact one-time approval', () => {
+  assert.throws(
+    () =>
+      assertStagingMigrationAdmission({
+        ...admitted,
+        RAILWAY_GIT_COMMIT_SHA: undefined,
+      }),
+    /one-time PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL/u,
+  )
+})
+
 for (const [name, patch] of [
   ['wrong environment', { RAILWAY_ENVIRONMENT: 'production' }],
   ['missing opt-in', { PATHFINDER_ALLOW_STAGING_MIGRATIONS: undefined }],

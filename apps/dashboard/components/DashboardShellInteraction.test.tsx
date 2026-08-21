@@ -74,4 +74,12 @@ describe('DashboardShell interaction semantics', () => {
       'min-h-11',
     )
   })
+
+  it('shows the Payment tab only when the server-owned billing gate is available', () => {
+    const { rerender } = render(<DashboardShell>Account</DashboardShell>)
+    expect(screen.queryByRole('link', { name: 'Payment' })).toBeNull()
+
+    rerender(<DashboardShell paymentAvailable>Payment content</DashboardShell>)
+    expect(screen.getByRole('link', { name: 'Payment' }).getAttribute('href')).toBe('/payment')
+  })
 })

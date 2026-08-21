@@ -92,6 +92,8 @@ export type GmailSyncJobPayload = {
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>
 
+export type BillingReconciliationJobPayload = { tenantId?: string }
+
 export type MediaIngestionJobPayload = {
   tenantId: string
   venueId: string

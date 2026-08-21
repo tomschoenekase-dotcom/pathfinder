@@ -188,6 +188,16 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/webhooks/stripe/route.ts",
+      "methods": ["POST"],
+      "exposure": "signature-authenticated-public-ingress",
+      "controlProfile": "bounded-signed-webhook",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/webhooks/stripe/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts"
+      ]
+    },
+    {
       "source": "apps/web/app/api/health/route.ts",
       "methods": ["GET"],
       "exposure": "intentional-public",
@@ -213,6 +223,7 @@
     "/api/agent-bridge",
     "/api/integrations/gmail/pubsub",
     "/api/webhooks/clerk",
-    "/api/webhooks/resend"
+    "/api/webhooks/resend",
+    "/api/webhooks/stripe"
   ]
 }

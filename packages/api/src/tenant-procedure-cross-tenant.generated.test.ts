@@ -631,6 +631,7 @@ import type { TenantRole } from '@pathfinder/auth'
 import { router } from './core'
 import type { TRPCContext } from './context'
 import { analyticsRouter } from './routers/analytics'
+import { billingRouter } from './routers/billing'
 import { clientAssistantRouter } from './routers/client-assistant'
 import { contentHistoryRouter } from './routers/content-history'
 import { engagementQuestionRouter } from './routers/engagement-question'
@@ -654,6 +655,7 @@ const ATTACKER_TENANT_ID = 'tenant_attacker'
 
 const testRouter = router({
   analytics: analyticsRouter,
+  billing: billingRouter,
   clientAssistant: clientAssistantRouter,
   contentHistory: contentHistoryRouter,
   engagementQuestion: engagementQuestionRouter,

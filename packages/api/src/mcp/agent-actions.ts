@@ -1,5 +1,6 @@
+import { proposeBillingAgentCommand } from '@pathfinder/billing'
 import { env } from '@pathfinder/config'
-import { askAgentQuestionAction, delegateAgentTaskAction } from '@pathfinder/db'
+import { askAgentQuestionAction, db as canonicalDb, delegateAgentTaskAction } from '@pathfinder/db'
 import type { AgentDelegationClient, AgentQuestionClient } from '@pathfinder/db'
 import { enqueueAgentRun } from '@pathfinder/jobs'
 
@@ -7,11 +8,57 @@ import type { PathfinderMcpDomainActions } from './registry'
 
 /** Adds the first durable agent-to-operator interaction without adding transport or execution. */
 export function createPathfinderMcpAgentActions(
-  db: AgentQuestionClient & AgentDelegationClient,
+  db: AgentQuestionClient & AgentDelegationClient & typeof canonicalDb,
   remainingActions: Omit<PathfinderMcpDomainActions, 'askOperator' | 'delegateSpecialist'>,
 ): PathfinderMcpDomainActions {
   return {
     ...remainingActions,
+    async proposeBillingAction(input, context) {
+      const payload =
+        input.action === 'CREATE_NEGOTIATED_CHECKOUT'
+          ? {
+              action: input.action,
+              planKey: input.planKey!,
+              ...(input.planVersion ? { planVersion: input.planVersion } : {}),
+              venueIds: [input.venueId!],
+              amountMinor: input.amountMinor!,
+              currency: 'usd' as const,
+              interval: input.interval!,
+              reference: input.reference!,
+              reason: input.reason,
+            }
+          : input.action === 'SET_GRACE_PERIOD'
+            ? {
+                action: input.action,
+                agreementId: input.agreementId!,
+                expiresAt: input.expiresAt!,
+                reference: input.reference!,
+                reason: input.reason,
+              }
+            : { action: input.action, reason: input.reason }
+      const result = await proposeBillingAgentCommand({
+        operationId: input.operationId,
+        tenantId: context.credential.tenantId,
+        venueId: input.venueId!,
+        agentIdentityId: input.agentIdentityId,
+        ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+        payload,
+        client: db,
+      })
+      return {
+        kind: 'pathfinder.billing-proposal',
+        summary: result.replayed
+          ? 'Existing billing proposal returned.'
+          : 'Billing proposal recorded for human approval; no Stripe or access change was made.',
+        data: {
+          id: result.command.id,
+          approvalRequestId: result.command.approvalRequestId,
+          action: result.command.action,
+          status: result.command.status,
+          replayed: result.replayed,
+        },
+      }
+    },
     async delegateSpecialist(input, context) {
       const result = await delegateAgentTaskAction(
         {

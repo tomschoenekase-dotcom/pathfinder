@@ -2,6 +2,7 @@ import {
   assertMcpScope,
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
+  McpBillingProposalInput,
   McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
@@ -35,7 +36,10 @@ export type PathfinderMcpDomainActions = Readonly<{
       approvalGrantId: string
       toolName: Exclude<
         PathfinderMcpToolName,
-        'pathfinder.read' | 'pathfinder.ask_operator' | 'pathfinder.delegate_specialist'
+        | 'pathfinder.read'
+        | 'pathfinder.ask_operator'
+        | 'pathfinder.delegate_specialist'
+        | 'pathfinder.propose_billing_action'
       >
       clientId: string
       venueId: string
@@ -50,6 +54,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   delegateSpecialist: (
     input: McpDelegateSpecialistInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeBillingAction: (
+    input: McpBillingProposalInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   createPackageDraft: (
@@ -154,6 +162,12 @@ export function createPathfinderMcpRegistry(
           result = await actions.delegateSpecialist(input, context)
           break
         }
+        case 'pathfinder.propose_billing_action': {
+          const input = McpBillingProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.proposeBillingAction(input, context)
+          break
+        }
         case 'pathfinder.create_package_draft': {
           const input = McpPackageDraftInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -217,7 +231,10 @@ async function verifyApproval(
   actions: PathfinderMcpDomainActions,
   toolName: Exclude<
     PathfinderMcpToolName,
-    'pathfinder.read' | 'pathfinder.ask_operator' | 'pathfinder.delegate_specialist'
+    | 'pathfinder.read'
+    | 'pathfinder.ask_operator'
+    | 'pathfinder.delegate_specialist'
+    | 'pathfinder.propose_billing_action'
   >,
   scope: Readonly<{ clientId: string; venueId?: string | undefined }>,
   capability: string,

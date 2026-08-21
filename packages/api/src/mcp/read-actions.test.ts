@@ -19,6 +19,7 @@ const credential: VerifiedMcpCredentialScope = {
   capabilities: [
     'resources:read',
     'clients:read',
+    'billing:read',
     'venues:read',
     'configuration:read',
     'content:read',
@@ -38,6 +39,7 @@ const credential: VerifiedMcpCredentialScope = {
 function database() {
   return {
     tenant: { findFirst: vi.fn() },
+    billingAccount: { findFirst: vi.fn() },
     venue: { findFirst: vi.fn(), findMany: vi.fn() },
     place: { findMany: vi.fn(), count: vi.fn() },
     venueKnowledgeEntry: { findMany: vi.fn(), count: vi.fn() },
@@ -57,6 +59,7 @@ function database() {
 
 const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   verifyApprovalGrant: vi.fn(),
+  proposeBillingAction: vi.fn(),
   askOperator: vi.fn(),
   delegateSpecialist: vi.fn(),
   createPackageDraft: vi.fn(),
@@ -127,6 +130,72 @@ describe('MCP v0 concrete read bindings', () => {
       ),
     ).rejects.toMatchObject({ code: 'SCOPE_INVARIANT' })
     expect(db.tenant.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('returns a tenant-scoped billing projection without provider IDs, internal notes, or payment links', async () => {
+    const db = database()
+    db.billingAccount.findFirst.mockResolvedValue({
+      billingMode: 'STRIPE_SUBSCRIPTION',
+      currency: 'usd',
+      status: 'ACTIVE',
+      paidThroughAt: new Date('2026-09-20T00:00:00.000Z'),
+      gracePeriodEndsAt: null,
+      reconciliationHealth: 'CURRENT',
+      lastReconciledAt: new Date('2026-08-20T12:00:00.000Z'),
+      commercialAgreements: [
+        {
+          id: 'agreement-1',
+          isBase: true,
+          internalPlanKey: 'negotiated',
+          status: 'ACTIVE',
+          billingMode: 'STRIPE_SUBSCRIPTION',
+          billingInterval: 'MONTH',
+          billingIntervalCount: 1,
+          agreedAmountMinor: 8500n,
+          currency: 'usd',
+          coveredVenueCount: 1,
+          currentPeriodEndsAt: new Date('2026-09-20T00:00:00.000Z'),
+          cancelAtPeriodEnd: false,
+          cancellationEffectiveAt: null,
+          accessEndsAt: null,
+        },
+      ],
+      invoiceProjections: [
+        {
+          id: 'invoice-1',
+          invoiceNumber: 'T-0001',
+          status: 'PAID',
+          amountDueMinor: 8500n,
+          amountPaidMinor: 8500n,
+          amountRemainingMinor: 0n,
+          currency: 'usd',
+          dueAt: null,
+          paidAt: new Date('2026-08-20T12:00:00.000Z'),
+          failedAt: null,
+          nextRetryAt: null,
+          failureSummary: null,
+        },
+      ],
+      stripeCustomerId: 'cus_secret',
+      internalNotes: 'never expose',
+      hostedInvoiceUrl: 'https://secret',
+    })
+    const response = await readMcpResource(
+      db as never,
+      { resource: 'billing', clientId: 'tenant-1', limit: 25 },
+      { credential },
+    )
+    expect(db.billingAccount.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: 'tenant-1' } }),
+    )
+    expect(response.data).toMatchObject({
+      status: 'ACTIVE',
+      paidThroughAt: '2026-09-20T00:00:00.000Z',
+    })
+    const serialized = JSON.stringify(response)
+    expect(serialized).not.toContain('cus_secret')
+    expect(serialized).not.toContain('never expose')
+    expect(serialized).not.toContain('https://secret')
   })
 
   it('denies cross-venue access before any database delegate is called', async () => {

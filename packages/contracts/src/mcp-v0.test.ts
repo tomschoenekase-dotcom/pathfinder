@@ -25,6 +25,7 @@ describe('Torchiko MCP v0 contracts', () => {
     expect(() => validatePathfinderMcpCatalog()).not.toThrow()
     expect(PATHFINDER_MCP_RESOURCES.map(({ name }) => name)).toEqual([
       'pathfinder.clients',
+      'pathfinder.billing',
       'pathfinder.venues',
       'pathfinder.configuration',
       'pathfinder.content',

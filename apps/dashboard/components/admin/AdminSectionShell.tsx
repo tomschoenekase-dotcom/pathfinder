@@ -8,6 +8,7 @@ import {
   Building2,
   CircleGauge,
   ContactRound,
+  CreditCard,
   ExternalLink,
   BookOpen,
   Home,
@@ -30,6 +31,7 @@ const navigationItems = [
   { href: '/admin', label: 'Command center', icon: Home, exact: true },
   { href: '/admin/directory', label: 'Client directory', icon: Building2 },
   { href: '/admin/prospects', label: 'Prospect CRM', icon: ContactRound },
+  { href: '/admin/billing', label: 'Billing', icon: CreditCard },
   { href: '/admin/operations', label: 'Operations', icon: Activity },
   { href: '/admin/help', label: 'Operator guide', icon: BookOpen },
 ] as const

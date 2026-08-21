@@ -23,6 +23,7 @@ type ClientWorkspaceShellProps = {
     status: string
   }
   venues: WorkspaceVenue[]
+  billingAvailable?: boolean
 }
 
 type NavigationItem = {
@@ -73,7 +74,12 @@ function NavigationGroup({ label, items }: { label: string; items: NavigationIte
   )
 }
 
-export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspaceShellProps) {
+export function ClientWorkspaceShell({
+  children,
+  client,
+  venues,
+  billingAvailable = false,
+}: ClientWorkspaceShellProps) {
   const pathname = usePathname()
   const selectedVenue =
     venues.find((venue) => {
@@ -90,6 +96,15 @@ export function ClientWorkspaceShell({ children, client, venues }: ClientWorkspa
       description: 'Account health and venues',
       exact: true,
     },
+    ...(billingAvailable
+      ? [
+          {
+            href: `${clientRoot}/billing`,
+            label: 'Billing',
+            description: 'Arrangements, invoices and recovery',
+          },
+        ]
+      : []),
     {
       href: `${clientRoot}/analytics`,
       label: 'Portfolio analytics',

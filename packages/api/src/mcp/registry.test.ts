@@ -27,6 +27,7 @@ function actions(): PathfinderMcpDomainActions {
   } as const
   return {
     verifyApprovalGrant: vi.fn().mockResolvedValue(undefined),
+    proposeBillingAction: vi.fn().mockResolvedValue(result),
     read: vi.fn().mockResolvedValue(result),
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),

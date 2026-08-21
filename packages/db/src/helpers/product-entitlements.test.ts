@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ProductEntitlementError,
@@ -10,11 +10,14 @@ import {
 const tenant = vi.fn()
 const override = vi.fn()
 const plan = vi.fn()
+const billingAccount = vi.fn()
 const client = {
   tenant: { findUnique: tenant },
   productEntitlementOverride: { findFirst: override },
   productPlanCapability: { findUnique: plan },
 } as ProductEntitlementClient
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe('product entitlement resolution', () => {
   beforeEach(() => {
@@ -100,5 +103,47 @@ describe('product entitlement resolution', () => {
     await expect(
       requireProductEntitlement({ client, tenantId: 'tenant-a', capability: 'voice' }),
     ).rejects.toEqual(new ProductEntitlementError('CAPABILITY_DENIED', 'voice'))
+  })
+
+  it('enforces the central billing policy only behind the launch kill switch', async () => {
+    vi.stubEnv('BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED', 'true')
+    const enforcingClient = {
+      ...client,
+      billingAccount: { findUnique: billingAccount },
+      tenantFeatureFlag: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+    }
+    billingAccount.mockResolvedValue({
+      id: 'billing-a',
+      status: 'PAST_DUE',
+      paidThroughAt: null,
+      gracePeriodEndsAt: new Date('2026-08-18T00:00:00.000Z'),
+      commercialAgreements: [
+        {
+          id: 'agreement-a',
+          billingMode: 'STRIPE_SUBSCRIPTION',
+          status: 'PAST_DUE',
+          stripeSubscriptionStatus: 'PAST_DUE',
+          currentPeriodEndsAt: null,
+          accessStartsAt: null,
+          accessEndsAt: null,
+          cancelAtPeriodEnd: false,
+        },
+      ],
+      accessOverrides: [],
+    })
+    await expect(
+      resolveProductEntitlement({
+        client: enforcingClient,
+        tenantId: 'tenant-a',
+        capability: 'widget',
+        now: new Date('2026-08-20T00:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({
+      enabled: false,
+      source: 'BILLING_POLICY',
+      settings: { accessState: 'SUSPENDED' },
+    })
+    expect(override).not.toHaveBeenCalled()
+    expect(plan).not.toHaveBeenCalled()
   })
 })

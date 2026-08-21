@@ -20,6 +20,7 @@ type ReadResource = McpReadInput['resource']
 type ReadDb = Pick<
   PrismaClient,
   | 'tenant'
+  | 'billingAccount'
   | 'venue'
   | 'place'
   | 'venueKnowledgeEntry'
@@ -116,6 +117,9 @@ export async function readMcpResource(
     case 'clients':
       rejectCursor(cursor, input.resource)
       return readClient(db, context.credential.tenantId)
+    case 'billing':
+      rejectCursor(cursor, input.resource)
+      return readBilling(db, context.credential.tenantId)
     case 'venues':
       return readVenues(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'configuration':
@@ -163,12 +167,91 @@ function assertExactScope(input: McpReadInput, context: VerifiedMcpInvocationCon
       'Verified tenant and client scope do not match.',
     )
   }
-  if (input.resource !== 'clients' && !input.venueId) {
+  if (!['clients', 'billing'].includes(input.resource) && !input.venueId) {
     throw new McpReadBindingError('SCOPE_INVARIANT', 'This resource requires exact venue scope.')
   }
   if (input.venueId && !credential.venueIds.includes(input.venueId)) {
     throw new McpReadBindingError('SCOPE_INVARIANT', 'Verified venue scope does not match.')
   }
+}
+
+async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult> {
+  const account = await db.billingAccount.findFirst({
+    where: { tenantId },
+    select: {
+      billingMode: true,
+      currency: true,
+      status: true,
+      paidThroughAt: true,
+      gracePeriodEndsAt: true,
+      reconciliationHealth: true,
+      lastReconciledAt: true,
+      commercialAgreements: {
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          isBase: true,
+          internalPlanKey: true,
+          status: true,
+          billingMode: true,
+          billingInterval: true,
+          billingIntervalCount: true,
+          agreedAmountMinor: true,
+          currency: true,
+          coveredVenueCount: true,
+          currentPeriodEndsAt: true,
+          cancelAtPeriodEnd: true,
+          cancellationEffectiveAt: true,
+          accessEndsAt: true,
+        },
+      },
+      invoiceProjections: {
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 25,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          amountDueMinor: true,
+          amountPaidMinor: true,
+          amountRemainingMinor: true,
+          currency: true,
+          dueAt: true,
+          paidAt: true,
+          failedAt: true,
+          nextRetryAt: true,
+          failureSummary: true,
+        },
+      },
+    },
+  })
+  if (!account) return result('billing', null)
+  return result('billing', {
+    billingMode: account.billingMode,
+    currency: account.currency,
+    status: account.status,
+    paidThroughAt: account.paidThroughAt?.toISOString() ?? null,
+    gracePeriodEndsAt: account.gracePeriodEndsAt?.toISOString() ?? null,
+    reconciliationHealth: account.reconciliationHealth,
+    lastReconciledAt: account.lastReconciledAt?.toISOString() ?? null,
+    agreements: account.commercialAgreements.map((agreement) => ({
+      ...agreement,
+      agreedAmountMinor: agreement.agreedAmountMinor?.toString() ?? null,
+      currentPeriodEndsAt: agreement.currentPeriodEndsAt?.toISOString() ?? null,
+      cancellationEffectiveAt: agreement.cancellationEffectiveAt?.toISOString() ?? null,
+      accessEndsAt: agreement.accessEndsAt?.toISOString() ?? null,
+    })),
+    invoices: account.invoiceProjections.map((invoice) => ({
+      ...invoice,
+      amountDueMinor: invoice.amountDueMinor.toString(),
+      amountPaidMinor: invoice.amountPaidMinor.toString(),
+      amountRemainingMinor: invoice.amountRemainingMinor.toString(),
+      dueAt: invoice.dueAt?.toISOString() ?? null,
+      paidAt: invoice.paidAt?.toISOString() ?? null,
+      failedAt: invoice.failedAt?.toISOString() ?? null,
+      nextRetryAt: invoice.nextRetryAt?.toISOString() ?? null,
+    })),
+  })
 }
 
 function rejectCursor(cursor: CursorPayload | undefined, resource: ReadResource): void {

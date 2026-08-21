@@ -17,6 +17,21 @@ const suites = [
     directory: 'apps/web',
     testFile: 'components/PacketAccessibility.test.tsx',
   },
+  {
+    label: 'Stripe billing client axe contracts',
+    directory: 'apps/dashboard',
+    testFile: 'components/billing/ClientBillingView.test.tsx',
+  },
+  {
+    label: 'Stripe billing operator axe contracts',
+    directory: 'apps/dashboard',
+    testFile: 'components/admin/AdminBillingView.test.tsx',
+  },
+  {
+    label: 'Stripe billing portfolio and CRM axe contracts',
+    directory: 'apps/dashboard',
+    testFile: 'components/admin/AdminBillingPortfolio.test.tsx',
+  },
 ]
 
 for (const suite of suites) {

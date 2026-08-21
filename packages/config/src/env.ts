@@ -38,6 +38,27 @@ const rawEnvSchema = z
     OUTBOUND_PROVIDER_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
     CRM_BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
 
+    // Stripe Billing is an independently dark integration. Environment gates
+    // never replace tenant pilot admission or server-side authorization.
+    STRIPE_BILLING_UI_ENABLED: z.enum(['true', 'false']).optional(),
+    STRIPE_CHECKOUT_ENABLED: z.enum(['true', 'false']).optional(),
+    STRIPE_CUSTOMER_PORTAL_ENABLED: z.enum(['true', 'false']).optional(),
+    STRIPE_CANCELLATION_ENABLED: z.enum(['true', 'false']).optional(),
+    STRIPE_WEBHOOK_PROCESSING_ENABLED: z.enum(['true', 'false']).optional(),
+    STRIPE_RECONCILIATION_ENABLED: z.enum(['true', 'false']).optional(),
+    BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).optional(),
+    STRIPE_LIVE_MODE_ALLOWED: z.enum(['true', 'false']).optional(),
+    STRIPE_MODE: z.enum(['test', 'live']).default('test'),
+    STRIPE_ACCOUNT_NAMESPACE: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/u)
+      .default('torchiko-test'),
+    STRIPE_SECRET_KEY: z.string().min(1).optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    STRIPE_CATALOG_JSON: z.string().max(64_000).optional(),
+    STRIPE_CUSTOMER_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
+    BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+
     // Mutation dispatch is correctness infrastructure, separate from business
     // cron. Every worker environment requires explicit rollout authority.
     EMBEDDING_DISPATCH_ENABLED: z.enum(['true', 'false']).optional(),
@@ -161,6 +182,35 @@ const rawEnvSchema = z
         }
       }
     }
+    if (values.STRIPE_MODE === 'live') {
+      if (values.RAILWAY_ENVIRONMENT !== 'production') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['STRIPE_MODE'],
+          message: 'STRIPE_MODE=live is forbidden outside production',
+        })
+      }
+      if (values.STRIPE_LIVE_MODE_ALLOWED !== 'true') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['STRIPE_LIVE_MODE_ALLOWED'],
+          message: 'STRIPE_MODE=live requires STRIPE_LIVE_MODE_ALLOWED=true',
+        })
+      }
+    }
+    if (values.STRIPE_SECRET_KEY) {
+      const expectedPrefixes =
+        values.STRIPE_MODE === 'live'
+          ? (['sk_live_', 'rk_live_'] as const)
+          : (['sk_test_', 'rk_test_'] as const)
+      if (!expectedPrefixes.some((prefix) => values.STRIPE_SECRET_KEY?.startsWith(prefix))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['STRIPE_SECRET_KEY'],
+          message: `Stripe ${values.STRIPE_MODE} mode requires a ${expectedPrefixes.join(' or ')} key`,
+        })
+      }
+    }
   })
 
 export const envSchema = rawEnvSchema.transform((values) => ({
@@ -168,6 +218,15 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   WORKER_SCHEDULERS_ENABLED: values.WORKER_SCHEDULERS_ENABLED === 'true',
   OUTBOUND_PROVIDER_WORKERS_ENABLED: values.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true',
   CRM_BACKGROUND_WORKERS_ENABLED: values.CRM_BACKGROUND_WORKERS_ENABLED === 'true',
+  STRIPE_BILLING_UI_ENABLED: values.STRIPE_BILLING_UI_ENABLED === 'true',
+  STRIPE_CHECKOUT_ENABLED: values.STRIPE_CHECKOUT_ENABLED === 'true',
+  STRIPE_CUSTOMER_PORTAL_ENABLED: values.STRIPE_CUSTOMER_PORTAL_ENABLED === 'true',
+  STRIPE_CANCELLATION_ENABLED: values.STRIPE_CANCELLATION_ENABLED === 'true',
+  STRIPE_WEBHOOK_PROCESSING_ENABLED: values.STRIPE_WEBHOOK_PROCESSING_ENABLED === 'true',
+  STRIPE_RECONCILIATION_ENABLED: values.STRIPE_RECONCILIATION_ENABLED === 'true',
+  BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED:
+    values.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED === 'true',
+  STRIPE_LIVE_MODE_ALLOWED: values.STRIPE_LIVE_MODE_ALLOWED === 'true',
   EMBEDDING_DISPATCH_ENABLED: values.EMBEDDING_DISPATCH_ENABLED === 'true',
   GENERATION_DISPATCH_ENABLED: values.GENERATION_DISPATCH_ENABLED === 'true',
   GENERATION_RECOVERY_ENABLED: values.GENERATION_RECOVERY_ENABLED === 'true',

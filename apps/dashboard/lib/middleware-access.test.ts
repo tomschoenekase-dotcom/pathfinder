@@ -122,6 +122,7 @@ describe('dashboard middleware access policy', () => {
     '/sign-in/sso-callback',
     '/sign-up',
     '/api/webhooks/clerk',
+    '/api/webhooks/stripe',
     '/api/webhooks/resend',
     '/api/agent-bridge',
     '/api/agent-bridge/tenant_1/venue_1',
@@ -140,6 +141,7 @@ describe('dashboard middleware access policy', () => {
     '/sign-in-evil',
     '/sign-upgrade',
     '/api/webhooks/clerk-attacker',
+    '/api/webhooks/stripe-attacker',
     '/api/webhooks/resend-attacker',
     '/api/agent-bridge-attacker/tenant_1/venue_1',
   ])('does not make the prefix-adjacent path %s public', (pathname) => {

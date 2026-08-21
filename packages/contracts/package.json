@@ -26,6 +26,7 @@
     "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts",
     "./remote-onboarding": "./src/remote-onboarding.ts",
     "./client-package-preview": "./src/client-package-preview.ts",
+    "./billing-access-policy": "./src/billing-access-policy.ts",
     "./universal-content-actions": "./src/universal-content-actions.ts",
     "./native-venue-deployment": "./src/native-venue-deployment.ts",
     "./character-system": "./src/character-system.ts"

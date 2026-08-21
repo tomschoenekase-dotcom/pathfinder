@@ -6,6 +6,7 @@ const PUBLIC_ROUTES = [
   '/api/agent-bridge',
   '/api/integrations/gmail/pubsub',
   '/api/webhooks/clerk',
+  '/api/webhooks/stripe',
   '/api/webhooks/resend',
 ]
 const PUBLIC_ROUTE_PREFIXES = ['/api/agent-bridge/']

@@ -25,6 +25,8 @@ function kindLabel(kind: string) {
 const SAFE_CAPABILITIES = new Set([
   'resources:read',
   'clients:read',
+  'billing:read',
+  'billing:propose',
   'venues:read',
   'configuration:read',
   'content:read',

@@ -24,6 +24,14 @@ export const CLIENT_BUNDLE_SECRET_CANARIES = Object.freeze({
     marker: canary('CLERK_WEBHOOK_SECRET'),
     value: `whsec_${canary('CLERK_WEBHOOK_SECRET')}`,
   },
+  STRIPE_SECRET_KEY: {
+    marker: canary('STRIPE_SECRET_KEY'),
+    value: `sk_test_${canary('STRIPE_SECRET_KEY')}`,
+  },
+  STRIPE_WEBHOOK_SECRET: {
+    marker: canary('STRIPE_WEBHOOK_SECRET'),
+    value: `whsec_${canary('STRIPE_WEBHOOK_SECRET')}`,
+  },
   ANTHROPIC_API_KEY: {
     marker: canary('ANTHROPIC_API_KEY'),
     value: `sk-ant-api03-${canary('ANTHROPIC_API_KEY')}`,

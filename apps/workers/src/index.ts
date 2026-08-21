@@ -10,6 +10,9 @@ import {
   ANSWER_ANALYSIS_QUEUE,
   ANSWER_ANALYSIS_RECOVERY_JOB,
   ANSWER_ANALYSIS_RETRY_BACKOFF,
+  BILLING_RECONCILIATION_PROCESS_JOB,
+  BILLING_RECONCILIATION_QUEUE,
+  BILLING_RECONCILIATION_SCHEDULER_JOB,
   ANALYTICS_ENRICHMENT_PROCESS_JOB,
   ANALYTICS_ENRICHMENT_QUEUE,
   ANALYTICS_ENRICHMENT_RETRY_BACKOFF,
@@ -78,6 +81,7 @@ import {
   WEEKLY_REPORT_RECOVERY_JOB,
   WEEKLY_REPORT_RETRY_BACKOFF,
   type AnswerAnalysisJobPayload,
+  type BillingReconciliationJobPayload,
   type AnswerAnalysisRecoveryJobPayload,
   type DailyRollupJobPayload,
   type WeeklyDigestJobPayload,
@@ -109,6 +113,7 @@ import { processWeeklyDigestJob } from './processors/weekly-digest'
 import { processWeeklyReportJob } from './processors/weekly-report'
 import { processMediaIngestionJob } from './processors/media-ingestion'
 import { processOperationalEventDeliveries } from './processors/operational-event-delivery'
+import { processBillingReconciliationJob } from './processors/billing-reconciliation'
 import {
   processProspectImportInspectionJob,
   processProspectImportCommitJob,
@@ -605,6 +610,16 @@ async function handleGmailSyncQueueJob(job: Job<GmailSyncJobPayload>) {
   await processGmailSyncJob(job.data)
 }
 
+async function handleBillingReconciliationQueueJob(job: Job<BillingReconciliationJobPayload>) {
+  if (
+    job.name !== BILLING_RECONCILIATION_PROCESS_JOB &&
+    job.name !== BILLING_RECONCILIATION_SCHEDULER_JOB
+  ) {
+    throw new Error(`Unsupported billing reconciliation job: ${job.name}`)
+  }
+  await processBillingReconciliationJob(job.data)
+}
+
 export async function startWorkers() {
   if (!env.OUTBOUND_PROVIDER_WORKERS_ENABLED) {
     const stopHeartbeat = await startOperationalHeartbeat('provider-disabled')
@@ -644,6 +659,7 @@ export async function startWorkers() {
   })
   const prospectImportQueue = new Queue(PROSPECT_IMPORT_QUEUE, { connection })
   const gmailSyncQueue = new Queue(GMAIL_SYNC_QUEUE, { connection })
+  const billingReconciliationQueue = new Queue(BILLING_RECONCILIATION_QUEUE, { connection })
   const evaluationRunQueue = env.EVALUATION_RUNNER_ENABLED
     ? new Queue(EVALUATION_RUN_QUEUE, { connection })
     : null
@@ -666,6 +682,7 @@ export async function startWorkers() {
     },
     { name: PROSPECT_IMPORT_QUEUE, close: () => prospectImportQueue.close() },
     { name: GMAIL_SYNC_QUEUE, close: () => gmailSyncQueue.close() },
+    { name: BILLING_RECONCILIATION_QUEUE, close: () => billingReconciliationQueue.close() },
     ...(evaluationRunQueue
       ? [{ name: EVALUATION_RUN_QUEUE, close: () => evaluationRunQueue.close() }]
       : []),
@@ -864,6 +881,28 @@ export async function startWorkers() {
             },
           ),
         remove: () => gmailSyncQueue.removeJobScheduler(GMAIL_SYNC_WATCH_RENEWAL_JOB),
+      },
+    ])
+
+    await applySchedulerState(env.WORKER_SCHEDULERS_ENABLED && env.STRIPE_RECONCILIATION_ENABLED, [
+      {
+        upsert: () =>
+          billingReconciliationQueue.upsertJobScheduler(
+            BILLING_RECONCILIATION_SCHEDULER_JOB,
+            { every: 24 * 60 * 60_000 },
+            {
+              name: BILLING_RECONCILIATION_PROCESS_JOB,
+              data: {},
+              opts: {
+                attempts: 5,
+                backoff: { type: 'exponential', delay: 30_000 },
+                removeOnComplete: 100,
+                removeOnFail: 500,
+              },
+            },
+          ),
+        remove: () =>
+          billingReconciliationQueue.removeJobScheduler(BILLING_RECONCILIATION_SCHEDULER_JOB),
       },
     ])
 
@@ -1067,6 +1106,14 @@ export async function startWorkers() {
     }),
   )
 
+  const billingReconciliationWorker = observeWorkerRuntime(
+    BILLING_RECONCILIATION_QUEUE,
+    new Worker(BILLING_RECONCILIATION_QUEUE, handleBillingReconciliationQueueJob, {
+      connection,
+      concurrency: 1,
+    }),
+  )
+
   const answerAnalysisWorker = observeWorkerRuntime(
     ANSWER_ANALYSIS_QUEUE,
     new Worker(ANSWER_ANALYSIS_QUEUE, handleAnswerAnalysisQueueJob, {
@@ -1194,6 +1241,7 @@ export async function startWorkers() {
     { name: OPERATIONAL_EVENT_DELIVERY_QUEUE, worker: operationalEventDeliveryWorker },
     { name: PROSPECT_IMPORT_QUEUE, worker: prospectImportWorker },
     { name: GMAIL_SYNC_QUEUE, worker: gmailSyncWorker },
+    { name: BILLING_RECONCILIATION_QUEUE, worker: billingReconciliationWorker },
     { name: ANSWER_ANALYSIS_QUEUE, worker: answerAnalysisWorker },
     { name: WEEKLY_REPORT_QUEUE, worker: weeklyReportWorker },
     { name: MEDIA_INGESTION_QUEUE, worker: mediaIngestionWorker },
@@ -1234,6 +1282,7 @@ export async function startWorkers() {
       OPERATIONAL_EVENT_DELIVERY_QUEUE,
       PROSPECT_IMPORT_QUEUE,
       GMAIL_SYNC_QUEUE,
+      BILLING_RECONCILIATION_QUEUE,
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
@@ -1294,6 +1343,8 @@ export async function startWorkers() {
     prospectImportWorker,
     gmailSyncQueue,
     gmailSyncWorker,
+    billingReconciliationQueue,
+    billingReconciliationWorker,
     mediaIngestionQueue,
     mediaIngestionWorker,
     evaluationRunWorker,

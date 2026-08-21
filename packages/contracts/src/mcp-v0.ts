@@ -28,6 +28,8 @@ export type JsonValue =
 export const McpCapability = z.enum([
   'resources:read',
   'clients:read',
+  'billing:read',
+  'billing:propose',
   'venues:read',
   'configuration:read',
   'content:read',
@@ -179,6 +181,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'pathfinder://clients/{clientId}',
     'client',
     'clients:read',
+  ],
+  [
+    'billing',
+    'Billing',
+    'Client-scoped commercial arrangement, paid-through, invoice, and reconciliation projections.',
+    'pathfinder://clients/{clientId}/billing',
+    'client',
+    'billing:read',
   ],
   [
     'venues',
@@ -421,6 +431,45 @@ export const McpDelegateSpecialistInput = McpRequestedScope.extend({
 }).strict()
 export type McpDelegateSpecialistInput = z.infer<typeof McpDelegateSpecialistInput>
 
+export const McpBillingProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier.optional(),
+  action: z.enum(['CREATE_NEGOTIATED_CHECKOUT', 'SET_GRACE_PERIOD', 'CANCEL_AT_PERIOD_END']),
+  planKey: z.string().trim().min(1).max(100).optional(),
+  planVersion: z.number().int().positive().optional(),
+  amountMinor: z
+    .string()
+    .regex(/^[1-9]\d{0,11}$/u)
+    .optional(),
+  interval: z.enum(['month', 'year']).optional(),
+  agreementId: Identifier.optional(),
+  expiresAt: z.string().datetime({ offset: true }).optional(),
+  reference: z.string().trim().min(1).max(191).optional(),
+  reason: z.string().trim().min(3).max(2000),
+})
+  .strict()
+  .superRefine((value, context) => {
+    const missing = (field: keyof typeof value) =>
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${field} is required for ${value.action}`,
+      })
+    if (value.action === 'CREATE_NEGOTIATED_CHECKOUT') {
+      if (!value.planKey) missing('planKey')
+      if (!value.amountMinor) missing('amountMinor')
+      if (!value.interval) missing('interval')
+      if (!value.reference) missing('reference')
+    }
+    if (value.action === 'SET_GRACE_PERIOD') {
+      if (!value.agreementId) missing('agreementId')
+      if (!value.expiresAt) missing('expiresAt')
+      if (!value.reference) missing('reference')
+    }
+  })
+export type McpBillingProposalInput = z.infer<typeof McpBillingProposalInput>
+
 export const McpToolResult = z
   .object({ kind: Identifier, summary: Summary, data: JsonValue })
   .strict()
@@ -430,12 +479,48 @@ export type PathfinderMcpToolName =
   | 'pathfinder.read'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
+  | 'pathfinder.propose_billing_action'
   | 'pathfinder.create_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
   | 'pathfinder.request_evaluation'
 
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
+  {
+    name: 'pathfinder.propose_billing_action',
+    title: 'Propose a billing action',
+    description:
+      'Record an exact, idempotent negotiated Checkout, grace-period, or cancellation proposal for human approval. This tool never changes Stripe or customer access.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        action: {
+          type: 'string',
+          enum: ['CREATE_NEGOTIATED_CHECKOUT', 'SET_GRACE_PERIOD', 'CANCEL_AT_PERIOD_END'],
+        },
+        planKey: { type: 'string', minLength: 1, maxLength: 100 },
+        planVersion: { type: 'integer', minimum: 1 },
+        amountMinor: { type: 'string', pattern: '^[1-9][0-9]{0,11}$' },
+        interval: { type: 'string', enum: ['month', 'year'] },
+        agreementId: { type: 'string', minLength: 1, maxLength: 120 },
+        expiresAt: { type: 'string', format: 'date-time' },
+        reference: { type: 'string', minLength: 1, maxLength: 191 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+      },
+      [...scopeRequired, 'operationId', 'agentIdentityId', 'action', 'reason'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'billing:propose', 'interaction') },
+  },
   {
     name: 'pathfinder.read',
     title: 'Read Torchiko data',

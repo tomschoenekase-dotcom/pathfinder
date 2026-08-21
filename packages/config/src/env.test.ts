@@ -220,6 +220,54 @@ describe('OUTBOUND_PROVIDER_WORKERS_ENABLED', () => {
   })
 })
 
+describe('Stripe Billing environment', () => {
+  it('defaults every billing gate off in test mode', () => {
+    const parsed = envSchema.parse(requiredEnvironment)
+    expect(parsed).toMatchObject({
+      STRIPE_MODE: 'test',
+      STRIPE_BILLING_UI_ENABLED: false,
+      STRIPE_CHECKOUT_ENABLED: false,
+      STRIPE_CUSTOMER_PORTAL_ENABLED: false,
+      STRIPE_WEBHOOK_PROCESSING_ENABLED: false,
+      STRIPE_RECONCILIATION_ENABLED: false,
+      BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: false,
+      STRIPE_LIVE_MODE_ALLOWED: false,
+    })
+  })
+
+  it('rejects a live key in test mode', () => {
+    expect(() =>
+      envSchema.parse({ ...requiredEnvironment, STRIPE_SECRET_KEY: 'sk_live_wrong-mode' }),
+    ).toThrow('sk_test_')
+  })
+
+  it('accepts a restricted key in test mode', () => {
+    expect(() =>
+      envSchema.parse({ ...requiredEnvironment, STRIPE_SECRET_KEY: 'rk_test_example' }),
+    ).not.toThrow()
+  })
+
+  it('rejects live mode outside production and without the explicit kill switch', () => {
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        STRIPE_MODE: 'live',
+        STRIPE_SECRET_KEY: 'sk_live_example',
+        STRIPE_LIVE_MODE_ALLOWED: 'true',
+        RAILWAY_ENVIRONMENT: 'staging',
+      }),
+    ).toThrow('forbidden outside production')
+    expect(() =>
+      envSchema.parse({
+        ...requiredEnvironment,
+        STRIPE_MODE: 'live',
+        STRIPE_SECRET_KEY: 'sk_live_example',
+        RAILWAY_ENVIRONMENT: 'production',
+      }),
+    ).toThrow('STRIPE_LIVE_MODE_ALLOWED=true')
+  })
+})
+
 describe('EMBEDDING_DISPATCH_ENABLED', () => {
   it('never defaults enabled in the shared schema', () => {
     expect(

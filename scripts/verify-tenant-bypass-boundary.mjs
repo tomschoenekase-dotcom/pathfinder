@@ -53,6 +53,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-directory-search.ts', 1],
   // Platform-admin reads include one exact tenant+venue onboarding/character detail projection.
   ['packages/api/src/routers/admin/client-reads.ts', 3],
+  // Platform-admin billing portfolio intentionally aggregates customer billing and CRM links.
+  ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
   ['packages/api/src/routers/admin/cost-budget.ts', 3],
   ['packages/api/src/routers/admin/digest.ts', 1],
   // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
@@ -91,7 +93,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 10],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 9],
+  // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
+  ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
   ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],
@@ -122,6 +126,12 @@ const approvedCallCounts = new Map([
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
+  // Signature-verified Stripe ingress resolves an unknown provider object to one
+  // namespaced account; platform-admin manual billing then revalidates exact tenant+venue scope.
+  ['packages/billing/src/service.ts', 4],
+  // Scheduled billing fanout selects a bounded set of namespaced Stripe accounts;
+  // each reconciliation call immediately re-enters one exact tenant scope.
+  ['apps/workers/src/processors/billing-reconciliation.ts', 2],
   // Signature-verified Resend events reconcile platform-owned CRM correspondence only.
 ])
 

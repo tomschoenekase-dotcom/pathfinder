@@ -1,5 +1,6 @@
 const PRODUCTION_PROJECT_REFS = Object.freeze(['zpacmfkomonxeqdiadtz'])
 const MAX_APPROVED_STAGING_SPEND_USD = 10
+const LOCAL_UPLOAD_APPROVAL = 'torchiko-stripe-billing-local-upload-20260820'
 
 function required(environment, key) {
   const value = environment[key]?.trim()
@@ -55,9 +56,18 @@ export function assertStagingMigrationAdmission(environment) {
   }
 
   const releaseSha = required(environment, 'PATHFINDER_RELEASE_SHA').toLowerCase()
-  const providerReleaseSha = required(environment, 'RAILWAY_GIT_COMMIT_SHA').toLowerCase()
-  if (!/^[a-f0-9]{40}$/u.test(releaseSha) || releaseSha !== providerReleaseSha) {
-    throw new Error('PATHFINDER_RELEASE_SHA must equal the full Railway release commit SHA')
+  if (!/^[a-f0-9]{40}$/u.test(releaseSha)) {
+    throw new Error('PATHFINDER_RELEASE_SHA must be a full Git commit SHA')
+  }
+  const providerReleaseSha = environment.RAILWAY_GIT_COMMIT_SHA?.trim().toLowerCase()
+  if (providerReleaseSha) {
+    if (releaseSha !== providerReleaseSha) {
+      throw new Error('PATHFINDER_RELEASE_SHA must equal the full Railway release commit SHA')
+    }
+  } else if (environment.PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL !== LOCAL_UPLOAD_APPROVAL) {
+    throw new Error(
+      'Local staging uploads require the exact one-time PATHFINDER_STAGING_LOCAL_UPLOAD_APPROVAL',
+    )
   }
 
   const resource = required(environment, 'PATHFINDER_STAGING_DATABASE_RESOURCE')

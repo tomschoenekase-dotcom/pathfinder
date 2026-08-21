@@ -10,6 +10,7 @@
     "test": "pnpm characters:sync && turbo run test && pnpm test:scripts",
     "test:accessibility": "node scripts/run-packet-2-accessibility.mjs",
     "test:browser-foundation": "node scripts/run-packet-2-browser-foundation.mjs",
+    "test:billing-browser": "pnpm --dir apps/dashboard test:billing-browser",
     "golden-venue:validate": "node scripts/golden-venue/validate.mjs",
     "test:scripts": "node scripts/run-script-tests.mjs",
     "characters:verify": "node scripts/verify-character-assets.mjs",

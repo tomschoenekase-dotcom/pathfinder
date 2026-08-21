@@ -32,6 +32,7 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
 
   let impersonatedTenantName: string | undefined
   let weeklyReportsAvailable = false
+  let paymentAvailable = false
   const caller = await createDashboardCaller('/')
   if (isPlatformAdmin && adminTenantOverride) {
     const { tenant } = await caller.tenant.getSettings()
@@ -43,11 +44,20 @@ export default async function DashboardAppLayout({ children }: AppLayoutProps) {
   } catch {
     // Report navigation is capability-gated. An unavailable check must fail closed.
   }
+  if (process.env.STRIPE_BILLING_UI_ENABLED === 'true') {
+    try {
+      const billing = await caller.billing.overview()
+      paymentAvailable = billing.enabled
+    } catch {
+      // Billing navigation is protected by both the environment kill switch and tenant flag.
+    }
+  }
 
   return (
     <TRPCProvider scopeKey={`tenant:${effectiveOrgId}`}>
       <DashboardShell
         weeklyReportsAvailable={weeklyReportsAvailable}
+        paymentAvailable={paymentAvailable}
         {...(impersonatedTenantName !== undefined ? { impersonatedTenantName } : {})}
       >
         {children}

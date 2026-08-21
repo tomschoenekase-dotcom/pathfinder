@@ -2,8 +2,7 @@
 
 import type { ElementType, FormEvent } from 'react'
 import { useEffect, useState } from 'react'
-import { useUser } from '@clerk/nextjs'
-import { Building2, CalendarClock, Settings, Users } from 'lucide-react'
+import { Building2, Settings, Users } from 'lucide-react'
 
 import { type DashboardTRPCClient, useTRPCClient } from '../../../lib/trpc'
 import { ClientTochiPreferenceWorkspace } from '../../../components/ClientTochiPreferenceWorkspace'
@@ -90,119 +89,6 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${color}`}>
       {label}
     </span>
-  )
-}
-
-function PaymentDateEditor({
-  client,
-  tenantId,
-  currentDate,
-  expectedUpdatedAt,
-  onUpdated,
-}: {
-  client: DashboardTRPCClient
-  tenantId: string
-  currentDate: Date | null
-  expectedUpdatedAt: Date
-  onUpdated: () => Promise<void>
-}) {
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(currentDate ? currentDate.toISOString().slice(0, 10) : '')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!editing) {
-      setValue(currentDate ? currentDate.toISOString().slice(0, 10) : '')
-    }
-  }, [currentDate, editing])
-
-  async function save(nextPaymentDue: string | null) {
-    setSaving(true)
-    setError(null)
-
-    try {
-      await client.admin.setTenantPaymentDue.mutate({
-        tenantId,
-        nextPaymentDue,
-        expectedUpdatedAt: expectedUpdatedAt.toISOString(),
-      })
-      await onUpdated()
-      setEditing(false)
-    } catch (err) {
-      setError(getErrorMessage(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (!editing) {
-    return (
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-pf-deep">
-            {currentDate ? (
-              formatDate(currentDate)
-            ) : (
-              <span className="text-pf-deep/40">Not set</span>
-            )}
-          </span>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="text-xs font-medium text-pf-accent hover:underline"
-          >
-            {currentDate ? 'Edit' : 'Set date'}
-          </button>
-          {currentDate ? (
-            <button
-              type="button"
-              onClick={() => void save(null)}
-              disabled={saving}
-              className="text-xs font-medium text-rose-500 hover:underline disabled:opacity-50"
-            >
-              Clear
-            </button>
-          ) : null}
-        </div>
-        {error ? <p className="text-xs text-rose-600">{error}</p> : null}
-      </div>
-    )
-  }
-
-  return (
-    <form
-      className="space-y-2"
-      onSubmit={(event) => {
-        event.preventDefault()
-        if (!value) return
-        void save(new Date(`${value}T00:00:00.000Z`).toISOString())
-      }}
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="date"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          className="min-h-10 rounded-2xl border border-pf-light px-3 text-sm text-pf-deep outline-none transition focus:border-pf-accent focus:ring-2 focus:ring-pf-accent/20"
-        />
-        <button
-          type="submit"
-          disabled={!value || saving}
-          className="inline-flex min-h-10 items-center rounded-full bg-pf-primary px-4 text-xs font-medium text-white transition hover:bg-pf-accent disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : 'Save'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          className="text-xs text-pf-deep/50 hover:text-pf-deep"
-        >
-          Cancel
-        </button>
-      </div>
-      {error ? <p className="text-xs text-rose-600">{error}</p> : null}
-    </form>
   )
 }
 
@@ -380,16 +266,12 @@ function PendingInvitationsTable({
 }
 
 export default function SettingsPage() {
-  const { user } = useUser()
   const client = useTRPCClient()
 
   const [data, setData] = useState<SettingsData | null>(null)
   const [invitations, setInvitations] = useState<PendingInvitation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const isPlatformAdmin =
-    (user?.publicMetadata as { platform_role?: unknown } | undefined)?.platform_role ===
-    'PLATFORM_ADMIN'
 
   async function loadSettings() {
     setError(null)
@@ -456,29 +338,6 @@ export default function SettingsPage() {
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-4">
                 <dt className="w-40 shrink-0 text-sm font-medium text-pf-deep/60">Status</dt>
                 <dd>{data?.tenant.status ? <StatusBadge status={data.tenant.status} /> : '-'}</dd>
-              </div>
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-4">
-                <dt className="w-40 shrink-0 text-sm font-medium text-pf-deep/60">
-                  <span className="flex items-center gap-1.5">
-                    <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
-                    Next payment due
-                  </span>
-                </dt>
-                <dd className="text-sm">
-                  {data && isPlatformAdmin ? (
-                    <PaymentDateEditor
-                      client={client}
-                      tenantId={data.tenant.id}
-                      currentDate={data.tenant.nextPaymentDue ?? null}
-                      expectedUpdatedAt={data.tenant.updatedAt}
-                      onUpdated={loadSettings}
-                    />
-                  ) : (
-                    <span className="text-pf-deep">
-                      {data?.tenant.nextPaymentDue ? formatDate(data.tenant.nextPaymentDue) : '-'}
-                    </span>
-                  )}
-                </dd>
               </div>
             </dl>
           )}

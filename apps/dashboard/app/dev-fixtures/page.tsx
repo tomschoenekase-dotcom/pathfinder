@@ -62,6 +62,18 @@ export default function VisualFixtureIndex() {
         </Link>
       </section>
 
+      <section className="mt-10 border-t border-pf-light pt-6" aria-labelledby="billing-fixtures">
+        <h2 id="billing-fixtures" className="text-xl font-semibold">
+          Billing
+        </h2>
+        <Link
+          href="/dev-fixtures/billing?surface=client&state=grace"
+          className="mt-4 flex min-h-12 items-center justify-between border-y border-pf-light py-3 font-medium text-pf-primary"
+        >
+          Client and operator lifecycle states <span aria-hidden="true">→</span>
+        </Link>
+      </section>
+
       <section
         className="mt-10 border-t border-pf-light pt-6"
         aria-labelledby="client-tochi-fixtures"

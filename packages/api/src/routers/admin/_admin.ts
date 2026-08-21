@@ -51,6 +51,8 @@ import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
 import { adminProductEntitlementsRouter } from './product-entitlements'
 import { adminProspectCrmRouter } from './prospect-crm'
 import { adminOperationsReadinessRouter } from './operations-readiness'
+import { adminBillingRouter } from './billing'
+import { adminBillingPortfolioRouter } from './billing-portfolio'
 
 export const adminRouter = mergeRouters(
   adminOverviewRouter,
@@ -59,6 +61,8 @@ export const adminRouter = mergeRouters(
   adminProductEntitlementsRouter,
   adminProspectCrmRouter,
   adminOperationsReadinessRouter,
+  adminBillingRouter,
+  adminBillingPortfolioRouter,
   adminOffboardingPlansRouter,
   adminOffboardingExportPreviewRouter,
   adminOffboardingExportFinalizationRouter,

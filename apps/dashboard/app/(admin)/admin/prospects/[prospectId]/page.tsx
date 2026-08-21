@@ -315,6 +315,54 @@ export default async function ProspectDetailPage({
         </div>
 
         <aside>
+          {intelligence.billing ? (
+            <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
+                Customer billing
+              </p>
+              <h2 className="mt-2 text-lg font-semibold text-slate-950">
+                {label(intelligence.billing.status)}
+              </h2>
+              {(() => {
+                const agreement =
+                  intelligence.billing.commercialAgreements.find((item) => item.isBase) ??
+                  intelligence.billing.commercialAgreements[0]
+                return agreement?.agreedAmountMinor !== null && agreement ? (
+                  <p className="mt-2 text-2xl font-bold text-slate-950">
+                    {new Intl.NumberFormat('en-US', {
+                      style: 'currency',
+                      currency: agreement.currency.toUpperCase(),
+                    }).format(Number(agreement.agreedAmountMinor) / 100)}
+                    <span className="ml-1 text-sm font-medium text-slate-600">
+                      per {agreement.billingInterval.toLowerCase()}
+                    </span>
+                  </p>
+                ) : null
+              })()}
+              <dl className="mt-4 space-y-2 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-600">Paid through</dt>
+                  <dd className="font-semibold text-slate-900">
+                    {intelligence.billing.paidThroughAt
+                      ? new Date(intelligence.billing.paidThroughAt).toLocaleDateString()
+                      : 'Not recorded'}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-600">Reconciliation</dt>
+                  <dd className="font-semibold text-slate-900">
+                    {label(intelligence.billing.reconciliationHealth)}
+                  </dd>
+                </div>
+              </dl>
+              <Link
+                href={`/admin/clients/${intelligence.billing.tenantId}/billing`}
+                className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-emerald-800 hover:underline"
+              >
+                Open billing record <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </section>
+          ) : null}
           <ProspectActionsPanel
             organizationId={prospect.id}
             currentStage={opportunity?.stage ?? 'DISCOVERED'}

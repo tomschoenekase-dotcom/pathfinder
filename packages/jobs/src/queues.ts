@@ -80,3 +80,7 @@ export const GMAIL_SYNC_QUEUE = queueName('gmail-sync')
 export const GMAIL_SYNC_NOTIFICATION_JOB = 'gmail-sync-notification'
 export const GMAIL_SYNC_RECONCILIATION_JOB = 'gmail-sync-reconciliation'
 export const GMAIL_SYNC_WATCH_RENEWAL_JOB = 'gmail-sync-watch-renewal'
+
+export const BILLING_RECONCILIATION_QUEUE = queueName('billing-reconciliation')
+export const BILLING_RECONCILIATION_PROCESS_JOB = 'billing-reconciliation-process'
+export const BILLING_RECONCILIATION_SCHEDULER_JOB = 'billing-reconciliation-scheduler'
