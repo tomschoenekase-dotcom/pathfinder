@@ -1,5 +1,6 @@
 import type { VerifiedActorContext } from '@pathfinder/contracts/actor'
-import type { CompanyKnowledgeType, Prisma } from '@prisma/client'
+import type { CompanyKnowledgeType } from '@prisma/client'
+import type { InputJsonValue } from '@prisma/client/runtime/library'
 
 import { db } from '../client'
 import {
@@ -31,7 +32,7 @@ export async function proposeCorrespondenceKnowledgeAction(
     title: string
     summary: string
     body: string
-    structuredData?: Prisma.InputJsonValue
+    structuredData?: InputJsonValue
     confidence?: number
     sourceExcerpt?: string
     idempotencyKey: string

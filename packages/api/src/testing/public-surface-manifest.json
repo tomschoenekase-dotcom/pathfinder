@@ -158,6 +158,17 @@
       "behavioralEvidence": ["packages/api/src/correspondence/google-pubsub.test.ts"]
     },
     {
+      "source": "apps/dashboard/app/api/mcp/[tenantId]/[venueId]/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/mcp/http.test.ts",
+        "packages/api/src/mcp/json-rpc.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/trpc/[trpc]/route.ts",
       "methods": ["GET", "POST"],
       "exposure": "middleware-and-procedure-controlled",
@@ -222,6 +233,7 @@
   "dashboardPublicApiPaths": [
     "/api/agent-bridge",
     "/api/integrations/gmail/pubsub",
+    "/api/mcp",
     "/api/webhooks/clerk",
     "/api/webhooks/resend",
     "/api/webhooks/stripe"

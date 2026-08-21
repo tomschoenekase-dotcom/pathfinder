@@ -1,6 +1,7 @@
 import { parseVerifiedActorContext } from '@pathfinder/contracts/actor'
 import type { VerifiedActorContext } from '@pathfinder/contracts/actor'
-import type { CompanyMeetingExtractionType, Prisma } from '@prisma/client'
+import type { CompanyMeetingExtractionType } from '@prisma/client'
+import type { InputJsonValue } from '@prisma/client/runtime/library'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -170,7 +171,7 @@ export async function recordCompanyMeetingExtractionAction(
     tenantId?: string
     type: CompanyMeetingExtractionType
     content: string
-    structuredData?: Prisma.InputJsonValue
+    structuredData?: InputJsonValue
     confidence?: number
     sourceStartOffset?: number
     sourceEndOffset?: number
@@ -252,7 +253,7 @@ export async function completeCompanyMeetingProcessingAction(
     meetingId: string
     tenantId?: string
     summary: string
-    provenance: Prisma.InputJsonValue
+    provenance: InputJsonValue
     actor: VerifiedActorContext
   },
   client: CompanyMeetingActionClient = db,

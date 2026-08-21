@@ -9,8 +9,8 @@ import type {
   CompanyPriorityStatus,
   CompanyKnowledgeSourceType,
   CompanyKnowledgeType,
-  Prisma,
 } from '@prisma/client'
+import type { InputJsonValue } from '@prisma/client/runtime/library'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -98,7 +98,7 @@ export async function createCompanyKnowledgeCandidateAction(
     title: string
     summary: string
     body: string
-    structuredData?: Prisma.InputJsonValue
+    structuredData?: InputJsonValue
     accessScope: CompanyKnowledgeAccessScope
     allowedRoles?: string[]
     authority: CompanyKnowledgeAuthority
@@ -113,7 +113,7 @@ export async function createCompanyKnowledgeCandidateAction(
       status?: CompanyDecisionStatus
       decision: string
       rationale: string
-      scope?: Prisma.InputJsonValue
+      scope?: InputJsonValue
       affectedSystems?: string[]
       effectiveAt?: Date
       supersedesId?: string
@@ -124,7 +124,7 @@ export async function createCompanyKnowledgeCandidateAction(
       timeHorizon?: string
       ownerId?: string
       rationale: string
-      workstreams?: Prisma.InputJsonValue
+      workstreams?: InputJsonValue
       startsAt?: Date
       endsAt?: Date
     }

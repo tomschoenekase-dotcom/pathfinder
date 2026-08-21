@@ -1,5 +1,4 @@
 import { db } from '../client'
-import { Prisma } from '@prisma/client'
 import { haversineDistanceMeters } from '@pathfinder/config/geo'
 import { EMBEDDING_WORK_LEASE_MS } from './embedding-work-claims'
 
@@ -139,11 +138,10 @@ export async function searchCompanyKnowledgeByEmbedding(params: {
   if (params.authorizedCandidateIds.length === 0) return []
   const vectorStr = `[${params.queryEmbedding.join(',')}]`
   const limitSafe = Math.max(1, Math.min(50, Math.floor(params.limit ?? 10)))
-  const ids = Prisma.join(params.authorizedCandidateIds)
   const rows = await db.$queryRaw<Array<{ id: string; distance: number }>>`
     SELECT id, embedding <=> ${vectorStr}::vector AS distance
       FROM company_knowledge_items
-     WHERE id IN (${ids})
+     WHERE id = ANY(${params.authorizedCandidateIds}::text[])
        AND embedding IS NOT NULL
      ORDER BY embedding <=> ${vectorStr}::vector
      LIMIT ${limitSafe}
