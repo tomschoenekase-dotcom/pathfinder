@@ -73,6 +73,53 @@ function mcpResourceNames(source) {
   )
 }
 
+function mcpToolMetadata(source) {
+  const start = source.indexOf('export const PATHFINDER_MCP_TOOLS')
+  if (start < 0) return []
+  const catalog = source.slice(start)
+  return [...catalog.matchAll(/name:\s*'(pathfinder\.[a-z0-9_]+)'/gu)].map((match) => {
+    const next = catalog.indexOf('\n  {', match.index + 1)
+    const block = catalog.slice(match.index, next < 0 ? undefined : next)
+    const security = block.match(
+      /security\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,?\s*\)/u,
+    )
+    return {
+      name: match[1],
+      family: 'operational-mcp',
+      capability: security?.[2] ?? 'unknown',
+      scope: security?.[1] ?? 'unknown',
+      effect: security?.[3] ?? 'unknown',
+      approvalRequired: ['draft', 'bounded-evaluation-request'].includes(security?.[3]),
+      idempotent: /idempotentHint:\s*true/u.test(block),
+      defaultEnabled: !['draft', 'bounded-evaluation-request'].includes(security?.[3]),
+      transport: 'authenticated-agent-bridge',
+      source: 'packages/contracts/src/mcp-v0.ts',
+    }
+  })
+}
+
+function prospectToolMetadata(source) {
+  const start = source.indexOf('export const PROSPECT_AGENT_TOOL_DEFINITIONS')
+  const end = source.indexOf('] as const', start)
+  if (start < 0 || end < 0) return []
+  return [...source.slice(start, end).matchAll(/\{([\s\S]*?)\n\s*\},?/gu)]
+    .map((match) => match[1])
+    .filter((block) => /name:\s*'torchiko\.prospects\./u.test(block))
+    .map((block) => ({
+      name: block.match(/name:\s*'([^']+)'/u)?.[1],
+      family: 'prospect-agent',
+      title: block.match(/title:\s*'([^']+)'/u)?.[1],
+      capability: block.match(/capability:\s*'([^']+)'/u)?.[1],
+      effect: block.match(/effect:\s*'([^']+)'/u)?.[1],
+      approvalRequired: false,
+      humanReviewRequired: /humanReviewRequired:\s*true/u.test(block),
+      idempotent: /idempotent:\s*true/u.test(block),
+      defaultEnabled: true,
+      transport: 'authenticated-agent-bridge',
+      source: 'packages/api/src/prospect-agent/registry.ts',
+    }))
+}
+
 export async function buildRepositoryMap(root) {
   const packageJson = await readJson(path.join(root, 'package.json'))
   const [files, rootRouter, adminRouter, mcpContract] = await Promise.all([
@@ -220,10 +267,6 @@ export async function listAgentTools(root) {
     readFile(path.join(root, 'packages/contracts/src/mcp-v0.ts'), 'utf8'),
     readFile(path.join(root, 'packages/api/src/prospect-agent/registry.ts'), 'utf8'),
   ])
-  const names = new Set([
-    ...[...mcp.matchAll(/name:\s*'(pathfinder\.[a-z0-9_]+)'/gu)].map((match) => match[1]),
-    ...[...prospect.matchAll(/'(torchiko\.prospects\.[a-z0-9_]+)'/gu)].map((match) => match[1]),
-  ])
   return {
     schemaVersion: 1,
     resources: mcpResourceNames(mcp).map((name) => ({
@@ -231,13 +274,9 @@ export async function listAgentTools(root) {
       family: 'operational-mcp-resource',
       source: 'packages/contracts/src/mcp-v0.ts',
     })),
-    tools: [...names].sort().map((name) => ({
-      name,
-      family: name.startsWith('pathfinder.') ? 'operational-mcp' : 'prospect-agent',
-      source: name.startsWith('pathfinder.')
-        ? 'packages/contracts/src/mcp-v0.ts'
-        : 'packages/api/src/prospect-agent/registry.ts',
-    })),
+    tools: [...mcpToolMetadata(mcp), ...prospectToolMetadata(prospect)].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    ),
   }
 }
 

@@ -60,6 +60,20 @@ test('tool and fixture discovery reuse canonical sources', async () => {
   assert.ok(names.includes('pathfinder.read'))
   assert.ok(names.includes('torchiko.prospects.search'))
   assert.ok(tools.resources.some((resource) => resource.name === 'pathfinder.reports'))
+  assert.ok(
+    tools.tools.every(
+      (tool) => tool.capability && tool.effect && typeof tool.idempotent === 'boolean',
+    ),
+  )
+  assert.equal(
+    tools.tools.some((tool) => tool.capability === 'unknown'),
+    false,
+  )
+  assert.equal(
+    tools.tools.find((tool) => tool.name === 'torchiko.prospects.save_outreach_draft')
+      .humanReviewRequired,
+    true,
+  )
   const fixtures = await listFixtures(root)
   assert.ok(fixtures.visual.some((fixture) => fixture.route === '/dev-fixtures/billing'))
   assert.ok(fixtures.visual.some((fixture) => fixture.route === '/dev-fixtures'))

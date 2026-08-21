@@ -109,15 +109,56 @@ const questionInput = z
   .strict()
 
 export const PROSPECT_AGENT_TOOL_DEFINITIONS = [
-  { name: 'torchiko.prospects.search', capability: 'prospects.read', mutates: false },
-  { name: 'torchiko.prospects.get_intelligence', capability: 'prospects.read', mutates: false },
+  {
+    name: 'torchiko.prospects.search',
+    title: 'Search prospects',
+    description: 'Search bounded prospect organizations inside the frozen run scope.',
+    capability: 'prospects.read',
+    effect: 'read',
+    mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
+  {
+    name: 'torchiko.prospects.get_intelligence',
+    title: 'Get prospect intelligence',
+    description: 'Read grounded CRM and linked live-venue intelligence for one prospect.',
+    capability: 'prospects.read',
+    effect: 'read',
+    mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
   {
     name: 'torchiko.prospects.list_campaign_members',
+    title: 'List campaign members',
+    description: 'List bounded campaign membership inside the frozen prospect scope.',
     capability: 'prospects.read',
+    effect: 'read',
     mutates: false,
+    idempotent: true,
+    humanReviewRequired: false,
   },
-  { name: 'torchiko.prospects.save_outreach_draft', capability: 'prospects.draft', mutates: true },
-  { name: 'torchiko.prospects.ask_operator', capability: 'prospects.question', mutates: true },
+  {
+    name: 'torchiko.prospects.save_outreach_draft',
+    title: 'Save outreach draft',
+    description: 'Save a grounded, versioned outreach draft that cannot be sent or approved.',
+    capability: 'prospects.draft',
+    effect: 'draft',
+    mutates: true,
+    idempotent: false,
+    humanReviewRequired: true,
+  },
+  {
+    name: 'torchiko.prospects.ask_operator',
+    title: 'Ask prospect operator',
+    description: 'Create or replay a durable scoped question without granting approval.',
+    capability: 'prospects.question',
+    effect: 'interaction',
+    mutates: true,
+    idempotent: true,
+    humanReviewRequired: false,
+  },
 ] as const
 
 type ToolName = (typeof PROSPECT_AGENT_TOOL_DEFINITIONS)[number]['name']
