@@ -48,6 +48,7 @@ describe('prepareWeeklyDigestIntentAction', () => {
         tenantId: 'tenant-1',
         actorId: 'admin-1',
         actorRole: 'PLATFORM_ADMIN',
+        actorType: 'HUMAN',
         action: 'weekly-digest.requested',
         targetType: 'WeeklyDigest',
         targetId: 'digest-1',

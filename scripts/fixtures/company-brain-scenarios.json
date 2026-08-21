@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "scenarios": [
+    {
+      "id": "new-prospect",
+      "entities": ["organization", "contact", "opportunity", "first-outreach"],
+      "assertions": [
+        "no active client context",
+        "outreach remains controlled",
+        "history is durable"
+      ],
+      "providerDispatch": false
+    },
+    {
+      "id": "converted-small-museum",
+      "entities": ["organization", "customer-relationship", "venue", "meeting", "onboarding"],
+      "assertions": [
+        "prospect and customer identity remain linked",
+        "compact context answers ordinary questions"
+      ],
+      "providerDispatch": false
+    },
+    {
+      "id": "mature-multi-venue",
+      "entities": [
+        "organization",
+        "contacts",
+        "venues",
+        "correspondence",
+        "meetings",
+        "support",
+        "opportunities"
+      ],
+      "assertions": ["collections are bounded", "timeline remains paginated", "no query storm"],
+      "providerDispatch": false
+    },
+    {
+      "id": "difficult-relationship",
+      "entities": [
+        "support-escalation",
+        "commitment",
+        "old-decision",
+        "replacement-decision",
+        "open-loop"
+      ],
+      "assertions": [
+        "current decision wins",
+        "historical decision remains retrievable",
+        "conflict is not hidden"
+      ],
+      "providerDispatch": false
+    },
+    {
+      "id": "friend-takeover",
+      "entities": [
+        "secondary-admin",
+        "independent-worker",
+        "machine-credential",
+        "agent-run",
+        "approval-grant",
+        "audit"
+      ],
+      "assertions": [
+        "primary worker may be offline",
+        "Obsidian is not required",
+        "exact replay is idempotent",
+        "machine attribution is honest"
+      ],
+      "providerDispatch": false
+    }
+  ]
+}

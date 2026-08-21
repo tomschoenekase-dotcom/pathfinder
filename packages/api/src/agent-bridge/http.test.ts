@@ -55,6 +55,21 @@ describe('agent bridge HTTP composition', () => {
     expect(callProspectTool).toHaveBeenCalledWith({ opaque: true }, { credential })
   })
 
+  it('routes operational tool calls only after bridge credential verification', async () => {
+    const verify = vi.fn().mockResolvedValue(credential)
+    const callOperationalTool = vi.fn().mockResolvedValue({ structuredContent: { kind: 'read' } })
+    const response = await handleAgentBridgeHttpRequest(
+      request({ method: 'callOperationalTool', params: { toolName: 'pathfinder.read' } }),
+      scope,
+      { verify, registry: { callOperationalTool } as never },
+    )
+    expect(response.status).toBe(200)
+    expect(callOperationalTool).toHaveBeenCalledWith(
+      { toolName: 'pathfinder.read' },
+      { credential },
+    )
+  })
+
   it('rejects missing authentication before reading or dispatching the body', async () => {
     const verify = vi.fn()
     const response = await handleAgentBridgeHttpRequest(

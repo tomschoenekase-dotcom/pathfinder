@@ -24,6 +24,7 @@ const empty = {
   outcomes: { items: [], nextCursor: null },
   events: { items: [], nextCursor: null },
   platformEvents: { items: [], nextCursor: null },
+  workers: [],
 }
 
 describe('operations attention console', () => {
@@ -43,6 +44,7 @@ describe('operations attention console', () => {
     expect(screen.getByText(/review linked evidence/i)).toBeTruthy()
     expect(screen.getByText('No operational alerts currently need attention.')).toBeTruthy()
     expect(screen.getByText('No platform CRM alerts currently need attention.')).toBeTruthy()
+    expect(screen.getByText('No compatible workers have registered.')).toBeTruthy()
   })
 
   it('puts human questions first and links to the durable agent inbox', () => {

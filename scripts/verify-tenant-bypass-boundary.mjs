@@ -17,6 +17,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/answer-analysis.ts', 2],
   ['apps/workers/src/processors/daily-rollup.ts', 3],
   ['apps/workers/src/processors/embed-knowledge-entry.ts', 1],
+  // Company Knowledge embedding claims are platform-dispatched, then re-enter
+  // the exact tenant+venue scope before selecting or persisting content.
+  ['apps/workers/src/processors/embed-company-knowledge.ts', 1],
   ['apps/workers/src/processors/embed-place.ts', 1],
   ['apps/workers/src/processors/media-ingestion.ts', 9],
   ['apps/workers/src/lib/media-provider-budget.ts', 1],
@@ -26,6 +29,9 @@ const approvedCallCounts = new Map([
   // Platform prospect worker rechecks one immutable approved send item; it does not enter tenant scope.
   ['apps/workers/src/processors/send-prospect-outreach.ts', 1],
   ['apps/workers/src/processors/gmail-sync.ts', 4],
+  // Platform maintenance scans a bounded set of STALE summaries, then each
+  // canonical refresh re-enters one exact tenant+organization scope.
+  ['apps/workers/src/processors/account-summary-refresh.ts', 1],
   // Worker reconciles approved-package onboarding milestones for the exact job tenant+venue.
   ['apps/workers/src/processors/evaluation-run.ts', 9],
   // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.
@@ -41,7 +47,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-identity-configuration.ts', 4],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
-  ['packages/api/src/routers/admin/agent-questions.ts', 4],
+  ['packages/api/src/routers/admin/agent-questions.ts', 5],
   ['packages/api/src/routers/admin/agent-outcomes.ts', 2],
   // Platform-admin task composer queues one exact tenant+venue run without provider execution.
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
@@ -53,6 +59,14 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-directory-search.ts', 1],
   // Platform-admin reads include one exact tenant+venue onboarding/character detail projection.
   ['packages/api/src/routers/admin/client-reads.ts', 3],
+  // Platform-admin billing portfolio intentionally aggregates customer billing and CRM links.
+  ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
+  // Platform-admin Company Brain browse/create operations are bounded, audited,
+  // and use canonical knowledge actions rather than direct agent-side writes.
+  ['packages/api/src/routers/admin/company-brain.ts', 4],
+  // Founder-only billing rollout reads and changes only allowlisted flags for one exact tenant;
+  // the mutation records the platform-admin actor and before/after state in the same transaction.
+  ['packages/api/src/routers/admin/billing-rollout.ts', 2],
   ['packages/api/src/routers/admin/cost-budget.ts', 3],
   ['packages/api/src/routers/admin/digest.ts', 1],
   // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
@@ -91,7 +105,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 10],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 9],
+  // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
+  ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
   ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
   ['apps/dashboard/app/api/integrations/gmail/pubsub/route.ts', 1],
   ['packages/api/src/correspondence/gmail-oauth.ts', 4],
@@ -122,6 +138,12 @@ const approvedCallCounts = new Map([
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
+  // Signature-verified Stripe ingress resolves an unknown provider object to one
+  // namespaced account; platform-admin manual billing then revalidates exact tenant+venue scope.
+  ['packages/billing/src/service.ts', 4],
+  // Scheduled billing fanout selects a bounded set of namespaced Stripe accounts;
+  // each reconciliation call immediately re-enters one exact tenant scope.
+  ['apps/workers/src/processors/billing-reconciliation.ts', 2],
   // Signature-verified Resend events reconcile platform-owned CRM correspondence only.
 ])
 

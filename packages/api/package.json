@@ -26,6 +26,7 @@
     "@pathfinder/ai": "workspace:*",
     "@pathfinder/analytics": "workspace:*",
     "@pathfinder/auth": "workspace:*",
+    "@pathfinder/billing": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/contracts": "workspace:*",
     "@pathfinder/db": "workspace:*",

@@ -10,6 +10,8 @@ node_modules/
 .corepack/
 .corepack-bin/
 coverage/
+playwright-report/
+test-results/
 apps/dashboard/public/characters/
 apps/web/public/characters/
 

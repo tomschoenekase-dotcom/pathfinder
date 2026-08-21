@@ -11,6 +11,7 @@ import {
   attentionConsoleInput,
   page,
 } from './attention-pagination'
+import { listAttentionWorkers } from './attention-worker-health'
 
 // Bounded metadata-only platform triage; no payloads, artifacts, messages, or raw provider errors.
 export const adminAttentionConsoleRouter = router({
@@ -31,6 +32,7 @@ export const adminAttentionConsoleRouter = router({
         outcomes,
         events,
         platformEvents,
+        workers,
       ] = await Promise.all([
         db.jobRecord.findMany({
           where: { status: 'FAILED', ...after(query.jobsCursor) },
@@ -282,6 +284,7 @@ export const adminAttentionConsoleRouter = router({
             createdAt: true,
           },
         }),
+        listAttentionWorkers(now),
       ])
 
       return {
@@ -313,6 +316,7 @@ export const adminAttentionConsoleRouter = router({
         outcomes: page(outcomes, query.limit),
         events: page(events, query.limit),
         platformEvents: page(platformEvents, query.limit),
+        workers,
       }
     }),
   ),

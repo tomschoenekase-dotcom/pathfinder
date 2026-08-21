@@ -1,3 +1,6 @@
 export * from './registry'
 export * from './read-actions'
 export * from './agent-actions'
+export * from './composition'
+export * from './json-rpc'
+export * from './http'

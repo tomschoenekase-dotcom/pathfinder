@@ -1,5 +1,6 @@
 export { db } from './client'
 export { recordApprovedPackageEvaluationMilestones } from './helpers/evaluation-onboarding-milestones'
+export { readUnifiedIntegrationHealth } from './helpers/integration-health'
 export {
   recordConversationInsightSignals,
   type ConversationInsightSignal,
@@ -378,6 +379,53 @@ export {
   recordApprovalDecisionAction,
 } from './helpers/approval-decisions'
 export type { ApprovalDecisionActor } from './helpers/approval-decisions'
+export {
+  approvalParameterHash,
+  ApprovalGrantActionError,
+  consumeApprovalGrantAction,
+  issueApprovalGrantAction,
+  revokeApprovalGrantAction,
+} from './helpers/approval-grants'
+export type { ApprovalGrantHumanActor } from './helpers/approval-grants'
+export { AccountContextError, getCompactAccountContext } from './helpers/account-context'
+export type { AccountContextClient } from './helpers/account-context'
+export {
+  AccountHistoryError,
+  getAccountMeeting,
+  getAccountTimeline,
+  listAccountCorrespondence,
+  listAccountMeetings,
+} from './helpers/account-history'
+export type { AccountHistoryClient } from './helpers/account-history'
+export { proposeCorrespondenceKnowledgeAction } from './helpers/correspondence-knowledge-actions'
+export {
+  AccountSummaryActionError,
+  refreshAccountSummaryAction,
+} from './helpers/account-summary-actions'
+export {
+  CompanyKnowledgeError,
+  getCompanyKnowledgeItem,
+  searchCompanyKnowledge,
+} from './helpers/company-knowledge'
+export type { CompanyKnowledgeClient, KnowledgeAccessContext } from './helpers/company-knowledge'
+export {
+  CompanyKnowledgeActionError,
+  createCompanyKnowledgeCandidateAction,
+  promoteCompanyKnowledgeAction,
+  supersedeCompanyKnowledgeAction,
+} from './helpers/company-knowledge-actions'
+export {
+  CompanyMeetingActionError,
+  completeCompanyMeetingProcessingAction,
+  ingestCompanyMeetingAction,
+  recordCompanyMeetingExtractionAction,
+} from './helpers/company-meeting-actions'
+export {
+  AgentWorkerActionError,
+  heartbeatAgentWorkerAction,
+  listAgentWorkerHealth,
+  registerAgentWorkerAction,
+} from './helpers/agent-worker-actions'
 export type {
   AiCostAttemptIdentity,
   AiCostReservationRef,
@@ -407,6 +455,9 @@ export {
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
   storeKnowledgeEntryEmbeddingForScope,
+  storeCompanyKnowledgeEmbeddingForScope,
+  searchCompanyKnowledgeByEmbedding,
+  buildCompanyKnowledgeText,
   storePlaceEmbeddingForScope,
 } from './helpers/semantic-search'
 export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'
@@ -493,6 +544,27 @@ export type {
 
 export type {
   AnalyticsEvent,
+  BillingAccessOverride,
+  BillingAccessOverrideEffect,
+  BillingAccessOverrideKind,
+  BillingAccount,
+  BillingAccountStatus,
+  BillingCheckoutAttempt,
+  BillingCheckoutAttemptStatus,
+  BillingEventApplication,
+  BillingEventApplicationStatus,
+  BillingInterval,
+  BillingInvoiceProjection,
+  BillingInvoiceSource,
+  BillingInvoiceStatus,
+  BillingMode,
+  BillingReconciliationHealth,
+  BillingReconciliationRun,
+  BillingReconciliationRunStatus,
+  BillingReconciliationTrigger,
+  CommercialAgreement,
+  CommercialAgreementStatus,
+  CommercialAgreementVenue,
   JobRecord,
   JobStatus,
   AuditLog,
@@ -506,6 +578,9 @@ export type {
   Place,
   PlatformConfig,
   QuestionCluster,
+  StripeEnvironmentMode,
+  StripeWebhookProcessingStatus,
+  StripeWebhookReceipt,
   Tenant,
   TenantFeatureFlag,
   TenantMembership,
@@ -558,6 +633,7 @@ export {
 } from './helpers/operational-update-actions'
 export type {
   OperationalUpdateActionClient,
+  OperationalUpdateActor,
   OperationalUpdateActionErrorCode,
   OperationalUpdateActionResult,
   OperationalUpdateFields,

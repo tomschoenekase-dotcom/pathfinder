@@ -72,14 +72,23 @@ describe('prospect agent registry', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('exposes advisory, read, draft, and question tools but no high-risk authority', () => {
-    const names = createProspectAgentRegistry()
-      .listTools()
-      .map((tool) => tool.name)
+    const tools = createProspectAgentRegistry().listTools()
+    const names = tools.map((tool) => tool.name)
     expect(names).toContain('torchiko.prospects.save_outreach_draft')
     expect(names).toContain('torchiko.prospects.ask_operator')
     expect(
       names.some((name) => /approve|send|queue|convert|merge|delete|unsuppress/u.test(name)),
     ).toBe(false)
+    expect(
+      tools.every(
+        (tool) =>
+          tool.title &&
+          tool.description &&
+          ['read', 'draft', 'interaction'].includes(tool.effect) &&
+          typeof tool.idempotent === 'boolean' &&
+          typeof tool.humanReviewRequired === 'boolean',
+      ),
+    ).toBe(true)
   })
 
   it('rejects caller capability escalation because authority comes from the resolver', async () => {

@@ -7,12 +7,14 @@
     "lint": "eslint --config ../../packages/config/eslint/nextjs.js \"app/**/*.{ts,tsx}\" \"components/**/*.{ts,tsx}\" \"lib/**/*.{ts,tsx}\" \"instrumentation*.ts\" \"sentry.*.config.ts\" \"middleware.ts\" \"next.config.ts\" \"tailwind.config.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest --passWithNoTests"
+    "test:watch": "vitest --passWithNoTests",
+    "test:billing-browser": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "6.39.3",
     "@hookform/resolvers": "^5.2.2",
     "@pathfinder/api": "workspace:*",
+    "@pathfinder/billing": "workspace:*",
     "@pathfinder/config": "workspace:*",
     "@pathfinder/contracts": "workspace:*",
     "@pathfinder/db": "workspace:*",
@@ -34,10 +36,12 @@
     "react-hook-form": "^7.66.0",
     "superjson": "^2.2.2",
     "svix": "^1.90.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "tailwindcss": "3.4.17"
+    "tailwindcss": "3.4.17",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
     "@testing-library/react": "^16.3.0",
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",

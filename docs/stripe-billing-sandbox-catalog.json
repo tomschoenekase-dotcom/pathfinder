@@ -1,0 +1,26 @@
+{
+  "catalogVersion": 1,
+  "plans": [
+    {
+      "key": "torchiko_pilot_test",
+      "version": 1,
+      "displayName": "Torchiko pilot test fixture",
+      "description": "Sandbox-only recurring billing fixture; not an approved production price.",
+      "providerMode": "test",
+      "stripeProductId": "prod_V6sNP0kNT5NLzM",
+      "stripePriceId": "price_1U6ectQE9I6mJqyJAHAY3akc",
+      "currency": "usd",
+      "interval": "month",
+      "intervalCount": 1,
+      "unitAmount": 1500,
+      "minimumVenueCount": 1,
+      "maximumVenueCount": null,
+      "newSalesEnabled": true,
+      "portalChangesEnabled": false,
+      "metadata": {
+        "sandbox_only": "true",
+        "pricing_model": "per_venue_test_fixture"
+      }
+    }
+  ]
+}

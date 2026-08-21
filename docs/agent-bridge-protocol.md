@@ -1,12 +1,12 @@
 # Torchiko agent bridge protocol
 
-Status: transport-neutral application contract implemented; public transport and desktop runners
-not yet composed.
+Status: authenticated bridge and standards MCP JSON-RPC transport implemented; provider-neutral
+workers register and heartbeat through durable Torchiko state.
 
 New external machine credentials remain disabled by default. A platform administrator can activate
 only an exact venue-scoped MCP credential containing `agent-runs:execute`; activation is CAS-bound,
-append-only evidenced, strictly audited, and returns no secret. A session still cannot authenticate
-in a deployed environment until the verifier and transport are composed.
+append-only evidenced, strictly audited, and returns no secret. A deployed session still requires
+explicit rollout enablement, a legitimate issued credential, and a live worker.
 
 ## Why the bridge exists
 
@@ -55,7 +55,7 @@ enabled. A PRIMARY identity can use `pathfinder.delegate_specialist` to create a
 run for an enabled, same-scope specialist. Parent/child lineage, prompts, answers, status messages,
 results, artifacts, costs, approvals, and timeline events remain visible in the Agent workspace.
 
-## Required transport work before deployment
+## Transport and deployment boundary
 
 The default-dark dashboard route now composes a bounded authenticated HTTP transport. It verifies
 the machine credential before reading the body, streams request bodies under a fixed ceiling, maps
@@ -63,9 +63,10 @@ errors without reflecting internals, adds a response request ID, applies a bound
 credential-attempt limiter before Argon2 verification, and remains hidden behind
 `AGENT_BRIDGE_HTTP_ENABLED`.
 
-A single-process desktop runner implements the polling contract for Codex subscription and Claude
-subscription in deliberately read-only/plan-only modes. Hermes named-profile execution,
-OpenAI-compatible local execution, distributed rate limits, request-ID observability, service
-installation, and a disposable-database end-to-end smoke still remain. Until a real session is
-heartbeating, the UI must truthfully show the provider as unavailable rather than implying that a
-subscription is connected.
+The authenticated `/api/mcp/[tenantId]/[venueId]` route provides JSON-RPC initialize, `tools/list`,
+and `tools/call` over the same safe registry. Provider-neutral workers register runtime, protocol,
+capabilities, roles, software metadata, and heartbeat; expired leases are reclaimable. The
+disposable friend-takeover shakedown proves independent worker registration, task recovery,
+account/knowledge retrieval, exact approval consumption, machine attribution, and reconnection
+without Obsidian or the primary PC. Production availability still requires explicit rollout,
+credential issuance, and a live worker; the UI must not imply otherwise.

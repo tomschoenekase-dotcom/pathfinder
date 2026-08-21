@@ -25,6 +25,7 @@ describe('Torchiko MCP v0 contracts', () => {
     expect(() => validatePathfinderMcpCatalog()).not.toThrow()
     expect(PATHFINDER_MCP_RESOURCES.map(({ name }) => name)).toEqual([
       'pathfinder.clients',
+      'pathfinder.billing',
       'pathfinder.venues',
       'pathfinder.configuration',
       'pathfinder.content',
@@ -35,6 +36,13 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.ai-usage',
       'pathfinder.jobs',
       'pathfinder.evaluations',
+      'pathfinder.reports',
+      'pathfinder.conversations',
+      'pathfinder.integrations',
+      'pathfinder.agent-runs',
+      'pathfinder.events',
+      'pathfinder.deployments',
+      'pathfinder.feature-flags',
       'pathfinder.onboarding-summary',
       'pathfinder.readiness',
       'pathfinder.questions',

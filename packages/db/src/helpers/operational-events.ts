@@ -39,6 +39,7 @@ export async function publishOperationalEvent(args: {
   const client = args.client ?? db
   return client.operationalEvent.upsert({
     where: {
+      tenantId: event.tenantId,
       tenantId_deduplicationKey: {
         tenantId: event.tenantId,
         deduplicationKey: event.deduplicationKey,

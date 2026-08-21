@@ -4,6 +4,7 @@ import {
   type ProductCapabilityId as ProductCapabilityIdType,
   type ProductEntitlementDecision as ProductEntitlementDecisionType,
 } from '@pathfinder/contracts/product-entitlements'
+import { evaluateBillingAccess } from '@pathfinder/contracts/billing-access-policy'
 
 type JsonRecord = Readonly<Record<string, unknown>>
 
@@ -12,6 +13,40 @@ type EntitlementOverrideRow = {
   effect: 'GRANT' | 'DENY'
   settings: unknown
   endsAt: Date | null
+}
+
+type BillingPolicyAccountRow = {
+  id: string
+  status: string
+  paidThroughAt: Date | null
+  gracePeriodEndsAt: Date | null
+  commercialAgreements: Array<{
+    id: string
+    billingMode:
+      | 'STRIPE_SUBSCRIPTION'
+      | 'STRIPE_INVOICE'
+      | 'MANUAL_INVOICE'
+      | 'COMPLIMENTARY'
+      | 'PILOT'
+      | 'NO_BILLING_REQUIRED'
+    status:
+      | 'DRAFT'
+      | 'PENDING'
+      | 'TRIALING'
+      | 'ACTIVE'
+      | 'PAST_DUE'
+      | 'UNPAID'
+      | 'CANCELED'
+      | 'ENDED'
+      | 'PAUSED'
+      | 'MANUAL_REVIEW'
+    stripeSubscriptionStatus: string | null
+    currentPeriodEndsAt: Date | null
+    accessStartsAt: Date | null
+    accessEndsAt: Date | null
+    cancelAtPeriodEnd: boolean
+  }>
+  accessOverrides: Array<{ id: string; effect: 'GRANT' | 'DENY'; reason: string; expiresAt: Date }>
 }
 
 export type ProductEntitlementClient = {
@@ -39,6 +74,49 @@ export type ProductEntitlementClient = {
       where: { planTier_capability: { planTier: string; capability: ProductCapabilityIdType } }
       select: { id: true; enabled: true; settings: true }
     }) => Promise<{ id: string; enabled: boolean; settings: unknown } | null>
+  }
+  billingAccount?: {
+    findUnique: (args: {
+      where: { tenantId: string }
+      select: {
+        id: true
+        status: true
+        paidThroughAt: true
+        gracePeriodEndsAt: true
+        commercialAgreements: {
+          where: { tenantId: string; isBase: true }
+          orderBy: { createdAt: 'desc' }
+          take: 1
+          select: {
+            id: true
+            billingMode: true
+            status: true
+            stripeSubscriptionStatus: true
+            currentPeriodEndsAt: true
+            accessStartsAt: true
+            accessEndsAt: true
+            cancelAtPeriodEnd: true
+          }
+        }
+        accessOverrides: {
+          where: {
+            tenantId: string
+            startsAt: { lte: Date }
+            expiresAt: { gt: Date }
+            OR: Array<Record<string, unknown>>
+          }
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }]
+          take: 1
+          select: { id: true; effect: true; reason: true; expiresAt: true }
+        }
+      }
+    }) => Promise<BillingPolicyAccountRow | null>
+  }
+  tenantFeatureFlag?: {
+    findUnique: (args: {
+      where: { tenantId_flagKey: { tenantId: string; flagKey: string } }
+      select: { enabled: true }
+    }) => Promise<{ enabled: boolean } | null>
   }
 }
 
@@ -99,6 +177,97 @@ export async function resolveProductEntitlement(params: {
       settings: {},
       validUntil: null,
     })
+  }
+
+  if (process.env.BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED === 'true') {
+    const tenantEnforcement = await params.client.tenantFeatureFlag?.findUnique({
+      where: {
+        tenantId_flagKey: {
+          tenantId: params.tenantId,
+          flagKey: 'billing-entitlement-enforcement-v1',
+        },
+      },
+      select: { enabled: true },
+    })
+    if (tenantEnforcement?.enabled) {
+      const billingAccount = await params.client.billingAccount?.findUnique({
+        where: { tenantId: params.tenantId },
+        select: {
+          id: true,
+          status: true,
+          paidThroughAt: true,
+          gracePeriodEndsAt: true,
+          commercialAgreements: {
+            where: { tenantId: params.tenantId, isBase: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              billingMode: true,
+              status: true,
+              stripeSubscriptionStatus: true,
+              currentPeriodEndsAt: true,
+              accessStartsAt: true,
+              accessEndsAt: true,
+              cancelAtPeriodEnd: true,
+            },
+          },
+          accessOverrides: {
+            where: {
+              tenantId: params.tenantId,
+              startsAt: { lte: now },
+              expiresAt: { gt: now },
+              OR: [
+                { venueId: null, capability: null },
+                { venueId: params.venueId ?? null, capability: null },
+                { venueId: null, capability },
+                { venueId: params.venueId ?? null, capability },
+              ],
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 1,
+            select: { id: true, effect: true, reason: true, expiresAt: true },
+          },
+        },
+      })
+      const agreement = billingAccount?.commercialAgreements[0]
+      const billingOverride = billingAccount?.accessOverrides[0]
+      const decision = agreement
+        ? evaluateBillingAccess({
+            billingMode: agreement.billingMode,
+            arrangementStatus: agreement.status,
+            providerSubscriptionStatus: (agreement.stripeSubscriptionStatus ?? null) as Exclude<
+              Parameters<typeof evaluateBillingAccess>[0]['providerSubscriptionStatus'],
+              undefined
+            >,
+            paidThrough: billingAccount.paidThroughAt ?? agreement.currentPeriodEndsAt,
+            accessStartsAt: agreement.accessStartsAt,
+            accessEndsAt: agreement.accessEndsAt,
+            graceEndsAt: billingAccount.gracePeriodEndsAt,
+            cancelAtPeriodEnd: agreement.cancelAtPeriodEnd,
+            disputeOpen: billingAccount.status === 'MANUAL_REVIEW',
+            override: billingOverride
+              ? {
+                  reason: billingOverride.reason,
+                  expiresAt: billingOverride.expiresAt,
+                  grantsAccess: billingOverride.effect === 'GRANT',
+                }
+              : null,
+            now,
+          })
+        : null
+      if (!decision?.entitlementsActive) {
+        return ProductEntitlementDecision.parse({
+          capability,
+          enabled: false,
+          source: 'BILLING_POLICY',
+          sourceId: agreement?.id ?? billingAccount?.id ?? null,
+          planTier: tenant.planTier,
+          settings: { accessState: decision?.state ?? 'UNCONFIGURED' },
+          validUntil: decision?.validUntil?.toISOString() ?? null,
+        })
+      }
+    }
   }
 
   if (params.venueId) {

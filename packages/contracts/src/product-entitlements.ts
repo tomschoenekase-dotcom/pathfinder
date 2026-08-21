@@ -47,7 +47,14 @@ export const ProductEntitlementDecision = z
   .object({
     capability: ProductCapabilityId,
     enabled: z.boolean(),
-    source: z.enum(['KILL_SWITCH', 'VENUE_OVERRIDE', 'TENANT_OVERRIDE', 'PLAN', 'DEFAULT']),
+    source: z.enum([
+      'KILL_SWITCH',
+      'BILLING_POLICY',
+      'VENUE_OVERRIDE',
+      'TENANT_OVERRIDE',
+      'PLAN',
+      'DEFAULT',
+    ]),
     sourceId: z.string().min(1).nullable(),
     planTier: z.string().min(1),
     settings: z.record(z.unknown()),

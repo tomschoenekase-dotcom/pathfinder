@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-132-20260820',
+  approval: 'torchiko-staging-lineage-to-141-20260821',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 132,
+  migrationCount: 141,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -23,14 +23,20 @@ const EXPECTED = Object.freeze({
   capabilityBaselinePublicTableCount: 113,
   stagingBaselineCount: 125,
   stagingBaselinePublicTableCount: 126,
+  preBillingCount: 132,
+  preBillingPublicTableCount: 164,
+  billingFoundationCount: 133,
+  billingFoundationPublicTableCount: 175,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
   capabilityBaselineFinalMigration: '20260819130000_add_normalized_personality_dimensions',
   stagingBaselineFinalMigration: '20260819156000_add_operational_event_delivery_audit',
-  finalMigration: '20260820190000_harden_prospect_import_jobs',
-  manifestHash: 'd2e6f3cb623872a614ea534101e5c988952ab46f31611b5e1eee492898611c61',
-  finalPublicTableCount: 164,
+  preBillingFinalMigration: '20260820190000_harden_prospect_import_jobs',
+  billingFoundationFinalMigration: '20260820210000_add_stripe_billing_foundation',
+  finalMigration: '20260821201000_add_meeting_processing_capability',
+  manifestHash: '42ed987e8e05e3b54786adde743dead33f6fda1290d084cc166066736798586b',
+  finalPublicTableCount: 193,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -139,6 +145,14 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('staging baseline boundary changed')
   }
+  if (manifest.names[EXPECTED.preBillingCount - 1] !== EXPECTED.preBillingFinalMigration) {
+    fail('pre-billing boundary changed')
+  }
+  if (
+    manifest.names[EXPECTED.billingFoundationCount - 1] !== EXPECTED.billingFoundationFinalMigration
+  ) {
+    fail('billing foundation boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -148,6 +162,8 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.priorCompleteCount &&
     rows.length !== EXPECTED.capabilityBaselineCount &&
     rows.length !== EXPECTED.stagingBaselineCount &&
+    rows.length !== EXPECTED.preBillingCount &&
+    rows.length !== EXPECTED.billingFoundationCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -178,6 +194,8 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.priorCompleteCount) return 'prior-complete'
   if (rows.length === EXPECTED.capabilityBaselineCount) return 'capability-baseline'
   if (rows.length === EXPECTED.stagingBaselineCount) return 'staging-baseline'
+  if (rows.length === EXPECTED.preBillingCount) return 'pre-billing'
+  if (rows.length === EXPECTED.billingFoundationCount) return 'billing-foundation'
   return 'complete'
 }
 
@@ -309,7 +327,11 @@ async function main() {
           ? EXPECTED.priorCompletePublicTableCount
           : initialState === 'capability-baseline'
             ? EXPECTED.capabilityBaselinePublicTableCount
-            : EXPECTED.stagingBaselinePublicTableCount
+            : initialState === 'pre-billing'
+              ? EXPECTED.preBillingPublicTableCount
+              : initialState === 'billing-foundation'
+                ? EXPECTED.billingFoundationPublicTableCount
+                : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

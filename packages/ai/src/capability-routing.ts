@@ -31,6 +31,7 @@ export const AI_WORKLOAD_CAPABILITIES = Object.freeze({
   'analytics-weekly-themes': ['BACKGROUND_ANALYSIS'],
   'answer-analysis': ['EXTRACTION', 'BACKGROUND_ANALYSIS'],
   'client-tochi': ['FAST'],
+  'company-brain-retrieval-evaluation': ['BACKGROUND_ANALYSIS'],
   'guest-chat': ['STANDARD', 'PREMIUM_CONVERSATION'],
   'weekly-digest': ['BACKGROUND_ANALYSIS'],
   'weekly-report': ['BACKGROUND_ANALYSIS'],

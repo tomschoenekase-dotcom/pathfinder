@@ -2,9 +2,17 @@ import {
   assertMcpScope,
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
+  McpAccountContextInput,
+  McpAccountHistoryInput,
+  McpAccountMeetingGetInput,
+  McpBillingProposalInput,
   McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
+  McpKnowledgeGetInput,
+  McpKnowledgeSearchInput,
+  McpIntegrationHealthInput,
+  McpMeetingProcessInput,
   McpReadInput,
   McpSupportDraftInput,
   McpToolResult,
@@ -35,7 +43,19 @@ export type PathfinderMcpDomainActions = Readonly<{
       approvalGrantId: string
       toolName: Exclude<
         PathfinderMcpToolName,
-        'pathfinder.read' | 'pathfinder.ask_operator' | 'pathfinder.delegate_specialist'
+        | 'pathfinder.read'
+        | 'torchiko.account.get_context'
+        | 'torchiko.account.timeline'
+        | 'torchiko.account.meetings'
+        | 'torchiko.account.meeting_get'
+        | 'torchiko.meeting.process'
+        | 'torchiko.account.correspondence'
+        | 'torchiko.knowledge.search'
+        | 'torchiko.knowledge.get'
+        | 'torchiko.integrations.health'
+        | 'pathfinder.ask_operator'
+        | 'pathfinder.delegate_specialist'
+        | 'pathfinder.propose_billing_action'
       >
       clientId: string
       venueId: string
@@ -44,12 +64,52 @@ export type PathfinderMcpDomainActions = Readonly<{
     context: VerifiedMcpInvocationContext,
   ) => Promise<void>
   read: (input: McpReadInput, context: VerifiedMcpInvocationContext) => Promise<McpToolResult>
+  accountContext: (
+    input: McpAccountContextInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountTimeline: (
+    input: McpAccountHistoryInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountMeetings: (
+    input: McpAccountHistoryInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountMeetingGet: (
+    input: McpAccountMeetingGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  processMeeting: (
+    input: McpMeetingProcessInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  accountCorrespondence: (
+    input: McpAccountHistoryInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  knowledgeSearch: (
+    input: McpKnowledgeSearchInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  knowledgeGet: (
+    input: McpKnowledgeGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  integrationHealth: (
+    input: McpIntegrationHealthInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
   askOperator: (
     input: McpAskOperatorInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   delegateSpecialist: (
     input: McpDelegateSpecialistInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeBillingAction: (
+    input: McpBillingProposalInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   createPackageDraft: (
@@ -142,6 +202,60 @@ export function createPathfinderMcpRegistry(
           result = await actions.read(input, context)
           break
         }
+        case 'torchiko.account.get_context': {
+          const input = McpAccountContextInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountContext(input, context)
+          break
+        }
+        case 'torchiko.account.timeline': {
+          const input = McpAccountHistoryInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountTimeline(input, context)
+          break
+        }
+        case 'torchiko.account.meetings': {
+          const input = McpAccountHistoryInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountMeetings(input, context)
+          break
+        }
+        case 'torchiko.account.meeting_get': {
+          const input = McpAccountMeetingGetInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountMeetingGet(input, context)
+          break
+        }
+        case 'torchiko.account.correspondence': {
+          const input = McpAccountHistoryInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.accountCorrespondence(input, context)
+          break
+        }
+        case 'torchiko.meeting.process': {
+          const input = McpMeetingProcessInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.processMeeting(input, context)
+          break
+        }
+        case 'torchiko.knowledge.search': {
+          const input = McpKnowledgeSearchInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.knowledgeSearch(input, context)
+          break
+        }
+        case 'torchiko.knowledge.get': {
+          const input = McpKnowledgeGetInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.knowledgeGet(input, context)
+          break
+        }
+        case 'torchiko.integrations.health': {
+          const input = McpIntegrationHealthInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
+          result = await actions.integrationHealth(input, context)
+          break
+        }
         case 'pathfinder.ask_operator': {
           const input = McpAskOperatorInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -152,6 +266,12 @@ export function createPathfinderMcpRegistry(
           const input = McpDelegateSpecialistInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
           result = await actions.delegateSpecialist(input, context)
+          break
+        }
+        case 'pathfinder.propose_billing_action': {
+          const input = McpBillingProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.proposeBillingAction(input, context)
           break
         }
         case 'pathfinder.create_package_draft': {
@@ -217,7 +337,19 @@ async function verifyApproval(
   actions: PathfinderMcpDomainActions,
   toolName: Exclude<
     PathfinderMcpToolName,
-    'pathfinder.read' | 'pathfinder.ask_operator' | 'pathfinder.delegate_specialist'
+    | 'pathfinder.read'
+    | 'torchiko.account.get_context'
+    | 'torchiko.account.timeline'
+    | 'torchiko.account.meetings'
+    | 'torchiko.account.meeting_get'
+    | 'torchiko.meeting.process'
+    | 'torchiko.account.correspondence'
+    | 'torchiko.knowledge.search'
+    | 'torchiko.knowledge.get'
+    | 'torchiko.integrations.health'
+    | 'pathfinder.ask_operator'
+    | 'pathfinder.delegate_specialist'
+    | 'pathfinder.propose_billing_action'
   >,
   scope: Readonly<{ clientId: string; venueId?: string | undefined }>,
   capability: string,

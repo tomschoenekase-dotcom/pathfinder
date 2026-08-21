@@ -2,6 +2,16 @@ export const TENANTED_TABLES = [
   'TenantMembership',
   'TenantFeatureFlag',
   'ProductEntitlementOverride',
+  'BillingAccount',
+  'CommercialAgreement',
+  'CommercialAgreementVenue',
+  'BillingCheckoutAttempt',
+  'BillingInvoiceProjection',
+  'BillingEventApplication',
+  'BillingReconciliationRun',
+  'BillingAccessOverride',
+  'BillingCustomerRequest',
+  'BillingAgentCommand',
   'Venue',
   'VenueBotConfiguration',
   'PersonalityProfile',
@@ -68,6 +78,7 @@ export const TENANTED_TABLES = [
   'EmbeddingDispatch',
   'AgentIdentity',
   'AgentBridgeSession',
+  'AgentWorker',
   'AgentRun',
   'AgentAction',
   'AgentTimelineEvent',
@@ -77,6 +88,8 @@ export const TENANTED_TABLES = [
   'OnboardingQuestionLink',
   'ApprovalRequest',
   'ApprovalDecision',
+  'ApprovalGrant',
+  'ApprovalGrantConsumption',
   'SupportRequest',
   'SupportRequestParticipant',
   'SupportMessage',
@@ -131,6 +144,9 @@ export const PLATFORM_TABLES = [
   'ClientCreateIntent',
   'ClientCreateIntentEvent',
   'ProductPlanCapability',
+  // Provider receipt exists before tenant ownership can be established so
+  // unknown Stripe objects can be quarantined instead of discarded.
+  'StripeWebhookReceipt',
   'ProspectTerritory',
   'ProspectTag',
   'ProspectOrganizationTag',
@@ -171,7 +187,25 @@ export const PLATFORM_TABLES = [
 // Models in this list deliberately support both tenant-attributed and
 // platform-wide rows. They must remain explicit because neither silently
 // treating them as platform tables nor forcing tenant scope is correct.
-export const SHARED_SCOPE_TABLES = ['AuditLog', 'JobRecord'] as const
+export const SHARED_SCOPE_TABLES = [
+  'AuditLog',
+  'JobRecord',
+  'CompanyKnowledgeItem',
+  'CompanyKnowledgeRevision',
+  'CompanyKnowledgeSource',
+  'CompanyKnowledgeEntityLink',
+  'CompanyKnowledgeRelation',
+  'CompanyDecision',
+  'CompanyPriority',
+  'AccountRelationshipNote',
+  'AccountMilestone',
+  'AccountOpenLoop',
+  'AccountCommitment',
+  'AccountSummary',
+  'CompanyMeeting',
+  'CompanyMeetingParticipant',
+  'CompanyMeetingExtraction',
+] as const
 
 export type TenantedTable = (typeof TENANTED_TABLES)[number]
 export type PlatformTable = (typeof PLATFORM_TABLES)[number]

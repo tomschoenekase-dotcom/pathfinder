@@ -20,6 +20,7 @@ type ReadResource = McpReadInput['resource']
 type ReadDb = Pick<
   PrismaClient,
   | 'tenant'
+  | 'billingAccount'
   | 'venue'
   | 'place'
   | 'venueKnowledgeEntry'
@@ -30,6 +31,13 @@ type ReadDb = Pick<
   | 'aiUsageDailyRollup'
   | 'jobRecord'
   | 'evalRun'
+  | 'weeklyReport'
+  | 'visitorSession'
+  | 'externalAccessCredential'
+  | 'agentRun'
+  | 'operationalEvent'
+  | 'nativeVenueDeploymentRelease'
+  | 'tenantFeatureFlag'
   | 'venueReportConfiguration'
   | 'agentQuestion'
   | 'agentOutcomeObservation'
@@ -116,6 +124,9 @@ export async function readMcpResource(
     case 'clients':
       rejectCursor(cursor, input.resource)
       return readClient(db, context.credential.tenantId)
+    case 'billing':
+      rejectCursor(cursor, input.resource)
+      return readBilling(db, context.credential.tenantId)
     case 'venues':
       return readVenues(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'configuration':
@@ -137,6 +148,20 @@ export async function readMcpResource(
       return readJobs(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'evaluations':
       return readEvaluations(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'reports':
+      return readReports(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'conversations':
+      return readConversations(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'integrations':
+      return readIntegrations(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'agent-runs':
+      return readAgentRuns(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'events':
+      return readEvents(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'deployments':
+      return readDeployments(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'feature-flags':
+      return readFeatureFlags(db, context.credential.tenantId, limit, cursor)
     case 'onboarding-summary':
       rejectCursor(cursor, input.resource)
       return readOnboardingSummary(db, context.credential.tenantId, input.venueId!)
@@ -163,12 +188,91 @@ function assertExactScope(input: McpReadInput, context: VerifiedMcpInvocationCon
       'Verified tenant and client scope do not match.',
     )
   }
-  if (input.resource !== 'clients' && !input.venueId) {
+  if (!['clients', 'billing', 'feature-flags'].includes(input.resource) && !input.venueId) {
     throw new McpReadBindingError('SCOPE_INVARIANT', 'This resource requires exact venue scope.')
   }
   if (input.venueId && !credential.venueIds.includes(input.venueId)) {
     throw new McpReadBindingError('SCOPE_INVARIANT', 'Verified venue scope does not match.')
   }
+}
+
+async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult> {
+  const account = await db.billingAccount.findFirst({
+    where: { tenantId },
+    select: {
+      billingMode: true,
+      currency: true,
+      status: true,
+      paidThroughAt: true,
+      gracePeriodEndsAt: true,
+      reconciliationHealth: true,
+      lastReconciledAt: true,
+      commercialAgreements: {
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          isBase: true,
+          internalPlanKey: true,
+          status: true,
+          billingMode: true,
+          billingInterval: true,
+          billingIntervalCount: true,
+          agreedAmountMinor: true,
+          currency: true,
+          coveredVenueCount: true,
+          currentPeriodEndsAt: true,
+          cancelAtPeriodEnd: true,
+          cancellationEffectiveAt: true,
+          accessEndsAt: true,
+        },
+      },
+      invoiceProjections: {
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 25,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          amountDueMinor: true,
+          amountPaidMinor: true,
+          amountRemainingMinor: true,
+          currency: true,
+          dueAt: true,
+          paidAt: true,
+          failedAt: true,
+          nextRetryAt: true,
+          failureSummary: true,
+        },
+      },
+    },
+  })
+  if (!account) return result('billing', null)
+  return result('billing', {
+    billingMode: account.billingMode,
+    currency: account.currency,
+    status: account.status,
+    paidThroughAt: account.paidThroughAt?.toISOString() ?? null,
+    gracePeriodEndsAt: account.gracePeriodEndsAt?.toISOString() ?? null,
+    reconciliationHealth: account.reconciliationHealth,
+    lastReconciledAt: account.lastReconciledAt?.toISOString() ?? null,
+    agreements: account.commercialAgreements.map((agreement) => ({
+      ...agreement,
+      agreedAmountMinor: agreement.agreedAmountMinor?.toString() ?? null,
+      currentPeriodEndsAt: agreement.currentPeriodEndsAt?.toISOString() ?? null,
+      cancellationEffectiveAt: agreement.cancellationEffectiveAt?.toISOString() ?? null,
+      accessEndsAt: agreement.accessEndsAt?.toISOString() ?? null,
+    })),
+    invoices: account.invoiceProjections.map((invoice) => ({
+      ...invoice,
+      amountDueMinor: invoice.amountDueMinor.toString(),
+      amountPaidMinor: invoice.amountPaidMinor.toString(),
+      amountRemainingMinor: invoice.amountRemainingMinor.toString(),
+      dueAt: invoice.dueAt?.toISOString() ?? null,
+      paidAt: invoice.paidAt?.toISOString() ?? null,
+      failedAt: invoice.failedAt?.toISOString() ?? null,
+      nextRetryAt: invoice.nextRetryAt?.toISOString() ?? null,
+    })),
+  })
 }
 
 function rejectCursor(cursor: CursorPayload | undefined, resource: ReadResource): void {
@@ -177,7 +281,10 @@ function rejectCursor(cursor: CursorPayload | undefined, resource: ReadResource)
   }
 }
 
-function cursorWhere(cursor: CursorPayload | undefined, field: 'createdAt' | 'updatedAt' | 'date') {
+function cursorWhere(
+  cursor: CursorPayload | undefined,
+  field: 'createdAt' | 'updatedAt' | 'date' | 'startedAt' | 'setAt',
+) {
   if (!cursor) return {}
   const sortAt = new Date(cursor.sortAt)
   return { OR: [{ [field]: { lt: sortAt } }, { [field]: sortAt, id: { lt: cursor.id } }] }
@@ -551,6 +658,197 @@ async function readEvaluations(
       }),
     ),
   })
+}
+
+async function readReports(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.weeklyReport.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      weekStart: true,
+      weekEnd: true,
+      status: true,
+      title: true,
+      answerCount: true,
+      sessionCount: true,
+      generatedAt: true,
+      publishedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+  return result('reports', mapPage(page('reports', rows, limit, (row) => row.createdAt)))
+}
+
+async function readConversations(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.visitorSession.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'startedAt') },
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      experienceScope: true,
+      startedAt: true,
+      lastActiveAt: true,
+      messageCount: true,
+      isNotable: true,
+      _count: { select: { conversationInsights: true, messageFeedback: true } },
+    },
+  })
+  return result(
+    'conversations',
+    mapPage(page('conversations', rows, limit, (row) => row.startedAt)),
+  )
+}
+
+async function readIntegrations(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.externalAccessCredential.findMany({
+    where: { tenantId, clientId: tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      kind: true,
+      label: true,
+      capabilities: true,
+      enabled: true,
+      expiresAt: true,
+      revokedAt: true,
+      lastUsedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+  return result('integrations', mapPage(page('integrations', rows, limit, (row) => row.createdAt)))
+}
+
+async function readAgentRuns(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.agentRun.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      parentAgentRunId: true,
+      agentIdentityId: true,
+      runType: true,
+      requestedOperation: true,
+      status: true,
+      modelProvider: true,
+      modelName: true,
+      costE8Usd: true,
+      errorCode: true,
+      attemptNumber: true,
+      maxAttempts: true,
+      startedAt: true,
+      completedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      agentIdentity: { select: { id: true, name: true, agentType: true } },
+    },
+  })
+  return result('agent-runs', mapPage(page('agent-runs', rows, limit, (row) => row.createdAt)))
+}
+
+async function readEvents(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.operationalEvent.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      eventType: true,
+      sourceSubsystem: true,
+      severity: true,
+      title: true,
+      summary: true,
+      actionRequired: true,
+      linkedObjectType: true,
+      linkedObjectId: true,
+      recommendedAction: true,
+      state: true,
+      occurrenceCount: true,
+      lastOccurredAt: true,
+      expiresAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+  return result('events', mapPage(page('events', rows, limit, (row) => row.createdAt)))
+}
+
+async function readDeployments(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.nativeVenueDeploymentRelease.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      artifactId: true,
+      profile: true,
+      expectedEffectCount: true,
+      status: true,
+      approvedAt: true,
+      appliedAt: true,
+      revertedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+  return result('deployments', mapPage(page('deployments', rows, limit, (row) => row.createdAt)))
+}
+
+async function readFeatureFlags(
+  db: ReadDb,
+  tenantId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.tenantFeatureFlag.findMany({
+    where: { tenantId, ...cursorWhere(cursor, 'setAt') },
+    orderBy: [{ setAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: { id: true, flagKey: true, enabled: true, setAt: true },
+  })
+  return result('feature-flags', mapPage(page('feature-flags', rows, limit, (row) => row.setAt)))
 }
 
 async function readReadiness(

@@ -105,4 +105,13 @@ describe('AdminSectionShell browser foundation', () => {
     )
     expect(screen.getByRole('main').textContent).toContain('Incident detail')
   })
+
+  it('exposes the global Billing portfolio as a first-class operator route', () => {
+    pathname = '/admin/billing'
+    render(<AdminSectionShell>Billing portfolio</AdminSectionShell>)
+
+    const link = screen.getByRole('link', { name: 'Billing' })
+    expect(link.getAttribute('href')).toBe('/admin/billing')
+    expect(link.getAttribute('aria-current')).toBe('page')
+  })
 })

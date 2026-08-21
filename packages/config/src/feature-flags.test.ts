@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { FEATURE_FLAGS, isEmbedPreviewEnabled, isFeatureEnabled } from './feature-flags'
+import {
+  BILLING_TENANT_FLAG_KEYS,
+  FEATURE_FLAGS,
+  isEmbedPreviewEnabled,
+  isFeatureEnabled,
+} from './feature-flags'
 
 describe('embed preview feature boundary', () => {
   it('is documented as default-off', () => {
@@ -63,6 +68,30 @@ describe('Tochi and Character Mode rollout boundaries', () => {
     expect(isFeatureEnabled('venueCharacterMode', { VENUE_CHARACTER_MODE_ENABLED: 'true' })).toBe(
       true,
     )
+  })
+})
+
+describe('Stripe Billing rollout boundaries', () => {
+  it('keeps every billing capability default-off and names tenant pilot flags centrally', () => {
+    for (const key of [
+      'billingUi',
+      'billingCheckout',
+      'billingPortal',
+      'billingWebhook',
+      'billingReconciliation',
+      'billingEntitlementEnforcement',
+      'stripeLiveMode',
+    ] as const) {
+      expect(FEATURE_FLAGS[key].defaultEnabled).toBe(false)
+      expect(isFeatureEnabled(key, {})).toBe(false)
+    }
+    expect(BILLING_TENANT_FLAG_KEYS).toEqual({
+      ui: 'billing-ui-v1',
+      checkout: 'billing-checkout-v1',
+      portal: 'billing-portal-v1',
+      cancellation: 'billing-cancellation-v1',
+      entitlementEnforcement: 'billing-entitlement-enforcement-v1',
+    })
   })
 })
 

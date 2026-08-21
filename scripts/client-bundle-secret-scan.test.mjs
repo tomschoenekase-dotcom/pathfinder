@@ -52,6 +52,8 @@ test('the canary registry covers every secret-shaped config key without stale en
     'RESEND_WEBHOOK_SECRET',
     'STORAGE_ACCESS_KEY_ID',
     'STORAGE_SECRET_ACCESS_KEY',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
   ])
   assert.throws(
     () => assertSecretCanaryRegistryCoversConfig(source.replace('DATABASE_URL:', 'NEW_PASSWORD:')),

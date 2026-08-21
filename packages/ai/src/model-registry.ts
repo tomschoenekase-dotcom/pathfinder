@@ -4,6 +4,7 @@ export const AI_MODEL_KEYS = {
   ANALYTICS_WEEKLY_THEMES: 'analytics-weekly-themes',
   ANSWER_ANALYSIS: 'answer-analysis',
   CLIENT_TOCHI: 'client-tochi',
+  COMPANY_BRAIN_RETRIEVAL_EVALUATION: 'company-brain-retrieval-evaluation',
   GUEST_CHAT: 'guest-chat',
   WEEKLY_DIGEST: 'weekly-digest',
   WEEKLY_REPORT: 'weekly-report',
@@ -83,6 +84,9 @@ export const AI_MODEL_REGISTRY: Readonly<Record<AiModelKey, AiModelSpec>> = {
   // Private client-portal helper. It receives a small client-visible projection,
   // has no browsing/general-agent tools, and is expected to answer concisely.
   [AI_MODEL_KEYS.CLIENT_TOCHI]: haikuSpec(384, 8_000),
+  // Bounded, explicitly invoked grounding evaluation. This is not an online
+  // customer workflow and must still pass the caller's admission/budget gates.
+  [AI_MODEL_KEYS.COMPANY_BRAIN_RETRIEVAL_EVALUATION]: haikuSpec(900, 30_000),
   [AI_MODEL_KEYS.GUEST_CHAT]: haikuSpec(512),
   [AI_MODEL_KEYS.WEEKLY_DIGEST]: sonnetSpec(1_200),
   [AI_MODEL_KEYS.WEEKLY_REPORT]: sonnetSpec(1_800),

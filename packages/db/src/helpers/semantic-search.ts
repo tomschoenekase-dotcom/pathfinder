@@ -108,6 +108,47 @@ type RawKnowledgeRow = {
   distance: number
 }
 
+export type SemanticCompanyKnowledge = {
+  id: string
+  distance: number
+}
+
+export function buildCompanyKnowledgeText(input: {
+  title: string
+  summary: string
+  type: string
+  authority: string
+  body: string
+}) {
+  return [
+    `Type: ${input.type}`,
+    `Authority: ${input.authority}`,
+    `Title: ${input.title}`,
+    `Summary: ${input.summary}`,
+    input.body,
+  ].join('\n')
+}
+
+/** Semantic rank over IDs already selected through permission and authority filters. */
+export async function searchCompanyKnowledgeByEmbedding(params: {
+  queryEmbedding: number[]
+  authorizedCandidateIds: string[]
+  limit?: number
+}): Promise<SemanticCompanyKnowledge[]> {
+  if (params.authorizedCandidateIds.length === 0) return []
+  const vectorStr = `[${params.queryEmbedding.join(',')}]`
+  const limitSafe = Math.max(1, Math.min(50, Math.floor(params.limit ?? 10)))
+  const rows = await db.$queryRaw<Array<{ id: string; distance: number }>>`
+    SELECT id, embedding <=> ${vectorStr}::vector AS distance
+      FROM company_knowledge_items
+     WHERE id = ANY(${params.authorizedCandidateIds}::text[])
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> ${vectorStr}::vector
+     LIMIT ${limitSafe}
+  `
+  return rows.map((row) => ({ id: row.id, distance: Number(row.distance) }))
+}
+
 /**
  * Searches places by cosine similarity against a pre-computed query embedding.
  * Returns places ranked by semantic relevance, each annotated with haversine
@@ -327,6 +368,44 @@ export async function storeKnowledgeEntryEmbeddingForScope(params: {
       ...params,
       stored,
     })
+    return { claimCompleted: true, stored }
+  })
+}
+
+/** Stores Company Knowledge embeddings through the existing fenced claim lifecycle. */
+export async function storeCompanyKnowledgeEmbeddingForScope(params: {
+  itemId: string
+  tenantId: string
+  venueId: string
+  contentUpdatedAt: Date
+  contentHash: string
+  embeddingProfile: string
+  sourceHash: string
+  embedding: number[]
+  claimId: string
+  leaseToken: string
+}): Promise<{ claimCompleted: boolean; stored: boolean }> {
+  const vectorStr = `[${params.embedding.join(',')}]`
+  return db.$transaction(async (tx) => {
+    if (!(await fenceEmbeddingClaim(tx as unknown as EmbeddingTransaction, params))) {
+      return { claimCompleted: false, stored: false }
+    }
+    const updated = await tx.$executeRaw`
+      UPDATE company_knowledge_items
+         SET embedding = ${vectorStr}::vector,
+             embedding_source_hash = ${params.sourceHash},
+             embedding_profile = ${params.embeddingProfile},
+             embedded_at = clock_timestamp()
+       WHERE id = ${params.itemId}
+         AND tenant_id = ${params.tenantId}
+         AND venue_id = ${params.venueId}
+         AND updated_at = ${params.contentUpdatedAt}
+         AND content_hash = ${params.contentHash}
+         AND promotion_status = 'PROMOTED'
+         AND archived_at IS NULL
+    `
+    const stored = updated === 1
+    await finishEmbeddingClaim(tx as unknown as EmbeddingTransaction, { ...params, stored })
     return { claimCompleted: true, stored }
   })
 }

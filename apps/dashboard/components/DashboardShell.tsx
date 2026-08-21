@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { SignOutButton, useOrganization, useUser } from '@clerk/nextjs'
 import {
   ArrowLeft,
+  CreditCard,
   Headphones,
   Home,
   Library,
@@ -28,6 +29,7 @@ type DashboardShellProps = {
   children: ReactNode
   impersonatedTenantName?: string
   weeklyReportsAvailable?: boolean
+  paymentAvailable?: boolean
 }
 
 const navigationItems = [
@@ -37,6 +39,7 @@ const navigationItems = [
   { href: '/weekly-reports', label: 'Reports', icon: NotebookText, reportsOnly: true },
   { href: '/ai-controls', label: 'Visitor experience', icon: Sparkles },
   { href: '/support', label: 'Help & changes', icon: Headphones },
+  { href: '/payment', label: 'Payment', icon: CreditCard, paymentOnly: true },
   { href: '/settings', label: 'Account', icon: Settings },
 ] as const
 
@@ -55,6 +58,7 @@ export function DashboardShell({
   children,
   impersonatedTenantName,
   weeklyReportsAvailable = false,
+  paymentAvailable = false,
 }: DashboardShellProps) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -80,7 +84,11 @@ export function DashboardShell({
             : { ...item, href: null }
           : item,
       )
-    : navigationItems.filter((item) => !('reportsOnly' in item) || weeklyReportsAvailable)
+    : navigationItems.filter(
+        (item) =>
+          (!('reportsOnly' in item) || weeklyReportsAvailable) &&
+          (!('paymentOnly' in item) || paymentAvailable),
+      )
 
   useEffect(() => setMenuOpen(false), [pathname])
 

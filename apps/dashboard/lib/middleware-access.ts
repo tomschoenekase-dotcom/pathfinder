@@ -4,11 +4,13 @@ const AUTH_ROUTES = ['/sign-in', '/sign-up']
 // here would redirect the webhook and prevent automatic tenant creation.
 const PUBLIC_ROUTES = [
   '/api/agent-bridge',
+  '/api/mcp',
   '/api/integrations/gmail/pubsub',
   '/api/webhooks/clerk',
+  '/api/webhooks/stripe',
   '/api/webhooks/resend',
 ]
-const PUBLIC_ROUTE_PREFIXES = ['/api/agent-bridge/']
+const PUBLIC_ROUTE_PREFIXES = ['/api/agent-bridge/', '/api/mcp/']
 
 const INTERNAL_WORKSPACE_ROUTES = ['/analytics', '/chat-design', '/engagement-questions'] as const
 

@@ -28,6 +28,8 @@ export type JsonValue =
 export const McpCapability = z.enum([
   'resources:read',
   'clients:read',
+  'billing:read',
+  'billing:propose',
   'venues:read',
   'configuration:read',
   'content:read',
@@ -38,9 +40,21 @@ export const McpCapability = z.enum([
   'ai-usage:read',
   'jobs:read',
   'evaluations:read',
+  'reports:read',
+  'conversations:read',
+  'integrations:read',
+  'agent-runs:read',
+  'events:read',
+  'deployments:read',
+  'feature-flags:read',
   'readiness:read',
   'questions:read',
   'outcomes:read',
+  'accounts:read',
+  'knowledge:read',
+  'meetings:read',
+  'meetings:process',
+  'workers:read',
   'questions:ask',
   'delegations:create',
   'agent-runs:execute',
@@ -181,6 +195,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'clients:read',
   ],
   [
+    'billing',
+    'Billing',
+    'Client-scoped commercial arrangement, paid-through, invoice, and reconciliation projections.',
+    'pathfinder://clients/{clientId}/billing',
+    'client',
+    'billing:read',
+  ],
+  [
     'venues',
     'Venues',
     'Venues belonging to an authorized client.',
@@ -259,6 +281,62 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'pathfinder://clients/{clientId}/venues/{venueId}/evaluations',
     'venue',
     'evaluations:read',
+  ],
+  [
+    'reports',
+    'Weekly reports',
+    'Venue report lifecycle, volume, and publication metadata without report content or errors.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/reports',
+    'venue',
+    'reports:read',
+  ],
+  [
+    'conversations',
+    'Conversations',
+    'Privacy-bounded visitor conversation session metadata without visitor identifiers, coordinates, or message content.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/conversations',
+    'venue',
+    'conversations:read',
+  ],
+  [
+    'integrations',
+    'Integration access',
+    'Venue-scoped external access configuration and last-use health metadata without secret material.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/integrations',
+    'venue',
+    'integrations:read',
+  ],
+  [
+    'agent-runs',
+    'Agent runs',
+    'Venue-scoped run status, model, attempt, cost, and lineage metadata without prompts or artifacts.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-runs',
+    'venue',
+    'agent-runs:read',
+  ],
+  [
+    'events',
+    'Operational events',
+    'Venue-scoped operational attention events and recovery guidance.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/events',
+    'venue',
+    'events:read',
+  ],
+  [
+    'deployments',
+    'Venue deployments',
+    'Native venue deployment lifecycle metadata without plans, state snapshots, or hashes.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/deployments',
+    'venue',
+    'deployments:read',
+  ],
+  [
+    'feature-flags',
+    'Feature flags',
+    'Client-scoped feature-flag state without internal metadata or actor identities.',
+    'pathfinder://clients/{clientId}/feature-flags',
+    'client',
+    'feature-flags:read',
   ],
   [
     'onboarding-summary',
@@ -344,6 +422,118 @@ export const McpReadInput = McpRequestedScope.extend({
 }).strict()
 export type McpReadInput = z.infer<typeof McpReadInput>
 
+export const McpAccountContextInput = McpRequestedScope.extend({
+  organizationId: Identifier.optional(),
+  recentLimit: z.number().int().min(1).max(20).default(8),
+}).strict()
+export type McpAccountContextInput = z.infer<typeof McpAccountContextInput>
+
+export const McpAccountHistoryInput = McpRequestedScope.extend({
+  organizationId: Identifier.optional(),
+  before: z.string().datetime().optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+}).strict()
+export type McpAccountHistoryInput = z.infer<typeof McpAccountHistoryInput>
+
+export const McpAccountMeetingGetInput = McpRequestedScope.extend({
+  meetingId: Identifier,
+}).strict()
+export type McpAccountMeetingGetInput = z.infer<typeof McpAccountMeetingGetInput>
+
+export const McpIntegrationHealthInput = McpRequestedScope
+export type McpIntegrationHealthInput = z.infer<typeof McpIntegrationHealthInput>
+
+const McpKnowledgeType = z.enum([
+  'DECISION',
+  'STRATEGY',
+  'MEETING_SUMMARY',
+  'CLIENT_INSIGHT',
+  'SALES_LESSON',
+  'PRODUCT_RATIONALE',
+  'TECHNICAL_LESSON',
+  'POSTMORTEM',
+  'POLICY_CONTEXT',
+  'MARKET_RESEARCH',
+  'COMPETITOR_INSIGHT',
+  'COMPANY_HISTORY',
+  'OPERATIONAL_LESSON',
+  'OPEN_QUESTION',
+  'PRIORITY',
+  'COMMITMENT',
+  'OTHER',
+])
+const McpKnowledgeAuthority = z.enum([
+  'AUTHORITATIVE_CURRENT',
+  'DURABLE_CONTEXT',
+  'HISTORICAL',
+  'INFERENCE',
+  'SUPERSEDED',
+])
+
+export const McpKnowledgeSearchInput = McpRequestedScope.extend({
+  query: z.string().trim().min(2).max(1000),
+  organizationId: Identifier.optional(),
+  types: z.array(McpKnowledgeType).max(McpKnowledgeType.options.length).default([]),
+  authorities: z
+    .array(McpKnowledgeAuthority)
+    .max(McpKnowledgeAuthority.options.length)
+    .default(['AUTHORITATIVE_CURRENT', 'DURABLE_CONTEXT']),
+  includeHistorical: z.boolean().default(false),
+  limit: z.number().int().min(1).max(20).default(5),
+}).strict()
+export type McpKnowledgeSearchInput = z.infer<typeof McpKnowledgeSearchInput>
+
+export const McpKnowledgeGetInput = McpRequestedScope.extend({
+  knowledgeItemId: Identifier,
+}).strict()
+export type McpKnowledgeGetInput = z.infer<typeof McpKnowledgeGetInput>
+
+const McpMeetingExtractionType = z.enum([
+  'SUMMARY',
+  'DECISION',
+  'TORCHIKO_COMMITMENT',
+  'CLIENT_COMMITMENT',
+  'CLIENT_PREFERENCE',
+  'PRODUCT_REQUEST',
+  'OBJECTION',
+  'PRICING_DISCUSSION',
+  'OPPORTUNITY',
+  'ACTION_ITEM',
+  'OPEN_QUESTION',
+  'FACTUAL_CORRECTION',
+])
+
+export const McpMeetingProcessInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  meetingId: Identifier,
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  summary: z.string().trim().min(1).max(8_000),
+  extractions: z
+    .array(
+      z
+        .object({
+          type: McpMeetingExtractionType,
+          content: z.string().trim().min(1).max(8_000),
+          structuredData: z.record(JsonValue).default({}),
+          confidence: z.number().min(0).max(1).optional(),
+          sourceStartOffset: z.number().int().nonnegative().optional(),
+          sourceEndOffset: z.number().int().nonnegative().optional(),
+        })
+        .strict()
+        .refine(
+          (value) =>
+            value.sourceStartOffset === undefined ||
+            value.sourceEndOffset === undefined ||
+            value.sourceEndOffset >= value.sourceStartOffset,
+          { path: ['sourceEndOffset'], message: 'Source end must not precede source start' },
+        ),
+    )
+    .max(25),
+}).strict()
+export type McpMeetingProcessInput = z.infer<typeof McpMeetingProcessInput>
+
 export const McpPackageDraftInput = McpRequestedScope.extend({
   title: z.string().trim().min(1).max(160),
   changeRequest: z.string().trim().min(1).max(10_000),
@@ -352,6 +542,10 @@ export const McpPackageDraftInput = McpRequestedScope.extend({
 export type McpPackageDraftInput = z.infer<typeof McpPackageDraftInput>
 
 export const McpUpdateDraftInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
   title: z.string().trim().min(1).max(160),
   body: z.string().trim().min(1).max(4_000),
   startsAt: z.string().datetime({ offset: true }),
@@ -421,6 +615,45 @@ export const McpDelegateSpecialistInput = McpRequestedScope.extend({
 }).strict()
 export type McpDelegateSpecialistInput = z.infer<typeof McpDelegateSpecialistInput>
 
+export const McpBillingProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier.optional(),
+  action: z.enum(['CREATE_NEGOTIATED_CHECKOUT', 'SET_GRACE_PERIOD', 'CANCEL_AT_PERIOD_END']),
+  planKey: z.string().trim().min(1).max(100).optional(),
+  planVersion: z.number().int().positive().optional(),
+  amountMinor: z
+    .string()
+    .regex(/^[1-9]\d{0,11}$/u)
+    .optional(),
+  interval: z.enum(['month', 'year']).optional(),
+  agreementId: Identifier.optional(),
+  expiresAt: z.string().datetime({ offset: true }).optional(),
+  reference: z.string().trim().min(1).max(191).optional(),
+  reason: z.string().trim().min(3).max(2000),
+})
+  .strict()
+  .superRefine((value, context) => {
+    const missing = (field: keyof typeof value) =>
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${field} is required for ${value.action}`,
+      })
+    if (value.action === 'CREATE_NEGOTIATED_CHECKOUT') {
+      if (!value.planKey) missing('planKey')
+      if (!value.amountMinor) missing('amountMinor')
+      if (!value.interval) missing('interval')
+      if (!value.reference) missing('reference')
+    }
+    if (value.action === 'SET_GRACE_PERIOD') {
+      if (!value.agreementId) missing('agreementId')
+      if (!value.expiresAt) missing('expiresAt')
+      if (!value.reference) missing('reference')
+    }
+  })
+export type McpBillingProposalInput = z.infer<typeof McpBillingProposalInput>
+
 export const McpToolResult = z
   .object({ kind: Identifier, summary: Summary, data: JsonValue })
   .strict()
@@ -428,14 +661,282 @@ export type McpToolResult = z.infer<typeof McpToolResult>
 
 export type PathfinderMcpToolName =
   | 'pathfinder.read'
+  | 'torchiko.account.get_context'
+  | 'torchiko.account.timeline'
+  | 'torchiko.account.meetings'
+  | 'torchiko.account.meeting_get'
+  | 'torchiko.meeting.process'
+  | 'torchiko.account.correspondence'
+  | 'torchiko.knowledge.search'
+  | 'torchiko.knowledge.get'
+  | 'torchiko.integrations.health'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
+  | 'pathfinder.propose_billing_action'
   | 'pathfinder.create_package_draft'
   | 'pathfinder.create_update_draft'
   | 'pathfinder.create_support_draft'
   | 'pathfinder.request_evaluation'
 
 export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
+  {
+    name: 'torchiko.account.get_context',
+    title: 'Get compact account context',
+    description:
+      'Return the bounded Level-0/1 organization relationship projection for ordinary account work, with provenance and deeper-tool pointers.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        recentLimit: { type: 'integer', minimum: 1, maximum: 20, default: 8 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'accounts:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.timeline',
+    title: 'Get account relationship timeline',
+    description:
+      'Return a bounded merged timeline of significant CRM activity, correspondence, meetings, milestones, and support changes.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        before: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'accounts:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.meetings',
+    title: 'List account meetings',
+    description:
+      'List bounded structured meeting summaries and processing state without loading raw transcripts or source artifacts.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        before: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'meetings:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.meeting_get',
+    title: 'Get account meeting detail',
+    description:
+      'Retrieve one authorized structured meeting with participants, extraction candidates, provenance, and an optional original-artifact reference.',
+    inputSchema: strictObject(
+      { ...scopeProperties, meetingId: { type: 'string', minLength: 1, maxLength: 120 } },
+      ['clientId', 'meetingId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'meetings:read', 'read') },
+  },
+  {
+    name: 'torchiko.account.correspondence',
+    title: 'List account correspondence',
+    description:
+      'List bounded correspondence metadata and short plain-text snippets; full message bodies remain in exact source records.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        before: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+      },
+      ['clientId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'accounts:read', 'read') },
+  },
+  {
+    name: 'torchiko.meeting.process',
+    title: 'Record structured meeting processing',
+    description:
+      'Idempotently record bounded extraction candidates and complete one meeting through canonical machine-attributed actions. It does not promote candidates to authoritative knowledge.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        meetingId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        summary: { type: 'string', minLength: 1, maxLength: 8000 },
+        extractions: {
+          type: 'array',
+          maxItems: 25,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'content'],
+            properties: {
+              type: { type: 'string', enum: McpMeetingExtractionType.options },
+              content: { type: 'string', minLength: 1, maxLength: 8000 },
+              structuredData: { type: 'object', default: {} },
+              confidence: { type: 'number', minimum: 0, maximum: 1 },
+              sourceStartOffset: { type: 'integer', minimum: 0 },
+              sourceEndOffset: { type: 'integer', minimum: 0 },
+            },
+          },
+          default: [],
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'meetingId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'summary',
+        'extractions',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'meetings:process', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.knowledge.search',
+    title: 'Search Company Knowledge',
+    description:
+      'Search promoted institutional memory with authority, entity, and tenant filters applied before result selection.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        query: { type: 'string', minLength: 2, maxLength: 1000 },
+        organizationId: { type: 'string', minLength: 1, maxLength: 120 },
+        types: { type: 'array', maxItems: 17, items: { type: 'string' }, default: [] },
+        authorities: { type: 'array', maxItems: 5, items: { type: 'string' } },
+        includeHistorical: { type: 'boolean', default: false },
+        limit: { type: 'integer', minimum: 1, maximum: 20, default: 5 },
+      },
+      ['clientId', 'query'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'knowledge:read', 'read') },
+  },
+  {
+    name: 'torchiko.knowledge.get',
+    title: 'Get Company Knowledge detail',
+    description:
+      'Retrieve one exact authorized knowledge item with its current revision, provenance, decision data, and supersession state.',
+    inputSchema: strictObject(
+      { ...scopeProperties, knowledgeItemId: { type: 'string', minLength: 1, maxLength: 120 } },
+      ['clientId', 'knowledgeItemId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'knowledge:read', 'read') },
+  },
+  {
+    name: 'torchiko.integrations.health',
+    title: 'Get unified integration health',
+    description:
+      'Return a bounded secret-free health projection for configured providers, workers, embeddings, deployment, billing, and machine access.',
+    inputSchema: strictObject(scopeProperties, ['clientId']),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'integrations:read', 'read') },
+  },
+  {
+    name: 'pathfinder.propose_billing_action',
+    title: 'Propose a billing action',
+    description:
+      'Record an exact, idempotent negotiated Checkout, grace-period, or cancellation proposal for human approval. This tool never changes Stripe or customer access.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        action: {
+          type: 'string',
+          enum: ['CREATE_NEGOTIATED_CHECKOUT', 'SET_GRACE_PERIOD', 'CANCEL_AT_PERIOD_END'],
+        },
+        planKey: { type: 'string', minLength: 1, maxLength: 100 },
+        planVersion: { type: 'integer', minimum: 1 },
+        amountMinor: { type: 'string', pattern: '^[1-9][0-9]{0,11}$' },
+        interval: { type: 'string', enum: ['month', 'year'] },
+        agreementId: { type: 'string', minLength: 1, maxLength: 120 },
+        expiresAt: { type: 'string', format: 'date-time' },
+        reference: { type: 'string', minLength: 1, maxLength: 191 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+      },
+      [...scopeRequired, 'operationId', 'agentIdentityId', 'action', 'reason'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'billing:propose', 'interaction') },
+  },
   {
     name: 'pathfinder.read',
     title: 'Read Torchiko data',
@@ -560,18 +1061,32 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     inputSchema: strictObject(
       {
         ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
         title: { type: 'string', minLength: 1, maxLength: 160 },
         body: { type: 'string', minLength: 1, maxLength: 4000 },
         startsAt: { type: 'string', format: 'date-time' },
         expiresAt: { type: 'string', format: 'date-time' },
       },
-      [...scopeRequired, 'title', 'body', 'startsAt', 'expiresAt'],
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'title',
+        'body',
+        'startsAt',
+        'expiresAt',
+      ],
     ),
     outputSchema: resultSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: false,
+      idempotentHint: true,
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'updates:draft', 'draft') },

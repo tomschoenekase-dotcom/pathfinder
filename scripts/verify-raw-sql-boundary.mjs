@@ -17,6 +17,7 @@ const approvedPolicies = new Set([
   'public-venue-id',
   'public-venue-session-token',
   'tenant-and-venue',
+  'permission-filtered-record-id-set',
   'tenant-venue-revision-source',
   'tenant-venue-entity-lease',
   'tenant-venue-range-generation-lease',
@@ -554,6 +555,12 @@ const approvedOperations = [
   },
   {
     file: 'packages/db/src/helpers/semantic-search.ts',
+    method: '$queryRaw',
+    hash: 'b93628be655f43adc46abaca11768486f41412e2f92198437ee07d658675aa92',
+    policy: 'permission-filtered-record-id-set',
+  },
+  {
+    file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$executeRaw',
     hash: 'fa8acf3d6b5e28dfa8611f61c4c80432d6e87b1fd62a33410fee2d2a45931fdf',
     policy: 'tenant-venue-entity-lease',
@@ -574,6 +581,12 @@ const approvedOperations = [
     file: 'packages/db/src/helpers/semantic-search.ts',
     method: '$executeRaw',
     hash: '62067bac1ff9fc9bdb241f6d57cc1087edcdd7b8b7b981684fd767c158f0b2a3',
+    policy: 'tenant-venue-revision-source',
+  },
+  {
+    file: 'packages/db/src/helpers/semantic-search.ts',
+    method: '$executeRaw',
+    hash: '8aaa4d066a819127d3760716ec372c0e42c64e8eb3a7d39649b75a386557f2bb',
     policy: 'tenant-venue-revision-source',
   },
   {
@@ -744,8 +757,19 @@ function analyzeSource(source, fileName) {
   const violations = []
   const dbAliases = collectDbAliases(sourceFile)
 
+  const isTypeOnlyReference = (node) => {
+    let current = node
+    while (current.parent) {
+      current = current.parent
+      if (ts.isTypeNode(current)) return true
+      if (ts.isImportClause(current)) return current.isTypeOnly
+      if (ts.isImportDeclaration(current) || ts.isStatement(current)) return false
+    }
+    return false
+  }
+
   const visit = (node) => {
-    if (ts.isIdentifier(node) && node.text === 'Prisma') {
+    if (ts.isIdentifier(node) && node.text === 'Prisma' && !isTypeOnlyReference(node)) {
       violations.push(`${fileName}: Prisma namespace access is prohibited in production source`)
     }
 
@@ -1010,6 +1034,13 @@ function runSelfTests() {
     [],
     'Prisma namespace access is prohibited',
   )
+  const typeOnlyPrisma = analyzeSource(
+    "import type { Prisma } from '@prisma/client'; type Json = Prisma.InputJsonValue",
+    fileName,
+  )
+  if (typeOnlyPrisma.violations.length > 0) {
+    throw new Error('Raw SQL verifier rejected a type-only Prisma namespace self-test')
+  }
   expectFixtureFailure(
     'dynamic Prisma access',
     [{ fileName, source: "const p = await import('@prisma/client')" }],

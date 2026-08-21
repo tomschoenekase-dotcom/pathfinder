@@ -87,6 +87,16 @@ model Tenant {
   memberships                    TenantMembership[]
   featureFlags                   TenantFeatureFlag[]
   entitlementOverrides           ProductEntitlementOverride[]
+  billingAccount                 BillingAccount?
+  commercialAgreements           CommercialAgreement[]
+  commercialAgreementVenues      CommercialAgreementVenue[]
+  billingCheckoutAttempts        BillingCheckoutAttempt[]
+  billingInvoiceProjections      BillingInvoiceProjection[]
+  billingEventApplications       BillingEventApplication[]
+  billingReconciliationRuns      BillingReconciliationRun[]
+  billingAccessOverrides         BillingAccessOverride[]
+  billingCustomerRequests        BillingCustomerRequest[]
+  billingAgentCommands           BillingAgentCommand[]
   venues                         Venue[]
   operationalUpdates             OperationalUpdate[]
   analyticsEvents                AnalyticsEvent[]
@@ -144,6 +154,8 @@ model Tenant {
   agentMessages                  AgentMessage[]
   agentOutcomeObservations       AgentOutcomeObservation[]
   approvalDecisions              ApprovalDecision[]
+  approvalGrants                 ApprovalGrant[]
+  approvalGrantConsumptions      ApprovalGrantConsumption[]
   supportRequests                SupportRequest[]
   supportMessages                SupportMessage[]
   supportAttachments             SupportMessageAttachment[]
@@ -168,6 +180,7 @@ model Tenant {
   intakeUploads                  IntakeUpload[]
   externalCredentials            ExternalAccessCredential[]
   agentBridgeSessions            AgentBridgeSession[]
+  agentWorkers                   AgentWorker[]
   credentialRotations            ExternalCredentialRotation[]
   credentialRevocations          ExternalCredentialRevocation[]
   credentialActivations          ExternalCredentialActivation[]
@@ -185,6 +198,13 @@ model Tenant {
   voiceSessions                  VoiceSession[]
   voiceTranscriptSegments        VoiceTranscriptSegment[]
   prospectConversion             ProspectConversion?
+  companyKnowledgeItems          CompanyKnowledgeItem[]
+  companyMeetings                CompanyMeeting[]
+  accountRelationshipNotes       AccountRelationshipNote[]
+  accountMilestones              AccountMilestone[]
+  accountOpenLoops               AccountOpenLoop[]
+  accountCommitments             AccountCommitment[]
+  accountSummaries               AccountSummary[]
 
   @@map("tenants")
 }
@@ -218,21 +238,39 @@ model TenantMembership {
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  tenantId    String?  @map("tenant_id")
-  actorId     String   @map("actor_id")
-  actorRole   String   @map("actor_role")
-  action      String
-  targetType  String   @map("target_type")
-  targetId    String   @map("target_id")
-  beforeState Json?    @map("before_state")
-  afterState  Json?    @map("after_state")
-  ipAddress   String?  @map("ip_address")
-  userAgent   String?  @map("user_agent")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id                String    @id @default(cuid())
+  tenantId          String?   @map("tenant_id")
+  actorType         ActorType @default(HUMAN) @map("actor_type")
+  actorId           String    @map("actor_id")
+  actorRole         String    @map("actor_role")
+  agentIdentityId   String?   @map("agent_identity_id")
+  agentRunId        String?   @map("agent_run_id")
+  workerId          String?   @map("worker_id")
+  systemJobId       String?   @map("system_job_id")
+  integrationId     String?   @map("integration_id")
+  credentialId      String?   @map("credential_id")
+  approvalGrantId   String?   @map("approval_grant_id")
+  capability        String?
+  modelProvider     String?   @map("model_provider")
+  modelName         String?   @map("model_name")
+  idempotencyKey    String?   @map("idempotency_key")
+  structuredReason  Json?     @map("structured_reason")
+  sourceReferences  Json?     @map("source_references")
+  action            String
+  targetType        String    @map("target_type")
+  targetId          String    @map("target_id")
+  beforeState       Json?     @map("before_state")
+  afterState        Json?     @map("after_state")
+  ipAddress         String?   @map("ip_address")
+  userAgent         String?   @map("user_agent")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])
   @@index([actorId])
+  @@index([actorType, actorId, createdAt])
+  @@index([tenantId, agentRunId, createdAt])
+  @@index([tenantId, workerId, createdAt])
+  @@index([tenantId, approvalGrantId, createdAt])
   @@map("audit_logs")
 }
 
@@ -303,6 +341,536 @@ model ProductEntitlementOverride {
   @@index([tenantId, venueId, capability, startsAt, createdAt])
   @@index([tenantId, capability, startsAt, createdAt])
   @@map("product_entitlement_overrides")
+}
+
+enum StripeEnvironmentMode {
+  TEST
+  LIVE
+}
+
+enum BillingMode {
+  STRIPE_SUBSCRIPTION
+  STRIPE_INVOICE
+  MANUAL_INVOICE
+  COMPLIMENTARY
+  PILOT
+  NO_BILLING_REQUIRED
+}
+
+enum BillingAccountStatus {
+  UNCONFIGURED
+  PENDING
+  ACTIVE
+  PAST_DUE
+  UNPAID
+  CANCELED
+  ENDED
+  PAUSED
+  MANUAL_REVIEW
+}
+
+enum BillingReconciliationHealth {
+  UNKNOWN
+  CURRENT
+  STALE
+  DRIFT
+  ERROR
+}
+
+enum CommercialAgreementStatus {
+  DRAFT
+  PENDING
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  UNPAID
+  CANCELED
+  ENDED
+  PAUSED
+  MANUAL_REVIEW
+}
+
+enum BillingInterval {
+  DAY
+  WEEK
+  MONTH
+  YEAR
+  CUSTOM
+}
+
+enum BillingCheckoutAttemptStatus {
+  PENDING
+  CREATED
+  COMPLETED
+  EXPIRED
+  CANCELED
+  FAILED
+}
+
+enum BillingInvoiceSource {
+  STRIPE
+  MANUAL
+}
+
+enum BillingInvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  UNCOLLECTIBLE
+  VOID
+}
+
+enum StripeWebhookProcessingStatus {
+  RECEIVED
+  PROCESSING
+  APPLIED
+  IGNORED
+  QUARANTINED
+  FAILED
+}
+
+enum BillingEventApplicationStatus {
+  APPLIED
+  IGNORED_STALE
+  QUARANTINED
+  FAILED
+}
+
+enum BillingReconciliationTrigger {
+  SCHEDULED
+  ON_DEMAND
+  WEBHOOK_RECOVERY
+}
+
+enum BillingReconciliationRunStatus {
+  RUNNING
+  SUCCEEDED
+  DRIFT_DETECTED
+  FAILED
+}
+
+enum BillingAccessOverrideEffect {
+  GRANT
+  DENY
+}
+
+enum BillingAccessOverrideKind {
+  MANUAL_PAYMENT
+  COMPLIMENTARY
+  PILOT
+  GRACE_PERIOD
+  PLATFORM_ADMIN
+}
+
+enum BillingCustomerRequestKind {
+  CANCELLATION
+  ADD_ON_INTEREST
+}
+
+enum BillingCustomerRequestStatus {
+  OPEN
+  PROCESSING
+  COMPLETED
+  DECLINED
+  WITHDRAWN
+  FAILED
+}
+
+enum BillingAgentCommandAction {
+  CREATE_NEGOTIATED_CHECKOUT
+  SET_GRACE_PERIOD
+  CANCEL_AT_PERIOD_END
+}
+
+enum BillingAgentCommandStatus {
+  PENDING_APPROVAL
+  APPROVED
+  EXECUTING
+  COMPLETED
+  REJECTED
+  FAILED
+}
+
+/// One durable commercial identity for a tenant. Stripe identifiers are
+/// namespaced by environment and connected platform account; non-Stripe modes
+/// retain no invented provider identity.
+model BillingAccount {
+  id                       String                      @id @default(cuid())
+  tenantId                 String                      @unique @map("tenant_id")
+  billingEmail             String?                     @map("billing_email") @db.VarChar(320)
+  billingContactReference  String?                     @map("billing_contact_reference") @db.VarChar(191)
+  legalNameSnapshot        String?                     @map("legal_name_snapshot") @db.VarChar(191)
+  displayNameSnapshot      String                      @map("display_name_snapshot") @db.VarChar(191)
+  billingMode              BillingMode                 @map("billing_mode")
+  currency                 String                      @default("usd") @db.VarChar(3)
+  status                   BillingAccountStatus        @default(UNCONFIGURED)
+  stripeMode               StripeEnvironmentMode?      @map("stripe_mode")
+  stripeAccountId          String?                     @map("stripe_account_id") @db.VarChar(191)
+  stripeCustomerId         String?                     @map("stripe_customer_id") @db.VarChar(191)
+  paymentBehavior          Json                        @default("{}") @map("payment_behavior")
+  gracePeriodEndsAt        DateTime?                   @map("grace_period_ends_at")
+  paidThroughAt            DateTime?                   @map("paid_through_at")
+  reconciliationHealth     BillingReconciliationHealth @default(UNKNOWN) @map("reconciliation_health")
+  lastReconciledAt         DateTime?                   @map("last_reconciled_at")
+  lastReconciliationError  String?                     @map("last_reconciliation_error") @db.VarChar(500)
+  internalReference        String?                     @map("internal_reference") @db.VarChar(191)
+  internalNotes            String?                     @map("internal_notes") @db.VarChar(2000)
+  providerStateChangedAt   DateTime?                   @map("provider_state_changed_at")
+  lastAppliedStripeEventId String?                     @map("last_applied_stripe_event_id") @db.VarChar(191)
+  lastAppliedStripeEventAt DateTime?                   @map("last_applied_stripe_event_at")
+  createdBy                String                      @map("created_by") @db.VarChar(191)
+  updatedBy                String                      @map("updated_by") @db.VarChar(191)
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  updatedAt                DateTime                    @updatedAt @map("updated_at")
+  tenant                   Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreements     CommercialAgreement[]
+  checkoutAttempts         BillingCheckoutAttempt[]
+  invoiceProjections       BillingInvoiceProjection[]
+  eventApplications        BillingEventApplication[]
+  reconciliationRuns       BillingReconciliationRun[]
+  accessOverrides          BillingAccessOverride[]
+  customerRequests         BillingCustomerRequest[]
+  agentCommands            BillingAgentCommand[]
+
+  @@unique([id, tenantId], map: "billing_accounts_id_tenant_key")
+  @@unique([stripeMode, stripeAccountId, stripeCustomerId], map: "billing_accounts_stripe_customer_key")
+  @@index([status, reconciliationHealth, updatedAt])
+  @@map("billing_accounts")
+}
+
+/// Torchiko's commercial arrangement is distinct from the provider's
+/// subscription projection. Multiple rows allow future add-ons while isBase
+/// identifies the simple launch arrangement.
+model CommercialAgreement {
+  id                        String                     @id @default(cuid())
+  tenantId                  String                     @map("tenant_id")
+  billingAccountId          String                     @map("billing_account_id")
+  isBase                    Boolean                    @default(false) @map("is_base")
+  internalPlanKey           String                     @map("internal_plan_key") @db.VarChar(100)
+  internalPlanVersion       Int                        @default(1) @map("internal_plan_version")
+  status                    CommercialAgreementStatus  @default(DRAFT)
+  billingMode               BillingMode                @map("billing_mode")
+  billingInterval           BillingInterval            @map("billing_interval")
+  billingIntervalCount      Int                        @default(1) @map("billing_interval_count")
+  quantity                  Int                        @default(1)
+  coveredVenueCount         Int                        @default(1) @map("covered_venue_count")
+  agreedAmountMinor         BigInt?                    @map("agreed_amount_minor")
+  currency                  String                     @default("usd") @db.VarChar(3)
+  stripeMode                StripeEnvironmentMode?     @map("stripe_mode")
+  stripeAccountId           String?                    @map("stripe_account_id") @db.VarChar(191)
+  stripeProductId           String?                    @map("stripe_product_id") @db.VarChar(191)
+  stripePriceId             String?                    @map("stripe_price_id") @db.VarChar(191)
+  stripeSubscriptionId      String?                    @map("stripe_subscription_id") @db.VarChar(191)
+  stripeSubscriptionStatus  String?                    @map("stripe_subscription_status") @db.VarChar(64)
+  startsAt                  DateTime                   @map("starts_at")
+  accessStartsAt            DateTime?                  @map("access_starts_at")
+  accessEndsAt              DateTime?                  @map("access_ends_at")
+  currentPeriodStartsAt     DateTime?                  @map("current_period_starts_at")
+  currentPeriodEndsAt       DateTime?                  @map("current_period_ends_at")
+  trialStartsAt             DateTime?                  @map("trial_starts_at")
+  trialEndsAt               DateTime?                  @map("trial_ends_at")
+  minimumCommitmentStartsAt DateTime?                  @map("minimum_commitment_starts_at")
+  minimumCommitmentEndsAt   DateTime?                  @map("minimum_commitment_ends_at")
+  cancelAtPeriodEnd         Boolean                    @default(false) @map("cancel_at_period_end")
+  cancellationEffectiveAt   DateTime?                  @map("cancellation_effective_at")
+  endedAt                   DateTime?                  @map("ended_at")
+  commercialReference       String?                    @map("commercial_reference") @db.VarChar(191)
+  providerStateChangedAt    DateTime?                  @map("provider_state_changed_at")
+  lastAppliedStripeEventId  String?                    @map("last_applied_stripe_event_id") @db.VarChar(191)
+  lastAppliedStripeEventAt  DateTime?                  @map("last_applied_stripe_event_at")
+  createdBy                 String                     @map("created_by") @db.VarChar(191)
+  updatedBy                 String                     @map("updated_by") @db.VarChar(191)
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount            BillingAccount             @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  coveredVenues             CommercialAgreementVenue[]
+  checkoutAttempts          BillingCheckoutAttempt[]
+  invoiceProjections        BillingInvoiceProjection[]
+  eventApplications         BillingEventApplication[]
+  accessOverrides           BillingAccessOverride[]
+  customerRequests          BillingCustomerRequest[]
+  agentCommands             BillingAgentCommand[]
+
+  @@unique([id, tenantId], map: "commercial_agreements_id_tenant_key")
+  @@unique([stripeMode, stripeAccountId, stripeSubscriptionId], map: "commercial_agreements_stripe_subscription_key")
+  @@index([tenantId, status, updatedAt])
+  @@index([billingAccountId, tenantId, status])
+  @@map("commercial_agreements")
+}
+
+model CommercialAgreementVenue {
+  id                    String              @id @default(cuid())
+  tenantId              String              @map("tenant_id")
+  commercialAgreementId String              @map("commercial_agreement_id")
+  venueId               String              @map("venue_id")
+  createdBy             String              @map("created_by") @db.VarChar(191)
+  createdAt             DateTime            @default(now()) @map("created_at")
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreement   CommercialAgreement @relation(fields: [commercialAgreementId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, commercialAgreementId, venueId], map: "commercial_agreement_venues_coverage_key")
+  @@unique([id, tenantId], map: "commercial_agreement_venues_id_tenant_key")
+  @@index([tenantId, venueId])
+  @@map("commercial_agreement_venues")
+}
+
+model BillingCheckoutAttempt {
+  id                       String                       @id @default(cuid())
+  tenantId                 String                       @map("tenant_id")
+  billingAccountId         String                       @map("billing_account_id")
+  commercialAgreementId    String                       @map("commercial_agreement_id")
+  operationKey             String                       @map("operation_key") @db.VarChar(191)
+  requestedPlanKey         String                       @map("requested_plan_key") @db.VarChar(100)
+  requestedPlanVersion     Int                          @map("requested_plan_version")
+  requestedQuantity        Int                          @default(1) @map("requested_quantity")
+  stripeMode               StripeEnvironmentMode        @map("stripe_mode")
+  stripeAccountId          String                       @map("stripe_account_id") @db.VarChar(191)
+  stripeCheckoutSessionId  String?                      @map("stripe_checkout_session_id") @db.VarChar(191)
+  stripeCheckoutUrl        String?                      @map("stripe_checkout_url") @db.VarChar(2048)
+  status                   BillingCheckoutAttemptStatus @default(PENDING)
+  initiatedBy              String                       @map("initiated_by") @db.VarChar(191)
+  providerCreatedAt        DateTime?                    @map("provider_created_at")
+  providerStateChangedAt   DateTime?                    @map("provider_state_changed_at")
+  lastAppliedStripeEventId String?                      @map("last_applied_stripe_event_id") @db.VarChar(191)
+  lastAppliedStripeEventAt DateTime?                    @map("last_applied_stripe_event_at")
+  expiresAt                DateTime?                    @map("expires_at")
+  completedAt              DateTime?                    @map("completed_at")
+  failureCode              String?                      @map("failure_code") @db.VarChar(100)
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+  tenant                   Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount           BillingAccount               @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreement      CommercialAgreement          @relation(fields: [commercialAgreementId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationKey], map: "billing_checkout_attempts_operation_key")
+  @@unique([stripeMode, stripeAccountId, stripeCheckoutSessionId], map: "billing_checkout_attempts_stripe_session_key")
+  @@unique([id, tenantId], map: "billing_checkout_attempts_id_tenant_key")
+  @@index([tenantId, status, createdAt])
+  @@map("billing_checkout_attempts")
+}
+
+model BillingInvoiceProjection {
+  id                       String                 @id @default(cuid())
+  tenantId                 String                 @map("tenant_id")
+  billingAccountId         String                 @map("billing_account_id")
+  commercialAgreementId    String                 @map("commercial_agreement_id")
+  source                   BillingInvoiceSource
+  stripeMode               StripeEnvironmentMode? @map("stripe_mode")
+  stripeAccountId          String?                @map("stripe_account_id") @db.VarChar(191)
+  stripeInvoiceId          String?                @map("stripe_invoice_id") @db.VarChar(191)
+  invoiceNumber            String?                @map("invoice_number") @db.VarChar(191)
+  status                   BillingInvoiceStatus
+  amountDueMinor           BigInt                 @default(0) @map("amount_due_minor")
+  amountPaidMinor          BigInt                 @default(0) @map("amount_paid_minor")
+  amountRemainingMinor     BigInt                 @default(0) @map("amount_remaining_minor")
+  currency                 String                 @db.VarChar(3)
+  hostedInvoiceUrl         String?                @map("hosted_invoice_url") @db.VarChar(2048)
+  invoiceDocumentUrl       String?                @map("invoice_document_url") @db.VarChar(2048)
+  receiptUrl               String?                @map("receipt_url") @db.VarChar(2048)
+  paymentIntentReference   String?                @map("payment_intent_reference") @db.VarChar(191)
+  dueAt                    DateTime?              @map("due_at")
+  paidAt                   DateTime?              @map("paid_at")
+  failedAt                 DateTime?              @map("failed_at")
+  voidedAt                 DateTime?              @map("voided_at")
+  nextRetryAt              DateTime?              @map("next_retry_at")
+  failureCode              String?                @map("failure_code") @db.VarChar(100)
+  failureSummary           String?                @map("failure_summary") @db.VarChar(500)
+  providerStateChangedAt   DateTime?              @map("provider_state_changed_at")
+  lastAppliedStripeEventId String?                @map("last_applied_stripe_event_id") @db.VarChar(191)
+  lastAppliedStripeEventAt DateTime?              @map("last_applied_stripe_event_at")
+  createdAt                DateTime               @default(now()) @map("created_at")
+  updatedAt                DateTime               @updatedAt @map("updated_at")
+  tenant                   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount           BillingAccount         @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreement      CommercialAgreement    @relation(fields: [commercialAgreementId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([stripeMode, stripeAccountId, stripeInvoiceId], map: "billing_invoice_projections_stripe_invoice_key")
+  @@unique([id, tenantId], map: "billing_invoice_projections_id_tenant_key")
+  @@index([tenantId, status, dueAt])
+  @@index([billingAccountId, tenantId, createdAt])
+  @@map("billing_invoice_projections")
+}
+
+/// Verified provider receipt. This platform-scoped boundary exists before a
+/// tenant is known, allowing unknown objects to be quarantined durably.
+model StripeWebhookReceipt {
+  id                   String                        @id @default(cuid())
+  stripeMode           StripeEnvironmentMode         @map("stripe_mode")
+  stripeAccountId      String                        @map("stripe_account_id") @db.VarChar(191)
+  stripeEventId        String                        @map("stripe_event_id") @db.VarChar(191)
+  eventType            String                        @map("event_type") @db.VarChar(100)
+  apiVersion           String?                       @map("api_version") @db.VarChar(32)
+  primaryObjectId      String?                       @map("primary_object_id") @db.VarChar(191)
+  stripeCustomerId     String?                       @map("stripe_customer_id") @db.VarChar(191)
+  stripeSubscriptionId String?                       @map("stripe_subscription_id") @db.VarChar(191)
+  stripeInvoiceId      String?                       @map("stripe_invoice_id") @db.VarChar(191)
+  providerCreatedAt    DateTime                      @map("provider_created_at")
+  receivedAt           DateTime                      @default(now()) @map("received_at")
+  payloadHash          String                        @map("payload_hash") @db.Char(64)
+  sanitizedObject      Json                          @default("{}") @map("sanitized_object")
+  processingStatus     StripeWebhookProcessingStatus @default(RECEIVED) @map("processing_status")
+  attemptCount         Int                           @default(0) @map("attempt_count")
+  lastAttemptAt        DateTime?                     @map("last_attempt_at")
+  processedAt          DateTime?                     @map("processed_at")
+  resolvedTenantId     String?                       @map("resolved_tenant_id") @db.VarChar(191)
+  errorCode            String?                       @map("error_code") @db.VarChar(100)
+  quarantineReason     String?                       @map("quarantine_reason") @db.VarChar(500)
+  createdAt            DateTime                      @default(now()) @map("created_at")
+  updatedAt            DateTime                      @updatedAt @map("updated_at")
+  applications         BillingEventApplication[]
+
+  @@unique([stripeMode, stripeAccountId, stripeEventId], map: "stripe_webhook_receipts_event_key")
+  @@index([processingStatus, receivedAt])
+  @@index([resolvedTenantId, receivedAt])
+  @@map("stripe_webhook_receipts")
+}
+
+/// Immutable record of one verified receipt's attempted domain transition.
+/// Projection mutation and this application row are written atomically.
+model BillingEventApplication {
+  id                    String                        @id @default(cuid())
+  tenantId              String                        @map("tenant_id")
+  billingAccountId      String                        @map("billing_account_id")
+  commercialAgreementId String?                       @map("commercial_agreement_id")
+  stripeReceiptId       String                        @unique @map("stripe_receipt_id")
+  eventType             String                        @map("event_type") @db.VarChar(100)
+  providerCreatedAt     DateTime                      @map("provider_created_at")
+  status                BillingEventApplicationStatus
+  appliedObjectType     String?                       @map("applied_object_type") @db.VarChar(64)
+  appliedObjectId       String?                       @map("applied_object_id") @db.VarChar(191)
+  transition            Json                          @default("{}")
+  errorCode             String?                       @map("error_code") @db.VarChar(100)
+  appliedAt             DateTime                      @default(now()) @map("applied_at")
+  tenant                Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount        BillingAccount                @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreement   CommercialAgreement?          @relation(fields: [commercialAgreementId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  stripeReceipt         StripeWebhookReceipt          @relation(fields: [stripeReceiptId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId], map: "billing_event_applications_id_tenant_key")
+  @@index([tenantId, providerCreatedAt])
+  @@index([tenantId, status, appliedAt])
+  @@map("billing_event_applications")
+}
+
+model BillingReconciliationRun {
+  id                  String                         @id @default(cuid())
+  tenantId            String                         @map("tenant_id")
+  billingAccountId    String                         @map("billing_account_id")
+  trigger             BillingReconciliationTrigger
+  status              BillingReconciliationRunStatus @default(RUNNING)
+  initiatedBy         String                         @map("initiated_by") @db.VarChar(191)
+  startedAt           DateTime                       @default(now()) @map("started_at")
+  completedAt         DateTime?                      @map("completed_at")
+  comparedObjectCount Int                            @default(0) @map("compared_object_count")
+  repairedObjectCount Int                            @default(0) @map("repaired_object_count")
+  unknownObjectCount  Int                            @default(0) @map("unknown_object_count")
+  driftSummary        Json                           @default("{}") @map("drift_summary")
+  errorCode           String?                        @map("error_code") @db.VarChar(100)
+  createdAt           DateTime                       @default(now()) @map("created_at")
+  updatedAt           DateTime                       @updatedAt @map("updated_at")
+  tenant              Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount      BillingAccount                 @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId], map: "billing_reconciliation_runs_id_tenant_key")
+  @@index([tenantId, status, startedAt])
+  @@map("billing_reconciliation_runs")
+}
+
+/// Append-only, explicitly expiring billing access evidence. It does not
+/// masquerade as a provider payment or mutate Stripe state.
+model BillingAccessOverride {
+  id                    String                      @id @default(cuid())
+  tenantId              String                      @map("tenant_id")
+  billingAccountId      String                      @map("billing_account_id")
+  commercialAgreementId String?                     @map("commercial_agreement_id")
+  venueId               String?                     @map("venue_id")
+  capability            String?                     @db.VarChar(100)
+  effect                BillingAccessOverrideEffect
+  kind                  BillingAccessOverrideKind
+  startsAt              DateTime                    @default(now()) @map("starts_at")
+  expiresAt             DateTime                    @map("expires_at")
+  reason                String                      @db.VarChar(500)
+  sourceReference       String?                     @map("source_reference") @db.VarChar(191)
+  createdBy             String                      @map("created_by") @db.VarChar(191)
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount        BillingAccount              @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreement   CommercialAgreement?        @relation(fields: [commercialAgreementId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue?                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([id, tenantId], map: "billing_access_overrides_id_tenant_key")
+  @@index([tenantId, venueId, capability, startsAt, expiresAt])
+  @@index([tenantId, commercialAgreementId, startsAt, expiresAt])
+  @@map("billing_access_overrides")
+}
+
+/// A tenant user's durable cancellation or add-on-interest request. Provider
+/// action and CRM follow-up remain explicit so an email is never mistaken for
+/// billing authority.
+model BillingCustomerRequest {
+  id                    String                       @id @default(cuid())
+  operationId           String                       @map("operation_id") @db.Uuid
+  tenantId              String                       @map("tenant_id")
+  billingAccountId      String                       @map("billing_account_id")
+  commercialAgreementId String?                      @map("commercial_agreement_id")
+  venueId               String?                      @map("venue_id")
+  kind                  BillingCustomerRequestKind
+  status                BillingCustomerRequestStatus @default(OPEN)
+  requestedBy           String                       @map("requested_by") @db.VarChar(191)
+  reason                String?                      @db.VarChar(2000)
+  featureKey            String?                      @map("feature_key") @db.VarChar(100)
+  featureLabelSnapshot  String?                      @map("feature_label_snapshot") @db.VarChar(191)
+  providerActionAt      DateTime?                    @map("provider_action_at")
+  resolvedAt            DateTime?                    @map("resolved_at")
+  resolvedBy            String?                      @map("resolved_by") @db.VarChar(191)
+  failureCode           String?                      @map("failure_code") @db.VarChar(100)
+  createdAt             DateTime                     @default(now()) @map("created_at")
+  updatedAt             DateTime                     @updatedAt @map("updated_at")
+  tenant                Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount        BillingAccount               @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreement   CommercialAgreement?         @relation(fields: [commercialAgreementId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue?                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "billing_customer_requests_operation_key")
+  @@unique([id, tenantId], map: "billing_customer_requests_id_tenant_key")
+  @@index([tenantId, kind, status, createdAt])
+  @@index([billingAccountId, tenantId, createdAt])
+  @@map("billing_customer_requests")
+}
+
+/// A billing command proposed by an agent. It contains no authority by itself:
+/// execution requires the linked, unexpired human ApprovalDecision.
+model BillingAgentCommand {
+  id                    String                    @id @default(cuid())
+  operationId           String                    @map("operation_id") @db.Uuid
+  tenantId              String                    @map("tenant_id")
+  billingAccountId      String?                   @map("billing_account_id")
+  commercialAgreementId String?                   @map("commercial_agreement_id")
+  venueId               String?                   @map("venue_id")
+  approvalRequestId     String                    @map("approval_request_id")
+  action                BillingAgentCommandAction
+  status                BillingAgentCommandStatus @default(PENDING_APPROVAL)
+  payload               Json
+  result                Json                      @default("{}")
+  requestedByAgentId    String                    @map("requested_by_agent_id")
+  executedBy            String?                   @map("executed_by") @db.VarChar(191)
+  executedAt            DateTime?                 @map("executed_at")
+  failureCode           String?                   @map("failure_code") @db.VarChar(100)
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+  tenant                Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  billingAccount        BillingAccount?           @relation(fields: [billingAccountId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  commercialAgreement   CommercialAgreement?      @relation(fields: [commercialAgreementId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalRequest       ApprovalRequest           @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue?                    @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "billing_agent_commands_operation_key")
+  @@unique([approvalRequestId, tenantId], map: "billing_agent_commands_approval_key")
+  @@unique([id, tenantId], map: "billing_agent_commands_id_tenant_key")
+  @@index([tenantId, status, createdAt])
+  @@map("billing_agent_commands")
 }
 
 enum VenueBotPresentationMode {
@@ -696,6 +1264,8 @@ model Venue {
   agentMessages                       AgentMessage[]
   agentOutcomeObservations            AgentOutcomeObservation[]
   approvalDecisions                   ApprovalDecision[]
+  approvalGrants                      ApprovalGrant[]
+  approvalGrantConsumptions           ApprovalGrantConsumption[]
   supportRequests                     SupportRequest[]
   supportMessages                     SupportMessage[]
   supportAttachments                  SupportMessageAttachment[]
@@ -727,10 +1297,20 @@ model Venue {
   clientAssistantTurns                ClientAssistantTurn[]
   clientAssistantSupportHandoffs      ClientAssistantSupportHandoff[]
   entitlementOverrides                ProductEntitlementOverride[]
+  commercialAgreementCoverage         CommercialAgreementVenue[]
+  billingAccessOverrides              BillingAccessOverride[]
+  billingCustomerRequests             BillingCustomerRequest[]
+  billingAgentCommands                BillingAgentCommand[]
   voiceSessions                       VoiceSession[]
   voiceTranscriptSegments             VoiceTranscriptSegment[]
   prospectConversion                  ProspectConversion?
   prospectLocationConversions         ProspectLocationConversion[]
+  companyKnowledgeItems               CompanyKnowledgeItem[]
+  companyMeetings                     CompanyMeeting[]
+  accountRelationshipNotes            AccountRelationshipNote[]
+  accountMilestones                   AccountMilestone[]
+  accountOpenLoops                    AccountOpenLoop[]
+  accountCommitments                  AccountCommitment[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -3094,6 +3674,7 @@ enum JobFailureDisposition {
 enum EmbeddingWorkEntityType {
   PLACE
   KNOWLEDGE_ENTRY
+  COMPANY_KNOWLEDGE
 }
 
 enum EmbeddingWorkClaimStatus {
@@ -3418,6 +3999,8 @@ model AgentIdentity {
   questions           AgentQuestion[]
   messages            AgentMessage[]
   outcomeObservations AgentOutcomeObservation[]
+  approvalGrants      ApprovalGrant[]
+  grantConsumptions   ApprovalGrantConsumption[]
 
   @@unique([tenantId, identityKey])
   @@unique([id, tenantId])
@@ -3450,6 +4033,7 @@ model AgentRun {
   cancelRequestedAt        DateTime?                 @map("cancel_requested_at")
   executionLeaseToken      String?                   @map("execution_lease_token") @db.Uuid
   executionBridgeSessionId String?                   @map("execution_bridge_session_id")
+  executionWorkerId        String?                   @map("execution_worker_id")
   executionLeaseExpiresAt  DateTime?                 @map("execution_lease_expires_at")
   lastHeartbeatAt          DateTime?                 @map("last_heartbeat_at")
   attemptNumber            Int                       @default(0) @map("attempt_number")
@@ -3471,6 +4055,8 @@ model AgentRun {
   parentAgentRun           AgentRun?                 @relation("AgentRunDelegations", fields: [parentAgentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   delegatedRuns            AgentRun[]                @relation("AgentRunDelegations")
   executionBridgeSession   AgentBridgeSession?       @relation(fields: [executionBridgeSessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  executionWorker          AgentWorker?              @relation(fields: [executionWorkerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  approvalGrantConsumptions ApprovalGrantConsumption[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_runs_tenant_operation_key")
@@ -3480,6 +4066,7 @@ model AgentRun {
   @@index([tenantId, agentIdentityId, createdAt])
   @@index([tenantId, parentAgentRunId, createdAt], map: "agent_runs_parent_created_idx")
   @@index([status, executionLeaseExpiresAt], map: "agent_runs_status_lease_expiry_idx")
+  @@index([executionWorkerId, status, updatedAt], map: "agent_runs_worker_status_idx")
   @@index([status, createdAt], map: "agent_runs_status_created_idx")
   @@map("agent_runs")
 }
@@ -3549,25 +4136,26 @@ model AgentTimelineEvent {
 
 /// Immutable proposal. Pending is represented by the absence of a decision.
 model ApprovalRequest {
-  id              String               @id @default(cuid())
-  tenantId        String               @map("tenant_id")
-  venueId         String?              @map("venue_id")
-  agentIdentityId String               @map("agent_identity_id")
-  agentRunId      String?              @map("agent_run_id")
-  requestedByType ActorType            @map("requested_by_type")
-  requestedById   String               @map("requested_by_id") @db.VarChar(191)
-  proposedAction  String               @map("proposed_action") @db.VarChar(191)
-  scopeSnapshot   Json                 @map("scope_snapshot")
-  reason          String               @db.VarChar(2000)
-  riskCategory    ApprovalRiskCategory @map("risk_category")
-  artifacts       Json                 @default("[]")
-  expiresAt       DateTime?            @map("expires_at")
-  createdAt       DateTime             @default(now()) @map("created_at")
-  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue           Venue?               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity   AgentIdentity        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun        AgentRun?            @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  decision        ApprovalDecision?
+  id                  String               @id @default(cuid())
+  tenantId            String               @map("tenant_id")
+  venueId             String?              @map("venue_id")
+  agentIdentityId     String               @map("agent_identity_id")
+  agentRunId          String?              @map("agent_run_id")
+  requestedByType     ActorType            @map("requested_by_type")
+  requestedById       String               @map("requested_by_id") @db.VarChar(191)
+  proposedAction      String               @map("proposed_action") @db.VarChar(191)
+  scopeSnapshot       Json                 @map("scope_snapshot")
+  reason              String               @db.VarChar(2000)
+  riskCategory        ApprovalRiskCategory @map("risk_category")
+  artifacts           Json                 @default("[]")
+  expiresAt           DateTime?            @map("expires_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue               Venue?               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity       AgentIdentity        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun            AgentRun?            @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  decision            ApprovalDecision?
+  billingAgentCommand BillingAgentCommand?
 
   @@unique([id, tenantId])
   @@index([tenantId, createdAt])
@@ -3720,6 +4308,7 @@ model ApprovalDecision {
   venue             Venue?                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   approvalRequest   ApprovalRequest         @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   resultingAction   AgentAction?
+  grant             ApprovalGrant?
 
   @@unique([id, tenantId])
   @@unique([approvalRequestId, tenantId])
@@ -3728,10 +4317,89 @@ model ApprovalDecision {
   @@map("approval_decisions")
 }
 
+enum ApprovalGrantMode {
+  ONE_SHOT
+  BOUNDED
+  TEMPORARY
+  POLICY_BACKED
+}
+
+/// Durable authority derived from one exact human approval or a named reviewed policy.
+/// The grant is narrower than an approval decision: it binds the action, capability,
+/// agent, scope, parameters/bounds, lifetime, and use count.
+model ApprovalGrant {
+  id                 String                     @id @default(cuid())
+  tenantId           String                     @map("tenant_id")
+  venueId            String                     @map("venue_id")
+  approvalDecisionId String?                    @map("approval_decision_id")
+  policyKey          String?                    @map("policy_key") @db.VarChar(191)
+  agentIdentityId    String                     @map("agent_identity_id")
+  actionName         String                     @map("action_name") @db.VarChar(191)
+  capability         String                     @db.VarChar(191)
+  mode               ApprovalGrantMode
+  scope              Json
+  parameterHash      String?                    @map("parameter_hash") @db.Char(64)
+  constraints        Json                       @default("{}")
+  maxUses            Int?                       @map("max_uses")
+  useCount           Int                        @default(0) @map("use_count")
+  notBefore          DateTime                   @default(now()) @map("not_before")
+  expiresAt          DateTime?                  @map("expires_at")
+  revokedAt          DateTime?                  @map("revoked_at")
+  revokedByType      ActorType?                 @map("revoked_by_type")
+  revokedById        String?                    @map("revoked_by_id") @db.VarChar(191)
+  revokeReason       String?                    @map("revoke_reason") @db.VarChar(1000)
+  createdByType      ActorType                  @map("created_by_type")
+  createdById        String                     @map("created_by_id") @db.VarChar(191)
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue              Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalDecision   ApprovalDecision?          @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity      AgentIdentity              @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  consumptions       ApprovalGrantConsumption[]
+
+  @@unique([id, tenantId])
+  @@unique([approvalDecisionId, tenantId], map: "approval_grants_decision_tenant_key")
+  @@index([tenantId, venueId, actionName, revokedAt, expiresAt], map: "approval_grants_scope_action_active_idx")
+  @@index([tenantId, agentIdentityId, createdAt], map: "approval_grants_agent_created_idx")
+  @@map("approval_grants")
+}
+
+/// Append-only evidence for one successful exercise of a grant. Operation IDs
+/// make retries return the original evidence instead of consuming authority twice.
+model ApprovalGrantConsumption {
+  id              String        @id @default(cuid())
+  operationId     String        @map("operation_id") @db.Uuid
+  tenantId        String        @map("tenant_id")
+  venueId         String        @map("venue_id")
+  approvalGrantId String        @map("approval_grant_id")
+  agentIdentityId String        @map("agent_identity_id")
+  agentRunId      String        @map("agent_run_id")
+  workerId        String        @map("worker_id") @db.VarChar(191)
+  credentialId    String        @map("credential_id") @db.VarChar(191)
+  actionName      String        @map("action_name") @db.VarChar(191)
+  capability      String        @db.VarChar(191)
+  parameterHash   String        @map("parameter_hash") @db.Char(64)
+  resultReference String?       @map("result_reference") @db.VarChar(500)
+  consumedAt      DateTime      @default(now()) @map("consumed_at")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalGrant   ApprovalGrant @relation(fields: [approvalGrantId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity   AgentIdentity @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun        AgentRun      @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "approval_grant_consumptions_tenant_operation_key")
+  @@unique([approvalGrantId, operationId], map: "approval_grant_consumptions_grant_operation_key")
+  @@index([tenantId, approvalGrantId, consumedAt], map: "approval_grant_consumptions_grant_time_idx")
+  @@index([tenantId, agentRunId, consumedAt], map: "approval_grant_consumptions_run_time_idx")
+  @@map("approval_grant_consumptions")
+}
+
 enum ActorType {
   HUMAN
   AGENT
   SYSTEM
+  INTEGRATION
 }
 
 enum AgentAccessScope {
@@ -4105,6 +4773,7 @@ model ExternalAccessCredential {
   operationReceipts      ExternalCredentialOperationReceipt[] @relation("credential_operation_result")
   priorOperationReceipts ExternalCredentialOperationReceipt[] @relation("credential_operation_previous")
   bridgeSessions         AgentBridgeSession[]
+  workers                AgentWorker[]
   activation             ExternalCredentialActivation?
 
   @@unique([id, tenantId, clientId, scopeKey], map: "external_credentials_exact_scope_key")
@@ -4790,17 +5459,17 @@ model CorrespondenceProviderAccount {
 /// Dedicated encrypted secret storage. Ciphertext is useless without the
 /// separately managed integration key; access tokens are never persisted.
 model EncryptedIntegrationCredential {
-  id                   String   @id @default(cuid())
-  provider             String   @db.VarChar(64)
-  subject              String   @db.VarChar(320)
-  encryptedSecret      Bytes    @map("encrypted_secret")
-  initializationVector Bytes    @map("initialization_vector")
-  authenticationTag    Bytes    @map("authentication_tag")
-  keyVersion           Int      @default(1) @map("key_version")
-  createdBy            String   @map("created_by") @db.VarChar(191)
+  id                   String    @id @default(cuid())
+  provider             String    @db.VarChar(64)
+  subject              String    @db.VarChar(320)
+  encryptedSecret      Bytes     @map("encrypted_secret")
+  initializationVector Bytes     @map("initialization_vector")
+  authenticationTag    Bytes     @map("authentication_tag")
+  keyVersion           Int       @default(1) @map("key_version")
+  createdBy            String    @map("created_by") @db.VarChar(191)
   revokedAt            DateTime? @map("revoked_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   @@index([provider, subject, revokedAt])
   @@map("encrypted_integration_credentials")
@@ -4809,16 +5478,16 @@ model EncryptedIntegrationCredential {
 /// One-time OAuth state and encrypted PKCE verifier. Attempts are consumed
 /// before token exchange so callback replay cannot mint a second credential.
 model GmailOAuthAttempt {
-  id                        String    @id @default(cuid())
-  stateHash                 String    @unique @map("state_hash") @db.Char(64)
-  encryptedCodeVerifier     Bytes     @map("encrypted_code_verifier")
-  initializationVector      Bytes     @map("initialization_vector")
-  authenticationTag         Bytes     @map("authentication_tag")
-  redirectUri               String    @map("redirect_uri") @db.VarChar(1000)
-  requestedBy               String    @map("requested_by") @db.VarChar(191)
-  expiresAt                 DateTime  @map("expires_at")
-  consumedAt                DateTime? @map("consumed_at")
-  createdAt                 DateTime  @default(now()) @map("created_at")
+  id                    String    @id @default(cuid())
+  stateHash             String    @unique @map("state_hash") @db.Char(64)
+  encryptedCodeVerifier Bytes     @map("encrypted_code_verifier")
+  initializationVector  Bytes     @map("initialization_vector")
+  authenticationTag     Bytes     @map("authentication_tag")
+  redirectUri           String    @map("redirect_uri") @db.VarChar(1000)
+  requestedBy           String    @map("requested_by") @db.VarChar(191)
+  expiresAt             DateTime  @map("expires_at")
+  consumedAt            DateTime? @map("consumed_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
 
   @@index([expiresAt, consumedAt])
   @@map("gmail_oauth_attempts")
@@ -4883,6 +5552,13 @@ model ProspectOrganization {
   emailThreads          ProspectEmailThread[]
   emailMessages         ProspectEmailMessage[]
   followups             ProspectFollowup[]
+  companyKnowledgeItems CompanyKnowledgeItem[]
+  companyMeetings       CompanyMeeting[]
+  relationshipNotes     AccountRelationshipNote[]
+  milestones            AccountMilestone[]
+  openLoops             AccountOpenLoop[]
+  commitments           AccountCommitment[]
+  summaries             AccountSummary[]
 
   @@unique([updatedAt, id], map: "prospect_organizations_updated_at_id_key")
   @@index([normalizedName])
@@ -4988,6 +5664,7 @@ model ProspectContact {
   emailThreads           ProspectEmailThread[]
   emailMessages          ProspectEmailMessage[]
   suppressionEvents      ProspectContactSuppressionEvent[]
+  meetingParticipants    CompanyMeetingParticipant[]
 
   @@index([organizationId, archivedAt])
   @@index([venueId, archivedAt])
@@ -5036,6 +5713,7 @@ model ProspectOpportunity {
   organization     ProspectOrganization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   stageHistory     ProspectStageHistory[]
   followups        ProspectFollowup[]
+  companyMeetings  CompanyMeeting[]
 
   @@index([stage, priority, nextActionAt])
   @@index([ownerId, stage])
@@ -5123,44 +5801,44 @@ model ProspectDuplicateCandidate {
 }
 
 model ProspectImport {
-  id                 String                @id @default(cuid())
-  fileName           String                @map("file_name")
-  fileType           String                @map("file_type")
-  fileSize           Int                   @map("file_size")
-  fileHash           String                @map("file_hash") @db.Char(64)
-  mappingHash        String                @map("mapping_hash") @db.Char(64)
-  importIdentityHash String                @unique @map("import_identity_hash") @db.Char(64)
-  mapping            Json
-  status             ProspectImportStatus  @default(DRAFT)
-  totalRows          Int                   @default(0) @map("total_rows")
-  validRows          Int                   @default(0) @map("valid_rows")
-  warningRows        Int                   @default(0) @map("warning_rows")
-  duplicateRows      Int                   @default(0) @map("duplicate_rows")
-  importedRows       Int                   @default(0) @map("imported_rows")
-  failedRows         Int                   @default(0) @map("failed_rows")
-  sourceObjectKey    String?               @map("source_object_key") @db.VarChar(500)
-  sourceObjectVersion String?              @map("source_object_version") @db.VarChar(500)
-  sourceObjectGeneration String?           @map("source_object_generation") @db.Uuid
-  expandedSizeBytes  Int?                  @map("expanded_size_bytes")
-  progressCursor     String?               @map("progress_cursor") @db.VarChar(500)
-  jobClaimToken      String?               @map("job_claim_token") @db.Uuid
-  jobClaimPhase      String?               @map("job_claim_phase") @db.VarChar(50)
-  jobClaimOwner      String?               @map("job_claim_owner") @db.VarChar(191)
-  jobClaimExpiresAt  DateTime?             @map("job_claim_expires_at")
-  cancelRequestedAt DateTime?              @map("cancel_requested_at")
-  canceledBy         String?               @map("canceled_by") @db.VarChar(191)
-  reportObjectKey    String?               @map("report_object_key") @db.VarChar(500)
-  reportHash         String?               @map("report_hash") @db.Char(64)
-  reconciliation    Json?                  @map("reconciliation")
-  completedAt        DateTime?             @map("completed_at")
-  approvedBy         String?               @map("approved_by")
-  approvedAt         DateTime?             @map("approved_at")
-  createdBy          String                @map("created_by")
-  createdAt          DateTime              @default(now()) @map("created_at")
-  updatedAt          DateTime              @updatedAt @map("updated_at")
-  sheets             ProspectImportSheet[]
-  rows               ProspectImportRow[]
-  reportEntries      ProspectImportReportEntry[]
+  id                     String                      @id @default(cuid())
+  fileName               String                      @map("file_name")
+  fileType               String                      @map("file_type")
+  fileSize               Int                         @map("file_size")
+  fileHash               String                      @map("file_hash") @db.Char(64)
+  mappingHash            String                      @map("mapping_hash") @db.Char(64)
+  importIdentityHash     String                      @unique @map("import_identity_hash") @db.Char(64)
+  mapping                Json
+  status                 ProspectImportStatus        @default(DRAFT)
+  totalRows              Int                         @default(0) @map("total_rows")
+  validRows              Int                         @default(0) @map("valid_rows")
+  warningRows            Int                         @default(0) @map("warning_rows")
+  duplicateRows          Int                         @default(0) @map("duplicate_rows")
+  importedRows           Int                         @default(0) @map("imported_rows")
+  failedRows             Int                         @default(0) @map("failed_rows")
+  sourceObjectKey        String?                     @map("source_object_key") @db.VarChar(500)
+  sourceObjectVersion    String?                     @map("source_object_version") @db.VarChar(500)
+  sourceObjectGeneration String?                     @map("source_object_generation") @db.Uuid
+  expandedSizeBytes      Int?                        @map("expanded_size_bytes")
+  progressCursor         String?                     @map("progress_cursor") @db.VarChar(500)
+  jobClaimToken          String?                     @map("job_claim_token") @db.Uuid
+  jobClaimPhase          String?                     @map("job_claim_phase") @db.VarChar(50)
+  jobClaimOwner          String?                     @map("job_claim_owner") @db.VarChar(191)
+  jobClaimExpiresAt      DateTime?                   @map("job_claim_expires_at")
+  cancelRequestedAt      DateTime?                   @map("cancel_requested_at")
+  canceledBy             String?                     @map("canceled_by") @db.VarChar(191)
+  reportObjectKey        String?                     @map("report_object_key") @db.VarChar(500)
+  reportHash             String?                     @map("report_hash") @db.Char(64)
+  reconciliation         Json?                       @map("reconciliation")
+  completedAt            DateTime?                   @map("completed_at")
+  approvedBy             String?                     @map("approved_by")
+  approvedAt             DateTime?                   @map("approved_at")
+  createdBy              String                      @map("created_by")
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  updatedAt              DateTime                    @updatedAt @map("updated_at")
+  sheets                 ProspectImportSheet[]
+  rows                   ProspectImportRow[]
+  reportEntries          ProspectImportReportEntry[]
 
   @@index([status, createdAt])
   @@index([status, jobClaimExpiresAt])
@@ -5169,18 +5847,18 @@ model ProspectImport {
 }
 
 model ProspectImportReportEntry {
-  id                String         @id @default(cuid())
-  importId          String         @map("import_id")
-  importRowId       String         @map("import_row_id")
-  sheetName         String         @map("sheet_name") @db.VarChar(300)
-  originalRowNumber Int            @map("original_row_number")
-  rowFingerprint    String         @map("row_fingerprint") @db.Char(64)
+  id                String                  @id @default(cuid())
+  importId          String                  @map("import_id")
+  importRowId       String                  @map("import_row_id")
+  sheetName         String                  @map("sheet_name") @db.VarChar(300)
+  originalRowNumber Int                     @map("original_row_number")
+  rowFingerprint    String                  @map("row_fingerprint") @db.Char(64)
   status            ProspectImportRowStatus
-  warnings          Json           @default("[]")
-  errors            Json           @default("[]")
-  duplicateMatches  Json           @default("[]") @map("duplicate_matches")
-  createdAt         DateTime       @default(now()) @map("created_at")
-  import            ProspectImport @relation(fields: [importId], references: [id], onDelete: Restrict)
+  warnings          Json                    @default("[]")
+  errors            Json                    @default("[]")
+  duplicateMatches  Json                    @default("[]") @map("duplicate_matches")
+  createdAt         DateTime                @default(now()) @map("created_at")
+  import            ProspectImport          @relation(fields: [importId], references: [id], onDelete: Restrict)
 
   @@unique([importId, importRowId])
   @@index([importId, sheetName, originalRowNumber])
@@ -5204,36 +5882,36 @@ model ProspectImportSheet {
 }
 
 model ProspectImportRow {
-  id                     String                   @id @default(cuid())
-  importId               String                   @map("import_id")
-  sheetName              String                   @map("sheet_name")
-  originalRowNumber      Int                      @map("original_row_number")
-  rowFingerprint         String                   @map("row_fingerprint") @db.Char(64)
-  sourceValues           Json                     @map("source_values")
-  normalizedValues       Json                     @map("normalized_values")
+  id                     String                     @id @default(cuid())
+  importId               String                     @map("import_id")
+  sheetName              String                     @map("sheet_name")
+  originalRowNumber      Int                        @map("original_row_number")
+  rowFingerprint         String                     @map("row_fingerprint") @db.Char(64)
+  sourceValues           Json                       @map("source_values")
+  normalizedValues       Json                       @map("normalized_values")
   status                 ProspectImportRowStatus
-  warnings               Json                     @default("[]")
-  errors                 Json                     @default("[]")
-  duplicateMatches       Json                     @default("[]") @map("duplicate_matches")
+  warnings               Json                       @default("[]")
+  errors                 Json                       @default("[]")
+  duplicateMatches       Json                       @default("[]") @map("duplicate_matches")
   decision               ProspectImportRowDecision?
-  decisionNote           String?                  @map("decision_note") @db.VarChar(2000)
-  decisionBy             String?                  @map("decision_by") @db.VarChar(191)
-  decisionAt             DateTime?                @map("decision_at")
-  targetOrganizationId   String?                  @map("target_organization_id")
-  targetVenueId          String?                  @map("target_venue_id")
-  targetContactId        String?                  @map("target_contact_id")
-  claimToken             String?                  @map("claim_token") @db.Uuid
-  claimOwner             String?                  @map("claim_owner") @db.VarChar(191)
-  claimExpiresAt         DateTime?                @map("claim_expires_at")
-  importedOrganizationId String?                  @map("imported_organization_id")
-  importedVenueId        String?                  @map("imported_venue_id")
-  importedContactId      String?                  @map("imported_contact_id")
-  errorCode              String?                  @map("error_code")
-  errorMessage           String?                  @map("error_message")
-  processedAt            DateTime?                @map("processed_at")
-  createdAt              DateTime                 @default(now()) @map("created_at")
-  updatedAt              DateTime                 @updatedAt @map("updated_at")
-  import                 ProspectImport           @relation(fields: [importId], references: [id], onDelete: Restrict)
+  decisionNote           String?                    @map("decision_note") @db.VarChar(2000)
+  decisionBy             String?                    @map("decision_by") @db.VarChar(191)
+  decisionAt             DateTime?                  @map("decision_at")
+  targetOrganizationId   String?                    @map("target_organization_id")
+  targetVenueId          String?                    @map("target_venue_id")
+  targetContactId        String?                    @map("target_contact_id")
+  claimToken             String?                    @map("claim_token") @db.Uuid
+  claimOwner             String?                    @map("claim_owner") @db.VarChar(191)
+  claimExpiresAt         DateTime?                  @map("claim_expires_at")
+  importedOrganizationId String?                    @map("imported_organization_id")
+  importedVenueId        String?                    @map("imported_venue_id")
+  importedContactId      String?                    @map("imported_contact_id")
+  errorCode              String?                    @map("error_code")
+  errorMessage           String?                    @map("error_message")
+  processedAt            DateTime?                  @map("processed_at")
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
+  import                 ProspectImport             @relation(fields: [importId], references: [id], onDelete: Restrict)
   importedVenues         ProspectVenue[]
   importedContacts       ProspectContact[]
   sourceEvidence         ProspectSourceEvidence[]
@@ -5615,22 +6293,22 @@ model ProspectFollowup {
 
 /// Raw webhook envelope evidence used for signature verification, idempotency and replay.
 model ProspectEmailWebhookReceipt {
-  id                String                         @id @default(cuid())
-  provider          String                         @db.VarChar(50)
-  providerAccountId String?                        @map("provider_account_id")
+  id                 String                         @id @default(cuid())
+  provider           String                         @db.VarChar(50)
+  providerAccountId  String?                        @map("provider_account_id")
   providerMailboxKey String                         @map("provider_mailbox_key") @db.VarChar(320)
-  providerEventId   String                         @map("provider_event_id") @db.VarChar(191)
-  eventType         String                         @map("event_type") @db.VarChar(100)
-  payload           Json
-  status            ProspectInboundReceiptStatus   @default(RECEIVED)
-  attemptCount      Int                            @default(0) @map("attempt_count")
-  nextAttemptAt     DateTime?                      @map("next_attempt_at")
-  quarantineReason  String?                        @map("quarantine_reason") @db.VarChar(2000)
-  processedAt       DateTime?                      @map("processed_at")
-  processingError   String?                        @map("processing_error") @db.VarChar(2000)
-  createdAt         DateTime                       @default(now()) @map("created_at")
-  providerAccount   CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
-  quarantines       ProspectInboundQuarantine[]
+  providerEventId    String                         @map("provider_event_id") @db.VarChar(191)
+  eventType          String                         @map("event_type") @db.VarChar(100)
+  payload            Json
+  status             ProspectInboundReceiptStatus   @default(RECEIVED)
+  attemptCount       Int                            @default(0) @map("attempt_count")
+  nextAttemptAt      DateTime?                      @map("next_attempt_at")
+  quarantineReason   String?                        @map("quarantine_reason") @db.VarChar(2000)
+  processedAt        DateTime?                      @map("processed_at")
+  processingError    String?                        @map("processing_error") @db.VarChar(2000)
+  createdAt          DateTime                       @default(now()) @map("created_at")
+  providerAccount    CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
+  quarantines        ProspectInboundQuarantine[]
 
   @@unique([provider, providerAccountId, providerEventId], map: "prospect_email_receipts_provider_account_event_key")
   @@unique([provider, providerMailboxKey, providerEventId], map: "prospect_email_receipts_provider_mailbox_event_key")
@@ -5657,4 +6335,622 @@ model ProspectInboundQuarantine {
   @@index([status, occurredAt])
   @@index([providerAccountId, occurredAt])
   @@map("prospect_inbound_quarantines")
+}
+
+enum AgentWorkerRuntime {
+  HERMES
+  CODEX
+  CLAUDE
+  OPENAI_COMPATIBLE
+  CUSTOM
+}
+
+enum AgentWorkerStatus {
+  ONLINE
+  DRAINING
+  OFFLINE
+  REVOKED
+}
+
+/// Provider-neutral durable worker identity. Worker presence is replaceable;
+/// company state and queued work remain in Torchiko.
+model AgentWorker {
+  id                 String                   @id @default(cuid())
+  workerKey          String                   @unique @map("worker_key") @db.VarChar(191)
+  tenantId           String                   @map("tenant_id")
+  clientId           String                   @map("client_id")
+  credentialId       String                   @map("credential_id")
+  credentialScopeKey String                   @map("credential_scope_key") @db.VarChar(191)
+  ownerAdminId       String                   @map("owner_admin_id") @db.VarChar(191)
+  runtimeType        AgentWorkerRuntime       @map("runtime_type")
+  label              String                   @db.VarChar(200)
+  protocolVersion    String                   @map("protocol_version") @db.VarChar(100)
+  softwareVersion    String                   @map("software_version") @db.VarChar(100)
+  capabilities       String[]                 @default([])
+  agentRoles         String[]                 @default([]) @map("agent_roles")
+  modelProvider      String?                  @map("model_provider") @db.VarChar(100)
+  modelName          String?                  @map("model_name") @db.VarChar(191)
+  safeHealth         Json                     @default("{}") @map("safe_health")
+  status             AgentWorkerStatus        @default(ONLINE)
+  lastHeartbeatAt    DateTime                 @default(now()) @map("last_heartbeat_at")
+  leaseExpiresAt     DateTime                 @map("lease_expires_at")
+  offlineAt          DateTime?                @map("offline_at")
+  registeredAt       DateTime                 @default(now()) @map("registered_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  credential         ExternalAccessCredential @relation(fields: [credentialId, tenantId, clientId, credentialScopeKey], references: [id, tenantId, clientId, scopeKey], onDelete: Restrict, onUpdate: Restrict)
+  runs               AgentRun[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, status, lastHeartbeatAt], map: "agent_workers_tenant_status_idx")
+  @@index([credentialId, status], map: "agent_workers_credential_status_idx")
+  @@map("agent_workers")
+}
+
+enum CompanyKnowledgeType {
+  DECISION
+  STRATEGY
+  MEETING_SUMMARY
+  CLIENT_INSIGHT
+  SALES_LESSON
+  PRODUCT_RATIONALE
+  TECHNICAL_LESSON
+  POSTMORTEM
+  POLICY_CONTEXT
+  MARKET_RESEARCH
+  COMPETITOR_INSIGHT
+  COMPANY_HISTORY
+  OPERATIONAL_LESSON
+  OPEN_QUESTION
+  PRIORITY
+  COMMITMENT
+  OTHER
+}
+
+enum CompanyKnowledgeSourceType {
+  HUMAN_ENTRY
+  MEETING
+  EMAIL
+  SUPPORT_THREAD
+  AGENT_RUN
+  OPERATIONAL_EVENT
+  RESEARCH
+  SYSTEM_EVENT
+  IMPORT
+  OTHER
+}
+
+enum CompanyKnowledgeAuthority {
+  AUTHORITATIVE_CURRENT
+  DURABLE_CONTEXT
+  HISTORICAL
+  INFERENCE
+  SUPERSEDED
+}
+
+enum CompanyKnowledgePromotionStatus {
+  CANDIDATE
+  PROMOTED
+  REJECTED
+  SUPERSEDED
+  ARCHIVED
+}
+
+enum CompanyKnowledgeAccessScope {
+  PLATFORM
+  ORGANIZATION
+  TENANT
+  VENUE
+  RESTRICTED
+}
+
+enum CompanyDecisionStatus {
+  PROPOSED
+  ACTIVE
+  SUPERSEDED
+  REVOKED
+}
+
+enum CompanyPriorityStatus {
+  ACTIVE
+  PAUSED
+  COMPLETE
+  CANCELLED
+}
+
+/// Institutional memory. Operational facts stay in their canonical domain tables;
+/// this record holds deeper context with explicit authority and provenance.
+model CompanyKnowledgeItem {
+  id                 String                           @id @default(cuid())
+  tenantId           String?                          @map("tenant_id")
+  venueId            String?                          @map("venue_id")
+  organizationId     String?                          @map("organization_id")
+  type               CompanyKnowledgeType
+  title              String                           @db.VarChar(500)
+  summary            String                           @db.VarChar(4000)
+  accessScope        CompanyKnowledgeAccessScope      @map("access_scope")
+  allowedRoles       String[]                         @default([]) @map("allowed_roles")
+  authority          CompanyKnowledgeAuthority
+  promotionStatus    CompanyKnowledgePromotionStatus @default(CANDIDATE) @map("promotion_status")
+  currentRevision    Int                              @default(1) @map("current_revision")
+  contentHash        String                           @map("content_hash") @db.Char(64)
+  confidence         Float?
+  effectiveAt        DateTime?                        @map("effective_at")
+  lastConfirmedAt    DateTime?                        @map("last_confirmed_at")
+  supersededAt       DateTime?                        @map("superseded_at")
+  supersededById     String?                          @map("superseded_by_id")
+  archivedAt         DateTime?                        @map("archived_at")
+  createdByType      ActorType                        @map("created_by_type")
+  createdById        String                           @map("created_by_id") @db.VarChar(191)
+  modelProvider      String?                          @map("model_provider") @db.VarChar(100)
+  modelName          String?                          @map("model_name") @db.VarChar(191)
+  embeddingSourceHash String?                         @map("embedding_source_hash") @db.Char(64)
+  embeddingProfile   String?                          @map("embedding_profile") @db.VarChar(191)
+  embeddedAt         DateTime?                        @map("embedded_at")
+  idempotencyKey     String                           @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt          DateTime                         @default(now()) @map("created_at")
+  updatedAt          DateTime                         @updatedAt @map("updated_at")
+  tenant             Tenant?                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue              Venue?                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization       ProspectOrganization?            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy       CompanyKnowledgeItem?            @relation("CompanyKnowledgeSupersession", fields: [supersededById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersedes         CompanyKnowledgeItem[]           @relation("CompanyKnowledgeSupersession")
+  revisions          CompanyKnowledgeRevision[]
+  sources            CompanyKnowledgeSource[]
+  entityLinks        CompanyKnowledgeEntityLink[]
+  outgoingRelations  CompanyKnowledgeRelation[]       @relation("CompanyKnowledgeRelationFrom")
+  incomingRelations  CompanyKnowledgeRelation[]       @relation("CompanyKnowledgeRelationTo")
+  decision           CompanyDecision?
+  priority           CompanyPriority?
+  meetingExtractions CompanyMeetingExtraction[]
+
+  @@unique([id, tenantId])
+  @@index([accessScope, promotionStatus, authority, updatedAt], map: "company_knowledge_scope_current_idx")
+  @@index([tenantId, venueId, promotionStatus, authority, updatedAt], map: "company_knowledge_tenant_venue_idx")
+  @@index([organizationId, promotionStatus, authority, updatedAt], map: "company_knowledge_organization_idx")
+  @@index([type, promotionStatus, authority, effectiveAt], map: "company_knowledge_type_authority_idx")
+  @@index([contentHash], map: "company_knowledge_content_hash_idx")
+  @@map("company_knowledge_items")
+}
+
+model CompanyKnowledgeRevision {
+  id              String               @id @default(cuid())
+  tenantId        String?              @map("tenant_id")
+  knowledgeItemId String               @map("knowledge_item_id")
+  revision        Int
+  body            String
+  structuredData  Json                 @default("{}") @map("structured_data")
+  sourceDigest    String               @map("source_digest") @db.Char(64)
+  authoredByType  ActorType            @map("authored_by_type")
+  authoredById    String               @map("authored_by_id") @db.VarChar(191)
+  modelProvider   String?              @map("model_provider") @db.VarChar(100)
+  modelName       String?              @map("model_name") @db.VarChar(191)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  knowledgeItem   CompanyKnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([knowledgeItemId, revision], map: "company_knowledge_revision_key")
+  @@index([tenantId, knowledgeItemId, createdAt], map: "company_knowledge_revisions_item_idx")
+  @@map("company_knowledge_revisions")
+}
+
+model CompanyKnowledgeSource {
+  id              String                     @id @default(cuid())
+  tenantId        String?                    @map("tenant_id")
+  knowledgeItemId String                     @map("knowledge_item_id")
+  sourceType      CompanyKnowledgeSourceType @map("source_type")
+  sourceId        String?                    @map("source_id") @db.VarChar(191)
+  sourceRef       String?                    @map("source_ref") @db.VarChar(1000)
+  excerpt         String?                    @db.VarChar(4000)
+  occurredAt      DateTime?                  @map("occurred_at")
+  metadata        Json                       @default("{}")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  knowledgeItem   CompanyKnowledgeItem       @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, sourceType, sourceId], map: "company_knowledge_sources_source_idx")
+  @@index([knowledgeItemId, createdAt], map: "company_knowledge_sources_item_idx")
+  @@map("company_knowledge_sources")
+}
+
+model CompanyKnowledgeEntityLink {
+  id              String               @id @default(cuid())
+  tenantId        String?              @map("tenant_id")
+  knowledgeItemId String               @map("knowledge_item_id")
+  entityType      String               @map("entity_type") @db.VarChar(100)
+  entityId        String               @map("entity_id") @db.VarChar(191)
+  relationship    String               @db.VarChar(100)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  knowledgeItem   CompanyKnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([knowledgeItemId, entityType, entityId, relationship], map: "company_knowledge_entity_link_key")
+  @@index([tenantId, entityType, entityId], map: "company_knowledge_entity_lookup_idx")
+  @@map("company_knowledge_entity_links")
+}
+
+model CompanyKnowledgeRelation {
+  id         String               @id @default(cuid())
+  tenantId   String?              @map("tenant_id")
+  fromItemId String               @map("from_item_id")
+  toItemId   String               @map("to_item_id")
+  relation   String               @db.VarChar(100)
+  metadata   Json                 @default("{}")
+  createdAt  DateTime             @default(now()) @map("created_at")
+  fromItem   CompanyKnowledgeItem @relation("CompanyKnowledgeRelationFrom", fields: [fromItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  toItem     CompanyKnowledgeItem @relation("CompanyKnowledgeRelationTo", fields: [toItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([fromItemId, toItemId, relation], map: "company_knowledge_relation_key")
+  @@index([tenantId, fromItemId], map: "company_knowledge_relations_from_idx")
+  @@index([tenantId, toItemId], map: "company_knowledge_relations_to_idx")
+  @@map("company_knowledge_relations")
+}
+
+model CompanyDecision {
+  id              String                @id @default(cuid())
+  tenantId        String?               @map("tenant_id")
+  knowledgeItemId String                @unique @map("knowledge_item_id")
+  status          CompanyDecisionStatus @default(PROPOSED)
+  decision        String
+  rationale       String
+  scope           Json                  @default("{}")
+  affectedSystems String[]              @default([]) @map("affected_systems")
+  effectiveAt     DateTime?             @map("effective_at")
+  supersedesId    String?               @map("supersedes_id")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  knowledgeItem   CompanyKnowledgeItem  @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersedes      CompanyDecision?      @relation("CompanyDecisionSupersession", fields: [supersedesId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy    CompanyDecision[]     @relation("CompanyDecisionSupersession")
+
+  @@index([tenantId, status, effectiveAt], map: "company_decisions_current_idx")
+  @@map("company_decisions")
+}
+
+model CompanyPriority {
+  id              String                @id @default(cuid())
+  tenantId        String?               @map("tenant_id")
+  knowledgeItemId String                @unique @map("knowledge_item_id")
+  status          CompanyPriorityStatus @default(ACTIVE)
+  rank            Int                   @default(100)
+  timeHorizon     String?               @map("time_horizon") @db.VarChar(191)
+  ownerId         String?               @map("owner_id") @db.VarChar(191)
+  rationale       String
+  workstreams     Json                  @default("[]")
+  startsAt        DateTime?             @map("starts_at")
+  endsAt          DateTime?             @map("ends_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  knowledgeItem   CompanyKnowledgeItem  @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, status, rank], map: "company_priorities_current_idx")
+  @@map("company_priorities")
+}
+
+enum AccountRelationshipNoteCategory {
+  RELATIONSHIP
+  COMMUNICATION_PREFERENCE
+  PRODUCT_PREFERENCE
+  COMMERCIAL
+  OPERATIONAL
+  SALES
+  SUPPORT
+  ONBOARDING
+  PROMISE_OR_COMMITMENT
+  RISK
+  OPPORTUNITY
+  HISTORICAL_CONTEXT
+  OTHER
+}
+
+enum AccountMilestoneType {
+  DISCOVERED
+  FIRST_OUTREACH
+  FIRST_FOLLOWUP
+  FIRST_REPLY
+  FIRST_MEETING
+  QUALIFIED
+  PROPOSAL
+  CONVERTED
+  ONBOARDING_STARTED
+  LAUNCHED
+  SUPPORT_ESCALATION
+  RENEWED
+  EXPANSION
+  CHURN_RISK
+  CANCELLED
+  REACTIVATED
+}
+
+enum AccountOpenLoopStatus {
+  OPEN
+  BLOCKED
+  RESOLVED
+  CANCELLED
+}
+
+enum AccountOpenLoopParty {
+  CLIENT
+  TORCHIKO
+  THIRD_PARTY
+  SHARED
+}
+
+enum AccountCommitmentParty {
+  CLIENT
+  TORCHIKO
+  THIRD_PARTY
+  MUTUAL
+}
+
+enum AccountCommitmentStatus {
+  OPEN
+  FULFILLED
+  MISSED
+  CANCELLED
+}
+
+enum AccountSummaryStatus {
+  CURRENT
+  STALE
+  PROCESSING
+  FAILED
+  SUPERSEDED
+}
+
+model AccountRelationshipNote {
+  id              String                           @id @default(cuid())
+  tenantId        String?                          @map("tenant_id")
+  venueId         String?                          @map("venue_id")
+  organizationId  String                           @map("organization_id")
+  category        AccountRelationshipNoteCategory
+  body            String                           @db.VarChar(8000)
+  authority       CompanyKnowledgeAuthority        @default(DURABLE_CONTEXT)
+  promotionStatus CompanyKnowledgePromotionStatus @default(CANDIDATE) @map("promotion_status")
+  confidence      Float?
+  sourceType      CompanyKnowledgeSourceType       @map("source_type")
+  sourceId        String?                          @map("source_id") @db.VarChar(191)
+  sourceRef       String?                          @map("source_ref") @db.VarChar(1000)
+  effectiveAt     DateTime?                        @map("effective_at")
+  lastConfirmedAt DateTime?                        @map("last_confirmed_at")
+  supersededById  String?                          @map("superseded_by_id")
+  archivedAt      DateTime?                        @map("archived_at")
+  contentHash     String                           @map("content_hash") @db.Char(64)
+  createdByType   ActorType                        @map("created_by_type")
+  createdById     String                           @map("created_by_id") @db.VarChar(191)
+  agentRunId      String?                          @map("agent_run_id") @db.VarChar(191)
+  workerId        String?                          @map("worker_id") @db.VarChar(191)
+  modelProvider   String?                          @map("model_provider") @db.VarChar(100)
+  modelName       String?                          @map("model_name") @db.VarChar(191)
+  idempotencyKey  String                           @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt       DateTime                         @default(now()) @map("created_at")
+  updatedAt       DateTime                         @updatedAt @map("updated_at")
+  tenant          Tenant?                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue?                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization    ProspectOrganization             @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy    AccountRelationshipNote?         @relation("AccountNoteSupersession", fields: [supersededById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersedes      AccountRelationshipNote[]        @relation("AccountNoteSupersession")
+
+  @@index([organizationId, promotionStatus, authority, category, updatedAt], map: "account_notes_current_idx")
+  @@index([tenantId, venueId, promotionStatus, updatedAt], map: "account_notes_tenant_venue_idx")
+  @@index([contentHash], map: "account_notes_content_hash_idx")
+  @@map("account_relationship_notes")
+}
+
+model AccountMilestone {
+  id             String                     @id @default(cuid())
+  tenantId       String?                    @map("tenant_id")
+  venueId        String?                    @map("venue_id")
+  organizationId String                     @map("organization_id")
+  type           AccountMilestoneType
+  occurredAt     DateTime                   @map("occurred_at")
+  summary        String?                    @db.VarChar(1000)
+  sourceType     CompanyKnowledgeSourceType @map("source_type")
+  sourceId       String?                    @map("source_id") @db.VarChar(191)
+  sourceRef      String?                    @map("source_ref") @db.VarChar(1000)
+  evidence       Json                       @default("{}")
+  idempotencyKey String                     @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization   ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([organizationId, occurredAt, id], map: "account_milestones_timeline_idx")
+  @@index([tenantId, venueId, occurredAt], map: "account_milestones_tenant_venue_idx")
+  @@map("account_milestones")
+}
+
+model AccountOpenLoop {
+  id             String                     @id @default(cuid())
+  tenantId       String?                    @map("tenant_id")
+  venueId        String?                    @map("venue_id")
+  organizationId String                     @map("organization_id")
+  title          String                     @db.VarChar(500)
+  summary        String?                    @db.VarChar(2000)
+  waitingOn      AccountOpenLoopParty       @map("waiting_on")
+  status         AccountOpenLoopStatus      @default(OPEN)
+  dueAt          DateTime?                  @map("due_at")
+  ownerId        String?                    @map("owner_id") @db.VarChar(191)
+  sourceType     CompanyKnowledgeSourceType @map("source_type")
+  sourceId       String?                    @map("source_id") @db.VarChar(191)
+  sourceRef      String?                    @map("source_ref") @db.VarChar(1000)
+  resolvedAt     DateTime?                  @map("resolved_at")
+  resolution     String?                    @db.VarChar(2000)
+  idempotencyKey String                     @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization   ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([organizationId, status, dueAt], map: "account_open_loops_current_idx")
+  @@index([tenantId, venueId, status, dueAt], map: "account_open_loops_tenant_venue_idx")
+  @@map("account_open_loops")
+}
+
+model AccountCommitment {
+  id             String                     @id @default(cuid())
+  tenantId       String?                    @map("tenant_id")
+  venueId        String?                    @map("venue_id")
+  organizationId String                     @map("organization_id")
+  party          AccountCommitmentParty
+  statement      String                     @db.VarChar(4000)
+  status         AccountCommitmentStatus    @default(OPEN)
+  dueAt          DateTime?                  @map("due_at")
+  ownerId        String?                    @map("owner_id") @db.VarChar(191)
+  sourceType     CompanyKnowledgeSourceType @map("source_type")
+  sourceId       String?                    @map("source_id") @db.VarChar(191)
+  sourceRef      String?                    @map("source_ref") @db.VarChar(1000)
+  fulfilledAt    DateTime?                  @map("fulfilled_at")
+  outcome        String?                    @db.VarChar(2000)
+  idempotencyKey String                     @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization   ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([organizationId, status, dueAt], map: "account_commitments_current_idx")
+  @@index([tenantId, venueId, status, dueAt], map: "account_commitments_tenant_venue_idx")
+  @@map("account_commitments")
+}
+
+model AccountSummary {
+  id              String               @id @default(cuid())
+  tenantId        String?              @map("tenant_id")
+  organizationId  String               @map("organization_id")
+  version         Int
+  status          AccountSummaryStatus @default(CURRENT)
+  summary         String               @db.VarChar(4000)
+  sections        Json                 @default("{}")
+  sourceInputs    Json                 @map("source_inputs")
+  inputDigest     String               @map("input_digest") @db.Char(64)
+  confidence      Float?
+  generatedByType ActorType            @map("generated_by_type")
+  generatedById   String               @map("generated_by_id") @db.VarChar(191)
+  modelProvider   String?              @map("model_provider") @db.VarChar(100)
+  modelName       String?              @map("model_name") @db.VarChar(191)
+  staleAt         DateTime?            @map("stale_at")
+  failureCode     String?              @map("failure_code") @db.VarChar(100)
+  failureMessage  String?              @map("failure_message") @db.VarChar(2000)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  tenant          Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  organization    ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([organizationId, version], map: "account_summaries_organization_version_key")
+  @@index([organizationId, status, version], map: "account_summaries_current_idx")
+  @@index([tenantId, status, updatedAt], map: "account_summaries_tenant_status_idx")
+  @@map("account_summaries")
+}
+
+enum CompanyMeetingProcessingStatus {
+  RECEIVED
+  PROCESSING
+  COMPLETE
+  NEEDS_REVIEW
+  FAILED_RETRYABLE
+  FAILED_TERMINAL
+}
+
+enum CompanyMeetingTranscriptStatus {
+  UNAVAILABLE
+  REFERENCED
+  AVAILABLE
+  RETAINED_EXTERNALLY
+  REDACTED
+}
+
+enum CompanyMeetingExtractionType {
+  SUMMARY
+  DECISION
+  TORCHIKO_COMMITMENT
+  CLIENT_COMMITMENT
+  CLIENT_PREFERENCE
+  PRODUCT_REQUEST
+  OBJECTION
+  PRICING_DISCUSSION
+  OPPORTUNITY
+  ACTION_ITEM
+  OPEN_QUESTION
+  FACTUAL_CORRECTION
+}
+
+model CompanyMeeting {
+  id                   String                         @id @default(cuid())
+  tenantId             String?                        @map("tenant_id")
+  venueId              String?                        @map("venue_id")
+  organizationId       String?                        @map("organization_id")
+  opportunityId        String?                        @map("opportunity_id")
+  externalProvider     String?                        @map("external_provider") @db.VarChar(100)
+  externalId           String?                        @map("external_id") @db.VarChar(191)
+  title                String                         @db.VarChar(500)
+  meetingType          String                         @map("meeting_type") @db.VarChar(100)
+  startedAt            DateTime                       @map("started_at")
+  endedAt              DateTime?                      @map("ended_at")
+  sourceArtifactRef    String?                        @map("source_artifact_ref") @db.VarChar(1000)
+  transcriptStatus     CompanyMeetingTranscriptStatus @default(UNAVAILABLE) @map("transcript_status")
+  processingStatus     CompanyMeetingProcessingStatus @default(RECEIVED) @map("processing_status")
+  summary              String?                        @db.VarChar(8000)
+  processingProvenance Json                            @default("{}") @map("processing_provenance")
+  processedAt          DateTime?                       @map("processed_at")
+  failureCode          String?                         @map("failure_code") @db.VarChar(100)
+  failureMessage       String?                         @map("failure_message") @db.VarChar(2000)
+  idempotencyKey       String                          @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt            DateTime                        @default(now()) @map("created_at")
+  updatedAt            DateTime                        @updatedAt @map("updated_at")
+  tenant               Tenant?                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue?                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization         ProspectOrganization?           @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  opportunity          ProspectOpportunity?            @relation(fields: [opportunityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  participants         CompanyMeetingParticipant[]
+  extractions          CompanyMeetingExtraction[]
+
+  @@unique([externalProvider, externalId], map: "company_meetings_provider_external_key")
+  @@unique([id, tenantId])
+  @@index([organizationId, startedAt, id], map: "company_meetings_organization_timeline_idx")
+  @@index([tenantId, venueId, startedAt, id], map: "company_meetings_tenant_venue_timeline_idx")
+  @@index([processingStatus, createdAt], map: "company_meetings_processing_idx")
+  @@map("company_meetings")
+}
+
+model CompanyMeetingParticipant {
+  id          String           @id @default(cuid())
+  tenantId    String?          @map("tenant_id")
+  meetingId   String           @map("meeting_id")
+  contactId   String?          @map("contact_id")
+  displayName String?          @map("display_name") @db.VarChar(191)
+  role        String?          @db.VarChar(191)
+  externalRef String?          @map("external_ref") @db.VarChar(500)
+  isTorchiko  Boolean          @default(false) @map("is_torchiko")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  meeting     CompanyMeeting   @relation(fields: [meetingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  contact     ProspectContact? @relation(fields: [contactId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([meetingId], map: "company_meeting_participants_meeting_idx")
+  @@index([contactId, createdAt], map: "company_meeting_participants_contact_idx")
+  @@map("company_meeting_participants")
+}
+
+model CompanyMeetingExtraction {
+  id                String                          @id @default(cuid())
+  tenantId          String?                         @map("tenant_id")
+  meetingId         String                          @map("meeting_id")
+  knowledgeItemId   String?                         @map("knowledge_item_id")
+  type              CompanyMeetingExtractionType
+  content           String                          @db.VarChar(8000)
+  structuredData    Json                            @default("{}") @map("structured_data")
+  confidence        Float?
+  promotionStatus   CompanyKnowledgePromotionStatus @default(CANDIDATE) @map("promotion_status")
+  sourceStartOffset Int?                            @map("source_start_offset")
+  sourceEndOffset   Int?                            @map("source_end_offset")
+  createdByType     ActorType                       @map("created_by_type")
+  createdById       String                          @map("created_by_id") @db.VarChar(191)
+  modelProvider     String?                         @map("model_provider") @db.VarChar(100)
+  modelName         String?                         @map("model_name") @db.VarChar(191)
+  idempotencyKey    String                          @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt         DateTime                        @default(now()) @map("created_at")
+  meeting           CompanyMeeting                  @relation(fields: [meetingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  knowledgeItem     CompanyKnowledgeItem?           @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([meetingId, type, createdAt], map: "company_meeting_extractions_meeting_idx")
+  @@index([tenantId, promotionStatus, createdAt], map: "company_meeting_extractions_review_idx")
+  @@map("company_meeting_extractions")
 }

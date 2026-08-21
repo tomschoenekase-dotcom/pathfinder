@@ -21,6 +21,7 @@ import { voiceRouter } from './routers/voice'
 import { locationRouter } from './routers/location'
 import { widgetRouter } from './routers/widget'
 import { feedbackRouter } from './routers/feedback'
+import { billingRouter } from './routers/billing'
 
 export const appRouter = router({
   admin: adminRouter,
@@ -42,6 +43,7 @@ export const appRouter = router({
   location: locationRouter,
   widget: widgetRouter,
   feedback: feedbackRouter,
+  billing: billingRouter,
   place: placeRouter,
   portal: portalRouter,
   health: publicProcedure.query(() => ({

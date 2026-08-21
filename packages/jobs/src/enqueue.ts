@@ -20,6 +20,7 @@ import {
   DAILY_ROLLUP_QUEUE,
   DAILY_ROLLUP_RETRY_BACKOFF,
   EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB,
+  EMBED_COMPANY_KNOWLEDGE_PROCESS_JOB,
   EMBED_KNOWLEDGE_ENTRY_QUEUE,
   EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   EMBED_PLACE_PROCESS_JOB,
@@ -64,6 +65,7 @@ import type {
   AnswerAnalysisJobPayload,
   AnalyticsEnrichmentJobPayload,
   DailyRollupJobPayload,
+  EmbedCompanyKnowledgeJobPayload,
   EmbedKnowledgeEntryJobPayload,
   EmbedPlaceJobPayload,
   GenerationDispatchKickJobPayload,
@@ -599,6 +601,21 @@ export async function enqueueEmbedKnowledgeEntry(
     action: 'jobs.embed-knowledge-entry.enqueued',
     tenantId: payload.tenantId,
     entryId: payload.entryId,
+  })
+}
+
+export async function enqueueEmbedCompanyKnowledge(
+  payload: EmbedCompanyKnowledgeJobPayload,
+): Promise<void> {
+  await getQueue(EMBED_KNOWLEDGE_ENTRY_QUEUE).add(EMBED_COMPANY_KNOWLEDGE_PROCESS_JOB, payload, {
+    ...embedKnowledgeEntryJobOptions,
+    jobId: `embed-company-knowledge-${payload.itemId}-${payload.contentUpdatedAt}`,
+  })
+
+  logger.info({
+    action: 'jobs.embed-company-knowledge.enqueued',
+    tenantId: payload.tenantId,
+    itemId: payload.itemId,
   })
 }
 

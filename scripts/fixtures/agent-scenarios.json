@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "scenarios": [
+    {
+      "id": "small-museum",
+      "venue": { "name": "Harbor History Room", "timezone": "America/Chicago" },
+      "locations": [
+        {
+          "id": "entrance",
+          "name": "Main Entrance",
+          "latitude": 41.881,
+          "longitude": -87.623,
+          "radiusMeters": 35
+        },
+        {
+          "id": "gallery",
+          "name": "Harbor Gallery",
+          "latitude": 41.8812,
+          "longitude": -87.6228,
+          "radiusMeters": 30
+        }
+      ],
+      "weeklyHours": {
+        "1": ["10:00", "16:00"],
+        "2": ["10:00", "16:00"],
+        "3": ["10:00", "16:00"],
+        "4": ["10:00", "16:00"],
+        "5": ["10:00", "16:00"]
+      },
+      "conversation": {
+        "messages": [{ "role": "visitor", "text": "Where is the harbor exhibit?" }],
+        "expectedFacts": ["Harbor Gallery"]
+      }
+    },
+    {
+      "id": "outdoor-park",
+      "venue": { "name": "Prairie Loop Park", "timezone": "America/Chicago" },
+      "locations": [
+        {
+          "id": "trailhead",
+          "name": "South Trailhead",
+          "latitude": 41.89,
+          "longitude": -87.61,
+          "radiusMeters": 75
+        },
+        {
+          "id": "garden",
+          "name": "Pollinator Garden",
+          "latitude": 41.891,
+          "longitude": -87.609,
+          "radiusMeters": 90
+        }
+      ],
+      "weeklyHours": {
+        "0": ["06:00", "20:00"],
+        "1": ["06:00", "20:00"],
+        "2": ["06:00", "20:00"],
+        "3": ["06:00", "20:00"],
+        "4": ["06:00", "20:00"],
+        "5": ["06:00", "20:00"],
+        "6": ["06:00", "20:00"]
+      },
+      "conversation": {
+        "messages": [{ "role": "visitor", "text": "Where do I start the trail?" }],
+        "expectedFacts": ["South Trailhead"]
+      }
+    },
+    {
+      "id": "attraction",
+      "venue": { "name": "Lakeside Adventure Pier", "timezone": "America/Chicago" },
+      "locations": [
+        {
+          "id": "gate",
+          "name": "Entry Gate",
+          "latitude": 41.902,
+          "longitude": -87.615,
+          "radiusMeters": 45
+        },
+        {
+          "id": "wheel",
+          "name": "Observation Wheel",
+          "latitude": 41.9024,
+          "longitude": -87.6145,
+          "radiusMeters": 55
+        }
+      ],
+      "weeklyHours": { "0": ["11:00", "20:00"], "5": ["11:00", "22:00"], "6": ["11:00", "22:00"] },
+      "conversation": {
+        "messages": [{ "role": "visitor", "text": "When can I ride the observation wheel?" }],
+        "expectedFacts": ["Observation Wheel", "venue operating hours"]
+      }
+    },
+    {
+      "id": "large-museum",
+      "venue": { "name": "Great Lakes Science Museum", "timezone": "America/Chicago" },
+      "locations": [
+        {
+          "id": "north",
+          "name": "North Lobby",
+          "latitude": 41.87,
+          "longitude": -87.62,
+          "radiusMeters": 50
+        },
+        {
+          "id": "space",
+          "name": "Space Gallery",
+          "latitude": 41.8705,
+          "longitude": -87.6195,
+          "radiusMeters": 45
+        },
+        {
+          "id": "family",
+          "name": "Family Lab",
+          "latitude": 41.8697,
+          "longitude": -87.6192,
+          "radiusMeters": 45
+        }
+      ],
+      "weeklyHours": {
+        "0": ["10:00", "17:00"],
+        "1": ["09:00", "17:00"],
+        "2": ["09:00", "17:00"],
+        "3": ["09:00", "17:00"],
+        "4": ["09:00", "17:00"],
+        "5": ["09:00", "20:00"],
+        "6": ["10:00", "17:00"]
+      },
+      "conversation": {
+        "messages": [{ "role": "visitor", "text": "What is a good family activity?" }],
+        "expectedFacts": ["Family Lab"]
+      }
+    }
+  ]
+}

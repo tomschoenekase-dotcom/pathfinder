@@ -19,6 +19,7 @@ const credential: VerifiedMcpCredentialScope = {
   capabilities: [
     'resources:read',
     'clients:read',
+    'billing:read',
     'venues:read',
     'configuration:read',
     'content:read',
@@ -29,6 +30,13 @@ const credential: VerifiedMcpCredentialScope = {
     'ai-usage:read',
     'jobs:read',
     'evaluations:read',
+    'reports:read',
+    'conversations:read',
+    'integrations:read',
+    'agent-runs:read',
+    'events:read',
+    'deployments:read',
+    'feature-flags:read',
     'readiness:read',
     'questions:read',
     'outcomes:read',
@@ -38,6 +46,7 @@ const credential: VerifiedMcpCredentialScope = {
 function database() {
   return {
     tenant: { findFirst: vi.fn() },
+    billingAccount: { findFirst: vi.fn() },
     venue: { findFirst: vi.fn(), findMany: vi.fn() },
     place: { findMany: vi.fn(), count: vi.fn() },
     venueKnowledgeEntry: { findMany: vi.fn(), count: vi.fn() },
@@ -48,6 +57,13 @@ function database() {
     aiUsageDailyRollup: { findMany: vi.fn() },
     jobRecord: { findMany: vi.fn() },
     evalRun: { findMany: vi.fn() },
+    weeklyReport: { findMany: vi.fn() },
+    visitorSession: { findMany: vi.fn() },
+    externalAccessCredential: { findMany: vi.fn() },
+    agentRun: { findMany: vi.fn() },
+    operationalEvent: { findMany: vi.fn() },
+    nativeVenueDeploymentRelease: { findMany: vi.fn() },
+    tenantFeatureFlag: { findMany: vi.fn() },
     venueReportConfiguration: { findFirst: vi.fn() },
     agentQuestion: { findMany: vi.fn() },
     agentOutcomeObservation: { findMany: vi.fn() },
@@ -56,7 +72,17 @@ function database() {
 }
 
 const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
+  accountContext: vi.fn(),
+  accountTimeline: vi.fn(),
+  accountMeetings: vi.fn(),
+  accountMeetingGet: vi.fn(),
+  processMeeting: vi.fn(),
+  accountCorrespondence: vi.fn(),
+  knowledgeSearch: vi.fn(),
+  knowledgeGet: vi.fn(),
+  integrationHealth: vi.fn(),
   verifyApprovalGrant: vi.fn(),
+  proposeBillingAction: vi.fn(),
   askOperator: vi.fn(),
   delegateSpecialist: vi.fn(),
   createPackageDraft: vi.fn(),
@@ -127,6 +153,72 @@ describe('MCP v0 concrete read bindings', () => {
       ),
     ).rejects.toMatchObject({ code: 'SCOPE_INVARIANT' })
     expect(db.tenant.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('returns a tenant-scoped billing projection without provider IDs, internal notes, or payment links', async () => {
+    const db = database()
+    db.billingAccount.findFirst.mockResolvedValue({
+      billingMode: 'STRIPE_SUBSCRIPTION',
+      currency: 'usd',
+      status: 'ACTIVE',
+      paidThroughAt: new Date('2026-09-20T00:00:00.000Z'),
+      gracePeriodEndsAt: null,
+      reconciliationHealth: 'CURRENT',
+      lastReconciledAt: new Date('2026-08-20T12:00:00.000Z'),
+      commercialAgreements: [
+        {
+          id: 'agreement-1',
+          isBase: true,
+          internalPlanKey: 'negotiated',
+          status: 'ACTIVE',
+          billingMode: 'STRIPE_SUBSCRIPTION',
+          billingInterval: 'MONTH',
+          billingIntervalCount: 1,
+          agreedAmountMinor: 8500n,
+          currency: 'usd',
+          coveredVenueCount: 1,
+          currentPeriodEndsAt: new Date('2026-09-20T00:00:00.000Z'),
+          cancelAtPeriodEnd: false,
+          cancellationEffectiveAt: null,
+          accessEndsAt: null,
+        },
+      ],
+      invoiceProjections: [
+        {
+          id: 'invoice-1',
+          invoiceNumber: 'T-0001',
+          status: 'PAID',
+          amountDueMinor: 8500n,
+          amountPaidMinor: 8500n,
+          amountRemainingMinor: 0n,
+          currency: 'usd',
+          dueAt: null,
+          paidAt: new Date('2026-08-20T12:00:00.000Z'),
+          failedAt: null,
+          nextRetryAt: null,
+          failureSummary: null,
+        },
+      ],
+      stripeCustomerId: 'cus_secret',
+      internalNotes: 'never expose',
+      hostedInvoiceUrl: 'https://secret',
+    })
+    const response = await readMcpResource(
+      db as never,
+      { resource: 'billing', clientId: 'tenant-1', limit: 25 },
+      { credential },
+    )
+    expect(db.billingAccount.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: 'tenant-1' } }),
+    )
+    expect(response.data).toMatchObject({
+      status: 'ACTIVE',
+      paidThroughAt: '2026-09-20T00:00:00.000Z',
+    })
+    const serialized = JSON.stringify(response)
+    expect(serialized).not.toContain('cus_secret')
+    expect(serialized).not.toContain('never expose')
+    expect(serialized).not.toContain('https://secret')
   })
 
   it('denies cross-venue access before any database delegate is called', async () => {
@@ -402,5 +494,79 @@ describe('MCP v0 concrete read bindings', () => {
     expect(query.select).not.toHaveProperty('actorId')
     expect(query.select).not.toHaveProperty('tenantId')
     expect(query.select).not.toHaveProperty('venueId')
+  })
+
+  it('adds privacy-bounded operational intelligence without selecting secrets or raw payloads', async () => {
+    const db = database()
+    for (const delegate of [
+      db.weeklyReport,
+      db.visitorSession,
+      db.externalAccessCredential,
+      db.agentRun,
+      db.operationalEvent,
+      db.nativeVenueDeploymentRelease,
+      db.tenantFeatureFlag,
+    ]) {
+      delegate.findMany.mockResolvedValue([])
+    }
+    for (const resource of [
+      'reports',
+      'conversations',
+      'integrations',
+      'agent-runs',
+      'events',
+      'deployments',
+    ] as const) {
+      await readMcpResource(
+        db as never,
+        { resource, clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+        { credential },
+      )
+    }
+    await readMcpResource(
+      db as never,
+      { resource: 'feature-flags', clientId: 'tenant-1', limit: 25 },
+      { credential },
+    )
+
+    expect(db.weeklyReport.findMany.mock.calls[0]![0].select).not.toHaveProperty('content')
+    expect(db.weeklyReport.findMany.mock.calls[0]![0].select).not.toHaveProperty('error')
+    expect(db.visitorSession.findMany.mock.calls[0]![0].select).not.toHaveProperty('anonymousToken')
+    expect(db.visitorSession.findMany.mock.calls[0]![0].select).not.toHaveProperty('visitorId')
+    expect(db.visitorSession.findMany.mock.calls[0]![0].select).not.toHaveProperty('latestLat')
+    expect(db.externalAccessCredential.findMany.mock.calls[0]![0].select).not.toHaveProperty(
+      'secretHash',
+    )
+    expect(db.externalAccessCredential.findMany.mock.calls[0]![0].select).not.toHaveProperty(
+      'secretPrefix',
+    )
+    expect(db.agentRun.findMany.mock.calls[0]![0].select).not.toHaveProperty('requestPrompt')
+    expect(db.agentRun.findMany.mock.calls[0]![0].select).not.toHaveProperty('scopeSnapshot')
+    expect(db.agentRun.findMany.mock.calls[0]![0].select).not.toHaveProperty('artifacts')
+    expect(db.nativeVenueDeploymentRelease.findMany.mock.calls[0]![0].select).not.toHaveProperty(
+      'plan',
+    )
+    expect(db.tenantFeatureFlag.findMany.mock.calls[0]![0].select).not.toHaveProperty('metadata')
+    expect(db.tenantFeatureFlag.findMany.mock.calls[0]![0].select).not.toHaveProperty('setBy')
+    for (const delegate of [
+      db.weeklyReport,
+      db.visitorSession,
+      db.agentRun,
+      db.operationalEvent,
+      db.nativeVenueDeploymentRelease,
+    ]) {
+      expect(delegate.findMany.mock.calls[0]![0].where).toMatchObject({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+      })
+    }
+    expect(db.externalAccessCredential.findMany.mock.calls[0]![0].where).toMatchObject({
+      tenantId: 'tenant-1',
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(db.tenantFeatureFlag.findMany.mock.calls[0]![0].where).toMatchObject({
+      tenantId: 'tenant-1',
+    })
   })
 })

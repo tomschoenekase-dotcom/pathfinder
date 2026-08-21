@@ -11,6 +11,7 @@ PathFinderOS is a multi-tenant SaaS monorepo for a public guest app, a tenant da
 - `packages/analytics` — analytics event contracts and emission
 - `packages/api` — tRPC routers and server procedures
 - `packages/auth` — Clerk-backed identity helpers
+- `packages/billing` — Stripe gateway, billing projections, reconciliation, and access policy
 - `packages/config` — runtime configuration, logging, and shared tool configuration
 - `packages/contracts` — provider-neutral shared schemas and versioned contracts
 - `packages/db` — Prisma client, tenancy middleware, and persistence helpers

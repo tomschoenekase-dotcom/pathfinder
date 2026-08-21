@@ -38,6 +38,7 @@ export const EMBED_PLACE_RETRY_BACKOFF = 'embed-place-retry'
 
 export const EMBED_KNOWLEDGE_ENTRY_QUEUE = queueName('embed-knowledge-entry')
 export const EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB = 'embed-knowledge-entry-process'
+export const EMBED_COMPANY_KNOWLEDGE_PROCESS_JOB = 'embed-company-knowledge-process'
 export const EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF = 'embed-knowledge-entry-retry'
 
 export const EMBEDDING_DISPATCH_QUEUE = queueName('embedding-dispatch')
@@ -80,3 +81,10 @@ export const GMAIL_SYNC_QUEUE = queueName('gmail-sync')
 export const GMAIL_SYNC_NOTIFICATION_JOB = 'gmail-sync-notification'
 export const GMAIL_SYNC_RECONCILIATION_JOB = 'gmail-sync-reconciliation'
 export const GMAIL_SYNC_WATCH_RENEWAL_JOB = 'gmail-sync-watch-renewal'
+
+export const BILLING_RECONCILIATION_QUEUE = queueName('billing-reconciliation')
+export const BILLING_RECONCILIATION_PROCESS_JOB = 'billing-reconciliation-process'
+export const BILLING_RECONCILIATION_SCHEDULER_JOB = 'billing-reconciliation-scheduler'
+
+export const ACCOUNT_SUMMARY_REFRESH_QUEUE = queueName('account-summary-refresh')
+export const ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB = 'account-summary-refresh-scheduler'

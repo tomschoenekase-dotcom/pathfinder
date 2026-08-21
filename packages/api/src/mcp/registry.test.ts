@@ -16,6 +16,10 @@ const credential: VerifiedMcpCredentialScope = {
     'evaluations:request',
     'questions:ask',
     'delegations:create',
+    'accounts:read',
+    'knowledge:read',
+    'meetings:read',
+    'meetings:process',
   ],
 }
 
@@ -27,7 +31,17 @@ function actions(): PathfinderMcpDomainActions {
   } as const
   return {
     verifyApprovalGrant: vi.fn().mockResolvedValue(undefined),
+    proposeBillingAction: vi.fn().mockResolvedValue(result),
     read: vi.fn().mockResolvedValue(result),
+    accountContext: vi.fn().mockResolvedValue(result),
+    accountTimeline: vi.fn().mockResolvedValue(result),
+    accountMeetings: vi.fn().mockResolvedValue(result),
+    accountMeetingGet: vi.fn().mockResolvedValue(result),
+    processMeeting: vi.fn().mockResolvedValue(result),
+    accountCorrespondence: vi.fn().mockResolvedValue(result),
+    knowledgeSearch: vi.fn().mockResolvedValue(result),
+    knowledgeGet: vi.fn().mockResolvedValue(result),
+    integrationHealth: vi.fn().mockResolvedValue(result),
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),
     createPackageDraft: vi.fn().mockResolvedValue(result),
@@ -38,6 +52,89 @@ function actions(): PathfinderMcpDomainActions {
 }
 
 describe('PathFinder MCP server-side adapter registry', () => {
+  it('exposes governed account and knowledge reads through the existing catalog', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    const tools = registry.listTools().map((tool) => tool.name)
+    expect(tools).toEqual(
+      expect.arrayContaining([
+        'torchiko.account.get_context',
+        'torchiko.account.timeline',
+        'torchiko.account.meetings',
+        'torchiko.account.meeting_get',
+        'torchiko.meeting.process',
+        'torchiko.account.correspondence',
+        'torchiko.knowledge.search',
+        'torchiko.knowledge.get',
+        'torchiko.integrations.health',
+      ]),
+    )
+    await registry.callTool(
+      'torchiko.account.get_context',
+      { clientId: 'client-1', organizationId: 'org-1', recentLimit: 8 },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.account.timeline',
+      { clientId: 'client-1', organizationId: 'org-1', limit: 20 },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.account.meetings',
+      { clientId: 'client-1', organizationId: 'org-1', limit: 20 },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.account.meeting_get',
+      { clientId: 'client-1', meetingId: 'meeting-1' },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.account.correspondence',
+      { clientId: 'client-1', organizationId: 'org-1', limit: 20 },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.meeting.process',
+      {
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        meetingId: 'meeting-1',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        summary: 'Client confirmed the launch plan.',
+        extractions: [{ type: 'DECISION', content: 'Launch on September 1.', structuredData: {} }],
+      },
+      { credential },
+    )
+    await registry.callTool(
+      'torchiko.knowledge.search',
+      { clientId: 'client-1', query: 'pricing decision', limit: 5 },
+      { credential },
+    )
+    expect(domain.accountContext).toHaveBeenCalled()
+    expect(domain.accountTimeline).toHaveBeenCalled()
+    expect(domain.accountMeetings).toHaveBeenCalled()
+    expect(domain.accountMeetingGet).toHaveBeenCalled()
+    expect(domain.accountCorrespondence).toHaveBeenCalled()
+    expect(domain.processMeeting).toHaveBeenCalled()
+    expect(domain.knowledgeSearch).toHaveBeenCalled()
+  })
+
+  it('denies company-brain reads for a different client before the action runs', async () => {
+    const domain = actions()
+    await expect(
+      createPathfinderMcpRegistry(domain).callTool(
+        'torchiko.knowledge.search',
+        { clientId: 'client-2', query: 'pricing decision' },
+        { credential },
+      ),
+    ).rejects.toThrow('Client scope denied')
+    expect(domain.knowledgeSearch).not.toHaveBeenCalled()
+  })
+
   it('denies cross-client and cross-venue reads before a canonical action is called', async () => {
     const domain = actions()
     const registry = createPathfinderMcpRegistry(domain)
@@ -76,6 +173,24 @@ describe('PathFinder MCP server-side adapter registry', () => {
         'pathfinder.read',
         {
           resource: 'jobs',
+          clientId: 'client-1',
+          venueId: 'venue-1',
+          limit: 25,
+        },
+        { credential },
+      ),
+    ).rejects.toThrow('Capability denied')
+    expect(domain.read).not.toHaveBeenCalled()
+  })
+
+  it('requires an explicit capability for expanded operational intelligence', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    await expect(
+      registry.callTool(
+        'pathfinder.read',
+        {
+          resource: 'reports',
           clientId: 'client-1',
           venueId: 'venue-1',
           limit: 25,

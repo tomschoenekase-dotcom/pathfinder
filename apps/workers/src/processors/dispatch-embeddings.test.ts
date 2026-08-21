@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   acknowledgeEmbeddingDispatch: vi.fn(),
   enqueueEmbedKnowledgeEntry: vi.fn(),
+  enqueueEmbedCompanyKnowledge: vi.fn(),
   enqueueEmbedPlace: vi.fn(),
   failEmbeddingDispatch: vi.fn(),
   leaseEmbeddingDispatchBatch: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('@pathfinder/db', () => ({
   leaseEmbeddingDispatchBatch: mocks.leaseEmbeddingDispatchBatch,
 }))
 vi.mock('@pathfinder/jobs', () => ({
+  enqueueEmbedCompanyKnowledge: mocks.enqueueEmbedCompanyKnowledge,
   enqueueEmbedKnowledgeEntry: mocks.enqueueEmbedKnowledgeEntry,
   enqueueEmbedPlace: mocks.enqueueEmbedPlace,
 }))
@@ -40,6 +42,14 @@ const knowledgeDispatch = {
   entityId: 'entry_1',
   contentUpdatedAt: revision,
 }
+const companyKnowledgeDispatch = {
+  id: 'company-knowledge:item_1',
+  tenantId: 'tenant_1',
+  venueId: 'venue_1',
+  entityType: 'COMPANY_KNOWLEDGE',
+  entityId: 'item_1',
+  contentUpdatedAt: revision,
+}
 
 describe('processEmbeddingDispatches', () => {
   beforeEach(() => {
@@ -52,16 +62,17 @@ describe('processEmbeddingDispatches', () => {
     mocks.failEmbeddingDispatch.mockResolvedValue(true)
     mocks.enqueueEmbedPlace.mockResolvedValue(undefined)
     mocks.enqueueEmbedKnowledgeEntry.mockResolvedValue(undefined)
+    mocks.enqueueEmbedCompanyKnowledge.mockResolvedValue(undefined)
   })
 
-  it('dispatches both entity types and acknowledges exact revisions', async () => {
+  it('dispatches all supported entity types and acknowledges exact revisions', async () => {
     mocks.leaseEmbeddingDispatchBatch.mockResolvedValueOnce({
       leaseToken: 'lease_1',
-      dispatches: [placeDispatch, knowledgeDispatch],
+      dispatches: [placeDispatch, knowledgeDispatch, companyKnowledgeDispatch],
     })
 
     await expect(processEmbeddingDispatches()).resolves.toEqual({
-      acknowledged: 2,
+      acknowledged: 3,
       failed: 0,
       superseded: 0,
     })
@@ -75,7 +86,12 @@ describe('processEmbeddingDispatches', () => {
       tenantId: 'tenant_1',
       contentUpdatedAt: revision.toISOString(),
     })
-    expect(mocks.acknowledgeEmbeddingDispatch).toHaveBeenCalledTimes(2)
+    expect(mocks.enqueueEmbedCompanyKnowledge).toHaveBeenCalledWith({
+      itemId: 'item_1',
+      tenantId: 'tenant_1',
+      contentUpdatedAt: revision.toISOString(),
+    })
+    expect(mocks.acknowledgeEmbeddingDispatch).toHaveBeenCalledTimes(3)
   })
 
   it('retains and schedules a failed enqueue without acknowledging it', async () => {

@@ -171,6 +171,7 @@ export async function heartbeatAgentBridgeSession(input: {
 export async function claimAgentBridgeTask(input: {
   sessionId: string
   venueId: string
+  workerKey?: string
   credential: VerifiedMcpCredentialScope
 }) {
   assertCredential(input.credential, input.venueId)
@@ -193,6 +194,23 @@ export async function claimAgentBridgeTask(input: {
   })
   if (!session)
     throw new AgentBridgeActionError('FORBIDDEN', 'Bridge session is offline or expired')
+  const worker = input.workerKey
+    ? await db.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: input.credential.tenantId,
+          clientId: input.credential.clientId,
+          credentialId: input.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: new Date() },
+          capabilities: { has: 'agent-runs:execute' },
+        },
+        select: { id: true },
+      })
+    : null
+  if (input.workerKey && !worker) {
+    throw new AgentBridgeActionError('FORBIDDEN', 'Portable worker is offline or unauthorized')
+  }
   const run = await db.agentRun.findFirst({
     where: {
       tenantId: input.credential.tenantId,
@@ -217,6 +235,12 @@ export async function claimAgentBridgeTask(input: {
     runId: run.id,
     bridgeSessionId: session.id,
   })
+  if (worker) {
+    await db.agentRun.update({
+      where: { id: claimed.id },
+      data: { executionWorkerId: worker.id },
+    })
+  }
   return {
     task: {
       id: claimed.id,

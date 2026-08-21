@@ -39,6 +39,7 @@ export default async function AdminClientLayout({ children, params }: AdminClien
           allowLoopbackHttp: process.env.NODE_ENV !== 'production',
         }),
       }))}
+      billingAvailable={process.env.STRIPE_BILLING_UI_ENABLED === 'true'}
     >
       {children}
     </ClientWorkspaceShell>

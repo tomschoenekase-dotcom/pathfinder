@@ -79,6 +79,38 @@ export const FEATURE_FLAGS = {
     environmentVariable: 'CRM_BOT_MODE_ENABLED',
     defaultEnabled: false,
   },
+  billingUi: {
+    environmentVariable: 'STRIPE_BILLING_UI_ENABLED',
+    defaultEnabled: false,
+  },
+  billingCheckout: {
+    environmentVariable: 'STRIPE_CHECKOUT_ENABLED',
+    defaultEnabled: false,
+  },
+  billingPortal: {
+    environmentVariable: 'STRIPE_CUSTOMER_PORTAL_ENABLED',
+    defaultEnabled: false,
+  },
+  billingCancellation: {
+    environmentVariable: 'STRIPE_CANCELLATION_ENABLED',
+    defaultEnabled: false,
+  },
+  billingWebhook: {
+    environmentVariable: 'STRIPE_WEBHOOK_PROCESSING_ENABLED',
+    defaultEnabled: false,
+  },
+  billingReconciliation: {
+    environmentVariable: 'STRIPE_RECONCILIATION_ENABLED',
+    defaultEnabled: false,
+  },
+  billingEntitlementEnforcement: {
+    environmentVariable: 'BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED',
+    defaultEnabled: false,
+  },
+  stripeLiveMode: {
+    environmentVariable: 'STRIPE_LIVE_MODE_ALLOWED',
+    defaultEnabled: false,
+  },
 } as const
 
 export type CrmFeatureClassification = 'public' | 'pilot' | 'internal' | 'off'
@@ -119,6 +151,17 @@ export function isCrmFeatureAvailable(
 }
 
 export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
+
+export const BILLING_TENANT_FLAG_KEYS = {
+  ui: 'billing-ui-v1',
+  checkout: 'billing-checkout-v1',
+  portal: 'billing-portal-v1',
+  cancellation: 'billing-cancellation-v1',
+  entitlementEnforcement: 'billing-entitlement-enforcement-v1',
+} as const
+
+export type BillingTenantFlagKey =
+  (typeof BILLING_TENANT_FLAG_KEYS)[keyof typeof BILLING_TENANT_FLAG_KEYS]
 
 /**
  * The private, two-key rollout surface for the Tochi system. A capability is

@@ -44,6 +44,18 @@ const expiresAt = new Date('2030-01-01T12:00:00.000Z')
 const now = new Date('2030-01-01T09:00:00.000Z')
 const expectedUpdatedAt = new Date('2029-12-31T23:00:00.000Z')
 const actor = { type: 'HUMAN' as const, id: 'manager_1', role: 'MANAGER' as const }
+const machineActor = {
+  type: 'AGENT' as const,
+  actorId: 'agent_1',
+  role: 'AGENT' as const,
+  agentIdentityId: 'agent_1',
+  agentRunId: 'run_1',
+  workerId: 'worker_1',
+  credentialId: 'credential_1',
+  approvalGrantId: 'grant_1',
+  capability: 'updates:draft',
+  idempotencyKey: 'operation_1',
+}
 const fields = {
   venueId: 'venue_1',
   placeId: 'place_1',
@@ -118,6 +130,54 @@ describe('operational update domain actions', () => {
         client,
       ),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(create).not.toHaveBeenCalled()
+    expect(writeAudit).not.toHaveBeenCalled()
+  })
+
+  it('creates a draft with honest machine attribution through the canonical action', async () => {
+    const draft = {
+      ...published,
+      status: 'DRAFT',
+      isActive: false,
+      createdBy: 'agent_1',
+      publishedBy: null,
+      publishedAt: null,
+    }
+    create.mockResolvedValue(draft)
+
+    const result = await createOperationalUpdateAction(
+      { tenantId: 'tenant_1', actor: machineActor, fields, schedule: false, now },
+      client,
+    )
+
+    expect(setContext).toHaveBeenCalledWith(tx, { actorId: 'agent_1' })
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'DRAFT',
+          isActive: false,
+          createdBy: 'agent_1',
+          publishedBy: null,
+        }),
+      }),
+    )
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: machineActor,
+        action: 'operational-update.created-draft',
+      }),
+      tx,
+    )
+    expect(result.preview.lifecycle).toBe('DRAFT')
+  })
+
+  it('does not let a machine actor publish or schedule an update', async () => {
+    await expect(
+      createOperationalUpdateAction(
+        { tenantId: 'tenant_1', actor: machineActor, fields, schedule: true, now },
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
     expect(create).not.toHaveBeenCalled()
     expect(writeAudit).not.toHaveBeenCalled()
   })
