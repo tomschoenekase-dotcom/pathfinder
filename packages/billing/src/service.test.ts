@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createTenantCheckout, isNewerProviderState } from './service'
 
@@ -82,6 +82,39 @@ describe('provider event ordering fence', () => {
 })
 
 describe('negotiated Checkout boundary', () => {
+  it('scopes idempotent Checkout replay lookup by tenant for isolation middleware', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'attempt-a',
+      stripeCheckoutSessionId: 'cs_test_existing',
+    })
+    const client = {
+      $transaction: async (callback: (tx: unknown) => unknown) =>
+        callback({ billingCheckoutAttempt: { findFirst } }),
+    }
+
+    await expect(
+      createTenantCheckout({
+        tenantId: 'tenant-a',
+        actorId: 'admin-a',
+        actorRole: 'PLATFORM_ADMIN',
+        planKey: 'torchiko_pilot_test',
+        venueIds: ['venue-a'],
+        operationKey: 'operation-a',
+        provider: {} as never,
+        client: client as never,
+        environment: checkoutEnvironment,
+      }),
+    ).resolves.toEqual({
+      attemptId: 'attempt-a',
+      sessionId: 'cs_test_existing',
+      url: null,
+      replayed: true,
+    })
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-a', operationKey: 'operation-a' },
+    })
+  })
+
   it('rejects negotiated pricing outside the platform-admin boundary before touching storage', async () => {
     await expect(
       createTenantCheckout({

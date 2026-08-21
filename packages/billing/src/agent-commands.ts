@@ -58,10 +58,8 @@ export async function proposeBillingAgentCommand(params: {
     throw new BillingServiceError('DISABLED', 'Billing approval TTL is invalid.')
   }
   const result = await client.$transaction(async (tx) => {
-    const replay = await tx.billingAgentCommand.findUnique({
-      where: {
-        tenantId_operationId: { tenantId: params.tenantId, operationId: params.operationId },
-      },
+    const replay = await tx.billingAgentCommand.findFirst({
+      where: { tenantId: params.tenantId, operationId: params.operationId },
       include: { approvalRequest: true },
     })
     if (replay) return { command: replay, replayed: true }

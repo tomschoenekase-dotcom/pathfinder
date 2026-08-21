@@ -265,8 +265,8 @@ export async function createTenantCheckout(params: {
   const billingIntervalCount = negotiatedTerms?.intervalCount ?? plan.intervalCount
   const operationKey = params.operationKey ?? randomUUID()
   const reserved = await client.$transaction(async (tx) => {
-    const replay = await tx.billingCheckoutAttempt.findUnique({
-      where: { tenantId_operationKey: { tenantId: params.tenantId, operationKey } },
+    const replay = await tx.billingCheckoutAttempt.findFirst({
+      where: { tenantId: params.tenantId, operationKey },
     })
     if (replay) return { replay, tenant: null, account: null, agreement: null, replacementId: null }
     const tenant = await tx.tenant.findUnique({

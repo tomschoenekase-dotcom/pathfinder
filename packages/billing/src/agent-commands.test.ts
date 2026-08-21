@@ -44,7 +44,7 @@ describe('approval-gated agent billing commands', () => {
     }
     const tx = {
       billingAgentCommand: {
-        findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue(command),
       },
       venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue-1' }) },
@@ -94,7 +94,7 @@ describe('approval-gated agent billing commands', () => {
 
   it('rejects a proposal that exceeds the exact verified venue scope', async () => {
     const tx = {
-      billingAgentCommand: { findUnique: vi.fn().mockResolvedValue(null) },
+      billingAgentCommand: { findFirst: vi.fn().mockResolvedValue(null) },
       venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue-1' }) },
       agentIdentity: { findFirst: vi.fn().mockResolvedValue({ id: 'agent-1' }) },
       billingAccount: { findUnique: vi.fn().mockResolvedValue(null) },

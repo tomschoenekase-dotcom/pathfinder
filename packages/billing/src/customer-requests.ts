@@ -49,10 +49,8 @@ export async function requestTenantCancellation(params: {
     throw new BillingServiceError('DISABLED', 'Subscription cancellation is disabled.')
   }
   const reserved = await client.$transaction(async (tx) => {
-    const replay = await tx.billingCustomerRequest.findUnique({
-      where: {
-        tenantId_operationId: { tenantId: params.tenantId, operationId: params.operationId },
-      },
+    const replay = await tx.billingCustomerRequest.findFirst({
+      where: { tenantId: params.tenantId, operationId: params.operationId },
     })
     if (replay) return { request: replay, agreement: null, replayed: true }
     const account = await tx.billingAccount.findUnique({
@@ -191,10 +189,8 @@ export async function recordTenantAddOnInterest(params: {
   const feature = BILLING_ADD_ON_CATALOG.find((candidate) => candidate.key === params.featureKey)
   if (!feature) throw new BillingServiceError('NOT_FOUND', 'This add-on is not available.')
   const request = await client.$transaction(async (tx) => {
-    const replay = await tx.billingCustomerRequest.findUnique({
-      where: {
-        tenantId_operationId: { tenantId: params.tenantId, operationId: params.operationId },
-      },
+    const replay = await tx.billingCustomerRequest.findFirst({
+      where: { tenantId: params.tenantId, operationId: params.operationId },
     })
     if (replay) return replay
     const account = await tx.billingAccount.findUnique({ where: { tenantId: params.tenantId } })

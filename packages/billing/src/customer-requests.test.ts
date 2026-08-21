@@ -31,7 +31,6 @@ describe('customer billing requests', () => {
     const completed = { ...created, status: 'COMPLETED' }
     const tx = {
       billingCustomerRequest: {
-        findUnique: vi.fn().mockResolvedValue(null),
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue(created),
         update: vi.fn().mockResolvedValue(completed),
@@ -76,7 +75,7 @@ describe('customer billing requests', () => {
 
   it('refuses cancellation during an active minimum commitment', async () => {
     const tx = {
-      billingCustomerRequest: { findUnique: vi.fn().mockResolvedValue(null) },
+      billingCustomerRequest: { findFirst: vi.fn().mockResolvedValue(null) },
       billingAccount: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'account-1',
@@ -120,7 +119,6 @@ describe('customer billing requests', () => {
     const created = { id: 'request-1', status: 'PROCESSING' }
     const tx = {
       billingCustomerRequest: {
-        findUnique: vi.fn().mockResolvedValue(null),
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue(created),
       },
@@ -159,7 +157,7 @@ describe('customer billing requests', () => {
   it('rejects cross-tenant venue scope before recording add-on interest', async () => {
     const tx = {
       billingCustomerRequest: {
-        findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn(),
       },
       billingAccount: { findUnique: vi.fn().mockResolvedValue({ id: 'account-1' }) },
@@ -184,7 +182,7 @@ describe('customer billing requests', () => {
     const request = { id: 'request-1', featureKey: 'premium-voice', status: 'OPEN' }
     const tx = {
       billingCustomerRequest: {
-        findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue(request),
       },
       billingAccount: { findUnique: vi.fn().mockResolvedValue({ id: 'account-1' }) },
