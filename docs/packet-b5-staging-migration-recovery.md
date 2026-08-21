@@ -61,6 +61,11 @@ A disposable pgvector/PostgreSQL 16 rehearsal using canonical Git LF bytes prove
 the recovery branch. Live Railway evidence and the final admitted merge SHA are recorded after the
 owner-approved recovery PR is merged and deployed.
 
+The first pushed CI run exposed a pre-existing asynchronous assertion race in
+`CopyUrlButton.test.tsx`: the test waited for the clipboard call but synchronously queried the
+subsequent React status update. The assertion now awaits the status element itself. The focused
+test, all 781 dashboard tests, dashboard typecheck, and dashboard lint pass after the correction.
+
 ## Live staging baseline before recovery
 
 Read-only inspection on 2026-08-21 established:

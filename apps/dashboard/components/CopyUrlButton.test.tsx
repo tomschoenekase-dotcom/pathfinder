@@ -33,7 +33,7 @@ describe('CopyUrlButton', () => {
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith('https://guide.example.com/museum/chat'),
     )
-    expect(screen.getByRole('status').textContent).toBe('Guest chat URL copied.')
+    expect((await screen.findByRole('status')).textContent).toBe('Guest chat URL copied.')
     expect(screen.getByRole('button', { name: 'Copy guest chat URL' })).toBeTruthy()
   })
 
@@ -48,7 +48,7 @@ describe('CopyUrlButton', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy guest chat URL' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
-    expect(screen.getByRole('status').textContent).toBe('Guest chat URL copied.')
+    expect((await screen.findByRole('status')).textContent).toBe('Guest chat URL copied.')
   })
 
   it('handles an unavailable Clipboard API without an unhandled rejection', async () => {
