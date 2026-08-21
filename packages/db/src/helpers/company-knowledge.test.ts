@@ -81,6 +81,10 @@ describe('company knowledge retrieval', () => {
     expect(JSON.stringify(query.where)).toContain('customerRelationships')
     expect(JSON.stringify(query.where)).not.toContain('PLATFORM')
     expect(JSON.stringify(query.where)).toContain('AUTHORITATIVE_CURRENT')
+    expect(JSON.stringify(query.where)).toContain('custom')
+    expect(JSON.stringify(query.where)).toContain('character')
+    expect(JSON.stringify(query.where)).toContain('pricing')
+    expect(JSON.stringify(query.where)).not.toContain('custom character pricing')
     expect(query.take).toBe(20)
     expect(result.retrieval.permissionFilteredBeforeSelection).toBe(true)
     expect(result.results[0]).toMatchObject({

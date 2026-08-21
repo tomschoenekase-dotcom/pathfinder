@@ -79,10 +79,10 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           notBefore: { lte: now },
           OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         },
-        select: { id: true, maxUses: true, useCount: true },
+        select: { id: true },
       })
-      if (!grant || (grant.maxUses !== null && grant.useCount >= grant.maxUses)) {
-        throw new McpActionBindingError('Approval grant is unavailable or exhausted')
+      if (!grant) {
+        throw new McpActionBindingError('Approval grant is unavailable')
       }
     },
     async createUpdateDraft(input, context) {

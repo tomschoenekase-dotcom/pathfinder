@@ -326,6 +326,7 @@ export async function supersedeCompanyKnowledgeAction(
       promotionStatus: true,
       authority: true,
       supersededById: true,
+      decision: { select: { id: true } },
     } as const
     const [prior, replacement] = await Promise.all([
       tx.companyKnowledgeItem.findFirst({
@@ -365,7 +366,7 @@ export async function supersedeCompanyKnowledgeAction(
         promotionStatus: 'SUPERSEDED',
         supersededAt: new Date(),
         supersededById: replacement.id,
-        ...(prior.authority === 'AUTHORITATIVE_CURRENT'
+        ...(prior.authority === 'AUTHORITATIVE_CURRENT' && prior.decision
           ? { decision: { update: { status: 'SUPERSEDED' } } }
           : {}),
       },

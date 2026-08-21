@@ -146,6 +146,7 @@ describe('company knowledge canonical actions', () => {
         promotionStatus: 'PROMOTED',
         authority: 'AUTHORITATIVE_CURRENT',
         supersededById: null,
+        decision: { id: 'decision_old' },
       })
       .mockResolvedValueOnce({
         id: 'knowledge_new',
@@ -153,6 +154,7 @@ describe('company knowledge canonical actions', () => {
         promotionStatus: 'PROMOTED',
         authority: 'AUTHORITATIVE_CURRENT',
         supersededById: null,
+        decision: { id: 'decision_new' },
       })
     tx.companyKnowledgeItem.update.mockResolvedValue({
       id: 'knowledge_old',
@@ -177,6 +179,48 @@ describe('company knowledge canonical actions', () => {
           promotionStatus: 'SUPERSEDED',
           decision: { update: { status: 'SUPERSEDED' } },
         }),
+      }),
+    )
+  })
+
+  it('does not assume every authoritative knowledge item has a decision child', async () => {
+    const { tx, client } = harness()
+    tx.companyKnowledgeItem.findFirst
+      .mockResolvedValueOnce({
+        id: 'knowledge_old',
+        tenantId: 'tenant_1',
+        promotionStatus: 'PROMOTED',
+        authority: 'AUTHORITATIVE_CURRENT',
+        supersededById: null,
+        decision: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'knowledge_new',
+        tenantId: 'tenant_1',
+        promotionStatus: 'PROMOTED',
+        authority: 'AUTHORITATIVE_CURRENT',
+        supersededById: null,
+        decision: null,
+      })
+    tx.companyKnowledgeItem.update.mockResolvedValue({
+      id: 'knowledge_old',
+      supersededById: 'knowledge_new',
+      authority: 'SUPERSEDED',
+      promotionStatus: 'SUPERSEDED',
+    })
+    await supersedeCompanyKnowledgeAction(
+      {
+        priorItemId: 'knowledge_old',
+        replacementItemId: 'knowledge_new',
+        tenantId: 'tenant_1',
+        reason: 'Replacement approved',
+        actor: { type: 'HUMAN', actorId: 'admin_1', role: 'PLATFORM_ADMIN' },
+      },
+      client,
+    )
+    expect(tx.companyKnowledgeItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.not.objectContaining({ decision: expect.anything() }),
       }),
     )
   })

@@ -55,15 +55,19 @@ function accessWhere(
   }
 }
 
-function lexicalScore(query: string, title: string, summary: string, body: string | null) {
-  const terms = Array.from(
+function lexicalTerms(query: string) {
+  return Array.from(
     new Set(
       query
         .toLocaleLowerCase()
         .split(/[^a-z0-9]+/u)
         .filter((term) => term.length > 1),
     ),
-  )
+  ).slice(0, 12)
+}
+
+function lexicalScore(query: string, title: string, summary: string, body: string | null) {
+  const terms = lexicalTerms(query)
   const normalizedTitle = title.toLocaleLowerCase()
   const normalizedSummary = summary.toLocaleLowerCase()
   const normalizedBody = body?.toLocaleLowerCase() ?? ''
@@ -229,6 +233,7 @@ export async function searchCompanyKnowledge(
   const authorityFilter = input.includeHistorical
     ? input.authorities
     : input.authorities.filter((authority) => !['HISTORICAL', 'SUPERSEDED'].includes(authority))
+  const terms = lexicalTerms(input.query)
   const candidates = await client.companyKnowledgeItem.findMany({
     where: {
       AND: [
@@ -252,15 +257,15 @@ export async function searchCompanyKnowledge(
           ? []
           : [
               {
-                OR: [
-                  { title: { contains: input.query, mode: 'insensitive' as const } },
-                  { summary: { contains: input.query, mode: 'insensitive' as const } },
+                OR: terms.flatMap((term) => [
+                  { title: { contains: term, mode: 'insensitive' as const } },
+                  { summary: { contains: term, mode: 'insensitive' as const } },
                   {
                     revisions: {
-                      some: { body: { contains: input.query, mode: 'insensitive' as const } },
+                      some: { body: { contains: term, mode: 'insensitive' as const } },
                     },
                   },
-                ],
+                ]),
               },
             ]),
       ],
