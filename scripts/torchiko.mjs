@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import {
   buildBootstrapReport,
   buildConversationReplay,
+  buildCompanyBrainStatus,
   buildDoctorReport,
   buildRepositoryMap,
   buildToolCoverageReport,
@@ -13,6 +14,7 @@ import {
   listAgentTools,
   listFixtures,
   loadScenarioRegistry,
+  loadCompanyBrainScenarioRegistry,
   simulateScenarioLocation,
   simulateScenarioTime,
 } from './lib/torchiko-developer-tools.mjs'
@@ -23,7 +25,7 @@ const json = args.includes('--json')
 const positional = args.filter((arg) => arg !== '--json')
 
 function usage() {
-  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  replay conversation <scenario> [--json]\n  tests find <query> [--json]\n  golden validate\n`
+  return `Torchiko developer interface\n\nCommands:\n  dev bootstrap [--json]\n  doctor [--json]\n  repo map [--json]\n  tools list [--json]\n  tools coverage [--json]\n  fixtures list [--json]\n  scenarios validate [--json]\n  company-brain status [--json]\n  company-brain scenarios [--json]\n  simulate time <scenario> <iso-instant> [--json]\n  simulate location <scenario> <latitude> <longitude> [--json]\n  replay conversation <scenario> [--json]\n  tests find <query> [--json]\n  golden validate\n`
 }
 
 function emit(value) {
@@ -51,6 +53,18 @@ async function main() {
   if (group === 'fixtures' && action === 'list') return emit(await listFixtures(root))
   if (group === 'scenarios' && action === 'validate') {
     const report = await loadScenarioRegistry(root)
+    emit(report)
+    if (!report.healthy) process.exitCode = 1
+    return
+  }
+  if (group === 'company-brain' && action === 'status') {
+    const report = await buildCompanyBrainStatus(root)
+    emit(report)
+    if (!report.healthy) process.exitCode = 1
+    return
+  }
+  if (group === 'company-brain' && action === 'scenarios') {
+    const report = await loadCompanyBrainScenarioRegistry(root)
     emit(report)
     if (!report.healthy) process.exitCode = 1
     return

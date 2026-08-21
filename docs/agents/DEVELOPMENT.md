@@ -10,6 +10,8 @@ pnpm torchiko repo map --json
 
 The interface reads canonical repository sources. It does not create data, connect to a database, start providers, enable workers, seed an environment, or change deployment state.
 
+Company Brain inspection is available through `pnpm torchiko company-brain status --json` and `pnpm torchiko company-brain scenarios --json`. The doctor includes the same source/tool/scenario gate.
+
 ## Environment safety
 
 Run `pnpm torchiko doctor --json` before database, worker, evaluation, agent-run, outreach, or billing work. The report:
@@ -90,7 +92,7 @@ Seeding or resetting data remains separately guarded. Follow `docs/golden-venue-
 6. Add or update idempotency, audit, tenant-isolation, and structured-error proof with the change.
 7. Run targeted tests, related suites, security boundaries, lifecycle checks, and UI validation proportional to the change.
 
-Operational integrations should use the default-dark agent bridge methods `listOperationalTools` and `callOperationalTool`. The bridge derives scope from the verified credential. Do not add client or venue IDs as an independent authority source, and do not enable approval-bound MCP writes until the canonical domain model supports honest machine-actor attribution.
+Operational integrations may use the default-dark agent bridge methods or the standards MCP JSON-RPC route. Both derive scope from the verified credential. Do not add client or venue IDs as an independent authority source. Machine writes must use the verified actor and approval-grant services; never create a parallel agent-only domain path.
 
 ## Deliberate boundaries
 

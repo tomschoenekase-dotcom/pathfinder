@@ -102,6 +102,37 @@ describe('company knowledge canonical actions', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 
+  it('creates first-class decision detail in the same canonical transaction', async () => {
+    const { tx, client } = harness()
+    await createCompanyKnowledgeCandidateAction(
+      candidateInput({
+        type: 'DECISION',
+        authority: 'AUTHORITATIVE_CURRENT',
+        actor: { type: 'HUMAN', actorId: 'admin_1', role: 'PLATFORM_ADMIN' },
+        decision: {
+          status: 'ACTIVE',
+          decision: 'Use add-on pricing for custom characters.',
+          rationale: 'Support sustainable custom production.',
+          affectedSystems: ['billing', 'sales'],
+        },
+      }),
+      client,
+    )
+    expect(tx.companyKnowledgeItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          decision: {
+            create: expect.objectContaining({
+              status: 'ACTIVE',
+              decision: 'Use add-on pricing for custom characters.',
+              affectedSystems: ['billing', 'sales'],
+            }),
+          },
+        }),
+      }),
+    )
+  })
+
   it('allows capability-bounded machine promotion only for low-risk knowledge', async () => {
     const { tx, client } = harness()
     tx.companyKnowledgeItem.findFirst.mockResolvedValue({

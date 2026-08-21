@@ -77,7 +77,7 @@ function mcpToolMetadata(source) {
   const start = source.indexOf('export const PATHFINDER_MCP_TOOLS')
   if (start < 0) return []
   const catalog = source.slice(start)
-  return [...catalog.matchAll(/name:\s*'(pathfinder\.[a-z0-9_]+)'/gu)].map((match) => {
+  return [...catalog.matchAll(/name:\s*'((?:pathfinder|torchiko)\.[a-z0-9_.]+)'/gu)].map((match) => {
     const next = catalog.indexOf('\n  {', match.index + 1)
     const block = catalog.slice(match.index, next < 0 ? undefined : next)
     const security = block.match(
@@ -140,7 +140,7 @@ export async function buildRepositoryMap(root) {
   const migrations = await readdir(path.join(root, 'packages/db/prisma/migrations'), {
     withFileTypes: true,
   })
-  const mcpTools = [...mcpContract.matchAll(/name:\s*'(pathfinder\.[a-z0-9_]+)'/gu)].map(
+  const mcpTools = [...mcpContract.matchAll(/name:\s*'((?:pathfinder|torchiko)\.[a-z0-9_.]+)'/gu)].map(
     (match) => match[1],
   )
   return {
@@ -180,6 +180,7 @@ export async function buildDoctorReport(root, environment = process.env) {
   const directDatabase = databaseTarget(environment.DIRECT_DATABASE_URL)
   const production = railwayEnvironment === 'production'
   const prismaClient = await prismaClientState(root)
+  const companyBrain = await buildCompanyBrainStatus(root)
   const checks = [
     {
       id: 'repository',
@@ -233,6 +234,13 @@ export async function buildDoctorReport(root, environment = process.env) {
           ? 'fail'
           : 'pass',
       detail: production ? environment.WORKER_SCHEDULERS_ENABLED || 'unset' : 'not-production',
+    },
+    {
+      id: 'company-brain',
+      status: companyBrain.healthy ? 'pass' : 'fail',
+      detail: companyBrain.healthy
+        ? `${companyBrain.tools.required.length} tools and ${companyBrain.scenarios.count} scenarios`
+        : 'Company Brain source, tool, or scenario validation failed',
     },
   ]
   const gates = [
@@ -373,6 +381,88 @@ export async function loadScenarioRegistry(root) {
       errors.push(`${scenario.id}: expected facts are required`)
   }
   return { ...registry, errors, healthy: errors.length === 0 }
+}
+
+export async function loadCompanyBrainScenarioRegistry(root) {
+  const registry = await readJson(
+    path.join(root, 'scripts/fixtures/company-brain-scenarios.json'),
+  )
+  const errors = []
+  if (registry.schemaVersion !== 1) errors.push('schemaVersion must be 1')
+  if (registry.synthetic !== true) errors.push('registry must be explicitly synthetic')
+  const expected = new Set([
+    'new-prospect',
+    'converted-small-museum',
+    'mature-multi-venue',
+    'difficult-relationship',
+    'friend-takeover',
+  ])
+  const ids = new Set()
+  for (const scenario of registry.scenarios ?? []) {
+    if (!scenario.id || ids.has(scenario.id)) errors.push('scenario ids must be present and unique')
+    ids.add(scenario.id)
+    if (!Array.isArray(scenario.entities) || scenario.entities.length === 0)
+      errors.push(`${scenario.id}: entities are required`)
+    if (!Array.isArray(scenario.assertions) || scenario.assertions.length === 0)
+      errors.push(`${scenario.id}: assertions are required`)
+    if (scenario.providerDispatch !== false)
+      errors.push(`${scenario.id}: providerDispatch must be false by default`)
+  }
+  for (const id of expected) if (!ids.has(id)) errors.push(`missing required scenario: ${id}`)
+  return { ...registry, errors, healthy: errors.length === 0 }
+}
+
+export async function buildCompanyBrainStatus(root) {
+  const scenarios = await loadCompanyBrainScenarioRegistry(root)
+  const required = [
+    'packages/db/prisma/migrations/20260821190000_add_company_brain_crm_meetings/migration.sql',
+    'packages/db/prisma/migrations/20260821193000_add_portable_agent_workers/migration.sql',
+    'packages/db/prisma/migrations/20260821194500_add_company_knowledge_embeddings/migration.sql',
+    'packages/db/prisma/migrations/20260821200000_sync_mcp_credential_capabilities/migration.sql',
+    'packages/db/src/helpers/account-context.ts',
+    'packages/db/src/helpers/company-knowledge.ts',
+    'packages/db/src/helpers/company-meeting-actions.ts',
+    'packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts',
+    'packages/api/src/lib/evaluation/company-brain-retrieval.ts',
+    'packages/api/src/lib/evaluation/company-brain-scale.disposable.integration.test.ts',
+    'packages/api/src/routers/admin/company-brain.ts',
+    'apps/dashboard/app/(admin)/admin/company-brain/page.tsx',
+  ]
+  const checks = await Promise.all(
+    required.map(async (file) => ({ file, status: (await exists(path.join(root, file))) ? 'pass' : 'fail' })),
+  )
+  const tools = await listAgentTools(root)
+  const requiredTools = [
+    'torchiko.account.get_context',
+    'torchiko.account.timeline',
+    'torchiko.account.meetings',
+    'torchiko.account.meeting_get',
+    'torchiko.account.correspondence',
+    'torchiko.knowledge.search',
+    'torchiko.knowledge.get',
+    'torchiko.integrations.health',
+  ]
+  const discovered = new Set(tools.tools.map((tool) => tool.name))
+  const missingTools = requiredTools.filter((name) => !discovered.has(name))
+  return {
+    schemaVersion: 1,
+    checks,
+    tools: { required: requiredTools, missing: missingTools },
+    scenarios: {
+      count: scenarios.scenarios?.length ?? 0,
+      healthy: scenarios.healthy,
+      errors: scenarios.errors,
+    },
+    shakedown: {
+      providerFree: true,
+      databaseRequired: true,
+      source: 'packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts',
+    },
+    healthy:
+      checks.every((check) => check.status === 'pass') &&
+      missingTools.length === 0 &&
+      scenarios.healthy,
+  }
 }
 
 function getScenario(registry, id) {

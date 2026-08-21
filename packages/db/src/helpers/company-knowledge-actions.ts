@@ -5,6 +5,8 @@ import type { VerifiedActorContext } from '@pathfinder/contracts/actor'
 import type {
   CompanyKnowledgeAccessScope,
   CompanyKnowledgeAuthority,
+  CompanyDecisionStatus,
+  CompanyPriorityStatus,
   CompanyKnowledgeSourceType,
   CompanyKnowledgeType,
   Prisma,
@@ -107,6 +109,25 @@ export async function createCompanyKnowledgeCandidateAction(
     sourceRef?: string
     sourceExcerpt?: string
     idempotencyKey: string
+    decision?: {
+      status?: CompanyDecisionStatus
+      decision: string
+      rationale: string
+      scope?: Prisma.InputJsonValue
+      affectedSystems?: string[]
+      effectiveAt?: Date
+      supersedesId?: string
+    }
+    priority?: {
+      status?: CompanyPriorityStatus
+      rank?: number
+      timeHorizon?: string
+      ownerId?: string
+      rationale: string
+      workstreams?: Prisma.InputJsonValue
+      startsAt?: Date
+      endsAt?: Date
+    }
     actor: VerifiedActorContext
   },
   client: CompanyKnowledgeActionClient = db,
@@ -121,6 +142,18 @@ export async function createCompanyKnowledgeCandidateAction(
   }
   if (!input.title.trim() || !input.summary.trim() || !input.body.trim()) {
     throw new CompanyKnowledgeActionError('CONFLICT', 'Knowledge content must be non-empty')
+  }
+  if (input.decision && input.type !== 'DECISION') {
+    throw new CompanyKnowledgeActionError('CONFLICT', 'Decision detail requires DECISION type')
+  }
+  if (input.priority && input.type !== 'PRIORITY') {
+    throw new CompanyKnowledgeActionError('CONFLICT', 'Priority detail requires PRIORITY type')
+  }
+  if (input.decision && (!input.decision.decision.trim() || !input.decision.rationale.trim())) {
+    throw new CompanyKnowledgeActionError('CONFLICT', 'Decision and rationale must be non-empty')
+  }
+  if (input.priority && !input.priority.rationale.trim()) {
+    throw new CompanyKnowledgeActionError('CONFLICT', 'Priority rationale must be non-empty')
   }
   const contentHash = digest(input.title.trim(), input.summary.trim(), input.body.trim())
   const sourceDigest = digest(input.body.trim(), input.structuredData ?? {})
@@ -180,6 +213,45 @@ export async function createCompanyKnowledgeCandidateAction(
             ...(input.effectiveAt ? { occurredAt: input.effectiveAt } : {}),
           },
         },
+        ...(input.decision
+          ? {
+              decision: {
+                create: {
+                  ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+                  status: input.decision.status ?? 'PROPOSED',
+                  decision: input.decision.decision.trim(),
+                  rationale: input.decision.rationale.trim(),
+                  scope: input.decision.scope ?? {},
+                  affectedSystems: input.decision.affectedSystems ?? [],
+                  ...(input.decision.effectiveAt
+                    ? { effectiveAt: input.decision.effectiveAt }
+                    : {}),
+                  ...(input.decision.supersedesId
+                    ? { supersedesId: input.decision.supersedesId }
+                    : {}),
+                },
+              },
+            }
+          : {}),
+        ...(input.priority
+          ? {
+              priority: {
+                create: {
+                  ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+                  status: input.priority.status ?? 'ACTIVE',
+                  rank: input.priority.rank ?? 100,
+                  ...(input.priority.timeHorizon
+                    ? { timeHorizon: input.priority.timeHorizon }
+                    : {}),
+                  ...(input.priority.ownerId ? { ownerId: input.priority.ownerId } : {}),
+                  rationale: input.priority.rationale.trim(),
+                  workstreams: input.priority.workstreams ?? [],
+                  ...(input.priority.startsAt ? { startsAt: input.priority.startsAt } : {}),
+                  ...(input.priority.endsAt ? { endsAt: input.priority.endsAt } : {}),
+                },
+              },
+            }
+          : {}),
       },
       select: { id: true, contentHash: true, promotionStatus: true },
     })

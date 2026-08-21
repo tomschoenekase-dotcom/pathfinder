@@ -26,6 +26,14 @@
       "evidence": "docs/agents/TOOL_REFERENCE.md"
     },
     {
+      "id": "company-brain",
+      "pattern": "CompanyBrain",
+      "agentCoverage": "partial",
+      "developerCoverage": "full",
+      "decision": "Agents receive permission-aware account and institutional-memory reads; human admins govern authoritative decisions, priorities, promotion, and supersession.",
+      "evidence": "docs/company-brain-architecture.md"
+    },
+    {
       "id": "venue-content-deployment",
       "pattern": "Venue|Place|Knowledge|Content|Package|Deployment(?!Evaluations)|SecondLayer|Tochi|GuestDesign|Engagement",
       "agentCoverage": "partial",

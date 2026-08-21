@@ -22,6 +22,14 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `pathfinder.create_update_draft`    | Reviewable operational-update draft | Canonical action policy    | Verified approval grant      | Write tools default off                       |
 | `pathfinder.create_support_draft`   | Reviewable support draft            | Canonical action policy    | Verified approval grant      | Write tools default off                       |
 | `pathfinder.request_evaluation`     | Bounded evaluation request          | Canonical request identity | Verified approval grant      | Write tools and runner default off            |
+| `torchiko.account.get_context`      | Compact CRM/account context         | Safe repeat                | No                           | Credential capability scoped                  |
+| `torchiko.account.timeline`         | Paginated relationship timeline     | Safe repeat                | No                           | Credential capability scoped                  |
+| `torchiko.account.meetings`         | Bounded meeting summaries           | Safe repeat                | No                           | Credential capability scoped                  |
+| `torchiko.account.meeting_get`      | Exact meeting/extraction detail     | Safe repeat                | No                           | Credential capability scoped                  |
+| `torchiko.account.correspondence`   | Bounded correspondence snippets     | Safe repeat                | No                           | Credential capability scoped                  |
+| `torchiko.knowledge.search`         | Governed institutional search       | Safe repeat                | No                           | Credential capability scoped                  |
+| `torchiko.knowledge.get`            | Exact governed knowledge item       | Safe repeat                | No                           | Credential capability scoped                  |
+| `torchiko.integrations.health`      | Secret-free integration health      | Safe repeat                | No                           | Credential capability scoped                  |
 
 `pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage, jobs, evaluations, weekly reports, privacy-bounded conversation sessions, integration access health, agent runs, operational events, native deployments, feature flags, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets.
 
@@ -41,4 +49,4 @@ The expanded operational-intelligence resources deliberately exclude report cont
 
 The safe operational catalog is composed through `createSafeOperationalMcpRegistry` and mounted on the existing authenticated, rate-limited, default-dark agent bridge as `listOperationalTools` and `callOperationalTool`. The bridge derives client and venue scope from its verified machine credential and overwrites caller-supplied scope. Reads, operator questions, specialist delegation, and billing proposals reuse canonical domain actions.
 
-Approval-bound package, update, support, and evaluation writes remain disabled. Their existing human-audited domain models cannot yet attribute a machine actor without impersonating a user. A standards-compliant MCP JSON-RPC dispatcher is also still deferred; the bridge methods expose the same catalog and structured results but are not presented as a complete MCP protocol server.
+Canonical actions now support honest human, machine, system, and integration attribution. The operational-update draft is the first enabled approval-bound machine write and consumes an exact verified grant; package, support, evaluation, publication, outreach, billing-effect, deployment, and destructive writes retain their stricter controls. The same registry is exposed through the authenticated bridge and the standards MCP JSON-RPC route at `/api/mcp/[tenantId]/[venueId]`.

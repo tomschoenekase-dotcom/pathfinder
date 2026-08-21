@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   buildBootstrapReport,
+  buildCompanyBrainStatus,
   buildConversationReplay,
   buildDoctorReport,
   buildRepositoryMap,
@@ -14,6 +15,7 @@ import {
   listAgentTools,
   listFixtures,
   loadScenarioRegistry,
+  loadCompanyBrainScenarioRegistry,
   simulateScenarioLocation,
   simulateScenarioTime,
 } from './lib/torchiko-developer-tools.mjs'
@@ -58,6 +60,8 @@ test('tool and fixture discovery reuse canonical sources', async () => {
   const tools = await listAgentTools(root)
   const names = tools.tools.map((tool) => tool.name)
   assert.ok(names.includes('pathfinder.read'))
+  assert.ok(names.includes('torchiko.account.get_context'))
+  assert.ok(names.includes('torchiko.knowledge.search'))
   assert.ok(names.includes('torchiko.prospects.search'))
   assert.ok(tools.resources.some((resource) => resource.name === 'pathfinder.reports'))
   assert.ok(
@@ -115,6 +119,25 @@ test('synthetic scenario registry covers canonical venue shapes', async () => {
     registry.scenarios.map((scenario) => scenario.id),
     ['small-museum', 'outdoor-park', 'attraction', 'large-museum'],
   )
+})
+
+test('Company Brain diagnostics discover governed tools and required scenario worlds', async () => {
+  const registry = await loadCompanyBrainScenarioRegistry(root)
+  assert.equal(registry.healthy, true)
+  assert.deepEqual(
+    registry.scenarios.map((scenario) => scenario.id),
+    [
+      'new-prospect',
+      'converted-small-museum',
+      'mature-multi-venue',
+      'difficult-relationship',
+      'friend-takeover',
+    ],
+  )
+  const status = await buildCompanyBrainStatus(root)
+  assert.equal(status.healthy, true)
+  assert.equal(status.tools.missing.length, 0)
+  assert.equal(status.shakedown.providerFree, true)
 })
 
 test('time and location simulations are deterministic and provider-free', async () => {

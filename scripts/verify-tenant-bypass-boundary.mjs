@@ -17,6 +17,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/answer-analysis.ts', 2],
   ['apps/workers/src/processors/daily-rollup.ts', 3],
   ['apps/workers/src/processors/embed-knowledge-entry.ts', 1],
+  // Company Knowledge embedding claims are platform-dispatched, then re-enter
+  // the exact tenant+venue scope before selecting or persisting content.
+  ['apps/workers/src/processors/embed-company-knowledge.ts', 1],
   ['apps/workers/src/processors/embed-place.ts', 1],
   ['apps/workers/src/processors/media-ingestion.ts', 9],
   ['apps/workers/src/lib/media-provider-budget.ts', 1],
@@ -55,6 +58,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/client-reads.ts', 3],
   // Platform-admin billing portfolio intentionally aggregates customer billing and CRM links.
   ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
+  // Platform-admin Company Brain browse/create operations are bounded, audited,
+  // and use canonical knowledge actions rather than direct agent-side writes.
+  ['packages/api/src/routers/admin/company-brain.ts', 3],
   // Founder-only billing rollout reads and changes only allowlisted flags for one exact tenant;
   // the mutation records the platform-admin actor and before/after state in the same transaction.
   ['packages/api/src/routers/admin/billing-rollout.ts', 2],
