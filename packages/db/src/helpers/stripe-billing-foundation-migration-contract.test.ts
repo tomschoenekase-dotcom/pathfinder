@@ -13,6 +13,16 @@ const migration = readFileSync(
   'utf8',
 )
 
+const pendingCustomerNamespaceFix = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../prisma/migrations/20260821032000_allow_pending_stripe_customer_link/migration.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+)
+
 describe('Stripe billing foundation migration contract', () => {
   it('adds the complete billing domain without destructive schema changes', () => {
     for (const table of [
@@ -44,6 +54,17 @@ describe('Stripe billing foundation migration contract', () => {
     expect(migration).toContain('("stripe_mode", "stripe_account_id", "stripe_event_id")')
     expect(migration).toContain('"billing_accounts_stripe_namespace_check"')
     expect(migration).toContain('"billing_invoice_projections_source_check"')
+  })
+
+  it('allows a provider-namespaced pending account before its Stripe Customer is linked', () => {
+    expect(pendingCustomerNamespaceFix).toContain(
+      'DROP CONSTRAINT "billing_accounts_stripe_namespace_check"',
+    )
+    expect(pendingCustomerNamespaceFix).toContain(
+      '("stripe_mode" IS NOT NULL AND "stripe_account_id" IS NOT NULL)',
+    )
+    expect(pendingCustomerNamespaceFix).toContain('"stripe_customer_id" IS NULL)')
+    expect(pendingCustomerNamespaceFix).not.toMatch(/DROP\s+(?:TABLE|COLUMN|TYPE)/iu)
   })
 
   it('enforces exact tenant ownership for accounts, agreements, and covered venues', () => {

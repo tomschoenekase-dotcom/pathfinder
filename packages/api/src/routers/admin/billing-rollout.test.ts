@@ -54,9 +54,9 @@ vi.mock('@pathfinder/billing', () => ({
 
 import type { TRPCContext } from '../../context'
 import { router } from '../../core'
-import { adminBillingRouter } from './billing'
+import { adminBillingRolloutRouter } from './billing-rollout'
 
-const app = router({ admin: adminBillingRouter })
+const app = router({ admin: adminBillingRolloutRouter })
 
 function context(isPlatformAdmin = true): TRPCContext {
   return {

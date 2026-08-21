@@ -1,5 +1,7 @@
 # Torchiko Stripe billing operator runbook
 
+> **Migration instruction status: STAGING-ONLY AUTHORIZED — PRODUCTION COMMANDS REMAIN STOPPED.**
+
 **Packet date:** 2026-08-20
 **Permitted mode for this handoff:** Stripe sandbox/test mode only
 **Production posture:** keep every production billing gate disabled
