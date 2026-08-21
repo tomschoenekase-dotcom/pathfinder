@@ -128,7 +128,7 @@ export async function requestTenantCancellation(params: {
     })
     const request = await client.$transaction(async (tx) => {
       const completed = await tx.billingCustomerRequest.update({
-        where: { id_tenantId: { id: reserved.request.id, tenantId: params.tenantId } },
+        where: { id: reserved.request.id, tenantId: params.tenantId },
         data: {
           status: 'COMPLETED',
           providerActionAt: new Date(),
@@ -168,7 +168,7 @@ export async function requestTenantCancellation(params: {
     return { request, replayed: false, awaitingWebhook: true }
   } catch (error) {
     await client.billingCustomerRequest.update({
-      where: { id_tenantId: { id: reserved.request.id, tenantId: params.tenantId } },
+      where: { id: reserved.request.id, tenantId: params.tenantId },
       data: { status: 'FAILED', failureCode: 'PROVIDER_ERROR', resolvedAt: new Date() },
     })
     throw error

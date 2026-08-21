@@ -444,7 +444,7 @@ export async function createTenantCheckout(params: {
     })
     customerId = customer.id
     await client.billingAccount.update({
-      where: { id_tenantId: { id: reserved.account.id, tenantId: params.tenantId } },
+      where: { id: reserved.account.id, tenantId: params.tenantId },
       data: { stripeCustomerId: customerId, updatedBy: params.actorId },
     })
   }
@@ -471,16 +471,16 @@ export async function createTenantCheckout(params: {
   await client.$transaction(async (tx) => {
     if (reserved.replacementId) {
       await tx.commercialAgreement.update({
-        where: { id_tenantId: { id: reserved.replacementId, tenantId: params.tenantId } },
+        where: { id: reserved.replacementId, tenantId: params.tenantId },
         data: { isBase: false, status: 'ENDED', endedAt: new Date(), updatedBy: params.actorId },
       })
       await tx.commercialAgreement.update({
-        where: { id_tenantId: { id: reserved.agreement.id, tenantId: params.tenantId } },
+        where: { id: reserved.agreement.id, tenantId: params.tenantId },
         data: { isBase: true, updatedBy: params.actorId },
       })
     }
     await tx.billingCheckoutAttempt.update({
-      where: { id_tenantId: { id: reserved.replay.id, tenantId: params.tenantId } },
+      where: { id: reserved.replay.id, tenantId: params.tenantId },
       data: {
         stripeCheckoutSessionId: session.id,
         stripeCheckoutUrl: session.url,
@@ -791,7 +791,7 @@ export async function applyVerifiedStripeEvent(params: {
             params.event.type === 'checkout.session.async_payment_succeeded'
           const expired = params.event.type === 'checkout.session.expired'
           await tx.billingCheckoutAttempt.update({
-            where: { id_tenantId: { id: attempt.id, tenantId: attempt.tenantId } },
+            where: { id: attempt.id, tenantId: attempt.tenantId },
             data: {
               status: completed ? 'COMPLETED' : expired ? 'EXPIRED' : 'FAILED',
               completedAt: completed ? new Date() : null,
@@ -853,7 +853,7 @@ export async function applyVerifiedStripeEvent(params: {
                   )
                 : null
             await tx.commercialAgreement.update({
-              where: { id_tenantId: { id: target.id, tenantId: target.tenantId } },
+              where: { id: target.id, tenantId: target.tenantId },
               data: {
                 status: projectedStatus(projection.status),
                 stripeSubscriptionId: projection.stripeSubscriptionId,
@@ -875,9 +875,7 @@ export async function applyVerifiedStripeEvent(params: {
               },
             })
             await tx.billingAccount.update({
-              where: {
-                id_tenantId: { id: resolvedAccount.id, tenantId: resolvedAccount.tenantId },
-              },
+              where: { id: resolvedAccount.id, tenantId: resolvedAccount.tenantId },
               data: {
                 status: projectedAccountStatus(projection.status),
                 gracePeriodEndsAt: graceEndsAt,
@@ -948,7 +946,7 @@ export async function applyVerifiedStripeEvent(params: {
             }
             const saved = current
               ? await tx.billingInvoiceProjection.update({
-                  where: { id_tenantId: { id: current.id, tenantId: current.tenantId } },
+                  where: { id: current.id, tenantId: current.tenantId },
                   data,
                 })
               : await tx.billingInvoiceProjection.create({
@@ -983,7 +981,7 @@ export async function applyVerifiedStripeEvent(params: {
                 providerCreatedAt.getTime() + environment.BILLING_GRACE_PERIOD_DAYS * 86_400_000,
               )
               await tx.commercialAgreement.update({
-                where: { id_tenantId: { id: agreement.id, tenantId: agreement.tenantId } },
+                where: { id: agreement.id, tenantId: agreement.tenantId },
                 data: {
                   status: 'PAST_DUE',
                   providerStateChangedAt: providerCreatedAt,
@@ -993,9 +991,7 @@ export async function applyVerifiedStripeEvent(params: {
                 },
               })
               await tx.billingAccount.update({
-                where: {
-                  id_tenantId: { id: resolvedAccount.id, tenantId: resolvedAccount.tenantId },
-                },
+                where: { id: resolvedAccount.id, tenantId: resolvedAccount.tenantId },
                 data: {
                   status: 'PAST_DUE',
                   gracePeriodEndsAt: graceEndsAt,
@@ -1017,7 +1013,7 @@ export async function applyVerifiedStripeEvent(params: {
           params.event.type.startsWith('refund.')
         ) {
           await tx.billingAccount.update({
-            where: { id_tenantId: { id: resolvedAccount.id, tenantId: resolvedAccount.tenantId } },
+            where: { id: resolvedAccount.id, tenantId: resolvedAccount.tenantId },
             data: {
               status: 'MANUAL_REVIEW',
               providerStateChangedAt: providerCreatedAt,
@@ -1203,7 +1199,7 @@ export async function reconcileBillingAccount(params: {
       if (changed) {
         repaired += 1
         await client.commercialAgreement.update({
-          where: { id_tenantId: { id: agreement.id, tenantId: params.tenantId } },
+          where: { id: agreement.id, tenantId: params.tenantId },
           data: {
             status: projectedStatus(projection.status),
             stripeSubscriptionStatus: projection.status,
@@ -1243,7 +1239,7 @@ export async function reconcileBillingAccount(params: {
       if (changed) {
         repaired += 1
         await client.billingInvoiceProjection.update({
-          where: { id_tenantId: { id: invoice.id, tenantId: params.tenantId } },
+          where: { id: invoice.id, tenantId: params.tenantId },
           data: {
             status: projection.status,
             invoiceNumber: projection.invoiceNumber,
@@ -1268,7 +1264,7 @@ export async function reconcileBillingAccount(params: {
       account.commercialAgreements.length + account.invoiceProjections.length
     await client.$transaction(async (tx) => {
       await tx.billingReconciliationRun.update({
-        where: { id_tenantId: { id: run.id, tenantId: params.tenantId } },
+        where: { id: run.id, tenantId: params.tenantId },
         data: {
           status: repaired ? 'DRIFT_DETECTED' : 'SUCCEEDED',
           completedAt: new Date(),
@@ -1278,7 +1274,7 @@ export async function reconcileBillingAccount(params: {
         },
       })
       await tx.billingAccount.update({
-        where: { id_tenantId: { id: account.id, tenantId: params.tenantId } },
+        where: { id: account.id, tenantId: params.tenantId },
         data: {
           reconciliationHealth: repaired ? 'DRIFT' : 'CURRENT',
           lastReconciledAt: new Date(),
@@ -1324,11 +1320,11 @@ export async function reconcileBillingAccount(params: {
     return { runId: run.id, compared: comparedObjectCount, repaired }
   } catch (error) {
     await client.billingReconciliationRun.update({
-      where: { id_tenantId: { id: run.id, tenantId: params.tenantId } },
+      where: { id: run.id, tenantId: params.tenantId },
       data: { status: 'FAILED', completedAt: new Date(), errorCode: 'RECONCILIATION_FAILED' },
     })
     await client.billingAccount.update({
-      where: { id_tenantId: { id: account.id, tenantId: params.tenantId } },
+      where: { id: account.id, tenantId: params.tenantId },
       data: {
         reconciliationHealth: 'ERROR',
         lastReconciliationError: 'Reconciliation failed; inspect sanitized service logs.',
@@ -1579,11 +1575,11 @@ export async function recordManualPayment(params: {
         },
       })
       await tx.commercialAgreement.update({
-        where: { id_tenantId: { id: agreement.id, tenantId: params.tenantId } },
+        where: { id: agreement.id, tenantId: params.tenantId },
         data: { status: 'ACTIVE', updatedBy: params.actorId },
       })
       await tx.billingAccount.update({
-        where: { id_tenantId: { id: agreement.billingAccountId, tenantId: params.tenantId } },
+        where: { id: agreement.billingAccountId, tenantId: params.tenantId },
         data: {
           status: 'ACTIVE',
           paidThroughAt: params.paidThroughAt ?? null,

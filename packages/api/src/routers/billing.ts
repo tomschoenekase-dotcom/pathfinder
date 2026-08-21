@@ -43,8 +43,8 @@ async function requireTenantFlag(
   tenantId: string,
   flagKey: string,
 ) {
-  const flag = await ctx.db?.tenantFeatureFlag.findUnique({
-    where: { tenantId_flagKey: { tenantId, flagKey } },
+  const flag = await ctx.db?.tenantFeatureFlag.findFirst({
+    where: { tenantId, flagKey },
     select: { enabled: true },
   })
   if (!flag?.enabled)

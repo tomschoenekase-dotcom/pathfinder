@@ -191,7 +191,7 @@ export async function executeApprovedBillingAgentCommand(params: {
     }
     return {
       command: await tx.billingAgentCommand.update({
-        where: { id_tenantId: { id: command.id, tenantId: params.tenantId } },
+        where: { id: command.id, tenantId: params.tenantId },
         data: { status: 'EXECUTING' },
       }),
       replayed: false,
@@ -248,7 +248,7 @@ export async function executeApprovedBillingAgentCommand(params: {
       })
     }
     const command = await client.billingAgentCommand.update({
-      where: { id_tenantId: { id: reserved.command.id, tenantId: params.tenantId } },
+      where: { id: reserved.command.id, tenantId: params.tenantId },
       data: {
         status: 'COMPLETED',
         executedBy: params.actorId,
@@ -263,7 +263,7 @@ export async function executeApprovedBillingAgentCommand(params: {
     return { command, result, replayed: false }
   } catch (error) {
     await client.billingAgentCommand.update({
-      where: { id_tenantId: { id: reserved.command.id, tenantId: params.tenantId } },
+      where: { id: reserved.command.id, tenantId: params.tenantId },
       data: {
         status: 'FAILED',
         executedBy: params.actorId,
