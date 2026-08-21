@@ -47,6 +47,7 @@ describe('Stripe provider adapter', () => {
     expect(createCheckout).toHaveBeenCalledWith(
       {
         mode: 'subscription',
+        payment_method_types: ['card'],
         integration_identifier: 'torchiko_aaoakaaa',
         customer: 'cus_test',
         line_items: [{ price: 'price_test', quantity: 2 }],
