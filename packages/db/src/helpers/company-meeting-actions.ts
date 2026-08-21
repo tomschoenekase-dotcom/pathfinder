@@ -268,7 +268,7 @@ export async function completeCompanyMeetingProcessingAction(
         id: input.meetingId,
         ...(input.tenantId ? { tenantId: input.tenantId } : {}),
       },
-      select: { id: true, tenantId: true, processingStatus: true },
+      select: { id: true, tenantId: true, organizationId: true, processingStatus: true },
     })
     if (!meeting) throw new CompanyMeetingActionError('NOT_FOUND', 'Meeting not found in scope')
     if (meeting.processingStatus === 'COMPLETE') return { ...meeting, replayed: true }
@@ -284,6 +284,15 @@ export async function completeCompanyMeetingProcessingAction(
       },
       select: { id: true, tenantId: true, processingStatus: true },
     })
+    if (meeting.organizationId) {
+      await tx.accountSummary.updateMany({
+        where: {
+          organizationId: meeting.organizationId,
+          status: 'CURRENT',
+        },
+        data: { status: 'STALE' },
+      })
+    }
     await writeAuditLogStrict(
       {
         ...(meeting.tenantId ? { tenantId: meeting.tenantId } : {}),

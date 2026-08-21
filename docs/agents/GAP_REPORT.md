@@ -1,6 +1,6 @@
-# Torchiko agent-operability gap report
+# Torchiko agent-operability gap report (Packet A historical baseline)
 
-Baseline date: 2026-08-21. This report is updated as Packet A closes gaps.
+Baseline date: 2026-08-21. The numbered gaps below preserve Packet A's final baseline. Packet C / Company Brain subsequently closed standard MCP transport, verified approval-bound machine attribution and the first canonical write, disposable database scenarios, unified integration health, provider-routed grounding evaluation infrastructure, and durable explanation evidence. See `company-brain-architecture.md` and the current capability matrix for implemented state.
 
 ## P0 gaps
 

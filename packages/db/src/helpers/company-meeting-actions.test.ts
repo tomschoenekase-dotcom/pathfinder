@@ -34,6 +34,7 @@ function harness() {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({ id: 'extraction_1', promotionStatus: 'CANDIDATE' }),
     },
+    accountSummary: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
   }
   const client = {
@@ -115,6 +116,7 @@ describe('company meeting pipeline actions', () => {
     tx.companyMeeting.findFirst.mockResolvedValue({
       id: 'meeting_1',
       tenantId: 'tenant_1',
+      organizationId: 'org_1',
       processingStatus: 'PROCESSING',
     })
     tx.companyMeeting.update.mockResolvedValue({
@@ -141,5 +143,9 @@ describe('company meeting pipeline actions', () => {
         }),
       }),
     )
+    expect(tx.accountSummary.updateMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org_1', status: 'CURRENT' },
+      data: { status: 'STALE' },
+    })
   })
 })
