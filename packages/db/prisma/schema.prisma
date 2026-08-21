@@ -154,6 +154,8 @@ model Tenant {
   agentMessages                  AgentMessage[]
   agentOutcomeObservations       AgentOutcomeObservation[]
   approvalDecisions              ApprovalDecision[]
+  approvalGrants                 ApprovalGrant[]
+  approvalGrantConsumptions      ApprovalGrantConsumption[]
   supportRequests                SupportRequest[]
   supportMessages                SupportMessage[]
   supportAttachments             SupportMessageAttachment[]
@@ -228,21 +230,39 @@ model TenantMembership {
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  tenantId    String?  @map("tenant_id")
-  actorId     String   @map("actor_id")
-  actorRole   String   @map("actor_role")
-  action      String
-  targetType  String   @map("target_type")
-  targetId    String   @map("target_id")
-  beforeState Json?    @map("before_state")
-  afterState  Json?    @map("after_state")
-  ipAddress   String?  @map("ip_address")
-  userAgent   String?  @map("user_agent")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id                String    @id @default(cuid())
+  tenantId          String?   @map("tenant_id")
+  actorType         ActorType @default(HUMAN) @map("actor_type")
+  actorId           String    @map("actor_id")
+  actorRole         String    @map("actor_role")
+  agentIdentityId   String?   @map("agent_identity_id")
+  agentRunId        String?   @map("agent_run_id")
+  workerId          String?   @map("worker_id")
+  systemJobId       String?   @map("system_job_id")
+  integrationId     String?   @map("integration_id")
+  credentialId      String?   @map("credential_id")
+  approvalGrantId   String?   @map("approval_grant_id")
+  capability        String?
+  modelProvider     String?   @map("model_provider")
+  modelName         String?   @map("model_name")
+  idempotencyKey    String?   @map("idempotency_key")
+  structuredReason  Json?     @map("structured_reason")
+  sourceReferences  Json?     @map("source_references")
+  action            String
+  targetType        String    @map("target_type")
+  targetId          String    @map("target_id")
+  beforeState       Json?     @map("before_state")
+  afterState        Json?     @map("after_state")
+  ipAddress         String?   @map("ip_address")
+  userAgent         String?   @map("user_agent")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])
   @@index([actorId])
+  @@index([actorType, actorId, createdAt])
+  @@index([tenantId, agentRunId, createdAt])
+  @@index([tenantId, workerId, createdAt])
+  @@index([tenantId, approvalGrantId, createdAt])
   @@map("audit_logs")
 }
 
@@ -1236,6 +1256,8 @@ model Venue {
   agentMessages                       AgentMessage[]
   agentOutcomeObservations            AgentOutcomeObservation[]
   approvalDecisions                   ApprovalDecision[]
+  approvalGrants                      ApprovalGrant[]
+  approvalGrantConsumptions           ApprovalGrantConsumption[]
   supportRequests                     SupportRequest[]
   supportMessages                     SupportMessage[]
   supportAttachments                  SupportMessageAttachment[]
@@ -3962,6 +3984,8 @@ model AgentIdentity {
   questions           AgentQuestion[]
   messages            AgentMessage[]
   outcomeObservations AgentOutcomeObservation[]
+  approvalGrants      ApprovalGrant[]
+  grantConsumptions   ApprovalGrantConsumption[]
 
   @@unique([tenantId, identityKey])
   @@unique([id, tenantId])
@@ -4015,6 +4039,7 @@ model AgentRun {
   parentAgentRun           AgentRun?                 @relation("AgentRunDelegations", fields: [parentAgentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   delegatedRuns            AgentRun[]                @relation("AgentRunDelegations")
   executionBridgeSession   AgentBridgeSession?       @relation(fields: [executionBridgeSessionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalGrantConsumptions ApprovalGrantConsumption[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_runs_tenant_operation_key")
@@ -4265,6 +4290,7 @@ model ApprovalDecision {
   venue             Venue?                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   approvalRequest   ApprovalRequest         @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   resultingAction   AgentAction?
+  grant             ApprovalGrant?
 
   @@unique([id, tenantId])
   @@unique([approvalRequestId, tenantId])
@@ -4273,10 +4299,89 @@ model ApprovalDecision {
   @@map("approval_decisions")
 }
 
+enum ApprovalGrantMode {
+  ONE_SHOT
+  BOUNDED
+  TEMPORARY
+  POLICY_BACKED
+}
+
+/// Durable authority derived from one exact human approval or a named reviewed policy.
+/// The grant is narrower than an approval decision: it binds the action, capability,
+/// agent, scope, parameters/bounds, lifetime, and use count.
+model ApprovalGrant {
+  id                 String                     @id @default(cuid())
+  tenantId           String                     @map("tenant_id")
+  venueId            String                     @map("venue_id")
+  approvalDecisionId String?                    @map("approval_decision_id")
+  policyKey          String?                    @map("policy_key") @db.VarChar(191)
+  agentIdentityId    String                     @map("agent_identity_id")
+  actionName         String                     @map("action_name") @db.VarChar(191)
+  capability         String                     @db.VarChar(191)
+  mode               ApprovalGrantMode
+  scope              Json
+  parameterHash      String?                    @map("parameter_hash") @db.Char(64)
+  constraints        Json                       @default("{}")
+  maxUses            Int?                       @map("max_uses")
+  useCount           Int                        @default(0) @map("use_count")
+  notBefore          DateTime                   @default(now()) @map("not_before")
+  expiresAt          DateTime?                  @map("expires_at")
+  revokedAt          DateTime?                  @map("revoked_at")
+  revokedByType      ActorType?                 @map("revoked_by_type")
+  revokedById        String?                    @map("revoked_by_id") @db.VarChar(191)
+  revokeReason       String?                    @map("revoke_reason") @db.VarChar(1000)
+  createdByType      ActorType                  @map("created_by_type")
+  createdById        String                     @map("created_by_id") @db.VarChar(191)
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue              Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalDecision   ApprovalDecision?          @relation(fields: [approvalDecisionId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity      AgentIdentity              @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  consumptions       ApprovalGrantConsumption[]
+
+  @@unique([id, tenantId])
+  @@unique([approvalDecisionId, tenantId], map: "approval_grants_decision_tenant_key")
+  @@index([tenantId, venueId, actionName, revokedAt, expiresAt], map: "approval_grants_scope_action_active_idx")
+  @@index([tenantId, agentIdentityId, createdAt], map: "approval_grants_agent_created_idx")
+  @@map("approval_grants")
+}
+
+/// Append-only evidence for one successful exercise of a grant. Operation IDs
+/// make retries return the original evidence instead of consuming authority twice.
+model ApprovalGrantConsumption {
+  id              String        @id @default(cuid())
+  operationId     String        @map("operation_id") @db.Uuid
+  tenantId        String        @map("tenant_id")
+  venueId         String        @map("venue_id")
+  approvalGrantId String        @map("approval_grant_id")
+  agentIdentityId String        @map("agent_identity_id")
+  agentRunId      String        @map("agent_run_id")
+  workerId        String        @map("worker_id") @db.VarChar(191)
+  credentialId    String        @map("credential_id") @db.VarChar(191)
+  actionName      String        @map("action_name") @db.VarChar(191)
+  capability      String        @db.VarChar(191)
+  parameterHash   String        @map("parameter_hash") @db.Char(64)
+  resultReference String?       @map("result_reference") @db.VarChar(500)
+  consumedAt      DateTime      @default(now()) @map("consumed_at")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue         @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalGrant   ApprovalGrant @relation(fields: [approvalGrantId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity   AgentIdentity @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun        AgentRun      @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "approval_grant_consumptions_tenant_operation_key")
+  @@unique([approvalGrantId, operationId], map: "approval_grant_consumptions_grant_operation_key")
+  @@index([tenantId, approvalGrantId, consumedAt], map: "approval_grant_consumptions_grant_time_idx")
+  @@index([tenantId, agentRunId, consumedAt], map: "approval_grant_consumptions_run_time_idx")
+  @@map("approval_grant_consumptions")
+}
+
 enum ActorType {
   HUMAN
   AGENT
   SYSTEM
+  INTEGRATION
 }
 
 enum AgentAccessScope {

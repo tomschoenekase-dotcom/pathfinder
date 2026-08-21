@@ -378,6 +378,14 @@ export {
   recordApprovalDecisionAction,
 } from './helpers/approval-decisions'
 export type { ApprovalDecisionActor } from './helpers/approval-decisions'
+export {
+  approvalParameterHash,
+  ApprovalGrantActionError,
+  consumeApprovalGrantAction,
+  issueApprovalGrantAction,
+  revokeApprovalGrantAction,
+} from './helpers/approval-grants'
+export type { ApprovalGrantHumanActor } from './helpers/approval-grants'
 export type {
   AiCostAttemptIdentity,
   AiCostReservationRef,

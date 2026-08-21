@@ -87,6 +87,8 @@ export const TENANTED_TABLES = [
   'OnboardingQuestionLink',
   'ApprovalRequest',
   'ApprovalDecision',
+  'ApprovalGrant',
+  'ApprovalGrantConsumption',
   'SupportRequest',
   'SupportRequestParticipant',
   'SupportMessage',

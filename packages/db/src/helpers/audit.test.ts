@@ -49,6 +49,52 @@ describe('writeAuditLog', () => {
     expect(warnMock).not.toHaveBeenCalled()
   })
 
+  it('writes honest machine lineage without a human-shaped actor', async () => {
+    createMock.mockResolvedValueOnce({ id: 'audit_machine_1' })
+
+    const { writeAuditLogStrict } = await import('./audit')
+
+    await writeAuditLogStrict({
+      tenantId: 'tenant_1',
+      actor: {
+        type: 'AGENT',
+        actorId: 'agent_1',
+        role: 'AGENT',
+        agentIdentityId: 'agent_1',
+        agentRunId: 'run_1',
+        workerId: 'worker_1',
+        credentialId: 'credential_1',
+        capability: 'operational-updates:draft',
+        approvalGrantId: 'grant_1',
+        modelProvider: 'hermes',
+        modelName: 'worker-default',
+        idempotencyKey: 'operation_1',
+      },
+      action: 'operational-update.created-draft',
+      targetType: 'OperationalUpdate',
+      targetId: 'update_1',
+      structuredReason: { summary: 'Prepared a reversible internal draft' },
+      sourceReferences: ['support-request:support_1'],
+    })
+
+    expect(createMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'AGENT',
+        actorId: 'agent_1',
+        actorRole: 'AGENT',
+        agentIdentityId: 'agent_1',
+        agentRunId: 'run_1',
+        workerId: 'worker_1',
+        credentialId: 'credential_1',
+        approvalGrantId: 'grant_1',
+        capability: 'operational-updates:draft',
+        modelProvider: 'hermes',
+        modelName: 'worker-default',
+        idempotencyKey: 'operation_1',
+      }),
+    })
+  })
+
   it('logs and swallows database errors', async () => {
     createMock.mockRejectedValueOnce(new Error('db unavailable'))
 
