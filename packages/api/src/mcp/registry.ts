@@ -12,6 +12,7 @@ import {
   McpKnowledgeGetInput,
   McpKnowledgeSearchInput,
   McpIntegrationHealthInput,
+  McpMeetingProcessInput,
   McpReadInput,
   McpSupportDraftInput,
   McpToolResult,
@@ -47,6 +48,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.account.timeline'
         | 'torchiko.account.meetings'
         | 'torchiko.account.meeting_get'
+        | 'torchiko.meeting.process'
         | 'torchiko.account.correspondence'
         | 'torchiko.knowledge.search'
         | 'torchiko.knowledge.get'
@@ -76,6 +78,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   accountMeetingGet: (
     input: McpAccountMeetingGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  processMeeting: (
+    input: McpMeetingProcessInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   accountCorrespondence: (
@@ -226,6 +232,12 @@ export function createPathfinderMcpRegistry(
           result = await actions.accountCorrespondence(input, context)
           break
         }
+        case 'torchiko.meeting.process': {
+          const input = McpMeetingProcessInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.processMeeting(input, context)
+          break
+        }
         case 'torchiko.knowledge.search': {
           const input = McpKnowledgeSearchInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
@@ -330,6 +342,7 @@ async function verifyApproval(
     | 'torchiko.account.timeline'
     | 'torchiko.account.meetings'
     | 'torchiko.account.meeting_get'
+    | 'torchiko.meeting.process'
     | 'torchiko.account.correspondence'
     | 'torchiko.knowledge.search'
     | 'torchiko.knowledge.get'

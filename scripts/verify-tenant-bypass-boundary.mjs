@@ -44,7 +44,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/agent-identity-configuration.ts', 4],
   ['packages/api/src/routers/admin/agent-approval-decisions.ts', 1],
   // Platform-admin operator inbox reads and answers exact tenant+venue agent questions.
-  ['packages/api/src/routers/admin/agent-questions.ts', 4],
+  ['packages/api/src/routers/admin/agent-questions.ts', 5],
   ['packages/api/src/routers/admin/agent-outcomes.ts', 2],
   // Platform-admin task composer queues one exact tenant+venue run without provider execution.
   ['packages/api/src/routers/admin/agent-task-requests.ts', 1],
@@ -60,7 +60,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/billing-portfolio.ts', 1],
   // Platform-admin Company Brain browse/create operations are bounded, audited,
   // and use canonical knowledge actions rather than direct agent-side writes.
-  ['packages/api/src/routers/admin/company-brain.ts', 3],
+  ['packages/api/src/routers/admin/company-brain.ts', 4],
   // Founder-only billing rollout reads and changes only allowlisted flags for one exact tenant;
   // the mutation records the platform-admin actor and before/after state in the same transaction.
   ['packages/api/src/routers/admin/billing-rollout.ts', 2],

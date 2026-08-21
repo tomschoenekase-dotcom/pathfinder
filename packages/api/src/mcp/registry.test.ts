@@ -19,6 +19,7 @@ const credential: VerifiedMcpCredentialScope = {
     'accounts:read',
     'knowledge:read',
     'meetings:read',
+    'meetings:process',
   ],
 }
 
@@ -36,6 +37,7 @@ function actions(): PathfinderMcpDomainActions {
     accountTimeline: vi.fn().mockResolvedValue(result),
     accountMeetings: vi.fn().mockResolvedValue(result),
     accountMeetingGet: vi.fn().mockResolvedValue(result),
+    processMeeting: vi.fn().mockResolvedValue(result),
     accountCorrespondence: vi.fn().mockResolvedValue(result),
     knowledgeSearch: vi.fn().mockResolvedValue(result),
     knowledgeGet: vi.fn().mockResolvedValue(result),
@@ -60,6 +62,7 @@ describe('PathFinder MCP server-side adapter registry', () => {
         'torchiko.account.timeline',
         'torchiko.account.meetings',
         'torchiko.account.meeting_get',
+        'torchiko.meeting.process',
         'torchiko.account.correspondence',
         'torchiko.knowledge.search',
         'torchiko.knowledge.get',
@@ -92,6 +95,21 @@ describe('PathFinder MCP server-side adapter registry', () => {
       { credential },
     )
     await registry.callTool(
+      'torchiko.meeting.process',
+      {
+        clientId: 'client-1',
+        venueId: 'venue-1',
+        operationId: '11111111-1111-4111-8111-111111111111',
+        meetingId: 'meeting-1',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        summary: 'Client confirmed the launch plan.',
+        extractions: [{ type: 'DECISION', content: 'Launch on September 1.', structuredData: {} }],
+      },
+      { credential },
+    )
+    await registry.callTool(
       'torchiko.knowledge.search',
       { clientId: 'client-1', query: 'pricing decision', limit: 5 },
       { credential },
@@ -101,6 +119,7 @@ describe('PathFinder MCP server-side adapter registry', () => {
     expect(domain.accountMeetings).toHaveBeenCalled()
     expect(domain.accountMeetingGet).toHaveBeenCalled()
     expect(domain.accountCorrespondence).toHaveBeenCalled()
+    expect(domain.processMeeting).toHaveBeenCalled()
     expect(domain.knowledgeSearch).toHaveBeenCalled()
   })
 

@@ -36,6 +36,10 @@ Deterministic facts remain derived from canonical records. Durable relationship 
 
 Meeting ingestion, extraction, and completion are canonical idempotent actions. A meeting records participants, organization/venue/opportunity links, provider identity, artifact reference, lifecycle status, processing provenance, and categorized candidate extractions. Candidate outputs do not become authoritative automatically.
 
+An authorized live worker with `meetings:process` can call `torchiko.meeting.process` from its leased run. The tool validates worker, credential, run, tenant, venue, and meeting scope; records at most 25 idempotent candidate extractions; and completes processing. Partial retries replay existing candidates. Promotion remains a separate governed decision.
+
+Platform admins queue processing through the existing durable `AgentRun` and enqueue boundary. The task survives worker loss, remains default-dark when the runner is disabled, and can be claimed by another compatible worker after lease expiry.
+
 Correspondence reuses the existing Gmail/thread synchronization. Significant messages may create bounded low-risk knowledge candidates; trivial messages do not become permanent memory. External Google Workspace/Meet source acquisition still requires owner OAuth scopes, but the internal ingestion/extraction pipeline and synthetic fixture path do not.
 
 ## Actors, approvals, and writes
@@ -43,6 +47,8 @@ Correspondence reuses the existing Gmail/thread synchronization. Significant mes
 Audited actions accept a verified actor abstraction: human, agent, system job, or external integration. Machine evidence includes credential, identity, run, worker, capability, approval grant, model/provider when supplied, and idempotency key. Agents are never recorded as human users.
 
 Approval grants are durable and bounded by action, exact resource/parameters, agent, expiration, and use mode. One-shot grants are transactionally consumed by the canonical write. Exact retries replay the committed result; a different operation cannot reuse the grant.
+
+An answered agent question remains run context by default. A platform administrator may separately and explicitly classify an answer as account context, durable preference, reusable policy, or strategic decision. Promotion is idempotent, links back to the exact question/run, uses the normal knowledge action, and requires organization scope for account-specific claims plus rationale for policies and decisions.
 
 The first enabled machine write is the operational-update draft. It is internal and reviewable, requires `updates:draft`, a verified exact grant, an active run/worker/credential, and writes normal audit/event evidence. Outbound sales, publication, billing effects, credential issuance, deployment, and destructive actions remain human-controlled.
 

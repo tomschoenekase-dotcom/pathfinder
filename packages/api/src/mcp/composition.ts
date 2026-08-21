@@ -10,6 +10,8 @@ import {
   getAccountTimeline,
   getCompanyKnowledgeItem,
   readUnifiedIntegrationHealth,
+  recordCompanyMeetingExtractionAction,
+  completeCompanyMeetingProcessingAction,
   listAccountCorrespondence,
   listAccountMeetings,
   searchCompanyKnowledge,
@@ -49,6 +51,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'accountMeetings'
     | 'accountMeetingGet'
     | 'accountCorrespondence'
+    | 'processMeeting'
     | 'knowledgeSearch'
     | 'knowledgeGet'
     | 'integrationHealth'
@@ -64,7 +67,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   }
   const approvedWrites: Pick<
     PathfinderMcpDomainActions,
-    'verifyApprovalGrant' | 'createUpdateDraft'
+    'verifyApprovalGrant' | 'createUpdateDraft' | 'processMeeting'
   > = {
     async verifyApprovalGrant(request, context) {
       const now = new Date()
@@ -209,6 +212,113 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           status: result.update.status,
           preview: result.preview,
           replayed: result.replayed,
+        }),
+      }
+    },
+    async processMeeting(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Meeting processing requires venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'meetings:process' },
+        },
+        select: { id: true, workerKey: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified meeting worker is unavailable')
+      const [run, meeting] = await Promise.all([
+        database.agentRun.findFirst({
+          where: {
+            id: input.agentRunId,
+            tenantId: context.credential.tenantId,
+            venueId,
+            agentIdentityId: input.agentIdentityId,
+            executionWorkerId: worker.id,
+            status: 'RUNNING',
+            executionLeaseExpiresAt: { gt: now },
+          },
+          select: { id: true },
+        }),
+        database.companyMeeting.findFirst({
+          where: {
+            id: input.meetingId,
+            tenantId: context.credential.tenantId,
+            venueId,
+          },
+          select: { id: true },
+        }),
+      ])
+      if (!run) throw new McpActionBindingError('Verified meeting worker run is unavailable')
+      if (!meeting) throw new McpActionBindingError('Meeting is unavailable in verified scope')
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.workerKey,
+        credentialId: context.credential.credentialId,
+        capability: 'meetings.process',
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const extractionResults = []
+      for (const [index, extraction] of input.extractions.entries()) {
+        extractionResults.push(
+          await recordCompanyMeetingExtractionAction(
+            {
+              meetingId: input.meetingId,
+              tenantId: context.credential.tenantId,
+              type: extraction.type,
+              content: extraction.content,
+              structuredData: extraction.structuredData,
+              ...(extraction.confidence !== undefined ? { confidence: extraction.confidence } : {}),
+              ...(extraction.sourceStartOffset !== undefined
+                ? { sourceStartOffset: extraction.sourceStartOffset }
+                : {}),
+              ...(extraction.sourceEndOffset !== undefined
+                ? { sourceEndOffset: extraction.sourceEndOffset }
+                : {}),
+              idempotencyKey: `${input.operationId}:${index}:${extraction.type}`,
+              actor,
+            },
+            database,
+          ),
+        )
+      }
+      const completed = await completeCompanyMeetingProcessingAction(
+        {
+          meetingId: input.meetingId,
+          tenantId: context.credential.tenantId,
+          summary: input.summary,
+          provenance: {
+            source: 'MCP',
+            operationId: input.operationId,
+            agentRunId: input.agentRunId,
+            workerKey: input.workerKey,
+          },
+          actor,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.meeting-processing',
+        summary: completed.replayed
+          ? 'Existing completed meeting processing returned.'
+          : 'Meeting extraction candidates recorded and processing completed.',
+        data: jsonData({
+          meetingId: completed.id,
+          processingStatus: completed.processingStatus,
+          extractionCount: extractionResults.length,
+          replayed: completed.replayed && extractionResults.every((item) => item.replayed),
         }),
       }
     },

@@ -1,12 +1,16 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 
 import { CompanyKnowledgeType } from '@pathfinder/contracts/company-brain'
+import { env } from '@pathfinder/config'
 import {
+  createAgentTaskAction,
   createCompanyKnowledgeCandidateAction,
   db,
   promoteCompanyKnowledgeAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
+import { enqueueAgentRun } from '@pathfinder/jobs'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
@@ -210,6 +214,84 @@ export const adminCompanyBrainRouter = router({
           },
           db,
         )
+      }),
+    ),
+
+  queueCompanyMeetingProcessing: adminProcedure
+    .input(
+      z.object({
+        requestId: z.string().uuid(),
+        tenantId: z.string().min(1).max(191),
+        venueId: z.string().min(1).max(191),
+        meetingId: z.string().min(1).max(191),
+        agentIdentityId: z.string().min(1).max(191),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        const [meeting, identity] = await Promise.all([
+          db.companyMeeting.findFirst({
+            where: {
+              id: input.meetingId,
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              processingStatus: { in: ['RECEIVED', 'FAILED_RETRYABLE', 'NEEDS_REVIEW'] },
+            },
+            select: { id: true, title: true, sourceArtifactRef: true },
+          }),
+          db.agentIdentity.findFirst({
+            where: {
+              id: input.agentIdentityId,
+              tenantId: input.tenantId,
+              enabled: true,
+              accessCapabilities: { has: 'meetings.process' },
+              OR: [{ venueId: input.venueId }, { venueId: null, accessScope: 'CLIENT' }],
+            },
+            select: { id: true },
+          }),
+        ])
+        if (!meeting) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Meeting is not available for processing in the requested scope',
+          })
+        }
+        if (!identity) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Enabled meeting-processing identity is unavailable in scope',
+          })
+        }
+        const task = await createAgentTaskAction(
+          {
+            operationId: input.requestId,
+            tenantId: input.tenantId,
+            venueId: input.venueId,
+            agentIdentityId: input.agentIdentityId,
+            promptIdentity: 'company-meeting-processing.v1',
+            prompt: [
+              `Process CompanyMeeting ${meeting.id} (${meeting.title}).`,
+              'Use exact meeting detail and its authorized source artifact only when required.',
+              'Record bounded extraction candidates and completion through torchiko.meeting.process.',
+              'Do not promote candidates to authoritative knowledge.',
+            ].join(' '),
+            actor: {
+              actorType: 'HUMAN',
+              actorId: ctx.session.userId,
+              auditRole: 'PLATFORM_ADMIN',
+            },
+          },
+          db,
+        )
+        const dispatch = await enqueueAgentRun(
+          { tenantId: input.tenantId, runId: task.run.id },
+          { enabled: env.AGENT_RUNNER_ENABLED },
+        )
+        return {
+          ...task,
+          executionTriggered: dispatch.enqueued,
+          sourceArtifactAvailable: Boolean(meeting.sourceArtifactRef),
+        }
       }),
     ),
 })

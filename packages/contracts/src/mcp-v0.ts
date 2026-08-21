@@ -53,6 +53,7 @@ export const McpCapability = z.enum([
   'accounts:read',
   'knowledge:read',
   'meetings:read',
+  'meetings:process',
   'workers:read',
   'questions:ask',
   'delegations:create',
@@ -487,6 +488,52 @@ export const McpKnowledgeGetInput = McpRequestedScope.extend({
 }).strict()
 export type McpKnowledgeGetInput = z.infer<typeof McpKnowledgeGetInput>
 
+const McpMeetingExtractionType = z.enum([
+  'SUMMARY',
+  'DECISION',
+  'TORCHIKO_COMMITMENT',
+  'CLIENT_COMMITMENT',
+  'CLIENT_PREFERENCE',
+  'PRODUCT_REQUEST',
+  'OBJECTION',
+  'PRICING_DISCUSSION',
+  'OPPORTUNITY',
+  'ACTION_ITEM',
+  'OPEN_QUESTION',
+  'FACTUAL_CORRECTION',
+])
+
+export const McpMeetingProcessInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  meetingId: Identifier,
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  summary: z.string().trim().min(1).max(8_000),
+  extractions: z
+    .array(
+      z
+        .object({
+          type: McpMeetingExtractionType,
+          content: z.string().trim().min(1).max(8_000),
+          structuredData: z.record(JsonValue).default({}),
+          confidence: z.number().min(0).max(1).optional(),
+          sourceStartOffset: z.number().int().nonnegative().optional(),
+          sourceEndOffset: z.number().int().nonnegative().optional(),
+        })
+        .strict()
+        .refine(
+          (value) =>
+            value.sourceStartOffset === undefined ||
+            value.sourceEndOffset === undefined ||
+            value.sourceEndOffset >= value.sourceStartOffset,
+          { path: ['sourceEndOffset'], message: 'Source end must not precede source start' },
+        ),
+    )
+    .max(25),
+}).strict()
+export type McpMeetingProcessInput = z.infer<typeof McpMeetingProcessInput>
+
 export const McpPackageDraftInput = McpRequestedScope.extend({
   title: z.string().trim().min(1).max(160),
   changeRequest: z.string().trim().min(1).max(10_000),
@@ -618,6 +665,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.account.timeline'
   | 'torchiko.account.meetings'
   | 'torchiko.account.meeting_get'
+  | 'torchiko.meeting.process'
   | 'torchiko.account.correspondence'
   | 'torchiko.knowledge.search'
   | 'torchiko.knowledge.get'
@@ -739,6 +787,61 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('client-or-venue', 'accounts:read', 'read') },
+  },
+  {
+    name: 'torchiko.meeting.process',
+    title: 'Record structured meeting processing',
+    description:
+      'Idempotently record bounded extraction candidates and complete one meeting through canonical machine-attributed actions. It does not promote candidates to authoritative knowledge.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        meetingId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        summary: { type: 'string', minLength: 1, maxLength: 8000 },
+        extractions: {
+          type: 'array',
+          maxItems: 25,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'content'],
+            properties: {
+              type: { type: 'string', enum: McpMeetingExtractionType.options },
+              content: { type: 'string', minLength: 1, maxLength: 8000 },
+              structuredData: { type: 'object', default: {} },
+              confidence: { type: 'number', minimum: 0, maximum: 1 },
+              sourceStartOffset: { type: 'integer', minimum: 0 },
+              sourceEndOffset: { type: 'integer', minimum: 0 },
+            },
+          },
+          default: [],
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'meetingId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'summary',
+        'extractions',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'meetings:process', 'interaction'),
+    },
   },
   {
     name: 'torchiko.knowledge.search',

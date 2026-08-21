@@ -236,6 +236,20 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           },
         },
       })
+      const unprocessedMeeting = await db.companyMeeting.create({
+        data: {
+          tenantId,
+          venueId,
+          organizationId,
+          title: 'Museum Y launch follow-up',
+          meetingType: 'CLIENT_REVIEW',
+          startedAt: new Date('2030-08-20T15:00:00.000Z'),
+          transcriptStatus: 'RETAINED_EXTERNALLY',
+          sourceArtifactRef: 'drive://synthetic-launch-transcript',
+          processingStatus: 'RECEIVED',
+          idempotencyKey: `meeting-unprocessed-${suffix}`,
+        },
+      })
 
       const oldDecision = await createCompanyKnowledgeCandidateAction({
         tenantId,
@@ -296,7 +310,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           name: 'Client Operations Specialist',
           agentType: 'OPERATIONS',
           accessScope: 'VENUE',
-          accessCapabilities: ['updates:draft'],
+          accessCapabilities: ['updates:draft', 'meetings.process'],
           autonomyLevel: 'DRAFT',
           enabled: true,
           createdBy: human.actorId,
@@ -315,6 +329,7 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           'accounts:read',
           'knowledge:read',
           'meetings:read',
+          'meetings:process',
           'integrations:read',
           'updates:draft',
           'agent-runs:execute',
@@ -357,7 +372,13 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           label: 'Independent worker',
           protocolVersion: 'mcp-2026-07-28',
           softwareVersion: 'fixture/1',
-          capabilities: ['accounts:read', 'knowledge:read', 'meetings:read', 'updates:draft'],
+          capabilities: [
+            'accounts:read',
+            'knowledge:read',
+            'meetings:read',
+            'meetings:process',
+            'updates:draft',
+          ],
           agentRoles: ['client-operations'],
           modelProvider: 'fixture',
           modelName: 'deterministic',
@@ -484,6 +505,40 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         { credential },
       )
       expect(JSON.stringify(meetingResult)).toContain('drive://synthetic-transcript')
+      const processedMeeting = await registry.callTool(
+        'torchiko.meeting.process',
+        {
+          clientId: tenantId,
+          venueId,
+          operationId: randomUUID(),
+          meetingId: unprocessedMeeting.id,
+          agentIdentityId: identityId,
+          agentRunId: run.id,
+          workerKey: secondaryKey,
+          summary: 'Confirmed September launch and a concise customer review.',
+          extractions: [
+            {
+              type: 'DECISION',
+              content: 'Launch on September 1.',
+              structuredData: { date: '2030-09-01' },
+              confidence: 0.99,
+            },
+            {
+              type: 'CLIENT_PREFERENCE',
+              content: 'Keep the launch review concise.',
+              structuredData: {},
+            },
+          ],
+        },
+        { credential },
+      )
+      expect(JSON.stringify(processedMeeting)).toContain('processing completed')
+      expect(
+        await db.companyMeeting.findUniqueOrThrow({
+          where: { id: unprocessedMeeting.id },
+          select: { processingStatus: true, _count: { select: { extractions: true } } },
+        }),
+      ).toEqual({ processingStatus: 'COMPLETE', _count: { extractions: 2 } })
 
       const operationId = randomUUID()
       const writeInput = {

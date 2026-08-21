@@ -6,13 +6,25 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   createCandidate: vi.fn(),
   promote: vi.fn(),
+  createTask: vi.fn(),
+  enqueue: vi.fn(),
+  meeting: vi.fn(),
+  identity: vi.fn(),
 }))
+
+vi.mock('@pathfinder/config', () => ({ env: { AGENT_RUNNER_ENABLED: false } }))
+vi.mock('@pathfinder/jobs', () => ({ enqueueAgentRun: mocks.enqueue }))
 
 vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
   createCompanyKnowledgeCandidateAction: mocks.createCandidate,
   promoteCompanyKnowledgeAction: mocks.promote,
-  db: { companyKnowledgeItem: { findMany: mocks.findMany } },
+  createAgentTaskAction: mocks.createTask,
+  db: {
+    companyKnowledgeItem: { findMany: mocks.findMany },
+    companyMeeting: { findFirst: mocks.meeting },
+    agentIdentity: { findFirst: mocks.identity },
+  },
 }))
 
 import { router } from '../../core'
@@ -74,5 +86,37 @@ describe('Company Brain admin router', () => {
       }),
     )
     expect(mocks.promote).toHaveBeenCalled()
+  })
+
+  it('queues meeting processing through the existing durable AgentRun system', async () => {
+    mocks.meeting.mockResolvedValue({
+      id: 'meeting_1',
+      title: 'Client review',
+      sourceArtifactRef: 'drive://meeting-1',
+    })
+    mocks.identity.mockResolvedValue({ id: 'agent_1' })
+    mocks.createTask.mockResolvedValue({
+      run: { id: 'run_1', status: 'QUEUED' },
+      replayed: false,
+      executionTriggered: false,
+    })
+    mocks.enqueue.mockResolvedValue({ enqueued: true })
+    const result = await testRouter
+      .createCaller(context(true))
+      .companyBrain.queueCompanyMeetingProcessing({
+        requestId: '11111111-1111-4111-8111-111111111111',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        meetingId: 'meeting_1',
+        agentIdentityId: 'agent_1',
+      })
+    expect(mocks.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: '11111111-1111-4111-8111-111111111111',
+        promptIdentity: 'company-meeting-processing.v1',
+      }),
+      expect.anything(),
+    )
+    expect(result).toMatchObject({ executionTriggered: true, sourceArtifactAvailable: true })
   })
 })

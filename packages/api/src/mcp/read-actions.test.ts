@@ -76,6 +76,7 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   accountTimeline: vi.fn(),
   accountMeetings: vi.fn(),
   accountMeetingGet: vi.fn(),
+  processMeeting: vi.fn(),
   accountCorrespondence: vi.fn(),
   knowledgeSearch: vi.fn(),
   knowledgeGet: vi.fn(),
