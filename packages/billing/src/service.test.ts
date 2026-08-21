@@ -86,6 +86,7 @@ describe('negotiated Checkout boundary', () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: 'attempt-a',
       stripeCheckoutSessionId: 'cs_test_existing',
+      stripeCheckoutUrl: 'https://checkout.stripe.test/existing',
     })
     const client = {
       $transaction: async (callback: (tx: unknown) => unknown) =>
@@ -107,7 +108,7 @@ describe('negotiated Checkout boundary', () => {
     ).resolves.toEqual({
       attemptId: 'attempt-a',
       sessionId: 'cs_test_existing',
-      url: null,
+      url: 'https://checkout.stripe.test/existing',
       replayed: true,
     })
     expect(findFirst).toHaveBeenCalledWith({
@@ -167,6 +168,74 @@ describe('negotiated Checkout boundary', () => {
     ).rejects.toBe(providerError)
     const nestedCreate = commercialAgreementCreate.mock.calls[0]?.[0]?.data?.coveredVenues?.create
     expect(nestedCreate).toEqual([{ venueId: 'venue-a', createdBy: 'admin-a' }])
+  })
+
+  it('reuses a valid matching Checkout Session instead of creating a duplicate', async () => {
+    const existingAttempt = {
+      id: 'attempt-existing',
+      stripeCheckoutSessionId: 'cs_test_existing',
+      stripeCheckoutUrl: 'https://checkout.stripe.test/existing',
+    }
+    const tx = {
+      billingCheckoutAttempt: {
+        findFirst: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(existingAttempt),
+        create: vi.fn(),
+      },
+      tenant: { findUnique: vi.fn().mockResolvedValue({ id: 'tenant-a', name: 'Tenant A' }) },
+      venue: { findMany: vi.fn().mockResolvedValue([{ id: 'venue-a' }]) },
+      commercialAgreement: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'agreement-a',
+          status: 'PENDING',
+          billingMode: 'STRIPE_SUBSCRIPTION',
+          stripeSubscriptionId: null,
+          internalPlanKey: 'torchiko_pilot_test',
+          internalPlanVersion: 1,
+          coveredVenueCount: 1,
+          quantity: 1,
+          agreedAmountMinor: 2500n,
+          currency: 'usd',
+          billingInterval: 'MONTH',
+          billingIntervalCount: 1,
+          stripePriceId: null,
+        }),
+      },
+      commercialAgreementVenue: { count: vi.fn().mockResolvedValue(1) },
+      billingAccount: { findUnique: vi.fn().mockResolvedValue({ id: 'account-a' }) },
+    }
+    const client = {
+      $transaction: async (callback: (value: typeof tx) => unknown) => callback(tx),
+    }
+    const provider = { createCheckoutSession: vi.fn(), createCustomer: vi.fn() }
+
+    await expect(
+      createTenantCheckout({
+        tenantId: 'tenant-a',
+        actorId: 'admin-a',
+        actorRole: 'PLATFORM_ADMIN',
+        planKey: 'torchiko_pilot_test',
+        venueIds: ['venue-a'],
+        negotiatedTerms: {
+          amountMinor: 2500n,
+          currency: 'usd',
+          interval: 'month',
+          intervalCount: 1,
+          reason: 'Approved sandbox lifecycle test',
+          reference: 'SANDBOX-QA',
+        },
+        provider: provider as never,
+        client: client as never,
+        environment: checkoutEnvironment,
+      }),
+    ).resolves.toEqual({
+      attemptId: 'attempt-existing',
+      sessionId: 'cs_test_existing',
+      url: 'https://checkout.stripe.test/existing',
+      replayed: true,
+    })
+    expect(tx.billingCheckoutAttempt.create).not.toHaveBeenCalled()
+    expect(provider.createCustomer).not.toHaveBeenCalled()
+    expect(provider.createCheckoutSession).not.toHaveBeenCalled()
   })
 
   it('rejects negotiated pricing outside the platform-admin boundary before touching storage', async () => {

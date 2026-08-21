@@ -315,6 +315,25 @@ export async function createTenantCheckout(params: {
       if (coveredCount === venueIds.length) {
         const account = await tx.billingAccount.findUnique({ where: { tenantId: params.tenantId } })
         if (!account) throw new BillingServiceError('NOT_FOUND', 'Billing account not found.')
+        const existingAttempt = await tx.billingCheckoutAttempt.findFirst({
+          where: {
+            tenantId: params.tenantId,
+            commercialAgreementId: current.id,
+            status: 'CREATED',
+            expiresAt: { gt: new Date() },
+            stripeCheckoutUrl: { not: null },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+        if (existingAttempt) {
+          return {
+            replay: existingAttempt,
+            tenant: null,
+            account: null,
+            agreement: null,
+            replacementId: null,
+          }
+        }
         const attempt = await tx.billingCheckoutAttempt.create({
           data: {
             tenantId: params.tenantId,
@@ -430,7 +449,7 @@ export async function createTenantCheckout(params: {
     return {
       attemptId: reserved.replay.id,
       sessionId: reserved.replay.stripeCheckoutSessionId,
-      url: null,
+      url: reserved.replay.stripeCheckoutUrl ?? null,
       replayed: true,
     }
   }
