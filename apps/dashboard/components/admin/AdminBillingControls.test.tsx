@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   checkout: vi.fn(),
   manual: vi.fn(),
   override: vi.fn(),
+  setFlag: vi.fn(),
 }))
 
 vi.mock('../../lib/trpc', () => ({
@@ -15,6 +16,7 @@ vi.mock('../../lib/trpc', () => ({
       createClientCheckout: { mutate: mocks.checkout },
       createManualArrangement: { mutate: mocks.manual },
       createBillingAccessOverride: { mutate: mocks.override },
+      setBillingTenantFlag: { mutate: mocks.setFlag },
     },
   }),
 }))
@@ -38,6 +40,7 @@ describe('AdminBillingControls negotiated Checkout', () => {
         catalog={[{ key: 'torchiko_pilot_test', version: 1, displayName: 'Pilot test' }]}
         agreementId={null}
         hasManualBase={false}
+        rolloutFlags={[]}
       />,
     )
 
@@ -77,11 +80,45 @@ describe('AdminBillingControls negotiated Checkout', () => {
         catalog={[{ key: 'torchiko_pilot_test', version: 1, displayName: 'Pilot test' }]}
         agreementId={null}
         hasManualBase={false}
+        rolloutFlags={[]}
       />,
     )
 
     fireEvent.submit(screen.getByRole('button', { name: 'Create Checkout link' }).closest('form')!)
     await waitFor(() => expect(mocks.checkout).toHaveBeenCalledTimes(1))
     expect(mocks.checkout.mock.calls[0]?.[0]).not.toHaveProperty('negotiatedTerms')
+  })
+
+  it('changes only an allowlisted client rollout capability through the audited admin mutation', async () => {
+    mocks.setFlag.mockResolvedValue({ enabled: true, globalEnabled: true, effective: true })
+    render(
+      <AdminBillingControls
+        tenantId="tenant-a"
+        venues={[{ id: 'venue-a', name: 'Museum A' }]}
+        catalog={[{ key: 'torchiko_pilot_test', version: 1, displayName: 'Pilot test' }]}
+        agreementId={null}
+        hasManualBase={false}
+        rolloutFlags={[
+          {
+            tenantFlagKey: 'billing-ui-v1',
+            label: 'Payment tab',
+            description: 'Shows billing.',
+            globalEnabled: true,
+            tenantEnabled: false,
+            effective: false,
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
+    await waitFor(() =>
+      expect(mocks.setFlag).toHaveBeenCalledWith({
+        tenantId: 'tenant-a',
+        flagKey: 'billing-ui-v1',
+        enabled: true,
+      }),
+    )
+    expect(await screen.findByText('Enabled for this client')).toBeTruthy()
   })
 })

@@ -1,6 +1,7 @@
 export { assertServerEnv } from './assert-env'
 export { env, envSchema } from './env'
 export {
+  BILLING_TENANT_FLAG_KEYS,
   FEATURE_FLAGS,
   CRM_FEATURE_POLICY,
   isCrmFeatureAvailable,
@@ -9,6 +10,7 @@ export {
   TOCHI_TENANT_FLAG_KEYS,
 } from './feature-flags'
 export type {
+  BillingTenantFlagKey,
   CrmFeatureClassification,
   CrmFeatureKey,
   FeatureFlagKey,

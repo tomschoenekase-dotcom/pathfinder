@@ -30,9 +30,10 @@ function money(value: bigint | number, currency: string) {
 export default async function AdminClientBillingPage({ params }: Props) {
   const { tenantId } = await params
   const caller = await createAdminCaller()
-  const [overview, client] = await Promise.all([
+  const [overview, client, rollout] = await Promise.all([
     caller.admin.getClientBilling({ tenantId }),
     caller.admin.getClient({ tenantId }),
+    caller.admin.getBillingRollout({ tenantId }),
   ])
   if (!overview.enabled)
     return (
@@ -54,6 +55,7 @@ export default async function AdminClientBillingPage({ params }: Props) {
           catalog={overview.catalog}
           agreementId={null}
           hasManualBase={false}
+          rolloutFlags={rollout.flags}
           agentCommands={[]}
         />
       </>
@@ -190,6 +192,7 @@ export default async function AdminClientBillingPage({ params }: Props) {
         catalog={overview.catalog}
         agreementId={agreement.id}
         hasManualBase={mode !== 'STRIPE_SUBSCRIPTION' && mode !== 'STRIPE_INVOICE'}
+        rolloutFlags={rollout.flags}
         agentCommands={account.agentCommands}
       />
     </>

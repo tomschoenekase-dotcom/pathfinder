@@ -10,6 +10,14 @@ type Props = {
   catalog: ReadonlyArray<{ key: string; version: number; displayName: string }>
   agreementId: string | null
   hasManualBase: boolean
+  rolloutFlags: ReadonlyArray<{
+    tenantFlagKey: string
+    label: string
+    description: string
+    globalEnabled: boolean
+    tenantEnabled: boolean
+    effective: boolean
+  }>
   agentCommands?: ReadonlyArray<{
     id: string
     action: string
@@ -28,6 +36,7 @@ export function AdminBillingControls({
   catalog,
   agreementId,
   hasManualBase,
+  rolloutFlags,
   agentCommands = [],
 }: Props) {
   const client = useTRPCClient()
@@ -48,6 +57,7 @@ export function AdminBillingControls({
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [flags, setFlags] = useState(rolloutFlags)
 
   function toggleVenue(id: string, checked: boolean) {
     setVenueIds((current) =>
@@ -68,6 +78,66 @@ export function AdminBillingControls({
   }
   return (
     <>
+      <section
+        className="rounded-2xl border border-cyan-200 bg-cyan-50 p-5"
+        aria-labelledby="billing-rollout-heading"
+      >
+        <h2 id="billing-rollout-heading" className="text-lg font-semibold text-cyan-950">
+          Pilot rollout controls
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-cyan-900">
+          Each capability requires both its staging kill switch and this client allowlist. Changes
+          are tenant-scoped and strictly audited.
+        </p>
+        <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+          {flags.map((flag) => (
+            <li key={flag.tenantFlagKey} className="rounded-xl border border-cyan-200 bg-white p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="font-semibold text-pf-deep">{flag.label}</h3>
+                  <p className="mt-1 text-xs leading-5 text-pf-deep/65">{flag.description}</p>
+                  <p className="mt-2 text-xs font-semibold text-pf-deep">
+                    {flag.effective
+                      ? 'Enabled for this client'
+                      : flag.globalEnabled
+                        ? 'Staging ready · client allowlist off'
+                        : 'Staging kill switch off'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy || (!flag.globalEnabled && !flag.tenantEnabled)}
+                  onClick={() =>
+                    void run(async () => {
+                      const saved = await client.admin.setBillingTenantFlag.mutate({
+                        tenantId,
+                        flagKey: flag.tenantFlagKey,
+                        enabled: !flag.tenantEnabled,
+                      })
+                      setFlags((current) =>
+                        current.map((candidate) =>
+                          candidate.tenantFlagKey === flag.tenantFlagKey
+                            ? {
+                                ...candidate,
+                                tenantEnabled: saved.enabled,
+                                globalEnabled: saved.globalEnabled,
+                                effective: saved.effective,
+                              }
+                            : candidate,
+                        ),
+                      )
+                      return `${flag.label} ${saved.effective ? 'enabled' : 'disabled'} for this client and audited.`
+                    })
+                  }
+                  className="min-h-11 shrink-0 rounded-full border border-cyan-800 px-4 text-sm font-semibold text-cyan-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {flag.tenantEnabled ? 'Disable' : 'Enable'}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
       {agentCommands.length ? (
         <section
           className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-5"
