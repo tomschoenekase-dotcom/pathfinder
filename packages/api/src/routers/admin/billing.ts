@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { logger } from '@pathfinder/config'
 import {
   BillingServiceError,
   StripeBillingProvider,
@@ -34,6 +35,16 @@ function rethrow(error: unknown): never {
       message: error.message,
     })
   }
+  const errorCode =
+    typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : null
+  logger.error({
+    action: 'admin.billing.unhandled',
+    error: error instanceof Error ? error.message.slice(0, 500) : 'Unknown billing failure',
+    errorName: error instanceof Error ? error.name : 'Unknown',
+    errorCode,
+  })
   throw error
 }
 
