@@ -296,22 +296,22 @@ Do not send high-priority alerts for every successful routine renewal. External 
 
 All items are required before enabling a synthetic staging pilot:
 
-Current 2026-08-20 evidence: the guarded 133rd migration and staging web/dashboard/worker deployments succeeded; the sandbox webhook is pinned and receiving signed events; unsigned requests fail closed; card is the only enabled sandbox payment method. Tenant admission and the authenticated $25 lifecycle are still outstanding.
+Current 2026-08-20 evidence: the guarded 133rd migration and staging web/dashboard/worker deployments succeeded; the sandbox webhook is pinned and receiving signed events; unsigned requests fail closed; card is the only enabled sandbox payment method. The intended synthetic tenant is admitted. A hosted $25/month Checkout produced an active subscription and paid invoice, Stripe retried two initially out-of-order invoice events successfully, the client/admin projections and restrictive Portal were verified, and on-demand reconciliation reports `current`. Recurring worker scheduling, deployed test-clock renewal/failure/grace, cancellation of the new subscription, refund, and dispute evidence remain outstanding. See `docs/stripe-billing-staging-status-2026-08-20.md`.
 
-- [ ] SDK/API/webhook versions match and are documented.
-- [ ] Disposable migration and rollback/recovery rehearsal pass.
-- [ ] Full typecheck, lint, unit, integration, build, security, and browser gates pass.
-- [ ] Sandbox Product/Price and restrictive Portal configuration are recorded.
-- [ ] Separate staging `sk_test_...` and `whsec_...` exist in the encrypted store.
-- [ ] Public webhook route and raw-body signature proof pass.
+- [x] SDK/API/webhook versions match and are documented.
+- [x] Disposable migration and rollback/recovery rehearsal pass.
+- [x] Full typecheck, lint, unit, integration, build, security, and browser gates pass.
+- [x] Sandbox Product/Price and restrictive Portal configuration are recorded.
+- [x] Separate staging test provider credential and `whsec_...` exist in the encrypted store.
+- [x] Public webhook route and raw-body signature proof pass.
 - [ ] Checkout, Portal, renewal, failure, cancellation, dispute/refund, and reconciliation evidence pass.
-- [ ] Cross-tenant and multi-venue tests pass.
-- [ ] Operator events and strict audit are reviewed.
+- [x] Cross-tenant and multi-venue tests pass.
+- [x] Operator events and strict audit are reviewed for the successful Checkout/payment/reconciliation path.
 - [ ] Legal/customer-facing links are approved for any visible surface.
-- [ ] Only the synthetic tenant is allowlisted.
-- [ ] Entitlement enforcement remains off until grace/recovery behavior is explicitly approved.
-- [ ] Live mode remains disallowed.
-- [ ] Kill-switch and rollback rehearsal is complete.
+- [x] Only the intended synthetic tenant is asserted as allowlisted by this handoff.
+- [x] Seven-day grace/recovery policy is explicit; entitlement enforcement is enabled only for the synthetic staging tenant.
+- [x] Live mode remains disallowed.
+- [x] Kill-switch and rollback procedure is documented and repository-tested.
 
 ## Production blockers and eventual activation
 
