@@ -34,6 +34,7 @@ function harness() {
       update: vi.fn(),
     },
     auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit_1' }) },
+    embeddingDispatch: { upsert: vi.fn().mockResolvedValue({ id: 'dispatch_1' }) },
   }
   const client = {
     $transaction: vi.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
@@ -108,12 +109,16 @@ describe('company knowledge canonical actions', () => {
       tenantId: 'tenant_1',
       promotionStatus: 'CANDIDATE',
       authority: 'DURABLE_CONTEXT',
+      venueId: 'venue_1',
+      updatedAt: new Date('2030-01-01T00:00:00.000Z'),
     })
     tx.companyKnowledgeItem.update.mockResolvedValue({
       id: 'knowledge_1',
       tenantId: 'tenant_1',
       promotionStatus: 'PROMOTED',
       authority: 'DURABLE_CONTEXT',
+      venueId: 'venue_1',
+      updatedAt: new Date('2030-01-01T00:01:00.000Z'),
     })
     const result = await promoteCompanyKnowledgeAction(
       {
@@ -125,6 +130,11 @@ describe('company knowledge canonical actions', () => {
       client,
     )
     expect(result.promotionStatus).toBe('PROMOTED')
+    expect(tx.embeddingDispatch.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ entityType: 'COMPANY_KNOWLEDGE' }),
+      }),
+    )
   })
 
   it('supersedes current knowledge only through a human action and preserves linkage', async () => {

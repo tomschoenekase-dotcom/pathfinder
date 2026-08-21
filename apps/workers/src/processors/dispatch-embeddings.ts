@@ -4,7 +4,11 @@ import {
   failEmbeddingDispatch,
   leaseEmbeddingDispatchBatch,
 } from '@pathfinder/db'
-import { enqueueEmbedKnowledgeEntry, enqueueEmbedPlace } from '@pathfinder/jobs'
+import {
+  enqueueEmbedCompanyKnowledge,
+  enqueueEmbedKnowledgeEntry,
+  enqueueEmbedPlace,
+} from '@pathfinder/jobs'
 
 export async function processEmbeddingDispatches(): Promise<{
   acknowledged: number
@@ -24,9 +28,15 @@ export async function processEmbeddingDispatches(): Promise<{
           tenantId: dispatch.tenantId,
           contentUpdatedAt: dispatch.contentUpdatedAt.toISOString(),
         })
-      } else {
+      } else if (dispatch.entityType === 'KNOWLEDGE_ENTRY') {
         await enqueueEmbedKnowledgeEntry({
           entryId: dispatch.entityId,
+          tenantId: dispatch.tenantId,
+          contentUpdatedAt: dispatch.contentUpdatedAt.toISOString(),
+        })
+      } else {
+        await enqueueEmbedCompanyKnowledge({
+          itemId: dispatch.entityId,
           tenantId: dispatch.tenantId,
           contentUpdatedAt: dispatch.contentUpdatedAt.toISOString(),
         })

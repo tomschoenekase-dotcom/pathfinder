@@ -1,5 +1,6 @@
 export { db } from './client'
 export { recordApprovedPackageEvaluationMilestones } from './helpers/evaluation-onboarding-milestones'
+export { readUnifiedIntegrationHealth } from './helpers/integration-health'
 export {
   recordConversationInsightSignals,
   type ConversationInsightSignal,
@@ -445,6 +446,9 @@ export {
   searchKnowledgeByEmbedding,
   searchPlacesByEmbedding,
   storeKnowledgeEntryEmbeddingForScope,
+  storeCompanyKnowledgeEmbeddingForScope,
+  searchCompanyKnowledgeByEmbedding,
+  buildCompanyKnowledgeText,
   storePlaceEmbeddingForScope,
 } from './helpers/semantic-search'
 export type { SemanticKnowledgeEntry, SemanticPlace } from './helpers/semantic-search'

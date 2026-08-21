@@ -34,6 +34,7 @@ function actions(): PathfinderMcpDomainActions {
     accountContext: vi.fn().mockResolvedValue(result),
     knowledgeSearch: vi.fn().mockResolvedValue(result),
     knowledgeGet: vi.fn().mockResolvedValue(result),
+    integrationHealth: vi.fn().mockResolvedValue(result),
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),
     createPackageDraft: vi.fn().mockResolvedValue(result),
@@ -53,6 +54,7 @@ describe('PathFinder MCP server-side adapter registry', () => {
         'torchiko.account.get_context',
         'torchiko.knowledge.search',
         'torchiko.knowledge.get',
+        'torchiko.integrations.health',
       ]),
     )
     await registry.callTool(

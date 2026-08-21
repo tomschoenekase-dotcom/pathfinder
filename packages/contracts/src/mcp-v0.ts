@@ -427,6 +427,9 @@ export const McpAccountContextInput = McpRequestedScope.extend({
 }).strict()
 export type McpAccountContextInput = z.infer<typeof McpAccountContextInput>
 
+export const McpIntegrationHealthInput = McpRequestedScope
+export type McpIntegrationHealthInput = z.infer<typeof McpIntegrationHealthInput>
+
 const McpKnowledgeType = z.enum([
   'DECISION',
   'STRATEGY',
@@ -602,6 +605,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.account.get_context'
   | 'torchiko.knowledge.search'
   | 'torchiko.knowledge.get'
+  | 'torchiko.integrations.health'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
   | 'pathfinder.propose_billing_action'
@@ -676,6 +680,21 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('client-or-venue', 'knowledge:read', 'read') },
+  },
+  {
+    name: 'torchiko.integrations.health',
+    title: 'Get unified integration health',
+    description:
+      'Return a bounded secret-free health projection for configured providers, workers, embeddings, deployment, billing, and machine access.',
+    inputSchema: strictObject(scopeProperties, ['clientId']),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('client-or-venue', 'integrations:read', 'read') },
   },
   {
     name: 'pathfinder.propose_billing_action',

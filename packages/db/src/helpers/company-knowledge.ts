@@ -6,6 +6,7 @@ import {
 import type { Prisma } from '@prisma/client'
 
 import { db } from '../client'
+import { searchCompanyKnowledgeByEmbedding } from './semantic-search'
 
 export type KnowledgeAccessContext =
   | { kind: 'PLATFORM'; roles: string[] }
@@ -219,6 +220,10 @@ export async function searchCompanyKnowledge(
   rawInput: CompanyKnowledgeSearchRequest,
   access: KnowledgeAccessContext,
   client: CompanyKnowledgeClient = db,
+  options: {
+    queryEmbedding?: number[]
+    semanticSearch?: typeof searchCompanyKnowledgeByEmbedding
+  } = {},
 ) {
   const input = CompanyKnowledgeSearchRequest.parse(rawInput)
   const authorityFilter = input.includeHistorical
@@ -243,29 +248,45 @@ export async function searchCompanyKnowledge(
               },
             ]
           : []),
-        {
-          OR: [
-            { title: { contains: input.query, mode: 'insensitive' } },
-            { summary: { contains: input.query, mode: 'insensitive' } },
-            { revisions: { some: { body: { contains: input.query, mode: 'insensitive' } } } },
-          ],
-        },
+        ...(options.queryEmbedding
+          ? []
+          : [
+              {
+                OR: [
+                  { title: { contains: input.query, mode: 'insensitive' as const } },
+                  { summary: { contains: input.query, mode: 'insensitive' as const } },
+                  {
+                    revisions: {
+                      some: { body: { contains: input.query, mode: 'insensitive' as const } },
+                    },
+                  },
+                ],
+              },
+            ]),
       ],
     },
     orderBy: [{ authority: 'asc' }, { lastConfirmedAt: 'desc' }, { updatedAt: 'desc' }],
-    take: Math.min(input.limit * 4, 80),
+    take: options.queryEmbedding ? 500 : Math.min(input.limit * 4, 80),
     select: detailSelect,
   })
+  const semanticRows = options.queryEmbedding
+    ? await (options.semanticSearch ?? searchCompanyKnowledgeByEmbedding)({
+        queryEmbedding: options.queryEmbedding,
+        authorizedCandidateIds: candidates.map((item) => item.id),
+        limit: Math.min(input.limit * 8, 50),
+      })
+    : []
+  const semanticById = new Map(semanticRows.map((row) => [row.id, row.distance]))
   const results = candidates
     .map((item) => ({
       item: serializeItem(item),
-      relevance: lexicalScore(
-        input.query,
-        item.title,
-        item.summary,
-        item.revisions[0]?.body ?? null,
-      ),
+      relevance:
+        lexicalScore(input.query, item.title, item.summary, item.revisions[0]?.body ?? null) * 10 +
+        (semanticById.has(item.id)
+          ? Math.max(0, Math.round((1 - semanticById.get(item.id)!) * 100))
+          : 0),
     }))
+    .filter(({ relevance }) => relevance > 0)
     .sort((left, right) => right.relevance - left.relevance)
     .slice(0, input.limit)
     .map(({ item, relevance }) => ({
@@ -290,7 +311,11 @@ export async function searchCompanyKnowledge(
   }
   return {
     schemaVersion: 'company-knowledge-search.v1',
-    retrieval: { mode: 'STRUCTURED_LEXICAL', permissionFilteredBeforeSelection: true },
+    retrieval: {
+      mode: options.queryEmbedding ? 'HYBRID_STRUCTURED_SEMANTIC' : 'STRUCTURED_LEXICAL',
+      permissionFilteredBeforeSelection: true,
+      semanticCandidates: semanticRows.length,
+    },
     results,
     payload: {
       approximateBytes,

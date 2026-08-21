@@ -103,6 +103,28 @@ describe('company knowledge retrieval', () => {
     )
   })
 
+  it('semantic-ranks only IDs returned by the permission-first structured query', async () => {
+    const findMany = vi
+      .fn()
+      .mockResolvedValue([
+        item({ id: 'allowed_1', title: 'Outdoor venue lesson', summary: 'Weather resilience.' }),
+        item({ id: 'allowed_2', title: 'Another lesson', summary: 'Operational context.' }),
+      ])
+    const semanticSearch = vi.fn().mockResolvedValue([{ id: 'allowed_2', distance: 0.1 }])
+    const result = await searchCompanyKnowledge(
+      { query: 'what did we learn outdoors', clientId: 'tenant_1', limit: 5 },
+      { kind: 'CLIENT', clientId: 'tenant_1', roles: [] },
+      { companyKnowledgeItem: { findMany } } as never,
+      { queryEmbedding: [0.1, 0.2], semanticSearch },
+    )
+    expect(semanticSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ authorizedCandidateIds: ['allowed_1', 'allowed_2'] }),
+    )
+    expect(findMany.mock.calls[0]?.[0].take).toBe(500)
+    expect(result.retrieval.mode).toBe('HYBRID_STRUCTURED_SEMANTIC')
+    expect(result.results[0]?.id).toBe('allowed_2')
+  })
+
   it('returns exact detail with provenance and supersession, but not when scoped lookup misses', async () => {
     const findFirst = vi.fn().mockResolvedValueOnce(item()).mockResolvedValueOnce(null)
     const client = { companyKnowledgeItem: { findFirst } } as never

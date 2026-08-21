@@ -1,15 +1,19 @@
+import { AI_EMBEDDING_MODEL_KEYS, generateEmbedding } from '@pathfinder/ai'
 import {
+  assertVenueAiAvailable,
   buildOperationalUpdatePreview,
   consumeApprovalGrantAction,
   createOperationalUpdateAction,
   db,
   getCompactAccountContext,
   getCompanyKnowledgeItem,
+  readUnifiedIntegrationHealth,
   searchCompanyKnowledge,
 } from '@pathfinder/db'
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
+import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { createPathfinderMcpReadActions } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
 
@@ -39,6 +43,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'accountContext'
     | 'knowledgeSearch'
     | 'knowledgeGet'
+    | 'integrationHealth'
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
   > = {
@@ -202,7 +207,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   }
   const companyBrainReads: Pick<
     PathfinderMcpDomainActions,
-    'accountContext' | 'knowledgeSearch' | 'knowledgeGet'
+    'accountContext' | 'knowledgeSearch' | 'knowledgeGet' | 'integrationHealth'
   > = {
     async accountContext(input, context) {
       const data = await getCompactAccountContext(
@@ -221,6 +226,32 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
       }
     },
     async knowledgeSearch(input, context) {
+      let queryEmbedding: number[] | undefined
+      if (input.venueId) {
+        const accounting = createApiAiUsageRecorder({
+          db: database,
+          tenantId: context.credential.tenantId,
+          venueId: input.venueId,
+          feature: 'company-knowledge-query-embedding',
+          surface: 'mcp',
+        })
+        try {
+          const generated = await generateEmbedding({
+            modelKey: AI_EMBEDDING_MODEL_KEYS.KNOWLEDGE_CONTENT,
+            text: input.query,
+            usageSink: accounting.sink,
+            budgetGate: accounting.budgetGate,
+            admissionGuard: () =>
+              assertVenueAiAvailable(database, {
+                tenantId: context.credential.tenantId,
+                venueId: input.venueId!,
+              }),
+          })
+          queryEmbedding = generated.embedding
+        } catch {
+          queryEmbedding = undefined
+        }
+      }
       const data = await searchCompanyKnowledge(
         {
           query: input.query,
@@ -234,6 +265,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         },
         { kind: 'CLIENT', clientId: context.credential.clientId, roles: [] },
         database,
+        queryEmbedding ? { queryEmbedding } : {},
       )
       return {
         kind: 'torchiko.company-knowledge-search',
@@ -254,6 +286,20 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
       return {
         kind: 'torchiko.company-knowledge-item',
         summary: data.item.title,
+        data: jsonData(data),
+      }
+    },
+    async integrationHealth(input, context) {
+      const data = await readUnifiedIntegrationHealth(
+        {
+          clientId: context.credential.clientId,
+          venueIds: input.venueId ? [input.venueId] : context.credential.venueIds,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.integration-health',
+        summary: `${data.integrations.length} integration health record(s).`,
         data: jsonData(data),
       }
     },

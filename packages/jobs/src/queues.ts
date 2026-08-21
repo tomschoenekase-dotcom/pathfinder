@@ -38,6 +38,7 @@ export const EMBED_PLACE_RETRY_BACKOFF = 'embed-place-retry'
 
 export const EMBED_KNOWLEDGE_ENTRY_QUEUE = queueName('embed-knowledge-entry')
 export const EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB = 'embed-knowledge-entry-process'
+export const EMBED_COMPANY_KNOWLEDGE_PROCESS_JOB = 'embed-company-knowledge-process'
 export const EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF = 'embed-knowledge-entry-retry'
 
 export const EMBEDDING_DISPATCH_QUEUE = queueName('embedding-dispatch')

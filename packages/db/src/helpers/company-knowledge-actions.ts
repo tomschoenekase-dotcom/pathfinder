@@ -219,7 +219,13 @@ export async function promoteCompanyKnowledgeAction(
         ...(input.tenantId ? { tenantId: input.tenantId } : {}),
         archivedAt: null,
       },
-      select: { id: true, promotionStatus: true, authority: true, tenantId: true },
+      select: {
+        id: true,
+        promotionStatus: true,
+        authority: true,
+        tenantId: true,
+        venueId: true,
+      },
     })
     if (!item) throw new CompanyKnowledgeActionError('NOT_FOUND', 'Knowledge candidate not found')
     if (item.promotionStatus === 'PROMOTED') return { ...item, replayed: true }
@@ -244,8 +250,43 @@ export async function promoteCompanyKnowledgeAction(
     const promoted = await tx.companyKnowledgeItem.update({
       where: { id: item.id },
       data: { promotionStatus: 'PROMOTED', lastConfirmedAt: new Date() },
-      select: { id: true, promotionStatus: true, authority: true, tenantId: true },
+      select: {
+        id: true,
+        promotionStatus: true,
+        authority: true,
+        tenantId: true,
+        venueId: true,
+        updatedAt: true,
+      },
     })
+    if (promoted.tenantId && promoted.venueId) {
+      await tx.embeddingDispatch.upsert({
+        where: {
+          tenantId_venueId_entityType_entityId: {
+            tenantId: promoted.tenantId,
+            venueId: promoted.venueId,
+            entityType: 'COMPANY_KNOWLEDGE',
+            entityId: promoted.id,
+          },
+        },
+        create: {
+          id: `company-knowledge:${promoted.id}`,
+          tenantId: promoted.tenantId,
+          venueId: promoted.venueId,
+          entityType: 'COMPANY_KNOWLEDGE',
+          entityId: promoted.id,
+          contentUpdatedAt: promoted.updatedAt,
+        },
+        update: {
+          contentUpdatedAt: promoted.updatedAt,
+          attempts: 0,
+          nextAttemptAt: new Date(),
+          leaseToken: null,
+          leaseExpiresAt: null,
+          lastError: null,
+        },
+      })
+    }
     await writeAuditLogStrict(
       {
         tenantId: item.tenantId,

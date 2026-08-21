@@ -26,6 +26,7 @@ import {
   DAILY_ROLLUP_RETRY_BACKOFF,
   DAILY_ROLLUP_SCHEDULER_JOB,
   EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB,
+  EMBED_COMPANY_KNOWLEDGE_PROCESS_JOB,
   EMBED_KNOWLEDGE_ENTRY_QUEUE,
   EMBED_KNOWLEDGE_ENTRY_RETRY_BACKOFF,
   EMBED_PLACE_PROCESS_JOB,
@@ -66,6 +67,7 @@ import {
   type AnalyticsEnrichmentJobPayload,
   type AgentRunJobPayload,
   type EmbedKnowledgeEntryJobPayload,
+  type EmbedCompanyKnowledgeJobPayload,
   type EmbedPlaceJobPayload,
   type EvaluationRunJobPayload,
   type GenerationDispatchKickJobPayload,
@@ -99,6 +101,7 @@ import { processAgentRunJob } from './processors/agent-run'
 import { processAnalyticsEnrichmentJob } from './processors/analytics-enrichment'
 import { processDailyRollupJob } from './processors/daily-rollup'
 import { processEmbedKnowledgeEntryJob } from './processors/embed-knowledge-entry'
+import { processEmbedCompanyKnowledgeJob } from './processors/embed-company-knowledge'
 import { processEmbedPlaceJob } from './processors/embed-place'
 import { processEvaluationRunJob } from './processors/evaluation-run'
 import { processEvaluationDispatchJob } from './processors/evaluation-dispatch'
@@ -376,12 +379,25 @@ async function handleEmbedPlaceQueueJob(job: Job<EmbedPlaceJobPayload>, token?: 
 }
 
 async function handleEmbedKnowledgeEntryQueueJob(
-  job: Job<EmbedKnowledgeEntryJobPayload>,
+  job: Job<EmbedKnowledgeEntryJobPayload | EmbedCompanyKnowledgeJobPayload>,
   token?: string,
 ) {
   if (job.name === EMBED_KNOWLEDGE_ENTRY_PROCESS_JOB) {
     await runAiJobWithIncidentControl(job, token, () =>
-      processEmbedKnowledgeEntryJob(job.data, getJobExecutionMetadata(job)),
+      processEmbedKnowledgeEntryJob(
+        job.data as EmbedKnowledgeEntryJobPayload,
+        getJobExecutionMetadata(job),
+      ),
+    )
+    return
+  }
+
+  if (job.name === EMBED_COMPANY_KNOWLEDGE_PROCESS_JOB) {
+    await runAiJobWithIncidentControl(job, token, () =>
+      processEmbedCompanyKnowledgeJob(
+        job.data as EmbedCompanyKnowledgeJobPayload,
+        getJobExecutionMetadata(job),
+      ),
     )
     return
   }

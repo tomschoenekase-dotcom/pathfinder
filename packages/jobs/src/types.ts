@@ -50,6 +50,12 @@ export type EmbedKnowledgeEntryJobPayload = {
   contentUpdatedAt: string
 }
 
+export type EmbedCompanyKnowledgeJobPayload = {
+  itemId: string
+  tenantId: string
+  contentUpdatedAt: string
+}
+
 export type AnalyticsEnrichmentJobPayload = {
   tenantId: string
   // UTC day to enrich (topic tagging, place interest, unique visitors). Clusters

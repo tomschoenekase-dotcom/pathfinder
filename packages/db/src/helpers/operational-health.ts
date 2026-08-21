@@ -1,6 +1,6 @@
 import { db } from '../client'
 
-export const EXPECTED_LATEST_MIGRATION = '20260819213000_add_prospect_crm_foundation'
+export const EXPECTED_LATEST_MIGRATION = '20260821194500_add_company_knowledge_embeddings'
 export const WORKER_HEARTBEAT_KEY = 'operations.worker-heartbeat.v1'
 
 export async function recordWorkerHeartbeat(input: {

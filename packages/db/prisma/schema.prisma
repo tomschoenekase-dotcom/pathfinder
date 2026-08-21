@@ -3674,6 +3674,7 @@ enum JobFailureDisposition {
 enum EmbeddingWorkEntityType {
   PLACE
   KNOWLEDGE_ENTRY
+  COMPANY_KNOWLEDGE
 }
 
 enum EmbeddingWorkClaimStatus {
@@ -6483,6 +6484,9 @@ model CompanyKnowledgeItem {
   createdById        String                           @map("created_by_id") @db.VarChar(191)
   modelProvider      String?                          @map("model_provider") @db.VarChar(100)
   modelName          String?                          @map("model_name") @db.VarChar(191)
+  embeddingSourceHash String?                         @map("embedding_source_hash") @db.Char(64)
+  embeddingProfile   String?                          @map("embedding_profile") @db.VarChar(191)
+  embeddedAt         DateTime?                        @map("embedded_at")
   idempotencyKey     String                           @unique @map("idempotency_key") @db.VarChar(191)
   createdAt          DateTime                         @default(now()) @map("created_at")
   updatedAt          DateTime                         @updatedAt @map("updated_at")
