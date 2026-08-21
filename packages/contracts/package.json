@@ -30,7 +30,8 @@
     "./universal-content-actions": "./src/universal-content-actions.ts",
     "./native-venue-deployment": "./src/native-venue-deployment.ts",
     "./character-system": "./src/character-system.ts",
-    "./actor": "./src/actor.ts"
+    "./actor": "./src/actor.ts",
+    "./company-brain": "./src/company-brain.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

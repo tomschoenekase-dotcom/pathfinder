@@ -197,6 +197,13 @@ model Tenant {
   voiceSessions                  VoiceSession[]
   voiceTranscriptSegments        VoiceTranscriptSegment[]
   prospectConversion             ProspectConversion?
+  companyKnowledgeItems          CompanyKnowledgeItem[]
+  companyMeetings                CompanyMeeting[]
+  accountRelationshipNotes       AccountRelationshipNote[]
+  accountMilestones              AccountMilestone[]
+  accountOpenLoops               AccountOpenLoop[]
+  accountCommitments             AccountCommitment[]
+  accountSummaries               AccountSummary[]
 
   @@map("tenants")
 }
@@ -1297,6 +1304,12 @@ model Venue {
   voiceTranscriptSegments             VoiceTranscriptSegment[]
   prospectConversion                  ProspectConversion?
   prospectLocationConversions         ProspectLocationConversion[]
+  companyKnowledgeItems               CompanyKnowledgeItem[]
+  companyMeetings                     CompanyMeeting[]
+  accountRelationshipNotes            AccountRelationshipNote[]
+  accountMilestones                   AccountMilestone[]
+  accountOpenLoops                    AccountOpenLoop[]
+  accountCommitments                  AccountCommitment[]
 
   @@unique([tenantId, slug])
   @@unique([id, tenantId])
@@ -5533,6 +5546,13 @@ model ProspectOrganization {
   emailThreads          ProspectEmailThread[]
   emailMessages         ProspectEmailMessage[]
   followups             ProspectFollowup[]
+  companyKnowledgeItems CompanyKnowledgeItem[]
+  companyMeetings       CompanyMeeting[]
+  relationshipNotes     AccountRelationshipNote[]
+  milestones            AccountMilestone[]
+  openLoops             AccountOpenLoop[]
+  commitments           AccountCommitment[]
+  summaries             AccountSummary[]
 
   @@unique([updatedAt, id], map: "prospect_organizations_updated_at_id_key")
   @@index([normalizedName])
@@ -5638,6 +5658,7 @@ model ProspectContact {
   emailThreads           ProspectEmailThread[]
   emailMessages          ProspectEmailMessage[]
   suppressionEvents      ProspectContactSuppressionEvent[]
+  meetingParticipants    CompanyMeetingParticipant[]
 
   @@index([organizationId, archivedAt])
   @@index([venueId, archivedAt])
@@ -5686,6 +5707,7 @@ model ProspectOpportunity {
   organization     ProspectOrganization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   stageHistory     ProspectStageHistory[]
   followups        ProspectFollowup[]
+  companyMeetings  CompanyMeeting[]
 
   @@index([stage, priority, nextActionAt])
   @@index([ownerId, stage])
@@ -6307,4 +6329,569 @@ model ProspectInboundQuarantine {
   @@index([status, occurredAt])
   @@index([providerAccountId, occurredAt])
   @@map("prospect_inbound_quarantines")
+}
+
+enum CompanyKnowledgeType {
+  DECISION
+  STRATEGY
+  MEETING_SUMMARY
+  CLIENT_INSIGHT
+  SALES_LESSON
+  PRODUCT_RATIONALE
+  TECHNICAL_LESSON
+  POSTMORTEM
+  POLICY_CONTEXT
+  MARKET_RESEARCH
+  COMPETITOR_INSIGHT
+  COMPANY_HISTORY
+  OPERATIONAL_LESSON
+  OPEN_QUESTION
+  PRIORITY
+  COMMITMENT
+  OTHER
+}
+
+enum CompanyKnowledgeSourceType {
+  HUMAN_ENTRY
+  MEETING
+  EMAIL
+  SUPPORT_THREAD
+  AGENT_RUN
+  OPERATIONAL_EVENT
+  RESEARCH
+  SYSTEM_EVENT
+  IMPORT
+  OTHER
+}
+
+enum CompanyKnowledgeAuthority {
+  AUTHORITATIVE_CURRENT
+  DURABLE_CONTEXT
+  HISTORICAL
+  INFERENCE
+  SUPERSEDED
+}
+
+enum CompanyKnowledgePromotionStatus {
+  CANDIDATE
+  PROMOTED
+  REJECTED
+  SUPERSEDED
+  ARCHIVED
+}
+
+enum CompanyKnowledgeAccessScope {
+  PLATFORM
+  ORGANIZATION
+  TENANT
+  VENUE
+  RESTRICTED
+}
+
+enum CompanyDecisionStatus {
+  PROPOSED
+  ACTIVE
+  SUPERSEDED
+  REVOKED
+}
+
+enum CompanyPriorityStatus {
+  ACTIVE
+  PAUSED
+  COMPLETE
+  CANCELLED
+}
+
+/// Institutional memory. Operational facts stay in their canonical domain tables;
+/// this record holds deeper context with explicit authority and provenance.
+model CompanyKnowledgeItem {
+  id                 String                           @id @default(cuid())
+  tenantId           String?                          @map("tenant_id")
+  venueId            String?                          @map("venue_id")
+  organizationId     String?                          @map("organization_id")
+  type               CompanyKnowledgeType
+  title              String                           @db.VarChar(500)
+  summary            String                           @db.VarChar(4000)
+  accessScope        CompanyKnowledgeAccessScope      @map("access_scope")
+  allowedRoles       String[]                         @default([]) @map("allowed_roles")
+  authority          CompanyKnowledgeAuthority
+  promotionStatus    CompanyKnowledgePromotionStatus @default(CANDIDATE) @map("promotion_status")
+  currentRevision    Int                              @default(1) @map("current_revision")
+  contentHash        String                           @map("content_hash") @db.Char(64)
+  confidence         Float?
+  effectiveAt        DateTime?                        @map("effective_at")
+  lastConfirmedAt    DateTime?                        @map("last_confirmed_at")
+  supersededAt       DateTime?                        @map("superseded_at")
+  supersededById     String?                          @map("superseded_by_id")
+  archivedAt         DateTime?                        @map("archived_at")
+  createdByType      ActorType                        @map("created_by_type")
+  createdById        String                           @map("created_by_id") @db.VarChar(191)
+  modelProvider      String?                          @map("model_provider") @db.VarChar(100)
+  modelName          String?                          @map("model_name") @db.VarChar(191)
+  idempotencyKey     String                           @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt          DateTime                         @default(now()) @map("created_at")
+  updatedAt          DateTime                         @updatedAt @map("updated_at")
+  tenant             Tenant?                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue              Venue?                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization       ProspectOrganization?            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy       CompanyKnowledgeItem?            @relation("CompanyKnowledgeSupersession", fields: [supersededById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersedes         CompanyKnowledgeItem[]           @relation("CompanyKnowledgeSupersession")
+  revisions          CompanyKnowledgeRevision[]
+  sources            CompanyKnowledgeSource[]
+  entityLinks        CompanyKnowledgeEntityLink[]
+  outgoingRelations  CompanyKnowledgeRelation[]       @relation("CompanyKnowledgeRelationFrom")
+  incomingRelations  CompanyKnowledgeRelation[]       @relation("CompanyKnowledgeRelationTo")
+  decision           CompanyDecision?
+  priority           CompanyPriority?
+  meetingExtractions CompanyMeetingExtraction[]
+
+  @@unique([id, tenantId])
+  @@index([accessScope, promotionStatus, authority, updatedAt], map: "company_knowledge_scope_current_idx")
+  @@index([tenantId, venueId, promotionStatus, authority, updatedAt], map: "company_knowledge_tenant_venue_idx")
+  @@index([organizationId, promotionStatus, authority, updatedAt], map: "company_knowledge_organization_idx")
+  @@index([type, promotionStatus, authority, effectiveAt], map: "company_knowledge_type_authority_idx")
+  @@index([contentHash], map: "company_knowledge_content_hash_idx")
+  @@map("company_knowledge_items")
+}
+
+model CompanyKnowledgeRevision {
+  id              String               @id @default(cuid())
+  tenantId        String?              @map("tenant_id")
+  knowledgeItemId String               @map("knowledge_item_id")
+  revision        Int
+  body            String
+  structuredData  Json                 @default("{}") @map("structured_data")
+  sourceDigest    String               @map("source_digest") @db.Char(64)
+  authoredByType  ActorType            @map("authored_by_type")
+  authoredById    String               @map("authored_by_id") @db.VarChar(191)
+  modelProvider   String?              @map("model_provider") @db.VarChar(100)
+  modelName       String?              @map("model_name") @db.VarChar(191)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  knowledgeItem   CompanyKnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([knowledgeItemId, revision], map: "company_knowledge_revision_key")
+  @@index([tenantId, knowledgeItemId, createdAt], map: "company_knowledge_revisions_item_idx")
+  @@map("company_knowledge_revisions")
+}
+
+model CompanyKnowledgeSource {
+  id              String                     @id @default(cuid())
+  tenantId        String?                    @map("tenant_id")
+  knowledgeItemId String                     @map("knowledge_item_id")
+  sourceType      CompanyKnowledgeSourceType @map("source_type")
+  sourceId        String?                    @map("source_id") @db.VarChar(191)
+  sourceRef       String?                    @map("source_ref") @db.VarChar(1000)
+  excerpt         String?                    @db.VarChar(4000)
+  occurredAt      DateTime?                  @map("occurred_at")
+  metadata        Json                       @default("{}")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  knowledgeItem   CompanyKnowledgeItem       @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, sourceType, sourceId], map: "company_knowledge_sources_source_idx")
+  @@index([knowledgeItemId, createdAt], map: "company_knowledge_sources_item_idx")
+  @@map("company_knowledge_sources")
+}
+
+model CompanyKnowledgeEntityLink {
+  id              String               @id @default(cuid())
+  tenantId        String?              @map("tenant_id")
+  knowledgeItemId String               @map("knowledge_item_id")
+  entityType      String               @map("entity_type") @db.VarChar(100)
+  entityId        String               @map("entity_id") @db.VarChar(191)
+  relationship    String               @db.VarChar(100)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  knowledgeItem   CompanyKnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([knowledgeItemId, entityType, entityId, relationship], map: "company_knowledge_entity_link_key")
+  @@index([tenantId, entityType, entityId], map: "company_knowledge_entity_lookup_idx")
+  @@map("company_knowledge_entity_links")
+}
+
+model CompanyKnowledgeRelation {
+  id         String               @id @default(cuid())
+  tenantId   String?              @map("tenant_id")
+  fromItemId String               @map("from_item_id")
+  toItemId   String               @map("to_item_id")
+  relation   String               @db.VarChar(100)
+  metadata   Json                 @default("{}")
+  createdAt  DateTime             @default(now()) @map("created_at")
+  fromItem   CompanyKnowledgeItem @relation("CompanyKnowledgeRelationFrom", fields: [fromItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  toItem     CompanyKnowledgeItem @relation("CompanyKnowledgeRelationTo", fields: [toItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([fromItemId, toItemId, relation], map: "company_knowledge_relation_key")
+  @@index([tenantId, fromItemId], map: "company_knowledge_relations_from_idx")
+  @@index([tenantId, toItemId], map: "company_knowledge_relations_to_idx")
+  @@map("company_knowledge_relations")
+}
+
+model CompanyDecision {
+  id              String                @id @default(cuid())
+  tenantId        String?               @map("tenant_id")
+  knowledgeItemId String                @unique @map("knowledge_item_id")
+  status          CompanyDecisionStatus @default(PROPOSED)
+  decision        String
+  rationale       String
+  scope           Json                  @default("{}")
+  affectedSystems String[]              @default([]) @map("affected_systems")
+  effectiveAt     DateTime?             @map("effective_at")
+  supersedesId    String?               @map("supersedes_id")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  knowledgeItem   CompanyKnowledgeItem  @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersedes      CompanyDecision?      @relation("CompanyDecisionSupersession", fields: [supersedesId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy    CompanyDecision[]     @relation("CompanyDecisionSupersession")
+
+  @@index([tenantId, status, effectiveAt], map: "company_decisions_current_idx")
+  @@map("company_decisions")
+}
+
+model CompanyPriority {
+  id              String                @id @default(cuid())
+  tenantId        String?               @map("tenant_id")
+  knowledgeItemId String                @unique @map("knowledge_item_id")
+  status          CompanyPriorityStatus @default(ACTIVE)
+  rank            Int                   @default(100)
+  timeHorizon     String?               @map("time_horizon") @db.VarChar(191)
+  ownerId         String?               @map("owner_id") @db.VarChar(191)
+  rationale       String
+  workstreams     Json                  @default("[]")
+  startsAt        DateTime?             @map("starts_at")
+  endsAt          DateTime?             @map("ends_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  knowledgeItem   CompanyKnowledgeItem  @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, status, rank], map: "company_priorities_current_idx")
+  @@map("company_priorities")
+}
+
+enum AccountRelationshipNoteCategory {
+  RELATIONSHIP
+  COMMUNICATION_PREFERENCE
+  PRODUCT_PREFERENCE
+  COMMERCIAL
+  OPERATIONAL
+  SALES
+  SUPPORT
+  ONBOARDING
+  PROMISE_OR_COMMITMENT
+  RISK
+  OPPORTUNITY
+  HISTORICAL_CONTEXT
+  OTHER
+}
+
+enum AccountMilestoneType {
+  DISCOVERED
+  FIRST_OUTREACH
+  FIRST_FOLLOWUP
+  FIRST_REPLY
+  FIRST_MEETING
+  QUALIFIED
+  PROPOSAL
+  CONVERTED
+  ONBOARDING_STARTED
+  LAUNCHED
+  SUPPORT_ESCALATION
+  RENEWED
+  EXPANSION
+  CHURN_RISK
+  CANCELLED
+  REACTIVATED
+}
+
+enum AccountOpenLoopStatus {
+  OPEN
+  BLOCKED
+  RESOLVED
+  CANCELLED
+}
+
+enum AccountOpenLoopParty {
+  CLIENT
+  TORCHIKO
+  THIRD_PARTY
+  SHARED
+}
+
+enum AccountCommitmentParty {
+  CLIENT
+  TORCHIKO
+  THIRD_PARTY
+  MUTUAL
+}
+
+enum AccountCommitmentStatus {
+  OPEN
+  FULFILLED
+  MISSED
+  CANCELLED
+}
+
+enum AccountSummaryStatus {
+  CURRENT
+  STALE
+  PROCESSING
+  FAILED
+  SUPERSEDED
+}
+
+model AccountRelationshipNote {
+  id              String                           @id @default(cuid())
+  tenantId        String?                          @map("tenant_id")
+  venueId         String?                          @map("venue_id")
+  organizationId  String                           @map("organization_id")
+  category        AccountRelationshipNoteCategory
+  body            String                           @db.VarChar(8000)
+  authority       CompanyKnowledgeAuthority        @default(DURABLE_CONTEXT)
+  promotionStatus CompanyKnowledgePromotionStatus @default(CANDIDATE) @map("promotion_status")
+  confidence      Float?
+  sourceType      CompanyKnowledgeSourceType       @map("source_type")
+  sourceId        String?                          @map("source_id") @db.VarChar(191)
+  sourceRef       String?                          @map("source_ref") @db.VarChar(1000)
+  effectiveAt     DateTime?                        @map("effective_at")
+  lastConfirmedAt DateTime?                        @map("last_confirmed_at")
+  supersededById  String?                          @map("superseded_by_id")
+  archivedAt      DateTime?                        @map("archived_at")
+  contentHash     String                           @map("content_hash") @db.Char(64)
+  createdByType   ActorType                        @map("created_by_type")
+  createdById     String                           @map("created_by_id") @db.VarChar(191)
+  agentRunId      String?                          @map("agent_run_id") @db.VarChar(191)
+  workerId        String?                          @map("worker_id") @db.VarChar(191)
+  modelProvider   String?                          @map("model_provider") @db.VarChar(100)
+  modelName       String?                          @map("model_name") @db.VarChar(191)
+  idempotencyKey  String                           @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt       DateTime                         @default(now()) @map("created_at")
+  updatedAt       DateTime                         @updatedAt @map("updated_at")
+  tenant          Tenant?                          @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue           Venue?                           @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization    ProspectOrganization             @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy    AccountRelationshipNote?         @relation("AccountNoteSupersession", fields: [supersededById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersedes      AccountRelationshipNote[]        @relation("AccountNoteSupersession")
+
+  @@index([organizationId, promotionStatus, authority, category, updatedAt], map: "account_notes_current_idx")
+  @@index([tenantId, venueId, promotionStatus, updatedAt], map: "account_notes_tenant_venue_idx")
+  @@index([contentHash], map: "account_notes_content_hash_idx")
+  @@map("account_relationship_notes")
+}
+
+model AccountMilestone {
+  id             String                     @id @default(cuid())
+  tenantId       String?                    @map("tenant_id")
+  venueId        String?                    @map("venue_id")
+  organizationId String                     @map("organization_id")
+  type           AccountMilestoneType
+  occurredAt     DateTime                   @map("occurred_at")
+  summary        String?                    @db.VarChar(1000)
+  sourceType     CompanyKnowledgeSourceType @map("source_type")
+  sourceId       String?                    @map("source_id") @db.VarChar(191)
+  sourceRef      String?                    @map("source_ref") @db.VarChar(1000)
+  evidence       Json                       @default("{}")
+  idempotencyKey String                     @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization   ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([organizationId, occurredAt, id], map: "account_milestones_timeline_idx")
+  @@index([tenantId, venueId, occurredAt], map: "account_milestones_tenant_venue_idx")
+  @@map("account_milestones")
+}
+
+model AccountOpenLoop {
+  id             String                     @id @default(cuid())
+  tenantId       String?                    @map("tenant_id")
+  venueId        String?                    @map("venue_id")
+  organizationId String                     @map("organization_id")
+  title          String                     @db.VarChar(500)
+  summary        String?                    @db.VarChar(2000)
+  waitingOn      AccountOpenLoopParty       @map("waiting_on")
+  status         AccountOpenLoopStatus      @default(OPEN)
+  dueAt          DateTime?                  @map("due_at")
+  ownerId        String?                    @map("owner_id") @db.VarChar(191)
+  sourceType     CompanyKnowledgeSourceType @map("source_type")
+  sourceId       String?                    @map("source_id") @db.VarChar(191)
+  sourceRef      String?                    @map("source_ref") @db.VarChar(1000)
+  resolvedAt     DateTime?                  @map("resolved_at")
+  resolution     String?                    @db.VarChar(2000)
+  idempotencyKey String                     @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization   ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([organizationId, status, dueAt], map: "account_open_loops_current_idx")
+  @@index([tenantId, venueId, status, dueAt], map: "account_open_loops_tenant_venue_idx")
+  @@map("account_open_loops")
+}
+
+model AccountCommitment {
+  id             String                     @id @default(cuid())
+  tenantId       String?                    @map("tenant_id")
+  venueId        String?                    @map("venue_id")
+  organizationId String                     @map("organization_id")
+  party          AccountCommitmentParty
+  statement      String                     @db.VarChar(4000)
+  status         AccountCommitmentStatus    @default(OPEN)
+  dueAt          DateTime?                  @map("due_at")
+  ownerId        String?                    @map("owner_id") @db.VarChar(191)
+  sourceType     CompanyKnowledgeSourceType @map("source_type")
+  sourceId       String?                    @map("source_id") @db.VarChar(191)
+  sourceRef      String?                    @map("source_ref") @db.VarChar(1000)
+  fulfilledAt    DateTime?                  @map("fulfilled_at")
+  outcome        String?                    @db.VarChar(2000)
+  idempotencyKey String                     @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue          Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization   ProspectOrganization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([organizationId, status, dueAt], map: "account_commitments_current_idx")
+  @@index([tenantId, venueId, status, dueAt], map: "account_commitments_tenant_venue_idx")
+  @@map("account_commitments")
+}
+
+model AccountSummary {
+  id              String               @id @default(cuid())
+  tenantId        String?              @map("tenant_id")
+  organizationId  String               @map("organization_id")
+  version         Int
+  status          AccountSummaryStatus @default(CURRENT)
+  summary         String               @db.VarChar(4000)
+  sections        Json                 @default("{}")
+  sourceInputs    Json                 @map("source_inputs")
+  inputDigest     String               @map("input_digest") @db.Char(64)
+  confidence      Float?
+  generatedByType ActorType            @map("generated_by_type")
+  generatedById   String               @map("generated_by_id") @db.VarChar(191)
+  modelProvider   String?              @map("model_provider") @db.VarChar(100)
+  modelName       String?              @map("model_name") @db.VarChar(191)
+  staleAt         DateTime?            @map("stale_at")
+  failureCode     String?              @map("failure_code") @db.VarChar(100)
+  failureMessage  String?              @map("failure_message") @db.VarChar(2000)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  tenant          Tenant?              @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  organization    ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([organizationId, version], map: "account_summaries_organization_version_key")
+  @@index([organizationId, status, version], map: "account_summaries_current_idx")
+  @@index([tenantId, status, updatedAt], map: "account_summaries_tenant_status_idx")
+  @@map("account_summaries")
+}
+
+enum CompanyMeetingProcessingStatus {
+  RECEIVED
+  PROCESSING
+  COMPLETE
+  NEEDS_REVIEW
+  FAILED_RETRYABLE
+  FAILED_TERMINAL
+}
+
+enum CompanyMeetingTranscriptStatus {
+  UNAVAILABLE
+  REFERENCED
+  AVAILABLE
+  RETAINED_EXTERNALLY
+  REDACTED
+}
+
+enum CompanyMeetingExtractionType {
+  SUMMARY
+  DECISION
+  TORCHIKO_COMMITMENT
+  CLIENT_COMMITMENT
+  CLIENT_PREFERENCE
+  PRODUCT_REQUEST
+  OBJECTION
+  PRICING_DISCUSSION
+  OPPORTUNITY
+  ACTION_ITEM
+  OPEN_QUESTION
+  FACTUAL_CORRECTION
+}
+
+model CompanyMeeting {
+  id                   String                         @id @default(cuid())
+  tenantId             String?                        @map("tenant_id")
+  venueId              String?                        @map("venue_id")
+  organizationId       String?                        @map("organization_id")
+  opportunityId        String?                        @map("opportunity_id")
+  externalProvider     String?                        @map("external_provider") @db.VarChar(100)
+  externalId           String?                        @map("external_id") @db.VarChar(191)
+  title                String                         @db.VarChar(500)
+  meetingType          String                         @map("meeting_type") @db.VarChar(100)
+  startedAt            DateTime                       @map("started_at")
+  endedAt              DateTime?                      @map("ended_at")
+  sourceArtifactRef    String?                        @map("source_artifact_ref") @db.VarChar(1000)
+  transcriptStatus     CompanyMeetingTranscriptStatus @default(UNAVAILABLE) @map("transcript_status")
+  processingStatus     CompanyMeetingProcessingStatus @default(RECEIVED) @map("processing_status")
+  summary              String?                        @db.VarChar(8000)
+  processingProvenance Json                            @default("{}") @map("processing_provenance")
+  processedAt          DateTime?                       @map("processed_at")
+  failureCode          String?                         @map("failure_code") @db.VarChar(100)
+  failureMessage       String?                         @map("failure_message") @db.VarChar(2000)
+  idempotencyKey       String                          @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt            DateTime                        @default(now()) @map("created_at")
+  updatedAt            DateTime                        @updatedAt @map("updated_at")
+  tenant               Tenant?                         @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                Venue?                          @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  organization         ProspectOrganization?           @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  opportunity          ProspectOpportunity?            @relation(fields: [opportunityId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  participants         CompanyMeetingParticipant[]
+  extractions          CompanyMeetingExtraction[]
+
+  @@unique([externalProvider, externalId], map: "company_meetings_provider_external_key")
+  @@unique([id, tenantId])
+  @@index([organizationId, startedAt, id], map: "company_meetings_organization_timeline_idx")
+  @@index([tenantId, venueId, startedAt, id], map: "company_meetings_tenant_venue_timeline_idx")
+  @@index([processingStatus, createdAt], map: "company_meetings_processing_idx")
+  @@map("company_meetings")
+}
+
+model CompanyMeetingParticipant {
+  id          String           @id @default(cuid())
+  tenantId    String?          @map("tenant_id")
+  meetingId   String           @map("meeting_id")
+  contactId   String?          @map("contact_id")
+  displayName String?          @map("display_name") @db.VarChar(191)
+  role        String?          @db.VarChar(191)
+  externalRef String?          @map("external_ref") @db.VarChar(500)
+  isTorchiko  Boolean          @default(false) @map("is_torchiko")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  meeting     CompanyMeeting   @relation(fields: [meetingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  contact     ProspectContact? @relation(fields: [contactId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([meetingId], map: "company_meeting_participants_meeting_idx")
+  @@index([contactId, createdAt], map: "company_meeting_participants_contact_idx")
+  @@map("company_meeting_participants")
+}
+
+model CompanyMeetingExtraction {
+  id                String                          @id @default(cuid())
+  tenantId          String?                         @map("tenant_id")
+  meetingId         String                          @map("meeting_id")
+  knowledgeItemId   String?                         @map("knowledge_item_id")
+  type              CompanyMeetingExtractionType
+  content           String                          @db.VarChar(8000)
+  structuredData    Json                            @default("{}") @map("structured_data")
+  confidence        Float?
+  promotionStatus   CompanyKnowledgePromotionStatus @default(CANDIDATE) @map("promotion_status")
+  sourceStartOffset Int?                            @map("source_start_offset")
+  sourceEndOffset   Int?                            @map("source_end_offset")
+  createdByType     ActorType                       @map("created_by_type")
+  createdById       String                          @map("created_by_id") @db.VarChar(191)
+  modelProvider     String?                         @map("model_provider") @db.VarChar(100)
+  modelName         String?                         @map("model_name") @db.VarChar(191)
+  idempotencyKey    String                          @unique @map("idempotency_key") @db.VarChar(191)
+  createdAt         DateTime                        @default(now()) @map("created_at")
+  meeting           CompanyMeeting                  @relation(fields: [meetingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  knowledgeItem     CompanyKnowledgeItem?           @relation(fields: [knowledgeItemId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([meetingId, type, createdAt], map: "company_meeting_extractions_meeting_idx")
+  @@index([tenantId, promotionStatus, createdAt], map: "company_meeting_extractions_review_idx")
+  @@map("company_meeting_extractions")
 }

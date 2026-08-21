@@ -386,6 +386,14 @@ export {
   revokeApprovalGrantAction,
 } from './helpers/approval-grants'
 export type { ApprovalGrantHumanActor } from './helpers/approval-grants'
+export { AccountContextError, getCompactAccountContext } from './helpers/account-context'
+export type { AccountContextClient } from './helpers/account-context'
+export {
+  CompanyKnowledgeError,
+  getCompanyKnowledgeItem,
+  searchCompanyKnowledge,
+} from './helpers/company-knowledge'
+export type { CompanyKnowledgeClient, KnowledgeAccessContext } from './helpers/company-knowledge'
 export type {
   AiCostAttemptIdentity,
   AiCostReservationRef,
