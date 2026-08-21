@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-134-20260821',
+  approval: 'torchiko-staging-lineage-to-141-20260821',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 134,
+  migrationCount: 141,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -34,9 +34,9 @@ const EXPECTED = Object.freeze({
   stagingBaselineFinalMigration: '20260819156000_add_operational_event_delivery_audit',
   preBillingFinalMigration: '20260820190000_harden_prospect_import_jobs',
   billingFoundationFinalMigration: '20260820210000_add_stripe_billing_foundation',
-  finalMigration: '20260821032000_allow_pending_stripe_customer_link',
-  manifestHash: '7f4da45bd489b2596b0380fac3bd5767bc1d22d1cc546787ac9cfbe4d8a1bcf3',
-  finalPublicTableCount: 175,
+  finalMigration: '20260821201000_add_meeting_processing_capability',
+  manifestHash: '42ed987e8e05e3b54786adde743dead33f6fda1290d084cc166066736798586b',
+  finalPublicTableCount: 193,
 })
 
 // These are the exact checksums preserved by the verified 52-row production

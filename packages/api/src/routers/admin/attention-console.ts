@@ -11,6 +11,7 @@ import {
   attentionConsoleInput,
   page,
 } from './attention-pagination'
+import { listAttentionWorkers } from './attention-worker-health'
 
 // Bounded metadata-only platform triage; no payloads, artifacts, messages, or raw provider errors.
 export const adminAttentionConsoleRouter = router({
@@ -283,24 +284,7 @@ export const adminAttentionConsoleRouter = router({
             createdAt: true,
           },
         }),
-        db.agentWorker.findMany({
-          orderBy: [{ lastHeartbeatAt: 'desc' }, { id: 'desc' }],
-          take: 25,
-          select: {
-            id: true,
-            workerKey: true,
-            runtimeType: true,
-            status: true,
-            capabilities: true,
-            protocolVersion: true,
-            softwareVersion: true,
-            modelProvider: true,
-            modelName: true,
-            lastHeartbeatAt: true,
-            leaseExpiresAt: true,
-            tenantId: true,
-          },
-        }),
+        listAttentionWorkers(now),
       ])
 
       return {
@@ -332,11 +316,7 @@ export const adminAttentionConsoleRouter = router({
         outcomes: page(outcomes, query.limit),
         events: page(events, query.limit),
         platformEvents: page(platformEvents, query.limit),
-        workers: workers.map((worker) => ({
-          ...worker,
-          effectiveStatus:
-            worker.status === 'ONLINE' && worker.leaseExpiresAt <= now ? 'OFFLINE' : worker.status,
-        })),
+        workers,
       }
     }),
   ),
