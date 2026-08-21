@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   complete: vi.fn(),
   fail: vi.fn(),
   prospectCall: vi.fn(),
+  operationalList: vi.fn(),
+  operationalCall: vi.fn(),
 }))
 vi.mock('../prospect-agent/registry', () => ({
   createProspectAgentRegistry: () => ({ callTool: mocks.prospectCall }),
@@ -115,5 +117,42 @@ describe('agent bridge registry', () => {
         correlationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       },
     )
+  })
+
+  it('mounts operational discovery and derives client and venue scope from the credential', async () => {
+    mocks.operationalList.mockReturnValue([{ name: 'pathfinder.read' }])
+    mocks.operationalCall.mockResolvedValue({ structuredContent: { kind: 'pathfinder.read' } })
+    const registry = createAgentBridgeRegistry({
+      operationalRegistry: {
+        listTools: mocks.operationalList,
+        callTool: mocks.operationalCall,
+      } as never,
+    })
+    expect(registry.listOperationalTools({}, { credential })).toEqual([{ name: 'pathfinder.read' }])
+    await registry.callOperationalTool(
+      {
+        venueId: 'venue-1',
+        toolName: 'pathfinder.read',
+        arguments: { clientId: 'spoofed', venueId: 'spoofed', resource: 'venues' },
+      },
+      { credential },
+    )
+    expect(mocks.operationalCall).toHaveBeenCalledWith(
+      'pathfinder.read',
+      { clientId: 'tenant-1', venueId: 'venue-1', resource: 'venues' },
+      { credential },
+    )
+  })
+
+  it('rejects operational calls outside exact credential venue scope', async () => {
+    expect(() =>
+      createAgentBridgeRegistry({
+        operationalRegistry: { listTools: vi.fn(), callTool: mocks.operationalCall } as never,
+      }).callOperationalTool(
+        { venueId: 'venue-2', toolName: 'pathfinder.read', arguments: {} },
+        { credential },
+      ),
+    ).toThrow(/exact credential venue scope/u)
+    expect(mocks.operationalCall).not.toHaveBeenCalled()
   })
 })

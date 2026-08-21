@@ -4,7 +4,7 @@ Baseline date: 2026-08-21. This report is updated as Packet A closes gaps.
 
 ## P0 gaps
 
-1. **Operational MCP is not composed as a deployable authenticated service.** The contracts, registry, reads, approval seam, credential schema, and default-dark agent bridge exist, but the MCP registry has no production composition root or protocol dispatcher.
+1. **Standard MCP protocol transport remains incomplete.** Packet A now provides a safe production composition root and mounts operational discovery/calls on the authenticated, rate-limited, default-dark agent bridge. A standards-compliant MCP JSON-RPC dispatcher and approval-bound machine-write bindings remain deferred.
 2. **Agent/API parity is incomplete.** Torchiko's typed first-party API is much broader than the 13 currently discoverable operational/prospect tools. Packet A has added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads, but venue lifecycle, intake, report operations, conversation replay, provider health, and offboarding still lack adequate agent interfaces.
 3. **Tool metadata is split.** MCP definitions are rich and machine-readable; prospect definitions expose only name/capability/mutation. A unified catalog needs consistent arguments, outputs, permissions, side effects, environments, approval, idempotency, examples, and related tools.
 4. **Resettable database scenarios remain incomplete.** Packet A now supplies four provider-free synthetic venue scenarios and deterministic time/location/replay contracts, but database-backed create/reset operations such as degraded operations, rich report, or support escalation are not implemented.
@@ -31,6 +31,7 @@ Baseline date: 2026-08-21. This report is updated as Packet A closes gaps.
 
 - Implemented the inspect-only `pnpm torchiko` developer entry point for bootstrap, environment doctor, repository mapping, tool discovery, fixture discovery, targeted-test discovery, and Golden Venue validation.
 - Expanded the existing `pathfinder.read` surface with permission-scoped, paginated, privacy-bounded reports, conversations, integration access, agent runs, operational events, native deployments, and feature flags.
+- Composed the safe operational catalog through the existing agent bridge with credential-derived scope; approval-bound writes remain default-dark.
 - Added `pnpm verify:agent-tools`, which fails when a mounted application/admin router has no explicit or has an ambiguous agent/developer coverage decision.
 - Added four synthetic scenario fixtures with provider-free time/location simulation and conversation replay preparation.
 - Added the initial capability matrix, developer guide, tool reference, and this gap ledger.

@@ -7,6 +7,8 @@ import { createAgentBridgeRegistry } from './registry'
 
 const MAX_BODY_BYTES = 128 * 1024
 const methodSchema = z.enum([
+  'listOperationalTools',
+  'callOperationalTool',
   'register',
   'heartbeatSession',
   'claimTask',
@@ -149,6 +151,12 @@ export async function handleAgentBridgeHttpRequest(
   try {
     let result: unknown
     switch (envelope.method) {
+      case 'listOperationalTools':
+        result = registry.listOperationalTools(envelope.params, context)
+        break
+      case 'callOperationalTool':
+        result = await registry.callOperationalTool(envelope.params, context)
+        break
       case 'register':
         result = await registry.register(envelope.params, context)
         break

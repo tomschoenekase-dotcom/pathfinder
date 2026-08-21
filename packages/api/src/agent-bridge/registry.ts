@@ -11,6 +11,7 @@ import {
 } from '@pathfinder/db'
 
 import { createProspectAgentRegistry } from '../prospect-agent/registry'
+import { createSafeOperationalMcpRegistry } from '../mcp/composition'
 
 const sessionScope = z
   .object({
@@ -30,11 +31,44 @@ export type VerifiedAgentBridgeContext = Readonly<{
   credential: z.infer<typeof VerifiedMcpCredentialScope>
 }>
 
+type OperationalRegistry = ReturnType<typeof createSafeOperationalMcpRegistry>
+
 /** Transport-neutral authenticated bridge service. An HTTP/MCP transport must
  * verify the machine secret and construct the credential context before call. */
-export function createAgentBridgeRegistry() {
+export function createAgentBridgeRegistry(
+  dependencies: Readonly<{ operationalRegistry?: OperationalRegistry }> = {},
+) {
   const prospectRegistry = createProspectAgentRegistry()
+  let operationalRegistry = dependencies.operationalRegistry
+  const operational = () => (operationalRegistry ??= createSafeOperationalMcpRegistry())
   return {
+    listOperationalTools: (_raw: unknown, rawContext: unknown) => {
+      z.object({}).strict().parse(_raw)
+      z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      return operational().listTools()
+    },
+    callOperationalTool: (raw: unknown, rawContext: unknown) => {
+      const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
+      const input = z
+        .object({
+          venueId: z.string().trim().min(1).max(191),
+          toolName: z.string().trim().min(1).max(191),
+          arguments: z.record(z.unknown()),
+        })
+        .strict()
+        .parse(raw)
+      if (!context.credential.venueIds.includes(input.venueId))
+        throw new Error('Operational tools require exact credential venue scope')
+      return operational().callTool(
+        input.toolName,
+        {
+          ...input.arguments,
+          clientId: context.credential.clientId,
+          venueId: input.venueId,
+        },
+        context,
+      )
+    },
     register: (raw: unknown, rawContext: unknown) => {
       const context = z.object({ credential: VerifiedMcpCredentialScope }).parse(rawContext)
       const input = sessionScope

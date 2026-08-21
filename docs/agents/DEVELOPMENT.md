@@ -90,6 +90,8 @@ Seeding or resetting data remains separately guarded. Follow `docs/golden-venue-
 6. Add or update idempotency, audit, tenant-isolation, and structured-error proof with the change.
 7. Run targeted tests, related suites, security boundaries, lifecycle checks, and UI validation proportional to the change.
 
+Operational integrations should use the default-dark agent bridge methods `listOperationalTools` and `callOperationalTool`. The bridge derives scope from the verified credential. Do not add client or venue IDs as an independent authority source, and do not enable approval-bound MCP writes until the canonical domain model supports honest machine-actor attribution.
+
 ## Deliberate boundaries
 
 - Browser automation is for UI/E2E verification or third parties without a better interface, not normal Torchiko administration.

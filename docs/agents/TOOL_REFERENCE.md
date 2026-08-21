@@ -37,4 +37,6 @@ The expanded operational-intelligence resources deliberately exclude report cont
 
 ## Transport truth
 
-The registry contract alone is not a deployed MCP service. Operational MCP composition still requires a verified credential provider, rate limiting, audit transport evidence, and an enabled listener. The agent bridge HTTP route and desktop runner are separately default-dark and scoped to exact machine credentials, venues, live sessions, and leased runs.
+The safe operational catalog is composed through `createSafeOperationalMcpRegistry` and mounted on the existing authenticated, rate-limited, default-dark agent bridge as `listOperationalTools` and `callOperationalTool`. The bridge derives client and venue scope from its verified machine credential and overwrites caller-supplied scope. Reads, operator questions, specialist delegation, and billing proposals reuse canonical domain actions.
+
+Approval-bound package, update, support, and evaluation writes remain disabled. Their existing human-audited domain models cannot yet attribute a machine actor without impersonating a user. A standards-compliant MCP JSON-RPC dispatcher is also still deferred; the bridge methods expose the same catalog and structured results but are not presented as a complete MCP protocol server.
