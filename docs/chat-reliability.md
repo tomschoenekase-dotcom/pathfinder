@@ -13,6 +13,12 @@ Every successfully persisted assistant response emits `message.received` with:
 
 A fallback also emits `message.fallback` with `failureStage: generation`, the sanitized failure code, and the same timings. It is intended for live logs/alerts. Both events are server-only and are rejected by the public analytics mutation.
 
+Before returning that canned response, guest chat executes the ordered fallback candidates from
+its centrally resolved workload configuration. Only gateway/provider failures may advance the
+route; admission, budget, policy, accounting, abort, and durable-dispatch failures stop without an
+extra model call. Each attempted candidate writes route-aware usage evidence, and all candidates
+remain inside one durable response-generation operation.
+
 `totalMs` ends after the response and engagement state are durably persisted; it intentionally excludes best-effort analytics emission. These are completed-request timings, not time-to-first-token measurements because guest chat is not yet streamed.
 
 ## Daily rollups
@@ -38,3 +44,4 @@ The dashboard presents the latest day with completed responses in the requested 
 - Analytics writes remain best-effort, so a database outage can undercount reliability events.
 - No alert threshold or destination is chosen here. Live Sentry/Railway alert configuration requires staging access and an approved operating threshold.
 - These metrics contain IDs, counts, sanitized error codes, and durations only. They do not add guest questions, model responses, prompts, or provider error messages.
+- The current text adapter registry is Anthropic-only. Central model fallback is active; cross-provider text failover still requires another governed text adapter and staging proof.

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { setAnthropicClientForTesting } from './anthropic'
-import { NOOP_AI_BUDGET_GATE } from './budget'
+import { NOOP_AI_BUDGET_GATE, type AiBudgetGate } from './budget'
 import { resolveAiWorkloadConfiguration } from './workload-configuration'
 import { routeAiCapability } from './capability-routing'
 import { generateTextForCapability } from './routed-generation'
@@ -32,6 +32,14 @@ describe('routed text generation', () => {
     })
     const usageSink = vi.fn().mockResolvedValue(undefined)
     const fence = vi.fn().mockResolvedValue(undefined)
+    const reserve = vi.fn().mockResolvedValue(null)
+    const budgetGate: AiBudgetGate = {
+      reserve,
+      markDispatched: vi.fn().mockResolvedValue(undefined),
+      settleExact: vi.fn().mockResolvedValue(undefined),
+      settleAmbiguous: vi.fn().mockResolvedValue(undefined),
+      releaseUndispatched: vi.fn().mockResolvedValue(undefined),
+    }
     const result = await generateTextForCapability({
       route: routeAiCapability({
         capability: 'STANDARD',
@@ -43,12 +51,21 @@ describe('routed text generation', () => {
       maxAttempts: 1,
       usageSink,
       admissionGuard: vi.fn().mockResolvedValue(undefined),
-      budgetGate: NOOP_AI_BUDGET_GATE,
+      budgetGate,
+      invocationId: '44444444-4444-4444-8444-444444444444',
       onBeforeFirstDispatch: fence,
     })
 
     expect(result.route).toMatchObject({ modelKey: 'agent-run', fallbackUsed: true })
     expect(fence).toHaveBeenCalledTimes(1)
+    expect(reserve).toHaveBeenCalledTimes(2)
+    expect(reserve).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        invocationId: '44444444-4444-4444-8444-444444444444',
+        attemptNumber: 2,
+      }),
+    )
     expect(usageSink).toHaveBeenLastCalledWith(
       expect.objectContaining({
         capability: 'STANDARD',
@@ -57,5 +74,41 @@ describe('routed text generation', () => {
         fallbackUsed: true,
       }),
     )
+  })
+
+  it('does not use a fallback to bypass an admission failure', async () => {
+    const create = vi.fn()
+    setAnthropicClientForTesting({ messages: { create } })
+    const configuration = resolveAiWorkloadConfiguration({
+      workloadId: 'guest-chat',
+      overrides: [
+        {
+          activation: 'ENABLED',
+          scope: { level: 'WORKLOAD', workloadId: 'guest-chat' },
+          values: { fallback: { enabled: true, modelKeys: ['agent-run'] } },
+          unsafeChangesEnabled: true,
+          reason: 'test fallback',
+        },
+      ],
+    })
+    const admissionFailure = new Error('venue admission rejected')
+
+    await expect(
+      generateTextForCapability({
+        route: routeAiCapability({
+          capability: 'STANDARD',
+          workloadId: 'guest-chat',
+          configuration,
+        }),
+        system: [{ type: 'text', text: 'Guide' }],
+        messages: [{ role: 'user', content: 'Hello' }],
+        maxAttempts: 1,
+        usageSink: vi.fn().mockResolvedValue(undefined),
+        admissionGuard: vi.fn().mockRejectedValue(admissionFailure),
+        budgetGate: NOOP_AI_BUDGET_GATE,
+      }),
+    ).rejects.toBe(admissionFailure)
+
+    expect(create).not.toHaveBeenCalled()
   })
 })

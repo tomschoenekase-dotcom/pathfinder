@@ -199,6 +199,8 @@ export async function generateText<TParsed = string>(params: {
   budgetGate: AiBudgetGate
   parseResponse?: (text: string) => TParsed
   invocationId?: string
+  /** Internal routed-execution offset so one invocation has unique budget attempt identities. */
+  budgetAttemptNumberOffset?: number
   onBeforeFirstDispatch?: () => Promise<void>
   signal?: AbortSignal
 }): Promise<AiTextResult<TParsed>> {
@@ -213,6 +215,10 @@ export async function generateText<TParsed = string>(params: {
 
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
     throw new Error('maxAttempts must be a positive integer')
+  }
+  const budgetAttemptNumberOffset = params.budgetAttemptNumberOffset ?? 0
+  if (!Number.isInteger(budgetAttemptNumberOffset) || budgetAttemptNumberOffset < 0) {
+    throw new Error('budgetAttemptNumberOffset must be a nonnegative integer')
   }
   const maxOutputTokens = params.maxOutputTokens ?? spec.maxOutputTokens
   const reservedUnits = textAttemptCostCeilingUnits({
@@ -249,7 +255,7 @@ export async function generateText<TParsed = string>(params: {
     const client = getAnthropicClient()
     const reservation = await budgetGate.reserve({
       invocationId,
-      attemptNumber: attempt,
+      attemptNumber: budgetAttemptNumberOffset + attempt,
       provider: spec.provider,
       model: spec.model,
       pricingVersion: spec.pricingVersion,

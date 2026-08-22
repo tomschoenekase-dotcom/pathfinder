@@ -4,10 +4,9 @@ import { TRPCError } from '@trpc/server'
 
 import {
   AiGatewayError,
-  generateText,
+  generateTextForCapability,
   routeAiCapability,
   setAnthropicClientForTesting,
-  type AiModelKey,
   type AnthropicMessagesClient,
 } from '@pathfinder/ai'
 import { emitEvent } from '@pathfinder/analytics'
@@ -959,9 +958,8 @@ export const chatRouter = router({
         workloadId: 'guest-chat',
         configuration,
       })
-      const selectedRoute = route.candidates[0]!
-      const result = await generateText({
-        modelKey: selectedRoute.modelKey as AiModelKey,
+      const result = await generateTextForCapability({
+        route,
         timeoutMs: configuration.timeoutMs,
         maxAttempts: configuration.maxAttempts,
         ...(configuration.maxOutputTokens !== null
@@ -984,14 +982,7 @@ export const chatRouter = router({
           })),
           { role: 'user', content: trimmedInput },
         ],
-        usageSink: (usage) =>
-          chatAccounting.sink({
-            ...usage,
-            capability: route.capability,
-            requestType: route.workloadId,
-            routeModelKey: selectedRoute.modelKey,
-            fallbackUsed: selectedRoute.fallback,
-          }),
+        usageSink: chatAccounting.sink,
         invocationId: generationInvocationId,
         onBeforeFirstDispatch: async () => {
           try {

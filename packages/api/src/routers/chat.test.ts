@@ -99,6 +99,8 @@ const engagementQuestionFindFirst = vi.fn()
 const engagementQuestionResponseCreate = vi.fn().mockResolvedValue({})
 const aiUsageEventCreate = vi.fn().mockResolvedValue({})
 const platformConfigFindUnique = vi.fn()
+const aiWorkloadConfigurationOverrideFindFirst = vi.fn()
+const aiScopedWorkloadConfigurationOverrideFindFirst = vi.fn()
 const aiCostBudgetFindFirst = vi.fn()
 const venueFindFirst = vi.fn()
 const tenantFeatureFlagFindMany = vi.fn()
@@ -108,6 +110,10 @@ const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   platformConfig: { findUnique: platformConfigFindUnique },
+  aiWorkloadConfigurationOverride: { findFirst: aiWorkloadConfigurationOverrideFindFirst },
+  aiScopedWorkloadConfigurationOverride: {
+    findFirst: aiScopedWorkloadConfigurationOverrideFindFirst,
+  },
   venue: { findFirst: venueFindFirst },
   tenantFeatureFlag: { findMany: tenantFeatureFlagFindMany },
   visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
@@ -206,6 +212,8 @@ describe('chat router', () => {
     engagementQuestionResponseCreate.mockResolvedValue({})
     aiUsageEventCreate.mockResolvedValue({})
     platformConfigFindUnique.mockResolvedValue(null)
+    aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
+    aiScopedWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
     aiCostBudgetFindFirst.mockResolvedValue(null)
     venueFindFirst.mockResolvedValue({ isActive: true })
     resolveSystemCharacterProjection.mockReturnValue(null)
@@ -1550,6 +1558,82 @@ describe('chat router', () => {
           metadata: expect.objectContaining({
             fallback: true,
             failureCode: 'provider-error',
+          }),
+        }),
+      )
+    })
+
+    it('executes the centrally configured fallback route under one durable provider dispatch', async () => {
+      setupHappyPath('unused primary response')
+      anthropicCreate.mockReset()
+      anthropicCreate
+        .mockRejectedValueOnce(Object.assign(new Error('primary unavailable'), { status: 503 }))
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'Recovered through the configured route.' }],
+          usage: { input_tokens: 20, output_tokens: 8 },
+        })
+      aiWorkloadConfigurationOverrideFindFirst.mockResolvedValueOnce({
+        id: 'fallback-config',
+        workloadId: 'guest-chat',
+        enabled: true,
+        primaryModelKey: null,
+        primaryModelKeySet: false,
+        fallbackEnabled: true,
+        fallbackEnabledSet: true,
+        fallbackModelKeys: ['agent-run'],
+        fallbackModelKeysSet: true,
+        timeoutMs: null,
+        timeoutMsSet: false,
+        maxAttempts: 1,
+        maxAttemptsSet: true,
+        maxOutputTokens: null,
+        maxOutputTokensSet: false,
+        requestBudgetCeilingE8Usd: null,
+        requestBudgetCeilingE8UsdSet: false,
+        unsafeChangesEnabled: true,
+        isTombstone: false,
+        reason: 'test central fallback',
+        revision: 1,
+        createdBy: 'admin',
+        updatedBy: 'admin',
+        createdAt: new Date('2026-08-22T00:00:00.000Z'),
+        updatedAt: new Date('2026-08-22T00:00:00.000Z'),
+      })
+
+      const result = await caller.chat.send(sendInput)
+
+      expect(result.response).toBe('Recovered through the configured route.')
+      expect(anthropicCreate).toHaveBeenCalledTimes(2)
+      expect(
+        guestTurnActions.dispatch.mock.calls.filter(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toHaveLength(1)
+      expect(aiUsageEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            feature: 'guest-chat',
+            routeModelKey: 'guest-chat',
+            fallbackUsed: false,
+            success: false,
+          }),
+        }),
+      )
+      expect(aiUsageEventCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            feature: 'guest-chat',
+            routeModelKey: 'agent-run',
+            fallbackUsed: true,
+            success: true,
+          }),
+        }),
+      )
+      expect(guestTurnActions.observe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RESPONSE_GENERATION',
+            outcomeCode: 'SUCCEEDED',
           }),
         }),
       )

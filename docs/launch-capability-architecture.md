@@ -6,6 +6,13 @@ This document is the canonical guide for PathFinder's launch-adjacent capability
 
 Application code requests a capability from `packages/ai/src/capability-routing.ts`; workload configuration chooses an ordered, provider-neutral route. Current capabilities include fast and standard conversation, reasoning, premium conversation, realtime voice tiers, extraction, classification, embeddings, moderation, and background analysis. Runtime workload configuration still supports platform, tenant, and venue overrides. Provider/model health, disabled routes, cost policy, quality preference, and fallback ordering are inputs to route planning.
 
+Live guest chat executes the complete centrally configured route rather than selecting only its
+first candidate. Gateway failures may move to an explicit fallback under the same invocation and
+one durable provider-dispatch fence. Non-provider failures—including admission, budget, policy,
+accounting, and abort controls—fail closed and cannot trigger a second candidate. The route model
+is provider-neutral, but current text execution is Anthropic-only; cross-provider text failover is
+an explicit remaining adapter and staging-verification gate.
+
 `AiUsageEvent` records tenant, venue, capability, request type, provider, model, route key, fallback use, latency, success, token/audio units, pricing version, and estimated cost. Daily rollups retain text and audio units. Do not log prompt or transcript bodies as route telemetry.
 
 ## Entitlements
