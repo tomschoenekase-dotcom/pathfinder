@@ -6,6 +6,7 @@ import { portalRouter } from './portal'
 
 const venueFindFirst = vi.fn()
 const uploadGroupBy = vi.fn()
+const uploadCount = vi.fn()
 const intakeGroupBy = vi.fn()
 const mediaGroupBy = vi.fn()
 const packageGroupBy = vi.fn()
@@ -22,7 +23,7 @@ const ctx = {
   db: {
     $transaction: vi.fn(async (callback: (db: unknown) => unknown) => callback(ctx.db)),
     venue: { findFirst: venueFindFirst },
-    intakeUpload: { groupBy: uploadGroupBy },
+    intakeUpload: { groupBy: uploadGroupBy, count: uploadCount },
     intakeRun: { groupBy: intakeGroupBy },
     mediaIngestionProject: { groupBy: mediaGroupBy },
     venuePackage: { groupBy: packageGroupBy, findFirst: packageFindFirst },
@@ -49,6 +50,7 @@ function setEmptyJourney() {
     _count: { places: 0, knowledgeEntries: 0 },
   })
   uploadGroupBy.mockResolvedValue([])
+  uploadCount.mockResolvedValue(0)
   intakeGroupBy.mockResolvedValue([])
   mediaGroupBy.mockResolvedValue([])
   packageGroupBy.mockResolvedValue([])
@@ -75,10 +77,21 @@ describe('remote onboarding journey read model', () => {
       where: { tenantId: 'tenant-1', venueId: 'venue-1' },
       _count: { _all: true },
     })
+    expect(uploadCount).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        status: 'VERIFYING',
+        OR: [
+          { verificationLeaseUntil: null },
+          { verificationLeaseUntil: { lte: expect.any(Date) } },
+        ],
+      },
+    })
     expect(result).toMatchObject({
       venue: { id: 'venue-1', name: 'Museum' },
       projection: {
-        version: 3,
+        version: 4,
         primaryAction: {
           kind: 'START_MATERIALS',
           stage: 'MATERIALS',
@@ -243,9 +256,44 @@ describe('remote onboarding journey read model', () => {
     expect(result.materials.needsAttention).toBe(1)
     expect(result.materialTypes).toMatchObject({ DOCUMENT: 0, PHOTO: 1 })
     expect(result.projection).toMatchObject({
-      version: 3,
+      version: 4,
       primaryAction: {
         kind: 'CHOOSE_REPLACEMENT',
+        stage: 'MATERIALS',
+        required: true,
+      },
+    })
+  })
+
+  it('separates live checks, expired resumptions, and scanner-unavailable operational waits', async () => {
+    setEmptyJourney()
+    uploadGroupBy.mockResolvedValue([
+      {
+        status: 'VERIFYING',
+        category: 'DOCUMENT',
+        rejectionCode: null,
+        _count: { _all: 2 },
+      },
+      {
+        status: 'PRECHECK_PASSED',
+        category: 'PHOTO',
+        rejectionCode: null,
+        _count: { _all: 1 },
+      },
+    ])
+    uploadCount.mockResolvedValue(1)
+
+    const result = await app.createCaller(ctx).portal.getOnboardingJourney({ venueId: 'venue-1' })
+
+    expect(result.materials).toMatchObject({
+      checking: 1,
+      checksNeedAction: 1,
+      checksWaitingOnTorchiko: 1,
+    })
+    expect(result.projection).toMatchObject({
+      version: 4,
+      primaryAction: {
+        kind: 'RESUME_MATERIAL_CHECK',
         stage: 'MATERIALS',
         required: true,
       },

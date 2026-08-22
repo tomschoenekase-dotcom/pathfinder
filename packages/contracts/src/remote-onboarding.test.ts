@@ -19,7 +19,15 @@ function evidence(overrides: Partial<RemoteOnboardingEvidence> = {}): RemoteOnbo
       packageCounts: { draft: 0, approved: 0, applied: 0, reverted: 0 },
       hasActiveOffboarding: false,
     }),
-    materials: { uploaded: 0, checking: 0, needsAttention: 0, readyForReview: 0, processed: 0 },
+    materials: {
+      uploaded: 0,
+      checking: 0,
+      checksNeedAction: 0,
+      checksWaitingOnTorchiko: 0,
+      needsAttention: 0,
+      readyForReview: 0,
+      processed: 0,
+    },
     review: { proposedSources: 0, draftPackages: 0 },
     questions: { open: 0 },
     preview: { state: 'UNAVAILABLE', packageId: null },
@@ -72,7 +80,15 @@ describe('remote onboarding journey projection', () => {
   it('separates QA failures from other readiness dimensions', () => {
     const result = resolveRemoteOnboardingProjection(
       evidence({
-        materials: { uploaded: 0, checking: 0, needsAttention: 0, readyForReview: 2, processed: 1 },
+        materials: {
+          uploaded: 0,
+          checking: 0,
+          checksNeedAction: 0,
+          checksWaitingOnTorchiko: 0,
+          needsAttention: 0,
+          readyForReview: 2,
+          processed: 1,
+        },
         qa: {
           state: 'COMPLETED',
           passed: 42,
@@ -131,6 +147,8 @@ describe('remote onboarding journey projection', () => {
         materials: {
           uploaded: 0,
           checking: 1,
+          checksNeedAction: 0,
+          checksWaitingOnTorchiko: 0,
           needsAttention: 0,
           readyForReview: 0,
           processed: 0,
@@ -144,6 +162,46 @@ describe('remote onboarding journey projection', () => {
       reason:
         'Your information is saved and being checked. You can leave this page and return later.',
       required: false,
+    })
+
+    const waitingOnTorchiko = resolveRemoteOnboardingProjection(
+      evidence({
+        materials: {
+          uploaded: 0,
+          checking: 0,
+          checksNeedAction: 0,
+          checksWaitingOnTorchiko: 1,
+          needsAttention: 0,
+          readyForReview: 0,
+          processed: 0,
+        },
+      }),
+    )
+    expect(waitingOnTorchiko.primaryAction).toMatchObject({
+      kind: 'VIEW_PROGRESS',
+      required: false,
+      reason: expect.stringContaining('Torchiko still needs to finish'),
+    })
+
+    const resumable = resolveRemoteOnboardingProjection(
+      evidence({
+        materials: {
+          uploaded: 0,
+          checking: 0,
+          checksNeedAction: 2,
+          checksWaitingOnTorchiko: 0,
+          needsAttention: 0,
+          readyForReview: 0,
+          processed: 0,
+        },
+      }),
+    )
+    expect(resumable.primaryAction).toEqual({
+      kind: 'RESUME_MATERIAL_CHECK',
+      stage: 'MATERIALS',
+      label: 'Resume file check',
+      reason: '2 saved files need the check resumed. You do not need to upload them again.',
+      required: true,
     })
 
     const submitted = resolveRemoteOnboardingProjection(
@@ -163,6 +221,8 @@ describe('remote onboarding journey projection', () => {
         materials: {
           uploaded: 0,
           checking: 0,
+          checksNeedAction: 0,
+          checksWaitingOnTorchiko: 0,
           needsAttention: 0,
           readyForReview: 1,
           processed: 0,
@@ -184,6 +244,8 @@ describe('remote onboarding journey projection', () => {
         materials: {
           uploaded: 0,
           checking: 0,
+          checksNeedAction: 0,
+          checksWaitingOnTorchiko: 0,
           needsAttention: 2,
           readyForReview: 3,
           processed: 1,

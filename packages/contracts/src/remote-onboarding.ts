@@ -1,6 +1,6 @@
 import type { ClientPortalLifecycleView } from './client-portal-lifecycle'
 
-export const REMOTE_ONBOARDING_PROJECTION_VERSION = 3 as const
+export const REMOTE_ONBOARDING_PROJECTION_VERSION = 4 as const
 
 export const REMOTE_ONBOARDING_STAGES = [
   'OVERVIEW',
@@ -29,6 +29,8 @@ export type RemoteOnboardingEvidence = {
   materials: {
     uploaded: number
     checking: number
+    checksNeedAction: number
+    checksWaitingOnTorchiko: number
     needsAttention: number
     readyForReview: number
     processed: number
@@ -67,6 +69,7 @@ export type RemoteOnboardingProjection = {
     kind:
       | 'ANSWER_QUESTION'
       | 'CHOOSE_REPLACEMENT'
+      | 'RESUME_MATERIAL_CHECK'
       | 'TEST_PREVIEW'
       | 'START_MATERIALS'
       | 'VIEW_PROGRESS'
@@ -127,49 +130,61 @@ export function resolveRemoteOnboardingProjection(
             reason: `${plural(evidence.materials.needsAttention, 'file')} could not be accepted. Other submitted information remains unchanged.`,
             required: true,
           }
-        : previewAvailable
+        : evidence.materials.checksNeedAction > 0
           ? {
-              kind: 'TEST_PREVIEW',
-              stage: 'PREVIEW',
-              label: 'Test the visitor experience',
-              reason: 'A reviewed candidate is ready for your feedback.',
+              kind: 'RESUME_MATERIAL_CHECK',
+              stage: 'MATERIALS',
+              label: 'Resume file check',
+              reason: `${plural(evidence.materials.checksNeedAction, 'saved file')} need the check resumed. You do not need to upload them again.`,
               required: true,
             }
-          : !hasMaterials
+          : previewAvailable
             ? {
-                kind: 'START_MATERIALS',
-                stage: 'MATERIALS',
-                label: 'Start with my website',
-                reason:
-                  'A website is usually the quickest way to give Torchiko a useful starting point.',
+                kind: 'TEST_PREVIEW',
+                stage: 'PREVIEW',
+                label: 'Test the visitor experience',
+                reason: 'A reviewed candidate is ready for your feedback.',
                 required: true,
               }
-            : evidence.materials.checking > 0 || evidence.lifecycle.state === 'PROCESSING'
+            : !hasMaterials
               ? {
-                  kind: 'VIEW_PROGRESS',
-                  stage: 'OVERVIEW',
-                  label: 'See what happens next',
+                  kind: 'START_MATERIALS',
+                  stage: 'MATERIALS',
+                  label: 'Start with my website',
                   reason:
-                    'Your information is saved and being checked. You can leave this page and return later.',
-                  required: false,
+                    'A website is usually the quickest way to give Torchiko a useful starting point.',
+                  required: true,
                 }
-              : reviewAvailable
+              : evidence.materials.checking > 0 ||
+                  evidence.materials.checksWaitingOnTorchiko > 0 ||
+                  evidence.lifecycle.state === 'PROCESSING'
                 ? {
-                    kind: 'REVIEW_SOURCES',
-                    stage: 'REVIEW',
-                    label: 'See what you shared',
-                    reason:
-                      'Your information is saved for Torchiko review. You can add a correction now or return later.',
-                    required: false,
-                  }
-                : {
                     kind: 'VIEW_PROGRESS',
                     stage: 'OVERVIEW',
                     label: 'See what happens next',
                     reason:
-                      'Your information is saved. Torchiko will ask if another detail is needed.',
+                      evidence.materials.checksWaitingOnTorchiko > 0
+                        ? 'Your information is saved. Torchiko still needs to finish a security check; you can leave this page and return later.'
+                        : 'Your information is saved and being checked. You can leave this page and return later.',
                     required: false,
                   }
+                : reviewAvailable
+                  ? {
+                      kind: 'REVIEW_SOURCES',
+                      stage: 'REVIEW',
+                      label: 'See what you shared',
+                      reason:
+                        'Your information is saved for Torchiko review. You can add a correction now or return later.',
+                      required: false,
+                    }
+                  : {
+                      kind: 'VIEW_PROGRESS',
+                      stage: 'OVERVIEW',
+                      label: 'See what happens next',
+                      reason:
+                        'Your information is saved. Torchiko will ask if another detail is needed.',
+                      required: false,
+                    }
 
   const stages: RemoteOnboardingProjection['stages'] = [
     {
@@ -184,18 +199,24 @@ export function resolveRemoteOnboardingProjection(
       status:
         evidence.materials.needsAttention > 0
           ? 'NEEDS_ATTENTION'
-          : evidence.materials.checking > 0
-            ? 'IN_PROGRESS'
-            : hasMaterials
-              ? 'COMPLETE'
-              : 'AVAILABLE',
+          : evidence.materials.checksNeedAction > 0
+            ? 'NEEDS_ATTENTION'
+            : evidence.materials.checking > 0 || evidence.materials.checksWaitingOnTorchiko > 0
+              ? 'IN_PROGRESS'
+              : hasMaterials
+                ? 'COMPLETE'
+                : 'AVAILABLE',
       summary: !hasMaterials
         ? 'Start with a website or share whatever materials you already have.'
         : evidence.materials.needsAttention > 0
           ? `${plural(evidence.materials.needsAttention, 'file')} need a safe retry or replacement.`
-          : evidence.materials.checking > 0
-            ? `${plural(evidence.materials.checking, 'file')} are being checked.`
-            : 'Your shared materials are safely recorded.',
+          : evidence.materials.checksNeedAction > 0
+            ? `${plural(evidence.materials.checksNeedAction, 'saved file')} need the check resumed.`
+            : evidence.materials.checksWaitingOnTorchiko > 0
+              ? `${plural(evidence.materials.checksWaitingOnTorchiko, 'saved file')} are waiting for Torchiko's security check.`
+              : evidence.materials.checking > 0
+                ? `${plural(evidence.materials.checking, 'file')} are being checked.`
+                : 'Your shared materials are safely recorded.',
     },
     {
       id: 'REVIEW',
@@ -265,17 +286,21 @@ export function resolveRemoteOnboardingProjection(
       status:
         evidence.materials.needsAttention > 0
           ? 'NEEDS_ATTENTION'
-          : evidence.materials.checking > 0
-            ? 'IN_PROGRESS'
-            : hasMaterials
-              ? 'READY'
-              : 'NOT_ASSESSED',
+          : evidence.materials.checksNeedAction > 0
+            ? 'NEEDS_ATTENTION'
+            : evidence.materials.checking > 0 || evidence.materials.checksWaitingOnTorchiko > 0
+              ? 'IN_PROGRESS'
+              : hasMaterials
+                ? 'READY'
+                : 'NOT_ASSESSED',
       summary:
         evidence.materials.needsAttention > 0
           ? 'At least one source did not pass verification.'
-          : hasMaterials
-            ? 'Shared sources are retained with provenance and safe verification state.'
-            : 'No source evidence has been shared yet.',
+          : evidence.materials.checksNeedAction > 0
+            ? 'At least one saved source needs its check resumed.'
+            : hasMaterials
+              ? 'Shared sources are retained with provenance and safe verification state.'
+              : 'No source evidence has been shared yet.',
     },
     {
       id: 'QUESTIONS',

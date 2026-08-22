@@ -810,13 +810,19 @@ describe('quarantined intake file upload', () => {
             mimeType: 'application/pdf',
             byteSize: 8,
             status: 'PRECHECK_PASSED',
+            clientVerification: {
+              kind: 'RESUME_CHECK',
+              required: true,
+              actionLabel: 'Resume security check',
+              reason: 'The saved file passed its format check and still needs its security check.',
+              retrySameSubmission: true,
+            },
           },
         ]}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Complete security check' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Resume security check' }))
     await waitFor(() =>
       expect(verify).toHaveBeenCalledWith({
         venueId: 'venue-a',
@@ -824,6 +830,7 @@ describe('quarantined intake file upload', () => {
         claimId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       }),
     )
+    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
     expect(await screen.findByText('Checks complete — awaiting review')).toBeTruthy()
     expect(onCommitted).toHaveBeenCalledOnce()
   })
@@ -837,6 +844,13 @@ describe('quarantined intake file upload', () => {
         mimeType: 'application/pdf',
         byteSize: 5_000,
         status: 'PRECHECK_PASSED',
+        clientVerification: {
+          kind: 'WAIT_FOR_TORCHIKO',
+          required: false,
+          actionLabel: null,
+          reason: 'The saved file is waiting for Torchiko to finish its security check.',
+          retrySameSubmission: false,
+        },
       },
       retryable: true,
       nextAction: 'MALWARE_SCAN_PENDING',
@@ -854,13 +868,19 @@ describe('quarantined intake file upload', () => {
             mimeType: 'application/pdf',
             byteSize: 5_000,
             status: 'VERIFYING',
+            clientVerification: {
+              kind: 'RESUME_CHECK',
+              required: true,
+              actionLabel: 'Resume file check',
+              reason: 'The saved file check stopped before it finished.',
+              retrySameSubmission: true,
+            },
           },
         ]}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Retry file check' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Resume file check' }))
     await waitFor(() =>
       expect(verify).toHaveBeenCalledWith({
         venueId: 'venue-a',
@@ -868,7 +888,38 @@ describe('quarantined intake file upload', () => {
         claimId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       }),
     )
-    expect(await screen.findByRole('button', { name: 'Complete security check' })).toBeTruthy()
+    expect(await screen.findByText('No action needed')).toBeTruthy()
+  })
+
+  it('does not offer a retry while another verification lease is active', () => {
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        uploads={[
+          {
+            id: 'upload-active',
+            displayName: 'active-check.pdf',
+            fileName: 'active-check.pdf',
+            mimeType: 'application/pdf',
+            byteSize: 8,
+            status: 'VERIFYING',
+            clientVerification: {
+              kind: 'IN_PROGRESS',
+              required: false,
+              actionLabel: null,
+              reason: 'Torchiko is actively checking this saved file.',
+              retrySameSubmission: false,
+            },
+          },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
+    expect(screen.getAllByText(/File check in progress/)).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: /file check/iu })).toBeNull()
   })
 
   it('has no automated accessibility violations in the pending-check state', async () => {

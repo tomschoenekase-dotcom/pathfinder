@@ -2,7 +2,10 @@ import Link from 'next/link'
 import React from 'react'
 import { ArrowRight, Check, Eye, MessageCircle, ShieldCheck } from 'lucide-react'
 import type { ClientPortalLifecycleView } from '@pathfinder/contracts/client-portal-lifecycle'
-import type { IntakeUploadCategory } from '@pathfinder/contracts/intake-upload'
+import type {
+  IntakeUploadCategory,
+  IntakeUploadClientVerification,
+} from '@pathfinder/contracts/intake-upload'
 import type { RemoteOnboardingProjection } from '@pathfinder/contracts/remote-onboarding'
 
 import { ClientJourneyRail, PortalPrimaryAction } from './ClientPortalPrimitives'
@@ -20,6 +23,8 @@ type JourneyData = {
   materials: {
     uploaded: number
     checking: number
+    checksNeedAction: number
+    checksWaitingOnTorchiko: number
     needsAttention: number
     readyForReview: number
     processed: number
@@ -60,6 +65,7 @@ type SafeUpload = {
   category?: string
   status: string
   rejectionCode?: string | null
+  clientVerification?: IntakeUploadClientVerification
 }
 
 function statusLabel(status: string) {
@@ -90,7 +96,10 @@ function proposalLabel(proposal: IntakeProposalSummary): string {
 
 function primaryHref(data: JourneyData) {
   const home = `/venues/${data.venue.id}/onboarding`
-  if (data.projection.primaryAction.kind === 'CHOOSE_REPLACEMENT') {
+  if (
+    data.projection.primaryAction.kind === 'CHOOSE_REPLACEMENT' ||
+    data.projection.primaryAction.kind === 'RESUME_MATERIAL_CHECK'
+  ) {
     return '#material-attention'
   }
   switch (data.projection.primaryAction.stage) {
@@ -188,6 +197,8 @@ export function RemoteOnboardingJourney({
   const sharedSourceCount =
     data.materials.uploaded +
     data.materials.checking +
+    data.materials.checksNeedAction +
+    data.materials.checksWaitingOnTorchiko +
     data.materials.needsAttention +
     data.materials.readyForReview +
     data.review.proposedSources
@@ -248,6 +259,8 @@ export function RemoteOnboardingJourney({
             categoryCounts={data.materialTypes}
             nextCursor={nextCursor}
             attentionCount={data.materials.needsAttention}
+            checkActionCount={data.materials.checksNeedAction}
+            checkWaitingCount={data.materials.checksWaitingOnTorchiko}
           />
           <section className={styles.sourceDetails} aria-labelledby="more-information-title">
             <h2 id="more-information-title">Add a website, staff knowledge, or optional notes</h2>
@@ -316,13 +329,19 @@ export function RemoteOnboardingJourney({
           </div>
           <div>
             <span>Your attention</span>
-            <strong>{data.materials.needsAttention + data.questions.open}</strong>
+            <strong>
+              {data.materials.needsAttention +
+                data.materials.checksNeedAction +
+                data.questions.open}
+            </strong>
             <p>
               {data.materials.needsAttention
                 ? 'Choose a replacement for each file Torchiko could not accept.'
-                : data.questions.open
-                  ? 'A focused answer can move setup forward.'
-                  : 'Nothing needs an answer right now.'}
+                : data.materials.checksNeedAction
+                  ? 'Resume the saved file check. You do not need to upload it again.'
+                  : data.questions.open
+                    ? 'A focused answer can move setup forward.'
+                    : 'Nothing needs an answer right now.'}
             </p>
           </div>
         </section>

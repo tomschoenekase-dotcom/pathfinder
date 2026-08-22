@@ -18,6 +18,7 @@ const FIXTURE_STATES = [
   'share',
   'processing',
   'attention',
+  'check-recovery',
   'questions',
   'ready',
 ] as const
@@ -28,6 +29,8 @@ const EMPTY_PACKAGE_COUNTS = { draft: 0, approved: 0, applied: 0, reverted: 0 }
 const EMPTY_MATERIALS = {
   uploaded: 0,
   checking: 0,
+  checksNeedAction: 0,
+  checksWaitingOnTorchiko: 0,
   needsAttention: 0,
   readyForReview: 0,
   processed: 0,
@@ -134,7 +137,17 @@ function scenario(state: FixtureState): {
       preview: { state: 'UNAVAILABLE', packageId: null },
       qa: EMPTY_QA,
       release: { hasReviewedArtifact: false, released: false },
-      uploads: sharedUploads.map((upload) => ({ ...upload, status: 'PRECHECK_PASSED' })),
+      uploads: sharedUploads.map((upload) => ({
+        ...upload,
+        status: 'VERIFYING',
+        clientVerification: {
+          kind: 'IN_PROGRESS' as const,
+          required: false,
+          actionLabel: null,
+          reason: 'Torchiko is actively checking this saved file.',
+          retrySameSubmission: false,
+        },
+      })),
       materialTypes: { DOCUMENT: 1, PHOTO: 1 },
     },
     attention: {
@@ -160,6 +173,44 @@ function scenario(state: FixtureState): {
         },
       ],
       materialTypes: { DOCUMENT: 1, FLOOR_PLAN: 1 },
+    },
+    'check-recovery': {
+      lifecycle: lifecycleEvidence({ processingSourceCount: 2 }),
+      materials: {
+        ...EMPTY_MATERIALS,
+        checksNeedAction: 1,
+        checksWaitingOnTorchiko: 1,
+      },
+      review: { proposedSources: 0, draftPackages: 0 },
+      questions: { open: 0, items: [], additionalQuestionCount: 0 },
+      preview: { state: 'UNAVAILABLE', packageId: null },
+      qa: EMPTY_QA,
+      release: { hasReviewedArtifact: false, released: false },
+      uploads: [
+        {
+          ...sharedUploads[0]!,
+          status: 'VERIFYING',
+          clientVerification: {
+            kind: 'RESUME_CHECK',
+            required: true,
+            actionLabel: 'Resume file check',
+            reason: 'The saved file check stopped before it finished.',
+            retrySameSubmission: true,
+          },
+        },
+        {
+          ...sharedUploads[1]!,
+          status: 'PRECHECK_PASSED',
+          clientVerification: {
+            kind: 'WAIT_FOR_TORCHIKO',
+            required: false,
+            actionLabel: null,
+            reason: 'The saved file is waiting for Torchiko to finish its security check.',
+            retrySameSubmission: false,
+          },
+        },
+      ],
+      materialTypes: { DOCUMENT: 1, PHOTO: 1 },
     },
     questions: {
       lifecycle: lifecycleEvidence({ reviewSourceCount: 1, intakeProposalCount: 2 }),

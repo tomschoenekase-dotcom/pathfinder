@@ -16,6 +16,7 @@ import { z } from 'zod'
 import { router } from '../core'
 import type { TRPCContext } from '../context'
 import { tenantProcedure } from '../trpc'
+import { configuredIntakeUploadMalwareScanner } from '../lib/intake-upload-byte-verifier'
 import { VenuePackagePayload } from '../schemas/venue-package'
 import {
   ClientPackagePreviewProjectionError,
@@ -324,8 +325,12 @@ export const portalRouter = router({
           if (!venue)
             throw new TRPCError({ code: 'NOT_FOUND', message: 'Onboarding journey not found' })
 
+          const projectionNow = new Date()
+          const authoritativeScannerAvailable = configuredIntakeUploadMalwareScanner() !== null
+
           const [
             uploadRows,
+            expiredVerificationCount,
             intakeRows,
             mediaRows,
             packageRows,
@@ -339,6 +344,17 @@ export const portalRouter = router({
               by: ['status', 'category', 'rejectionCode'],
               where: { tenantId, venueId: input.venueId },
               _count: { _all: true },
+            }),
+            db.intakeUpload.count({
+              where: {
+                tenantId,
+                venueId: input.venueId,
+                status: 'VERIFYING',
+                OR: [
+                  { verificationLeaseUntil: null },
+                  { verificationLeaseUntil: { lte: projectionNow } },
+                ],
+              },
             }),
             db.intakeRun.groupBy({
               by: ['status'],
@@ -545,10 +561,14 @@ export const portalRouter = router({
             assessedDimensions,
             exactPackage: Boolean(latestEvalRun),
           }
+          const verifyingCount = uploadCounts.get('VERIFYING') ?? 0
+          const precheckPassedCount = uploadCounts.get('PRECHECK_PASSED') ?? 0
           const materials = {
             uploaded: uploadCounts.get('RESERVED') ?? 0,
-            checking:
-              (uploadCounts.get('VERIFYING') ?? 0) + (uploadCounts.get('PRECHECK_PASSED') ?? 0),
+            checking: Math.max(0, verifyingCount - expiredVerificationCount),
+            checksNeedAction:
+              expiredVerificationCount + (authoritativeScannerAvailable ? precheckPassedCount : 0),
+            checksWaitingOnTorchiko: authoritativeScannerAvailable ? 0 : precheckPassedCount,
             needsAttention: uploadCounts.get('REJECTED') ?? 0,
             readyForReview: uploadCounts.get('AWAITING_REVIEW') ?? 0,
             processed:

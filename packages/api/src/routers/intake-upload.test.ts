@@ -584,6 +584,8 @@ describe('client-safe quarantined intake upload', () => {
       items: [
         {
           ...upload,
+          status: 'VERIFYING',
+          verificationLeaseActive: true,
           objectKey: 'secret-key',
           objectGeneration: 'secret-generation',
           sha256: checksum,
@@ -603,5 +605,10 @@ describe('client-safe quarantined intake upload', () => {
     expect(serialized).not.toContain('secret-generation')
     expect(serialized).not.toContain(checksum)
     expect(serialized).not.toContain('rawError')
+    expect(result.items[0]?.clientVerification).toMatchObject({
+      kind: 'IN_PROGRESS',
+      required: false,
+    })
+    expect(serialized).not.toContain('verificationLeaseActive')
   })
 })

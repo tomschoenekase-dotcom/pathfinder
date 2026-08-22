@@ -26,6 +26,7 @@ import {
   IntakeUploadMimeType,
   IntakeUploadReserveRequest,
 } from '@pathfinder/contracts/intake-upload'
+import { resolveIntakeUploadClientVerification } from '@pathfinder/contracts/intake-upload'
 
 import { publicTRPCError, router } from '../core'
 import {
@@ -87,9 +88,17 @@ function safeUpload(upload: {
   byteSize: number
   rejectionCode: string | null
   intakeRunId: string | null
+  verificationLeaseActive?: boolean
   createdAt: Date
   updatedAt: Date
 }) {
+  const clientVerification = resolveIntakeUploadClientVerification({
+    status: upload.status,
+    ...(upload.verificationLeaseActive !== undefined
+      ? { verificationLeaseActive: upload.verificationLeaseActive }
+      : {}),
+    authoritativeScannerAvailable: configuredIntakeUploadMalwareScanner() !== null,
+  })
   return {
     id: upload.id,
     status: upload.status,
@@ -100,6 +109,7 @@ function safeUpload(upload: {
     byteSize: upload.byteSize,
     rejectionCode: upload.rejectionCode,
     intakeRunId: upload.intakeRunId,
+    clientVerification,
     createdAt: upload.createdAt,
     updatedAt: upload.updatedAt,
   }

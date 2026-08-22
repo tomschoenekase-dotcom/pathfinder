@@ -47,14 +47,23 @@ Browser exit warnings are best-effort, especially on mobile, so the interface st
 unfinished entries are not saved until shared. Durable cross-device drafts remain an unresolved
 product/privacy decision rather than an implied capability.
 
-Submitted work resumes from durable venue state. Remote-onboarding projection version 3 marks the
+Submitted work resumes from durable venue state. Remote-onboarding projection version 4 marks the
 current primary action as required or optional and identifies its bounded action kind, so clients
-and authorized automation can distinguish a question, exact file replacement, preview request, or
-informational progress without parsing interface copy. Once at least one source is recorded and no
-action is required, the journey says that the client can leave and return instead of repeatedly
-asking for another source. The page also shows a saved checkpoint and counts website, staff-answer,
-optional-note, and file sources consistently. Unsubmitted form entries remain outside that saved
-count and retain the current-page-only boundary above.
+and authorized automation can distinguish a question, exact file replacement, saved-check resume,
+preview request, or informational progress without parsing interface copy. Material counts separate
+active checks, checks the client can safely resume against the same saved submission, and checks
+that must wait for Torchiko. Once at least one source is recorded and no action is required, the
+journey says that the client can leave and return instead of repeatedly asking for another source.
+The page also shows a saved checkpoint and counts website, staff-answer, optional-note, and file
+sources consistently. Unsubmitted form entries remain outside that saved count and retain the
+current-page-only boundary above.
+
+Every client-safe upload projection includes a bounded `clientVerification` decision. A live
+`VERIFYING` lease is `IN_PROGRESS` and has no customer retry. An expired `VERIFYING` lease is
+`RESUME_CHECK` against the same saved submission. `PRECHECK_PASSED` is resumable only when an
+authoritative scanner is configured; otherwise it is `WAIT_FOR_TORCHIKO` and explicitly requires no
+customer action. The browser never infers lease or scanner state from a raw status, and the API does
+not serialize claim identifiers, lease timestamps, provider configuration, or scanner evidence.
 
 A rejected file now resolves through one browser-safe recovery contract. The client sees a safe
 reason and `CHOOSE_REPLACEMENT`; the rejected submission is never retried, overwritten, approved,

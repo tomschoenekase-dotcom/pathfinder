@@ -74,6 +74,68 @@ export type IntakeUploadClientRecovery = {
   retrySameSubmission: boolean
 }
 
+export type IntakeUploadClientVerification = {
+  kind: 'NONE' | 'IN_PROGRESS' | 'RESUME_CHECK' | 'WAIT_FOR_TORCHIKO'
+  required: boolean
+  actionLabel: string | null
+  reason: string | null
+  retrySameSubmission: boolean
+}
+
+/**
+ * Browser-safe verification state derived on the server. Lease timestamps, claim IDs, scanner
+ * configuration, and storage evidence never cross the client boundary.
+ */
+export function resolveIntakeUploadClientVerification(input: {
+  status: string
+  verificationLeaseActive?: boolean
+  authoritativeScannerAvailable?: boolean
+}): IntakeUploadClientVerification {
+  if (input.status === 'VERIFYING') {
+    return input.verificationLeaseActive
+      ? {
+          kind: 'IN_PROGRESS',
+          required: false,
+          actionLabel: null,
+          reason: 'Torchiko is actively checking this saved file.',
+          retrySameSubmission: false,
+        }
+      : {
+          kind: 'RESUME_CHECK',
+          required: true,
+          actionLabel: 'Resume file check',
+          reason: 'The saved file check stopped before it finished.',
+          retrySameSubmission: true,
+        }
+  }
+
+  if (input.status === 'PRECHECK_PASSED') {
+    return input.authoritativeScannerAvailable
+      ? {
+          kind: 'RESUME_CHECK',
+          required: true,
+          actionLabel: 'Resume security check',
+          reason: 'The saved file passed its format check and still needs its security check.',
+          retrySameSubmission: true,
+        }
+      : {
+          kind: 'WAIT_FOR_TORCHIKO',
+          required: false,
+          actionLabel: null,
+          reason: 'The saved file is waiting for Torchiko to finish its security check.',
+          retrySameSubmission: false,
+        }
+  }
+
+  return {
+    kind: 'NONE',
+    required: false,
+    actionLabel: null,
+    reason: null,
+    retrySameSubmission: false,
+  }
+}
+
 /**
  * Browser-safe recovery guidance for a persisted upload record. Precise scanner and storage
  * evidence remains server-only; clients and authorized agents receive one bounded next action.

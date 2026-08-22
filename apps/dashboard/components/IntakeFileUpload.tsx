@@ -21,6 +21,7 @@ import {
 
 import type {
   IntakeUploadCategory,
+  IntakeUploadClientVerification,
   IntakeUploadMimeType,
 } from '@pathfinder/contracts/intake-upload'
 import { resolveIntakeUploadClientRecovery } from '@pathfinder/contracts/intake-upload'
@@ -45,6 +46,7 @@ type SafeUpload = {
   category?: string
   status: string
   rejectionCode?: string | null
+  clientVerification?: IntakeUploadClientVerification
 }
 
 export function IntakeFileUploadWorkspace({
@@ -53,12 +55,16 @@ export function IntakeFileUploadWorkspace({
   categoryCounts,
   nextCursor,
   attentionCount,
+  checkActionCount,
+  checkWaitingCount,
 }: {
   venueId: string
   uploads: SafeUpload[]
   categoryCounts?: Partial<Record<IntakeUploadCategory, number>> | undefined
   nextCursor?: { createdAt: string; id: string } | null | undefined
   attentionCount?: number | undefined
+  checkActionCount?: number | undefined
+  checkWaitingCount?: number | undefined
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -69,6 +75,8 @@ export function IntakeFileUploadWorkspace({
       categoryCounts={categoryCounts}
       nextCursor={nextCursor}
       attentionCount={attentionCount}
+      checkActionCount={checkActionCount}
+      checkWaitingCount={checkWaitingCount}
       reserve={(input) =>
         client.intakeUpload.reserve.mutate({
           ...input,
@@ -210,7 +218,11 @@ function inferredCategory(file: File): IntakeUploadCategory {
   return 'OTHER'
 }
 
-function clientUploadStatus(upload: Pick<SafeUpload, 'status' | 'rejectionCode'>): string {
+function clientUploadStatus(upload: SafeUpload): string {
+  const verification = clientVerification(upload)
+  if (verification.kind === 'IN_PROGRESS') return 'File check in progress'
+  if (verification.kind === 'RESUME_CHECK') return 'File check needs to resume'
+  if (verification.kind === 'WAIT_FOR_TORCHIKO') return 'Waiting for Torchiko security check'
   switch (upload.status) {
     case 'RESERVED':
       return 'Waiting to be sent'
@@ -227,6 +239,18 @@ function clientUploadStatus(upload: Pick<SafeUpload, 'status' | 'rejectionCode'>
     default:
       return 'Status unavailable'
   }
+}
+
+function clientVerification(upload: SafeUpload): IntakeUploadClientVerification {
+  return (
+    upload.clientVerification ?? {
+      kind: 'NONE',
+      required: false,
+      actionLabel: null,
+      reason: null,
+      retrySameSubmission: false,
+    }
+  )
 }
 
 class ClientIntakeFileError extends Error {}
@@ -251,6 +275,8 @@ export function IntakeFileUpload({
   onCommitted,
   initialQueue = [],
   attentionCount,
+  checkActionCount,
+  checkWaitingCount,
 }: {
   venueId: string
   uploads: SafeUpload[]
@@ -288,6 +314,8 @@ export function IntakeFileUpload({
   initialQueue?: QueueItem[]
   /** Total actionable rejected records from the bounded journey projection. */
   attentionCount?: number | undefined
+  checkActionCount?: number | undefined
+  checkWaitingCount?: number | undefined
 }) {
   const fileInputId = useId()
   const [queueState, setQueueState] = useState<{ venueId: string; items: QueueItem[] }>({
@@ -338,7 +366,20 @@ export function IntakeFileUpload({
   const recoveryUploads = savedUploads.filter(
     (upload) => resolveIntakeUploadClientRecovery(upload).kind === 'CHOOSE_REPLACEMENT',
   )
+  const verificationActionUploads = savedUploads.filter(
+    (upload) => clientVerification(upload).kind === 'RESUME_CHECK',
+  )
+  const verificationWaitingUploads = savedUploads.filter(
+    (upload) => clientVerification(upload).kind === 'WAIT_FOR_TORCHIKO',
+  )
   const resolvedAttentionCount = Math.max(attentionCount ?? 0, recoveryUploads.length)
+  const resolvedCheckActionCount = Math.max(checkActionCount ?? 0, verificationActionUploads.length)
+  const resolvedCheckWaitingCount = Math.max(
+    checkWaitingCount ?? 0,
+    verificationWaitingUploads.length,
+  )
+  const hasMaterialAttention =
+    resolvedAttentionCount + resolvedCheckActionCount + resolvedCheckWaitingCount > 0
 
   async function loadMoreUploads() {
     if (!loadMore || !savedNextCursor || loadingMore) return
@@ -713,7 +754,7 @@ export function IntakeFileUpload({
         </label>
       </div>
 
-      {resolvedAttentionCount > 0 ? (
+      {hasMaterialAttention ? (
         <section
           id="material-attention"
           className={styles.recoveryPanel}
@@ -724,17 +765,30 @@ export function IntakeFileUpload({
               <AlertTriangle />
             </span>
             <div>
-              <p className={styles.eyebrow}>A source needs attention</p>
+              <p className={styles.eyebrow}>
+                {resolvedAttentionCount > 0 ? 'A source needs attention' : 'Saved file checks'}
+              </p>
               <h3 id="material-attention-title">
-                Choose {resolvedAttentionCount === 1 ? 'a replacement file' : 'replacement files'}
+                {resolvedAttentionCount > 0
+                  ? `Choose ${resolvedAttentionCount === 1 ? 'a replacement file' : 'replacement files'}`
+                  : resolvedCheckActionCount > 0
+                    ? 'Resume saved file checks'
+                    : 'Torchiko is finishing security checks'}
               </h3>
             </div>
           </div>
-          <p className={styles.recoveryIntro}>
-            Torchiko did not accept {resolvedAttentionCount === 1 ? 'this file' : 'these files'} as
-            usable source material. {resolvedAttentionCount === 1 ? 'Its' : 'Their'} status remains
-            recorded, and your other submitted information is unchanged.
-          </p>
+          {resolvedAttentionCount > 0 ? (
+            <p className={styles.recoveryIntro}>
+              Torchiko did not accept {resolvedAttentionCount === 1 ? 'this file' : 'these files'}
+              as usable source material. {resolvedAttentionCount === 1 ? 'Its' : 'Their'} status
+              remains recorded, and your other submitted information is unchanged.
+            </p>
+          ) : (
+            <p className={styles.recoveryIntro}>
+              These files are already saved. Resume only the checks shown below; do not upload the
+              same files again. Checks waiting on Torchiko do not require anything from you.
+            </p>
+          )}
           {recoveryUploads.length > 0 ? (
             <ul className={styles.recoveryList}>
               {recoveryUploads.map((upload) => {
@@ -757,6 +811,50 @@ export function IntakeFileUpload({
               })}
             </ul>
           ) : null}
+          {verificationActionUploads.length > 0 ? (
+            <ul className={styles.recoveryList}>
+              {verificationActionUploads.map((upload) => {
+                const verification = clientVerification(upload)
+                return (
+                  <li key={upload.id}>
+                    <div>
+                      <strong>{upload.displayName}</strong>
+                      <p>{verification.reason}</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={savedChecks[upload.id] === 'busy'}
+                      className={styles.replacementAction}
+                      onClick={() => void checkSavedUpload(upload)}
+                    >
+                      <RefreshCw aria-hidden="true" />
+                      {savedChecks[upload.id] === 'busy' ? 'Checking…' : verification.actionLabel}
+                    </button>
+                    {savedChecks[upload.id] === 'error' ? (
+                      <p className={styles.fileError} role="alert">
+                        Torchiko could not resume this check. Try again.
+                      </p>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+          {verificationWaitingUploads.length > 0 ? (
+            <ul className={styles.recoveryList}>
+              {verificationWaitingUploads.map((upload) => (
+                <li key={upload.id}>
+                  <div>
+                    <strong>{upload.displayName}</strong>
+                    <p>{clientVerification(upload).reason}</p>
+                  </div>
+                  <span className={styles.savedStatus}>
+                    <ShieldCheck aria-hidden="true" /> No action needed
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {resolvedAttentionCount > recoveryUploads.length ? (
             <div className={styles.olderAttention}>
               <p>
@@ -773,6 +871,23 @@ export function IntakeFileUpload({
                 >
                   <RefreshCw aria-hidden="true" />
                   {loadingMore ? 'Loading older files…' : 'Load older files needing attention'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {resolvedCheckActionCount + resolvedCheckWaitingCount >
+          verificationActionUploads.length + verificationWaitingUploads.length ? (
+            <div className={styles.olderAttention}>
+              <p>Older saved file checks are outside this page.</p>
+              {savedNextCursor && loadMore ? (
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  className={styles.quietButton}
+                  onClick={() => void loadMoreUploads()}
+                >
+                  <RefreshCw aria-hidden="true" />
+                  {loadingMore ? 'Loading older files…' : 'Load older file checks'}
                 </button>
               ) : null}
             </div>
@@ -1044,23 +1159,17 @@ export function IntakeFileUpload({
                       {formatBytes(upload.byteSize)} · {clientUploadStatus(upload)}
                     </small>
                   </span>
-                  {upload.status === 'PRECHECK_PASSED' || upload.status === 'VERIFYING' ? (
+                  {clientVerification(upload).kind === 'RESUME_CHECK' ? (
                     <button
                       type="button"
                       disabled={savedChecks[upload.id] === 'busy'}
                       onClick={() => void checkSavedUpload(upload)}
                       className={styles.quietButton}
                     >
-                      {upload.status === 'VERIFYING' ? (
-                        <RefreshCw aria-hidden="true" />
-                      ) : (
-                        <ShieldCheck aria-hidden="true" />
-                      )}
+                      <RefreshCw aria-hidden="true" />
                       {savedChecks[upload.id] === 'busy'
                         ? 'Checking…'
-                        : upload.status === 'VERIFYING'
-                          ? 'Retry file check'
-                          : 'Complete security check'}
+                        : clientVerification(upload).actionLabel}
                     </button>
                   ) : (
                     <span className={styles.savedStatus}>
@@ -1070,9 +1179,7 @@ export function IntakeFileUpload({
                   )}
                   {savedChecks[upload.id] === 'error' ? (
                     <p className={styles.fileError} role="alert">
-                      {upload.status === 'VERIFYING'
-                        ? 'Torchiko could not confirm the file check. Try again.'
-                        : 'Security verification is unavailable. Try this check again.'}
+                      Torchiko could not resume this check. Try again.
                     </p>
                   ) : null}
                 </li>

@@ -126,6 +126,7 @@ const safeListSelect = {
   byteSize: true,
   rejectionCode: true,
   intakeRunId: true,
+  verificationLeaseUntil: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -199,6 +200,7 @@ function safeUpload(upload: {
   byteSize: number
   rejectionCode: string | null
   intakeRunId: string | null
+  verificationLeaseUntil?: Date | null
   createdAt: Date
   updatedAt: Date
 }) {
@@ -212,6 +214,9 @@ function safeUpload(upload: {
     byteSize: upload.byteSize,
     rejectionCode: upload.rejectionCode,
     intakeRunId: upload.intakeRunId,
+    verificationLeaseActive:
+      upload.status === 'VERIFYING' &&
+      Boolean(upload.verificationLeaseUntil && upload.verificationLeaseUntil > new Date()),
     createdAt: upload.createdAt,
     updatedAt: upload.updatedAt,
   }

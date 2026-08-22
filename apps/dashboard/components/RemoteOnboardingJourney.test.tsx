@@ -37,7 +37,7 @@ const data = {
     clientActionRequired: true,
   },
   projection: {
-    version: 3 as const,
+    version: 4 as const,
     primaryAction: {
       kind: 'START_MATERIALS' as const,
       stage: 'MATERIALS' as const,
@@ -62,7 +62,15 @@ const data = {
       },
     ],
   },
-  materials: { uploaded: 0, checking: 1, needsAttention: 0, readyForReview: 0, processed: 0 },
+  materials: {
+    uploaded: 0,
+    checking: 1,
+    checksNeedAction: 0,
+    checksWaitingOnTorchiko: 0,
+    needsAttention: 0,
+    readyForReview: 0,
+    processed: 0,
+  },
   review: { proposedSources: 0, draftPackages: 0 },
   questions: { open: 0, items: [], additionalQuestionCount: 0 },
   preview: { state: 'UNAVAILABLE' as const, packageId: null },
@@ -367,6 +375,8 @@ describe('RemoteOnboardingJourney', () => {
             materials: {
               uploaded: 0,
               checking: 0,
+              checksNeedAction: 0,
+              checksWaitingOnTorchiko: 0,
               needsAttention: 1,
               readyForReview: 1,
               processed: 0,
@@ -382,6 +392,56 @@ describe('RemoteOnboardingJourney', () => {
     expect(root.textContent).toContain(
       'Choose a replacement for each file Torchiko could not accept.',
     )
+    expect(root.querySelector('[aria-current="step"]')?.textContent).toContain('Share')
+  })
+
+  it('links an expired saved-file check to the exact resumption target', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                kind: 'RESUME_MATERIAL_CHECK' as const,
+                stage: 'MATERIALS' as const,
+                label: 'Resume file check',
+                reason: '1 saved file needs the check resumed. You do not need to upload it again.',
+                required: true,
+              },
+            },
+            materials: {
+              ...data.materials,
+              checking: 0,
+              checksNeedAction: 1,
+            },
+          }}
+          uploads={[
+            {
+              id: 'expired-check',
+              displayName: 'visitor-guide.pdf',
+              fileName: 'visitor-guide.pdf',
+              mimeType: 'application/pdf',
+              byteSize: 8,
+              status: 'VERIFYING',
+              clientVerification: {
+                kind: 'RESUME_CHECK',
+                required: true,
+                actionLabel: 'Resume file check',
+                reason: 'The saved file check stopped before it finished.',
+                retrySameSubmission: true,
+              },
+            },
+          ]}
+        />,
+      ),
+    )
+
+    expect(root.querySelector('a[href="#material-attention"]')?.textContent).toContain(
+      'Resume file check',
+    )
+    expect(root.textContent).toContain('You do not need to upload it again.')
     expect(root.querySelector('[aria-current="step"]')?.textContent).toContain('Share')
   })
 
