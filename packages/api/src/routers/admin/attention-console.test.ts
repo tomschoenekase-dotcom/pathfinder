@@ -230,6 +230,20 @@ describe('admin attention console', () => {
         },
       },
       boundedSnapshot: { limit: 10, hasMore: false },
+      reviewState: {
+        changeDigest: {
+          visibleCount: 1,
+          mayHaveMore: false,
+          items: [
+            {
+              kind: 'CRITICAL_RISK',
+              title: 'Visitor chat is unavailable',
+              action: { href: '/admin/clients/tenant_1/venues/venue_1/chatlogs' },
+              source: { objectType: 'operational-event', objectId: 'event_1' },
+            },
+          ],
+        },
+      },
     })
   })
 

@@ -45,6 +45,13 @@ decisions, completed agent runs, outcome signals, and customer support items vis
 snapshot. A first review treats the visible snapshot as new. Later reviews compare item activity
 timestamps with the authenticated operator's last durable cursor.
 
+The API also returns a priority-sorted change digest with exact source identity and evidence links.
+Critical customer/platform risks and founder decisions precede customer items, outcome evidence,
+and completed work even when routine activity is newer. The mobile interface shows at most five
+items and explicitly reports when the digest or any contributing source queue may contain more.
+This removes the need to scan every queue merely to identify the visible changes while retaining
+the full queues below for context.
+
 `admin.markFounderBriefingReviewed` appends a checkpoint bound to the exact server-generated
 briefing timestamp, briefing schema version, authenticated operator, expected previous cursor, and
 idempotency operation ID. Checkpoints advance monotonically and cannot branch from the same prior

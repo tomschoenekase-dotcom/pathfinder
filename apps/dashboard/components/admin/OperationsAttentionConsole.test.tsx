@@ -64,6 +64,7 @@ const empty: Data = {
         outcomes: 0,
         customerItems: 0,
       },
+      changeDigest: { limit: 5, visibleCount: 0, mayHaveMore: false, items: [] },
       hasUnreviewedChanges: false,
     },
   },
@@ -90,6 +91,7 @@ describe('operations attention console', () => {
     expect(screen.getByRole('heading', { name: 'Your next five minutes' })).toBeTruthy()
     expect(screen.getByText('The operating queues are clear.')).toBeTruthy()
     expect(screen.getByText('Since your last review')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'What changed' })).toBeTruthy()
     expect(screen.getByText(/first recorded review/i)).toBeTruthy()
     expect(screen.getByText('Review checkpoint control')).toBeTruthy()
   })

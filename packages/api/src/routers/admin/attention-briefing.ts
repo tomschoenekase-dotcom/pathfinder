@@ -1,3 +1,5 @@
+import { deriveFounderChangeDigest } from './attention-change-digest'
+
 type TenantEvent = {
   id: string
   tenantId: string
@@ -63,8 +65,27 @@ type SupportRequest = {
   updatedAt: Date
 }
 
-type CompletedAgentRun = { createdAt: Date; completedAt: Date | null }
-type Outcome = { createdAt: Date }
+type CompletedAgentRun = {
+  id: string
+  tenantId: string
+  venueId: string | null
+  requestedOperation: string
+  completedAt: Date | null
+  createdAt: Date
+  agentIdentity: { name: string }
+  _count: { outcomeObservations: number }
+}
+type Outcome = {
+  id: string
+  tenantId: string
+  venueId: string
+  agentRunId: string
+  verdict: string
+  taskClass: string
+  summary: string
+  createdAt: Date
+  agentIdentity: { name: string }
+}
 
 type Page<T> = { items: T[]; nextCursor: unknown | null }
 
@@ -279,6 +300,25 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
     outcomes: input.outcomes.items.filter((item) => afterReview(item.createdAt)).length,
     customerItems: input.support.items.filter((item) => afterReview(item.updatedAt)).length,
   }
+  const changeDigest = deriveFounderChangeDigest({
+    lastReviewedThrough: input.lastReviewedThrough,
+    sourceHasMore: [
+      input.events,
+      input.platformEvents,
+      input.questions,
+      input.approvals,
+      input.support,
+      input.completedAgents,
+      input.outcomes,
+    ].some((value) => value.nextCursor !== null),
+    events: input.events.items,
+    platformEvents: input.platformEvents.items,
+    questions: input.questions.items,
+    approvals: input.approvals.items,
+    support: input.support.items,
+    completedAgents: input.completedAgents.items,
+    outcomes: input.outcomes.items,
+  })
   return {
     schemaVersion: 1 as const,
     focus,
@@ -299,6 +339,7 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
     reviewState: {
       lastReviewedThrough: input.lastReviewedThrough,
       changesSinceLastReview,
+      changeDigest,
       hasUnreviewedChanges: Object.values(changesSinceLastReview).some((value) => value > 0),
     },
   }

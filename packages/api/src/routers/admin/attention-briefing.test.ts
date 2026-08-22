@@ -209,17 +209,40 @@ describe('founder briefing contract', () => {
     ])
     value.completedAgents = page([
       {
+        id: 'run_new',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestedOperation: 'Reconcile customer hours',
         createdAt: new Date('2026-08-22T11:30:00.000Z'),
         completedAt: new Date('2026-08-22T12:00:00.000Z'),
+        agentIdentity: { name: 'Support operator' },
+        _count: { outcomeObservations: 1 },
       },
     ])
-    value.outcomes = page([{ createdAt: new Date('2026-08-22T12:05:00.000Z') }])
+    value.outcomes = page([
+      {
+        id: 'outcome_new',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        agentRunId: 'run_new',
+        verdict: 'POSITIVE',
+        taskClass: 'support',
+        summary: 'Customer correction was prepared successfully.',
+        createdAt: new Date('2026-08-22T12:05:00.000Z'),
+        agentIdentity: { name: 'Support operator' },
+      },
+    ])
 
     const result = deriveFounderBriefing(value)
     expect(result.focus.kind).toBe('FOUNDER_QUESTION')
     expect(result.reviewState).toMatchObject({
       lastReviewedThrough: value.lastReviewedThrough,
       changesSinceLastReview: { decisions: 0, completedAgents: 1, outcomes: 1 },
+      changeDigest: {
+        visibleCount: 2,
+        mayHaveMore: false,
+        items: [{ kind: 'OUTCOME' }, { kind: 'COMPLETED_WORK' }],
+      },
       hasUnreviewedChanges: true,
     })
   })

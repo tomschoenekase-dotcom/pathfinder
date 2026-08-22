@@ -4,6 +4,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
 import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
 import { OperationalEventActions } from './OperationalEventActions'
 
@@ -160,6 +161,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
               ))}
             </dl>
           </div>
+          <FounderBriefingChangeDigest digest={reviewState.changeDigest} />
           <FounderBriefingReviewForm
             reviewedThrough={data.generatedAt}
             previousReviewedThrough={reviewState.lastReviewedThrough}
