@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 
 import type { CorrespondenceProvider, FrozenCorrespondence } from '@pathfinder/api/correspondence'
+import type { ProviderSendResult } from '@pathfinder/api/correspondence'
 import {
   CorrespondenceProviderError,
   createGmailApiClient,
@@ -88,6 +89,30 @@ function providerFailure(error: unknown): {
   }
 }
 
+/**
+ * Gmail has no native idempotency key. A repeated durable attempt therefore reconciles by
+ * deterministic RFC Message-ID and never blindly calls send again.
+ */
+export async function sendOrRecoverProspectCorrespondence(
+  correspondence: CorrespondenceProvider,
+  frozen: FrozenCorrespondence,
+  attemptCount: number,
+): Promise<ProviderSendResult> {
+  if (attemptCount <= 1) return correspondence.sendOne(frozen)
+  const lookup = await correspondence.lookupSendOperation({
+    mailbox: frozen.mailbox,
+    operationId: frozen.operationId,
+    rfcMessageId: frozen.rfcMessageId,
+  })
+  if (lookup.state === 'FOUND') return lookup.result
+  throw new CorrespondenceProviderError(
+    'AMBIGUOUS_SEND',
+    lookup.state === 'AMBIGUOUS'
+      ? `Prior provider attempt has ${lookup.candidateMessageIds.length} matching messages`
+      : 'Prior provider attempt was not found; automatic resend is blocked to prevent duplication',
+  )
+}
+
 export async function processSendProspectOutreachJob(
   payload: SendProspectOutreachJobPayload,
 ): Promise<void> {
@@ -137,7 +162,11 @@ export async function processSendProspectOutreachJob(
         workerId,
       })
       if (!stillAuthorized) return
-      const result = await correspondence.sendOne(frozen)
+      const result = await sendOrRecoverProspectCorrespondence(
+        correspondence,
+        frozen,
+        claimed.attemptCount,
+      )
       await recordProspectSendSuccessAction({
         outboxId: claimed.outboxId,
         workerId,

@@ -27,6 +27,7 @@ export type FrozenProspectSend = {
   credentialReferenceId: string
   mailboxAddress: string
   idempotencyKey: string
+  attemptCount: number
   recipient: string
   subject: string
   textBody: string
@@ -334,6 +335,7 @@ export async function claimProspectSendOutboxAction(
         credentialReferenceId: providerAccount.credentialReferenceId,
         mailboxAddress: providerAccount.mailboxAddress,
         idempotencyKey: operation.providerIdempotencyKey,
+        attemptCount: operation.attemptCount,
         recipient: sendItem.recipientEmailSnapshot,
         subject: sendItem.subjectSnapshot,
         textBody: sendItem.textBodySnapshot,
@@ -417,17 +419,11 @@ export async function recordProspectSendFailureAction(
     retryable: boolean
     acceptanceAmbiguous: boolean
     retryAt?: Date
+    now?: Date
   },
   client: Client = db,
 ): Promise<void> {
-  const operation = await client.prospectSendOutbox.findUnique({
-    where: { id: input.outboxId },
-    include: { sendItem: { select: { id: true, batchId: true } } },
-  })
-  if (!operation) throw new ProspectSendOutboxError('NOT_FOUND', 'Outbox operation not found')
-  if (operation.status !== 'CLAIMED' || operation.claimOwner !== input.workerId) {
-    throw new ProspectSendOutboxError('CONFLICT', 'Worker does not own the operation lease')
-  }
+  const now = input.now ?? new Date()
   const outboxStatus = input.acceptanceAmbiguous
     ? 'AMBIGUOUS'
     : input.retryable
@@ -438,31 +434,48 @@ export async function recordProspectSendFailureAction(
     : input.retryable
       ? 'FAILED'
       : 'PERMANENTLY_FAILED'
-  await client.$transaction([
-    client.prospectSendOutbox.update({
-      where: { id: operation.id },
+  const batchId = await client.$transaction(async (tx) => {
+    const operation = await tx.prospectSendOutbox.findUnique({
+      where: { id: input.outboxId },
+      include: { sendItem: { select: { id: true, batchId: true } } },
+    })
+    if (!operation) throw new ProspectSendOutboxError('NOT_FOUND', 'Outbox operation not found')
+    const completed = await tx.prospectSendOutbox.updateMany({
+      where: {
+        id: operation.id,
+        status: 'CLAIMED',
+        claimOwner: input.workerId,
+        claimExpiresAt: { gt: now },
+      },
       data: {
         status: outboxStatus,
-        availableAt: input.retryAt ?? new Date(Date.now() + 60_000),
+        availableAt: input.retryAt ?? new Date(now.getTime() + 60_000),
         claimOwner: null,
         claimExpiresAt: null,
         lastErrorCode: input.code.slice(0, 100),
         lastErrorMessage: input.message.slice(0, 2000),
         lastErrorRetryable: input.retryable,
-        ambiguousSince: input.acceptanceAmbiguous ? new Date() : null,
-        terminalAt: input.retryable ? null : new Date(),
+        ambiguousSince: input.acceptanceAmbiguous ? now : null,
+        terminalAt: input.retryable ? null : now,
       },
-    }),
-    client.prospectSendItem.update({
+    })
+    if (completed.count !== 1) {
+      throw new ProspectSendOutboxError(
+        'CONFLICT',
+        'Worker completion was rejected because its operation lease is no longer live',
+      )
+    }
+    await tx.prospectSendItem.update({
       where: { id: operation.sendItem.id },
       data: {
         status: itemStatus,
         lastErrorCode: input.code.slice(0, 100),
         lastErrorMessage: input.message.slice(0, 2000),
       },
-    }),
-  ])
-  await finalizeProspectSendBatch(operation.sendItem.batchId, client)
+    })
+    return operation.sendItem.batchId
+  })
+  await finalizeProspectSendBatch(batchId, client)
 }
 
 export async function recordProspectSendSuccessAction(
@@ -473,10 +486,12 @@ export async function recordProspectSendSuccessAction(
     providerThreadId: string
     internetMessageId?: string
     acceptedAt?: Date
+    now?: Date
   },
   client: Client = db,
 ): Promise<void> {
   const acceptedAt = input.acceptedAt ?? new Date()
+  const now = input.now ?? new Date()
   await client.$transaction(async (tx) => {
     const operation = await tx.prospectSendOutbox.findUnique({
       where: { id: input.outboxId },
@@ -491,8 +506,25 @@ export async function recordProspectSendSuccessAction(
       },
     })
     if (!operation) throw new ProspectSendOutboxError('NOT_FOUND', 'Outbox operation not found')
-    if (operation.status !== 'CLAIMED' || operation.claimOwner !== input.workerId) {
-      throw new ProspectSendOutboxError('CONFLICT', 'Worker does not own the operation lease')
+    const completed = await tx.prospectSendOutbox.updateMany({
+      where: {
+        id: operation.id,
+        status: 'CLAIMED',
+        claimOwner: input.workerId,
+        claimExpiresAt: { gt: now },
+      },
+      data: {
+        status: 'SENT',
+        terminalAt: acceptedAt,
+        claimOwner: null,
+        claimExpiresAt: null,
+      },
+    })
+    if (completed.count !== 1) {
+      throw new ProspectSendOutboxError(
+        'CONFLICT',
+        'Worker completion was rejected because its operation lease is no longer live',
+      )
     }
     const item = operation.sendItem
     const canonicalThreadId = `pt_${createHash('sha256').update(item.id).digest('hex').slice(0, 24)}`
@@ -548,15 +580,6 @@ export async function recordProspectSendSuccessAction(
           operation.providerAccount.mailboxAddress,
         )}/#all/${encodeURIComponent(input.providerMessageId)}`,
         occurredAt: acceptedAt,
-      },
-    })
-    await tx.prospectSendOutbox.update({
-      where: { id: operation.id },
-      data: {
-        status: 'SENT',
-        terminalAt: acceptedAt,
-        claimOwner: null,
-        claimExpiresAt: null,
       },
     })
     await tx.prospectSendItem.update({

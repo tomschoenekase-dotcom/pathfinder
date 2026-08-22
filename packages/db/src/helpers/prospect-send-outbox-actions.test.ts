@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   claimProspectSendOutboxAction,
   foldProspectEmailStatus,
+  recordProspectSendFailureAction,
   revalidateProspectSendOutboxClaimAction,
 } from './prospect-send-outbox-actions'
 
@@ -145,5 +146,45 @@ describe('prospect send claim rate reservation', () => {
         }),
       }),
     )
+  })
+})
+
+describe('prospect send lease completion', () => {
+  it('rejects a stale worker completion without changing the send item', async () => {
+    const tx = {
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'outbox-1',
+          sendItem: { id: 'item-1', batchId: 'batch-1' },
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      prospectSendItem: { update: vi.fn() },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+    await expect(
+      recordProspectSendFailureAction(
+        {
+          outboxId: 'outbox-1',
+          workerId: 'stale-worker',
+          code: 'TRANSIENT',
+          message: 'late completion',
+          retryable: true,
+          acceptanceAmbiguous: false,
+          now: new Date('2026-08-22T16:00:00.000Z'),
+        },
+        client as never,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.prospectSendOutbox.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'CLAIMED',
+          claimOwner: 'stale-worker',
+          claimExpiresAt: { gt: new Date('2026-08-22T16:00:00.000Z') },
+        }),
+      }),
+    )
+    expect(tx.prospectSendItem.update).not.toHaveBeenCalled()
   })
 })
