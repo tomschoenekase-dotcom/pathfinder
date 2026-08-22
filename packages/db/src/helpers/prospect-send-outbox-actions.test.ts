@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  claimProspectSendOutboxAction,
   foldProspectEmailStatus,
   revalidateProspectSendOutboxClaimAction,
 } from './prospect-send-outbox-actions'
@@ -89,5 +90,60 @@ describe('prospect last-mile delivery authority', () => {
       ),
     ).resolves.toBe(false)
     expect(tx.prospectSendOutbox.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('prospect send claim rate reservation', () => {
+  it('serializes the send lane and defers an operation when a configured cap is exhausted', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked' }]),
+      prospectSendOutbox: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'outbox-1',
+          operationId: '00000000-0000-0000-0000-000000000001',
+          providerAccountId: 'mailbox-1',
+          status: 'PENDING',
+          availableAt: new Date('2026-08-22T15:00:00.000Z'),
+          claimOwner: null,
+          claimExpiresAt: null,
+          providerAccount: {
+            dailySendCap: 0,
+            perDomainDailyCap: 2,
+            minimumDelaySeconds: 180,
+            jitterSeconds: 0,
+          },
+          sendItem: {
+            recipientEmailSnapshot: 'venue@example.com',
+            batch: { campaignId: 'campaign-1', campaign: { dailySendCap: 10 } },
+          },
+        }),
+        count: vi.fn().mockResolvedValue(0),
+        findFirst: vi.fn().mockResolvedValue(null),
+        updateMany,
+      },
+    }
+    const client = { $transaction: vi.fn((work) => work(tx)) }
+    await expect(
+      claimProspectSendOutboxAction(
+        {
+          outboxId: 'outbox-1',
+          workerId: 'worker-1',
+          now: new Date('2026-08-22T16:00:00.000Z'),
+        },
+        client as never,
+      ),
+    ).resolves.toBeNull()
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2)
+    expect(updateMany).toHaveBeenCalledOnce()
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'RETRYABLE',
+          availableAt: new Date('2026-08-23T00:00:00.000Z'),
+          lastErrorCode: 'DAILY_CAP',
+        }),
+      }),
+    )
   })
 })

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import { db } from '../client'
+import { evaluateProspectSendRatePolicy } from './prospect-send-rate-policy'
 
 type Client = typeof db
 
@@ -91,6 +92,109 @@ export async function claimProspectSendOutboxAction(
   const now = input.now ?? new Date()
   const claimExpiresAt = new Date(now.getTime() + (input.leaseMs ?? 120_000))
   const outcome = await client.$transaction(async (tx) => {
+    const operationBeforeClaim = await tx.prospectSendOutbox.findUnique({
+      where: { id: input.outboxId },
+      include: {
+        providerAccount: true,
+        sendItem: {
+          include: {
+            batch: { include: { campaign: true } },
+            member: { include: { contact: true } },
+          },
+        },
+      },
+    })
+    if (!operationBeforeClaim) return { send: null, terminalBatchId: null }
+    const claimable =
+      (['PENDING', 'RETRYABLE'] as const).includes(
+        operationBeforeClaim.status as 'PENDING' | 'RETRYABLE',
+      ) && !operationBeforeClaim.claimOwner
+        ? true
+        : operationBeforeClaim.status === 'CLAIMED' &&
+          Boolean(operationBeforeClaim.claimExpiresAt && operationBeforeClaim.claimExpiresAt < now)
+    if (!claimable || operationBeforeClaim.availableAt > now) {
+      return { send: null, terminalBatchId: null }
+    }
+
+    // PostgreSQL row locks serialize reservations across workers. The ordering is fixed
+    // (mailbox, then campaign) so different operations cannot overbook configured lanes.
+    await tx.$queryRaw`SELECT "id" FROM "correspondence_provider_accounts" WHERE "id" = ${operationBeforeClaim.providerAccountId} FOR UPDATE`
+    await tx.$queryRaw`SELECT "id" FROM "prospect_outreach_campaigns" WHERE "id" = ${operationBeforeClaim.sendItem.batch.campaignId} FOR UPDATE`
+
+    const startOfUtcDay = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    )
+    const reservedToday = {
+      OR: [
+        { status: 'SENT' as const, terminalAt: { gte: startOfUtcDay } },
+        { status: 'CLAIMED' as const, claimExpiresAt: { gt: now } },
+      ],
+    }
+    const recipientDomain = operationBeforeClaim.sendItem.recipientEmailSnapshot
+      .toLowerCase()
+      .split('@')
+      .at(-1)
+    if (!recipientDomain) return { send: null, terminalBatchId: null }
+    const [mailboxReservedToday, campaignReservedToday, domainReservedToday, latestReservation] =
+      await Promise.all([
+        tx.prospectSendOutbox.count({
+          where: { providerAccountId: operationBeforeClaim.providerAccountId, ...reservedToday },
+        }),
+        tx.prospectSendOutbox.count({
+          where: {
+            sendItem: { batch: { campaignId: operationBeforeClaim.sendItem.batch.campaignId } },
+            ...reservedToday,
+          },
+        }),
+        tx.prospectSendOutbox.count({
+          where: {
+            providerAccountId: operationBeforeClaim.providerAccountId,
+            sendItem: {
+              recipientEmailSnapshot: { endsWith: `@${recipientDomain}`, mode: 'insensitive' },
+            },
+            ...reservedToday,
+          },
+        }),
+        tx.prospectSendOutbox.findFirst({
+          where: { providerAccountId: operationBeforeClaim.providerAccountId, ...reservedToday },
+          orderBy: { updatedAt: 'desc' },
+          select: { updatedAt: true },
+        }),
+      ])
+    const rateDecision = evaluateProspectSendRatePolicy({
+      now,
+      operationId: operationBeforeClaim.operationId,
+      mailboxDailyCap: operationBeforeClaim.providerAccount.dailySendCap,
+      campaignDailyCap: operationBeforeClaim.sendItem.batch.campaign.dailySendCap,
+      domainDailyCap: operationBeforeClaim.providerAccount.perDomainDailyCap,
+      mailboxReservedToday,
+      campaignReservedToday,
+      domainReservedToday,
+      minimumDelaySeconds: operationBeforeClaim.providerAccount.minimumDelaySeconds,
+      jitterSeconds: operationBeforeClaim.providerAccount.jitterSeconds,
+      lastReservedAt: latestReservation?.updatedAt ?? null,
+    })
+    if (!rateDecision.allowed) {
+      await tx.prospectSendOutbox.updateMany({
+        where: {
+          id: operationBeforeClaim.id,
+          OR: [
+            { status: { in: ['PENDING', 'RETRYABLE'] }, claimOwner: null },
+            { status: 'CLAIMED', claimExpiresAt: { lt: now } },
+          ],
+        },
+        data: {
+          status: 'RETRYABLE',
+          availableAt: rateDecision.retryAt,
+          claimOwner: null,
+          claimExpiresAt: null,
+          lastErrorCode: rateDecision.reason,
+          lastErrorMessage: 'Deferred by the configured prospect delivery rate policy',
+          lastErrorRetryable: true,
+        },
+      })
+      return { send: null, terminalBatchId: null }
+    }
     const claimed = await tx.prospectSendOutbox.updateMany({
       where: {
         id: input.outboxId,

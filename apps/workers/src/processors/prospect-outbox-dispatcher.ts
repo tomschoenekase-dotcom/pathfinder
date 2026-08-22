@@ -9,6 +9,16 @@ export async function dispatchPendingProspectOutbox(
   now = new Date(),
   batchSize = DEFAULT_BATCH_SIZE,
 ): Promise<{ discovered: number; enqueued: number; failed: number }> {
+  if (process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED !== 'true') {
+    return { discovered: 0, enqueued: 0, failed: 0 }
+  }
+  const control = await db.prospectDeliveryControl.findUnique({
+    where: { id: 'global' },
+    select: { deliveryEnabled: true },
+  })
+  if (!control?.deliveryEnabled) {
+    return { discovered: 0, enqueued: 0, failed: 0 }
+  }
   const operations = await db.prospectSendOutbox.findMany({
     where: {
       availableAt: { lte: now },
