@@ -105,7 +105,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],
   // Human platform-admin outreach operations use platform-owned CRM records and only read a
   // converted venue through its exact, already-validated conversion tenant+venue identity.
-  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 9],
+  ['packages/api/src/routers/admin/prospect-crm-outreach.ts', 15],
   // Extracted platform-admin intelligence read resolves exact converted tenant+venue links.
   ['packages/api/src/routers/admin/prospect-crm-intelligence.ts', 1],
   ['apps/dashboard/app/api/admin/prospect-imports/[importId]/report/route.ts', 2],
@@ -138,6 +138,8 @@ const approvedCallCounts = new Map([
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
+  // Bounded, read-only retention inventory over platform-owned Gmail message records.
+  ['packages/db/src/helpers/email-body-retention.ts', 1],
   // Signature-verified Stripe ingress resolves an unknown provider object to one
   // namespaced account; platform-admin manual billing then revalidates exact tenant+venue scope.
   ['packages/billing/src/service.ts', 4],

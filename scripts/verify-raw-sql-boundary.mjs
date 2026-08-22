@@ -60,11 +60,25 @@ const approvedPolicies = new Set([
   'tenant-support-request-lineage-lock',
   'tenant-guest-chat-turn-lock',
   'tenant-venue-voice-quota-lock',
+  'platform-prospect-mailbox-send-reservation-lock',
+  'platform-prospect-campaign-send-reservation-lock',
 ])
 
 // Hashes bind exact SQL template and interpolation text; only CRLF/LF differences are normalized.
 // Run with --print-inventory after a reviewed query change, then update only the intended entry.
 const approvedOperations = [
+  {
+    file: 'packages/db/src/helpers/prospect-send-outbox-actions.ts',
+    method: '$queryRaw',
+    hash: '9908635032ded233ca16520ef8d6a5e2d0237d8cddea0c1a0d540a7d36659560',
+    policy: 'platform-prospect-mailbox-send-reservation-lock',
+  },
+  {
+    file: 'packages/db/src/helpers/prospect-send-outbox-actions.ts',
+    method: '$queryRaw',
+    hash: 'b5099aba3a4cc0141790ce821a68b7a40f61c0fd705282b380427480301eb6fc',
+    policy: 'platform-prospect-campaign-send-reservation-lock',
+  },
   {
     file: 'packages/db/src/helpers/universal-content-publication-actions.ts',
     method: '$queryRaw',
