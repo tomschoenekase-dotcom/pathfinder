@@ -15,6 +15,12 @@ an explicit remaining adapter and staging-verification gate.
 
 `AiUsageEvent` records tenant, venue, capability, request type, provider, model, route key, fallback use, latency, success, token/audio units, pricing version, and estimated cost. Daily rollups retain text and audio units. Do not log prompt or transcript bodies as route telemetry.
 
+The explicitly configured tenant hard budget remains the authoritative pre-dispatch spend fence.
+Denied reservations and recorded over-ceiling breaches now publish deduplicated, tenant-scoped
+Founder Control Room events linked to the budget controls. This adds actionable evidence without
+choosing an alert threshold, changing customer service, or enabling an external escalation channel.
+See [`ai-cost-protection.md`](ai-cost-protection.md).
+
 ## Entitlements
 
 Closed capability IDs live in `packages/contracts/src/product-entitlements.ts`. Resolution precedence is: server kill switch, active venue override, active tenant override, plan mapping, deny by default. Billing may assign a plan tier but does not own authorization. Overrides are append-only evidence and can be time-bounded trials or promotions. Platform admins use the product-entitlement procedures to inspect effective decisions, append overrides, and maintain plan mappings.

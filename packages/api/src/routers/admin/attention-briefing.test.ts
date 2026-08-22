@@ -125,6 +125,30 @@ describe('founder briefing contract', () => {
     })
   })
 
+  it('routes AI cost protection evidence to the tenant budget controls', () => {
+    const value = input()
+    value.events = page([
+      {
+        id: 'cost_event_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'ai-cost-budget.request-denied',
+        severity: 'ERROR',
+        title: 'AI request reached its cost limit',
+        summary: 'A bounded reservation exceeded configured capacity.',
+        recommendedAction: 'Review usage and reservation evidence.',
+        actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:00:00.000Z'),
+      },
+    ])
+
+    expect(deriveFounderBriefing(value).focus).toMatchObject({
+      kind: 'CUSTOMER_RISK',
+      action: { href: '/admin/clients/tenant_1#ai-cost-budget' },
+      source: { objectId: 'cost_event_1', tenantId: 'tenant_1', venueId: 'venue_1' },
+    })
+  })
+
   it('orders question, approval, blocked work, and support fallback classes deterministically', () => {
     const value = input()
     value.questions = page([

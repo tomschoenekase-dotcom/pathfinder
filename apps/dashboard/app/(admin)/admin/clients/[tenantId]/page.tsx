@@ -244,7 +244,10 @@ export default async function AdminClientDetailPage({ params }: AdminClientDetai
         </div>
       </section>
 
-      <details className="rounded-2xl border border-pf-light bg-pf-white p-6">
+      <details
+        id="ai-cost-budget"
+        className="scroll-mt-24 rounded-2xl border border-pf-light bg-pf-white p-6"
+      >
         <summary className="cursor-pointer text-lg font-semibold tracking-tight text-pf-deep">
           Advanced: AI cost budget
         </summary>

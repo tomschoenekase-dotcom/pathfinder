@@ -127,6 +127,9 @@ export type FounderBriefingInput = {
 }
 
 function tenantEventHref(event: TenantEvent) {
+  if (event.eventType.startsWith('ai-cost-budget.')) {
+    return `/admin/clients/${event.tenantId}#ai-cost-budget`
+  }
   if (!event.venueId) return `/admin/clients/${event.tenantId}`
   if (event.eventType.startsWith('evaluation.'))
     return `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`

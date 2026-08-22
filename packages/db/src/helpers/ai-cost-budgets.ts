@@ -1,11 +1,15 @@
 import type { AiCostReservation, AiCostSettlementKind } from '@prisma/client'
 
 import type { db } from '../client'
+import { publishOperationalEvent } from './operational-events'
 
 export const AI_COST_BUDGET_COVERAGE_VERSION = 'gateway-v1'
 export const AI_COST_RESERVATION_TTL_MS = 15 * 60 * 1_000
 
-type BudgetClient = Pick<typeof db, '$transaction' | 'aiCostBudget' | 'aiCostReservation'>
+type BudgetClient = Pick<
+  typeof db,
+  '$transaction' | 'aiCostBudget' | 'aiCostReservation' | 'operationalEvent'
+>
 
 export type AiCostAttemptIdentity = {
   tenantId: string
@@ -98,6 +102,50 @@ function sameReservation(
   )
 }
 
+async function publishCostProtectionEventBestEffort(params: {
+  db: BudgetClient
+  identity: Pick<AiCostAttemptIdentity, 'tenantId' | 'venueId' | 'feature'>
+  kind: 'REQUEST_DENIED' | 'BUDGET_BREACHED'
+}): Promise<void> {
+  try {
+    const budget = await params.db.aiCostBudget.findFirst({
+      where: {
+        tenantId: params.identity.tenantId,
+        coverageVersion: AI_COST_BUDGET_COVERAGE_VERSION,
+      },
+      select: { id: true, epoch: true, breachedAt: true },
+    })
+    if (!budget) return
+    const breached = budget.breachedAt !== null
+    if (params.kind === 'BUDGET_BREACHED' && !breached) return
+    await publishOperationalEvent({
+      client: params.db,
+      event: {
+        tenantId: params.identity.tenantId,
+        venueId: params.identity.venueId,
+        eventType: breached ? 'ai-cost-budget.breached' : 'ai-cost-budget.request-denied',
+        sourceSubsystem: 'ai-cost-control',
+        severity: 'ERROR',
+        title: breached
+          ? 'AI cost budget stopped new requests'
+          : 'AI request reached its cost limit',
+        summary: breached
+          ? 'The configured tenant AI cost budget is breached and new covered requests are blocked.'
+          : `A ${params.identity.feature} request was denied because its bounded reservation exceeded the configured tenant AI cost budget capacity.`,
+        actionRequired: true,
+        linkedObjectType: 'AiCostBudget',
+        linkedObjectId: budget.id,
+        recommendedAction:
+          'Review tenant usage and reservation evidence. Reset or change the budget only after confirming the intended operating policy.',
+        deduplicationKey: `ai-cost-budget:${breached ? 'breached' : 'denied'}:${budget.id}:${budget.epoch}`,
+      },
+    })
+  } catch {
+    // Cost enforcement is authoritative. An observability outage must not
+    // reopen budget capacity or replace the original admission result.
+  }
+}
+
 export async function reserveAiCostAttempt(params: {
   db: BudgetClient
   identity: AiCostAttemptIdentity
@@ -181,6 +229,22 @@ export async function reserveAiCostAttempt(params: {
       return reservationRef(reservation)
     })
   } catch (error) {
+    if (error instanceof AiCostBudgetExceededError) {
+      await publishCostProtectionEventBestEffort({
+        db: params.db,
+        identity: params.identity,
+        kind: 'REQUEST_DENIED',
+      })
+      throw error
+    }
+    if (error instanceof AiCostBudgetUnavailableError) {
+      await publishCostProtectionEventBestEffort({
+        db: params.db,
+        identity: params.identity,
+        kind: 'BUDGET_BREACHED',
+      })
+      throw error
+    }
     if (!(error instanceof Object) || !('code' in error) || error.code !== 'P2002') throw error
     return params.db.$transaction(async (tx) => {
       const budget = await tx.aiCostBudget.findFirst({
@@ -250,7 +314,7 @@ async function resolveReservation(params: {
     throw new AiCostBudgetInvariantError('AI cost settlement must be nonnegative')
   }
   const now = params.now ?? new Date()
-  await params.db.$transaction(async (tx) => {
+  const breachedBudget = await params.db.$transaction(async (tx) => {
     const current = await tx.aiCostReservation.findFirst({
       where: { id: params.reservation.id, tenantId: params.reservation.tenantId },
     })
@@ -267,7 +331,7 @@ async function resolveReservation(params: {
         current.settledUnits === params.settledUnits &&
         current.settlementKind === params.kind
       ) {
-        return
+        return null
       }
       throw new AiCostBudgetInvariantError('AI cost reservation terminal replay does not match')
     }
@@ -320,7 +384,7 @@ async function resolveReservation(params: {
       if (budget.count !== 1) {
         throw new AiCostBudgetInvariantError('AI cost budget settlement counter update failed')
       }
-      return
+      return null
     }
 
     const withCapacity = await tx.aiCostBudget.updateMany({
@@ -339,7 +403,9 @@ async function resolveReservation(params: {
         breachedAt: now,
       },
     })
-    if (withCapacity.count === 1) return
+    if (withCapacity.count === 1) {
+      return { id: current.budgetId, epoch: current.budgetEpoch }
+    }
 
     const exhausted = await tx.aiCostBudget.updateMany({
       where: {
@@ -360,7 +426,19 @@ async function resolveReservation(params: {
     if (exhausted.count !== 1) {
       throw new AiCostBudgetInvariantError('AI cost budget breach update failed')
     }
+    return { id: current.budgetId, epoch: current.budgetEpoch }
   })
+  if (breachedBudget) {
+    await publishCostProtectionEventBestEffort({
+      db: params.db,
+      identity: {
+        tenantId: params.reservation.tenantId,
+        venueId: params.reservation.venueId,
+        feature: params.reservation.feature,
+      },
+      kind: 'BUDGET_BREACHED',
+    })
+  }
 }
 
 export async function settleAiCostAttemptExact(params: {

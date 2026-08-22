@@ -391,6 +391,43 @@ describe('operations attention console', () => {
     )
   })
 
+  it('routes AI cost events to the tenant budget controls instead of chat logs', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          events: {
+            items: [
+              {
+                id: 'event_cost',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'ai-cost-budget.breached',
+                sourceSubsystem: 'ai-cost-control',
+                severity: 'ERROR',
+                title: 'AI cost budget stopped new requests',
+                summary: 'The configured budget is breached.',
+                recommendedAction: 'Review usage and reservations.',
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'AiCostBudget',
+                linkedObjectId: 'budget_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Open related workspace' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant_1#ai-cost-budget',
+    )
+  })
+
   it('renders platform CRM attention without a fabricated tenant link', () => {
     render(
       <OperationsAttentionConsole
