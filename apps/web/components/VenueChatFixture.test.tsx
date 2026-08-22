@@ -11,8 +11,6 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }))
-vi.mock('./VoiceControl', () => ({ VoiceControl: () => null }))
-
 import { VenueChatFixture, VISITOR_FIXTURE_PROJECTION } from './VenueChatFixture'
 
 describe('VenueChatFixture', () => {
