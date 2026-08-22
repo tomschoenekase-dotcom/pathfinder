@@ -63,13 +63,22 @@ application graph, it creates no BullMQ queues, consumers, or schedulers, and it
 database, Clerk, Anthropic, or OpenAI variable. A subordinate execution flag set to `true` while
 this mode is disabled is a startup error.
 
+Authoritative intake-upload verification is an internal worker and does not require outbound AI or
+email provider authority. Enable it explicitly with
+`INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED=true`. Its startup then fails closed unless Redis,
+database, quarantined object-storage credentials, and `INTAKE_CLAMAV_HOST` are present. It consumes
+only durable upload identities, reloads immutable evidence, and reconciles prechecked or
+lease-expired work once per minute. Keep the flag false until those dependencies and disposable
+test data are ready.
+
 This is a per-process guarantee. Before calling staging provider-disabled, scale down and drain every
 older worker replica and prove that only the reviewed release SHA remains; an older replica could
 continue consuming queued work during a rolling deploy. Dormant mode does not drain or delete old
 jobs or scheduler definitions. Never use broad Redis deletion as cleanup.
 
-For production workers, all six controls must be explicitly set to `true` or `false`:
-`OUTBOUND_PROVIDER_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
+For production workers, all eight controls must be explicitly set to `true` or `false`:
+`OUTBOUND_PROVIDER_WORKERS_ENABLED`, `CRM_BACKGROUND_WORKERS_ENABLED`,
+`INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED`, `WORKER_SCHEDULERS_ENABLED`,
 `EMBEDDING_DISPATCH_ENABLED`, `GENERATION_DISPATCH_ENABLED`,
 `GENERATION_RECOVERY_ENABLED`, and `EVALUATION_RUNNER_ENABLED`. Omission is a startup failure, not
 implicit authorization. Scheduler flags do not by themselves freeze ordinary consumers; a cutover

@@ -17,6 +17,7 @@ test('local staging owns an observable provider-disabled worker lifecycle', () =
 test('local staging keeps every provider-executing worker path dark', () => {
   for (const flag of [
     'OUTBOUND_PROVIDER_WORKERS_ENABLED',
+    'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
     'WORKER_SCHEDULERS_ENABLED',
     'EMBEDDING_DISPATCH_ENABLED',
     'GENERATION_DISPATCH_ENABLED',

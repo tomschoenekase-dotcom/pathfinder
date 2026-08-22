@@ -34,6 +34,8 @@ import {
   GMAIL_SYNC_QUEUE,
   GMAIL_SYNC_RECONCILIATION_JOB,
   GMAIL_SYNC_WATCH_RENEWAL_JOB,
+  INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
+  INTAKE_UPLOAD_VERIFICATION_QUEUE,
   SEND_EMAIL_QUEUE,
   SEND_WELCOME_EMAIL_JOB,
   SEND_WELCOME_EMAIL_RETRY_BACKOFF,
@@ -79,6 +81,7 @@ import type {
   ProspectImportInspectionJobPayload,
   ProspectImportStagingJobPayload,
   GmailSyncJobPayload,
+  IntakeUploadVerificationJobPayload,
 } from './types'
 
 const queueCache = new Map<string, Queue>()
@@ -705,6 +708,30 @@ export async function enqueueGmailSync(payload: GmailSyncJobPayload): Promise<vo
   logger.info({ action: 'jobs.gmail-sync.enqueued', providerAccountId: payload.providerAccountId })
 }
 
+export async function enqueueIntakeUploadVerification(
+  payload: IntakeUploadVerificationJobPayload,
+): Promise<void> {
+  const identity = [payload.tenantId, payload.venueId, payload.uploadId, payload.observedUpdatedAt]
+  if (identity.some((value) => typeof value !== 'string' || value.trim().length === 0))
+    throw new Error('Intake upload verification requires complete durable identity')
+  if (Number.isNaN(Date.parse(payload.observedUpdatedAt)))
+    throw new Error('Intake upload verification observedUpdatedAt must be an ISO timestamp')
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['pathfinder-intake-upload-verification-v1', ...identity]))
+    .digest('hex')
+  await getQueue(INTAKE_UPLOAD_VERIFICATION_QUEUE).add(
+    INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
+    payload,
+    {
+      jobId: `intake-upload-verification-${digest}`,
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 30_000 },
+      removeOnComplete: 100,
+      removeOnFail: 500,
+    },
+  )
+}
+
 const OPERATIONAL_QUEUE_NAMES = [
   WEEKLY_DIGEST_QUEUE,
   ANSWER_ANALYSIS_QUEUE,
@@ -722,6 +749,7 @@ const OPERATIONAL_QUEUE_NAMES = [
   GENERATION_RECOVERY_QUEUE,
   OPERATIONAL_EVENT_DELIVERY_QUEUE,
   GMAIL_SYNC_QUEUE,
+  INTAKE_UPLOAD_VERIFICATION_QUEUE,
 ] as const
 
 export async function inspectQueueOperationalSnapshot(now = new Date()) {

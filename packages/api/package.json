@@ -10,7 +10,8 @@
     "./prospect-agent": "./src/prospect-agent/index.ts",
     "./correspondence": "./src/correspondence/index.ts",
     "./prospect-import-storage": "./src/prospect-import-storage.ts",
-    "./google-workspace": "./src/google-workspace/index.ts"
+    "./google-workspace": "./src/google-workspace/index.ts",
+    "./intake-upload-verification": "./src/intake-upload-verification.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

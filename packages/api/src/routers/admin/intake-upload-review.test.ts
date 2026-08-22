@@ -104,4 +104,23 @@ describe('platform intake upload review metadata', () => {
       intakeRunId: 'run-1',
     })
   })
+
+  it('surfaces queued verification without leaking worker internals', async () => {
+    mocks.detail.mockResolvedValue({
+      ...row,
+      status: 'PRECHECK_PASSED',
+      intakeRunId: null,
+      verificationLeaseActive: false,
+    })
+    const result = await caller.createCaller(context()).admin.getIntakeUploadDetail({
+      tenantId: 'tenant-a',
+      venueId: 'venue-a',
+      uploadId: 'upload-1',
+    })
+    expect(result).toMatchObject({
+      verificationOperation: 'QUEUED',
+      operatorActionRequired: false,
+    })
+    expect(JSON.stringify(result)).not.toMatch(/claim|storageVersion|clamav/iu)
+  })
 })

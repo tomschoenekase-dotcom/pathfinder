@@ -53,6 +53,14 @@ export async function bootstrapWorkers() {
     return startCrmBackgroundRuntime()
   }
 
+  if (policy.mode === 'intake-upload-verification-only') {
+    const { startIntakeUploadVerificationRuntime } =
+      await import('./intake-upload-verification-runtime.js')
+    const runtime = await startIntakeUploadVerificationRuntime()
+    registerProviderDisabledShutdown(runtime.shutdown)
+    return runtime
+  }
+
   const { startWorkers } = await import('./index.js')
   return startWorkers()
 }

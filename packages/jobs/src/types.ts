@@ -98,6 +98,14 @@ export type GmailSyncJobPayload = {
 
 export type OperationalEventDeliveryJobPayload = Record<string, never>
 
+/** Carries only durable upload identity. The worker reloads all object and policy evidence. */
+export type IntakeUploadVerificationJobPayload = {
+  tenantId: string
+  venueId: string
+  uploadId: string
+  observedUpdatedAt: string
+}
+
 export type BillingReconciliationJobPayload = { tenantId?: string }
 
 export type MediaIngestionJobPayload = {

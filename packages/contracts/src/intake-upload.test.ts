@@ -120,13 +120,13 @@ describe('intake upload browser-safe contracts', () => {
     })
   })
 
-  it('separates a runnable security check from an operational scanner wait', () => {
+  it('keeps Torchiko-managed security checks non-actionable for the customer', () => {
     expect(
       resolveIntakeUploadClientVerification({
-        status: 'PRECHECK_PASSED',
-        authoritativeScannerAvailable: true,
+        status: 'VERIFYING',
+        managedByTorchiko: true,
       }),
-    ).toMatchObject({ kind: 'RESUME_CHECK', required: true, retrySameSubmission: true })
+    ).toMatchObject({ kind: 'WAIT_FOR_TORCHIKO', required: false, retrySameSubmission: false })
     expect(resolveIntakeUploadClientVerification({ status: 'PRECHECK_PASSED' })).toMatchObject({
       kind: 'WAIT_FOR_TORCHIKO',
       required: false,

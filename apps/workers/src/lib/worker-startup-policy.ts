@@ -2,6 +2,7 @@ export const WORKER_EXECUTION_FLAGS = [
   'WORKER_SCHEDULERS_ENABLED',
   'OUTBOUND_PROVIDER_WORKERS_ENABLED',
   'CRM_BACKGROUND_WORKERS_ENABLED',
+  'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
   'EMBEDDING_DISPATCH_ENABLED',
   'GENERATION_DISPATCH_ENABLED',
   'GENERATION_RECOVERY_ENABLED',
@@ -10,7 +11,9 @@ export const WORKER_EXECUTION_FLAGS = [
 
 const DEPENDENT_EXECUTION_FLAGS = WORKER_EXECUTION_FLAGS.filter(
   (flag) =>
-    flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' && flag !== 'CRM_BACKGROUND_WORKERS_ENABLED',
+    flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
+    flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
+    flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
 )
 
 export type WorkerStartupEnvironment = Partial<
@@ -18,8 +21,9 @@ export type WorkerStartupEnvironment = Partial<
 >
 
 export type WorkerStartupPolicy = {
-  mode: 'provider-enabled' | 'crm-only' | 'provider-disabled'
+  mode: 'provider-enabled' | 'crm-only' | 'intake-upload-verification-only' | 'provider-disabled'
   requiredEnvironmentKeys: string[]
+  intakeUploadVerificationEnabled: boolean
 }
 
 export function resolveWorkerStartupPolicy(
@@ -42,6 +46,8 @@ export function resolveWorkerStartupPolicy(
 
   const providerEnabled = environment.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true'
   const crmBackgroundEnabled = environment.CRM_BACKGROUND_WORKERS_ENABLED === 'true'
+  const intakeUploadVerificationEnabled =
+    environment.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true'
   if (!providerEnabled) {
     const conflictingFlag = DEPENDENT_EXECUTION_FLAGS.find((flag) => environment[flag] === 'true')
     if (conflictingFlag) {
@@ -54,12 +60,61 @@ export function resolveWorkerStartupPolicy(
   return providerEnabled
     ? {
         mode: 'provider-enabled',
-        requiredEnvironmentKeys: ['REDIS_URL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+        requiredEnvironmentKeys: [
+          'REDIS_URL',
+          'ANTHROPIC_API_KEY',
+          'OPENAI_API_KEY',
+          ...(intakeUploadVerificationEnabled
+            ? [
+                'DATABASE_URL',
+                'DIRECT_DATABASE_URL',
+                'STORAGE_BUCKET',
+                'STORAGE_REGION',
+                'STORAGE_ACCESS_KEY_ID',
+                'STORAGE_SECRET_ACCESS_KEY',
+                'INTAKE_CLAMAV_HOST',
+              ]
+            : []),
+        ],
+        intakeUploadVerificationEnabled,
       }
     : crmBackgroundEnabled
       ? {
           mode: 'crm-only',
-          requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+          requiredEnvironmentKeys: [
+            'REDIS_URL',
+            'DATABASE_URL',
+            'DIRECT_DATABASE_URL',
+            ...(intakeUploadVerificationEnabled
+              ? [
+                  'STORAGE_BUCKET',
+                  'STORAGE_REGION',
+                  'STORAGE_ACCESS_KEY_ID',
+                  'STORAGE_SECRET_ACCESS_KEY',
+                  'INTAKE_CLAMAV_HOST',
+                ]
+              : []),
+          ],
+          intakeUploadVerificationEnabled,
         }
-      : { mode: 'provider-disabled', requiredEnvironmentKeys: ['REDIS_URL'] }
+      : intakeUploadVerificationEnabled
+        ? {
+            mode: 'intake-upload-verification-only',
+            requiredEnvironmentKeys: [
+              'REDIS_URL',
+              'DATABASE_URL',
+              'DIRECT_DATABASE_URL',
+              'STORAGE_BUCKET',
+              'STORAGE_REGION',
+              'STORAGE_ACCESS_KEY_ID',
+              'STORAGE_SECRET_ACCESS_KEY',
+              'INTAKE_CLAMAV_HOST',
+            ],
+            intakeUploadVerificationEnabled: true,
+          }
+        : {
+            mode: 'provider-disabled',
+            requiredEnvironmentKeys: ['REDIS_URL'],
+            intakeUploadVerificationEnabled: false,
+          }
 }

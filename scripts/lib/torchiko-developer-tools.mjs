@@ -246,6 +246,7 @@ export async function buildDoctorReport(root, environment = process.env) {
   const gates = [
     'OUTBOUND_PROVIDER_WORKERS_ENABLED',
     'CRM_BACKGROUND_WORKERS_ENABLED',
+    'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
     'EVALUATION_RUNNER_ENABLED',
     'AGENT_RUNNER_ENABLED',
     'AGENT_BRIDGE_HTTP_ENABLED',

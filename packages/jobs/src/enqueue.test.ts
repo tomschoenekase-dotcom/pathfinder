@@ -42,6 +42,7 @@ import {
   enqueueEmbedPlace,
   enqueueMediaIngestion,
   enqueueGenerationDispatchKick,
+  enqueueIntakeUploadVerification,
   enqueueWelcomeEmail,
   enqueueWeeklyDigest,
   enqueueWeeklyReport,
@@ -490,6 +491,28 @@ describe('job enqueues', () => {
     expect(answerRecoveryId).not.toContain(LEASE_TOKEN_A)
     expect(reportRecoveryId).not.toContain(weeklyReportPayload.reportId)
     expect(reportRecoveryId).not.toContain(LEASE_TOKEN_A)
+  })
+
+  it('enqueues upload verification with durable identity and an opaque deterministic job ID', async () => {
+    const payload = {
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      uploadId: 'upload_1',
+      observedUpdatedAt: '2026-08-22T12:00:00.000Z',
+    }
+    await enqueueIntakeUploadVerification(payload)
+    await enqueueIntakeUploadVerification(payload)
+    expect(mocks.add.mock.calls[0]).toEqual([
+      'intake-upload-verification-process',
+      payload,
+      expect.objectContaining({
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 30_000 },
+        jobId: expect.stringMatching(/^intake-upload-verification-[a-f0-9]{64}$/u),
+      }),
+    ])
+    expect(mocks.add.mock.calls[1]?.[2].jobId).toBe(mocks.add.mock.calls[0]?.[2].jobId)
+    expect(mocks.add.mock.calls[0]?.[2].jobId).not.toContain(payload.uploadId)
   })
 
   it('uses a token-fenced answer-analysis recovery payload that removes exhausted failures', async () => {

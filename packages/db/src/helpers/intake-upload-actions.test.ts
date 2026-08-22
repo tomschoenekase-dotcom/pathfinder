@@ -664,6 +664,60 @@ describe('quarantined intake upload actions', () => {
     expect(JSON.stringify(audit)).not.toContain(claimId)
   })
 
+  it('limits system verification authority to prechecked work and records system lineage', async () => {
+    const systemJobId = 'intake-upload-verification:job-1'
+    const systemActor = {
+      type: 'SYSTEM' as const,
+      actorId: systemJobId,
+      role: 'SYSTEM' as const,
+      systemJobId,
+      capability: 'intake-upload.authoritative-verify',
+    }
+    const reservedTx = {
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(upload()),
+        updateMany: vi.fn(),
+      },
+      auditLog: { create: vi.fn() },
+    }
+    await expect(
+      claimIntakeUploadVerificationAction({
+        ...scope,
+        actor: systemActor,
+        claimId,
+        client: transactionClient(reservedTx) as never,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(reservedTx.intakeUpload.updateMany).not.toHaveBeenCalled()
+
+    const prechecked = upload({ status: 'PRECHECK_PASSED', storageVersionId: 'version-1' })
+    const precheckedTx = {
+      intakeUpload: {
+        findFirst: vi.fn().mockResolvedValue(prechecked),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue(undefined) },
+    }
+    await expect(
+      claimIntakeUploadVerificationAction({
+        ...scope,
+        actor: systemActor,
+        claimId,
+        client: transactionClient(precheckedTx) as never,
+      }),
+    ).resolves.toMatchObject({ state: 'PRECHECK_PASSED', replayed: false })
+    expect(precheckedTx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: 'SYSTEM',
+        actorId: systemJobId,
+        actorRole: 'SYSTEM',
+        systemJobId,
+        capability: 'intake-upload.authoritative-verify',
+        action: 'intake-upload.authoritative-verification-claimed',
+      }),
+    })
+  })
+
   it('replays the terminal review state without exposing transport identity or creating work', async () => {
     const terminal = upload({ status: 'AWAITING_REVIEW', intakeRunId: 'run-1' })
     const tx = {

@@ -37,6 +37,7 @@ const rawEnvSchema = z
     // credentials, queues, consumers, schedulers, or accidental outbound calls.
     OUTBOUND_PROVIDER_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
     CRM_BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
+    INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: z.enum(['true', 'false']).optional(),
 
     // Stripe Billing is an independently dark integration. Environment gates
     // never replace tenant pilot admission or server-side authorization.
@@ -218,6 +219,8 @@ export const envSchema = rawEnvSchema.transform((values) => ({
   WORKER_SCHEDULERS_ENABLED: values.WORKER_SCHEDULERS_ENABLED === 'true',
   OUTBOUND_PROVIDER_WORKERS_ENABLED: values.OUTBOUND_PROVIDER_WORKERS_ENABLED === 'true',
   CRM_BACKGROUND_WORKERS_ENABLED: values.CRM_BACKGROUND_WORKERS_ENABLED === 'true',
+  INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED:
+    values.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED === 'true',
   STRIPE_BILLING_UI_ENABLED: values.STRIPE_BILLING_UI_ENABLED === 'true',
   STRIPE_CHECKOUT_ENABLED: values.STRIPE_CHECKOUT_ENABLED === 'true',
   STRIPE_CUSTOMER_PORTAL_ENABLED: values.STRIPE_CUSTOMER_PORTAL_ENABLED === 'true',

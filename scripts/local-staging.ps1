@@ -62,6 +62,7 @@ function Set-LocalStagingEnvironment {
   $env:NEXT_PUBLIC_WEB_URL = 'http://127.0.0.1:3100'
   $env:NEXT_DIST_DIR = '.next-local-staging'
   $env:OUTBOUND_PROVIDER_WORKERS_ENABLED = 'false'
+  $env:INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED = 'false'
   $env:WORKER_SCHEDULERS_ENABLED = 'false'
   $env:EMBEDDING_DISPATCH_ENABLED = 'false'
   $env:GENERATION_DISPATCH_ENABLED = 'false'

@@ -24,6 +24,8 @@ describe('admin intake upload review list', () => {
             byteSize: 1024,
             rejectionCode: null,
             intakeRunId: 'run-a',
+            verificationOperation: 'NOT_APPLICABLE',
+            operatorActionRequired: false,
             createdAt: new Date('2026-08-11T15:00:00Z'),
           },
         ]}
@@ -55,6 +57,8 @@ describe('admin intake upload review list', () => {
             byteSize: 1024,
             rejectionCode: null,
             intakeRunId: null,
+            verificationOperation: 'QUEUED',
+            operatorActionRequired: false,
             createdAt: new Date('2026-08-11T15:00:00Z'),
           },
           {
@@ -66,6 +70,8 @@ describe('admin intake upload review list', () => {
             byteSize: 1024,
             rejectionCode: 'engine-signature=/private/scanner/path',
             intakeRunId: null,
+            verificationOperation: 'NOT_APPLICABLE',
+            operatorActionRequired: false,
             createdAt: new Date('2026-08-11T15:00:00Z'),
           },
         ]}
@@ -73,6 +79,7 @@ describe('admin intake upload review list', () => {
     )
 
     expect(screen.getByText('Security check pending')).toBeTruthy()
+    expect(screen.getByText('Authoritative security verification is queued.')).toBeTruthy()
     expect(screen.getByText('Status unavailable')).toBeTruthy()
     expect(screen.getByText('The file could not be accepted.')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(
@@ -93,6 +100,8 @@ describe('admin intake upload review list', () => {
             byteSize: 1024,
             rejectionCode: null,
             intakeRunId: null,
+            verificationOperation: 'QUEUED',
+            operatorActionRequired: false,
             createdAt: new Date('2026-08-11T15:00:00Z'),
           },
           {
@@ -104,6 +113,8 @@ describe('admin intake upload review list', () => {
             byteSize: 1024,
             rejectionCode: 'UNSAFE_FILE',
             intakeRunId: null,
+            verificationOperation: 'NOT_APPLICABLE',
+            operatorActionRequired: false,
             createdAt: new Date('2026-08-11T15:00:00Z'),
           },
         ]}

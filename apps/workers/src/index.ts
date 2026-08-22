@@ -139,6 +139,7 @@ import {
 } from './lib/media-job-cancellation'
 import { createMediaAttemptSignal } from './lib/media-attempt-limits'
 import { startProviderDisabledRuntime } from './lib/provider-disabled-runtime'
+import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
 import {
   createEscalatingShutdownHandler,
   createShutdownCoordinator,
@@ -979,6 +980,19 @@ export async function startWorkers() {
     }
   }, cleanupAfterStartupFailure)
 
+  const intakeVerification = env.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED
+    ? await createIntakeUploadVerificationResources().catch(async (error) => {
+        await cleanupAfterStartupFailure()
+        throw error
+      })
+    : null
+  if (intakeVerification) {
+    schedulerQueueResources.push({
+      name: intakeVerification.queue.name,
+      close: () => intakeVerification.queue.close(),
+    })
+  }
+
   const observeWorkerRuntime = <DataType, ResultType, NameType extends string>(
     queueName: string,
     worker: Worker<DataType, ResultType, NameType>,
@@ -1286,6 +1300,9 @@ export async function startWorkers() {
   }
 
   const workers = [
+    ...(intakeVerification
+      ? [{ name: intakeVerification.queue.name, worker: intakeVerification.worker }]
+      : []),
     { name: WEEKLY_DIGEST_QUEUE, worker: weeklyDigestWorker },
     { name: DAILY_ROLLUP_QUEUE, worker: dailyRollupWorker },
     { name: EMBED_PLACE_QUEUE, worker: embedPlaceWorker },
@@ -1345,6 +1362,7 @@ export async function startWorkers() {
       MEDIA_INGESTION_QUEUE,
       ...(evaluationRunWorker ? [EVALUATION_RUN_QUEUE] : []),
       ...(agentRunWorker ? [AGENT_RUN_QUEUE] : []),
+      ...(intakeVerification ? [intakeVerification.queue.name] : []),
     ],
   })
 
@@ -1414,6 +1432,7 @@ export async function startWorkers() {
     weeklyReportWorker,
     weeklyDigestQueue,
     weeklyDigestWorker,
+    intakeVerification,
     shutdown,
   }
 }

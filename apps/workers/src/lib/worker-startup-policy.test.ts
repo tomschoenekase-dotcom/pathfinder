@@ -13,6 +13,7 @@ describe('worker startup policy', () => {
     expect(resolveWorkerStartupPolicy({ RAILWAY_ENVIRONMENT: 'staging' })).toEqual({
       mode: 'provider-disabled',
       requiredEnvironmentKeys: ['REDIS_URL'],
+      intakeUploadVerificationEnabled: false,
     })
   })
 
@@ -48,6 +49,7 @@ describe('worker startup policy', () => {
     ).toEqual({
       mode: 'provider-enabled',
       requiredEnvironmentKeys: ['REDIS_URL', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+      intakeUploadVerificationEnabled: false,
     })
   })
 
@@ -61,13 +63,39 @@ describe('worker startup policy', () => {
     ).toEqual({
       mode: 'crm-only',
       requiredEnvironmentKeys: ['REDIS_URL', 'DATABASE_URL', 'DIRECT_DATABASE_URL'],
+      intakeUploadVerificationEnabled: false,
+    })
+  })
+
+  it('permits a provider-independent authoritative upload verification runtime', () => {
+    expect(
+      resolveWorkerStartupPolicy({
+        RAILWAY_ENVIRONMENT: 'staging',
+        OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+        INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'true',
+      }),
+    ).toEqual({
+      mode: 'intake-upload-verification-only',
+      requiredEnvironmentKeys: [
+        'REDIS_URL',
+        'DATABASE_URL',
+        'DIRECT_DATABASE_URL',
+        'STORAGE_BUCKET',
+        'STORAGE_REGION',
+        'STORAGE_ACCESS_KEY_ID',
+        'STORAGE_SECRET_ACCESS_KEY',
+        'INTAKE_CLAMAV_HOST',
+      ],
+      intakeUploadVerificationEnabled: true,
     })
   })
 
   it.each(
     WORKER_EXECUTION_FLAGS.filter(
       (flag) =>
-        flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' && flag !== 'CRM_BACKGROUND_WORKERS_ENABLED',
+        flag !== 'OUTBOUND_PROVIDER_WORKERS_ENABLED' &&
+        flag !== 'CRM_BACKGROUND_WORKERS_ENABLED' &&
+        flag !== 'INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED',
     ),
   )('rejects %s when provider workers are disabled', (flag) => {
     expect(() =>

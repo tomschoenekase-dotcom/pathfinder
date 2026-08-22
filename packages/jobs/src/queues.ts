@@ -88,3 +88,8 @@ export const BILLING_RECONCILIATION_SCHEDULER_JOB = 'billing-reconciliation-sche
 
 export const ACCOUNT_SUMMARY_REFRESH_QUEUE = queueName('account-summary-refresh')
 export const ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB = 'account-summary-refresh-scheduler'
+
+export const INTAKE_UPLOAD_VERIFICATION_QUEUE = queueName('intake-upload-verification')
+export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verification-process'
+export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
+  'intake-upload-verification-reconciliation'

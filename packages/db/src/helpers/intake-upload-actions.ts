@@ -14,6 +14,10 @@ import {
   type IntakeUploadVerifiedTransport as IntakeUploadVerifiedTransportType,
   type IntakeUploadVerificationEvidence as IntakeUploadVerificationEvidenceType,
 } from '@pathfinder/contracts/intake-upload'
+import {
+  SystemActorContext,
+  type SystemActorContext as SystemActorContextType,
+} from '@pathfinder/contracts/actor'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -24,6 +28,8 @@ export type IntakeUploadActor = {
   id: string
   role: 'STAFF' | 'MANAGER' | 'OWNER' | 'PLATFORM_ADMIN'
 }
+
+export type IntakeUploadVerificationActor = IntakeUploadActor | SystemActorContextType
 
 export type IntakeUploadActionClient = Pick<
   typeof db,
@@ -71,6 +77,8 @@ const actorInput = z
     role: z.enum(['STAFF', 'MANAGER', 'OWNER', 'PLATFORM_ADMIN']),
   })
   .strict()
+
+const verificationActorInput = z.union([actorInput, SystemActorContext])
 
 const scopeInput = z
   .object({
@@ -127,6 +135,7 @@ const safeListSelect = {
   rejectionCode: true,
   intakeRunId: true,
   verificationLeaseUntil: true,
+  storageVersionId: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -167,6 +176,23 @@ function parseActor(actor: unknown): IntakeUploadActor {
   return parsed.data
 }
 
+function parseVerificationActor(actor: unknown): IntakeUploadVerificationActor {
+  const parsed = verificationActorInput.safeParse(actor)
+  if (!parsed.success)
+    throw new IntakeUploadActionError('INVALID_INPUT', 'A permitted verification actor is required')
+  return parsed.data
+}
+
+function verificationActorId(actor: IntakeUploadVerificationActor): string {
+  return actor.type === 'SYSTEM' ? actor.actorId : actor.id
+}
+
+function verificationAuditActor(actor: IntakeUploadVerificationActor) {
+  return actor.type === 'SYSTEM'
+    ? ({ actor } as const)
+    : ({ actorId: actor.id, actorRole: actor.role, actorType: actor.type } as const)
+}
+
 function parseScope(input: unknown) {
   const candidate =
     input && typeof input === 'object'
@@ -201,6 +227,7 @@ function safeUpload(upload: {
   rejectionCode: string | null
   intakeRunId: string | null
   verificationLeaseUntil?: Date | null
+  storageVersionId?: string | null
   createdAt: Date
   updatedAt: Date
 }) {
@@ -217,6 +244,9 @@ function safeUpload(upload: {
     verificationLeaseActive:
       upload.status === 'VERIFYING' &&
       Boolean(upload.verificationLeaseUntil && upload.verificationLeaseUntil > new Date()),
+    verificationManagedByTorchiko:
+      upload.status === 'PRECHECK_PASSED' ||
+      (upload.status === 'VERIFYING' && Boolean(upload.storageVersionId)),
     createdAt: upload.createdAt,
     updatedAt: upload.updatedAt,
   }
@@ -255,6 +285,14 @@ function requireUploadOwner(
   if (upload.requestedBy !== actor.id || upload.requestedByRole !== actor.role) {
     throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
   }
+}
+
+function requireVerificationAuthority(
+  upload: { requestedBy: string; requestedByRole: string },
+  actor: IntakeUploadVerificationActor,
+) {
+  if (actor.type === 'SYSTEM') return
+  requireUploadOwner(upload, actor)
 }
 
 export async function reserveIntakeUploadAction(input: {
@@ -421,14 +459,14 @@ export async function claimIntakeUploadVerificationAction(input: {
   tenantId: string
   venueId: string
   uploadId: string
-  actor: IntakeUploadActor
+  actor: IntakeUploadVerificationActor
   claimId: string
   client?: IntakeUploadActionClient
 }) {
   if (!input || typeof input !== 'object')
     throw new IntakeUploadActionError('INVALID_INPUT', 'Invalid verification claim')
   const scope = parseScope(input)
-  const actor = parseActor(input.actor)
+  const actor = parseVerificationActor(input.actor)
   const claim = claimIdInput.safeParse(input.claimId)
   if (!claim.success)
     throw new IntakeUploadActionError('INVALID_INPUT', 'Invalid verification claim')
@@ -441,7 +479,7 @@ export async function claimIntakeUploadVerificationAction(input: {
       select: uploadStateSelect,
     })
     if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
-    requireUploadOwner(current, actor)
+    requireVerificationAuthority(current, actor)
     if (current.status === 'AWAITING_REVIEW' && current.intakeRunId) {
       return {
         state: 'AWAITING_REVIEW' as const,
@@ -463,6 +501,18 @@ export async function claimIntakeUploadVerificationAction(input: {
       })
       if (changed.count !== 1)
         throw new IntakeUploadActionError('CONFLICT', 'Intake upload verification was claimed')
+      await writeAuditLogStrict(
+        {
+          tenantId: scope.tenantId,
+          ...verificationAuditActor(actor),
+          action: 'intake-upload.authoritative-verification-claimed',
+          targetType: 'IntakeUpload',
+          targetId: scope.uploadId,
+          beforeState: { status: 'PRECHECK_PASSED' },
+          afterState: { venueId: scope.venueId, status: 'VERIFYING', leaseSeconds: 600 },
+        },
+        tx,
+      )
       return {
         state: 'PRECHECK_PASSED' as const,
         upload: safeUpload({ ...current, status: 'VERIFYING', updatedAt: now }),
@@ -488,6 +538,15 @@ export async function claimIntakeUploadVerificationAction(input: {
       current.status === 'VERIFYING' &&
       current.verificationLeaseUntil !== null &&
       current.verificationLeaseUntil <= now
+    if (
+      actor.type === 'SYSTEM' &&
+      (current.status === 'RESERVED' ||
+        (current.status === 'VERIFYING' && !current.storageVersionId))
+    )
+      throw new IntakeUploadActionError(
+        'CONFLICT',
+        'System verification requires a completed upload precheck',
+      )
     if (current.status !== 'RESERVED' && !expired)
       throw new IntakeUploadActionError(
         'CONFLICT',
@@ -514,8 +573,7 @@ export async function claimIntakeUploadVerificationAction(input: {
     await writeAuditLogStrict(
       {
         tenantId: scope.tenantId,
-        actorId: actor.id,
-        actorRole: actor.role,
+        ...verificationAuditActor(actor),
         action: 'intake-upload.verification-claimed',
         targetType: 'IntakeUpload',
         targetId: scope.uploadId,
@@ -542,7 +600,7 @@ export async function releaseIntakeUploadVerificationAction(input: {
   tenantId: string
   venueId: string
   uploadId: string
-  actor: IntakeUploadActor
+  actor: IntakeUploadVerificationActor
   claimId: string
   reasonCode: z.infer<typeof IntakeUploadRetryReason>
   client?: IntakeUploadActionClient
@@ -550,7 +608,7 @@ export async function releaseIntakeUploadVerificationAction(input: {
   if (!input || typeof input !== 'object')
     throw new IntakeUploadActionError('INVALID_INPUT', 'Invalid verification retry record')
   const scope = parseScope(input)
-  const actor = parseActor(input.actor)
+  const actor = parseVerificationActor(input.actor)
   const claim = claimIdInput.safeParse(input.claimId)
   const reason = IntakeUploadRetryReason.safeParse(input.reasonCode)
   if (!claim.success || !reason.success)
@@ -564,7 +622,12 @@ export async function releaseIntakeUploadVerificationAction(input: {
       select: uploadStateSelect,
     })
     if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
-    requireUploadOwner(current, actor)
+    requireVerificationAuthority(current, actor)
+    if (actor.type === 'SYSTEM' && !current.storageVersionId)
+      throw new IntakeUploadActionError(
+        'CONFLICT',
+        'System verification requires a completed upload precheck',
+      )
     if (current.status !== 'VERIFYING' || current.verificationClaimId !== claim.data)
       throw new IntakeUploadActionError('CONFLICT', 'Verification claim no longer owns this upload')
     const now = new Date()
@@ -578,8 +641,7 @@ export async function releaseIntakeUploadVerificationAction(input: {
     await writeAuditLogStrict(
       {
         tenantId: scope.tenantId,
-        actorId: actor.id,
-        actorRole: actor.role,
+        ...verificationAuditActor(actor),
         action: 'intake-upload.verification-unavailable',
         targetType: 'IntakeUpload',
         targetId: scope.uploadId,
@@ -914,7 +976,7 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
   tenantId: string
   venueId: string
   uploadId: string
-  actor: IntakeUploadActor
+  actor: IntakeUploadVerificationActor
   claimId: string
   malware: {
     verdict: 'CLEAN' | 'INFECTED'
@@ -927,7 +989,7 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
   client?: IntakeUploadActionClient
 }) {
   const scope = parseScope(input)
-  const actor = parseActor(input.actor)
+  const actor = parseVerificationActor(input.actor)
   const claim = claimIdInput.parse(input.claimId)
   const malware = z
     .object({
@@ -948,7 +1010,7 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
       select: uploadStateSelect,
     })
     if (!upload) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
-    requireUploadOwner(upload, actor)
+    requireVerificationAuthority(upload, actor)
     if (upload.status === 'AWAITING_REVIEW' && upload.intakeRunId)
       return {
         upload: safeUpload(upload),
@@ -1065,8 +1127,13 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
           eventType: 'UPLOAD_FAILED',
           idempotencyKey: `intake-upload:${upload.id}:authoritative:${malware.verdictHash}`,
           occurredAt: now,
-          actorType: actor.role === 'PLATFORM_ADMIN' ? 'OPERATOR' : 'CLIENT',
-          actorId: actor.id,
+          actorType:
+            actor.type === 'SYSTEM'
+              ? 'SYSTEM'
+              : actor.role === 'PLATFORM_ADMIN'
+                ? 'OPERATOR'
+                : 'CLIENT',
+          actorId: verificationActorId(actor),
           sourceType: 'INTAKE_UPLOAD',
           sourceId: upload.id,
           sourceRevision: malware.verdictHash,
@@ -1077,8 +1144,7 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
       await writeAuditLogStrict(
         {
           tenantId: scope.tenantId,
-          actorId: actor.id,
-          actorRole: actor.role,
+          ...verificationAuditActor(actor),
           action: 'intake-upload.authoritative-rejected',
           targetType: 'IntakeUpload',
           targetId: upload.id,
@@ -1129,7 +1195,7 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
           venueId: scope.venueId,
           runId: run.id,
           kind: 'PROPOSAL_CREATED',
-          actorId: actor.id,
+          actorId: verificationActorId(actor),
           metadata: { sourceKind: 'FILE_UPLOAD' },
         },
         {
@@ -1137,7 +1203,7 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
           venueId: scope.venueId,
           runId: run.id,
           kind: 'EVIDENCE_RECORDED',
-          actorId: actor.id,
+          actorId: verificationActorId(actor),
           metadata: { evidenceCount: 1 },
         },
       ],
@@ -1170,8 +1236,13 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
         eventType: 'FIRST_USEFUL_MATERIAL',
         idempotencyKey: `intake-upload:${upload.id}:authoritative:${malware.verdictHash}`,
         occurredAt: now,
-        actorType: actor.role === 'PLATFORM_ADMIN' ? 'OPERATOR' : 'CLIENT',
-        actorId: actor.id,
+        actorType:
+          actor.type === 'SYSTEM'
+            ? 'SYSTEM'
+            : actor.role === 'PLATFORM_ADMIN'
+              ? 'OPERATOR'
+              : 'CLIENT',
+        actorId: verificationActorId(actor),
         sourceType: 'INTAKE_UPLOAD',
         sourceId: upload.id,
         sourceRevision: malware.verdictHash,
@@ -1182,8 +1253,7 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
     await writeAuditLogStrict(
       {
         tenantId: scope.tenantId,
-        actorId: actor.id,
-        actorRole: actor.role,
+        ...verificationAuditActor(actor),
         action: 'intake-upload.authoritative-verified',
         targetType: 'IntakeUpload',
         targetId: upload.id,
@@ -1214,12 +1284,12 @@ export async function releaseIntakeUploadAuthoritativeVerificationAction(input: 
   tenantId: string
   venueId: string
   uploadId: string
-  actor: IntakeUploadActor
+  actor: IntakeUploadVerificationActor
   claimId: string
   client?: IntakeUploadActionClient
 }) {
   const scope = parseScope(input)
-  const actor = parseActor(input.actor)
+  const actor = parseVerificationActor(input.actor)
   const claim = claimIdInput.parse(input.claimId)
   const client = input.client ?? db
   return client.$transaction(async (rawTx) => {
@@ -1229,7 +1299,7 @@ export async function releaseIntakeUploadAuthoritativeVerificationAction(input: 
       select: uploadStateSelect,
     })
     if (!current) throw new IntakeUploadActionError('NOT_FOUND', 'Intake upload not found')
-    requireUploadOwner(current, actor)
+    requireVerificationAuthority(current, actor)
     const precheck = await tx.intakeUploadVerificationReceipt.findFirst({
       where: { ...scope, kind: 'PRECHECK', verdict: 'PASSED' },
       select: { id: true },
@@ -1255,8 +1325,7 @@ export async function releaseIntakeUploadAuthoritativeVerificationAction(input: 
     await writeAuditLogStrict(
       {
         tenantId: scope.tenantId,
-        actorId: actor.id,
-        actorRole: actor.role,
+        ...verificationAuditActor(actor),
         action: 'intake-upload.authoritative-unavailable',
         targetType: 'IntakeUpload',
         targetId: current.id,

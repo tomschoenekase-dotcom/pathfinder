@@ -89,7 +89,7 @@ export type IntakeUploadClientVerification = {
 export function resolveIntakeUploadClientVerification(input: {
   status: string
   verificationLeaseActive?: boolean
-  authoritativeScannerAvailable?: boolean
+  managedByTorchiko?: boolean
 }): IntakeUploadClientVerification {
   if (input.status === 'VERIFYING') {
     return input.verificationLeaseActive
@@ -100,31 +100,31 @@ export function resolveIntakeUploadClientVerification(input: {
           reason: 'Torchiko is actively checking this saved file.',
           retrySameSubmission: false,
         }
-      : {
-          kind: 'RESUME_CHECK',
-          required: true,
-          actionLabel: 'Resume file check',
-          reason: 'The saved file check stopped before it finished.',
-          retrySameSubmission: true,
-        }
+      : input.managedByTorchiko
+        ? {
+            kind: 'WAIT_FOR_TORCHIKO',
+            required: false,
+            actionLabel: null,
+            reason: 'Torchiko is automatically recovering the saved file security check.',
+            retrySameSubmission: false,
+          }
+        : {
+            kind: 'RESUME_CHECK',
+            required: true,
+            actionLabel: 'Resume file check',
+            reason: 'The saved file check stopped before it finished.',
+            retrySameSubmission: true,
+          }
   }
 
   if (input.status === 'PRECHECK_PASSED') {
-    return input.authoritativeScannerAvailable
-      ? {
-          kind: 'RESUME_CHECK',
-          required: true,
-          actionLabel: 'Resume security check',
-          reason: 'The saved file passed its format check and still needs its security check.',
-          retrySameSubmission: true,
-        }
-      : {
-          kind: 'WAIT_FOR_TORCHIKO',
-          required: false,
-          actionLabel: null,
-          reason: 'The saved file is waiting for Torchiko to finish its security check.',
-          retrySameSubmission: false,
-        }
+    return {
+      kind: 'WAIT_FOR_TORCHIKO',
+      required: false,
+      actionLabel: null,
+      reason: 'The saved file is waiting for Torchiko to finish its security check.',
+      retrySameSubmission: false,
+    }
   }
 
   return {

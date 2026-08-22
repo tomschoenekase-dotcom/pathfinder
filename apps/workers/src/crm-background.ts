@@ -1,5 +1,6 @@
 import { Queue, Worker, type Job } from 'bullmq'
 
+import { env } from '@pathfinder/config'
 import {
   ACCOUNT_SUMMARY_REFRESH_QUEUE,
   ACCOUNT_SUMMARY_REFRESH_SCHEDULER_JOB,
@@ -17,6 +18,7 @@ import {
 } from '@pathfinder/jobs'
 
 import { processStaleAccountSummaries } from './processors/account-summary-refresh'
+import { createIntakeUploadVerificationResources } from './intake-upload-verification-runtime'
 import {
   processProspectImportInspectionJob,
   processProspectImportCommitJob,
@@ -72,7 +74,14 @@ export async function startCrmBackgroundRuntime() {
     handleAccountSummaryRefresh,
     { connection, concurrency: 1 },
   )
-  const workers = [prospectImportWorker, accountSummaryWorker]
+  const intakeVerification = env.INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED
+    ? await createIntakeUploadVerificationResources()
+    : null
+  const workers = [
+    prospectImportWorker,
+    accountSummaryWorker,
+    ...(intakeVerification ? [intakeVerification.worker] : []),
+  ]
   for (const worker of workers)
     worker.on('error', (error) => {
       process.stderr.write(
@@ -88,6 +97,7 @@ export async function startCrmBackgroundRuntime() {
     await Promise.all(workers.map((worker) => worker.close()))
     await accountSummaryQueue.close()
     await prospectImportQueue.close()
+    if (intakeVerification) await intakeVerification.queue.close()
     await closeJobQueues()
     await closeBullMQConnection()
   }
@@ -96,16 +106,25 @@ export async function startCrmBackgroundRuntime() {
       action: 'workers.started',
       mode: 'crm-only',
       outboundProviderWorkersEnabled: false,
-      queues: [PROSPECT_IMPORT_QUEUE, ACCOUNT_SUMMARY_REFRESH_QUEUE],
+      queues: [
+        PROSPECT_IMPORT_QUEUE,
+        ACCOUNT_SUMMARY_REFRESH_QUEUE,
+        ...(intakeVerification ? [intakeVerification.queue.name] : []),
+      ],
     })}\n`,
   )
   return {
     mode: 'crm-only' as const,
-    queues: [PROSPECT_IMPORT_QUEUE, ACCOUNT_SUMMARY_REFRESH_QUEUE] as const,
+    queues: [
+      PROSPECT_IMPORT_QUEUE,
+      ACCOUNT_SUMMARY_REFRESH_QUEUE,
+      ...(intakeVerification ? [intakeVerification.queue.name] : []),
+    ],
     prospectImportQueue,
     prospectImportWorker,
     accountSummaryQueue,
     accountSummaryWorker,
+    intakeVerification,
     shutdown,
   }
 }

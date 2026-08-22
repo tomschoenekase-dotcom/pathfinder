@@ -66,6 +66,9 @@ export {
   BILLING_RECONCILIATION_QUEUE,
   BILLING_RECONCILIATION_PROCESS_JOB,
   BILLING_RECONCILIATION_SCHEDULER_JOB,
+  INTAKE_UPLOAD_VERIFICATION_QUEUE,
+  INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB,
+  INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB,
 } from './queues'
 export { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 export {
@@ -108,6 +111,7 @@ export {
   enqueueProspectImportInspection,
   enqueueProspectImportStaging,
   enqueueGmailSync,
+  enqueueIntakeUploadVerification,
   inspectQueueOperationalSnapshot,
 } from './enqueue'
 export type {
@@ -133,4 +137,5 @@ export type {
   ProspectImportStagingJobPayload,
   GmailSyncJobPayload,
   BillingReconciliationJobPayload,
+  IntakeUploadVerificationJobPayload,
 } from './types'

@@ -946,6 +946,7 @@ export type {
   IntakeUploadActionClient,
   IntakeUploadActionErrorCode,
   IntakeUploadActor,
+  IntakeUploadVerificationActor,
   TrustedIntakeUploadObjectIdentity,
 } from './helpers/intake-upload-actions'
 export { AgentOutcomeActionError, recordAgentOutcomeAction } from './helpers/agent-outcome-actions'

@@ -42,7 +42,19 @@ function reviewMetadata(upload: {
   updatedAt: Date
   verifiedAt?: Date | null
   rejectedAt?: Date | null
+  verificationLeaseActive?: boolean
+  verificationManagedByTorchiko?: boolean
 }) {
+  const verificationOperation =
+    upload.status === 'PRECHECK_PASSED'
+      ? ('QUEUED' as const)
+      : upload.status === 'VERIFYING'
+        ? upload.verificationLeaseActive
+          ? ('RUNNING' as const)
+          : upload.verificationManagedByTorchiko
+            ? ('RECOVERY_QUEUED' as const)
+            : ('CLIENT_RESUME_REQUIRED' as const)
+        : ('NOT_APPLICABLE' as const)
   return {
     id: upload.id,
     status: upload.status,
@@ -54,6 +66,8 @@ function reviewMetadata(upload: {
     intakeRunId: upload.intakeRunId,
     createdAt: upload.createdAt,
     updatedAt: upload.updatedAt,
+    verificationOperation,
+    operatorActionRequired: false,
     ...('verifiedAt' in upload ? { verifiedAt: upload.verifiedAt ?? null } : {}),
     ...('rejectedAt' in upload ? { rejectedAt: upload.rejectedAt ?? null } : {}),
   }
