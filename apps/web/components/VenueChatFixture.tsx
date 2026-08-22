@@ -6,6 +6,7 @@ import type {
 } from '@pathfinder/contracts/character-system'
 
 import { TRPCProvider } from '../lib/trpc'
+import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
 import { VenueChatShell } from './VenueChatShell'
 import { VoiceControlPanel } from './VoiceControl'
 import type { ChatMessage, VenueSummary } from './venue-chat-types'
@@ -116,6 +117,7 @@ export function VenueChatFixture({
   asset,
   motion,
   voice = 'none',
+  network = 'online',
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -123,6 +125,7 @@ export function VenueChatFixture({
   asset: VisitorFixtureAsset
   motion: 'system' | 'reduced' | 'full'
   voice?: VisitorFixtureVoice
+  network?: NetworkConnectionState
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -133,6 +136,7 @@ export function VenueChatFixture({
         data-fixture-conversation={conversation}
         data-fixture-asset={asset}
         data-fixture-voice={voice}
+        data-fixture-network={network}
       >
         <VenueChatShell
           venue={fixtureVenue(mode, asset)}
@@ -147,6 +151,7 @@ export function VenueChatFixture({
           initialDraft={state === 'listening' ? 'Tell me about the family exhibits' : ''}
           characterState={state}
           characterMotion={motion}
+          connectionState={network}
           location={{ lat: null, lng: null, permission: 'prompt', refresh: () => undefined }}
           onSend={() => undefined}
           onDraftChange={() => undefined}

@@ -92,4 +92,44 @@ describe('VenueChatFixture', () => {
     expect(screen.getByRole('alert').textContent).toContain('Microphone access was denied')
     expect(screen.getByText('Voice stopped safely. Text chat is still available.')).toBeTruthy()
   })
+
+  it('renders offline and reconnected guidance through the production shell', () => {
+    const view = render(
+      <VenueChatFixture
+        mode="classic"
+        state="listening"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        network="offline"
+      />,
+    )
+
+    const offlineStatus = screen.getByText("You're offline").closest('[role="status"]')
+    expect(offlineStatus?.textContent).toContain('draft stays on this screen')
+    expect(
+      (screen.getByRole('button', { name: 'Reconnect to send message' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    view.rerender(
+      <VenueChatFixture
+        mode="classic"
+        state="listening"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        network="reconnected"
+      />,
+    )
+    expect(screen.getByText('Back online').closest('[role="status"]')?.textContent).toContain(
+      'You can send your draft',
+    )
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
+  })
 })

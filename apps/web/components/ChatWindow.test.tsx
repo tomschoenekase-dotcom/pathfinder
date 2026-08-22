@@ -204,6 +204,47 @@ describe('ChatWindow accessibility and motion behavior', () => {
     expect((composer as HTMLTextAreaElement).value).toBe('')
   })
 
+  it('preserves an editable draft but blocks send and exact retry while offline', () => {
+    const onSend = vi.fn()
+    const onRetry = vi.fn()
+    const view = render(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        onRetry={onRetry}
+        isLoading={false}
+        isOnline={false}
+        errorMessage="The outcome is not confirmed."
+      />,
+    )
+    const composer = screen.getByRole('textbox', { name: 'Ask a question' })
+    fireEvent.change(composer, { target: { value: 'Keep this draft' } })
+
+    const send = screen.getByRole('button', { name: 'Reconnect to send message' })
+    expect((send as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Retry same message' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect((composer as HTMLTextAreaElement).value).toBe('Keep this draft')
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onRetry).not.toHaveBeenCalled()
+
+    view.rerender(
+      <ChatWindow
+        messages={[]}
+        onSend={onSend}
+        onRetry={onRetry}
+        isLoading={false}
+        isOnline
+        errorMessage="The outcome is not confirmed."
+      />,
+    )
+    expect((composer as HTMLTextAreaElement).value).toBe('Keep this draft')
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(onSend).toHaveBeenCalledWith('Keep this draft')
+  })
+
   it('offers an accessible exact retry and reports intentional draft edits', () => {
     const onRetry = vi.fn()
     const onDraftChange = vi.fn()

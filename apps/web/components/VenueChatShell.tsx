@@ -10,6 +10,7 @@ import { TorchikoIcon } from '@pathfinder/ui/brand'
 import { CHAT_FONT_OPTIONS, getChatPalette } from '@pathfinder/ui/theme'
 
 import { ChatWindow } from './ChatWindow'
+import { ConnectionStatusBanner } from './ConnectionStatusBanner'
 import {
   LANGUAGE_FALLBACK_DESCRIPTIONS,
   LANGUAGE_HEADINGS,
@@ -23,6 +24,7 @@ import { VenueCharacterBoundary } from './VenueCharacterBoundary'
 import { VenueCharacterFallback } from './VenueCharacterFallback'
 import { VoiceControl } from './VoiceControl'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
+import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
 
 const LazyVenueCharacterStage = dynamic(
   () => import('./VenueCharacterStage').then((module) => module.VenueCharacterStage),
@@ -68,6 +70,7 @@ export function VenueChatShell(props: {
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   voiceControl?: ReactNode
+  connectionState?: NetworkConnectionState
 }) {
   const {
     venue,
@@ -95,7 +98,9 @@ export function VenueChatShell(props: {
     onVisitorAction,
     onMessageFeedback,
     voiceControl,
+    connectionState = 'online',
   } = props
+  const isOnline = connectionState !== 'offline'
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
   const hasLocation =
@@ -161,7 +166,7 @@ export function VenueChatShell(props: {
             <button
               type="button"
               onClick={onNewConversation}
-              disabled={isSending || !anonymousToken}
+              disabled={!isOnline || isSending || !anonymousToken}
               className="inline-flex min-h-11 items-center justify-center rounded-full border border-current px-3 text-xs font-medium opacity-80 transition hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
               New conversation
@@ -169,6 +174,7 @@ export function VenueChatShell(props: {
           </div>
         </div>
       </header>
+      <ConnectionStatusBanner state={connectionState} />
       <main className="flex min-h-0 flex-1 flex-col">
         {characterPresentation ? (
           <div className="mx-auto w-full max-w-2xl px-4 pt-3 sm:px-6">
@@ -196,13 +202,15 @@ export function VenueChatShell(props: {
         </div>
         <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
           {voiceControl === undefined ? (
-            <VoiceControl
-              venueId={venue.id}
-              anonymousToken={anonymousToken}
-              language={language}
-              disabled={isSending}
-              {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
-            />
+            isOnline ? (
+              <VoiceControl
+                venueId={venue.id}
+                anonymousToken={anonymousToken}
+                language={language}
+                disabled={isSending}
+                {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
+              />
+            ) : null
           ) : (
             voiceControl
           )}
@@ -214,6 +222,7 @@ export function VenueChatShell(props: {
             {...(onRetry ? { onRetry } : {})}
             {...(retryLabel ? { retryLabel } : {})}
             isLoading={isSending}
+            isOnline={isOnline}
             errorMessage={sendError}
             accentColor={palette.accent}
             accentContrastColor={palette.accentContrast}
@@ -241,6 +250,7 @@ export function VenueChatShell(props: {
                   venueCategory={venue.category ?? undefined}
                   guideMode={venue.guideMode}
                   locationAvailable={hasLocation}
+                  disabled={!isOnline}
                   onSend={onSend}
                 />
               </div>

@@ -88,7 +88,7 @@ describe('Packet 2 guest automated accessibility', () => {
     await expectNoAutomatedViolations(container)
   })
 
-  it('finds no automated violations in the real standalone guest chat shell', async () => {
+  it('finds no automated violations in the offline standalone guest chat shell', async () => {
     const { container } = render(
       <VenueChatShell
         venue={{
@@ -114,7 +114,8 @@ describe('Packet 2 guest automated accessibility', () => {
         anonymousToken="private-session-token"
         language="English"
         setLanguage={vi.fn()}
-        initialDraft=""
+        initialDraft="Keep this question available"
+        connectionState="offline"
         location={{ lat: null, lng: null, permission: 'denied', refresh: vi.fn() }}
         onSend={vi.fn()}
         onDraftChange={vi.fn()}

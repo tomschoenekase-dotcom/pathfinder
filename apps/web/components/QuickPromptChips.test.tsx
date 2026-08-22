@@ -1,10 +1,12 @@
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { QuickPromptChips, buildPrompts } from './QuickPromptChips'
 
 describe('QuickPromptChips', () => {
+  afterEach(cleanup)
+
   it('calls onSend with the selected prompt text', () => {
     const onSend = vi.fn()
 
@@ -23,6 +25,16 @@ describe('QuickPromptChips', () => {
       'Where should I go next?',
       'Where are the restrooms?',
     ])
+  })
+
+  it('prevents a quick prompt from starting a request while offline', () => {
+    const onSend = vi.fn()
+    render(<QuickPromptChips onSend={onSend} disabled />)
+
+    const prompt = screen.getByRole('button', { name: 'Where are the restrooms?' })
+    expect((prompt as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(prompt)
+    expect(onSend).not.toHaveBeenCalled()
   })
 
   it('offers knowledge prompts when a location-aware venue has no live position', () => {

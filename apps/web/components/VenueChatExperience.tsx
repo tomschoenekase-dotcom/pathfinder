@@ -11,6 +11,7 @@ import {
 } from '@pathfinder/contracts'
 
 import { useGeolocation } from '../hooks/useGeolocation'
+import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { useSession } from '../hooks/useSession'
 import { useVenueChatAnalytics } from '../hooks/useVenueChatAnalytics'
 import { useVisitorId } from '../hooks/useVisitorId'
@@ -60,6 +61,8 @@ export function VenueChatExperience({
   secondLayerKey,
 }: VenueChatExperienceProps) {
   const client = useTRPCClient()
+  const connectionState = useNetworkStatus()
+  const isOnline = connectionState !== 'offline'
   const [venueState, setVenueState] = useState<{ slug: string; venue: VenueSummary | null } | null>(
     null,
   )
@@ -225,7 +228,7 @@ export function VenueChatExperience({
   useEffect(() => {
     let disposed = false
     async function ensureSession() {
-      if (!venue || !anonymousToken) return
+      if (!isOnline || !venue || !anonymousToken) return
       if (lat === null || lng === null) lastSyncedPosRef.current = null
       if (lat !== null && lng !== null && lastSyncedPosRef.current) {
         if (
@@ -261,7 +264,7 @@ export function VenueChatExperience({
     return () => {
       disposed = true
     }
-  }, [anonymousToken, client, lat, lng, secondLayerKey, setSessionId, venue, visitorId])
+  }, [anonymousToken, client, isOnline, lat, lng, secondLayerKey, setSessionId, venue, visitorId])
 
   function turnScopeIsCurrent(turn: PendingTurn) {
     return (
@@ -409,6 +412,7 @@ export function VenueChatExperience({
   function handleSend(raw: string) {
     const message = raw.trim()
     if (
+      !isOnline ||
       !venue ||
       !anonymousToken ||
       !message ||
@@ -441,6 +445,7 @@ export function VenueChatExperience({
   }
 
   function handleRetry() {
+    if (!isOnline) return
     const turn = pendingTurnRef.current
     if (!turn) return
     if (recoveryMode === 'check-history') {
@@ -479,7 +484,8 @@ export function VenueChatExperience({
   }
 
   function handleNewConversation() {
-    if (!venue || !anonymousToken || isSending || activeOperationRef.current !== null) return
+    if (!isOnline || !venue || !anonymousToken || isSending || activeOperationRef.current !== null)
+      return
     if (
       messages.length &&
       !window.confirm(
@@ -530,6 +536,7 @@ export function VenueChatExperience({
       language={language}
       setLanguage={setLanguage}
       initialDraft={initialDraft}
+      connectionState={connectionState}
       characterState={characterState}
       location={{ lat, lng, permission, refresh }}
       onSend={(message) => {

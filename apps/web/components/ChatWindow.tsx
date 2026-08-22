@@ -36,6 +36,7 @@ type ChatWindowProps = {
   onDirectionsClick?: (placeId: string) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
+  isOnline?: boolean
 }
 
 export function ChatWindow({
@@ -57,6 +58,7 @@ export function ChatWindow({
   onDirectionsClick,
   onVisitorAction,
   onMessageFeedback,
+  isOnline = true,
 }: ChatWindowProps) {
   const [draft, setDraft] = useState(initialDraft)
   const [liveAnnouncement, setLiveAnnouncement] = useState<
@@ -132,7 +134,7 @@ export function ChatWindow({
   function submit() {
     const nextMessage = draft.trim()
 
-    if (!nextMessage || isLoading) {
+    if (!nextMessage || isLoading || !isOnline) {
       return
     }
 
@@ -167,7 +169,9 @@ export function ChatWindow({
               {...(message.id && onMessageFeedback
                 ? { messageId: message.id, onFeedback: onMessageFeedback }
                 : {})}
-              {...(message.role === 'assistant' && !isLoading ? { onChoiceSelect: onSend } : {})}
+              {...(message.role === 'assistant' && !isLoading && isOnline
+                ? { onChoiceSelect: onSend }
+                : {})}
               {...(message.role === 'user' && accentColor ? { bubbleColor: accentColor } : {})}
               {...(message.role === 'user' && accentContrastColor
                 ? { bubbleTextColor: accentContrastColor }
@@ -206,7 +210,7 @@ export function ChatWindow({
             {onRetry ? (
               <button
                 type="button"
-                disabled={isLoading}
+                disabled={isLoading || !isOnline}
                 onClick={onRetry}
                 className="ml-2 min-h-11 rounded-full border border-rose-300 bg-white px-4 font-semibold text-rose-800 disabled:opacity-50"
               >
@@ -245,13 +249,21 @@ export function ChatWindow({
           <button
             ref={sendButtonRef}
             style={{
-              backgroundColor: !isLoading && draft.trim().length > 0 ? accentColor : undefined,
-              color: !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
+              backgroundColor:
+                isOnline && !isLoading && draft.trim().length > 0 ? accentColor : undefined,
+              color:
+                isOnline && !isLoading && draft.trim().length > 0 ? accentContrastColor : undefined,
             }}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-transparent bg-[var(--chat-accent)] px-5 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:border-[var(--chat-border)] disabled:bg-[var(--chat-card)] disabled:text-[var(--chat-text-muted)]"
-            disabled={isLoading || draft.trim().length === 0}
+            disabled={!isOnline || isLoading || draft.trim().length === 0}
             type="button"
-            aria-label={isLoading ? 'Sending message' : 'Send message'}
+            aria-label={
+              !isOnline
+                ? 'Reconnect to send message'
+                : isLoading
+                  ? 'Sending message'
+                  : 'Send message'
+            }
             onClick={submit}
           >
             {isLoading ? (

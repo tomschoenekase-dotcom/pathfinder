@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   geolocation: { lat: null as number | null, lng: null as number | null },
   geolocationPermission: 'granted' as 'granted' | 'denied' | 'prompt' | 'loading',
   geolocationEnabled: vi.fn(),
+  connectionState: 'online' as 'online' | 'offline' | 'reconnected',
   client: {
     venue: { getBySlug: { query: vi.fn() } },
     chat: {
@@ -39,6 +40,9 @@ vi.mock('../hooks/useGeolocation', () => ({
       refresh: vi.fn(),
     }
   },
+}))
+vi.mock('../hooks/useNetworkStatus', () => ({
+  useNetworkStatus: () => mocks.connectionState,
 }))
 vi.mock('../hooks/useSession', () => ({
   useSession: (venueId: string) => ({
@@ -207,6 +211,7 @@ describe('VenueChatExperience presentation boundary', () => {
     mocks.geolocation.lat = null
     mocks.geolocation.lng = null
     mocks.geolocationPermission = 'granted'
+    mocks.connectionState = 'online'
     mocks.client.chat.session.mutate.mockResolvedValue({ sessionId: 'session-1' })
     mocks.client.chat.send.mutate.mockResolvedValue({
       response: 'Nearby.',
@@ -231,6 +236,27 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
+  })
+
+  it('blocks network mutations offline and prepares the session after reconnection', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174199'
+    mocks.connectionState = 'offline'
+    mocks.getBySlug.mockResolvedValueOnce(activeVenue)
+    const view = render(<VenueChatExperience venueSlug="museum" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    expect(mocks.client.chat.send.mutate).not.toHaveBeenCalled()
+    expect(mocks.client.chat.session.mutate).not.toHaveBeenCalled()
+    expect(
+      (screen.getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    mocks.connectionState = 'reconnected'
+    view.rerender(<VenueChatExperience venueSlug="museum" />)
+    await waitFor(() => expect(mocks.client.chat.session.mutate).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: 'Send test message' }))
+    await waitFor(() => expect(mocks.client.chat.send.mutate).toHaveBeenCalledOnce())
   })
 
   it('creates one UUID operation and fences same-tick duplicate submission', async () => {

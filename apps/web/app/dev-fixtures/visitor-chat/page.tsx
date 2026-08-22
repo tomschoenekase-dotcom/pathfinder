@@ -41,6 +41,7 @@ export default async function VisitorChatVisualFixture({
     asset?: string | string[]
     motion?: string | string[]
     voice?: string | string[]
+    network?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -52,6 +53,7 @@ export default async function VisitorChatVisualFixture({
   const asset = oneOf(params.asset, ['ok', 'missing'] as const, 'ok')
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
   const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
+  const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
 
   return (
     <VenueChatFixture
@@ -61,6 +63,7 @@ export default async function VisitorChatVisualFixture({
       asset={asset satisfies VisitorFixtureAsset}
       motion={motion}
       voice={voice satisfies VisitorFixtureVoice}
+      network={network}
     />
   )
 }
