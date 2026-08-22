@@ -23,6 +23,7 @@ import type {
   IntakeUploadCategory,
   IntakeUploadMimeType,
 } from '@pathfinder/contracts/intake-upload'
+import { resolveIntakeUploadClientRecovery } from '@pathfinder/contracts/intake-upload'
 
 import { useTRPCClient } from '../lib/trpc'
 import { browserUuid } from '../lib/browser-uuid'
@@ -51,11 +52,13 @@ export function IntakeFileUploadWorkspace({
   uploads,
   categoryCounts,
   nextCursor,
+  attentionCount,
 }: {
   venueId: string
   uploads: SafeUpload[]
   categoryCounts?: Partial<Record<IntakeUploadCategory, number>> | undefined
   nextCursor?: { createdAt: string; id: string } | null | undefined
+  attentionCount?: number | undefined
 }) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -65,6 +68,7 @@ export function IntakeFileUploadWorkspace({
       uploads={uploads}
       categoryCounts={categoryCounts}
       nextCursor={nextCursor}
+      attentionCount={attentionCount}
       reserve={(input) =>
         client.intakeUpload.reserve.mutate({
           ...input,
@@ -206,8 +210,8 @@ function inferredCategory(file: File): IntakeUploadCategory {
   return 'OTHER'
 }
 
-function clientUploadStatus(status: string): string {
-  switch (status) {
+function clientUploadStatus(upload: Pick<SafeUpload, 'status' | 'rejectionCode'>): string {
+  switch (upload.status) {
     case 'RESERVED':
       return 'Waiting to be sent'
     case 'VERIFYING':
@@ -217,7 +221,9 @@ function clientUploadStatus(status: string): string {
     case 'AWAITING_REVIEW':
       return 'Checks complete — awaiting review'
     case 'REJECTED':
-      return 'Could not be accepted'
+      return upload.rejectionCode === 'CLIENT_CANCELLED'
+        ? 'Upload cancelled'
+        : 'Could not be accepted'
     default:
       return 'Status unavailable'
   }
@@ -244,6 +250,7 @@ export function IntakeFileUpload({
   loadMore,
   onCommitted,
   initialQueue = [],
+  attentionCount,
 }: {
   venueId: string
   uploads: SafeUpload[]
@@ -279,6 +286,8 @@ export function IntakeFileUpload({
   onCommitted?: () => void
   /** Development fixtures and component tests only; production adapters intentionally omit this. */
   initialQueue?: QueueItem[]
+  /** Total actionable rejected records from the bounded journey projection. */
+  attentionCount?: number | undefined
 }) {
   const fileInputId = useId()
   const [queueState, setQueueState] = useState<{ venueId: string; items: QueueItem[] }>({
@@ -296,6 +305,7 @@ export function IntakeFileUpload({
   const identitiesRef = useRef(
     new Map<string, { fingerprint: string; requestId: string; claimId: string }>(),
   )
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const inFlightRef = useRef(new Set<string>())
   const abortControllersRef = useRef(new Map<string, AbortController>())
   const cancelRequestedRef = useRef(new Set<string>())
@@ -325,6 +335,10 @@ export function IntakeFileUpload({
       : visibleCategory === 'ALL'
         ? savedUploads
         : savedUploads.filter((upload) => upload.category === visibleCategory)
+  const recoveryUploads = savedUploads.filter(
+    (upload) => resolveIntakeUploadClientRecovery(upload).kind === 'CHOOSE_REPLACEMENT',
+  )
+  const resolvedAttentionCount = Math.max(attentionCount ?? 0, recoveryUploads.length)
 
   async function loadMoreUploads() {
     if (!loadMore || !savedNextCursor || loadingMore) return
@@ -699,6 +713,73 @@ export function IntakeFileUpload({
         </label>
       </div>
 
+      {resolvedAttentionCount > 0 ? (
+        <section
+          id="material-attention"
+          className={styles.recoveryPanel}
+          aria-labelledby="material-attention-title"
+        >
+          <div className={styles.recoveryHeading}>
+            <span className={styles.recoveryIcon} aria-hidden="true">
+              <AlertTriangle />
+            </span>
+            <div>
+              <p className={styles.eyebrow}>A source needs attention</p>
+              <h3 id="material-attention-title">
+                Choose {resolvedAttentionCount === 1 ? 'a replacement file' : 'replacement files'}
+              </h3>
+            </div>
+          </div>
+          <p className={styles.recoveryIntro}>
+            Torchiko did not accept {resolvedAttentionCount === 1 ? 'this file' : 'these files'} as
+            usable source material. {resolvedAttentionCount === 1 ? 'Its' : 'Their'} status remains
+            recorded, and your other submitted information is unchanged.
+          </p>
+          {recoveryUploads.length > 0 ? (
+            <ul className={styles.recoveryList}>
+              {recoveryUploads.map((upload) => {
+                const recovery = resolveIntakeUploadClientRecovery(upload)
+                return (
+                  <li key={upload.id}>
+                    <div>
+                      <strong>{upload.displayName}</strong>
+                      <p>{recovery.reason}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.replacementAction}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <FolderOpen aria-hidden="true" /> {recovery.actionLabel}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+          {resolvedAttentionCount > recoveryUploads.length ? (
+            <div className={styles.olderAttention}>
+              <p>
+                {resolvedAttentionCount - recoveryUploads.length} older file
+                {resolvedAttentionCount - recoveryUploads.length === 1 ? '' : 's'} still need to be
+                loaded before replacement.
+              </p>
+              {savedNextCursor && loadMore ? (
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  className={styles.quietButton}
+                  onClick={() => void loadMoreUploads()}
+                >
+                  <RefreshCw aria-hidden="true" />
+                  {loadingMore ? 'Loading older files…' : 'Load older files needing attention'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <label
         className={`${styles.dropField} ${draggingFiles ? styles.dropFieldActive : ''}`}
         data-activity={handoffState}
@@ -721,6 +802,7 @@ export function IntakeFileUpload({
       >
         <input
           id={fileInputId}
+          ref={fileInputRef}
           className={styles.fileInput}
           aria-label="Choose files"
           type="file"
@@ -959,7 +1041,7 @@ export function IntakeFileUpload({
                   <span>
                     <strong>{upload.displayName}</strong>
                     <small>
-                      {formatBytes(upload.byteSize)} · {clientUploadStatus(upload.status)}
+                      {formatBytes(upload.byteSize)} · {clientUploadStatus(upload)}
                     </small>
                   </span>
                   {upload.status === 'PRECHECK_PASSED' || upload.status === 'VERIFYING' ? (
@@ -983,7 +1065,7 @@ export function IntakeFileUpload({
                   ) : (
                     <span className={styles.savedStatus}>
                       {upload.status === 'AWAITING_REVIEW' ? <Check aria-hidden="true" /> : null}
-                      {clientUploadStatus(upload.status)}
+                      {clientUploadStatus(upload)}
                     </span>
                   )}
                   {savedChecks[upload.id] === 'error' ? (

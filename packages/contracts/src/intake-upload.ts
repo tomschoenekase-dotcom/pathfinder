@@ -66,6 +66,62 @@ export type IntakeUploadRetryReason = z.infer<typeof IntakeUploadRetryReason>
 export const IntakeUploadVerificationStatus = z.enum(['PENDING', 'CLEAN', 'REJECTED'])
 export type IntakeUploadVerificationStatus = z.infer<typeof IntakeUploadVerificationStatus>
 
+export type IntakeUploadClientRecovery = {
+  kind: 'NONE' | 'CHOOSE_REPLACEMENT'
+  required: boolean
+  actionLabel: string | null
+  reason: string | null
+  retrySameSubmission: boolean
+}
+
+/**
+ * Browser-safe recovery guidance for a persisted upload record. Precise scanner and storage
+ * evidence remains server-only; clients and authorized agents receive one bounded next action.
+ */
+export function resolveIntakeUploadClientRecovery(input: {
+  status: string
+  rejectionCode?: string | null
+}): IntakeUploadClientRecovery {
+  if (input.status !== 'REJECTED') {
+    return {
+      kind: 'NONE',
+      required: false,
+      actionLabel: null,
+      reason: null,
+      retrySameSubmission: false,
+    }
+  }
+
+  if (input.rejectionCode === 'CLIENT_CANCELLED') {
+    return {
+      kind: 'NONE',
+      required: false,
+      actionLabel: null,
+      reason: 'You cancelled this upload. It does not block onboarding.',
+      retrySameSubmission: false,
+    }
+  }
+
+  const reason =
+    input.rejectionCode === 'OBJECT_MISSING'
+      ? 'Torchiko could not finish receiving this file.'
+      : ['GENERATION_MISMATCH', 'MIME_MISMATCH', 'SIZE_MISMATCH', 'HASH_MISMATCH'].includes(
+            input.rejectionCode ?? '',
+          )
+        ? 'The file received did not match the file that was selected.'
+        : input.rejectionCode === 'UNSAFE_FILE'
+          ? 'This file did not pass the required safety checks.'
+          : 'Torchiko could not accept this file.'
+
+  return {
+    kind: 'CHOOSE_REPLACEMENT',
+    required: true,
+    actionLabel: 'Choose a replacement',
+    reason,
+    retrySameSubmission: false,
+  }
+}
+
 export const IntakeUploadVerificationEvidence = z
   .object({
     engine: z.string().trim().min(1).max(64),

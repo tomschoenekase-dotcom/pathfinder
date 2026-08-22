@@ -41,6 +41,7 @@ describe('remote onboarding journey projection', () => {
   it('offers one obvious website-first action for a new venue', () => {
     const result = resolveRemoteOnboardingProjection(evidence())
     expect(result.primaryAction).toMatchObject({
+      kind: 'START_MATERIALS',
       stage: 'MATERIALS',
       label: 'Start with my website',
       required: true,
@@ -57,7 +58,11 @@ describe('remote onboarding journey projection', () => {
         release: { hasReviewedArtifact: true, released: false },
       }),
     )
-    expect(result.primaryAction).toMatchObject({ stage: 'QUESTIONS', required: true })
+    expect(result.primaryAction).toMatchObject({
+      kind: 'ANSWER_QUESTION',
+      stage: 'QUESTIONS',
+      required: true,
+    })
     expect(result.readiness.find(({ id }) => id === 'RELEASE')).toMatchObject({
       status: 'NOT_ASSESSED',
       summary: expect.stringContaining('explicit operator action'),
@@ -133,6 +138,7 @@ describe('remote onboarding journey projection', () => {
       }),
     )
     expect(checking.primaryAction).toEqual({
+      kind: 'VIEW_PROGRESS',
       stage: 'OVERVIEW',
       label: 'See what happens next',
       reason:
@@ -144,6 +150,7 @@ describe('remote onboarding journey projection', () => {
       evidence({ review: { proposedSources: 1, draftPackages: 0 } }),
     )
     expect(submitted.primaryAction).toEqual({
+      kind: 'REVIEW_SOURCES',
       stage: 'REVIEW',
       label: 'See what you shared',
       reason:
@@ -163,10 +170,37 @@ describe('remote onboarding journey projection', () => {
       }),
     )
     expect(verifiedFile.primaryAction).toEqual({
+      kind: 'VIEW_PROGRESS',
       stage: 'OVERVIEW',
       label: 'See what happens next',
       reason: 'Your information is saved. Torchiko will ask if another detail is needed.',
       required: false,
+    })
+  })
+
+  it('exposes one exact replacement action without altering other saved source state', () => {
+    const result = resolveRemoteOnboardingProjection(
+      evidence({
+        materials: {
+          uploaded: 0,
+          checking: 0,
+          needsAttention: 2,
+          readyForReview: 3,
+          processed: 1,
+        },
+      }),
+    )
+
+    expect(result.primaryAction).toEqual({
+      kind: 'CHOOSE_REPLACEMENT',
+      stage: 'MATERIALS',
+      label: 'Choose a replacement file',
+      reason: '2 files could not be accepted. Other submitted information remains unchanged.',
+      required: true,
+    })
+    expect(result.stages.find(({ id }) => id === 'MATERIALS')).toMatchObject({
+      status: 'NEEDS_ATTENTION',
+      summary: '2 files need a safe retry or replacement.',
     })
   })
 })

@@ -47,13 +47,22 @@ Browser exit warnings are best-effort, especially on mobile, so the interface st
 unfinished entries are not saved until shared. Durable cross-device drafts remain an unresolved
 product/privacy decision rather than an implied capability.
 
-Submitted work resumes from durable venue state. Remote-onboarding projection version 2 marks the
-current primary action as required or optional, so clients and authorized automation can distinguish
-a real question, failed material, or preview request from informational progress. Once at least one
-source is recorded and no action is required, the journey says that the client can leave and return
-instead of repeatedly asking for another source. The page also shows a saved checkpoint and counts
-website, staff-answer, optional-note, and file sources consistently. Unsubmitted form entries remain
-outside that saved count and retain the current-page-only boundary above.
+Submitted work resumes from durable venue state. Remote-onboarding projection version 3 marks the
+current primary action as required or optional and identifies its bounded action kind, so clients
+and authorized automation can distinguish a question, exact file replacement, preview request, or
+informational progress without parsing interface copy. Once at least one source is recorded and no
+action is required, the journey says that the client can leave and return instead of repeatedly
+asking for another source. The page also shows a saved checkpoint and counts website, staff-answer,
+optional-note, and file sources consistently. Unsubmitted form entries remain outside that saved
+count and retain the current-page-only boundary above.
+
+A rejected file now resolves through one browser-safe recovery contract. The client sees a safe
+reason and `CHOOSE_REPLACEMENT`; the rejected submission is never retried, overwritten, approved,
+or published. The recovery panel preserves other accepted sources, remains reachable from the
+primary action, and can page backward when an older rejected record is outside the first bounded
+upload page. `CLIENT_CANCELLED` is recorded as history but is not counted as a required recovery
+item, preventing an intentional cancellation from blocking onboarding indefinitely. Precise
+storage, scanner, hash, and quarantine evidence remains on privileged server/operator surfaces.
 
 Loading and error boundaries live beside the route. A sanitized development-only fixture is
 available at `/dev-fixtures/remote-onboarding`; both middleware and the route reject it outside

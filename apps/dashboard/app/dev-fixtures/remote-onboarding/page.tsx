@@ -13,7 +13,14 @@ import {
 import { RemoteOnboardingJourney } from '../../../components/RemoteOnboardingJourney'
 import { TRPCProvider } from '../../../lib/trpc'
 
-const FIXTURE_STATES = ['welcome', 'share', 'processing', 'questions', 'ready'] as const
+const FIXTURE_STATES = [
+  'welcome',
+  'share',
+  'processing',
+  'attention',
+  'questions',
+  'ready',
+] as const
 type FixtureState = (typeof FIXTURE_STATES)[number]
 type JourneyProps = ComponentProps<typeof RemoteOnboardingJourney>
 
@@ -129,6 +136,30 @@ function scenario(state: FixtureState): {
       release: { hasReviewedArtifact: false, released: false },
       uploads: sharedUploads.map((upload) => ({ ...upload, status: 'PRECHECK_PASSED' })),
       materialTypes: { DOCUMENT: 1, PHOTO: 1 },
+    },
+    attention: {
+      lifecycle: lifecycleEvidence({ collectingSourceCount: 1, reviewSourceCount: 1 }),
+      materials: { ...EMPTY_MATERIALS, needsAttention: 1, readyForReview: 1 },
+      review: { proposedSources: 0, draftPackages: 0 },
+      questions: { open: 0, items: [], additionalQuestionCount: 0 },
+      preview: { state: 'UNAVAILABLE', packageId: null },
+      qa: EMPTY_QA,
+      release: { hasReviewedArtifact: false, released: false },
+      uploads: [
+        sharedUploads[0]!,
+        {
+          ...sharedUploads[1],
+          id: 'fixture-rejected-floor-plan',
+          displayName: 'Visitor floor plan.pdf',
+          fileName: 'visitor-floor-plan.pdf',
+          mimeType: 'application/pdf',
+          byteSize: 1_380_000,
+          category: 'FLOOR_PLAN',
+          status: 'REJECTED',
+          rejectionCode: 'UNSAFE_FILE',
+        },
+      ],
+      materialTypes: { DOCUMENT: 1, FLOOR_PLAN: 1 },
     },
     questions: {
       lifecycle: lifecycleEvidence({ reviewSourceCount: 1, intakeProposalCount: 2 }),

@@ -90,6 +90,9 @@ function proposalLabel(proposal: IntakeProposalSummary): string {
 
 function primaryHref(data: JourneyData) {
   const home = `/venues/${data.venue.id}/onboarding`
+  if (data.projection.primaryAction.kind === 'CHOOSE_REPLACEMENT') {
+    return '#material-attention'
+  }
   switch (data.projection.primaryAction.stage) {
     case 'OVERVIEW':
       return '#saved-progress'
@@ -119,15 +122,18 @@ function clientJourney(data: JourneyData): {
       ? 4
       : data.projection.primaryAction.stage === 'QUESTIONS'
         ? 3
-        : data.projection.primaryAction.stage === 'PREVIEW' ||
-            data.projection.primaryAction.stage === 'READINESS'
-          ? 4
-          : data.projection.primaryAction.stage === 'OVERVIEW' ||
-              data.projection.primaryAction.stage === 'REVIEW' ||
-              data.lifecycle.state === 'PROCESSING' ||
-              data.lifecycle.state === 'INTERNAL_REVIEW'
-            ? 2
-            : 1
+        : data.projection.primaryAction.stage === 'MATERIALS' &&
+            data.projection.primaryAction.required
+          ? 1
+          : data.projection.primaryAction.stage === 'PREVIEW' ||
+              data.projection.primaryAction.stage === 'READINESS'
+            ? 4
+            : data.projection.primaryAction.stage === 'OVERVIEW' ||
+                data.projection.primaryAction.stage === 'REVIEW' ||
+                data.lifecycle.state === 'PROCESSING' ||
+                data.lifecycle.state === 'INTERNAL_REVIEW'
+              ? 2
+              : 1
   const labels = [
     { id: 'welcome', label: 'Welcome', summary: 'Know what happens next.' },
     { id: 'share', label: 'Share', summary: 'Give us what you already have.' },
@@ -219,7 +225,7 @@ export function RemoteOnboardingJourney({
             <div>
               <p className={styles.sectionEyebrow}>Saved checkpoint</p>
               <h2 id="saved-progress-title">
-                Your submitted information will be here when you return.
+                Your onboarding progress will be here when you return.
               </h2>
             </div>
             <p>
@@ -241,6 +247,7 @@ export function RemoteOnboardingJourney({
             uploads={uploads}
             categoryCounts={data.materialTypes}
             nextCursor={nextCursor}
+            attentionCount={data.materials.needsAttention}
           />
           <section className={styles.sourceDetails} aria-labelledby="more-information-title">
             <h2 id="more-information-title">Add a website, staff knowledge, or optional notes</h2>
@@ -311,9 +318,11 @@ export function RemoteOnboardingJourney({
             <span>Your attention</span>
             <strong>{data.materials.needsAttention + data.questions.open}</strong>
             <p>
-              {data.questions.open
-                ? 'A focused answer can move setup forward.'
-                : 'Nothing needs an answer right now.'}
+              {data.materials.needsAttention
+                ? 'Choose a replacement for each file Torchiko could not accept.'
+                : data.questions.open
+                  ? 'A focused answer can move setup forward.'
+                  : 'Nothing needs an answer right now.'}
             </p>
           </div>
         </section>

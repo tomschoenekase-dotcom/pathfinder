@@ -1,6 +1,6 @@
 import type { ClientPortalLifecycleView } from './client-portal-lifecycle'
 
-export const REMOTE_ONBOARDING_PROJECTION_VERSION = 2 as const
+export const REMOTE_ONBOARDING_PROJECTION_VERSION = 3 as const
 
 export const REMOTE_ONBOARDING_STAGES = [
   'OVERVIEW',
@@ -64,6 +64,13 @@ export type RemoteOnboardingEvidence = {
 export type RemoteOnboardingProjection = {
   version: typeof REMOTE_ONBOARDING_PROJECTION_VERSION
   primaryAction: {
+    kind:
+      | 'ANSWER_QUESTION'
+      | 'CHOOSE_REPLACEMENT'
+      | 'TEST_PREVIEW'
+      | 'START_MATERIALS'
+      | 'VIEW_PROGRESS'
+      | 'REVIEW_SOURCES'
     stage: RemoteOnboardingStageId
     label: string
     reason: string
@@ -106,6 +113,7 @@ export function resolveRemoteOnboardingProjection(
   const primaryAction: RemoteOnboardingProjection['primaryAction'] =
     evidence.questions.open > 0
       ? {
+          kind: 'ANSWER_QUESTION',
           stage: 'QUESTIONS',
           label: 'Answer the next question',
           reason: `${plural(evidence.questions.open, 'focused question')} will help Torchiko continue.`,
@@ -113,13 +121,15 @@ export function resolveRemoteOnboardingProjection(
         }
       : evidence.materials.needsAttention > 0
         ? {
+            kind: 'CHOOSE_REPLACEMENT',
             stage: 'MATERIALS',
-            label: 'Fix a material that needs attention',
-            reason: 'One or more files could not pass the safety and verification checks.',
+            label: 'Choose a replacement file',
+            reason: `${plural(evidence.materials.needsAttention, 'file')} could not be accepted. Other submitted information remains unchanged.`,
             required: true,
           }
         : previewAvailable
           ? {
+              kind: 'TEST_PREVIEW',
               stage: 'PREVIEW',
               label: 'Test the visitor experience',
               reason: 'A reviewed candidate is ready for your feedback.',
@@ -127,6 +137,7 @@ export function resolveRemoteOnboardingProjection(
             }
           : !hasMaterials
             ? {
+                kind: 'START_MATERIALS',
                 stage: 'MATERIALS',
                 label: 'Start with my website',
                 reason:
@@ -135,6 +146,7 @@ export function resolveRemoteOnboardingProjection(
               }
             : evidence.materials.checking > 0 || evidence.lifecycle.state === 'PROCESSING'
               ? {
+                  kind: 'VIEW_PROGRESS',
                   stage: 'OVERVIEW',
                   label: 'See what happens next',
                   reason:
@@ -143,6 +155,7 @@ export function resolveRemoteOnboardingProjection(
                 }
               : reviewAvailable
                 ? {
+                    kind: 'REVIEW_SOURCES',
                     stage: 'REVIEW',
                     label: 'See what you shared',
                     reason:
@@ -150,6 +163,7 @@ export function resolveRemoteOnboardingProjection(
                     required: false,
                   }
                 : {
+                    kind: 'VIEW_PROGRESS',
                     stage: 'OVERVIEW',
                     label: 'See what happens next',
                     reason:

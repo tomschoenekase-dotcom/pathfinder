@@ -336,7 +336,7 @@ export const portalRouter = router({
             approvedPreviewCandidate,
           ] = await Promise.all([
             db.intakeUpload.groupBy({
-              by: ['status', 'category'],
+              by: ['status', 'category', 'rejectionCode'],
               where: { tenantId, venueId: input.venueId },
               _count: { _all: true },
             }),
@@ -431,6 +431,7 @@ export const portalRouter = router({
             OTHER: 0,
           }
           for (const row of uploadRows) {
+            if (row.status === 'REJECTED' && row.rejectionCode === 'CLIENT_CANCELLED') continue
             uploadCounts.set(row.status, (uploadCounts.get(row.status) ?? 0) + row._count._all)
             materialTypes[row.category] += row._count._all
           }

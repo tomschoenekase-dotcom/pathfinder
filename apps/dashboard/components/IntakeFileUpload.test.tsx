@@ -639,6 +639,111 @@ describe('quarantined intake file upload', () => {
     expect(screen.queryByText('entrance.png')).toBeNull()
   })
 
+  it('surfaces a persisted rejection with one safe replacement action and accessible recovery UI', async () => {
+    const { container } = render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        uploads={[
+          {
+            id: 'accepted-1',
+            displayName: 'visitor-guide.pdf',
+            fileName: 'visitor-guide.pdf',
+            mimeType: 'application/pdf',
+            category: 'DOCUMENT',
+            byteSize: 8,
+            status: 'AWAITING_REVIEW',
+          },
+          {
+            id: 'rejected-1',
+            displayName: 'floor-plan.pdf',
+            fileName: 'floor-plan.pdf',
+            mimeType: 'application/pdf',
+            category: 'FLOOR_PLAN',
+            byteSize: 8,
+            status: 'REJECTED',
+            rejectionCode: 'UNSAFE_FILE',
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Choose a replacement file' })).toBeTruthy()
+    expect(screen.getByText('This file did not pass the required safety checks.')).toBeTruthy()
+    expect(screen.getByText(/your other submitted information is unchanged/iu)).toBeTruthy()
+    const input = screen.getByLabelText('Choose files')
+    const click = vi.spyOn(input, 'click')
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a replacement' }))
+    expect(click).toHaveBeenCalledOnce()
+
+    document.documentElement.lang = 'en'
+    const result = await axe.run(container, {
+      rules: { 'color-contrast': { enabled: false } },
+    })
+    expect(result.violations).toEqual([])
+  })
+
+  it('keeps an intentional cancellation out of the required recovery queue', () => {
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        uploads={[
+          {
+            id: 'cancelled-1',
+            displayName: 'cancelled-map.pdf',
+            fileName: 'cancelled-map.pdf',
+            mimeType: 'application/pdf',
+            category: 'FLOOR_PLAN',
+            byteSize: 8,
+            status: 'REJECTED',
+            rejectionCode: 'CLIENT_CANCELLED',
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.queryByRole('heading', { name: /Choose a replacement/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'All shared files' }))
+    expect(screen.getAllByText(/Upload cancelled/)).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Choose a replacement' })).toBeNull()
+  })
+
+  it('loads older rejected records into the exact recovery queue', async () => {
+    const loadMore = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 'rejected-older',
+          displayName: 'older-map.pdf',
+          fileName: 'older-map.pdf',
+          mimeType: 'application/pdf',
+          category: 'FLOOR_PLAN',
+          byteSize: 8,
+          status: 'REJECTED',
+          rejectionCode: 'OBJECT_MISSING',
+        },
+      ],
+      nextCursor: null,
+    })
+    render(
+      <IntakeFileUpload
+        venueId="venue-a"
+        reserve={reserve}
+        verify={verify}
+        attentionCount={1}
+        uploads={[]}
+        nextCursor={{ createdAt: '2026-08-18T12:00:00.000Z', id: 'cursor-a' }}
+        loadMore={loadMore}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older files needing attention' }))
+    expect(await screen.findByText('older-map.pdf')).toBeTruthy()
+    expect(screen.getByText('Torchiko could not finish receiving this file.')).toBeTruthy()
+  })
+
   it('loads older submitted files into the selected material type', async () => {
     const loadMore = vi.fn().mockResolvedValue({
       items: [

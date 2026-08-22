@@ -71,15 +71,16 @@ describe('remote onboarding journey read model', () => {
       isolationLevel: 'RepeatableRead',
     })
     expect(uploadGroupBy).toHaveBeenCalledWith({
-      by: ['status', 'category'],
+      by: ['status', 'category', 'rejectionCode'],
       where: { tenantId: 'tenant-1', venueId: 'venue-1' },
       _count: { _all: true },
     })
     expect(result).toMatchObject({
       venue: { id: 'venue-1', name: 'Museum' },
       projection: {
-        version: 2,
+        version: 3,
         primaryAction: {
+          kind: 'START_MATERIALS',
           stage: 'MATERIALS',
           label: 'Start with my website',
           required: true,
@@ -112,8 +113,18 @@ describe('remote onboarding journey read model', () => {
   it('prioritizes accessible questions and reports frozen QA outcomes independently', async () => {
     setEmptyJourney()
     uploadGroupBy.mockResolvedValue([
-      { status: 'AWAITING_REVIEW', category: 'PHOTO', _count: { _all: 2 } },
-      { status: 'REJECTED', category: 'OTHER', _count: { _all: 1 } },
+      {
+        status: 'AWAITING_REVIEW',
+        category: 'PHOTO',
+        rejectionCode: null,
+        _count: { _all: 2 },
+      },
+      {
+        status: 'REJECTED',
+        category: 'OTHER',
+        rejectionCode: 'UNSAFE_FILE',
+        _count: { _all: 1 },
+      },
     ])
     intakeGroupBy.mockResolvedValue([{ status: 'AWAITING_REVIEW', _count: { _all: 2 } }])
     supportCount.mockResolvedValue(1)
@@ -206,6 +217,37 @@ describe('remote onboarding journey read model', () => {
         outcome: true,
         passed: true,
         evalCase: { select: { caseKey: true } },
+      },
+    })
+  })
+
+  it('does not make an intentional client cancellation block onboarding', async () => {
+    setEmptyJourney()
+    uploadGroupBy.mockResolvedValue([
+      {
+        status: 'REJECTED',
+        category: 'DOCUMENT',
+        rejectionCode: 'CLIENT_CANCELLED',
+        _count: { _all: 1 },
+      },
+      {
+        status: 'REJECTED',
+        category: 'PHOTO',
+        rejectionCode: 'UNSAFE_FILE',
+        _count: { _all: 1 },
+      },
+    ])
+
+    const result = await app.createCaller(ctx).portal.getOnboardingJourney({ venueId: 'venue-1' })
+
+    expect(result.materials.needsAttention).toBe(1)
+    expect(result.materialTypes).toMatchObject({ DOCUMENT: 0, PHOTO: 1 })
+    expect(result.projection).toMatchObject({
+      version: 3,
+      primaryAction: {
+        kind: 'CHOOSE_REPLACEMENT',
+        stage: 'MATERIALS',
+        required: true,
       },
     })
   })
