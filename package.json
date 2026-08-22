@@ -22,6 +22,7 @@
     "test:redis:disposable": "node scripts/run-disposable-redis-integration.mjs",
     "test:redis:terminal-redrive": "node scripts/run-terminal-redrive-redis-gate.mjs",
     "test:redis:media-admission": "node scripts/run-media-admission-redis-gate.mjs",
+    "test:intake-upload-verification:disposable": "node scripts/run-disposable-intake-upload-verification.mjs",
     "embedding:freshness": "pnpm --filter @pathfinder/workers embedding:freshness",
     "embedding:claim-repair": "pnpm --filter @pathfinder/workers embedding:claim-repair",
     "jobs:terminal-redrive": "pnpm --filter @pathfinder/workers jobs:terminal-redrive",

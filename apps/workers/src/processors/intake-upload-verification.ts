@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { processIntakeUploadAuthoritativeVerification } from '@pathfinder/api/intake-upload-verification'
-import { db } from '@pathfinder/db'
+import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import {
   enqueueIntakeUploadVerification,
   type IntakeUploadVerificationJobPayload,
@@ -46,18 +46,20 @@ export async function processIntakeUploadVerificationJob(
 }
 
 export async function reconcileIntakeUploadVerificationJobs(now = new Date()) {
-  const uploads = await db.intakeUpload.findMany({
-    where: {
-      storageVersionId: { not: null },
-      OR: [
-        { status: 'PRECHECK_PASSED' },
-        { status: 'VERIFYING', verificationLeaseUntil: { lte: now } },
-      ],
-    },
-    orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
-    take: 100,
-    select: { tenantId: true, venueId: true, id: true, updatedAt: true },
-  })
+  const uploads = await withTenantIsolationBypass(() =>
+    db.intakeUpload.findMany({
+      where: {
+        storageVersionId: { not: null },
+        OR: [
+          { status: 'PRECHECK_PASSED' },
+          { status: 'VERIFYING', verificationLeaseUntil: { lte: now } },
+        ],
+      },
+      orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      take: 100,
+      select: { tenantId: true, venueId: true, id: true, updatedAt: true },
+    }),
+  )
   for (const upload of uploads) {
     await enqueueIntakeUploadVerification({
       tenantId: upload.tenantId,

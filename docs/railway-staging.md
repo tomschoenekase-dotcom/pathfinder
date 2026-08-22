@@ -71,6 +71,47 @@ only durable upload identities, reloads immutable evidence, and reconciles prech
 lease-expired work once per minute. Keep the flag false until those dependencies and disposable
 test data are ready.
 
+Before staging admission, run `pnpm test:intake-upload-verification:disposable` on the exact release
+SHA. Retain its structured success line and the matching candidate-release assessment. The gate
+uses fresh local PostgreSQL, Redis, MinIO, and ClamAV containers; it does not inspect or reset the
+long-lived local-staging stack or any hosted resource.
+
+### Authoritative intake worker staging admission
+
+This is a prepared operator procedure, not standing permission to access credentials or deploy.
+Perform it only after the staging owner authorizes the exact release SHA and independently confirms
+that every referenced resource is staging-only.
+
+1. Record the full release SHA, successful candidate assessment, and successful disposable
+   shakedown. Confirm all worker replicas will use that same SHA.
+2. Inventory the staging database, quarantine bucket, and Redis prefix. Preserve or snapshot any
+   difficult-to-reconstruct founder/customer research; use only synthetic tenant, venue, and upload
+   identities for the canary. Never clear Redis broadly or reset the shared database/bucket.
+3. Apply the reviewed migration set before starting the new worker. Keep
+   `OUTBOUND_PROVIDER_WORKERS_ENABLED=false`, `CRM_BACKGROUND_WORKERS_ENABLED=false`, and every
+   unrelated execution flag false. Set `INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED=true` only on a
+   single coordinated worker replica after Redis, database, quarantine storage, and ClamAV health
+   are independently green.
+4. Verify startup reports only the intake-verification queue and explicitly reports outbound
+   provider workers disabled. Confirm the exact `staging--intake-upload-verification` queue and one
+   repeat scheduler; unexpected provider queues, mixed SHAs, or duplicate worker generations block
+   admission.
+5. Through the normal staging API, create one clean and one EICAR test-file upload under the
+   synthetic venue. Confirm the clean version becomes `AWAITING_REVIEW`, the infected version
+   becomes `REJECTED/UNSAFE_FILE`, and both preserve exact immutable-version, receipt, milestone,
+   and `SYSTEM` audit lineage. Do not use customer-provided content.
+6. Observe at least two reconciliation intervals. A live lease must not create another job. For a
+   synthetic-only recovery case, stop the worker after its claim, allow the ten-minute lease to
+   expire without editing the row, restart the same SHA, and confirm one recovery job reaches a
+   terminal state. Do not shorten or overwrite a shared staging lease merely to accelerate proof.
+7. Record queue depth, failed count, oldest age, final upload states, audit identities, worker SHA,
+   and dependency health without copying raw file content, scanner responses, credentials, or
+   signed URLs.
+8. To back out, set `INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED=false` uniformly and coordinate a
+   worker restart. Preserve queued and prechecked rows for roll-forward recovery; do not delete
+   receipts, uploads, scheduler keys, or object versions automatically. Escalate any mixed-version
+   worker, valuable-data risk, or ambiguous cleanup target.
+
 This is a per-process guarantee. Before calling staging provider-disabled, scale down and drain every
 older worker replica and prove that only the reviewed release SHA remains; an older replica could
 continue consuming queued work during a rolling deploy. Dormant mode does not drain or delete old

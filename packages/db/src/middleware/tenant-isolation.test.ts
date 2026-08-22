@@ -494,6 +494,27 @@ describe('tenantIsolationMiddleware', () => {
     })
   })
 
+  it('retains bypass context while assimilating a lazy Prisma-style thenable', async () => {
+    const next = vi.fn(async (params) => params)
+    const lazyQuery = {
+      then<TResult1 = unknown, TResult2 = never>(
+        onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+        onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ) {
+        return tenantIsolationMiddleware(
+          createParams({ action: 'findMany', args: { where: {} }, model: 'Venue' }),
+          next,
+        ).then(onfulfilled, onrejected)
+      },
+    } as PromiseLike<unknown> as Promise<unknown>
+
+    await expect(withTenantIsolationBypass(() => lazyQuery)).resolves.toMatchObject({
+      model: 'Venue',
+      action: 'findMany',
+    })
+    expect(next).toHaveBeenCalledOnce()
+  })
+
   it('shares the request-scoped bypass across duplicate server module evaluation', async () => {
     const next = vi.fn(async (params) => params)
 

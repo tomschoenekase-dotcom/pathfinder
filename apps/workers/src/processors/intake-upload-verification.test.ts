@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   process: vi.fn(),
   findMany: vi.fn(),
   enqueue: vi.fn(),
+  withTenantIsolationBypass: vi.fn((run: () => unknown) => run()),
 }))
 
 vi.mock('@pathfinder/api/intake-upload-verification', () => ({
@@ -11,6 +12,7 @@ vi.mock('@pathfinder/api/intake-upload-verification', () => ({
 }))
 vi.mock('@pathfinder/db', () => ({
   db: { intakeUpload: { findMany: mocks.findMany } },
+  withTenantIsolationBypass: mocks.withTenantIsolationBypass,
 }))
 vi.mock('@pathfinder/jobs', () => ({
   enqueueIntakeUploadVerification: mocks.enqueue,
@@ -70,6 +72,7 @@ describe('intake upload authoritative verification worker', () => {
         where: expect.objectContaining({ storageVersionId: { not: null } }),
       }),
     )
+    expect(mocks.withTenantIsolationBypass).toHaveBeenCalledOnce()
     expect(mocks.enqueue).toHaveBeenCalledWith({
       tenantId: 'tenant-a',
       venueId: 'venue-a',

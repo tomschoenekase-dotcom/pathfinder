@@ -231,7 +231,10 @@ export async function withTenantIsolationBypass<T>(fn: () => Promise<T>): Promis
     action: 'tenant_isolation.bypass',
     caller: resolveBypassCaller(),
   })
-  return bypassTenantIsolationStorage.run(true, fn)
+  // PrismaPromise is a lazy thenable: returning it directly from run() can
+  // defer query execution until after the AsyncLocalStorage scope has exited.
+  // Assimilate and await it inside the scoped async callback instead.
+  return bypassTenantIsolationStorage.run(true, async () => await fn())
 }
 
 export async function tenantIsolationMiddleware(

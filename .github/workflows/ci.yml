@@ -116,6 +116,8 @@ jobs:
       - name: Remove disposable S3-compatible storage
         if: always()
         run: docker rm --force pathfinder-disposable-media-ci
+      - name: Prove authoritative upload worker against fresh disposable infrastructure
+        run: pnpm test:intake-upload-verification:disposable
       - name: Verify embedding database concurrency and recovery
         run: pnpm --dir packages/db exec vitest run src/helpers/embedding-work-claims.integration.test.ts src/helpers/embedding-dispatches.integration.test.ts src/helpers/embedding-claim-repair.integration.test.ts --pool=forks --maxWorkers=1
         env:

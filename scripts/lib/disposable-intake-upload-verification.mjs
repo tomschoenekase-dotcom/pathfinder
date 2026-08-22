@@ -1,0 +1,603 @@
+import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
+const CONTAINER_PATTERN =
+  /^pathfinder-disposable-intake-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+const DATABASE_PATTERN = /^pathfinder_disposable_intake_worker_[a-f0-9]{12}$/u
+export const DISPOSABLE_INTAKE_IMAGES = Object.freeze({
+  postgres:
+    'pgvector/pgvector@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b',
+  redis: 'redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2',
+  minio: 'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e',
+  clamav: 'clamav/clamav@sha256:78810772a92b4a9168115bc6b2e0ffd702640893b9577f8c3d0432762d2655c4',
+})
+
+export class DisposableIntakeVerificationRefusal extends Error {}
+export class DisposableIntakeVerificationExecutionError extends Error {}
+
+function refuse(message) {
+  throw new DisposableIntakeVerificationRefusal(message)
+}
+
+function fail(message) {
+  throw new DisposableIntakeVerificationExecutionError(message)
+}
+
+function runNative(spawnSyncImpl, command, args, options = {}) {
+  return spawnSyncImpl(command, args, {
+    shell: false,
+    windowsHide: true,
+    encoding: 'utf8',
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: 30_000,
+    ...options,
+  })
+}
+
+function assertStarted(result, action) {
+  if (result.error || typeof result.status !== 'number') fail(`${action} could not be started`)
+  if (result.status !== 0) fail(`${action} failed`)
+}
+
+function deleteCaseInsensitive(environment, names) {
+  const lowered = new Set(names.map((name) => name.toLowerCase()))
+  for (const key of Object.keys(environment)) {
+    if (lowered.has(key.toLowerCase())) delete environment[key]
+  }
+}
+
+export function validateLocalDockerEndpoint(rawEndpoint) {
+  if (typeof rawEndpoint !== 'string' || rawEndpoint.length === 0) {
+    refuse('Docker context has no daemon endpoint')
+  }
+  if (!rawEndpoint.startsWith('npipe://') && !rawEndpoint.startsWith('unix://')) {
+    refuse('Disposable intake verification requires a local npipe or Unix-socket Docker daemon')
+  }
+  return rawEndpoint
+}
+
+function initializeDockerRuntime(parentEnv, spawnSyncImpl) {
+  const inheritedDockerHost = Object.entries(parentEnv).find(
+    ([key, value]) => key.toLowerCase() === 'docker_host' && String(value).length > 0,
+  )
+  if (inheritedDockerHost) refuse('Unset DOCKER_HOST before running the disposable shakedown')
+
+  const discoveryEnv = { ...parentEnv }
+  deleteCaseInsensitive(discoveryEnv, ['DOCKER_HOST'])
+  const shown = runNative(spawnSyncImpl, 'docker', ['context', 'show'], {
+    env: discoveryEnv,
+    timeout: 15_000,
+  })
+  assertStarted(shown, 'Docker context discovery')
+  const contextName = String(shown.stdout).trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u.test(contextName)) {
+    refuse('Docker context name is invalid')
+  }
+  const inspected = runNative(
+    spawnSyncImpl,
+    'docker',
+    ['context', 'inspect', contextName, '--format', '{{json .Endpoints.docker.Host}}'],
+    { env: discoveryEnv, timeout: 15_000 },
+  )
+  assertStarted(inspected, 'Docker context inspection')
+  let endpoint
+  try {
+    endpoint = JSON.parse(String(inspected.stdout).trim())
+  } catch {
+    refuse('Docker context endpoint could not be parsed')
+  }
+  validateLocalDockerEndpoint(endpoint)
+
+  const pinnedEnv = { ...parentEnv }
+  deleteCaseInsensitive(pinnedEnv, [
+    'DOCKER_CERT_PATH',
+    'DOCKER_CONTEXT',
+    'DOCKER_HOST',
+    'DOCKER_TLS_VERIFY',
+  ])
+  pinnedEnv.DOCKER_HOST = endpoint
+  return { contextName, endpoint, env: pinnedEnv }
+}
+
+function runDocker(spawnSyncImpl, runtime, args, options = {}) {
+  return runNative(spawnSyncImpl, 'docker', args, { env: runtime.env, ...options })
+}
+
+export function parsePublishedPort(output, service) {
+  const lines = String(output)
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length !== 1) fail(`Docker must publish exactly one ${service} loopback port`)
+  const match = /^127\.0\.0\.1:([0-9]{1,5})$/u.exec(lines[0])
+  if (!match) fail(`Docker ${service} port must be published on exact IPv4 loopback`)
+  const port = Number(match[1])
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    fail(`Docker returned an invalid ${service} port`)
+  }
+  return port
+}
+
+function exactContainerNames(spawnSyncImpl, runtime, containerName) {
+  const result = runDocker(spawnSyncImpl, runtime, [
+    'ps',
+    '--all',
+    '--filter',
+    `name=^/${containerName}$`,
+    '--format',
+    '{{.Names}}',
+  ])
+  assertStarted(result, 'Docker container inspection')
+  return String(result.stdout)
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function removeExactContainer(spawnSyncImpl, runtime, containerName) {
+  if (!CONTAINER_PATTERN.test(containerName)) refuse('Disposable container identity is invalid')
+  const names = exactContainerNames(spawnSyncImpl, runtime, containerName)
+  if (names.length > 1 || (names.length === 1 && names[0] !== containerName)) {
+    refuse('Docker returned an ambiguous disposable container identity')
+  }
+  if (names.length === 1) {
+    const removal = runDocker(spawnSyncImpl, runtime, ['rm', '--force', '--volumes', containerName])
+    assertStarted(removal, 'Disposable container cleanup')
+  }
+  if (exactContainerNames(spawnSyncImpl, runtime, containerName).length !== 0) {
+    fail('Disposable container still exists after cleanup')
+  }
+}
+
+async function waitFor({ description, probe, waitImpl, attempts = 120, delayMs = 500 }) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (await probe()) return
+    await waitImpl(delayMs)
+  }
+  fail(`${description} did not become ready`)
+}
+
+function containerHealth(spawnSyncImpl, runtime, containerName) {
+  const result = runDocker(
+    spawnSyncImpl,
+    runtime,
+    ['inspect', '--format', '{{json .State.Health.Status}}', containerName],
+    { timeout: 5_000 },
+  )
+  if (result.status !== 0) return ''
+  try {
+    return JSON.parse(String(result.stdout).trim())
+  } catch {
+    return ''
+  }
+}
+
+function startContainer(spawnSyncImpl, runtime, args, action) {
+  const result = runDocker(spawnSyncImpl, runtime, ['run', '--rm', '--detach', ...args], {
+    timeout: 300_000,
+  })
+  assertStarted(result, action)
+}
+
+function publishedPort(spawnSyncImpl, runtime, containerName, containerPort, service) {
+  const result = runDocker(spawnSyncImpl, runtime, ['port', containerName, `${containerPort}/tcp`])
+  assertStarted(result, `${service} port inspection`)
+  return parsePublishedPort(result.stdout, service)
+}
+
+function randomCredential(prefix) {
+  return `${prefix}_${randomUUID().replaceAll('-', '')}${randomUUID().replaceAll('-', '')}`
+}
+
+export function buildShakedownChildEnv(parentEnv, resources) {
+  const child = {}
+  for (const [key, value] of Object.entries(parentEnv)) {
+    const lower = key.toLowerCase()
+    if (
+      lower === 'node_options' ||
+      lower === 'node_path' ||
+      lower.startsWith('docker_') ||
+      lower.startsWith('turbo_') ||
+      /(?:secret|token|password|api[_-]?key|access[_-]?key|encryption[_-]?key|credential|cookie|session|oauth|private[_-]?key)/iu.test(
+        key,
+      ) ||
+      /^(?:database_url|direct_database_url|redis_url|storage_|intake_clamav_|clerk_|stripe_|google_|gmail_|aws_|azure_|anthropic_|openai_|resend_)/iu.test(
+        key,
+      ) ||
+      /^run_.*integration$/iu.test(key) ||
+      lower === 'pathfinder_disposable_intake_confirmation'
+    ) {
+      continue
+    }
+    child[key] = value
+  }
+  Object.assign(child, {
+    NODE_ENV: 'test',
+    NO_COLOR: '1',
+    FORCE_COLOR: '0',
+    RAILWAY_ENVIRONMENT: 'preview',
+    DATABASE_URL: resources.databaseUrl,
+    DIRECT_DATABASE_URL: resources.databaseUrl,
+    REDIS_URL: `redis://127.0.0.1:${resources.redisPort}`,
+    STORAGE_BUCKET: resources.bucket,
+    STORAGE_REGION: 'us-east-1',
+    STORAGE_ENDPOINT: `http://127.0.0.1:${resources.minioPort}`,
+    STORAGE_ACCESS_KEY_ID: resources.minioUser,
+    STORAGE_SECRET_ACCESS_KEY: resources.minioPassword,
+    INTAKE_CLAMAV_HOST: '127.0.0.1',
+    INTAKE_CLAMAV_PORT: String(resources.clamavPort),
+    CLERK_SECRET_KEY: resources.clerkSecret,
+    CLERK_PUBLISHABLE_KEY: resources.clerkPublishable,
+    RUN_INTAKE_UPLOAD_WORKER_DB_INTEGRATION: '1',
+    PATHFINDER_DISPOSABLE_INTAKE_CONFIRMATION: CONFIRMATION,
+    OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+    CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+    INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'true',
+    WORKER_SCHEDULERS_ENABLED: 'false',
+    PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+    OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+    STRIPE_MODE: 'test',
+    STRIPE_LIVE_MODE_ALLOWED: 'false',
+  })
+  return child
+}
+
+export function validateVitestReport(output) {
+  let report
+  try {
+    report = JSON.parse(String(output))
+  } catch {
+    fail('Shakedown did not return a machine-readable Vitest report')
+  }
+  const assertions = report.testResults?.flatMap((result) => result.assertionResults ?? []) ?? []
+  if (
+    report.success !== true ||
+    report.numPassedTests !== 1 ||
+    report.numFailedTests !== 0 ||
+    report.numPendingTests !== 0 ||
+    (report.numSkippedTests ?? 0) !== 0 ||
+    report.numTodoTests !== 0 ||
+    report.numTotalTests !== 1 ||
+    assertions.length !== 1 ||
+    assertions[0]?.status !== 'passed'
+  ) {
+    fail('Shakedown must execute exactly one passing, zero skipped or todo integration test')
+  }
+  return { passed: 1 }
+}
+
+function redact(value, sensitiveTokens) {
+  let redacted = String(value)
+    .replace(/postgres(?:ql)?:\/\/[^\s"'`]+/giu, '[REDACTED_DATABASE_URL]')
+    .replace(/(?:redis|https?):\/\/[^\s"'`]+/giu, '[REDACTED_SERVICE_URL]')
+  for (const token of [...sensitiveTokens].sort((left, right) => right.length - left.length)) {
+    if (!token) continue
+    redacted = redacted.split(token).join('[REDACTED]')
+  }
+  return redacted
+}
+
+function runMigration({
+  env,
+  database,
+  databaseUrl,
+  repositoryRoot,
+  spawnSyncImpl,
+  sensitiveTokens,
+}) {
+  const migrationEnv = buildShakedownChildEnv(env, {
+    databaseUrl,
+    redisPort: 1,
+    bucket: 'unused',
+    minioPort: 1,
+    minioUser: 'unused',
+    minioPassword: 'unused',
+    clamavPort: 1,
+    clerkSecret: 'unused',
+    clerkPublishable: 'unused',
+  })
+  migrationEnv.PATHFINDER_ALLOW_DISPOSABLE_MIGRATIONS = '1'
+  migrationEnv.PATHFINDER_DISPOSABLE_DATABASE_URL = databaseUrl
+  const result = runNative(
+    spawnSyncImpl,
+    process.execPath,
+    [
+      resolve(repositoryRoot, 'scripts', 'migrate-disposable-db.mjs'),
+      '--database',
+      database,
+      '--confirm-database',
+      database,
+    ],
+    { cwd: repositoryRoot, env: migrationEnv, timeout: 300_000 },
+  )
+  if (result.error || typeof result.status !== 'number')
+    fail('Disposable migration could not start')
+  if (result.status !== 0) {
+    const detail = redact(`${result.stdout ?? ''}\n${result.stderr ?? ''}`, sensitiveTokens)
+    fail(`Disposable migration failed. ${detail.slice(-4_000)}`)
+  }
+}
+
+function runIntegration({
+  env,
+  resources,
+  repositoryRoot,
+  packageManagerCli,
+  reportPath,
+  spawnSyncImpl,
+  sensitiveTokens,
+}) {
+  const childEnv = buildShakedownChildEnv(env, resources)
+  const result = runNative(
+    spawnSyncImpl,
+    process.execPath,
+    [
+      packageManagerCli,
+      '--dir',
+      'apps/workers',
+      'exec',
+      'vitest',
+      'run',
+      'src/intake-upload-verification.disposable.integration.test.ts',
+      '--pool=forks',
+      '--maxWorkers=1',
+      '--reporter=json',
+      '--outputFile',
+      reportPath,
+    ],
+    { cwd: repositoryRoot, env: childEnv, timeout: 300_000 },
+  )
+  if (result.error || typeof result.status !== 'number') fail('Shakedown test could not start')
+  if (result.status !== 0) {
+    let reportFailure = ''
+    if (existsSync(reportPath)) {
+      try {
+        const report = JSON.parse(readFileSync(reportPath, 'utf8'))
+        reportFailure = (report.testResults ?? [])
+          .flatMap((testResult) => [
+            testResult.message,
+            ...(testResult.assertionResults ?? []).flatMap(
+              (assertion) => assertion.failureMessages ?? [],
+            ),
+          ])
+          .filter(Boolean)
+          .join('\n')
+      } catch {
+        reportFailure = 'Machine-readable failure report could not be parsed.'
+      }
+    }
+    const detail = redact(
+      `${result.stdout ?? ''}\n${result.stderr ?? ''}\n${reportFailure}`,
+      sensitiveTokens,
+    )
+    fail(`Shakedown test failed. ${detail.slice(-8_000)}`)
+  }
+  return validateVitestReport(readFileSync(reportPath, 'utf8'))
+}
+
+export async function runDisposableIntakeVerificationShakedown({
+  env = process.env,
+  spawnSyncImpl = spawnSync,
+  fetchImpl = fetch,
+  waitImpl = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds)),
+  stdout = process.stdout,
+  repositoryRoot = resolve(fileURLToPath(new URL('../..', import.meta.url))),
+} = {}) {
+  const packageManagerCli = env.npm_execpath
+  if (!packageManagerCli) refuse('Run this shakedown through pnpm')
+  if (
+    env.PATHFINDER_ALLOW_DISPOSABLE_INTAKE_SHAKEDOWN !== '1' &&
+    env.npm_lifecycle_event !== 'test:intake-upload-verification:disposable'
+  ) {
+    refuse('Use the disposable intake package lifecycle or its exact opt-in')
+  }
+  const runtime = initializeDockerRuntime(env, spawnSyncImpl)
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
+  const names = {
+    postgres: `pathfinder-disposable-intake-postgres-${suffix}`,
+    redis: `pathfinder-disposable-intake-redis-${suffix}`,
+    minio: `pathfinder-disposable-intake-minio-${suffix}`,
+    clamav: `pathfinder-disposable-intake-clamav-${suffix}`,
+  }
+  const database = `pathfinder_disposable_intake_worker_${suffix}`
+  if (
+    !DATABASE_PATTERN.test(database) ||
+    Object.values(names).some((name) => !CONTAINER_PATTERN.test(name))
+  ) {
+    refuse('Generated disposable resource identity is invalid')
+  }
+  const postgresUser = `intake_${suffix}`
+  const postgresPassword = randomCredential('pg')
+  const minioUser = randomCredential('minio_user').slice(0, 48)
+  const minioPassword = randomCredential('minio_password')
+  const clerkSecret = randomCredential('clerk_secret')
+  const clerkPublishable = randomCredential('clerk_publishable')
+  const bucket = `pathfinder-disposable-intake-${suffix}`
+  const sensitiveTokens = [
+    postgresUser,
+    postgresPassword,
+    minioUser,
+    minioPassword,
+    clerkSecret,
+    clerkPublishable,
+  ]
+  const reportDirectory = mkdtempSync(join(tmpdir(), 'pathfinder-intake-shakedown-'))
+  const reportPath = join(reportDirectory, 'vitest.json')
+  let primaryError
+  let result
+
+  try {
+    for (const name of Object.values(names)) {
+      if (exactContainerNames(spawnSyncImpl, runtime, name).length !== 0) {
+        refuse('Generated disposable container identity already exists')
+      }
+    }
+    startContainer(
+      spawnSyncImpl,
+      runtime,
+      [
+        '--name',
+        names.postgres,
+        '--publish',
+        '127.0.0.1::5432',
+        '--env',
+        `POSTGRES_DB=${database}`,
+        '--env',
+        `POSTGRES_USER=${postgresUser}`,
+        '--env',
+        `POSTGRES_PASSWORD=${postgresPassword}`,
+        '--tmpfs',
+        '/var/lib/postgresql/data',
+        DISPOSABLE_INTAKE_IMAGES.postgres,
+      ],
+      'Disposable PostgreSQL start',
+    )
+    startContainer(
+      spawnSyncImpl,
+      runtime,
+      ['--name', names.redis, '--publish', '127.0.0.1::6379', DISPOSABLE_INTAKE_IMAGES.redis],
+      'Disposable Redis start',
+    )
+    startContainer(
+      spawnSyncImpl,
+      runtime,
+      [
+        '--name',
+        names.minio,
+        '--publish',
+        '127.0.0.1::9000',
+        '--env',
+        `MINIO_ROOT_USER=${minioUser}`,
+        '--env',
+        `MINIO_ROOT_PASSWORD=${minioPassword}`,
+        '--tmpfs',
+        '/data',
+        DISPOSABLE_INTAKE_IMAGES.minio,
+        'server',
+        '/data',
+        '--address',
+        ':9000',
+      ],
+      'Disposable MinIO start',
+    )
+    startContainer(
+      spawnSyncImpl,
+      runtime,
+      ['--name', names.clamav, '--publish', '127.0.0.1::3310', DISPOSABLE_INTAKE_IMAGES.clamav],
+      'Disposable ClamAV start',
+    )
+
+    const postgresPort = publishedPort(spawnSyncImpl, runtime, names.postgres, 5432, 'PostgreSQL')
+    const redisPort = publishedPort(spawnSyncImpl, runtime, names.redis, 6379, 'Redis')
+    const minioPort = publishedPort(spawnSyncImpl, runtime, names.minio, 9000, 'MinIO')
+    const clamavPort = publishedPort(spawnSyncImpl, runtime, names.clamav, 3310, 'ClamAV')
+
+    await waitFor({
+      description: 'Disposable PostgreSQL',
+      waitImpl,
+      probe: async () => {
+        const check = runDocker(
+          spawnSyncImpl,
+          runtime,
+          ['exec', names.postgres, 'pg_isready', '--username', postgresUser, '--dbname', database],
+          { timeout: 5_000 },
+        )
+        return check.status === 0
+      },
+    })
+    await waitFor({
+      description: 'Disposable Redis',
+      waitImpl,
+      probe: async () => {
+        const check = runDocker(
+          spawnSyncImpl,
+          runtime,
+          ['exec', names.redis, 'redis-cli', 'ping'],
+          { timeout: 5_000 },
+        )
+        return check.status === 0 && String(check.stdout).trim() === 'PONG'
+      },
+    })
+    await waitFor({
+      description: 'Disposable MinIO',
+      waitImpl,
+      probe: async () => {
+        try {
+          const response = await fetchImpl(`http://127.0.0.1:${minioPort}/minio/health/live`)
+          return response.ok
+        } catch {
+          return false
+        }
+      },
+    })
+    await waitFor({
+      description: 'Disposable ClamAV',
+      waitImpl,
+      attempts: 360,
+      probe: async () => containerHealth(spawnSyncImpl, runtime, names.clamav) === 'healthy',
+    })
+
+    const databaseUrl = `postgresql://${encodeURIComponent(postgresUser)}:${encodeURIComponent(postgresPassword)}@127.0.0.1:${postgresPort}/${database}`
+    sensitiveTokens.push(databaseUrl)
+    runMigration({
+      env,
+      database,
+      databaseUrl,
+      repositoryRoot,
+      spawnSyncImpl,
+      sensitiveTokens,
+    })
+    result = runIntegration({
+      env,
+      resources: {
+        databaseUrl,
+        redisPort,
+        bucket,
+        minioPort,
+        minioUser,
+        minioPassword,
+        clamavPort,
+        clerkSecret,
+        clerkPublishable,
+      },
+      repositoryRoot,
+      packageManagerCli,
+      reportPath,
+      spawnSyncImpl,
+      sensitiveTokens,
+    })
+  } catch (error) {
+    primaryError = error
+  }
+
+  const cleanupErrors = []
+  for (const name of Object.values(names).reverse()) {
+    try {
+      removeExactContainer(spawnSyncImpl, runtime, name)
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+  }
+  rmSync(reportDirectory, { recursive: true, force: true })
+  if (primaryError && cleanupErrors.length > 0) {
+    throw new AggregateError([primaryError, ...cleanupErrors], 'Shakedown and cleanup failed')
+  }
+  if (primaryError) throw primaryError
+  if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, 'Shakedown cleanup failed')
+
+  stdout.write(
+    `${JSON.stringify({
+      action: 'intake-upload-verification.disposable-shakedown.passed',
+      testsPassed: result.passed,
+      services: ['postgresql', 'redis', 'minio', 'clamav'],
+      outboundProviderWorkersEnabled: false,
+      cleanup: 'verified-absent',
+    })}\n`,
+  )
+  return 0
+}

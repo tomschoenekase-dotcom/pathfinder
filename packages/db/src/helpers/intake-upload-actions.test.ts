@@ -546,7 +546,7 @@ describe('quarantined intake upload actions', () => {
       $executeRaw: vi.fn(),
       intakeUpload: {
         findFirst: vi.fn().mockResolvedValue(current),
-        update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       intakeUploadVerificationReceipt: {
         findFirst: vi.fn().mockResolvedValue({
@@ -580,8 +580,17 @@ describe('quarantined intake upload actions', () => {
       },
       client: transactionClient(tx) as never,
     })
-    expect(tx.intakeUpload.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'REJECTED' }) }),
+    expect(tx.intakeUpload.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: scope.tenantId,
+          venueId: scope.venueId,
+          id: scope.uploadId,
+          status: 'VERIFYING',
+          verificationClaimId: claimId,
+        }),
+        data: expect.objectContaining({ status: 'REJECTED' }),
+      }),
     )
     expect(tx.intakeRun.create).not.toHaveBeenCalled()
     expect(result.nextAction).toBe('RESELECT_FILE')

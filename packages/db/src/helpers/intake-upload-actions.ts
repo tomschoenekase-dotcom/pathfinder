@@ -1107,8 +1107,13 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
 
     const now = new Date()
     if (malware.verdict === 'INFECTED') {
-      await tx.intakeUpload.update({
-        where: { id: upload.id },
+      const changed = await tx.intakeUpload.updateMany({
+        where: {
+          ...intakeUploadWhere(scope),
+          status: 'VERIFYING',
+          verificationClaimId: claim,
+          verificationLeaseUntil: { gt: now },
+        },
         data: {
           status: 'REJECTED',
           verificationClaimId: null,
@@ -1118,6 +1123,8 @@ export async function settleIntakeUploadAuthoritativeVerificationAction(input: {
           rejectionCode: 'UNSAFE_FILE',
         },
       })
+      if (changed.count !== 1)
+        throw new IntakeUploadActionError('CONFLICT', 'Upload authoritative rejection raced')
       await recordOrReplayOnboardingMilestoneEvent({
         db: tx,
         input: {

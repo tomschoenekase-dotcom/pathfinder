@@ -13,6 +13,9 @@ const reexportPath = 'packages/db/src/index.ts'
 // Exact counts make additions and removals review events without relying on line numbers.
 const approvedCallCounts = new Map([
   ['apps/workers/src/scheduled-tenant-fanout.ts', 1],
+  // Platform recovery scans only bounded authoritative upload identities; each
+  // job then re-enters one exact tenant+venue+upload scope before mutation.
+  ['apps/workers/src/processors/intake-upload-verification.ts', 1],
   ['apps/workers/src/processors/analytics-enrichment.ts', 1],
   ['apps/workers/src/processors/answer-analysis.ts', 2],
   ['apps/workers/src/processors/daily-rollup.ts', 3],

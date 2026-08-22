@@ -67,6 +67,10 @@ export async function createIntakeUploadVerificationResources() {
   return { queue, worker, close }
 }
 
+export type IntakeUploadVerificationResources = Awaited<
+  ReturnType<typeof createIntakeUploadVerificationResources>
+>
+
 export async function startIntakeUploadVerificationRuntime() {
   await checkBullMQConnection(5_000)
   const resources = await createIntakeUploadVerificationResources()
