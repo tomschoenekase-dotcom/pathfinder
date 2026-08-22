@@ -151,6 +151,11 @@ export const PLATFORM_TABLES = [
   'ProspectTag',
   'ProspectOrganizationTag',
   'CorrespondenceProviderAccount',
+  // Google source cursors and raw transcript artifacts are provider-account-owned intake state.
+  // Customer-scoped durable knowledge is projected separately through shared-scope meetings and
+  // provenance-bearing Company Brain records.
+  'GoogleCalendarSyncState',
+  'CompanyMeetingTranscriptArtifact',
   'ProspectDeliveryControl',
   'ProspectOrganization',
   'ProspectVenue',

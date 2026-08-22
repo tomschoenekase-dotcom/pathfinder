@@ -280,9 +280,12 @@ export function createGoogleWorkspaceSourceStores(
           await assertGmailAccount(tx, transcript.providerAccountId)
           const meeting = await tx.companyMeeting.findUnique({
             where: { id: transcript.meetingId },
-            select: { id: true, tenantId: true },
+            select: { id: true, tenantId: true, providerAccountId: true },
           })
           if (!meeting) throw new Error('Meeting was not found for Meet transcript')
+          if (meeting.providerAccountId !== transcript.providerAccountId) {
+            throw new Error('Meeting does not belong to the Google Workspace provider account')
+          }
           const existing = await tx.companyMeetingTranscriptArtifact.findUnique({
             where: {
               providerAccountId_transcriptName: {

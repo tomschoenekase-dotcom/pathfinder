@@ -124,7 +124,11 @@ describe('Google Workspace source persistence', () => {
 
   it('stores transcript text with one-year expiry and no recording column', async () => {
     const { tx, client } = harness()
-    tx.companyMeeting.findUnique.mockResolvedValue({ id: 'meeting_1', tenantId: null })
+    tx.companyMeeting.findUnique.mockResolvedValue({
+      id: 'meeting_1',
+      tenantId: null,
+      providerAccountId: 'account_1',
+    })
     const artifact: GoogleMeetTranscriptArtifact = {
       conferenceRecordName: 'conferenceRecords/record_1',
       transcriptName: 'conferenceRecords/record_1/transcripts/transcript_1',
@@ -162,5 +166,32 @@ describe('Google Workspace source persistence', () => {
     expect(
       JSON.stringify(tx.companyMeetingTranscriptArtifact.create.mock.calls[0]![0]),
     ).not.toMatch(/recording/iu)
+  })
+
+  it('rejects a transcript whose meeting belongs to another provider account', async () => {
+    const { tx, client } = harness()
+    tx.companyMeeting.findUnique.mockResolvedValue({
+      id: 'meeting_1',
+      tenantId: 'tenant_1',
+      providerAccountId: 'account_other',
+    })
+    const stores = createGoogleWorkspaceSourceStores({ actor }, client)
+    await expect(
+      stores.meet.upsertTranscript({
+        providerAccountId: 'account_1',
+        meetingId: 'meeting_1',
+        artifact: {
+          conferenceRecordName: 'conferenceRecords/record_1',
+          transcriptName: 'conferenceRecords/record_1/transcripts/transcript_1',
+          sourceReference:
+            'https://meet.googleapis.com/v2/conferenceRecords/record_1/transcripts/transcript_1',
+          entries: [],
+          acquiredAt: '2026-08-22T00:00:00.000Z',
+          expiresAt: '2027-08-22T00:00:00.000Z',
+        },
+      }),
+    ).rejects.toThrow('Meeting does not belong to the Google Workspace provider account')
+    expect(tx.companyMeetingTranscriptArtifact.findUnique).not.toHaveBeenCalled()
+    expect(tx.companyMeetingTranscriptArtifact.create).not.toHaveBeenCalled()
   })
 })
