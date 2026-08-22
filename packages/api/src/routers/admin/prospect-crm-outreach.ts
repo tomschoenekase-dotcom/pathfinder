@@ -7,11 +7,13 @@ import {
   createProspectCampaignAction,
   db,
   emergencyStopProspectDeliveryAction,
+  evaluateProspectFollowupReadinessAction,
   ProspectOutreachError,
   publishCrmOperationalSignal,
   releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
   saveProspectOutreachDraftAction,
+  scheduleProspectFollowupAction,
   stageProspectSendBatchAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -310,6 +312,36 @@ export const adminProspectCrmOutreachRouter = router({
           reason: input.reason,
           actor: prospectActor(ctx.session.userId),
         }),
+      ),
+    ),
+
+  scheduleProspectFollowup: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(
+      z
+        .object({
+          triggerSendItemId: id,
+          sequenceNumber: z.union([z.literal(1), z.literal(2)]),
+          dueAt: z.coerce.date(),
+          reason: prospectBoundedText(1_000),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        scheduleProspectFollowupAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }),
+      ),
+    ),
+
+  recheckProspectFollowup: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ followupId: id }).strict())
+    .mutation(({ input }) =>
+      withTenantIsolationBypass(() =>
+        evaluateProspectFollowupReadinessAction({ followupId: input.followupId }),
       ),
     ),
 })

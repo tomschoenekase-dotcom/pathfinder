@@ -998,6 +998,11 @@ export {
 } from './helpers/prospect-research-job-actions'
 export type { ProspectResearchContext } from './helpers/prospect-research-job-actions'
 export {
+  evaluateProspectFollowupReadinessAction,
+  ProspectFollowupError,
+  scheduleProspectFollowupAction,
+} from './helpers/prospect-followup-actions'
+export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,
   reviewProspectContactReadinessAction,

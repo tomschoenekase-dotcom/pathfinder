@@ -6173,6 +6173,7 @@ model ProspectCampaignMember {
   contact        ProspectContact?             @relation(fields: [contactId], references: [id], onDelete: Restrict)
   drafts         ProspectOutreachDraft[]
   sendItems      ProspectSendItem[]
+  followups      ProspectFollowup[]
 
   @@unique([campaignId, organizationId, contactId])
   @@index([campaignId, status])
@@ -6209,6 +6210,7 @@ model ProspectOutreachDraft {
   venue             ProspectVenue?           @relation(fields: [venueId], references: [id], onDelete: Restrict)
   contact           ProspectContact?         @relation(fields: [contactId], references: [id], onDelete: Restrict)
   sendItems         ProspectSendItem[]
+  followupSchedules ProspectFollowup[]       @relation("ProspectFollowupDraft")
 
   @@unique([memberId, version])
   @@index([campaignId, status, createdAt])
@@ -6268,6 +6270,7 @@ model ProspectSendItem {
   outbox                 ProspectSendOutbox?
   message                ProspectEmailMessage?
   events                 ProspectEmailEvent[]
+  triggeredFollowups     ProspectFollowup[]             @relation("ProspectFollowupTrigger")
 
   @@unique([batchId, draftId])
   @@unique([providerAccountId, providerOperationId], map: "prospect_send_items_provider_operation_key")
@@ -6402,20 +6405,31 @@ model ProspectEmailEvent {
 }
 
 model ProspectFollowup {
-  id             String               @id @default(cuid())
-  organizationId String               @map("organization_id")
-  opportunityId  String               @map("opportunity_id")
-  dueAt          DateTime             @map("due_at")
-  sequenceNumber Int                  @map("sequence_number")
-  status         String               @default("PENDING") @db.VarChar(32)
-  reason         String?              @db.VarChar(1000)
-  completedAt    DateTime?            @map("completed_at")
-  cancelledAt    DateTime?            @map("cancelled_at")
-  createdAt      DateTime             @default(now()) @map("created_at")
-  updatedAt      DateTime             @updatedAt @map("updated_at")
-  organization   ProspectOrganization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  opportunity    ProspectOpportunity  @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  id                 String                  @id @default(cuid())
+  organizationId     String                  @map("organization_id")
+  opportunityId      String                  @map("opportunity_id")
+  campaignMemberId   String?                 @map("campaign_member_id")
+  triggerSendItemId  String?                 @map("trigger_send_item_id")
+  draftId            String?                 @map("draft_id")
+  dueAt              DateTime                @map("due_at")
+  sequenceNumber     Int                     @map("sequence_number")
+  status             String                  @default("PENDING") @db.VarChar(32)
+  reason             String?                 @db.VarChar(1000)
+  policyApprovedBy   String?                 @map("policy_approved_by") @db.VarChar(191)
+  policyApprovedAt   DateTime?               @map("policy_approved_at")
+  readinessCheckedAt DateTime?               @map("readiness_checked_at")
+  completedAt        DateTime?               @map("completed_at")
+  cancelledAt        DateTime?               @map("cancelled_at")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  organization       ProspectOrganization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  opportunity        ProspectOpportunity     @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  campaignMember     ProspectCampaignMember? @relation(fields: [campaignMemberId], references: [id], onDelete: Restrict)
+  triggerSendItem    ProspectSendItem?       @relation("ProspectFollowupTrigger", fields: [triggerSendItemId], references: [id], onDelete: Restrict)
+  draft              ProspectOutreachDraft?  @relation("ProspectFollowupDraft", fields: [draftId], references: [id], onDelete: Restrict)
 
+  @@unique([campaignMemberId, sequenceNumber])
+  @@unique([draftId])
   @@index([status, dueAt])
   @@index([organizationId, createdAt])
   @@map("prospect_followups")
