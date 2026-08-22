@@ -1,10 +1,13 @@
-import { z } from 'zod'
-
 import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { deriveFounderBriefing } from './attention-briefing'
+import {
+  acknowledgeAttentionEvent,
+  attentionEventActionInput,
+  resolveAttentionEvent,
+} from './attention-event-actions'
 import {
   ACTIVE_SUPPORT_REQUEST_STATUSES,
   after,
@@ -337,68 +340,10 @@ export const adminAttentionConsoleRouter = router({
   ),
 
   acknowledgeOperationalEvent: adminProcedure
-    .input(
-      z
-        .object({
-          eventId: z.string().uuid(),
-          scope: z.enum(['tenant', 'platform']).default('tenant'),
-        })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const now = new Date()
-        const change = {
-          state: 'ACKNOWLEDGED' as const,
-          readAt: now,
-          readBy: ctx.session.userId,
-          acknowledgedAt: now,
-          acknowledgedBy: ctx.session.userId,
-        }
-        const updated =
-          input.scope === 'platform'
-            ? await db.platformOperationalEvent.updateMany({
-                where: { id: input.eventId, state: 'OPEN' },
-                data: change,
-              })
-            : await db.operationalEvent.updateMany({
-                where: { id: input.eventId, state: 'OPEN' },
-                data: change,
-              })
-        return { acknowledged: updated.count === 1 }
-      }),
-    ),
+    .input(attentionEventActionInput)
+    .mutation(({ ctx, input }) => acknowledgeAttentionEvent(ctx.session.userId, input)),
 
   resolveOperationalEvent: adminProcedure
-    .input(
-      z
-        .object({
-          eventId: z.string().uuid(),
-          scope: z.enum(['tenant', 'platform']).default('tenant'),
-        })
-        .strict(),
-    )
-    .mutation(({ ctx, input }) =>
-      withTenantIsolationBypass(async () => {
-        const now = new Date()
-        const change = {
-          state: 'RESOLVED' as const,
-          readAt: now,
-          readBy: ctx.session.userId,
-          resolvedAt: now,
-          resolvedBy: ctx.session.userId,
-        }
-        const updated =
-          input.scope === 'platform'
-            ? await db.platformOperationalEvent.updateMany({
-                where: { id: input.eventId, state: { in: ['OPEN', 'ACKNOWLEDGED'] } },
-                data: change,
-              })
-            : await db.operationalEvent.updateMany({
-                where: { id: input.eventId, state: { in: ['OPEN', 'ACKNOWLEDGED'] } },
-                data: change,
-              })
-        return { resolved: updated.count === 1 }
-      }),
-    ),
+    .input(attentionEventActionInput)
+    .mutation(({ ctx, input }) => resolveAttentionEvent(ctx.session.userId, input)),
 })
