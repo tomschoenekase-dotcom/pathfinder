@@ -991,6 +991,13 @@ export {
   ProspectPackageAdmissionError,
 } from './helpers/prospect-package-admission-actions'
 export {
+  claimNextProspectResearchJobAction,
+  finishProspectResearchJobAction,
+  ProspectResearchJobError,
+  queueProspectResearchJobsAction,
+} from './helpers/prospect-research-job-actions'
+export type { ProspectResearchContext } from './helpers/prospect-research-job-actions'
+export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,
   reviewProspectContactReadinessAction,

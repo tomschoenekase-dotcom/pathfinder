@@ -5376,6 +5376,23 @@ enum ProspectLocationConversionStatus {
   OFFBOARDED
 }
 
+enum ProspectResearchJobStatus {
+  QUEUED
+  CLAIMED
+  RESEARCHED
+  NEEDS_REVIEW
+  BLOCKED
+  CAP_REACHED
+  SKIPPED
+}
+
+enum ProspectResearchAttemptStatus {
+  CLAIMED
+  COMPLETED
+  RELEASED
+  EXPIRED
+}
+
 /// Platform-owned sales territory. Prospects remain outside tenant scope until conversion.
 model ProspectTerritory {
   id            String                 @id @default(cuid())
@@ -5587,6 +5604,7 @@ model ProspectOrganization {
   openLoops             AccountOpenLoop[]
   commitments           AccountCommitment[]
   summaries             AccountSummary[]
+  researchJob           ProspectResearchJob?
 
   @@unique([updatedAt, id], map: "prospect_organizations_updated_at_id_key")
   @@index([normalizedName])
@@ -5597,6 +5615,54 @@ model ProspectOrganization {
   @@index([ownerId, archivedAt])
   @@index([relationshipTier, archivedAt])
   @@map("prospect_organizations")
+}
+
+/// Durable current research state. Attempt history is append-only below.
+model ProspectResearchJob {
+  id              String                    @id @default(cuid())
+  organizationId  String                    @unique @map("organization_id")
+  status          ProspectResearchJobStatus @default(QUEUED)
+  priority        Int                       @default(0)
+  claimToken      String?                   @unique @map("claim_token") @db.Uuid
+  claimOwnerId    String?                   @map("claim_owner_id") @db.VarChar(191)
+  claimAgentRunId String?                   @map("claim_agent_run_id") @db.VarChar(191)
+  claimExpiresAt  DateTime?                 @map("claim_expires_at")
+  attemptCount    Int                       @default(0) @map("attempt_count")
+  terminalReason  String?                   @map("terminal_reason") @db.VarChar(2000)
+  queuedBy        String                    @map("queued_by") @db.VarChar(191)
+  completedAt     DateTime?                 @map("completed_at")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  organization    ProspectOrganization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  attempts        ProspectResearchAttempt[]
+
+  @@index([status, priority, claimExpiresAt, createdAt], map: "prospect_research_jobs_claim_idx")
+  @@map("prospect_research_jobs")
+}
+
+/// One machine/run attempt with model, prompt, usage, cost, and bounded outcome lineage.
+model ProspectResearchAttempt {
+  id              String                        @id @default(cuid())
+  jobId           String                        @map("job_id")
+  claimToken      String                        @unique @map("claim_token") @db.Uuid
+  agentRunId      String                        @map("agent_run_id") @db.VarChar(191)
+  agentIdentityId String                        @map("agent_identity_id") @db.VarChar(191)
+  modelProvider   String?                       @map("model_provider") @db.VarChar(191)
+  modelName       String?                       @map("model_name") @db.VarChar(191)
+  promptIdentity  String                        @map("prompt_identity") @db.VarChar(191)
+  status          ProspectResearchAttemptStatus @default(CLAIMED)
+  outcome         ProspectResearchJobStatus?
+  outcomeReason   String?                       @map("outcome_reason") @db.VarChar(2000)
+  usage           Json                          @default("{}")
+  costUsd         Decimal?                      @map("cost_usd") @db.Decimal(12, 6)
+  claimedAt       DateTime                      @default(now()) @map("claimed_at")
+  leaseExpiresAt  DateTime                      @map("lease_expires_at")
+  completedAt     DateTime?                     @map("completed_at")
+  job             ProspectResearchJob           @relation(fields: [jobId], references: [id], onDelete: Restrict)
+
+  @@index([jobId, claimedAt], map: "prospect_research_attempts_job_time_idx")
+  @@index([agentRunId, status, claimedAt], map: "prospect_research_attempts_run_status_idx")
+  @@map("prospect_research_attempts")
 }
 
 model ProspectVenue {
