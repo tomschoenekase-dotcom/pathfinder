@@ -12,6 +12,7 @@ node_modules/
 coverage/
 playwright-report/
 test-results/
+artifacts/release-verification/
 apps/dashboard/public/characters/
 apps/web/public/characters/
 

@@ -41,6 +41,7 @@
     "local-staging:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local-staging.ps1 -Action Stop",
     "verify:staging-health": "node scripts/verify-staging-health.mjs",
     "verify:staging-widget": "node scripts/verify-staging-widget.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
     "verify:public-surfaces": "node scripts/verify-public-surface-boundary.mjs",
     "verify:agent-tools": "node scripts/torchiko.mjs tools coverage --json",
     "verify:agent-scenarios": "node scripts/torchiko.mjs scenarios validate --json",
