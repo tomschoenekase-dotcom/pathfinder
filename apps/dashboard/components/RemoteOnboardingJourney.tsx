@@ -91,6 +91,8 @@ function proposalLabel(proposal: IntakeProposalSummary): string {
 function primaryHref(data: JourneyData) {
   const home = `/venues/${data.venue.id}/onboarding`
   switch (data.projection.primaryAction.stage) {
+    case 'OVERVIEW':
+      return '#saved-progress'
     case 'MATERIALS':
       return '#materials'
     case 'REVIEW':
@@ -177,13 +179,13 @@ export function RemoteOnboardingJourney({
       ? `/venues/${data.venue.id}/preview/${data.preview.packageId}?returnTo=${encodeURIComponent(`${onboardingHref}#preview`)}`
       : null
   const journey = clientJourney(data)
-  const recordedMaterialCount =
+  const sharedSourceCount =
     data.materials.uploaded +
     data.materials.checking +
     data.materials.needsAttention +
     data.materials.readyForReview +
-    data.materials.processed
-  const organizedCount = data.review.proposedSources + data.review.draftPackages
+    data.review.proposedSources
+  const readyForTorchikoCount = data.materials.readyForReview + data.review.proposedSources
 
   return (
     <div className={styles.page}>
@@ -207,6 +209,31 @@ export function RemoteOnboardingJourney({
         <div className={styles.stageBand}>
           <ClientJourneyRail stages={journey.stages} compact />
         </div>
+
+        {sharedSourceCount > 0 ? (
+          <section
+            id="saved-progress"
+            className={styles.resumeCheckpoint}
+            aria-labelledby="saved-progress-title"
+          >
+            <div>
+              <p className={styles.sectionEyebrow}>Saved checkpoint</p>
+              <h2 id="saved-progress-title">
+                Your submitted information will be here when you return.
+              </h2>
+            </div>
+            <p>
+              <strong>
+                {sharedSourceCount} shared source{sharedSourceCount === 1 ? '' : 's'} recorded for{' '}
+                {data.venue.name}.
+              </strong>{' '}
+              {data.projection.primaryAction.required
+                ? 'The action above still needs your attention, and Torchiko will bring you back to it.'
+                : 'Nothing else is required right now. You can close this page and return later.'}{' '}
+              Unfinished entries are not saved until you share them.
+            </p>
+          </section>
+        ) : null}
 
         <div id="materials" className={styles.materials}>
           <IntakeFileUploadWorkspace
@@ -272,13 +299,13 @@ export function RemoteOnboardingJourney({
         <section className={styles.progressStrip} aria-label="Current onboarding activity">
           <div>
             <span>Shared</span>
-            <strong>{recordedMaterialCount}</strong>
-            <p>Material records are safely attached to this venue.</p>
+            <strong>{sharedSourceCount}</strong>
+            <p>Submitted sources are recorded here, including anything needing a safe retry.</p>
           </div>
           <div>
-            <span>Being organized</span>
-            <strong>{data.materials.checking + organizedCount}</strong>
-            <p>Checks and review stay truthful; Torchiko does not invent precise progress.</p>
+            <span>Ready for Torchiko</span>
+            <strong>{readyForTorchikoCount}</strong>
+            <p>Files, websites, staff answers, and notes ready for Torchiko review.</p>
           </div>
           <div>
             <span>Your attention</span>

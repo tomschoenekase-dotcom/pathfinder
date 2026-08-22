@@ -47,6 +47,14 @@ Browser exit warnings are best-effort, especially on mobile, so the interface st
 unfinished entries are not saved until shared. Durable cross-device drafts remain an unresolved
 product/privacy decision rather than an implied capability.
 
+Submitted work resumes from durable venue state. Remote-onboarding projection version 2 marks the
+current primary action as required or optional, so clients and authorized automation can distinguish
+a real question, failed material, or preview request from informational progress. Once at least one
+source is recorded and no action is required, the journey says that the client can leave and return
+instead of repeatedly asking for another source. The page also shows a saved checkpoint and counts
+website, staff-answer, optional-note, and file sources consistently. Unsubmitted form entries remain
+outside that saved count and retain the current-page-only boundary above.
+
 Loading and error boundaries live beside the route. A sanitized development-only fixture is
 available at `/dev-fixtures/remote-onboarding`; both middleware and the route reject it outside
 development.

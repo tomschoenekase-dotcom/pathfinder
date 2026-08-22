@@ -77,7 +77,14 @@ describe('remote onboarding journey read model', () => {
     })
     expect(result).toMatchObject({
       venue: { id: 'venue-1', name: 'Museum' },
-      projection: { primaryAction: { stage: 'MATERIALS', label: 'Start with my website' } },
+      projection: {
+        version: 2,
+        primaryAction: {
+          stage: 'MATERIALS',
+          label: 'Start with my website',
+          required: true,
+        },
+      },
       questions: { open: 0, items: [], additionalQuestionCount: 0 },
       publication: { clientCanPublish: false },
     })
@@ -153,7 +160,7 @@ describe('remote onboarding journey read model', () => {
 
     const result = await app.createCaller(ctx).portal.getOnboardingJourney({ venueId: 'venue-1' })
 
-    expect(result.projection.primaryAction.stage).toBe('QUESTIONS')
+    expect(result.projection.primaryAction).toMatchObject({ stage: 'QUESTIONS', required: true })
     expect(result.questions.items).toEqual([
       {
         requestId: 'request-1',

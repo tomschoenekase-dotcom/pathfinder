@@ -142,6 +142,36 @@
   box-shadow: 0 1.2rem 3rem rgba(16, 45, 72, 0.08);
 }
 
+.resumeCheckpoint {
+  scroll-margin-top: 5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(18rem, 1.15fr);
+  gap: clamp(1rem, 4vw, 4rem);
+  align-items: center;
+  margin: clamp(2rem, 4vw, 3.5rem) clamp(0.75rem, 4vw, 3rem) 0;
+  border-left: 3px solid var(--portal-aqua);
+  background: rgba(255, 255, 255, 0.76);
+  padding: clamp(1rem, 3vw, 1.75rem);
+  box-shadow: 0 1rem 2.5rem rgba(16, 45, 72, 0.05);
+}
+
+.resumeCheckpoint h2 {
+  margin: 0.35rem 0 0;
+  font-size: clamp(1.2rem, 2.5vw, 1.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.resumeCheckpoint > p {
+  margin: 0;
+  color: rgba(16, 45, 72, 0.72);
+  line-height: 1.65;
+}
+
+.resumeCheckpoint strong {
+  color: var(--portal-ink);
+}
+
 .materials {
   scroll-margin-top: 5rem;
   margin-top: clamp(2.5rem, 5vw, 4.5rem);
@@ -472,6 +502,7 @@
   }
 
   .sectionLead,
+  .resumeCheckpoint,
   .questionCallout,
   .traceGrid {
     grid-template-columns: 1fr;
@@ -510,6 +541,7 @@
   }
 
   .materials,
+  .resumeCheckpoint,
   .questionCallout,
   .progressStrip,
   .reviewSection,

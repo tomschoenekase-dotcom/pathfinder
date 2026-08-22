@@ -37,11 +37,12 @@ const data = {
     clientActionRequired: true,
   },
   projection: {
-    version: 1 as const,
+    version: 2 as const,
     primaryAction: {
       stage: 'MATERIALS' as const,
       label: 'Add another useful source',
       reason: 'A source will help Torchiko continue.',
+      required: true,
     },
     stages: [
       {
@@ -167,6 +168,67 @@ describe('RemoteOnboardingJourney', () => {
     expect(root.textContent).toContain('Nothing needs an answer right now.')
   })
 
+  it('shows a truthful resumable checkpoint after a submitted website or staff source', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                stage: 'REVIEW' as const,
+                label: 'See what you shared',
+                reason:
+                  'Your information is saved for Torchiko review. You can add a correction now or return later.',
+                required: false,
+              },
+            },
+            review: { proposedSources: 1, draftPackages: 0 },
+          }}
+        />,
+      ),
+    )
+
+    expect(root.querySelector('#saved-progress-title')?.textContent).toContain(
+      'Your submitted information will be here when you return.',
+    )
+    expect(root.textContent).toContain('2 shared sources recorded for Museum.')
+    expect(root.textContent).toContain(
+      'Nothing else is required right now. You can close this page and return later.',
+    )
+    const activity = root.querySelector('[aria-label="Current onboarding activity"]')
+    expect(activity?.textContent).toContain('Shared2')
+    expect(activity?.textContent).toContain('Ready for Torchiko1')
+  })
+
+  it('anchors an informational next-step action to the saved return checkpoint', () => {
+    const root = markupRoot(
+      renderToStaticMarkup(
+        <RemoteOnboardingJourney
+          data={{
+            ...data,
+            projection: {
+              ...data.projection,
+              primaryAction: {
+                stage: 'OVERVIEW' as const,
+                label: 'See what happens next',
+                reason:
+                  'Your information is saved and being checked. You can leave this page and return later.',
+                required: false,
+              },
+            },
+          }}
+        />,
+      ),
+    )
+
+    expect(root.querySelector('a[href="#saved-progress"]')?.textContent).toContain(
+      'See what happens next',
+    )
+    expect(root.querySelector('#saved-progress')).not.toBeNull()
+  })
+
   it('keeps the review action anchored while organized information is still being prepared', () => {
     const root = markupRoot(
       renderToStaticMarkup(
@@ -179,6 +241,7 @@ describe('RemoteOnboardingJourney', () => {
                 stage: 'REVIEW' as const,
                 label: 'Review organized information',
                 reason: 'Torchiko is organizing the submitted sources.',
+                required: false,
               },
             },
             review: { proposedSources: 0, draftPackages: 1 },
@@ -235,6 +298,7 @@ describe('RemoteOnboardingJourney', () => {
                 stage: 'PREVIEW' as const,
                 label: 'Review the visitor experience',
                 reason: 'A reviewed candidate is ready for your feedback.',
+                required: true,
               },
             },
             preview: { state: 'AVAILABLE' as const, packageId: 'package-7' },

@@ -43,6 +43,7 @@ describe('remote onboarding journey projection', () => {
     expect(result.primaryAction).toMatchObject({
       stage: 'MATERIALS',
       label: 'Start with my website',
+      required: true,
     })
     expect(result.stages.find(({ id }) => id === 'MATERIALS')?.status).toBe('AVAILABLE')
     expect(result.readiness.every(({ status }) => status === 'NOT_ASSESSED')).toBe(true)
@@ -56,7 +57,7 @@ describe('remote onboarding journey projection', () => {
         release: { hasReviewedArtifact: true, released: false },
       }),
     )
-    expect(result.primaryAction).toMatchObject({ stage: 'QUESTIONS' })
+    expect(result.primaryAction).toMatchObject({ stage: 'QUESTIONS', required: true })
     expect(result.readiness.find(({ id }) => id === 'RELEASE')).toMatchObject({
       status: 'NOT_ASSESSED',
       summary: expect.stringContaining('explicit operator action'),
@@ -105,6 +106,67 @@ describe('remote onboarding journey projection', () => {
       status: 'NOT_ASSESSED',
       summary:
         '3 of 7 required onboarding dimensions have terminal evidence for the exact approved package.',
+    })
+  })
+
+  it('makes persisted intake resumable without asking the client to keep supplying sources', () => {
+    const checking = resolveRemoteOnboardingProjection(
+      evidence({
+        lifecycle: resolveClientPortalLifecycle({
+          isActive: false,
+          publicContentCount: 0,
+          wasLive: false,
+          collectingSourceCount: 0,
+          processingSourceCount: 1,
+          reviewSourceCount: 0,
+          intakeProposalCount: 0,
+          packageCounts: { draft: 0, approved: 0, applied: 0, reverted: 0 },
+          hasActiveOffboarding: false,
+        }),
+        materials: {
+          uploaded: 0,
+          checking: 1,
+          needsAttention: 0,
+          readyForReview: 0,
+          processed: 0,
+        },
+      }),
+    )
+    expect(checking.primaryAction).toEqual({
+      stage: 'OVERVIEW',
+      label: 'See what happens next',
+      reason:
+        'Your information is saved and being checked. You can leave this page and return later.',
+      required: false,
+    })
+
+    const submitted = resolveRemoteOnboardingProjection(
+      evidence({ review: { proposedSources: 1, draftPackages: 0 } }),
+    )
+    expect(submitted.primaryAction).toEqual({
+      stage: 'REVIEW',
+      label: 'See what you shared',
+      reason:
+        'Your information is saved for Torchiko review. You can add a correction now or return later.',
+      required: false,
+    })
+
+    const verifiedFile = resolveRemoteOnboardingProjection(
+      evidence({
+        materials: {
+          uploaded: 0,
+          checking: 0,
+          needsAttention: 0,
+          readyForReview: 1,
+          processed: 0,
+        },
+      }),
+    )
+    expect(verifiedFile.primaryAction).toEqual({
+      stage: 'OVERVIEW',
+      label: 'See what happens next',
+      reason: 'Your information is saved. Torchiko will ask if another detail is needed.',
+      required: false,
     })
   })
 })

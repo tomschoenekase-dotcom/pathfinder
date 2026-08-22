@@ -1,6 +1,6 @@
 import type { ClientPortalLifecycleView } from './client-portal-lifecycle'
 
-export const REMOTE_ONBOARDING_PROJECTION_VERSION = 1 as const
+export const REMOTE_ONBOARDING_PROJECTION_VERSION = 2 as const
 
 export const REMOTE_ONBOARDING_STAGES = [
   'OVERVIEW',
@@ -67,6 +67,7 @@ export type RemoteOnboardingProjection = {
     stage: RemoteOnboardingStageId
     label: string
     reason: string
+    required: boolean
   }
   stages: Array<{
     id: RemoteOnboardingStageId
@@ -108,18 +109,21 @@ export function resolveRemoteOnboardingProjection(
           stage: 'QUESTIONS',
           label: 'Answer the next question',
           reason: `${plural(evidence.questions.open, 'focused question')} will help Torchiko continue.`,
+          required: true,
         }
       : evidence.materials.needsAttention > 0
         ? {
             stage: 'MATERIALS',
             label: 'Fix a material that needs attention',
             reason: 'One or more files could not pass the safety and verification checks.',
+            required: true,
           }
         : previewAvailable
           ? {
               stage: 'PREVIEW',
               label: 'Test the visitor experience',
               reason: 'A reviewed candidate is ready for your feedback.',
+              required: true,
             }
           : !hasMaterials
             ? {
@@ -127,24 +131,30 @@ export function resolveRemoteOnboardingProjection(
                 label: 'Start with my website',
                 reason:
                   'A website is usually the quickest way to give Torchiko a useful starting point.',
+                required: true,
               }
             : evidence.materials.checking > 0 || evidence.lifecycle.state === 'PROCESSING'
               ? {
                   stage: 'OVERVIEW',
-                  label: 'View processing progress',
-                  reason: 'Torchiko is safely organizing the materials you shared.',
+                  label: 'See what happens next',
+                  reason:
+                    'Your information is saved and being checked. You can leave this page and return later.',
+                  required: false,
                 }
               : reviewAvailable
                 ? {
                     stage: 'REVIEW',
-                    label: 'Review what Torchiko found',
-                    reason: 'Your source material has been organized into reviewable information.',
+                    label: 'See what you shared',
+                    reason:
+                      'Your information is saved for Torchiko review. You can add a correction now or return later.',
+                    required: false,
                   }
                 : {
-                    stage: 'MATERIALS',
-                    label: 'Add another useful source',
+                    stage: 'OVERVIEW',
+                    label: 'See what happens next',
                     reason:
-                      'Another website, document, photo, map, or staff answer can improve coverage.',
+                      'Your information is saved. Torchiko will ask if another detail is needed.',
+                    required: false,
                   }
 
   const stages: RemoteOnboardingProjection['stages'] = [
