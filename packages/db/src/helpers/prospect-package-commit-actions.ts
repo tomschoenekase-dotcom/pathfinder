@@ -431,23 +431,29 @@ async function mapEvidence(record: ClaimedSourceRecord, tx: CommitTx): Promise<C
   const raw = object(record.rawPayload)
   const normalized = object(record.normalizedPayload)
   const evidenceId = stableId('pevidence', record.sourceWorkbookHash, record.externalRecordId)
-  await tx.prospectSourceEvidence.upsert({
+  const existing = await tx.prospectSourceEvidence.findUnique({
     where: { id: evidenceId },
-    create: {
-      id: evidenceId,
-      organizationId: parent.canonicalOrganizationId,
-      venueId: parent.canonicalVenueId,
-      contactId: parent.canonicalContactId,
-      sourceType:
-        text(normalized.sourceType, raw.sourceType, record.sourceStatus) ?? 'STAGING_PACKAGE',
-      sourceUrl: text(normalized.url, raw.url, raw.URL),
-      sourceLabel: text(normalized.label, raw.label),
-      capturedValue: json({ raw, normalized, importSourceRecordId: record.id }),
-      researchedAt: text(normalized.researchedAt) ? new Date(text(normalized.researchedAt)!) : null,
-      createdBy: 'system:prospect-package-import',
-    },
-    update: {},
+    select: { id: true },
   })
+  if (!existing) {
+    await tx.prospectSourceEvidence.create({
+      data: {
+        id: evidenceId,
+        organizationId: parent.canonicalOrganizationId,
+        venueId: parent.canonicalVenueId,
+        contactId: parent.canonicalContactId,
+        sourceType:
+          text(normalized.sourceType, raw.sourceType, record.sourceStatus) ?? 'STAGING_PACKAGE',
+        sourceUrl: text(normalized.url, raw.url, raw.URL),
+        sourceLabel: text(normalized.label, raw.label),
+        capturedValue: json({ raw, normalized, importSourceRecordId: record.id }),
+        researchedAt: text(normalized.researchedAt)
+          ? new Date(text(normalized.researchedAt)!)
+          : null,
+        createdBy: 'system:prospect-package-import',
+      },
+    })
+  }
   return {
     recordType: 'ProspectSourceEvidence',
     recordId: evidenceId,
@@ -522,32 +528,36 @@ async function mapDraft(record: ClaimedSourceRecord, tx: CommitTx): Promise<Cano
   const evidenceIds = Array.isArray(metadata.supportingEvidenceIds)
     ? metadata.supportingEvidenceIds.filter((value): value is string => typeof value === 'string')
     : []
-  await tx.prospectOutreachDraft.upsert({
+  const existingDraft = await tx.prospectOutreachDraft.findUnique({
     where: { id: draftId },
-    create: {
-      id: draftId,
-      campaignId,
-      memberId,
-      organizationId,
-      venueId,
-      contactId,
-      version,
-      status: 'NEEDS_REVIEW',
-      toEmail,
-      subject,
-      textBody,
-      contentHash: hash(`${toEmail}\n${subject}\n${textBody}\n`),
-      groundingSnapshot: {
-        importId: record.importId,
-        importSourceRecordId: record.id,
-        supportingEvidenceIds: evidenceIds,
-      },
-      escalationFlags: ['IMPORTED_INERT_DRAFT'],
-      generatedByType: 'AGENT',
-      generatedById: text(object(manifest(record.import).lineage).runId) ?? 'hermes-staging',
-    },
-    update: {},
+    select: { id: true },
   })
+  if (!existingDraft) {
+    await tx.prospectOutreachDraft.create({
+      data: {
+        id: draftId,
+        campaignId,
+        memberId,
+        organizationId,
+        venueId,
+        contactId,
+        version,
+        status: 'NEEDS_REVIEW',
+        toEmail,
+        subject,
+        textBody,
+        contentHash: hash(`${toEmail}\n${subject}\n${textBody}\n`),
+        groundingSnapshot: {
+          importId: record.importId,
+          importSourceRecordId: record.id,
+          supportingEvidenceIds: evidenceIds,
+        },
+        escalationFlags: ['IMPORTED_INERT_DRAFT'],
+        generatedByType: 'AGENT',
+        generatedById: text(object(manifest(record.import).lineage).runId) ?? 'hermes-staging',
+      },
+    })
+  }
   return {
     recordType: 'ProspectOutreachDraft',
     recordId: draftId,
