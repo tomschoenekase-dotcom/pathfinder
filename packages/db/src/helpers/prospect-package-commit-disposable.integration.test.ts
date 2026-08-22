@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from 'node:crypto'
+
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { db } from '../client'
@@ -17,12 +19,13 @@ const actor = {
   id: 'packet-e-integration-admin',
   role: 'PLATFORM_ADMIN' as const,
 }
-const workbookHash = 'e'.repeat(64)
+const suffix = randomUUID()
+const workbookHash = createHash('sha256').update(suffix).digest('hex')
 
 function stagingPackage() {
   return {
     schema: 'torchiko.prospect-staging-package/v1',
-    packageId: 'packet-e-disposable-package',
+    packageId: `packet-e-disposable-package-${suffix}`,
     sourceSystem: 'HERMES_STAGING',
     createdAt: '2026-08-22T16:00:00.000Z',
     sourceWorkbook: { name: 'synthetic.xlsx', sha256: workbookHash, rowCount: 1 },
@@ -55,8 +58,8 @@ function stagingPackage() {
         kind: 'CONTACT',
         externalId: 'contact-1',
         parentExternalId: 'prospect-1',
-        raw: { Email: 'curator@packet-e.example' },
-        normalized: { fullName: 'Casey Curator', email: 'curator@packet-e.example' },
+        raw: { Email: `curator-${suffix}@packet-e.example` },
+        normalized: { fullName: 'Casey Curator', email: `curator-${suffix}@packet-e.example` },
         status: 'RESEARCHED',
       },
       {
@@ -135,17 +138,28 @@ suite('staging package disposable commit', () => {
         where: { id: records.find((record) => record.recordKind === 'DRAFT')!.canonicalDraftId! },
       })
       expect(draft).toMatchObject({ status: 'NEEDS_REVIEW', approvedAt: null, approvedBy: null })
-      expect(await db.prospectSendBatch.count()).toBe(0)
-      expect(await db.prospectSendOutbox.count()).toBe(0)
-      expect(await db.prospectEmailMessage.count()).toBe(0)
+      expect(await db.prospectSendBatch.count({ where: { campaignId: draft!.campaignId } })).toBe(0)
+      expect(
+        await db.prospectSendOutbox.count({ where: { sendItem: { draftId: draft!.id } } }),
+      ).toBe(0)
+      expect(
+        await db.prospectEmailMessage.count({ where: { sendItem: { draftId: draft!.id } } }),
+      ).toBe(0)
 
       const replay = await admitProspectStagingPackageAction({ package: stagingPackage(), actor })
       expect(replay).toMatchObject({ importId: admitted.importId, replayed: true })
-      expect(await db.prospectOrganization.count()).toBe(1)
-      expect(await db.prospectVenue.count()).toBe(1)
-      expect(await db.prospectContact.count()).toBe(1)
-      expect(await db.prospectSourceEvidence.count()).toBe(1)
-      expect(await db.prospectOutreachDraft.count()).toBe(1)
+      const prospect = records.find((record) => record.recordKind === 'PROSPECT')!
+      const contact = records.find((record) => record.recordKind === 'CONTACT')!
+      const evidence = records.find((record) => record.recordKind === 'EVIDENCE')!
+      expect(
+        await db.prospectOrganization.count({ where: { id: prospect.canonicalOrganizationId! } }),
+      ).toBe(1)
+      expect(await db.prospectVenue.count({ where: { id: prospect.canonicalVenueId! } })).toBe(1)
+      expect(await db.prospectContact.count({ where: { id: contact.canonicalContactId! } })).toBe(1)
+      expect(
+        await db.prospectSourceEvidence.count({ where: { id: evidence.canonicalEvidenceId! } }),
+      ).toBe(1)
+      expect(await db.prospectOutreachDraft.count({ where: { id: draft!.id } })).toBe(1)
     })
   }, 60_000)
 })
