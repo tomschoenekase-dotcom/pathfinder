@@ -41,6 +41,8 @@ function actions(): PathfinderMcpDomainActions {
     accountCorrespondence: vi.fn().mockResolvedValue(result),
     knowledgeSearch: vi.fn().mockResolvedValue(result),
     knowledgeGet: vi.fn().mockResolvedValue(result),
+    listKnowledgeGaps: vi.fn().mockResolvedValue(result),
+    proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
     integrationHealth: vi.fn().mockResolvedValue(result),
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),

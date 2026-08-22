@@ -14,6 +14,9 @@ import {
   completeCompanyMeetingProcessingAction,
   listAccountCorrespondence,
   listAccountMeetings,
+  listConversationKnowledgeGaps,
+  proposeKnowledgeCorrectionAction,
+  publishOperationalEvent,
   searchCompanyKnowledge,
 } from '@pathfinder/db'
 import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
@@ -54,6 +57,8 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'processMeeting'
     | 'knowledgeSearch'
     | 'knowledgeGet'
+    | 'listKnowledgeGaps'
+    | 'proposeKnowledgeCorrection'
     | 'integrationHealth'
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
@@ -67,7 +72,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   }
   const approvedWrites: Pick<
     PathfinderMcpDomainActions,
-    'verifyApprovalGrant' | 'createUpdateDraft' | 'processMeeting'
+    'verifyApprovalGrant' | 'createUpdateDraft' | 'processMeeting' | 'proposeKnowledgeCorrection'
   > = {
     async verifyApprovalGrant(request, context) {
       const now = new Date()
@@ -215,6 +220,103 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         }),
       }
     },
+    async proposeKnowledgeCorrection(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Knowledge corrections require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'knowledge:draft' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified knowledge worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified knowledge worker run is unavailable')
+
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.id,
+        credentialId: context.credential.credentialId,
+        capability: 'knowledge:draft',
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const result = await proposeKnowledgeCorrectionAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          conversationInsightId: input.conversationInsightId,
+          ...(input.targetKnowledgeEntryId
+            ? { targetKnowledgeEntryId: input.targetKnowledgeEntryId }
+            : {}),
+          correctionKind: input.correctionKind,
+          aiInference: input.aiInference,
+          proposedChange: input.proposedChange,
+          reason: input.reason,
+          confidence: input.confidence,
+          actor,
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'knowledge.proposal.created',
+            sourceSubsystem: 'conversation-intelligence',
+            severity: 'WARNING',
+            title: 'Visitor-answer correction needs review',
+            summary:
+              'An AI worker prepared an evidence-linked correction. Canonical venue knowledge is unchanged.',
+            actionRequired: true,
+            linkedObjectType: 'knowledge-change-proposal',
+            linkedObjectId: result.proposal.id,
+            recommendedAction:
+              'Compare the source conversation and trusted venue evidence, then approve or reject the proposal.',
+            deduplicationKey: `knowledge-proposal:${result.proposal.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.knowledge-correction-proposal',
+        summary: result.replayed
+          ? 'Existing visitor-answer correction returned.'
+          : 'Visitor-answer correction recorded for human review; canonical knowledge is unchanged.',
+        data: jsonData({
+          id: result.proposal.id,
+          status: result.proposal.status,
+          replayed: result.replayed,
+          canonicalKnowledgeChanged: false,
+        }),
+      }
+    },
     async processMeeting(input, context) {
       const venueId = input.venueId
       if (!venueId) throw new McpActionBindingError('Meeting processing requires venue scope')
@@ -332,6 +434,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'accountCorrespondence'
     | 'knowledgeSearch'
     | 'knowledgeGet'
+    | 'listKnowledgeGaps'
     | 'integrationHealth'
   > = {
     async accountContext(input, context) {
@@ -478,6 +581,23 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         kind: 'torchiko.company-knowledge-item',
         summary: data.item.title,
         data: jsonData(data),
+      }
+    },
+    async listKnowledgeGaps(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Knowledge gap review requires venue scope')
+      const data = await listConversationKnowledgeGaps(
+        {
+          tenantId: context.credential.tenantId,
+          venueId,
+          limit: input.limit,
+        },
+        database,
+      )
+      return {
+        kind: 'torchiko.visitor-knowledge-gaps',
+        summary: `${data.length} reviewable visitor knowledge gap(s).`,
+        data: jsonData({ items: data }),
       }
     },
     async integrationHealth(input, context) {

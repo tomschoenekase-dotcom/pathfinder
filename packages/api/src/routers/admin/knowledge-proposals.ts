@@ -13,6 +13,10 @@ import { adminProcedure } from '../../trpc'
 
 const scope = { tenantId: z.string().min(1).max(191), venueId: z.string().min(1).max(191) } as const
 
+function isUniqueConflict(error: unknown) {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')
+}
+
 export const adminKnowledgeProposalsRouter = router({
   listKnowledgeProposals: adminProcedure
     .input(
@@ -46,6 +50,7 @@ export const adminKnowledgeProposalsRouter = router({
           select: {
             id: true,
             status: true,
+            sessionId: true,
             observedVisitorClaim: true,
             aiInference: true,
             proposedChange: true,
@@ -90,9 +95,37 @@ export const adminKnowledgeProposalsRouter = router({
           .$transaction(async (tx) => {
             const existing = await tx.knowledgeChangeProposal.findFirst({
               where: { id, tenantId: input.tenantId, venueId: input.venueId },
-              select: { id: true, status: true },
+              select: {
+                id: true,
+                status: true,
+                conversationInsightId: true,
+                targetKnowledgeEntryId: true,
+                observedVisitorClaim: true,
+                aiInference: true,
+                proposedChange: true,
+                reason: true,
+                confidence: true,
+                evidenceMessageIds: true,
+              },
             })
-            if (existing) return { ...existing, replayed: true }
+            if (existing) {
+              const exactReplay =
+                existing.conversationInsightId === (input.conversationInsightId ?? null) &&
+                existing.targetKnowledgeEntryId === (input.targetKnowledgeEntryId ?? null) &&
+                existing.observedVisitorClaim === (input.observedVisitorClaim ?? null) &&
+                existing.aiInference === (input.aiInference ?? null) &&
+                existing.proposedChange === input.proposedChange &&
+                existing.reason === input.reason &&
+                Number(existing.confidence) === input.confidence &&
+                JSON.stringify(existing.evidenceMessageIds) ===
+                  JSON.stringify(input.evidenceMessageIds)
+              if (!exactReplay)
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: 'Operation ID is already bound to a different proposal.',
+                })
+              return { id: existing.id, status: existing.status, replayed: true }
+            }
             if (input.conversationInsightId) {
               const insight = await tx.conversationInsight.findFirst({
                 where: {
@@ -106,6 +139,20 @@ export const adminKnowledgeProposalsRouter = router({
                 throw new TRPCError({
                   code: 'NOT_FOUND',
                   message: 'Conversation insight not found.',
+                })
+              const active = await tx.knowledgeChangeProposal.findFirst({
+                where: {
+                  tenantId: input.tenantId,
+                  venueId: input.venueId,
+                  conversationInsightId: input.conversationInsightId,
+                  status: { in: ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'PUBLISHED'] },
+                },
+                select: { id: true },
+              })
+              if (active)
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: 'This conversation insight already has an active proposal.',
                 })
             }
             if (input.targetKnowledgeEntryId) {
@@ -199,6 +246,14 @@ export const adminKnowledgeProposalsRouter = router({
               }).catch(() => undefined)
             }
             return result
+          })
+          .catch((error: unknown) => {
+            if (isUniqueConflict(error))
+              throw new TRPCError({
+                code: 'CONFLICT',
+                message: 'This conversation insight already has an active proposal.',
+              })
+            throw error
           })
       }),
     ),

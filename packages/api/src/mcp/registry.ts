@@ -10,6 +10,8 @@ import {
   McpEvaluationRequestInput,
   McpPackageDraftInput,
   McpKnowledgeGetInput,
+  McpKnowledgeGapListInput,
+  McpKnowledgeCorrectionProposalInput,
   McpKnowledgeSearchInput,
   McpIntegrationHealthInput,
   McpMeetingProcessInput,
@@ -52,6 +54,8 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.account.correspondence'
         | 'torchiko.knowledge.search'
         | 'torchiko.knowledge.get'
+        | 'torchiko.knowledge.list_gaps'
+        | 'torchiko.knowledge.propose_correction'
         | 'torchiko.integrations.health'
         | 'pathfinder.ask_operator'
         | 'pathfinder.delegate_specialist'
@@ -94,6 +98,14 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   knowledgeGet: (
     input: McpKnowledgeGetInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  listKnowledgeGaps: (
+    input: McpKnowledgeGapListInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeKnowledgeCorrection: (
+    input: McpKnowledgeCorrectionProposalInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   integrationHealth: (
@@ -250,6 +262,18 @@ export function createPathfinderMcpRegistry(
           result = await actions.knowledgeGet(input, context)
           break
         }
+        case 'torchiko.knowledge.list_gaps': {
+          const input = McpKnowledgeGapListInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.listKnowledgeGaps(input, context)
+          break
+        }
+        case 'torchiko.knowledge.propose_correction': {
+          const input = McpKnowledgeCorrectionProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.proposeKnowledgeCorrection(input, context)
+          break
+        }
         case 'torchiko.integrations.health': {
           const input = McpIntegrationHealthInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
@@ -346,6 +370,8 @@ async function verifyApproval(
     | 'torchiko.account.correspondence'
     | 'torchiko.knowledge.search'
     | 'torchiko.knowledge.get'
+    | 'torchiko.knowledge.list_gaps'
+    | 'torchiko.knowledge.propose_correction'
     | 'torchiko.integrations.health'
     | 'pathfinder.ask_operator'
     | 'pathfinder.delegate_specialist'

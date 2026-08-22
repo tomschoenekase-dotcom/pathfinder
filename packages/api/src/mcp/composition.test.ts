@@ -1,16 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { consumeApproval, createUpdate, buildPreview } = vi.hoisted(() => ({
-  consumeApproval: vi.fn(),
-  createUpdate: vi.fn(),
-  buildPreview: vi.fn(),
-}))
+const { consumeApproval, createUpdate, buildPreview, listGaps, proposeCorrection, publishEvent } =
+  vi.hoisted(() => ({
+    consumeApproval: vi.fn(),
+    createUpdate: vi.fn(),
+    buildPreview: vi.fn(),
+    listGaps: vi.fn(),
+    proposeCorrection: vi.fn(),
+    publishEvent: vi.fn(),
+  }))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
   consumeApprovalGrantAction: consumeApproval,
   createOperationalUpdateAction: createUpdate,
   buildOperationalUpdatePreview: buildPreview,
+  listConversationKnowledgeGaps: listGaps,
+  proposeKnowledgeCorrectionAction: proposeCorrection,
+  publishOperationalEvent: publishEvent,
 }))
 
 import type { VerifiedMcpCredentialScope } from '@pathfinder/contracts/mcp-v0'
@@ -160,5 +167,99 @@ describe('safe operational MCP composition', () => {
         where: expect.objectContaining({ executionWorkerId: 'worker-id-1' }),
       }),
     )
+  })
+
+  it('returns only the canonical bounded visitor-gap projection through review scope', async () => {
+    listGaps.mockResolvedValue([
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        category: 'KNOWLEDGE_GAP',
+        visitorQuestion: 'Where is the accessible entrance?',
+        assistantAnswer: 'I do not have that information.',
+      },
+    ])
+    const registry = createSafeOperationalMcpRegistry({} as never)
+    const result = await registry.callTool(
+      'torchiko.knowledge.list_gaps',
+      { clientId: 'tenant-1', venueId: 'venue-1', limit: 5 },
+      { credential: { ...credential, capabilities: ['conversations:review'] } },
+    )
+
+    expect(listGaps).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', venueId: 'venue-1', limit: 5 },
+      expect.anything(),
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      items: [expect.objectContaining({ category: 'KNOWLEDGE_GAP' })],
+    })
+  })
+
+  it('lets a verified knowledge worker prepare review evidence without changing canonical content', async () => {
+    proposeCorrection.mockResolvedValue({
+      proposal: { id: '11111111-1111-4111-8111-111111111111', status: 'PENDING_REVIEW' },
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({})
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          modelProvider: 'provider-dark',
+          modelName: 'deterministic-fixture',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const input = {
+      clientId: 'tenant-1',
+      venueId: 'venue-1',
+      operationId: '11111111-1111-4111-8111-111111111111',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      conversationInsightId: '22222222-2222-4222-8222-222222222222',
+      correctionKind: 'RETRIEVAL_CORRECTION' as const,
+      aiInference: 'The answer lacks trusted support.',
+      proposedChange: 'Add a source-backed accessibility entry.',
+      reason: 'The public question should be answerable.',
+      confidence: 0.8,
+    }
+    const result = await registry.callTool('torchiko.knowledge.propose_correction', input, {
+      credential: { ...credential, capabilities: ['knowledge:draft'] },
+    })
+
+    expect(database.agentWorker.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          credentialId: 'credential-1',
+          capabilities: { has: 'knowledge:draft' },
+        }),
+      }),
+    )
+    expect(proposeCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        actor: expect.objectContaining({
+          type: 'AGENT',
+          capability: 'knowledge:draft',
+          agentRunId: 'run-1',
+        }),
+      }),
+      database,
+    )
+    expect(publishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          eventType: 'knowledge.proposal.created',
+          actionRequired: true,
+        }),
+      }),
+    )
+    expect(result.structuredContent.data).toMatchObject({
+      status: 'PENDING_REVIEW',
+      canonicalKnowledgeChanged: false,
+    })
   })
 })

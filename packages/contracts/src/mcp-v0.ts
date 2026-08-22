@@ -42,6 +42,7 @@ export const McpCapability = z.enum([
   'evaluations:read',
   'reports:read',
   'conversations:read',
+  'conversations:review',
   'integrations:read',
   'agent-runs:read',
   'events:read',
@@ -52,6 +53,7 @@ export const McpCapability = z.enum([
   'outcomes:read',
   'accounts:read',
   'knowledge:read',
+  'knowledge:draft',
   'meetings:read',
   'meetings:process',
   'workers:read',
@@ -488,6 +490,34 @@ export const McpKnowledgeGetInput = McpRequestedScope.extend({
 }).strict()
 export type McpKnowledgeGetInput = z.infer<typeof McpKnowledgeGetInput>
 
+export const McpKnowledgeGapListInput = McpRequestedScope.extend({
+  limit: z.number().int().min(1).max(25).default(10),
+}).strict()
+export type McpKnowledgeGapListInput = z.infer<typeof McpKnowledgeGapListInput>
+
+export const McpKnowledgeCorrectionProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  conversationInsightId: z.string().uuid(),
+  targetKnowledgeEntryId: Identifier.optional(),
+  correctionKind: z.enum([
+    'CREATE_KNOWLEDGE',
+    'UPDATE_KNOWLEDGE',
+    'RETIRE_KNOWLEDGE',
+    'RETRIEVAL_CORRECTION',
+    'NO_CONTENT_CHANGE',
+  ]),
+  aiInference: z.string().trim().min(1).max(2000),
+  proposedChange: z.string().trim().min(1).max(10000),
+  reason: z.string().trim().min(1).max(2000),
+  confidence: z.number().min(0).max(1),
+}).strict()
+export type McpKnowledgeCorrectionProposalInput = z.infer<
+  typeof McpKnowledgeCorrectionProposalInput
+>
+
 const McpMeetingExtractionType = z.enum([
   'SUMMARY',
   'DECISION',
@@ -669,6 +699,8 @@ export type PathfinderMcpToolName =
   | 'torchiko.account.correspondence'
   | 'torchiko.knowledge.search'
   | 'torchiko.knowledge.get'
+  | 'torchiko.knowledge.list_gaps'
+  | 'torchiko.knowledge.propose_correction'
   | 'torchiko.integrations.health'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
@@ -886,6 +918,79 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('client-or-venue', 'knowledge:read', 'read') },
+  },
+  {
+    name: 'torchiko.knowledge.list_gaps',
+    title: 'List reviewable visitor knowledge gaps',
+    description:
+      'Return a bounded venue-scoped queue of public visitor questions and assistant answers already flagged by deterministic retrieval-quality rules. No visitor identity or location is returned.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        limit: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
+      },
+      scopeRequired,
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'conversations:review', 'read') },
+  },
+  {
+    name: 'torchiko.knowledge.propose_correction',
+    title: 'Prepare a visitor-answer correction',
+    description:
+      'Create one idempotent, evidence-linked knowledge or retrieval correction for human review. It never edits, publishes, retires, or re-embeds canonical venue knowledge.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        conversationInsightId: { type: 'string', format: 'uuid' },
+        targetKnowledgeEntryId: { type: 'string', minLength: 1, maxLength: 120 },
+        correctionKind: {
+          type: 'string',
+          enum: [
+            'CREATE_KNOWLEDGE',
+            'UPDATE_KNOWLEDGE',
+            'RETIRE_KNOWLEDGE',
+            'RETRIEVAL_CORRECTION',
+            'NO_CONTENT_CHANGE',
+          ],
+        },
+        aiInference: { type: 'string', minLength: 1, maxLength: 2000 },
+        proposedChange: { type: 'string', minLength: 1, maxLength: 10000 },
+        reason: { type: 'string', minLength: 1, maxLength: 2000 },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'conversationInsightId',
+        'correctionKind',
+        'aiInference',
+        'proposedChange',
+        'reason',
+        'confidence',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
   },
   {
     name: 'torchiko.integrations.health',

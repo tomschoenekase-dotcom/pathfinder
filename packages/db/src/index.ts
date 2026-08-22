@@ -6,6 +6,14 @@ export {
   type ConversationInsightSignal,
 } from './helpers/conversation-insights'
 export {
+  KnowledgeCorrectionActionError,
+  listConversationKnowledgeGaps,
+  proposeKnowledgeCorrectionAction,
+  type KnowledgeCorrectionActionErrorCode,
+  type KnowledgeCorrectionKind,
+  type ProposeKnowledgeCorrectionInput,
+} from './helpers/knowledge-correction-actions'
+export {
   publishOperationalEvent,
   type PublishOperationalEventInput,
 } from './helpers/operational-events'
