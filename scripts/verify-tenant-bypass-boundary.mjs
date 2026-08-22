@@ -138,6 +138,10 @@ const approvedCallCounts = new Map([
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
+  // Platform maintenance performs one bounded, read-only Gmail retention inventory across
+  // prospect organizations. It selects body-presence booleans for aggregate policy evidence and
+  // never returns body content or mutates retention state.
+  ['packages/db/src/helpers/email-body-retention.ts', 1],
   // Signature-verified Stripe ingress resolves an unknown provider object to one
   // namespaced account; platform-admin manual billing then revalidates exact tenant+venue scope.
   ['packages/billing/src/service.ts', 4],

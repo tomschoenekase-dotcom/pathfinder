@@ -8,14 +8,14 @@ describe('Gmail body retention inventory', () => {
       {
         id: 'legacy_1',
         bodyRetentionState: 'LEGACY_REVIEW_REQUIRED' as const,
-        textBody: 'legacy',
+        textBody: 'confidential-body-marker',
         htmlBody: null,
         bodyExpiresAt: null,
       },
       {
         id: 'expired_1',
         bodyRetentionState: 'TEMPORARY' as const,
-        textBody: 'temporary',
+        textBody: 'temporary-body-marker',
         htmlBody: null,
         bodyExpiresAt: new Date('2026-08-21T00:00:00Z'),
       },
@@ -26,7 +26,20 @@ describe('Gmail body retention inventory', () => {
       client as never,
     )
     expect(result).toMatchObject({ scanned: 2, legacyReviewRequired: 1, eligibleForRemoval: 1 })
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 500 }))
+    expect(JSON.stringify(result)).not.toContain('confidential-body-marker')
+    expect(JSON.stringify(result)).not.toContain('temporary-body-marker')
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 500,
+        select: {
+          id: true,
+          bodyRetentionState: true,
+          textBody: true,
+          htmlBody: true,
+          bodyExpiresAt: true,
+        },
+      }),
+    )
     expect(Object.keys(client.prospectEmailMessage)).toEqual(['findMany'])
   })
 })
