@@ -37,7 +37,8 @@ const approvedCallCounts = new Map([
   // Platform worker scans a bounded cross-tenant outbox and each delivery action retains tenant scope.
   ['apps/workers/src/processors/operational-event-delivery.ts', 4],
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
-  ['packages/api/src/routers/admin/attention-console.ts', 3],
+  ['packages/api/src/routers/admin/attention-console.ts', 1],
+  ['packages/api/src/routers/admin/attention-event-actions.ts', 2],
   // Platform-admin-only bounded readiness projection over platform-wide operational evidence.
   ['packages/api/src/routers/admin/operations-readiness.ts', 1],
   ['packages/api/src/routers/admin/agent-operations.ts', 6],
