@@ -68,11 +68,22 @@ export function buildReleaseGates(profile) {
 }
 
 export function defaultCommandRunner(command, args, { cwd }) {
-  const executable = process.platform === 'win32' && command === 'pnpm' ? 'pnpm.cmd' : command
+  let executable = command
+  let executableArgs = args
+  if (command === 'pnpm' && process.platform === 'win32') {
+    const pnpmEntry = process.env.npm_execpath
+    if (!pnpmEntry || !/pnpm(?:\.c?js)?$/iu.test(pnpmEntry)) return Promise.resolve({ code: 1 })
+    executable = process.execPath
+    executableArgs = [pnpmEntry, ...args]
+  }
   return new Promise((resolve) => {
-    const child = spawn(executable, args, { cwd, shell: false, stdio: 'inherit' })
-    child.once('error', () => resolve({ code: 1 }))
-    child.once('exit', (code, signal) => resolve({ code: signal ? 1 : (code ?? 1) }))
+    try {
+      const child = spawn(executable, executableArgs, { cwd, shell: false, stdio: 'inherit' })
+      child.once('error', () => resolve({ code: 1 }))
+      child.once('exit', (code, signal) => resolve({ code: signal ? 1 : (code ?? 1) }))
+    } catch {
+      resolve({ code: 1 })
+    }
   })
 }
 

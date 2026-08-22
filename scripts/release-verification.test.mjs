@@ -6,6 +6,7 @@ import test from 'node:test'
 
 import {
   buildReleaseGates,
+  defaultCommandRunner,
   parseReleaseVerificationArgs,
   runReleaseVerification,
 } from './lib/release-verification.mjs'
@@ -52,6 +53,17 @@ test('candidate profile is a strict superset of static release gates', () => {
   assert.ok(candidateIds.includes('build'))
   assert.ok(candidateIds.includes('accessibility'))
 })
+
+test('default runner contains command startup failures as a failed gate', async () => {
+  await expectCode(
+    defaultCommandRunner('definitely-not-a-real-command', [], { cwd: process.cwd() }),
+  )
+})
+
+async function expectCode(resultPromise) {
+  const result = await resultPromise
+  assert.equal(result.code, 1)
+}
 
 test('clean static verification emits machine and founder-readable evidence', async () => {
   const root = await fixture()
