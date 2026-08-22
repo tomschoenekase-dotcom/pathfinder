@@ -466,13 +466,27 @@ export const chatRouter = router({
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
     }
 
-    // 7. Persist messages in two separate statements so they get distinct createdAt
+    // 7. Atomically reserve the pair of session-local sequence numbers required by
+    //    the durable guest-chat schema already applied to the live database. This
+    //    keeps this production compatibility hotfix safe under concurrent sends
+    //    without pulling the unreleased durable-turn implementation into master.
+    const sequenceReservation = await ctx.db.visitorSession.update({
+      where: { id: session.id },
+      data: { nextMessageSequence: { increment: 2 } },
+      select: { nextMessageSequence: true },
+    })
+    const assistantMessageSequence = sequenceReservation.nextMessageSequence
+    const userMessageSequence = assistantMessageSequence - 1
+
+    // 8. Persist messages in two separate statements so they get distinct createdAt
     //    timestamps. A single $transaction gives both rows the same now() value,
     //    making orderBy: { createdAt: 'desc' } non-deterministic on the next request.
     const userMessage = await ctx.db.message.create({
       data: {
         tenantId: venue.tenantId,
+        venueId: input.venueId,
         sessionId: session.id,
+        sessionSequence: userMessageSequence,
         role: 'user',
         content: trimmedInput,
       },
@@ -481,7 +495,9 @@ export const chatRouter = router({
     const assistantMessage = await ctx.db.message.create({
       data: {
         tenantId: venue.tenantId,
+        venueId: input.venueId,
         sessionId: session.id,
+        sessionSequence: assistantMessageSequence,
         role: 'assistant',
         content: assistantResponse,
       },

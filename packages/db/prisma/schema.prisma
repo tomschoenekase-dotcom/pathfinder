@@ -277,6 +277,7 @@ model VisitorSession {
   startedAt                       DateTime                     @default(now()) @map("started_at")
   lastActiveAt                    DateTime                     @default(now()) @map("last_active_at")
   messageCount                    Int                          @default(0) @map("message_count")
+  nextMessageSequence             Int                          @default(0) @map("next_message_sequence")
   pendingEngagementQuestionId     String?                      @map("pending_engagement_question_id")
   pendingEngagementIsInvented     Boolean                      @default(false) @map("pending_engagement_is_invented")
   pendingEngagementAskedMessageId String?                      @map("pending_engagement_asked_message_id")
@@ -341,18 +342,21 @@ model AdminChatlogNote {
 }
 
 model Message {
-  id        String         @id @default(cuid())
-  tenantId  String         @map("tenant_id")
-  sessionId String         @map("session_id")
-  role      MessageRole
-  content   String
+  id              String         @id @default(cuid())
+  tenantId        String         @map("tenant_id")
+  venueId         String         @map("venue_id")
+  sessionId       String         @map("session_id")
+  sessionSequence Int            @map("session_sequence")
+  role            MessageRole
+  content         String
   // Fixed-taxonomy topic label, filled nightly by the analytics-enrichment job.
   // Nullable; null means "not yet classified".
-  topic     String?
-  createdAt DateTime       @default(now()) @map("created_at")
-  session   VisitorSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  topic           String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  session         VisitorSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
 
   @@index([tenantId])
+  @@index([tenantId, venueId])
   @@index([sessionId])
   @@index([topic])
   @@map("messages")

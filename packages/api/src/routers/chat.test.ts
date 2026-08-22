@@ -47,6 +47,7 @@ describe('enforceResponseWordCap', () => {
 
 const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
+const sessionUpdate = vi.fn()
 const sessionUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
 const placeFindMany = vi.fn()
 const placeFindFirst = vi.fn()
@@ -62,7 +63,11 @@ const operationalUpdateFindMany = vi.fn().mockResolvedValue([])
 
 const mockDb = {
   venue: {},
-  visitorSession: { upsert: sessionUpsert, updateMany: sessionUpdateMany },
+  visitorSession: {
+    upsert: sessionUpsert,
+    update: sessionUpdate,
+    updateMany: sessionUpdateMany,
+  },
   tenant: { findUnique: tenantFindUnique },
   engagementQuestion: {
     findMany: engagementQuestionFindMany,
@@ -139,6 +144,7 @@ describe('chat router', () => {
     operationalUpdateFindMany.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
+    sessionUpdate.mockResolvedValue({ nextMessageSequence: 2 })
     sessionUpdateMany.mockResolvedValue({ count: 1 })
     engagementQuestionResponseCreate.mockResolvedValue({})
   })
@@ -273,15 +279,30 @@ describe('chat router', () => {
       expect(messageCreate).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({
-          data: expect.objectContaining({ role: 'user', content: sendInput.message }),
+          data: expect.objectContaining({
+            venueId: VENUE_ID,
+            sessionSequence: 1,
+            role: 'user',
+            content: sendInput.message,
+          }),
         }),
       )
       expect(messageCreate).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({
-          data: expect.objectContaining({ role: 'assistant', content: 'Near the entrance.' }),
+          data: expect.objectContaining({
+            venueId: VENUE_ID,
+            sessionSequence: 2,
+            role: 'assistant',
+            content: 'Near the entrance.',
+          }),
         }),
       )
+      expect(sessionUpdate).toHaveBeenCalledWith({
+        where: { id: SESSION_ID },
+        data: { nextMessageSequence: { increment: 2 } },
+        select: { nextMessageSequence: true },
+      })
     })
 
     it('returns fallback string on Claude API failure — does not throw TRPCError', async () => {

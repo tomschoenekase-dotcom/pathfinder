@@ -30,13 +30,14 @@ import { _setAnthropicClientForTesting, chatRouter } from './chat'
 
 const dbQueryRaw = vi.fn()
 const sessionUpsert = vi.fn()
+const sessionUpdate = vi.fn()
 const messageFindMany = vi.fn()
 const messageCreate = vi.fn()
 const tenantFindUnique = vi.fn()
 const engagementQuestionFindMany = vi.fn()
 
 const mockDb = {
-  visitorSession: { upsert: sessionUpsert },
+  visitorSession: { upsert: sessionUpsert, update: sessionUpdate },
   tenant: { findUnique: tenantFindUnique },
   engagementQuestion: { findMany: engagementQuestionFindMany },
   place: { findMany: vi.fn() },
@@ -102,6 +103,7 @@ describe('chat.send low-confidence flag', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     _setAnthropicClientForTesting(mockAnthropicClient)
+    sessionUpdate.mockResolvedValue({ nextMessageSequence: 2 })
   })
 
   afterEach(() => {
