@@ -37,7 +37,7 @@ describe('AdminSectionShell browser foundation', () => {
 
     const navigations = screen.getAllByRole('navigation', { name: 'Torchiko OS navigation' })
     expect(navigations).toHaveLength(1)
-    expect(screen.getByRole('link', { name: 'Operations' }).getAttribute('aria-current')).toBe(
+    expect(screen.getByRole('link', { name: 'Control room' }).getAttribute('aria-current')).toBe(
       'page',
     )
     expect(screen.getByRole('link', { name: 'Command center' }).getAttribute('aria-current')).toBe(
@@ -97,7 +97,7 @@ describe('AdminSectionShell browser foundation', () => {
     pathname = '/admin/operations/incidents/incident-1'
     render(<AdminSectionShell>Incident detail</AdminSectionShell>)
 
-    expect(screen.getByRole('link', { name: 'Operations' }).getAttribute('aria-current')).toBe(
+    expect(screen.getByRole('link', { name: 'Control room' }).getAttribute('aria-current')).toBe(
       'page',
     )
     expect(screen.getByRole('link', { name: 'Command center' }).getAttribute('aria-current')).toBe(
