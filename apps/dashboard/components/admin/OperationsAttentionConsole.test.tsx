@@ -16,7 +16,9 @@ vi.mock('./ApprovalDecisionForm', () => ({
 import { OperationsAttentionConsole } from './OperationsAttentionConsole'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
-const empty = {
+type Data = React.ComponentProps<typeof OperationsAttentionConsole>['data']
+
+const empty: Data = {
   generatedAt: new Date('2026-08-11T14:30:00.000Z'),
   jobs: { items: [], nextCursor: null },
   evaluations: { items: [], nextCursor: null },
@@ -31,6 +33,26 @@ const empty = {
   events: { items: [], nextCursor: null },
   platformEvents: { items: [], nextCursor: null },
   workers: [],
+  briefing: {
+    schemaVersion: 1,
+    focus: {
+      kind: 'CLEAR',
+      urgency: 'NONE',
+      label: 'No urgent founder action',
+      title: 'The operating queues are clear.',
+      detail: 'No urgent work is visible.',
+      action: { label: 'See what agents are doing', href: '/admin/operations#ai-workforce' },
+      source: {
+        scope: 'PLATFORM',
+        objectType: 'attention-console',
+        objectId: null,
+        tenantId: null,
+        venueId: null,
+      },
+    },
+    metrics: { decisions: 0, criticalRisks: 0, workingAgents: 0, customerItems: 0 },
+    boundedSnapshot: { limit: 10, hasMore: false },
+  },
 }
 
 describe('operations attention console', () => {
@@ -84,6 +106,25 @@ describe('operations attention console', () => {
               },
             ],
             nextCursor: null,
+          },
+          briefing: {
+            ...empty.briefing,
+            focus: {
+              kind: 'FOUNDER_QUESTION',
+              urgency: 'HIGH',
+              label: 'Founder decision',
+              title: 'Which pricing assumption should I use?',
+              detail: 'Two sources disagree.',
+              action: { label: 'Answer here', href: '/admin/operations#needs-you-heading' },
+              source: {
+                scope: 'TENANT',
+                objectType: 'agent-question',
+                objectId: 'question_1',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+              },
+            },
+            metrics: { ...empty.briefing.metrics, decisions: 1 },
           },
         }}
       />,
@@ -149,6 +190,28 @@ describe('operations attention console', () => {
             ],
             nextCursor: null,
           },
+          briefing: {
+            ...empty.briefing,
+            focus: {
+              kind: 'CUSTOMER_RISK',
+              urgency: 'CRITICAL',
+              label: 'Customer or system risk',
+              title: 'Visitor chat is unavailable',
+              detail: 'Inspect the affected chat turns.',
+              action: {
+                label: 'Review risk now',
+                href: '/admin/clients/tenant_1/venues/venue_1/chatlogs',
+              },
+              source: {
+                scope: 'TENANT',
+                objectType: 'operational-event',
+                objectId: 'event_critical',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+              },
+            },
+            metrics: { ...empty.briefing.metrics, decisions: 1, criticalRisks: 1 },
+          },
         }}
       />,
     )
@@ -181,13 +244,35 @@ describe('operations attention console', () => {
             ],
             nextCursor: null,
           },
+          briefing: {
+            ...empty.briefing,
+            focus: {
+              kind: 'APPROVAL',
+              urgency: 'HIGH',
+              label: 'Approval',
+              title: 'Apply reviewed hours update',
+              detail: 'Support operator · medium risk',
+              action: {
+                label: 'Make a decision',
+                href: '/admin/operations#approval-attention-heading',
+              },
+              source: {
+                scope: 'TENANT',
+                objectType: 'approval-request',
+                objectId: 'approval_1',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+              },
+            },
+            metrics: { ...empty.briefing.metrics, decisions: 1 },
+          },
         }}
       />,
     )
 
     expect(screen.getByText('Inline approval decision')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Make a decision' }).getAttribute('href')).toBe(
-      '#approval-attention-heading',
+      '/admin/operations#approval-attention-heading',
     )
     expect(
       screen.getByRole('link', { name: 'Open full approval context' }).getAttribute('href'),

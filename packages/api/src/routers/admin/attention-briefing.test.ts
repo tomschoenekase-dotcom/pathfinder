@@ -1,0 +1,184 @@
+import { describe, expect, it } from 'vitest'
+
+import { deriveFounderBriefing } from './attention-briefing'
+import type { FounderBriefingInput } from './attention-briefing'
+
+const page = <T>(items: T[], hasMore = false) => ({
+  items,
+  nextCursor: hasMore ? { createdAt: '2026-08-22T00:00:00.000Z', id: 'next' } : null,
+})
+
+function input(): FounderBriefingInput {
+  return {
+    limit: 10,
+    events: page([]),
+    platformEvents: page([]),
+    questions: page([]),
+    approvals: page([]),
+    blockedAgents: page([]),
+    support: page([]),
+    workingAgents: page([]),
+  }
+}
+
+describe('founder briefing contract', () => {
+  it('returns an honest versioned clear state for an empty bounded snapshot', () => {
+    const result = deriveFounderBriefing(input())
+
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      focus: {
+        kind: 'CLEAR',
+        urgency: 'NONE',
+        source: { scope: 'PLATFORM', objectType: 'attention-console', objectId: null },
+      },
+      metrics: { decisions: 0, criticalRisks: 0, workingAgents: 0, customerItems: 0 },
+      boundedSnapshot: { limit: 10, hasMore: false },
+    })
+  })
+
+  it('prioritizes customer risk above platform risk, questions, approvals, and routine work', () => {
+    const value = input()
+    value.events = page([
+      {
+        id: 'event_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'guest-chat.provider-failure',
+        severity: 'CRITICAL',
+        title: 'Visitor chat is unavailable',
+        summary: 'Guest turns are failing.',
+        recommendedAction: 'Inspect affected turns.',
+        actionRequired: true,
+      },
+    ])
+    value.platformEvents = page([
+      {
+        id: 'platform_1',
+        eventType: 'crm.import.failed',
+        severity: 'ERROR',
+        title: 'CRM import failed',
+        summary: 'Import stopped.',
+        recommendedAction: null,
+        actionRequired: true,
+      },
+    ])
+    value.questions = page([
+      {
+        id: 'question_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        question: 'Choose a source',
+        context: null,
+        blocking: true,
+        agentIdentity: { name: 'Operator' },
+      },
+    ])
+
+    const result = deriveFounderBriefing(value)
+
+    expect(result.focus).toMatchObject({
+      kind: 'CUSTOMER_RISK',
+      title: 'Visitor chat is unavailable',
+      action: { href: '/admin/clients/tenant_1/venues/venue_1/chatlogs' },
+      source: {
+        scope: 'TENANT',
+        objectType: 'operational-event',
+        objectId: 'event_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+      },
+    })
+    expect(result.metrics).toMatchObject({ decisions: 1, criticalRisks: 2 })
+  })
+
+  it('routes platform CRM incidents without fabricating tenant scope', () => {
+    const value = input()
+    value.platformEvents = page([
+      {
+        id: 'platform_1',
+        eventType: 'crm.import.failed',
+        severity: 'ERROR',
+        title: 'CRM import failed',
+        summary: 'Import stopped.',
+        recommendedAction: null,
+        actionRequired: true,
+      },
+    ])
+
+    expect(deriveFounderBriefing(value).focus).toMatchObject({
+      kind: 'PLATFORM_RISK',
+      action: { href: '/admin/prospects/imports' },
+      source: {
+        scope: 'PLATFORM',
+        objectType: 'platform-operational-event',
+        tenantId: null,
+        venueId: null,
+      },
+    })
+  })
+
+  it('orders question, approval, blocked work, and support fallback classes deterministically', () => {
+    const value = input()
+    value.questions = page([
+      {
+        id: 'question_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        question: 'Which source is current?',
+        context: 'Two records conflict.',
+        blocking: true,
+        agentIdentity: { name: 'Research' },
+      },
+    ])
+    value.approvals = page([
+      {
+        id: 'approval_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        proposedAction: 'Apply reviewed hours',
+        riskCategory: 'MEDIUM',
+        expired: false,
+        agentIdentity: { name: 'Support' },
+      },
+    ])
+    value.blockedAgents = page([
+      {
+        id: 'run_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        requestedOperation: 'Update hours',
+        status: 'AWAITING_INPUT',
+        agentIdentity: { name: 'Support' },
+      },
+    ])
+    value.support = page([
+      {
+        id: 'support_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        subject: 'Hours correction',
+        category: 'CONTENT_CORRECTION',
+        status: 'IN_REVIEW',
+      },
+    ])
+
+    expect(deriveFounderBriefing(value).focus.kind).toBe('FOUNDER_QUESTION')
+    value.questions = page([])
+    expect(deriveFounderBriefing(value).focus.kind).toBe('APPROVAL')
+    value.approvals = page([{ ...value.approvals.items[0]!, expired: true }])
+    expect(deriveFounderBriefing(value).focus.kind).toBe('BLOCKED_WORK')
+    value.blockedAgents = page([])
+    expect(deriveFounderBriefing(value).focus.kind).toBe('CUSTOMER_SUPPORT')
+  })
+
+  it('discloses when any source queue is truncated', () => {
+    const value = input()
+    value.workingAgents = page([{ id: 'run_1' }], true)
+
+    expect(deriveFounderBriefing(value)).toMatchObject({
+      metrics: { workingAgents: 1 },
+      boundedSnapshot: { limit: 10, hasMore: true },
+    })
+  })
+})

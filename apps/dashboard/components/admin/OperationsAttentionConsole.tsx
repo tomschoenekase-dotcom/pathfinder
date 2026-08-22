@@ -59,96 +59,15 @@ function platformEventHref(event: Data['platformEvents']['items'][number]) {
   return '#alerts'
 }
 
-function founderFocus(data: Data) {
-  const urgentTenantEvent = data.events.items.find(
-    (event) => event.actionRequired && ['CRITICAL', 'ERROR'].includes(event.severity),
-  )
-  if (urgentTenantEvent)
-    return {
-      label: 'Customer or system risk',
-      title: urgentTenantEvent.title,
-      detail: urgentTenantEvent.recommendedAction || urgentTenantEvent.summary,
-      href: tenantEventHref(urgentTenantEvent),
-      action: 'Review risk now',
-      tone: 'border-rose-400/40 bg-rose-400/10',
-    }
-
-  const urgentPlatformEvent = data.platformEvents.items.find(
-    (event) => event.actionRequired && ['CRITICAL', 'ERROR'].includes(event.severity),
-  )
-  if (urgentPlatformEvent)
-    return {
-      label: 'Platform risk',
-      title: urgentPlatformEvent.title,
-      detail: urgentPlatformEvent.recommendedAction || urgentPlatformEvent.summary,
-      href: platformEventHref(urgentPlatformEvent),
-      action: 'Review platform risk',
-      tone: 'border-rose-400/40 bg-rose-400/10',
-    }
-
-  const blockingQuestion = data.questions.items.find((question) => question.blocking)
-  if (blockingQuestion)
-    return {
-      label: 'Founder decision',
-      title: blockingQuestion.question,
-      detail:
-        blockingQuestion.context || `${blockingQuestion.agentIdentity.name} is waiting for input.`,
-      href: '#needs-you-heading',
-      action: 'Answer here',
-      tone: 'border-amber-300/40 bg-amber-300/10',
-    }
-
-  const approval = data.approvals.items.find((item) => !item.expired)
-  if (approval)
-    return {
-      label: 'Approval',
-      title: approval.proposedAction,
-      detail: `${approval.agentIdentity.name} · ${approval.riskCategory.toLowerCase()} risk`,
-      href: '#approval-attention-heading',
-      action: 'Make a decision',
-      tone: 'border-amber-300/40 bg-amber-300/10',
-    }
-
-  const blockedRun = data.blockedAgents.items[0]
-  if (blockedRun)
-    return {
-      label: 'Blocked work',
-      title: blockedRun.requestedOperation,
-      detail: `${blockedRun.agentIdentity.name} · ${blockedRun.status.replaceAll('_', ' ').toLowerCase()}`,
-      href: `/admin/clients/${blockedRun.tenantId}/venues/${blockedRun.venueId}/agents/runs/${blockedRun.id}`,
-      action: 'Inspect blocked run',
-      tone: 'border-orange-300/40 bg-orange-300/10',
-    }
-
-  const support = data.support.items[0]
-  if (support)
-    return {
-      label: 'Customer attention',
-      title: support.subject,
-      detail: `${support.category.replaceAll('_', ' ').toLowerCase()} · ${support.status.replaceAll('_', ' ').toLowerCase()}`,
-      href: `/admin/clients/${support.tenantId}/venues/${support.venueId}/support-operations?requestId=${support.id}`,
-      action: 'Review customer context',
-      tone: 'border-sky-300/40 bg-sky-300/10',
-    }
-
-  return {
-    label: 'No urgent founder action',
-    title: 'The operating queues are clear.',
-    detail:
-      'No critical risk, blocking question, pending approval, blocked run, or support item is visible in this bounded snapshot.',
-    href: '#ai-workforce',
-    action: 'See what agents are doing',
-    tone: 'border-emerald-300/40 bg-emerald-300/10',
-  }
+function briefingTone(urgency: Data['briefing']['focus']['urgency']) {
+  if (urgency === 'CRITICAL') return 'border-rose-400/40 bg-rose-400/10'
+  if (urgency === 'HIGH') return 'border-amber-300/40 bg-amber-300/10'
+  if (urgency === 'NORMAL') return 'border-sky-300/40 bg-sky-300/10'
+  return 'border-emerald-300/40 bg-emerald-300/10'
 }
 
 export function OperationsAttentionConsole({ data }: { data: Data }) {
-  const focus = founderFocus(data)
-  const decisionCount = data.questions.items.length + data.approvals.items.length
-  const riskCount =
-    data.events.items.filter((event) => ['CRITICAL', 'ERROR'].includes(event.severity)).length +
-    data.platformEvents.items.filter((event) => ['CRITICAL', 'ERROR'].includes(event.severity))
-      .length
+  const { focus, metrics, boundedSnapshot } = data.briefing
   return (
     <div className="space-y-6" aria-label="Operational attention queues">
       <p className="text-xs text-slate-500">
@@ -172,31 +91,32 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             >
               Your next five minutes
             </h2>
-            <div className={`mt-4 rounded-2xl border p-4 sm:p-5 ${focus.tone}`}>
+            <div className={`mt-4 rounded-2xl border p-4 sm:p-5 ${briefingTone(focus.urgency)}`}>
               <p className="text-xs font-bold uppercase tracking-wider text-slate-300">
                 {focus.label}
               </p>
               <h3 className="mt-2 text-lg font-semibold leading-7 text-white">{focus.title}</h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">{focus.detail}</p>
               <Link
-                href={focus.href}
+                href={focus.action.href}
                 className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-white px-4 text-sm font-semibold text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
               >
-                {focus.action}
+                {focus.action.label}
               </Link>
             </div>
             <p className="mt-3 text-xs leading-5 text-slate-400">
-              Recommendation is derived from bounded live queues. Opening or recording a decision
-              does not bypass execution policy.
+              Recommendation is derived from bounded live queues
+              {boundedSnapshot.hasMore ? ` (showing up to ${boundedSnapshot.limit} per queue)` : ''}
+              . Opening or recording a decision does not bypass execution policy.
             </p>
           </div>
 
           <dl className="grid grid-cols-2 gap-2 lg:w-80">
             {[
-              ['Decisions', decisionCount],
-              ['Critical risk', riskCount],
-              ['Working agents', data.workingAgents.items.length],
-              ['Customer items', data.support.items.length],
+              ['Decisions', metrics.decisions],
+              ['Critical risk', metrics.criticalRisks],
+              ['Working agents', metrics.workingAgents],
+              ['Customer items', metrics.customerItems],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border border-slate-700 bg-slate-900 p-3">
                 <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-400">

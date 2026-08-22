@@ -4,6 +4,7 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
+import { deriveFounderBriefing } from './attention-briefing'
 import {
   ACTIVE_SUPPORT_REQUEST_STATUSES,
   after,
@@ -288,7 +289,7 @@ export const adminAttentionConsoleRouter = router({
         listAttentionWorkers(now),
       ])
 
-      return {
+      const result = {
         generatedAt: now,
         jobs: page(jobs, query.limit),
         evaluations: {
@@ -318,6 +319,19 @@ export const adminAttentionConsoleRouter = router({
         events: page(events, query.limit),
         platformEvents: page(platformEvents, query.limit),
         workers,
+      }
+      return {
+        ...result,
+        briefing: deriveFounderBriefing({
+          limit: query.limit,
+          events: result.events,
+          platformEvents: result.platformEvents,
+          questions: result.questions,
+          approvals: result.approvals,
+          blockedAgents: result.blockedAgents,
+          support: result.support,
+          workingAgents: result.workingAgents,
+        }),
       }
     }),
   ),

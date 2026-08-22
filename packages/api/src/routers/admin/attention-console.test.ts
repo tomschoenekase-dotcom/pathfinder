@@ -185,6 +185,46 @@ describe('admin attention console', () => {
     expect(result.approvals.items[0]).toMatchObject({ id: 'approval_1', expired: true })
   })
 
+  it('returns the same machine-readable founder priority used by the dashboard', async () => {
+    const createdAt = new Date('2026-08-22T12:00:00.000Z')
+    mocks.events.mockResolvedValue([
+      {
+        id: 'event_1',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        eventType: 'guest-chat.provider-failure',
+        sourceSubsystem: 'guest-chat',
+        severity: 'CRITICAL',
+        title: 'Visitor chat is unavailable',
+        summary: 'Guest turns are failing.',
+        actionRequired: true,
+        linkedObjectType: 'guest-chat-turn',
+        linkedObjectId: 'turn_1',
+        recommendedAction: 'Inspect affected turns.',
+        state: 'OPEN',
+        occurrenceCount: 1,
+        lastOccurredAt: createdAt,
+        createdAt,
+      },
+    ])
+
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+
+    expect(result.briefing).toMatchObject({
+      schemaVersion: 1,
+      focus: {
+        kind: 'CUSTOMER_RISK',
+        action: { href: '/admin/clients/tenant_1/venues/venue_1/chatlogs' },
+        source: {
+          scope: 'TENANT',
+          objectType: 'operational-event',
+          objectId: 'event_1',
+        },
+      },
+      boundedSnapshot: { limit: 10, hasMore: false },
+    })
+  })
+
   it('acknowledges and resolves only active event states with the operator identity', async () => {
     const caller = testRouter.createCaller(context())
     await expect(

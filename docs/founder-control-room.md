@@ -28,8 +28,15 @@ The current deterministic priority order is:
 7. a truthful clear-queue state.
 
 This recommendation is derived only from the bounded queues returned by
-`admin.attentionConsole`. The interface states that limitation rather than claiming exhaustive
-company awareness.
+`admin.attentionConsole`. The authenticated API returns a versioned `briefing` object containing
+the selected priority, urgency, compact metrics, exact source scope/object identity, action target,
+and whether any contributing queue has more rows. The dashboard renders that shared contract; it
+does not maintain a separate browser-only priority algorithm. This gives authorized automation and
+the founder interface the same machine-readable operating view while preserving the platform-admin
+authorization boundary.
+
+The interface states the bounded-snapshot limitation rather than claiming exhaustive company
+awareness.
 
 ## Decision and execution boundary
 
