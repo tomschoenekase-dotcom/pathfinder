@@ -2,14 +2,20 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
+  admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
+  approveProspectStagingPackageCommitAction,
   createProspectCampaignAction,
   db,
+  emergencyStopProspectDeliveryAction,
+  evaluateProspectFollowupReadinessAction,
+  getProspectOutreachAnalyticsAction,
   ProspectOutreachError,
   publishCrmOperationalSignal,
   releaseProspectSendBatchAction,
   reviewProspectOutreachDraftAction,
   saveProspectOutreachDraftAction,
+  scheduleProspectFollowupAction,
   stageProspectSendBatchAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -18,7 +24,7 @@ import { router } from '../../core'
 import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospect-outreach'
 import { adminProcedure } from '../../trpc'
 import { prospectActor, prospectBoundedText } from './prospect-crm-common'
-import { enqueueProspectOutreach } from '@pathfinder/jobs'
+import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
@@ -33,6 +39,32 @@ function mapError(error: unknown): never {
 }
 
 export const adminProspectCrmOutreachRouter = router({
+  admitProspectStagingPackage: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ package: z.unknown() }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        admitProspectStagingPackageAction({
+          package: input.package,
+          actor: prospectActor(ctx.session.userId),
+        }),
+      ),
+    ),
+
+  approveProspectStagingPackageCommit: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ importId: id }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        const approved = await approveProspectStagingPackageCommitAction({
+          importId: input.importId,
+          actor: prospectActor(ctx.session.userId),
+        })
+        await enqueueProspectImportCommit({ importId: input.importId })
+        return approved
+      }),
+    ),
+
   listProspectCampaigns: adminProcedure.use(requireCrmProspectOutreach).query(() =>
     withTenantIsolationBypass(() =>
       db.prospectOutreachCampaign.findMany({
@@ -42,6 +74,17 @@ export const adminProspectCrmOutreachRouter = router({
       }),
     ),
   ),
+
+  getProspectOutreachAnalytics: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ campaignId: id.optional() }).strict())
+    .query(({ input }) =>
+      withTenantIsolationBypass(() =>
+        getProspectOutreachAnalyticsAction(
+          input.campaignId === undefined ? {} : { campaignId: input.campaignId },
+        ),
+      ),
+    ),
 
   getProspectCampaign: adminProcedure
     .use(requireCrmProspectOutreach)
@@ -286,4 +329,46 @@ export const adminProspectCrmOutreachRouter = router({
       }
     }),
   ),
+
+  emergencyStopProspectDelivery: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ reason: prospectBoundedText(2_000) }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        emergencyStopProspectDeliveryAction({
+          reason: input.reason,
+          actor: prospectActor(ctx.session.userId),
+        }),
+      ),
+    ),
+
+  scheduleProspectFollowup: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(
+      z
+        .object({
+          triggerSendItemId: id,
+          sequenceNumber: z.union([z.literal(1), z.literal(2)]),
+          dueAt: z.coerce.date(),
+          reason: prospectBoundedText(1_000),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        scheduleProspectFollowupAction({
+          ...input,
+          actor: prospectActor(ctx.session.userId),
+        }),
+      ),
+    ),
+
+  recheckProspectFollowup: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ followupId: id }).strict())
+    .mutation(({ input }) =>
+      withTenantIsolationBypass(() =>
+        evaluateProspectFollowupReadinessAction({ followupId: input.followupId }),
+      ),
+    ),
 })

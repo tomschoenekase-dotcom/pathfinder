@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import type { CorrespondenceProvider, FrozenCorrespondence } from '@pathfinder/api/correspondence'
+import type { ProviderSendResult } from '@pathfinder/api/correspondence'
 import {
   CorrespondenceProviderError,
   createGmailApiClient,
@@ -11,6 +12,7 @@ import {
   claimProspectSendOutboxAction,
   recordProspectSendFailureAction,
   recordProspectSendSuccessAction,
+  revalidateProspectSendOutboxClaimAction,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 import type { SendProspectOutreachJobPayload } from '@pathfinder/jobs'
@@ -87,13 +89,37 @@ function providerFailure(error: unknown): {
   }
 }
 
+/**
+ * Gmail has no native idempotency key. A repeated durable attempt therefore reconciles by
+ * deterministic RFC Message-ID and never blindly calls send again.
+ */
+export async function sendOrRecoverProspectCorrespondence(
+  correspondence: CorrespondenceProvider,
+  frozen: FrozenCorrespondence,
+  attemptCount: number,
+): Promise<ProviderSendResult> {
+  if (attemptCount <= 1) return correspondence.sendOne(frozen)
+  const lookup = await correspondence.lookupSendOperation({
+    mailbox: frozen.mailbox,
+    operationId: frozen.operationId,
+    rfcMessageId: frozen.rfcMessageId,
+  })
+  if (lookup.state === 'FOUND') return lookup.result
+  throw new CorrespondenceProviderError(
+    'AMBIGUOUS_SEND',
+    lookup.state === 'AMBIGUOUS'
+      ? `Prior provider attempt has ${lookup.candidateMessageIds.length} matching messages`
+      : 'Prior provider attempt was not found; automatic resend is blocked to prevent duplication',
+  )
+}
+
 export async function processSendProspectOutreachJob(
   payload: SendProspectOutreachJobPayload,
 ): Promise<void> {
   if (process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED !== 'true') {
     throw new Error('Prospect outreach delivery is disabled')
   }
-  const workerId = `prospect-worker:${process.pid}`
+  const workerId = `prospect-worker:${process.pid}:${randomUUID()}`
   await withTenantIsolationBypass(async () => {
     const claimed = await claimProspectSendOutboxAction({
       outboxId: payload.outboxId,
@@ -131,7 +157,16 @@ export async function processSendProspectOutreachJob(
     }
     try {
       const correspondence = providerForRuntime(claimed.provider)
-      const result = await correspondence.sendOne(frozen)
+      const stillAuthorized = await revalidateProspectSendOutboxClaimAction({
+        outboxId: claimed.outboxId,
+        workerId,
+      })
+      if (!stillAuthorized) return
+      const result = await sendOrRecoverProspectCorrespondence(
+        correspondence,
+        frozen,
+        claimed.attemptCount,
+      )
       await recordProspectSendSuccessAction({
         outboxId: claimed.outboxId,
         workerId,

@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 
-import { commitProspectImportBatchAction, db, publishCrmOperationalSignal } from '@pathfinder/db'
+import {
+  claimProspectStagingPackageRecordsAction,
+  commitProspectImportBatchAction,
+  commitProspectStagingPackageClaimAction,
+  db,
+  finalizeProspectStagingPackageAction,
+  publishCrmOperationalSignal,
+} from '@pathfinder/db'
 import type { ProspectImportCommitJobPayload } from '@pathfinder/jobs'
 
 import { inspectProspectImportSource, stageProspectImportSource } from './prospect-import-source'
@@ -94,6 +101,35 @@ export async function processProspectImportStagingJob(importId: string) {
 
 const MAX_BATCHES_PER_JOB = 1_000
 
+async function processStagingPackageCommitJob(importId: string) {
+  const workerId = `prospect-package-worker:${process.pid}:${randomUUID()}`
+  let batches = 0
+  let processed = 0
+  let failed = 0
+  while (batches < MAX_BATCHES_PER_JOB) {
+    const claim = await claimProspectStagingPackageRecordsAction({
+      importId,
+      workerId,
+      limit: 250,
+    })
+    if (!claim) {
+      const final = await finalizeProspectStagingPackageAction({ importId })
+      if (!final.finalized) {
+        throw new Error(`Staging package has ${final.unfinished} unfinished or leased records`)
+      }
+      return { batches, processed, failed, status: final.status }
+    }
+    const result = await commitProspectStagingPackageClaimAction({
+      claimToken: claim.claimToken,
+      workerId,
+    })
+    batches += 1
+    processed += result.processed
+    failed += result.failed
+  }
+  throw new Error('Staging package exceeded the bounded worker batch limit')
+}
+
 /**
  * Resumable import commit driver. Durable progress is the terminal state of each
  * ProspectImportRow, not BullMQ progress; a retry always reloads Postgres and
@@ -105,11 +141,14 @@ export async function processProspectImportCommitJob(
   return (async () => {
     const prospectImport = await db.prospectImport.findUnique({
       where: { id: payload.importId },
-      select: { id: true, status: true, approvedBy: true },
+      select: { id: true, status: true, approvedBy: true, fileType: true },
     })
     if (!prospectImport) throw new Error('Prospect import does not exist')
     if (!prospectImport.approvedBy)
       throw new Error('Prospect import has no human approval identity')
+    if (prospectImport.fileType === 'torchiko-prospect-staging-package-v1') {
+      return processStagingPackageCommitJob(payload.importId)
+    }
 
     let batches = 0
     let processed = 0

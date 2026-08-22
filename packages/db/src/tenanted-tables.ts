@@ -158,6 +158,10 @@ export const PLATFORM_TABLES = [
   'CompanyMeetingTranscriptArtifact',
   'ProspectDeliveryControl',
   'ProspectOrganization',
+  // Prospect research is platform acquisition work. Jobs and immutable attempts are scoped through
+  // their exact platform-owned organization relation and never inherit customer tenant authority.
+  'ProspectResearchJob',
+  'ProspectResearchAttempt',
   'ProspectVenue',
   'ProspectContact',
   'ProspectContactSuppressionEvent',
@@ -170,6 +174,8 @@ export const PLATFORM_TABLES = [
   'ProspectImportSheet',
   'ProspectImportRow',
   'ProspectImportReportEntry',
+  // Immutable staging-package source lineage belongs to the platform import that admitted it.
+  'ProspectImportSourceRecord',
   'ProspectSavedView',
   'ProspectOutreachCampaign',
   'ProspectCampaignMember',

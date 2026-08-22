@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   memberFindFirst: vi.fn(),
   saveDraft: vi.fn(),
   askQuestion: vi.fn(),
+  claimResearch: vi.fn(),
+  finishResearch: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -28,6 +30,8 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: (operation: () => unknown) => operation(),
   saveProspectOutreachDraftAction: mocks.saveDraft,
   askAgentQuestionAction: mocks.askQuestion,
+  claimNextProspectResearchJobAction: mocks.claimResearch,
+  finishProspectResearchJobAction: mocks.finishResearch,
 }))
 
 import {
@@ -84,7 +88,7 @@ describe('prospect agent registry', () => {
         (tool) =>
           tool.title &&
           tool.description &&
-          ['read', 'draft', 'interaction'].includes(tool.effect) &&
+          ['read', 'draft', 'interaction', 'execute'].includes(tool.effect) &&
           typeof tool.idempotent === 'boolean' &&
           typeof tool.humanReviewRequired === 'boolean',
       ),
@@ -221,6 +225,50 @@ describe('prospect agent registry', () => {
             correlationId: invocation.correlationId,
           }),
         }),
+      }),
+    )
+  })
+
+  it('claims and completes only through frozen research authority and scope', async () => {
+    mocks.claimResearch.mockResolvedValue({ jobId: 'job-1', claimToken: invocation.leaseToken })
+    mocks.finishResearch.mockResolvedValue({ id: 'job-1', status: 'CAP_REACHED' })
+    const registry = createProspectAgentRegistry({
+      resolveContext: vi.fn().mockResolvedValue(
+        context({
+          capabilities: ['prospects.research'],
+          scope: { mode: 'TERRITORIES', territoryIds: ['territory-1'] },
+        }),
+      ),
+    })
+    await registry.callTool(
+      'torchiko.prospects.claim_research_job',
+      { leaseSeconds: 300 },
+      invocation,
+    )
+    expect(mocks.claimResearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          agentRunId: 'run-1',
+          agentIdentityId: 'agent-1',
+          territoryIds: ['territory-1'],
+          promptIdentity: 'crm-playbook@1',
+        }),
+      }),
+    )
+    await registry.callTool(
+      'torchiko.prospects.complete_research_job',
+      {
+        claimToken: invocation.leaseToken,
+        outcome: 'CAP_REACHED',
+        reason: 'No official contact found within the bounded cap',
+        usage: { searches: 4 },
+      },
+      invocation,
+    )
+    expect(mocks.finishResearch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'CAP_REACHED',
+        context: expect.objectContaining({ agentRunId: 'run-1' }),
       }),
     )
   })

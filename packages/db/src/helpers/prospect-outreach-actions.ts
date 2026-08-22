@@ -191,6 +191,31 @@ export async function saveProspectOutreachDraftAction(
     if (previous?.status === 'QUEUED' || previous?.status === 'SENT') {
       throw new ProspectOutreachError('CONFLICT', 'Queued or sent drafts are immutable')
     }
+    const invalidationReason = `DRAFT_SUPERSEDED:${previous?.id ?? 'none'}`
+    if (previous) {
+      const affectedBatches = await tx.prospectSendBatch.findMany({
+        where: {
+          status: { in: ['STAGED', 'APPROVED'] },
+          items: { some: { draftId: previous.id } },
+        },
+        select: { id: true },
+      })
+      if (affectedBatches.length) {
+        const batchIds = affectedBatches.map((batch) => batch.id)
+        await tx.prospectSendBatch.updateMany({
+          where: { id: { in: batchIds }, status: { in: ['STAGED', 'APPROVED'] } },
+          data: { status: 'CANCELLED', cancelledReason: invalidationReason },
+        })
+        await tx.prospectSendItem.updateMany({
+          where: { batchId: { in: batchIds }, status: 'STAGED' },
+          data: {
+            status: 'CANCELLED',
+            lastErrorCode: 'DRAFT_SUPERSEDED',
+            lastErrorMessage: 'A newer draft version invalidated this frozen send intent',
+          },
+        })
+      }
+    }
     if (previous && previous.status !== 'SUPERSEDED') {
       await tx.prospectOutreachDraft.update({
         where: { id: previous.id },
@@ -463,6 +488,7 @@ export async function releaseProspectSendBatchAction(
     if (
       !providerAccount ||
       providerAccount.provider !== 'GMAIL' ||
+      !providerAccount.capabilities.includes('SEND') ||
       providerAccount.connectionStatus !== 'CONNECTED' ||
       !providerAccount.deliveryEnabled ||
       providerAccount.pausedAt
@@ -484,6 +510,19 @@ export async function releaseProspectSendBatchAction(
       batch.items.length !== batch.recipientCount
     ) {
       throw new ProspectOutreachError('CONFLICT', 'Release confirmation does not match the batch')
+    }
+    if (
+      batch.items.some(
+        (item) =>
+          item.draft.status !== 'APPROVED' ||
+          item.draft.contentHash !== item.contentHashSnapshot ||
+          item.draft.toEmail.toLowerCase() !== item.recipientEmailSnapshot.toLowerCase(),
+      )
+    ) {
+      throw new ProspectOutreachError(
+        'CONFLICT',
+        'A draft or recipient changed after staging; create and review a new batch',
+      )
     }
 
     for (const item of batch.items) {

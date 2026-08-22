@@ -979,8 +979,41 @@ export {
   ProspectSendOutboxError,
   recordProspectSendFailureAction,
   recordProspectSendSuccessAction,
+  revalidateProspectSendOutboxClaimAction,
 } from './helpers/prospect-send-outbox-actions'
 export type { FrozenProspectSend } from './helpers/prospect-send-outbox-actions'
+export {
+  emergencyStopProspectDeliveryAction,
+  ProspectDeliveryControlError,
+} from './helpers/prospect-delivery-control-actions'
+export {
+  admitProspectStagingPackageAction,
+  ProspectPackageAdmissionError,
+} from './helpers/prospect-package-admission-actions'
+export {
+  approveProspectStagingPackageCommitAction,
+  claimProspectStagingPackageRecordsAction,
+  commitProspectStagingPackageClaimAction,
+  finalizeProspectStagingPackageAction,
+  ProspectPackageCommitError,
+} from './helpers/prospect-package-commit-actions'
+export {
+  claimNextProspectResearchJobAction,
+  finishProspectResearchJobAction,
+  ProspectResearchJobError,
+  queueProspectResearchJobsAction,
+} from './helpers/prospect-research-job-actions'
+export type { ProspectResearchContext } from './helpers/prospect-research-job-actions'
+export {
+  applyVerifiedProspectEmailEventAction,
+  ProspectEmailEventError,
+} from './helpers/prospect-email-event-actions'
+export { getProspectOutreachAnalyticsAction } from './helpers/prospect-outreach-analytics-actions'
+export {
+  evaluateProspectFollowupReadinessAction,
+  ProspectFollowupError,
+  scheduleProspectFollowupAction,
+} from './helpers/prospect-followup-actions'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

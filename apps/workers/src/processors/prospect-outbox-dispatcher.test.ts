@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { findMany, enqueueProspectOutreach } = vi.hoisted(() => ({
+const { findControl, findMany, enqueueProspectOutreach } = vi.hoisted(() => ({
+  findControl: vi.fn(),
   findMany: vi.fn(),
   enqueueProspectOutreach: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
-  db: { prospectSendOutbox: { findMany } },
+  db: {
+    prospectDeliveryControl: { findUnique: findControl },
+    prospectSendOutbox: { findMany },
+  },
 }))
 vi.mock('@pathfinder/jobs', () => ({ enqueueProspectOutreach }))
 vi.mock('@pathfinder/config', () => ({
@@ -16,7 +20,31 @@ vi.mock('@pathfinder/config', () => ({
 import { dispatchPendingProspectOutbox } from './prospect-outbox-dispatcher'
 
 describe('prospect outbox dispatcher', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED = 'true'
+    findControl.mockResolvedValue({ deliveryEnabled: true })
+  })
+
+  it('publishes nothing when the environment or global emergency stop is dark', async () => {
+    process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED = 'false'
+    await expect(dispatchPendingProspectOutbox()).resolves.toEqual({
+      discovered: 0,
+      enqueued: 0,
+      failed: 0,
+    })
+    expect(findControl).not.toHaveBeenCalled()
+
+    process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED = 'true'
+    findControl.mockResolvedValue({ deliveryEnabled: false })
+    await expect(dispatchPendingProspectOutbox()).resolves.toEqual({
+      discovered: 0,
+      enqueued: 0,
+      failed: 0,
+    })
+    expect(findMany).not.toHaveBeenCalled()
+    expect(enqueueProspectOutreach).not.toHaveBeenCalled()
+  })
 
   it('re-publishes pending and expired durable operations by outbox identity', async () => {
     findMany.mockResolvedValue([{ id: 'outbox-1' }, { id: 'outbox-2' }])

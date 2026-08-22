@@ -32,7 +32,8 @@
     "./character-system": "./src/character-system.ts",
     "./actor": "./src/actor.ts",
     "./company-brain": "./src/company-brain.ts",
-    "./google-workspace-source": "./src/google-workspace-source.ts"
+    "./google-workspace-source": "./src/google-workspace-source.ts",
+    "./prospect-staging-package": "./src/prospect-staging-package.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

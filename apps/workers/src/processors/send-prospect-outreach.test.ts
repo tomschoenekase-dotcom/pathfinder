@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   _setProspectCorrespondenceProviderForTesting,
+  sendOrRecoverProspectCorrespondence,
   processSendProspectOutreachJob,
   prospectSendOperationFingerprint,
   isProspectRecipientAllowed,
@@ -43,5 +44,72 @@ describe('prospect correspondence worker safety', () => {
     expect(prospectSendOperationFingerprint('outbox-1')).not.toBe(
       prospectSendOperationFingerprint('outbox-2'),
     )
+  })
+
+  it('recovers a provider-accepted retry by RFC Message-ID without a duplicate send', async () => {
+    const acceptedAt = new Date('2026-08-22T16:00:00.000Z')
+    const result = {
+      operationId: 'operation-1',
+      message: { provider: 'GMAIL', externalId: 'message-1' },
+      thread: { provider: 'GMAIL', externalId: 'thread-1' },
+      rfcMessageId: '<torchiko.operation-1@torchiko.com>',
+      acceptedAt,
+    }
+    const provider = {
+      sendOne: vi.fn(),
+      lookupSendOperation: vi.fn().mockResolvedValue({ state: 'FOUND', result }),
+    }
+    const frozen = {
+      operationId: 'operation-1',
+      providerIdempotencyKey: 'outbox-key-1',
+      mailbox: {
+        provider: 'GMAIL',
+        providerAccountId: 'mailbox-1',
+        mailboxId: 'me',
+        mailboxAddress: 'internal@example.test',
+        credentialRef: 'credential-1',
+      },
+      recipient: { email: 'prospect@example.test' },
+      from: { email: 'internal@example.test' },
+      subject: 'Subject',
+      textBody: 'Body',
+      rfcMessageId: '<torchiko.operation-1@torchiko.com>',
+      references: [],
+    } as const
+
+    await expect(
+      sendOrRecoverProspectCorrespondence(provider as never, frozen, 2),
+    ).resolves.toEqual(result)
+    expect(provider.lookupSendOperation).toHaveBeenCalledOnce()
+    expect(provider.sendOne).not.toHaveBeenCalled()
+  })
+
+  it('blocks a blind retry when provider lookup cannot prove non-acceptance', async () => {
+    const provider = {
+      sendOne: vi.fn(),
+      lookupSendOperation: vi.fn().mockResolvedValue({ state: 'NOT_FOUND' }),
+    }
+    const frozen = {
+      operationId: 'operation-1',
+      providerIdempotencyKey: 'outbox-key-1',
+      mailbox: {
+        provider: 'GMAIL',
+        providerAccountId: 'mailbox-1',
+        mailboxId: 'me',
+        mailboxAddress: 'internal@example.test',
+        credentialRef: 'credential-1',
+      },
+      recipient: { email: 'prospect@example.test' },
+      from: { email: 'internal@example.test' },
+      subject: 'Subject',
+      textBody: 'Body',
+      rfcMessageId: '<torchiko.operation-1@torchiko.com>',
+      references: [],
+    } as const
+
+    await expect(
+      sendOrRecoverProspectCorrespondence(provider as never, frozen, 2),
+    ).rejects.toMatchObject({ code: 'AMBIGUOUS_SEND' })
+    expect(provider.sendOne).not.toHaveBeenCalled()
   })
 })
