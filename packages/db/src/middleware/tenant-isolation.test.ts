@@ -226,6 +226,8 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectTag',
       'ProspectOrganizationTag',
       'CorrespondenceProviderAccount',
+      'GoogleCalendarSyncState',
+      'CompanyMeetingTranscriptArtifact',
       'ProspectDeliveryControl',
       'ProspectOrganization',
       'ProspectVenue',
