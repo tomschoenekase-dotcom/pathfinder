@@ -242,6 +242,68 @@ export async function claimProspectSendOutboxAction(
   return outcome.send
 }
 
+/**
+ * Revalidates the exact live claim immediately before a provider call. This closes the
+ * ordinary claim-to-send stop window and fails closed when authority or the lease changed.
+ */
+export async function revalidateProspectSendOutboxClaimAction(
+  input: { outboxId: string; workerId: string; now?: Date },
+  client: Client = db,
+): Promise<boolean> {
+  const now = input.now ?? new Date()
+  return client.$transaction(async (tx) => {
+    const [control, operation] = await Promise.all([
+      tx.prospectDeliveryControl.findUnique({ where: { id: 'global' } }),
+      tx.prospectSendOutbox.findUnique({
+        where: { id: input.outboxId },
+        include: {
+          providerAccount: true,
+          sendItem: { include: { batch: { include: { campaign: true } } } },
+        },
+      }),
+    ])
+    if (
+      !operation ||
+      operation.status !== 'CLAIMED' ||
+      operation.claimOwner !== input.workerId ||
+      !operation.claimExpiresAt ||
+      operation.claimExpiresAt <= now
+    ) {
+      return false
+    }
+    const { providerAccount, sendItem } = operation
+    if (
+      !control?.deliveryEnabled ||
+      providerAccount.provider === 'RESEND' ||
+      !providerAccount.capabilities.includes('SEND') ||
+      !providerAccount.deliveryEnabled ||
+      providerAccount.pausedAt ||
+      providerAccount.connectionStatus !== 'CONNECTED' ||
+      sendItem.batch.campaign.pausedAt ||
+      sendItem.batch.campaign.status === 'CANCELLED'
+    ) {
+      await tx.prospectSendOutbox.update({
+        where: { id: operation.id },
+        data: {
+          status: 'CANCELLED',
+          terminalAt: now,
+          claimOwner: null,
+          claimExpiresAt: null,
+          lastErrorCode: 'DELIVERY_STOPPED_BEFORE_PROVIDER',
+          lastErrorMessage: 'Delivery authority was disabled after claim and before provider call',
+          lastErrorRetryable: false,
+        },
+      })
+      await tx.prospectSendItem.update({
+        where: { id: sendItem.id },
+        data: { status: 'CANCELLED', lastErrorCode: 'DELIVERY_STOPPED_BEFORE_PROVIDER' },
+      })
+      return false
+    }
+    return true
+  })
+}
+
 export async function recordProspectSendFailureAction(
   input: {
     outboxId: string

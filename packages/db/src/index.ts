@@ -979,8 +979,13 @@ export {
   ProspectSendOutboxError,
   recordProspectSendFailureAction,
   recordProspectSendSuccessAction,
+  revalidateProspectSendOutboxClaimAction,
 } from './helpers/prospect-send-outbox-actions'
 export type { FrozenProspectSend } from './helpers/prospect-send-outbox-actions'
+export {
+  emergencyStopProspectDeliveryAction,
+  ProspectDeliveryControlError,
+} from './helpers/prospect-delivery-control-actions'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

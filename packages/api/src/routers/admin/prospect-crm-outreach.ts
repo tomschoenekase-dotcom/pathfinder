@@ -5,6 +5,7 @@ import {
   approveProspectSendBatchAction,
   createProspectCampaignAction,
   db,
+  emergencyStopProspectDeliveryAction,
   ProspectOutreachError,
   publishCrmOperationalSignal,
   releaseProspectSendBatchAction,
@@ -286,4 +287,16 @@ export const adminProspectCrmOutreachRouter = router({
       }
     }),
   ),
+
+  emergencyStopProspectDelivery: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ reason: prospectBoundedText(2_000) }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        emergencyStopProspectDeliveryAction({
+          reason: input.reason,
+          actor: prospectActor(ctx.session.userId),
+        }),
+      ),
+    ),
 })
