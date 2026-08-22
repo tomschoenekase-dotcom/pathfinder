@@ -299,7 +299,7 @@ describe('chat router', () => {
         }),
       )
       expect(sessionUpdate).toHaveBeenCalledWith({
-        where: { id: SESSION_ID },
+        where: { id: SESSION_ID, tenantId: TENANT_ID },
         data: { nextMessageSequence: { increment: 2 } },
         select: { nextMessageSequence: true },
       })

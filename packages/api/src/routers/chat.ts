@@ -471,7 +471,7 @@ export const chatRouter = router({
     //    keeps this production compatibility hotfix safe under concurrent sends
     //    without pulling the unreleased durable-turn implementation into master.
     const sequenceReservation = await ctx.db.visitorSession.update({
-      where: { id: session.id },
+      where: { id: session.id, tenantId: venue.tenantId },
       data: { nextMessageSequence: { increment: 2 } },
       select: { nextMessageSequence: true },
     })
