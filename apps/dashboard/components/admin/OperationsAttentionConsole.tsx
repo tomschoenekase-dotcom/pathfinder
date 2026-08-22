@@ -2,6 +2,8 @@ import Link from 'next/link'
 import type { inferRouterOutputs } from '@trpc/server'
 
 import type { AppRouter } from '@pathfinder/api'
+import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
+import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { OperationalEventActions } from './OperationalEventActions'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
@@ -41,13 +43,191 @@ function countLabel(page: { items: unknown[]; nextCursor: Cursor | null }) {
   return `${page.items.length}${page.nextCursor ? '+' : ''}`
 }
 
+function tenantEventHref(event: Data['events']['items'][number]) {
+  if (!event.venueId) return `/admin/clients/${event.tenantId}`
+  if (event.eventType.startsWith('evaluation.'))
+    return `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`
+  if (event.eventType.startsWith('knowledge.proposal.'))
+    return `/admin/clients/${event.tenantId}/venues/${event.venueId}/knowledge-proposals`
+  return `/admin/clients/${event.tenantId}/venues/${event.venueId}/chatlogs`
+}
+
+function platformEventHref(event: Data['platformEvents']['items'][number]) {
+  if (event.eventType.startsWith('crm.import.')) return '/admin/prospects/imports'
+  if (event.eventType.startsWith('crm.duplicate.')) return '/admin/prospects/duplicates'
+  if (event.eventType.startsWith('crm.')) return '/admin/prospects'
+  return '#alerts'
+}
+
+function founderFocus(data: Data) {
+  const urgentTenantEvent = data.events.items.find(
+    (event) => event.actionRequired && ['CRITICAL', 'ERROR'].includes(event.severity),
+  )
+  if (urgentTenantEvent)
+    return {
+      label: 'Customer or system risk',
+      title: urgentTenantEvent.title,
+      detail: urgentTenantEvent.recommendedAction || urgentTenantEvent.summary,
+      href: tenantEventHref(urgentTenantEvent),
+      action: 'Review risk now',
+      tone: 'border-rose-400/40 bg-rose-400/10',
+    }
+
+  const urgentPlatformEvent = data.platformEvents.items.find(
+    (event) => event.actionRequired && ['CRITICAL', 'ERROR'].includes(event.severity),
+  )
+  if (urgentPlatformEvent)
+    return {
+      label: 'Platform risk',
+      title: urgentPlatformEvent.title,
+      detail: urgentPlatformEvent.recommendedAction || urgentPlatformEvent.summary,
+      href: platformEventHref(urgentPlatformEvent),
+      action: 'Review platform risk',
+      tone: 'border-rose-400/40 bg-rose-400/10',
+    }
+
+  const blockingQuestion = data.questions.items.find((question) => question.blocking)
+  if (blockingQuestion)
+    return {
+      label: 'Founder decision',
+      title: blockingQuestion.question,
+      detail:
+        blockingQuestion.context || `${blockingQuestion.agentIdentity.name} is waiting for input.`,
+      href: '#needs-you-heading',
+      action: 'Answer here',
+      tone: 'border-amber-300/40 bg-amber-300/10',
+    }
+
+  const approval = data.approvals.items.find((item) => !item.expired)
+  if (approval)
+    return {
+      label: 'Approval',
+      title: approval.proposedAction,
+      detail: `${approval.agentIdentity.name} · ${approval.riskCategory.toLowerCase()} risk`,
+      href: '#approval-attention-heading',
+      action: 'Make a decision',
+      tone: 'border-amber-300/40 bg-amber-300/10',
+    }
+
+  const blockedRun = data.blockedAgents.items[0]
+  if (blockedRun)
+    return {
+      label: 'Blocked work',
+      title: blockedRun.requestedOperation,
+      detail: `${blockedRun.agentIdentity.name} · ${blockedRun.status.replaceAll('_', ' ').toLowerCase()}`,
+      href: `/admin/clients/${blockedRun.tenantId}/venues/${blockedRun.venueId}/agents/runs/${blockedRun.id}`,
+      action: 'Inspect blocked run',
+      tone: 'border-orange-300/40 bg-orange-300/10',
+    }
+
+  const support = data.support.items[0]
+  if (support)
+    return {
+      label: 'Customer attention',
+      title: support.subject,
+      detail: `${support.category.replaceAll('_', ' ').toLowerCase()} · ${support.status.replaceAll('_', ' ').toLowerCase()}`,
+      href: `/admin/clients/${support.tenantId}/venues/${support.venueId}/support-operations?requestId=${support.id}`,
+      action: 'Review customer context',
+      tone: 'border-sky-300/40 bg-sky-300/10',
+    }
+
+  return {
+    label: 'No urgent founder action',
+    title: 'The operating queues are clear.',
+    detail:
+      'No critical risk, blocking question, pending approval, blocked run, or support item is visible in this bounded snapshot.',
+    href: '#ai-workforce',
+    action: 'See what agents are doing',
+    tone: 'border-emerald-300/40 bg-emerald-300/10',
+  }
+}
+
 export function OperationsAttentionConsole({ data }: { data: Data }) {
+  const focus = founderFocus(data)
+  const decisionCount = data.questions.items.length + data.approvals.items.length
+  const riskCount =
+    data.events.items.filter((event) => ['CRITICAL', 'ERROR'].includes(event.severity)).length +
+    data.platformEvents.items.filter((event) => ['CRITICAL', 'ERROR'].includes(event.severity))
+      .length
   return (
     <div className="space-y-6" aria-label="Operational attention queues">
       <p className="text-xs text-slate-500">
         Snapshot generated {date(data.generatedAt)}. Review linked evidence before acknowledging or
         resolving an alert.
       </p>
+
+      <section
+        id="founder-now"
+        aria-labelledby="founder-briefing-heading"
+        className="overflow-hidden rounded-3xl bg-slate-950 p-5 text-white shadow-xl sm:p-7"
+      >
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-sky-300">
+              Torchiko briefing
+            </p>
+            <h2
+              id="founder-briefing-heading"
+              className="mt-2 text-2xl font-semibold tracking-tight"
+            >
+              Your next five minutes
+            </h2>
+            <div className={`mt-4 rounded-2xl border p-4 sm:p-5 ${focus.tone}`}>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                {focus.label}
+              </p>
+              <h3 className="mt-2 text-lg font-semibold leading-7 text-white">{focus.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">{focus.detail}</p>
+              <Link
+                href={focus.href}
+                className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-white px-4 text-sm font-semibold text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+              >
+                {focus.action}
+              </Link>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-slate-400">
+              Recommendation is derived from bounded live queues. Opening or recording a decision
+              does not bypass execution policy.
+            </p>
+          </div>
+
+          <dl className="grid grid-cols-2 gap-2 lg:w-80">
+            {[
+              ['Decisions', decisionCount],
+              ['Critical risk', riskCount],
+              ['Working agents', data.workingAgents.items.length],
+              ['Customer items', data.support.items.length],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-slate-700 bg-slate-900 p-3">
+                <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                  {label}
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold text-white">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <nav
+          className="mt-5 flex snap-x gap-2 overflow-x-auto pb-1"
+          aria-label="Control room shortcuts"
+        >
+          {[
+            ['#needs-you-heading', 'Questions'],
+            ['#approval-attention-heading', 'Approvals'],
+            ['#alerts', 'Alerts'],
+            ['#ai-workforce', 'Agents'],
+          ].map(([href, label]) => (
+            <a
+              key={href}
+              href={href}
+              className="min-h-10 shrink-0 snap-start rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200"
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
+      </section>
 
       <section
         aria-label="AI organization summary"
@@ -92,7 +272,10 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
         ))}
       </section>
 
-      <section className="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm">
+      <section
+        id="ai-workforce"
+        className="scroll-mt-24 rounded-2xl border border-sky-200 bg-white p-5 shadow-sm"
+      >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-sky-700">AI workforce</p>
@@ -105,44 +288,77 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             <Empty>No compatible workers have registered.</Empty>
           </div>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="pb-2 pr-4">Worker</th>
-                  <th className="pb-2 pr-4">Runtime</th>
-                  <th className="pb-2 pr-4">State</th>
-                  <th className="pb-2 pr-4">Model route</th>
-                  <th className="pb-2">Heartbeat</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.workers.map((worker) => (
-                  <tr key={worker.id}>
-                    <td className="py-3 pr-4 font-semibold text-slate-900">{worker.workerKey}</td>
-                    <td className="py-3 pr-4 text-slate-600">{worker.runtimeType}</td>
-                    <td className="py-3 pr-4">
-                      <span
-                        className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${worker.effectiveStatus === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}
-                      >
-                        {worker.effectiveStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-4 text-slate-600">
-                      {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
-                        'Runtime managed'}
-                    </td>
-                    <td className="py-3 text-slate-600">{date(worker.lastHeartbeatAt)}</td>
+          <>
+            <ul className="mt-4 grid gap-3 md:hidden" aria-label="Registered workers">
+              {data.workers.map((worker) => (
+                <li key={worker.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-950">{worker.workerKey}</p>
+                      <p className="mt-1 text-xs text-slate-500">{worker.runtimeType}</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${worker.effectiveStatus === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}
+                    >
+                      {worker.effectiveStatus}
+                    </span>
+                  </div>
+                  <dl className="mt-3 grid gap-2 text-xs">
+                    <div>
+                      <dt className="font-semibold text-slate-500">Model route</dt>
+                      <dd className="mt-0.5 text-slate-700">
+                        {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
+                          'Runtime managed'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold text-slate-500">Last heartbeat</dt>
+                      <dd className="mt-0.5 text-slate-700">{date(worker.lastHeartbeatAt)}</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 hidden overflow-x-auto md:block">
+              <table className="min-w-full text-left text-sm">
+                <thead className="text-xs uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="pb-2 pr-4">Worker</th>
+                    <th className="pb-2 pr-4">Runtime</th>
+                    <th className="pb-2 pr-4">State</th>
+                    <th className="pb-2 pr-4">Model route</th>
+                    <th className="pb-2">Heartbeat</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.workers.map((worker) => (
+                    <tr key={worker.id}>
+                      <td className="py-3 pr-4 font-semibold text-slate-900">{worker.workerKey}</td>
+                      <td className="py-3 pr-4 text-slate-600">{worker.runtimeType}</td>
+                      <td className="py-3 pr-4">
+                        <span
+                          className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${worker.effectiveStatus === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}
+                        >
+                          {worker.effectiveStatus}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-slate-600">
+                        {[worker.modelProvider, worker.modelName].filter(Boolean).join(' / ') ||
+                          'Runtime managed'}
+                      </td>
+                      <td className="py-3 text-slate-600">{date(worker.lastHeartbeatAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
 
       <section
-        className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm"
+        id="alerts"
+        className="scroll-mt-24 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm"
         aria-labelledby="platform-operational-events-heading"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -199,15 +415,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   </p>
                 ) : null}
                 <Link
-                  href={
-                    event.eventType.startsWith('crm.import.')
-                      ? '/admin/prospects/imports'
-                      : event.eventType.startsWith('crm.duplicate.')
-                        ? '/admin/prospects/duplicates'
-                        : event.eventType.startsWith('crm.')
-                          ? '/admin/prospects'
-                          : '/admin/operations'
-                  }
+                  href={platformEventHref(event)}
                   className="mt-3 inline-block text-sm font-semibold text-sky-700"
                 >
                   Open related workspace
@@ -248,13 +456,7 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
         ) : (
           <ul className="mt-4 grid gap-3 xl:grid-cols-2">
             {data.events.items.map((event) => {
-              const scopeHref = event.venueId
-                ? event.eventType.startsWith('evaluation.')
-                  ? `/admin/clients/${event.tenantId}/venues/${event.venueId}/evaluations`
-                  : event.eventType.startsWith('knowledge.proposal.')
-                    ? `/admin/clients/${event.tenantId}/venues/${event.venueId}/knowledge-proposals`
-                    : `/admin/clients/${event.tenantId}/venues/${event.venueId}/chatlogs`
-                : `/admin/clients/${event.tenantId}`
+              const scopeHref = tenantEventHref(event)
               return (
                 <li
                   key={event.id}
@@ -356,11 +558,20 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                     Options: {question.choices.join(' · ')}
                   </p>
                 ) : null}
+                <AgentQuestionAnswerForm
+                  tenantId={question.tenantId}
+                  venueId={question.venueId}
+                  questionId={question.id}
+                  expectedUpdatedAt={question.updatedAt}
+                  choices={question.choices}
+                  recipients={[]}
+                  canRouteToClient={false}
+                />
                 <Link
                   className="mt-3 inline-block text-sm font-semibold text-sky-700"
                   href={`/admin/clients/${question.tenantId}/venues/${question.venueId}/agents#inbox`}
                 >
-                  Answer in agent workspace
+                  Open full agent context
                 </Link>
               </article>
             ))}
@@ -648,12 +859,22 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                     {date(approval.createdAt)}
                   </p>
                   {approval.venueId ? (
-                    <Link
-                      className="mt-2 inline-block text-sm font-semibold text-sky-700"
-                      href={`/admin/clients/${approval.tenantId}/venues/${approval.venueId}/agents`}
-                    >
-                      Open agent approvals
-                    </Link>
+                    <>
+                      {!approval.expired ? (
+                        <ApprovalDecisionForm
+                          tenantId={approval.tenantId}
+                          venueId={approval.venueId}
+                          approvalRequestId={approval.id}
+                          proposedAction={approval.proposedAction}
+                        />
+                      ) : null}
+                      <Link
+                        className="mt-3 inline-block text-sm font-semibold text-sky-700"
+                        href={`/admin/clients/${approval.tenantId}/venues/${approval.venueId}/agents#approvals`}
+                      >
+                        Open full approval context
+                      </Link>
+                    </>
                   ) : (
                     <Link
                       className="mt-2 inline-block text-sm font-semibold text-sky-700"

@@ -156,6 +156,7 @@ export const adminAttentionConsoleRouter = router({
             proposedAnswer: true,
             blocking: true,
             createdAt: true,
+            updatedAt: true,
             agentIdentity: { select: { name: true } },
             agentRun: { select: { id: true, status: true, requestedOperation: true } },
           },

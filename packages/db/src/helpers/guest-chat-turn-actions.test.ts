@@ -184,6 +184,80 @@ describe('guest chat turn actions', () => {
     )
   })
 
+  it('preserves the production chat incident invariant when finalizing durable messages', async () => {
+    const claimId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const turnId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const createMany = vi.fn().mockResolvedValue({ count: 2 })
+    const tx = {
+      $executeRaw: vi.fn(),
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: turnId,
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          sessionId: 'session-1',
+          requestId: request.requestId,
+          requestHash: guestChatRequestHash(request),
+          status: 'GENERATING',
+          leaseToken: claimId,
+          userMessageSequence: 21,
+          assistantMessageSequence: 22,
+          pendingQuestionId: null,
+          pendingIsInvented: false,
+          pendingAskedMessageId: null,
+          pendingAskedAt: null,
+          providerOperations: [
+            { kind: 'QUERY_EMBEDDING', status: 'OBSERVED' },
+            { kind: 'RESPONSE_GENERATION', status: 'OBSERVED' },
+          ],
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      message: { createMany },
+      visitorSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      engagementQuestion: { findFirst: vi.fn() },
+      engagementQuestionResponse: { create: vi.fn() },
+    }
+
+    await expect(
+      finalizeGuestChatTurnAction({
+        client: transactionClient(tx),
+        input: {
+          ...request,
+          turnId,
+          claimId,
+          assistantResponse: 'The cafe is downstairs.',
+          replayMetadata: { places: [] },
+          fallbackCode: null,
+          nextPending: { kind: 'NONE' },
+        },
+        now: new Date('2026-08-22T12:00:00.000Z'),
+      }),
+    ).resolves.toMatchObject({ state: 'COMPLETE', sessionId: 'session-1', replayed: false })
+
+    const rows = createMany.mock.calls[0]![0].data
+    expect(rows).toEqual([
+      expect.objectContaining({
+        tenantId: request.tenantId,
+        venueId: request.venueId,
+        sessionId: 'session-1',
+        guestChatTurnId: turnId,
+        sessionSequence: 21,
+        turnMessageSequence: 0,
+        role: 'user',
+      }),
+      expect.objectContaining({
+        tenantId: request.tenantId,
+        venueId: request.venueId,
+        sessionId: 'session-1',
+        guestChatTurnId: turnId,
+        sessionSequence: 22,
+        turnMessageSequence: 1,
+        role: 'assistant',
+      }),
+    ])
+  })
+
   it('terminalizes an expired pre-claim orphan before reserving a new request identity', async () => {
     const newRequest = { ...request, requestId: '99999999-9999-4999-8999-999999999999' }
     const session = {

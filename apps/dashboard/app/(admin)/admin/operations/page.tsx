@@ -61,14 +61,16 @@ export default async function AdminOperationsPage({
   return (
     <div className="space-y-6">
       <header className="border-b border-slate-200 pb-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Operations</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
+          Founder operations
+        </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-          Work and failures
+          Founder Control Room
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-600">
-          See what needs you, what the AI organization is doing, what finished, and what failed.
-          Detailed evidence remains one click away; this page cannot retry, cancel, approve, or
-          contact providers.
+          Start with the single highest-value founder action, answer compact agent questions, review
+          approvals, and see customer or system risk from one mobile-ready operating surface.
+          Decisions are recorded here; consequential execution remains separately policy-gated.
         </p>
       </header>
 

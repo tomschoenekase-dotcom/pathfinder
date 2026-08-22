@@ -6,6 +6,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./OperationalEventActions', () => ({
   OperationalEventActions: () => <span>Event actions</span>,
 }))
+vi.mock('./AgentQuestionAnswerForm', () => ({
+  AgentQuestionAnswerForm: () => <span>Inline question answer</span>,
+}))
+vi.mock('./ApprovalDecisionForm', () => ({
+  ApprovalDecisionForm: () => <span>Inline approval decision</span>,
+}))
 
 import { OperationsAttentionConsole } from './OperationsAttentionConsole'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -45,6 +51,8 @@ describe('operations attention console', () => {
     expect(screen.getByText('No operational alerts currently need attention.')).toBeTruthy()
     expect(screen.getByText('No platform CRM alerts currently need attention.')).toBeTruthy()
     expect(screen.getByText('No compatible workers have registered.')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Your next five minutes' })).toBeTruthy()
+    expect(screen.getByText('The operating queues are clear.')).toBeTruthy()
   })
 
   it('puts human questions first and links to the durable agent inbox', () => {
@@ -70,6 +78,7 @@ describe('operations attention console', () => {
                 proposedAnswer: null,
                 blocking: true,
                 createdAt: new Date(),
+                updatedAt: new Date(),
                 agentIdentity: { name: 'Research' },
                 agentRun: { id: 'run_1', status: 'AWAITING_INPUT', requestedOperation: 'pricing' },
               },
@@ -80,10 +89,109 @@ describe('operations attention console', () => {
       />,
     )
     expect(screen.getByRole('heading', { name: 'Needs you' })).toBeTruthy()
-    expect(screen.getByText('Which pricing assumption should I use?')).toBeTruthy()
+    expect(screen.getAllByText('Which pricing assumption should I use?')).toHaveLength(2)
+    expect(screen.getByText('Inline question answer')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open full agent context' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant_1/venues/venue_1/agents#inbox',
+    )
+  })
+
+  it('surfaces a critical customer event ahead of routine decisions', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          questions: {
+            items: [
+              {
+                id: 'question_1',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                agentRunId: 'run_1',
+                question: 'Can this wait?',
+                context: null,
+                questionType: 'YES_NO',
+                category: 'operations',
+                urgency: 'NORMAL',
+                choices: ['Yes', 'No'],
+                dueAt: null,
+                evidence: [],
+                proposedAnswer: null,
+                blocking: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                agentIdentity: { name: 'Operator' },
+                agentRun: { id: 'run_1', status: 'AWAITING_INPUT', requestedOperation: 'review' },
+              },
+            ],
+            nextCursor: null,
+          },
+          events: {
+            items: [
+              {
+                id: 'event_critical',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                eventType: 'guest-chat.provider-failure',
+                sourceSubsystem: 'guest-chat',
+                severity: 'CRITICAL',
+                title: 'Visitor chat is unavailable',
+                summary: 'Guest questions are failing.',
+                recommendedAction: 'Inspect the affected chat turns.',
+                state: 'OPEN',
+                actionRequired: true,
+                linkedObjectType: 'guest-chat-turn',
+                linkedObjectId: 'turn_1',
+                occurrenceCount: 1,
+                createdAt: new Date(),
+                lastOccurredAt: new Date(),
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    const briefing = screen.getByRole('heading', { name: 'Your next five minutes' }).parentElement
+    expect(briefing?.textContent).toContain('Visitor chat is unavailable')
+    expect(screen.getByRole('link', { name: 'Review risk now' }).getAttribute('href')).toBe(
+      '/admin/clients/tenant_1/venues/venue_1/chatlogs',
+    )
+  })
+
+  it('puts an unexpired venue approval directly in the founder decision flow', () => {
+    render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          approvals: {
+            items: [
+              {
+                id: 'approval_1',
+                tenantId: 'tenant_1',
+                venueId: 'venue_1',
+                proposedAction: 'Apply reviewed hours update',
+                riskCategory: 'MEDIUM',
+                expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+                createdAt: new Date(),
+                agentIdentity: { name: 'Support operator' },
+                expired: false,
+              },
+            ],
+            nextCursor: null,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Inline approval decision')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Make a decision' }).getAttribute('href')).toBe(
+      '#approval-attention-heading',
+    )
     expect(
-      screen.getByRole('link', { name: 'Answer in agent workspace' }).getAttribute('href'),
-    ).toBe('/admin/clients/tenant_1/venues/venue_1/agents#inbox')
+      screen.getByRole('link', { name: 'Open full approval context' }).getAttribute('href'),
+    ).toBe('/admin/clients/tenant_1/venues/venue_1/agents#approvals')
   })
 
   it('links attention items to exact tenant and venue evidence without raw details', () => {

@@ -34,7 +34,7 @@ const navigationItems = [
   { href: '/admin/prospects', label: 'Prospect CRM', icon: ContactRound },
   { href: '/admin/company-brain', label: 'Company Brain', icon: BrainCircuit },
   { href: '/admin/billing', label: 'Billing', icon: CreditCard },
-  { href: '/admin/operations', label: 'Operations', icon: Activity },
+  { href: '/admin/operations', label: 'Control room', icon: Activity },
   { href: '/admin/help', label: 'Operator guide', icon: BookOpen },
 ] as const
 
@@ -188,7 +188,7 @@ export function AdminSectionShell({ children }: AdminSectionShellProps) {
               </button>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Internal operations
+                  Founder operations
                 </p>
                 <p className="text-sm font-semibold text-slate-900">Platform scope</p>
               </div>
