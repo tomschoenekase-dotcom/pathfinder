@@ -549,23 +549,35 @@ export const chatRouter = router({
       claimId,
     }
     const recordGuestAiFailure = async (
-      category: 'provider-unavailable' | 'pre-dispatch-failure' | 'provider-failure',
+      category:
+        | 'provider-unavailable'
+        | 'pre-dispatch-failure'
+        | 'provider-failure'
+        | 'route-exhausted',
+      routeConfigurationVersion?: string,
     ) => {
+      const routeExhausted = category === 'route-exhausted'
       await publishOperationalEvent({
         client: ctx.db,
         event: {
           tenantId: venue.tenantId,
           venueId: input.venueId,
-          eventType: `guest-chat.${category}`,
+          eventType: routeExhausted ? 'guest-chat.route-degraded' : `guest-chat.${category}`,
           sourceSubsystem: 'guest-chat',
-          severity: category === 'provider-failure' ? 'ERROR' : 'WARNING',
-          title: 'Guest guide AI failure',
-          summary: 'A guest chat turn encountered a sanitized AI service failure.',
-          actionRequired: category === 'provider-failure',
-          linkedObjectType: 'guest-chat-turn',
-          linkedObjectId: reservation.turnId,
-          recommendedAction: 'Inspect the turn and recent provider outcomes in PathFinder OS.',
-          deduplicationKey: `guest-chat-failure:${reservation.turnId}:${category}`,
+          severity: routeExhausted || category === 'provider-failure' ? 'ERROR' : 'WARNING',
+          title: routeExhausted ? 'Visitor chat used its safe fallback' : 'Guest guide AI failure',
+          summary: routeExhausted
+            ? 'Every configured guest-chat route candidate failed for this venue; the guest received the safe fallback response.'
+            : 'A guest chat turn encountered a sanitized AI service failure.',
+          actionRequired: routeExhausted || category === 'provider-failure',
+          linkedObjectType: routeExhausted ? 'venue' : 'guest-chat-turn',
+          linkedObjectId: routeExhausted ? input.venueId : reservation.turnId,
+          recommendedAction: routeExhausted
+            ? 'Review sanitized usage failures and recent chat reliability evidence before changing routing or incident controls.'
+            : 'Inspect the turn and recent provider outcomes in PathFinder OS.',
+          deduplicationKey: routeExhausted
+            ? `guest-chat-route-degraded:${input.venueId}:${routeConfigurationVersion ?? 'unknown'}`
+            : `guest-chat-failure:${reservation.turnId}:${category}`,
         },
       }).catch(() => undefined)
     }
@@ -934,6 +946,8 @@ export const chatRouter = router({
     let assistantResponse: string
     let engagementAskedThisTurn = false
     let fallbackFailureCode: string | null = null
+    let fallbackWasRouteExhaustion = false
+    let generationRouteConfigurationVersion: string | undefined
     const modelStartedAt = performance.now()
     const chatAccounting = createApiAiUsageRecorder({
       db: ctx.db,
@@ -958,6 +972,7 @@ export const chatRouter = router({
         workloadId: 'guest-chat',
         configuration,
       })
+      generationRouteConfigurationVersion = route.configurationVersion
       const result = await generateTextForCapability({
         route,
         timeoutMs: configuration.timeoutMs,
@@ -1048,6 +1063,7 @@ export const chatRouter = router({
         throw aiUnavailable()
       }
       fallbackFailureCode = err instanceof AiGatewayError ? err.code : 'unexpected-error'
+      fallbackWasRouteExhaustion = err instanceof AiGatewayError
       logger.error({
         action: 'chat.send.ai_failed',
         venueId: input.venueId,
@@ -1055,7 +1071,6 @@ export const chatRouter = router({
         failureCode: fallbackFailureCode,
         errorName: err instanceof AiGatewayError ? 'AiGatewayError' : 'UnexpectedError',
       })
-      await recordGuestAiFailure('provider-failure')
       assistantResponse = "I'm having trouble right now. Please try again in a moment."
     } finally {
       modelMs = elapsedMilliseconds(modelStartedAt)
@@ -1099,6 +1114,13 @@ export const chatRouter = router({
       )
     }
     persistenceMs = elapsedMilliseconds(persistenceStartedAt)
+
+    if (fallbackFailureCode) {
+      await recordGuestAiFailure(
+        fallbackWasRouteExhaustion ? 'route-exhausted' : 'provider-failure',
+        generationRouteConfigurationVersion,
+      )
+    }
 
     const totalMs = elapsedMilliseconds(requestStartedAt)
     const timingMetadata = {

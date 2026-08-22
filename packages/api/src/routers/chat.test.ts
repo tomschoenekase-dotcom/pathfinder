@@ -102,6 +102,7 @@ const platformConfigFindUnique = vi.fn()
 const aiWorkloadConfigurationOverrideFindFirst = vi.fn()
 const aiScopedWorkloadConfigurationOverrideFindFirst = vi.fn()
 const aiCostBudgetFindFirst = vi.fn()
+const operationalEventUpsert = vi.fn()
 const venueFindFirst = vi.fn()
 const tenantFeatureFlagFindMany = vi.fn()
 const dbTransaction = vi.fn()
@@ -126,6 +127,7 @@ const mockDb = {
   aiUsageEvent: { create: aiUsageEventCreate },
   aiCostBudget: { findFirst: aiCostBudgetFindFirst },
   aiCostReservation: {},
+  operationalEvent: { upsert: operationalEventUpsert },
   place: { findMany: placeFindMany, findFirst: placeFindFirst },
   message: { findMany: messageFindMany, create: messageCreate, findFirst: messageFindFirst },
   operationalUpdate: { findMany: operationalUpdateFindMany },
@@ -215,6 +217,7 @@ describe('chat router', () => {
     aiWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
     aiScopedWorkloadConfigurationOverrideFindFirst.mockResolvedValue(null)
     aiCostBudgetFindFirst.mockResolvedValue(null)
+    operationalEventUpsert.mockResolvedValue({ id: 'event_1', state: 'OPEN', occurrenceCount: 1 })
     venueFindFirst.mockResolvedValue({ isActive: true })
     resolveSystemCharacterProjection.mockReturnValue(null)
     tenantFeatureFlagFindMany.mockResolvedValue([])
@@ -1517,12 +1520,13 @@ describe('chat router', () => {
       )
     })
 
-    it('returns fallback string on Claude API failure — does not throw TRPCError', async () => {
+    it('returns fallback on route exhaustion even when incident publication fails', async () => {
       dbQueryRaw.mockResolvedValueOnce([venueRow])
       sessionUpsert.mockResolvedValueOnce({ id: SESSION_ID })
       placeFindMany.mockResolvedValueOnce(placeRows)
       messageFindMany.mockResolvedValueOnce([])
       anthropicCreate.mockRejectedValueOnce(new Error('Claude API unavailable'))
+      operationalEventUpsert.mockRejectedValueOnce(new Error('operational event store unavailable'))
       messageCreate.mockResolvedValue({})
 
       const result = await caller.chat.send(sendInput)
@@ -1550,6 +1554,21 @@ describe('chat router', () => {
             failureCode: 'provider-error',
             totalMs: expect.any(Number),
           }),
+        }),
+      )
+      expect(operationalEventUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            eventType: 'guest-chat.route-degraded',
+            severity: 'ERROR',
+            actionRequired: true,
+            linkedObjectType: 'venue',
+            linkedObjectId: VENUE_ID,
+            deduplicationKey: expect.stringMatching(
+              new RegExp(`^guest-chat-route-degraded:${VENUE_ID}:`),
+            ),
+          }),
+          update: expect.objectContaining({ occurrenceCount: { increment: 1 } }),
         }),
       )
       expect(emitEvent).toHaveBeenCalledWith(
@@ -1637,6 +1656,7 @@ describe('chat router', () => {
           }),
         }),
       )
+      expect(operationalEventUpsert).not.toHaveBeenCalled()
     })
 
     it('never logs provider error messages that may contain guest text or bearer tokens', async () => {
@@ -1649,8 +1669,11 @@ describe('chat router', () => {
       await caller.chat.send(sendInput)
 
       const serialized = JSON.stringify(configLogger.error.mock.calls)
+      const serializedOperationalEvents = JSON.stringify(operationalEventUpsert.mock.calls)
       expect(serialized).not.toContain(sendInput.message)
       expect(serialized).not.toContain(sendInput.anonymousToken)
+      expect(serializedOperationalEvents).not.toContain(sendInput.message)
+      expect(serializedOperationalEvents).not.toContain(sendInput.anonymousToken)
       expect(configLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'chat.send.ai_failed',

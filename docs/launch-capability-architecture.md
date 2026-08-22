@@ -13,6 +13,12 @@ accounting, and abort controls—fail closed and cannot trigger a second candida
 is provider-neutral, but current text execution is Anthropic-only; cross-provider text failover is
 an explicit remaining adapter and staging-verification gate.
 
+If every configured guest-chat candidate fails and the safe visitor response is committed, a
+sanitized `guest-chat.route-degraded` operational event is grouped by venue and routing version for
+the Founder Control Room. A successful fallback candidate creates usage evidence but no incident.
+This does not automatically disable a provider, change route health, or establish an outage-rate or
+external-notification threshold.
+
 `AiUsageEvent` records tenant, venue, capability, request type, provider, model, route key, fallback use, latency, success, token/audio units, pricing version, and estimated cost. Daily rollups retain text and audio units. Do not log prompt or transcript bodies as route telemetry.
 
 The explicitly configured tenant hard budget remains the authoritative pre-dispatch spend fence.
