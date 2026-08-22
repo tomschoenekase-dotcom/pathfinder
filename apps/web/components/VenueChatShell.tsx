@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import type { ReactNode } from 'react'
 import type { SupportedChatLanguage } from '@pathfinder/api/schemas'
 import type { CharacterState } from '@pathfinder/contracts/character-system'
 import type { GuestVisitorAction } from '@pathfinder/contracts/guest-response'
@@ -66,6 +67,7 @@ export function VenueChatShell(props: {
   onVoiceCharacterState?: (state: CharacterState) => void
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
+  voiceControl?: ReactNode
 }) {
   const {
     venue,
@@ -92,6 +94,7 @@ export function VenueChatShell(props: {
     onVoiceCharacterState,
     onVisitorAction,
     onMessageFeedback,
+    voiceControl,
   } = props
   const palette = getChatPalette(venue.chatTheme, venue.chatAccentColor)
   const languagePresentation = getChatLanguagePresentation(language)
@@ -192,13 +195,17 @@ export function VenueChatShell(props: {
           />
         </div>
         <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
-          <VoiceControl
-            venueId={venue.id}
-            anonymousToken={anonymousToken}
-            language={language}
-            disabled={isSending}
-            {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
-          />
+          {voiceControl === undefined ? (
+            <VoiceControl
+              venueId={venue.id}
+              anonymousToken={anonymousToken}
+              language={language}
+              disabled={isSending}
+              {...(onVoiceCharacterState ? { onCharacterState: onVoiceCharacterState } : {})}
+            />
+          ) : (
+            voiceControl
+          )}
           <ChatWindow
             messages={messages}
             assistantLabel={guideName}

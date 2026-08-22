@@ -6,13 +6,17 @@ vi.mock('@clerk/nextjs/server', () => ({
   clerkMiddleware: vi.fn((handler: unknown) => handler),
 }))
 
-import middleware, { config, getEmbedResponseHeaders, getPageResponseHeaders } from './middleware'
+import middleware, {
+  config,
+  getEmbedResponseHeaders,
+  getPageResponseHeaders,
+  isStandaloneVisitorVoicePath,
+} from './middleware'
 
 describe('ordinary page response boundary', () => {
   it.each([
     'https://guide.example/',
     'https://guide.example/museum',
-    'https://guide.example/museum/chat',
     'https://guide.example/not-found',
   ])('emits the exact privacy and clickjacking baseline: %s', (url) => {
     const headers = getPageResponseHeaders(new NextRequest(url))
@@ -24,6 +28,27 @@ describe('ordinary page response boundary', () => {
       'x-content-type-options': 'nosniff',
       'x-frame-options': 'SAMEORIGIN',
     })
+  })
+
+  it.each([
+    'https://guide.example/museum/chat',
+    'https://guide.example/museum/layer/modern-art/chat',
+  ])('permits same-origin microphone access only on an exact visitor voice route: %s', (url) => {
+    expect(getPageResponseHeaders(new NextRequest(url))?.get('Permissions-Policy')).toBe(
+      'camera=(), geolocation=(self), microphone=(self), payment=(), usb=()',
+    )
+  })
+
+  it.each([
+    '/',
+    '/chat',
+    '/museum',
+    '/museum/chat/extra',
+    '/museum/layer/chat',
+    '/museum/layer/modern-art',
+    '/museum/layer/modern-art/chat/extra',
+  ])('does not classify a non-voice page as a standalone visitor voice route: %s', (pathname) => {
+    expect(isStandaloneVisitorVoicePath(pathname)).toBe(false)
   })
 
   it.each([
@@ -70,7 +95,7 @@ describe('ordinary page response boundary', () => {
 
     expect(response?.headers.get('Content-Security-Policy')).toBe("frame-ancestors 'self'")
     expect(response?.headers.get('Permissions-Policy')).toBe(
-      'camera=(), geolocation=(self), microphone=(), payment=(), usb=()',
+      'camera=(), geolocation=(self), microphone=(self), payment=(), usb=()',
     )
     expect(response?.headers.get('Referrer-Policy')).toBe('no-referrer')
     expect(response?.headers.get('X-Content-Type-Options')).toBe('nosniff')
@@ -127,7 +152,9 @@ describe('embed middleware response boundary', () => {
     expect(headers?.get('X-PathFinder-Revision')).toBe(revision)
     expect(headers?.get('X-Content-Type-Options')).toBe('nosniff')
     expect(headers?.get('X-Robots-Tag')).toBe('noindex, nofollow')
-    expect(headers?.has('Permissions-Policy')).toBe(false)
+    expect(headers?.get('Permissions-Policy')).toBe(
+      'camera=(), geolocation=(self), microphone=(self), payment=(), usb=()',
+    )
     expect(headers?.has('X-Frame-Options')).toBe(false)
     expect(headers?.has('Access-Control-Allow-Origin')).toBe(false)
     expect(headers?.has('Vary')).toBe(false)
@@ -157,6 +184,9 @@ describe('embed middleware response boundary', () => {
       )
       expect(response?.headers.get('X-Content-Type-Options')).toBe('nosniff')
       expect(response?.headers.get('X-Robots-Tag')).toBe('noindex, nofollow')
+      expect(response?.headers.get('Permissions-Policy')).toBe(
+        'camera=(), geolocation=(self), microphone=(self), payment=(), usb=()',
+      )
     } finally {
       if (originalFlag === undefined) delete process.env.EMBED_PREVIEW_ENABLED
       else process.env.EMBED_PREVIEW_ENABLED = originalFlag

@@ -65,5 +65,21 @@ describe('VoiceControl', () => {
     fireEvent.click(start)
     expect((await screen.findByRole('alert')).textContent).toContain('Microphone access was denied')
     expect(mocks.start).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('button', { name: 'Try voice conversation again' }).textContent,
+    ).toContain('Try voice again')
+  })
+
+  it('retries browser permission after a denied microphone request', async () => {
+    mocks.availability.mockResolvedValue({ enabled: true, premiumAvailable: false })
+    mocks.getUserMedia.mockRejectedValue(new DOMException('Denied', 'NotAllowedError'))
+    render(<VoiceControl {...props} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start voice conversation' }))
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: 'Try voice conversation again' }))
+
+    await waitFor(() => expect(mocks.getUserMedia).toHaveBeenCalledTimes(2))
+    expect(mocks.start).not.toHaveBeenCalled()
   })
 })

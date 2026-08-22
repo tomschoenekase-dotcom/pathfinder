@@ -16,7 +16,7 @@ type VoiceState =
   | 'thinking'
   | 'speaking'
   | 'error'
-type TranscriptLine = { speaker: 'VISITOR' | 'ASSISTANT'; text: string }
+export type VoiceTranscriptLine = { speaker: 'VISITOR' | 'ASSISTANT'; text: string }
 
 function characterStateForVoice(state: VoiceState): CharacterState {
   if (state === 'requesting' || state === 'connecting') return 'attention'
@@ -27,7 +27,7 @@ function characterStateForVoice(state: VoiceState): CharacterState {
 
 function readableError(error: unknown): string {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
-    return 'Microphone access was denied. You can continue in text.'
+    return 'Microphone access was denied. You can continue in text or change browser permission and try again.'
   }
   if (error instanceof Error && error.message === 'VOICE_UNSUPPORTED') {
     return 'Voice is not supported in this browser. You can continue in text.'
@@ -59,7 +59,7 @@ export function VoiceControl({
   const [premiumAvailable, setPremiumAvailable] = useState(false)
   const [state, setState] = useState<VoiceState>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [transcript, setTranscript] = useState<TranscriptLine[]>([])
+  const [transcript, setTranscript] = useState<VoiceTranscriptLine[]>([])
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const channelRef = useRef<RTCDataChannel | null>(null)
@@ -252,7 +252,7 @@ export function VoiceControl({
   )
 
   async function startSession() {
-    if (!anonymousToken || disabled || state !== 'idle') return
+    if (!anonymousToken || disabled || (state !== 'idle' && state !== 'error')) return
     setError(null)
     setTranscript([])
     sequenceRef.current = 0
@@ -317,7 +317,36 @@ export function VoiceControl({
   }
 
   if (!available) return null
+
+  return (
+    <VoiceControlPanel
+      state={state}
+      disabled={disabled}
+      error={error}
+      transcript={transcript}
+      onStart={() => void startSession()}
+      onEnd={() => void endSession()}
+    />
+  )
+}
+
+export function VoiceControlPanel({
+  state,
+  disabled,
+  error,
+  transcript,
+  onStart,
+  onEnd,
+}: {
+  state: VoiceState
+  disabled: boolean
+  error: string | null
+  transcript: VoiceTranscriptLine[]
+  onStart: () => void
+  onEnd: () => void
+}) {
   const active = state !== 'idle' && state !== 'error'
+  const canRetry = state === 'error'
 
   return (
     <div className="mb-3 rounded-2xl border border-[var(--chat-border)] bg-[var(--chat-card)] px-3 py-2">
@@ -325,9 +354,15 @@ export function VoiceControl({
         <button
           type="button"
           disabled={disabled || state === 'requesting' || state === 'connecting'}
-          onClick={() => (active ? void endSession() : void startSession())}
+          onClick={active ? onEnd : onStart}
           className="inline-flex min-h-11 items-center gap-2 rounded-full bg-[var(--chat-accent)] px-4 text-sm font-semibold text-[var(--chat-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label={active ? 'End voice conversation' : 'Start voice conversation'}
+          aria-label={
+            active
+              ? 'End voice conversation'
+              : canRetry
+                ? 'Try voice conversation again'
+                : 'Start voice conversation'
+          }
           aria-pressed={active}
         >
           {active ? (
@@ -335,7 +370,7 @@ export function VoiceControl({
           ) : (
             <Mic className="h-4 w-4" aria-hidden="true" />
           )}
-          {active ? 'End voice' : 'Talk'}
+          {active ? 'End voice' : canRetry ? 'Try voice again' : 'Talk'}
         </button>
         <div className="min-w-0 flex-1" role="status" aria-live="polite">
           <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--chat-text)]">
@@ -343,7 +378,11 @@ export function VoiceControl({
             {voiceStateLabel(state)}
           </p>
           <p className="text-xs text-[var(--chat-text-muted)]">
-            You can interrupt naturally or switch back to text.
+            {state === 'idle'
+              ? 'Your browser asks before microphone access. You can stop or continue in text.'
+              : state === 'error'
+                ? 'Voice stopped safely. Text chat is still available.'
+                : 'You can interrupt naturally or switch back to text.'}
           </p>
         </div>
       </div>

@@ -7,6 +7,7 @@ Date: 2026-08-19
 - **New — product entitlements:** closed capability registry, plan mappings, append-only tenant/venue overrides, trials, emergency feature gating, admin procedures, and widget/voice enforcement.
 - **Improved — AI gateway and cost evidence:** capability-based routing, ordered provider/model fallbacks, runtime platform/tenant/venue configuration, route metadata, multimodal usage, idempotent provider request IDs, and daily audio rollups.
 - **New — realtime voice foundation and visitor UI:** provider-neutral adapter, OpenAI ephemeral browser authorization, public-session ownership, public-only knowledge context, quotas, atomic concurrency admission, transcript text, WebRTC controls, interruption, reconnect, text fallback, multilingual metadata, accessibility, and character-state hooks.
+- **New — browser Voice Mode boundary:** exact standalone visitor chat routes and the queryless widget embed now permit same-origin microphone access; all other ordinary pages continue to deny it. The widget delegates only `microphone`, and Voice Mode still requires an explicit visitor action, browser consent, server availability, entitlement, quota, and provider authorization. Permission or connection failures preserve text chat and expose a working retry action.
 - **New — conversation intelligence and knowledge workflow:** durable structured insights, low-confidence and knowledge-gap detection, grouped operational events, evidence-separated knowledge proposals, and an admin review page. Approval deliberately does not publish canonical knowledge.
 - **New — operational event center:** channel-neutral events, severity, deduplication/grouping, occurrence counts, acknowledgement/resolution, linked evidence, and AI Operations dashboard integration.
 - **Improved — human questions and evaluations:** expanded question types/metadata and durable callbacks; evaluation regression comparison now emits operational events. The existing venue/model/config evaluation framework was retained rather than rebuilt.
@@ -20,6 +21,7 @@ Important implementation areas include `packages/ai/src/capability-routing.ts`, 
 ## Partially completed
 
 - Realtime voice is implemented end to end in code and mocks, but no paid provider call was made because a real provider credential and venue entitlement were intentionally not assumed.
+- Statements in the earlier Tochi character-system QA packet that the app universally denies microphone access describe the pre-transport state and are superseded by this narrowly scoped Voice Mode boundary. They remain useful history, not current runtime policy.
 - Conversation intelligence currently creates deterministic low-confidence/gap records. Broader asynchronous intent, sentiment, complaint, and accessibility classification can reuse the same schema.
 - Location V1 has schema and a safe resolver, but no client authoring UI, map renderer, or turn-by-turn navigation.
 - Notification delivery records are channel-neutral; email, SMS, push, and Slack delivery adapters are not implemented. Grouping and acknowledgement exist; per-event-type mute preferences do not.

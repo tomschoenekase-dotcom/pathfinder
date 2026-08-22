@@ -7,6 +7,7 @@ import type {
 
 import { TRPCProvider } from '../lib/trpc'
 import { VenueChatShell } from './VenueChatShell'
+import { VoiceControlPanel } from './VoiceControl'
 import type { ChatMessage, VenueSummary } from './venue-chat-types'
 
 export const VISITOR_FIXTURE_STATES = [
@@ -22,6 +23,7 @@ export const VISITOR_FIXTURE_STATES = [
 export type VisitorFixtureMode = 'classic' | 'character'
 export type VisitorFixtureConversation = 'empty' | 'long'
 export type VisitorFixtureAsset = 'ok' | 'missing'
+export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
 
 export const VISITOR_FIXTURE_PROJECTION: PublicCharacterProjection = {
   characterId: 'tochi',
@@ -113,12 +115,14 @@ export function VenueChatFixture({
   conversation,
   asset,
   motion,
+  voice = 'none',
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
   conversation: VisitorFixtureConversation
   asset: VisitorFixtureAsset
   motion: 'system' | 'reduced' | 'full'
+  voice?: VisitorFixtureVoice
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -128,6 +132,7 @@ export function VenueChatFixture({
         data-fixture-state={state}
         data-fixture-conversation={conversation}
         data-fixture-asset={asset}
+        data-fixture-voice={voice}
       >
         <VenueChatShell
           venue={fixtureVenue(mode, asset)}
@@ -149,6 +154,26 @@ export function VenueChatFixture({
           onPlaceView={() => undefined}
           onPlaceClick={() => undefined}
           onDirections={() => undefined}
+          voiceControl={
+            voice === 'none' ? null : (
+              <VoiceControlPanel
+                state={voice}
+                disabled={false}
+                error={
+                  voice === 'error'
+                    ? 'Microphone access was denied. You can continue in text or change browser permission and try again.'
+                    : null
+                }
+                transcript={
+                  voice === 'listening'
+                    ? [{ speaker: 'ASSISTANT', text: 'What would you like to explore?' }]
+                    : []
+                }
+                onStart={() => undefined}
+                onEnd={() => undefined}
+              />
+            )
+          }
         />
       </div>
     </TRPCProvider>

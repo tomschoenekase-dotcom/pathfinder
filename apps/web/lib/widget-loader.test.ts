@@ -147,7 +147,7 @@ describe('classic third-party staging widget launcher', () => {
     expect(frame?.getAttribute('sandbox')).toBe(
       'allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts',
     )
-    expect(frame?.hasAttribute('allow')).toBe(false)
+    expect(frame?.getAttribute('allow')).toBe('microphone')
     expect(widget.launcher()?.disabled).toBe(true)
     expect(widget.launcher()?.getAttribute('aria-busy')).toBe('true')
     expect(widget.panel()?.hidden).toBe(true)

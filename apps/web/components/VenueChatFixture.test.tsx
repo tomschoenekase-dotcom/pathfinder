@@ -77,4 +77,21 @@ describe('VenueChatFixture', () => {
     expect(screen.getByText('What should our family see first?')).toBeTruthy()
     expect(container.querySelector('[data-character-layout="compact"]')).toBeTruthy()
   }, 10_000)
+
+  it('renders the production Voice Mode recovery presentation without provider credentials', () => {
+    render(
+      <VenueChatFixture
+        mode="classic"
+        state="idle"
+        conversation="empty"
+        asset="ok"
+        motion="reduced"
+        voice="error"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Try voice conversation again' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('Microphone access was denied')
+    expect(screen.getByText('Voice stopped safely. Text chat is still available.')).toBeTruthy()
+  })
 })

@@ -5,6 +5,7 @@ import {
   type VisitorFixtureAsset,
   type VisitorFixtureConversation,
   type VisitorFixtureMode,
+  type VisitorFixtureVoice,
 } from '../../../components/VenueChatFixture'
 
 const VISITOR_FIXTURE_STATES = [
@@ -39,6 +40,7 @@ export default async function VisitorChatVisualFixture({
     conversation?: string | string[]
     asset?: string | string[]
     motion?: string | string[]
+    voice?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -49,6 +51,7 @@ export default async function VisitorChatVisualFixture({
   const conversation = oneOf(params.conversation, ['empty', 'long'] as const, 'empty')
   const asset = oneOf(params.asset, ['ok', 'missing'] as const, 'ok')
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
+  const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
 
   return (
     <VenueChatFixture
@@ -57,6 +60,7 @@ export default async function VisitorChatVisualFixture({
       conversation={conversation satisfies VisitorFixtureConversation}
       asset={asset satisfies VisitorFixtureAsset}
       motion={motion}
+      voice={voice satisfies VisitorFixtureVoice}
     />
   )
 }
