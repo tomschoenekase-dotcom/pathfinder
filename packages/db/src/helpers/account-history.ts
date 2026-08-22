@@ -327,12 +327,13 @@ export async function listAccountCorrespondence(
       fromAddress: true,
       toAddresses: true,
       subject: true,
-      textBody: true,
+      bodyPreview: true,
       attachmentMetadata: true,
       occurredAt: true,
       providerAccountId: true,
       providerMessageId: true,
       internetMessageId: true,
+      sourceReference: true,
       providerAccount: { select: { provider: true, mailboxAddress: true } },
     },
   })
@@ -348,7 +349,7 @@ export async function listAccountCorrespondence(
         fromAddress: row.fromAddress,
         toAddresses: row.toAddresses,
         subject: row.subject,
-        snippet: snippet(row.textBody),
+        snippet: snippet(row.bodyPreview),
         hasAttachments: Array.isArray(row.attachmentMetadata)
           ? row.attachmentMetadata.length > 0
           : Boolean(row.attachmentMetadata),
@@ -361,9 +362,10 @@ export async function listAccountCorrespondence(
           providerMessageId: row.providerMessageId,
           internetMessageId: row.internetMessageId,
           originalSourceUrl:
-            gmail && row.internetMessageId
+            row.sourceReference ??
+            (gmail && row.internetMessageId
               ? gmailSourceLink(gmail.mailboxAddress, row.internetMessageId)
-              : null,
+              : null),
         },
       }
     }),

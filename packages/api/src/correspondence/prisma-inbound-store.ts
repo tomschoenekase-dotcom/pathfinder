@@ -4,6 +4,7 @@ import { db, publishCrmOperationalSignal, withTenantIsolationBypass } from '@pat
 import { ProspectCampaignMemberStatus } from '@prisma/client'
 
 import type { InboundCorrespondenceStore, ReceiptState, ThreadMatchCandidate } from './inbound-sync'
+import { projectGmailBodyForPersistence, type GmailBodyPersistencePolicy } from './body-retention'
 
 const receiptStatus: Record<
   ReceiptState,
@@ -60,7 +61,12 @@ function candidateFromThread(
   }
 }
 
-export function createPrismaInboundCorrespondenceStore(): InboundCorrespondenceStore {
+export function createPrismaInboundCorrespondenceStore(
+  options: {
+    bodyPersistence?: GmailBodyPersistencePolicy
+  } = {},
+): InboundCorrespondenceStore {
+  const bodyPersistence = options.bodyPersistence ?? { mode: 'SOURCE_ONLY' as const }
   return {
     async receiveReceipt(input) {
       return withTenantIsolationBypass(async () => {
@@ -202,6 +208,11 @@ export function createPrismaInboundCorrespondenceStore(): InboundCorrespondenceS
           select: { id: true },
         })
         if (existing) return { canonicalMessageId: existing.id, inserted: false }
+        const bodyProjection = projectGmailBodyForPersistence({
+          message: input.message,
+          ingestedAt: input.ingestedAt,
+          policy: bodyPersistence,
+        })
         const created = await db.$transaction(async (tx) => {
           const message = await tx.prospectEmailMessage.create({
             data: {
@@ -226,8 +237,7 @@ export function createPrismaInboundCorrespondenceStore(): InboundCorrespondenceS
               ccAddresses: input.message.cc.map((item) => item.email),
               bccAddresses: input.message.bcc.map((item) => item.email),
               subject: input.message.subject,
-              textBody: input.message.body.text,
-              htmlBody: input.message.body.html,
+              ...bodyProjection,
               attachmentMetadata: json(input.message.attachments),
               occurredAt: input.message.internalDate,
             },

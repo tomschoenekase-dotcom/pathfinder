@@ -376,8 +376,11 @@ export async function recordProspectSendSuccessAction(
         fromAddress: operation.providerAccount.mailboxAddress,
         toAddresses: [item.recipientEmailSnapshot],
         subject: item.subjectSnapshot,
-        textBody: item.textBodySnapshot,
-        htmlBody: item.htmlBodySnapshot,
+        bodyPreview: item.textBodySnapshot.replace(/\s+/gu, ' ').trim().slice(0, 500),
+        bodyRetentionState: 'NOT_STORED',
+        sourceReference: `https://mail.google.com/mail/u/${encodeURIComponent(
+          operation.providerAccount.mailboxAddress,
+        )}/#all/${encodeURIComponent(input.providerMessageId)}`,
         occurredAt: acceptedAt,
       },
     })

@@ -31,7 +31,8 @@
     "./native-venue-deployment": "./src/native-venue-deployment.ts",
     "./character-system": "./src/character-system.ts",
     "./actor": "./src/actor.ts",
-    "./company-brain": "./src/company-brain.ts"
+    "./company-brain": "./src/company-brain.ts",
+    "./google-workspace-source": "./src/google-workspace-source.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

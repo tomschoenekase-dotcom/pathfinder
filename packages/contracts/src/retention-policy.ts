@@ -114,6 +114,16 @@ export const RETENTION_DATA_INVENTORY: readonly RetentionInventoryEntry[] = [
     notes: 'Versions may contain actor attribution and cannot be silently truncated.',
   },
   {
+    model: 'ProspectEmailMessage',
+    decisionKey: 'content-history-and-provenance',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'EXTERNAL_REFERENCE',
+    deletionBoundary: 'RESTRICTED_EVIDENCE',
+    notes:
+      'Gmail is canonical; durable message projection excludes full bodies by default and legacy bodies require dry-run review.',
+  },
+  {
     model: 'VisitorSession',
     decisionKey: 'guest-conversations',
     containsPersonalData: true,
@@ -194,6 +204,16 @@ export const RETENTION_DATA_INVENTORY: readonly RetentionInventoryEntry[] = [
     deletionBoundary: 'RESTRICTED_EVIDENCE',
     notes:
       'Quarantined object locators and verification metadata require an explicit source-retention decision.',
+  },
+  {
+    model: 'CompanyMeeting',
+    decisionKey: 'intake-sources-and-evidence',
+    containsPersonalData: true,
+    clientExportEligible: false,
+    lifecycle: 'EXTERNAL_REFERENCE',
+    deletionBoundary: 'RESTRICTED_EVIDENCE',
+    notes:
+      'Meeting relationship history keeps source provenance; transcript artifacts are separately time-bounded.',
   },
   {
     model: 'OffboardingPlan',

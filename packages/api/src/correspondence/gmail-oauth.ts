@@ -7,9 +7,11 @@ import { createGmailApiClient } from './gmail-http-client'
 
 const AUTHORIZATION_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
-const GMAIL_SCOPES = [
+const GOOGLE_WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/calendar.events.readonly',
+  'https://www.googleapis.com/auth/meetings.space.readonly',
 ] as const
 
 type Fetch = typeof fetch
@@ -158,7 +160,7 @@ export function createGmailOAuthRuntime(input: {
         access_type: 'offline',
         prompt: 'consent',
         include_granted_scopes: 'true',
-        scope: GMAIL_SCOPES.join(' '),
+        scope: GOOGLE_WORKSPACE_SCOPES.join(' '),
         state,
         code_challenge: createHash('sha256').update(verifier).digest('base64url'),
         code_challenge_method: 'S256',
@@ -250,7 +252,14 @@ export function createGmailOAuthRuntime(input: {
               provider: 'GMAIL',
               externalAccountId: profile.emailAddress.toLowerCase(),
               mailboxAddress: profile.emailAddress.toLowerCase(),
-              capabilities: ['SEND', 'RECEIVE', 'WATCH', 'RECONCILE'],
+              capabilities: [
+                'SEND',
+                'RECEIVE',
+                'WATCH',
+                'RECONCILE',
+                'CALENDAR_READ',
+                'MEET_TRANSCRIPTS',
+              ],
               connectionStatus: 'CONNECTED',
               credentialReferenceId: credentialId,
               syncCursor: profile.historyId,
