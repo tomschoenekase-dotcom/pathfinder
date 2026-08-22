@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-141-20260821',
+  approval: 'torchiko-staging-lineage-to-143-20260822',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 141,
+  migrationCount: 143,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -29,6 +29,8 @@ const EXPECTED = Object.freeze({
   billingFoundationPublicTableCount: 175,
   previousReleaseCount: 134,
   previousReleasePublicTableCount: 175,
+  b5CompleteCount: 141,
+  b5CompletePublicTableCount: 193,
   firstMigration: '001_identity_foundation',
   baselineLastMigration: '20260809150000_add_evaluation_persistence',
   priorFinalMigration: '20260817000000_rebrand_torchiko',
@@ -37,9 +39,10 @@ const EXPECTED = Object.freeze({
   preBillingFinalMigration: '20260820190000_harden_prospect_import_jobs',
   billingFoundationFinalMigration: '20260820210000_add_stripe_billing_foundation',
   previousReleaseFinalMigration: '20260821032000_allow_pending_stripe_customer_link',
-  finalMigration: '20260821201000_add_meeting_processing_capability',
-  manifestHash: '42ed987e8e05e3b54786adde743dead33f6fda1290d084cc166066736798586b',
-  finalPublicTableCount: 193,
+  b5CompleteFinalMigration: '20260821201000_add_meeting_processing_capability',
+  finalMigration: '20260822064500_add_calendar_meet_source_models',
+  manifestHash: '3a58c8f0638d22a38a97819bb9a3abb258ff36bdeb6a97f46c5f22e360376498',
+  finalPublicTableCount: 195,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -161,6 +164,9 @@ export function assertFrozenManifest(manifest) {
   ) {
     fail('previous staging release boundary changed')
   }
+  if (manifest.names[EXPECTED.b5CompleteCount - 1] !== EXPECTED.b5CompleteFinalMigration) {
+    fail('B.5 complete boundary changed')
+  }
   if (manifest.hash !== EXPECTED.manifestHash) fail('migration manifest checksum changed')
 }
 
@@ -173,6 +179,7 @@ function ledgerState(rows, manifest) {
     rows.length !== EXPECTED.preBillingCount &&
     rows.length !== EXPECTED.billingFoundationCount &&
     rows.length !== EXPECTED.previousReleaseCount &&
+    rows.length !== EXPECTED.b5CompleteCount &&
     rows.length !== EXPECTED.migrationCount
   ) {
     fail(`unexpected ledger row count ${rows.length}`)
@@ -206,6 +213,7 @@ function ledgerState(rows, manifest) {
   if (rows.length === EXPECTED.preBillingCount) return 'pre-billing'
   if (rows.length === EXPECTED.billingFoundationCount) return 'billing-foundation'
   if (rows.length === EXPECTED.previousReleaseCount) return 'previous-release'
+  if (rows.length === EXPECTED.b5CompleteCount) return 'b5-complete'
   return 'complete'
 }
 
@@ -345,10 +353,12 @@ async function main() {
             ? EXPECTED.capabilityBaselinePublicTableCount
             : initialState === 'pre-billing'
               ? EXPECTED.preBillingPublicTableCount
-              : initialState === 'billing-foundation'
-                ? EXPECTED.billingFoundationPublicTableCount
-                : initialState === 'previous-release'
-                  ? EXPECTED.previousReleasePublicTableCount
+            : initialState === 'billing-foundation'
+              ? EXPECTED.billingFoundationPublicTableCount
+              : initialState === 'previous-release'
+                ? EXPECTED.previousReleasePublicTableCount
+                : initialState === 'b5-complete'
+                  ? EXPECTED.b5CompletePublicTableCount
                   : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)

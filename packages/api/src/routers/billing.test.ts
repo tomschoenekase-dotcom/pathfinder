@@ -29,7 +29,7 @@ import { billingRouter } from './billing'
 const testRouter = router({ billing: billingRouter })
 function context(role: 'OWNER' | 'STAFF' = 'OWNER'): TRPCContext {
   return {
-    db: { tenantFeatureFlag: { findFirst: mocks.flag } } as unknown as TRPCContext['db'],
+    db: { tenantFeatureFlag: { findUnique: mocks.flag } } as unknown as TRPCContext['db'],
     headers: new Headers(),
     session: { userId: 'user-a', activeTenantId: 'tenant-a', role, isPlatformAdmin: false },
   }
@@ -50,6 +50,12 @@ describe('billing tenant API boundary', () => {
     mocks.flag.mockResolvedValue(null)
     await expect(testRouter.createCaller(context()).billing.overview()).rejects.toMatchObject({
       code: 'NOT_FOUND',
+    })
+    expect(mocks.flag).toHaveBeenCalledWith({
+      where: {
+        tenantId_flagKey: { tenantId: 'tenant-a', flagKey: 'billing-ui-v1' },
+      },
+      select: { enabled: true },
     })
     expect(mocks.overview).not.toHaveBeenCalled()
   })

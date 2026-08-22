@@ -8,10 +8,11 @@ import {
 
 describe('Google Workspace source HTTP clients', () => {
   it('requests a bounded Calendar page with deletion and recurring-instance semantics', async () => {
-    const transport = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ items: [{ id: 'event_1' }], nextSyncToken: 'sync_2' })),
-    )
+    const transport = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void input
+      void init
+      return new Response(JSON.stringify({ items: [{ id: 'event_1' }], nextSyncToken: 'sync_2' }))
+    })
     const client = createGoogleCalendarApiClient({ fetch: transport })
     await client.listEvents({
       accessToken: 'short-lived',
@@ -32,7 +33,11 @@ describe('Google Workspace source HTTP clients', () => {
 
   it('maps Calendar 410 responses to a recoverable stale-token error', async () => {
     const client = createGoogleCalendarApiClient({
-      fetch: vi.fn(async () => new Response('Sync token is no longer valid', { status: 410 })),
+      fetch: vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        void input
+        void init
+        return new Response('Sync token is no longer valid', { status: 410 })
+      }),
     })
     await expect(
       client.listEvents({
@@ -49,7 +54,11 @@ describe('Google Workspace source HTTP clients', () => {
 
   it('exposes transcript endpoints but no recording endpoint', async () => {
     const transport = vi
-      .fn()
+      .fn(async (input: string | URL | Request, init?: RequestInit) => {
+        void input
+        void init
+        return new Response()
+      })
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({

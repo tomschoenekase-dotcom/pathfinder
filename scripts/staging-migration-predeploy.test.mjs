@@ -37,7 +37,7 @@ test('accepts only the exact private Railway staging target', () => {
   }
 })
 
-test('repository migration manifest remains frozen at the reviewed 141-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 143-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
@@ -74,6 +74,7 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
     ledgerState(rows.slice(0, EXPECTED.previousReleaseCount), manifest),
     'previous-release',
   )
+  assert.equal(ledgerState(rows.slice(0, EXPECTED.b5CompleteCount), manifest), 'b5-complete')
   assert.equal(ledgerState(rows, manifest), 'complete')
   const verifiedBaselineRows = rows.slice(0, EXPECTED.baselineCount).map((row) => ({
     ...row,
@@ -143,7 +144,7 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   )
 })
 
-test('exact previous staging release advances only through the reviewed seven-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed nine-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -161,6 +162,12 @@ test('exact previous staging release advances only through the reviewed seven-mi
     '20260821194500_add_company_knowledge_embeddings',
     '20260821200000_sync_mcp_credential_capabilities',
     '20260821201000_add_meeting_processing_capability',
+    '20260822063000_add_google_source_retention_foundation',
+    '20260822064500_add_calendar_meet_source_models',
+  ])
+  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
+    '20260822063000_add_google_source_retention_foundation',
+    '20260822064500_add_calendar_meet_source_models',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })
