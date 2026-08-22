@@ -998,6 +998,11 @@ export {
 } from './helpers/prospect-research-job-actions'
 export type { ProspectResearchContext } from './helpers/prospect-research-job-actions'
 export {
+  applyVerifiedProspectEmailEventAction,
+  ProspectEmailEventError,
+} from './helpers/prospect-email-event-actions'
+export { getProspectOutreachAnalyticsAction } from './helpers/prospect-outreach-analytics-actions'
+export {
   evaluateProspectFollowupReadinessAction,
   ProspectFollowupError,
   scheduleProspectFollowupAction,

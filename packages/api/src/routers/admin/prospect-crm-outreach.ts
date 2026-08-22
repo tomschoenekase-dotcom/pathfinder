@@ -8,6 +8,7 @@ import {
   db,
   emergencyStopProspectDeliveryAction,
   evaluateProspectFollowupReadinessAction,
+  getProspectOutreachAnalyticsAction,
   ProspectOutreachError,
   publishCrmOperationalSignal,
   releaseProspectSendBatchAction,
@@ -58,6 +59,17 @@ export const adminProspectCrmOutreachRouter = router({
       }),
     ),
   ),
+
+  getProspectOutreachAnalytics: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ campaignId: id.optional() }).strict())
+    .query(({ input }) =>
+      withTenantIsolationBypass(() =>
+        getProspectOutreachAnalyticsAction(
+          input.campaignId === undefined ? {} : { campaignId: input.campaignId },
+        ),
+      ),
+    ),
 
   getProspectCampaign: adminProcedure
     .use(requireCrmProspectOutreach)
