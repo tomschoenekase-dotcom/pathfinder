@@ -34,6 +34,19 @@ onboarding. The legacy `/venues/[venueId]/intake` route redirects to this canoni
 tenant with no venue sees one venue-name field, then lands directly in the materials workspace; the
 old multi-step DIY setup is retired.
 
+Website, staff-questionnaire, and optional-note forms retain their independent unfinished state
+while the client switches among those source types. Staff answers are also retained separately per
+selected role, so inspecting another questionnaire does not erase earlier answers. A page-exit
+guard asks the browser to warn when any source still has unfinished input, and only a confirmed
+successful submission clears that source's draft. Failed and ambiguous submissions keep both the
+input and exact request identity for safe retry.
+
+This is deliberately current-page recovery, not durable server storage: unfinished input is not
+written to local or session storage, and private interview text is not persisted in the browser.
+Browser exit warnings are best-effort, especially on mobile, so the interface states plainly that
+unfinished entries are not saved until shared. Durable cross-device drafts remain an unresolved
+product/privacy decision rather than an implied capability.
+
 Loading and error boundaries live beside the route. A sanitized development-only fixture is
 available at `/dev-fixtures/remote-onboarding`; both middleware and the route reject it outside
 development.

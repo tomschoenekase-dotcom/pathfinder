@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 import React from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import axe from 'axe-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interview'
@@ -110,6 +111,88 @@ describe('IntakeProposalWorkspace', () => {
       }),
     )
     expect(await screen.findByText(/Information received/)).toBeTruthy()
+  })
+
+  it('preserves unfinished website and notes drafts while switching source types', () => {
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.change(screen.getByLabelText('Website name'), {
+      target: { value: 'Museum website' },
+    })
+    fireEvent.change(screen.getByLabelText('Website URL'), {
+      target: { value: 'https://museum.example' },
+    })
+
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    fireEvent.change(screen.getByLabelText('Notes'), {
+      target: { value: 'The east entrance is step-free.' },
+    })
+    fireEvent.click(screen.getByLabelText('Website'))
+
+    expect((screen.getByLabelText('Website name') as HTMLInputElement).value).toBe('Museum website')
+    expect((screen.getByLabelText('Website URL') as HTMLInputElement).value).toBe(
+      'https://museum.example',
+    )
+    fireEvent.click(screen.getByLabelText('Optional notes'))
+    expect((screen.getByLabelText('Notes') as HTMLTextAreaElement).value).toBe(
+      'The east entrance is step-free.',
+    )
+  })
+
+  it('preserves separate staff answers when changing roles and source types', () => {
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.click(screen.getByLabelText('Staff questionnaire'))
+    fireEvent.change(screen.getByLabelText('Interview name'), {
+      target: { value: 'Leadership and operations' },
+    })
+    fireEvent.change(screen.getAllByLabelText('Written answer')[0]!, {
+      target: { value: 'Executive answer' },
+    })
+    fireEvent.change(screen.getByLabelText('Staff role'), { target: { value: 'OPERATIONS' } })
+    fireEvent.change(screen.getAllByLabelText('Written answer')[0]!, {
+      target: { value: 'Operations answer' },
+    })
+
+    fireEvent.click(screen.getByLabelText('Website'))
+    fireEvent.click(screen.getByLabelText('Staff questionnaire'))
+    fireEvent.change(screen.getByLabelText('Staff role'), { target: { value: 'EXECUTIVE' } })
+    expect((screen.getAllByLabelText('Written answer')[0] as HTMLTextAreaElement).value).toBe(
+      'Executive answer',
+    )
+    fireEvent.change(screen.getByLabelText('Staff role'), { target: { value: 'OPERATIONS' } })
+    expect((screen.getAllByLabelText('Written answer')[0] as HTMLTextAreaElement).value).toBe(
+      'Operations answer',
+    )
+  })
+
+  it('warns before leaving with unfinished work and clears the warning after success', async () => {
+    mocks.mutate.mockResolvedValue({ id: 'run-website' })
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.change(screen.getByLabelText('Website name'), {
+      target: { value: 'Museum website' },
+    })
+    fireEvent.change(screen.getByLabelText('Website URL'), {
+      target: { value: 'https://museum.example' },
+    })
+
+    expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Share website' }))
+    await screen.findByText(/Information received/)
+    await waitFor(() =>
+      expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(true),
+    )
+  })
+
+  it('has no automated accessibility violations across the real source chooser', async () => {
+    document.documentElement.lang = 'en'
+    document.title = 'Torchiko onboarding source draft'
+    render(<IntakeProposalWorkspace venueId="venue-1" proposals={[]} />)
+    fireEvent.click(screen.getByLabelText('Staff questionnaire'))
+    const result = await axe.run(document, {
+      rules: { 'color-contrast': { enabled: false } },
+    })
+    expect(
+      result.violations.map(({ id, impact, nodes }) => ({ id, impact, nodes: nodes.length })),
+    ).toEqual([])
   })
 
   it('keeps package identity and operator workflow language out of client history', () => {
