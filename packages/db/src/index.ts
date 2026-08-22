@@ -987,6 +987,10 @@ export {
   ProspectDeliveryControlError,
 } from './helpers/prospect-delivery-control-actions'
 export {
+  admitProspectStagingPackageAction,
+  ProspectPackageAdmissionError,
+} from './helpers/prospect-package-admission-actions'
+export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,
   reviewProspectContactReadinessAction,

@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
 import {
+  admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
   createProspectCampaignAction,
   db,
@@ -34,6 +35,18 @@ function mapError(error: unknown): never {
 }
 
 export const adminProspectCrmOutreachRouter = router({
+  admitProspectStagingPackage: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ package: z.unknown() }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(() =>
+        admitProspectStagingPackageAction({
+          package: input.package,
+          actor: prospectActor(ctx.session.userId),
+        }),
+      ),
+    ),
+
   listProspectCampaigns: adminProcedure.use(requireCrmProspectOutreach).query(() =>
     withTenantIsolationBypass(() =>
       db.prospectOutreachCampaign.findMany({
