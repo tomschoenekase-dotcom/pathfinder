@@ -33,7 +33,8 @@
     "./actor": "./src/actor.ts",
     "./company-brain": "./src/company-brain.ts",
     "./google-workspace-source": "./src/google-workspace-source.ts",
-    "./prospect-staging-package": "./src/prospect-staging-package.ts"
+    "./prospect-staging-package": "./src/prospect-staging-package.ts",
+    "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseProspectStagingPackage } from './prospect-staging-package'
+import { parseProspectStagingPackage } from './prospect-staging-package-node'
 
 function validPackage() {
   return {

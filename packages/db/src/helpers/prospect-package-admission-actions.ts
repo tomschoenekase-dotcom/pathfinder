@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto'
 
-import {
-  parseProspectStagingPackage,
-  PROSPECT_STAGING_PACKAGE_SCHEMA,
-} from '@pathfinder/contracts/prospect-staging-package'
+import { PROSPECT_STAGING_PACKAGE_SCHEMA } from '@pathfinder/contracts/prospect-staging-package'
+import { parseProspectStagingPackage } from '@pathfinder/contracts/prospect-staging-package-node'
 
 import { db } from '../client'
 
