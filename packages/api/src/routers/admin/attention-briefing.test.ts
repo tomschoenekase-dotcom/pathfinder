@@ -11,6 +11,7 @@ const page = <T>(items: T[], hasMore = false) => ({
 function input(): FounderBriefingInput {
   return {
     limit: 10,
+    lastReviewedThrough: null,
     events: page([]),
     platformEvents: page([]),
     questions: page([]),
@@ -18,6 +19,8 @@ function input(): FounderBriefingInput {
     blockedAgents: page([]),
     support: page([]),
     workingAgents: page([]),
+    completedAgents: page([]),
+    outcomes: page([]),
   }
 }
 
@@ -50,6 +53,7 @@ describe('founder briefing contract', () => {
         summary: 'Guest turns are failing.',
         recommendedAction: 'Inspect affected turns.',
         actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:00:00.000Z'),
       },
     ])
     value.platformEvents = page([
@@ -61,6 +65,7 @@ describe('founder briefing contract', () => {
         summary: 'Import stopped.',
         recommendedAction: null,
         actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:00:00.000Z'),
       },
     ])
     value.questions = page([
@@ -72,6 +77,7 @@ describe('founder briefing contract', () => {
         context: null,
         blocking: true,
         agentIdentity: { name: 'Operator' },
+        createdAt: new Date('2026-08-22T12:00:00.000Z'),
       },
     ])
 
@@ -103,6 +109,7 @@ describe('founder briefing contract', () => {
         summary: 'Import stopped.',
         recommendedAction: null,
         actionRequired: true,
+        lastOccurredAt: new Date('2026-08-22T12:00:00.000Z'),
       },
     ])
 
@@ -129,6 +136,7 @@ describe('founder briefing contract', () => {
         context: 'Two records conflict.',
         blocking: true,
         agentIdentity: { name: 'Research' },
+        createdAt: new Date('2026-08-22T12:00:00.000Z'),
       },
     ])
     value.approvals = page([
@@ -140,6 +148,7 @@ describe('founder briefing contract', () => {
         riskCategory: 'MEDIUM',
         expired: false,
         agentIdentity: { name: 'Support' },
+        createdAt: new Date('2026-08-22T12:00:00.000Z'),
       },
     ])
     value.blockedAgents = page([
@@ -160,6 +169,7 @@ describe('founder briefing contract', () => {
         subject: 'Hours correction',
         category: 'CONTENT_CORRECTION',
         status: 'IN_REVIEW',
+        updatedAt: new Date('2026-08-22T12:00:00.000Z'),
       },
     ])
 
@@ -179,6 +189,38 @@ describe('founder briefing contract', () => {
     expect(deriveFounderBriefing(value)).toMatchObject({
       metrics: { workingAgents: 1 },
       boundedSnapshot: { limit: 10, hasMore: true },
+    })
+  })
+
+  it('reports bounded changes after the operator review cursor without hiding pending work', () => {
+    const value = input()
+    value.lastReviewedThrough = new Date('2026-08-22T11:00:00.000Z')
+    value.questions = page([
+      {
+        id: 'question_old',
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        question: 'Still pending?',
+        context: null,
+        blocking: true,
+        agentIdentity: { name: 'Operator' },
+        createdAt: new Date('2026-08-22T10:00:00.000Z'),
+      },
+    ])
+    value.completedAgents = page([
+      {
+        createdAt: new Date('2026-08-22T11:30:00.000Z'),
+        completedAt: new Date('2026-08-22T12:00:00.000Z'),
+      },
+    ])
+    value.outcomes = page([{ createdAt: new Date('2026-08-22T12:05:00.000Z') }])
+
+    const result = deriveFounderBriefing(value)
+    expect(result.focus.kind).toBe('FOUNDER_QUESTION')
+    expect(result.reviewState).toMatchObject({
+      lastReviewedThrough: value.lastReviewedThrough,
+      changesSinceLastReview: { decisions: 0, completedAgents: 1, outcomes: 1 },
+      hasUnreviewedChanges: true,
     })
   })
 })

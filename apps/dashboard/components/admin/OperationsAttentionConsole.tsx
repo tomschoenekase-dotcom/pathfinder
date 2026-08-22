@@ -4,6 +4,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
 import { OperationalEventActions } from './OperationalEventActions'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
@@ -67,7 +68,8 @@ function briefingTone(urgency: Data['briefing']['focus']['urgency']) {
 }
 
 export function OperationsAttentionConsole({ data }: { data: Data }) {
-  const { focus, metrics, boundedSnapshot } = data.briefing
+  const { focus, metrics, boundedSnapshot, reviewState } = data.briefing
+  const reviewChanges = reviewState.changesSinceLastReview
   return (
     <div className="space-y-6" aria-label="Operational attention queues">
       <p className="text-xs text-slate-500">
@@ -126,6 +128,44 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
               </div>
             ))}
           </dl>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-900/80 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-sky-300">
+                Since your last review
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-300">
+                {reviewState.lastReviewedThrough
+                  ? `Personal review cursor: ${date(reviewState.lastReviewedThrough)}.`
+                  : 'This is your first recorded review; visible activity is counted as new.'}{' '}
+                Counts reflect this bounded briefing snapshot, not an exhaustive historical audit.
+              </p>
+            </div>
+            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:min-w-[34rem]">
+              {[
+                ['Critical', reviewChanges.criticalRisks],
+                ['Decisions', reviewChanges.decisions],
+                ['Completed', reviewChanges.completedAgents],
+                ['Outcomes', reviewChanges.outcomes],
+                ['Customer', reviewChanges.customerItems],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-slate-700 bg-slate-950 p-3">
+                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    {label}
+                  </dt>
+                  <dd className="mt-1 text-xl font-semibold text-white">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <FounderBriefingReviewForm
+            reviewedThrough={data.generatedAt}
+            previousReviewedThrough={reviewState.lastReviewedThrough}
+            briefingSchemaVersion={data.briefing.schemaVersion}
+            hasUnreviewedChanges={reviewState.hasUnreviewedChanges}
+          />
         </div>
 
         <nav

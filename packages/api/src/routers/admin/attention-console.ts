@@ -9,6 +9,11 @@ import {
   resolveAttentionEvent,
 } from './attention-event-actions'
 import {
+  markFounderBriefingReviewed,
+  markFounderBriefingReviewedInput,
+  readFounderBriefingReview,
+} from './attention-review-actions'
+import {
   ACTIVE_SUPPORT_REQUEST_STATUSES,
   after,
   afterCondition,
@@ -19,7 +24,7 @@ import { listAttentionWorkers } from './attention-worker-health'
 
 // Bounded metadata-only platform triage; no payloads, artifacts, messages, or raw provider errors.
 export const adminAttentionConsoleRouter = router({
-  attentionConsole: adminProcedure.input(attentionConsoleInput).query(({ input: query }) =>
+  attentionConsole: adminProcedure.input(attentionConsoleInput).query(({ ctx, input: query }) =>
     withTenantIsolationBypass(async () => {
       const now = new Date()
       const take = query.limit + 1
@@ -37,6 +42,7 @@ export const adminAttentionConsoleRouter = router({
         events,
         platformEvents,
         workers,
+        reviewState,
       ] = await Promise.all([
         db.jobRecord.findMany({
           where: { status: 'FAILED', ...after(query.jobsCursor) },
@@ -290,6 +296,7 @@ export const adminAttentionConsoleRouter = router({
           },
         }),
         listAttentionWorkers(now),
+        readFounderBriefingReview(ctx.session.userId),
       ])
 
       const result = {
@@ -334,10 +341,17 @@ export const adminAttentionConsoleRouter = router({
           blockedAgents: result.blockedAgents,
           support: result.support,
           workingAgents: result.workingAgents,
+          completedAgents: result.completedAgents,
+          outcomes: result.outcomes,
+          lastReviewedThrough: reviewState?.reviewedThrough ?? null,
         }),
       }
     }),
   ),
+
+  markFounderBriefingReviewed: adminProcedure
+    .input(markFounderBriefingReviewedInput)
+    .mutation(({ ctx, input }) => markFounderBriefingReviewed(ctx.session.userId, input)),
 
   acknowledgeOperationalEvent: adminProcedure
     .input(attentionEventActionInput)

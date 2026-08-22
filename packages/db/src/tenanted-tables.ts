@@ -190,6 +190,7 @@ export const PLATFORM_TABLES = [
   'ProspectFollowup',
   'ProspectEmailWebhookReceipt',
   'PlatformOperationalEvent',
+  'FounderControlRoomReview',
   'EncryptedIntegrationCredential',
   'GmailOAuthAttempt',
   'ProspectInboundQuarantine',

@@ -2630,6 +2630,22 @@ model PlatformOperationalEvent {
   @@map("platform_operational_events")
 }
 
+/// Append-only evidence that one platform operator reviewed the bounded
+/// Founder Control Room snapshot through an exact server-generated timestamp.
+/// This cursor never resolves, acknowledges, approves, or executes queue work.
+model FounderControlRoomReview {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId              String    @unique @map("operation_id") @db.Uuid
+  operatorUserId           String    @map("operator_user_id") @db.VarChar(191)
+  reviewedThrough          DateTime  @map("reviewed_through")
+  previousReviewedThrough  DateTime? @map("previous_reviewed_through")
+  briefingSchemaVersion    Int       @map("briefing_schema_version")
+  createdAt                DateTime  @default(now()) @map("created_at")
+
+  @@index([operatorUserId, reviewedThrough, createdAt], map: "founder_control_room_reviews_operator_cursor_idx")
+  @@map("founder_control_room_reviews")
+}
+
 enum KnowledgeChangeProposalStatus {
   DRAFT
   PENDING_REVIEW

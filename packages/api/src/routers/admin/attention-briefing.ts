@@ -8,6 +8,7 @@ type TenantEvent = {
   summary: string
   recommendedAction: string | null
   actionRequired: boolean
+  lastOccurredAt: Date
 }
 
 type PlatformEvent = {
@@ -18,6 +19,7 @@ type PlatformEvent = {
   summary: string
   recommendedAction: string | null
   actionRequired: boolean
+  lastOccurredAt: Date
 }
 
 type Question = {
@@ -28,6 +30,7 @@ type Question = {
   context: string | null
   blocking: boolean
   agentIdentity: { name: string }
+  createdAt: Date
 }
 
 type Approval = {
@@ -38,6 +41,7 @@ type Approval = {
   riskCategory: string
   expired: boolean
   agentIdentity: { name: string }
+  createdAt: Date
 }
 
 type AgentRun = {
@@ -56,7 +60,11 @@ type SupportRequest = {
   subject: string
   category: string
   status: string
+  updatedAt: Date
 }
+
+type CompletedAgentRun = { createdAt: Date; completedAt: Date | null }
+type Outcome = { createdAt: Date }
 
 type Page<T> = { items: T[]; nextCursor: unknown | null }
 
@@ -85,6 +93,7 @@ export type FounderBriefingFocus = {
 
 export type FounderBriefingInput = {
   limit: number
+  lastReviewedThrough: Date | null
   events: Page<TenantEvent>
   platformEvents: Page<PlatformEvent>
   questions: Page<Question>
@@ -92,6 +101,8 @@ export type FounderBriefingInput = {
   blockedAgents: Page<AgentRun>
   support: Page<SupportRequest>
   workingAgents: Page<unknown>
+  completedAgents: Page<CompletedAgentRun>
+  outcomes: Page<Outcome>
 }
 
 function tenantEventHref(event: TenantEvent) {
@@ -244,7 +255,30 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
     input.blockedAgents,
     input.support,
     input.workingAgents,
+    input.completedAgents,
+    input.outcomes,
   ]
+  const afterReview = (value: Date) =>
+    input.lastReviewedThrough === null || value > input.lastReviewedThrough
+  const changesSinceLastReview = {
+    criticalRisks:
+      input.events.items.filter(
+        (event) =>
+          ['CRITICAL', 'ERROR'].includes(event.severity) && afterReview(event.lastOccurredAt),
+      ).length +
+      input.platformEvents.items.filter(
+        (event) =>
+          ['CRITICAL', 'ERROR'].includes(event.severity) && afterReview(event.lastOccurredAt),
+      ).length,
+    decisions:
+      input.questions.items.filter((item) => afterReview(item.createdAt)).length +
+      input.approvals.items.filter((item) => afterReview(item.createdAt)).length,
+    completedAgents: input.completedAgents.items.filter((item) =>
+      afterReview(item.completedAt ?? item.createdAt),
+    ).length,
+    outcomes: input.outcomes.items.filter((item) => afterReview(item.createdAt)).length,
+    customerItems: input.support.items.filter((item) => afterReview(item.updatedAt)).length,
+  }
   return {
     schemaVersion: 1 as const,
     focus,
@@ -261,6 +295,11 @@ export function deriveFounderBriefing(input: FounderBriefingInput) {
     boundedSnapshot: {
       limit: input.limit,
       hasMore: pages.some((value) => value.nextCursor !== null),
+    },
+    reviewState: {
+      lastReviewedThrough: input.lastReviewedThrough,
+      changesSinceLastReview,
+      hasUnreviewedChanges: Object.values(changesSinceLastReview).some((value) => value > 0),
     },
   }
 }

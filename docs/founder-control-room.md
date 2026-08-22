@@ -38,6 +38,23 @@ authorization boundary.
 The interface states the bounded-snapshot limitation rather than claiming exhaustive company
 awareness.
 
+## Personal review checkpoints
+
+The briefing includes an actor-scoped "since your last review" summary for critical risks,
+decisions, completed agent runs, outcome signals, and customer support items visible in the bounded
+snapshot. A first review treats the visible snapshot as new. Later reviews compare item activity
+timestamps with the authenticated operator's last durable cursor.
+
+`admin.markFounderBriefingReviewed` appends a checkpoint bound to the exact server-generated
+briefing timestamp, briefing schema version, authenticated operator, expected previous cursor, and
+idempotency operation ID. Checkpoints advance monotonically and cannot branch from the same prior
+cursor. The database rejects updates, deletes, and truncation of this evidence.
+
+This is review evidence only. Recording it does not acknowledge or resolve an operational event,
+answer a question, decide an approval, resume a worker, or execute a queue item. Concurrent or stale
+submissions fail closed and require a refreshed briefing. Counts remain a bounded visible delta,
+not a claim of exhaustive historical accounting.
+
 ## Decision and execution boundary
 
 The Control Room lets the founder answer an agent question or record an approval decision in
@@ -77,4 +94,6 @@ implementation. Its incident invariant is retained as an explicit regression tes
 - The Control Room does not authorize production deployment, live billing, pricing changes, or
   customer commitments.
 - A clear bounded snapshot is not proof that every external system is healthy.
+- A review checkpoint proves only that one authenticated operator marked one generated briefing as
+  reviewed; it is not approval or execution evidence.
 - General-purpose application engineering remains a separate Codex workflow.

@@ -154,6 +154,7 @@ const expectedAdminProcedures = [
   'listVenuePackagesForReview',
   'listVenueSessions',
   'listWeeklyReports',
+  'markFounderBriefingReviewed',
   'operationsReadiness',
   'overview',
   'ping',

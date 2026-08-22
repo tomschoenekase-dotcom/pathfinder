@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   platformEvents: vi.fn(),
   updatePlatformEvent: vi.fn(),
   workers: vi.fn(),
+  founderReview: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -32,6 +33,7 @@ vi.mock('@pathfinder/db', () => ({
       updateMany: mocks.updatePlatformEvent,
     },
     agentWorker: { findMany: mocks.workers },
+    founderControlRoomReview: { findFirst: mocks.founderReview },
   },
 }))
 
@@ -69,6 +71,7 @@ describe('admin attention console', () => {
     mocks.platformEvents.mockResolvedValue([])
     mocks.updatePlatformEvent.mockResolvedValue({ count: 1 })
     mocks.workers.mockResolvedValue([])
+    mocks.founderReview.mockResolvedValue(null)
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
@@ -99,6 +102,11 @@ describe('admin attention console', () => {
     expect(mocks.workers).toHaveBeenCalledWith(
       expect.objectContaining({ take: 25, select: expect.any(Object) }),
     )
+    expect(mocks.founderReview).toHaveBeenCalledWith({
+      where: { operatorUserId: 'operator_1' },
+      orderBy: [{ reviewedThrough: 'desc' }, { createdAt: 'desc' }],
+      select: expect.any(Object),
+    })
     const calls = JSON.stringify([
       mocks.jobs.mock.calls[0]![0],
       mocks.evaluations.mock.calls[0]![0],

@@ -12,6 +12,9 @@ vi.mock('./AgentQuestionAnswerForm', () => ({
 vi.mock('./ApprovalDecisionForm', () => ({
   ApprovalDecisionForm: () => <span>Inline approval decision</span>,
 }))
+vi.mock('./FounderBriefingReviewForm', () => ({
+  FounderBriefingReviewForm: () => <span>Review checkpoint control</span>,
+}))
 
 import { OperationsAttentionConsole } from './OperationsAttentionConsole'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
@@ -52,6 +55,17 @@ const empty: Data = {
     },
     metrics: { decisions: 0, criticalRisks: 0, workingAgents: 0, customerItems: 0 },
     boundedSnapshot: { limit: 10, hasMore: false },
+    reviewState: {
+      lastReviewedThrough: null,
+      changesSinceLastReview: {
+        criticalRisks: 0,
+        decisions: 0,
+        completedAgents: 0,
+        outcomes: 0,
+        customerItems: 0,
+      },
+      hasUnreviewedChanges: false,
+    },
   },
 }
 
@@ -75,6 +89,9 @@ describe('operations attention console', () => {
     expect(screen.getByText('No compatible workers have registered.')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Your next five minutes' })).toBeTruthy()
     expect(screen.getByText('The operating queues are clear.')).toBeTruthy()
+    expect(screen.getByText('Since your last review')).toBeTruthy()
+    expect(screen.getByText(/first recorded review/i)).toBeTruthy()
+    expect(screen.getByText('Review checkpoint control')).toBeTruthy()
   })
 
   it('puts human questions first and links to the durable agent inbox', () => {

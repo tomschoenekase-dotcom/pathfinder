@@ -90,10 +90,10 @@ control and is intentionally not performed here:
 1. Review this branch and merge its exact tip into the owner-controlled staging branch; do not merge
    or deploy it to production.
 2. Configure the staging predeploy approval token exactly as
-   `torchiko-staging-lineage-to-147-20260822`, deploy the exact merged SHA to Railway staging, and
+   `torchiko-staging-lineage-to-148-20260822`, deploy the exact merged SHA to Railway staging, and
    preserve Stripe test mode, all live-mode flags off, Google source rollout flags off, and prospect
    delivery off.
-3. Record the merged SHA and the guarded predeploy result. Codex can then verify the 147-row/198-table
+3. Record the merged SHA and the guarded predeploy result. Codex can then verify the 148-row/199-table
    staging ledger, service health, test-mode billing, no-send state, and production isolation.
 
 Google DRS inspection/OAuth re-consent and the hosted Stripe sandbox lifecycle remain later,

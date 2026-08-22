@@ -37,7 +37,7 @@ test('accepts only the exact private Railway staging target', () => {
   }
 })
 
-test('repository migration manifest remains frozen at the reviewed 147-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 148-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
@@ -152,7 +152,7 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   )
 })
 
-test('exact previous staging release advances only through the reviewed thirteen-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed fourteen-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -178,6 +178,7 @@ test('exact previous staging release advances only through the reviewed thirteen
       '20260822104500_add_prospect_research_jobs',
       '20260822110000_add_prospect_followup_lineage',
       '20260822113000_add_staging_package_commit_state',
+      '20260822120000_add_founder_control_room_reviews',
     ],
   )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
@@ -187,6 +188,7 @@ test('exact previous staging release advances only through the reviewed thirteen
     '20260822104500_add_prospect_research_jobs',
     '20260822110000_add_prospect_followup_lineage',
     '20260822113000_add_staging_package_commit_state',
+    '20260822120000_add_founder_control_room_reviews',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })
