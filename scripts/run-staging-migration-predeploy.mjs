@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-143-20260822',
+  approval: 'torchiko-staging-lineage-to-147-20260822',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 143,
+  migrationCount: 147,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -40,9 +40,9 @@ const EXPECTED = Object.freeze({
   billingFoundationFinalMigration: '20260820210000_add_stripe_billing_foundation',
   previousReleaseFinalMigration: '20260821032000_allow_pending_stripe_customer_link',
   b5CompleteFinalMigration: '20260821201000_add_meeting_processing_capability',
-  finalMigration: '20260822064500_add_calendar_meet_source_models',
-  manifestHash: '3a58c8f0638d22a38a97819bb9a3abb258ff36bdeb6a97f46c5f22e360376498',
-  finalPublicTableCount: 195,
+  finalMigration: '20260822113000_add_staging_package_commit_state',
+  manifestHash: '47abb7f0bebef88e0e0980b33fe2f43096ac96c26068e0a63c398a8f00da958b',
+  finalPublicTableCount: 198,
 })
 
 // These are the exact checksums preserved by the verified 52-row production
@@ -353,13 +353,13 @@ async function main() {
             ? EXPECTED.capabilityBaselinePublicTableCount
             : initialState === 'pre-billing'
               ? EXPECTED.preBillingPublicTableCount
-            : initialState === 'billing-foundation'
-              ? EXPECTED.billingFoundationPublicTableCount
-              : initialState === 'previous-release'
-                ? EXPECTED.previousReleasePublicTableCount
-                : initialState === 'b5-complete'
-                  ? EXPECTED.b5CompletePublicTableCount
-                  : EXPECTED.stagingBaselinePublicTableCount
+              : initialState === 'billing-foundation'
+                ? EXPECTED.billingFoundationPublicTableCount
+                : initialState === 'previous-release'
+                  ? EXPECTED.previousReleasePublicTableCount
+                  : initialState === 'b5-complete'
+                    ? EXPECTED.b5CompletePublicTableCount
+                    : EXPECTED.stagingBaselinePublicTableCount
     if (beforeCounts.size !== expectedInitialTableCount) {
       fail(`unexpected initial public table count ${beforeCounts.size}`)
     }

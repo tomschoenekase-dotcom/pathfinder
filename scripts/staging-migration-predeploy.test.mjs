@@ -37,7 +37,7 @@ test('accepts only the exact private Railway staging target', () => {
   }
 })
 
-test('repository migration manifest remains frozen at the reviewed 143-file chain', async () => {
+test('repository migration manifest remains frozen at the reviewed 147-file chain', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   assert.doesNotThrow(() => assertFrozenManifest(manifest))
   assert.throws(
@@ -89,11 +89,13 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   assert.throws(
     () =>
       ledgerState(
-        rows.slice(0, EXPECTED.previousReleaseCount).map((row, index) =>
-          index === EXPECTED.previousReleaseCount - 1
-            ? { ...row, migration_name: '20260821032000_divergent_migration' }
-            : row,
-        ),
+        rows
+          .slice(0, EXPECTED.previousReleaseCount)
+          .map((row, index) =>
+            index === EXPECTED.previousReleaseCount - 1
+              ? { ...row, migration_name: '20260821032000_divergent_migration' }
+              : row,
+          ),
         manifest,
       ),
     /ordering\/name mismatch/u,
@@ -101,9 +103,11 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   assert.throws(
     () =>
       ledgerState(
-        rows.slice(0, EXPECTED.previousReleaseCount).map((row, index) =>
-          index === EXPECTED.previousReleaseCount - 1 ? { ...row, finished_at: null } : row,
-        ),
+        rows
+          .slice(0, EXPECTED.previousReleaseCount)
+          .map((row, index) =>
+            index === EXPECTED.previousReleaseCount - 1 ? { ...row, finished_at: null } : row,
+          ),
         manifest,
       ),
     /unfinished migration/u,
@@ -111,11 +115,13 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   assert.throws(
     () =>
       ledgerState(
-        rows.slice(0, EXPECTED.previousReleaseCount).map((row, index) =>
-          index === EXPECTED.previousReleaseCount - 1
-            ? { ...row, rolled_back_at: new Date() }
-            : row,
-        ),
+        rows
+          .slice(0, EXPECTED.previousReleaseCount)
+          .map((row, index) =>
+            index === EXPECTED.previousReleaseCount - 1
+              ? { ...row, rolled_back_at: new Date() }
+              : row,
+          ),
         manifest,
       ),
     /rolled-back migration/u,
@@ -123,9 +129,11 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   assert.throws(
     () =>
       ledgerState(
-        rows.slice(0, EXPECTED.previousReleaseCount).map((row, index) =>
-          index === EXPECTED.previousReleaseCount - 1 ? { ...row, logs: 'failed' } : row,
-        ),
+        rows
+          .slice(0, EXPECTED.previousReleaseCount)
+          .map((row, index) =>
+            index === EXPECTED.previousReleaseCount - 1 ? { ...row, logs: 'failed' } : row,
+          ),
         manifest,
       ),
     /migration logs are non-empty/u,
@@ -144,7 +152,7 @@ test('ledger accepts only exact reviewed baseline or final states', async () => 
   )
 })
 
-test('exact previous staging release advances only through the reviewed nine-migration suffix', async () => {
+test('exact previous staging release advances only through the reviewed thirteen-migration suffix', async () => {
   const manifest = await readMigrationManifest('packages/db/prisma')
   const rows = manifest.names.map((migration_name) => ({
     migration_name,
@@ -154,20 +162,31 @@ test('exact previous staging release advances only through the reviewed nine-mig
     logs: null,
   }))
 
-  assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.previousReleaseCount), manifest), [
-    '20260821172000_add_verified_actor_audit',
-    '20260821173500_add_approval_grants',
-    '20260821190000_add_company_brain_crm_meetings',
-    '20260821193000_add_portable_agent_workers',
-    '20260821194500_add_company_knowledge_embeddings',
-    '20260821200000_sync_mcp_credential_capabilities',
-    '20260821201000_add_meeting_processing_capability',
-    '20260822063000_add_google_source_retention_foundation',
-    '20260822064500_add_calendar_meet_source_models',
-  ])
+  assert.deepEqual(
+    remainingMigrationNames(rows.slice(0, EXPECTED.previousReleaseCount), manifest),
+    [
+      '20260821172000_add_verified_actor_audit',
+      '20260821173500_add_approval_grants',
+      '20260821190000_add_company_brain_crm_meetings',
+      '20260821193000_add_portable_agent_workers',
+      '20260821194500_add_company_knowledge_embeddings',
+      '20260821200000_sync_mcp_credential_capabilities',
+      '20260821201000_add_meeting_processing_capability',
+      '20260822063000_add_google_source_retention_foundation',
+      '20260822064500_add_calendar_meet_source_models',
+      '20260822103000_add_prospect_staging_package_admission',
+      '20260822104500_add_prospect_research_jobs',
+      '20260822110000_add_prospect_followup_lineage',
+      '20260822113000_add_staging_package_commit_state',
+    ],
+  )
   assert.deepEqual(remainingMigrationNames(rows.slice(0, EXPECTED.b5CompleteCount), manifest), [
     '20260822063000_add_google_source_retention_foundation',
     '20260822064500_add_calendar_meet_source_models',
+    '20260822103000_add_prospect_staging_package_admission',
+    '20260822104500_add_prospect_research_jobs',
+    '20260822110000_add_prospect_followup_lineage',
+    '20260822113000_add_staging_package_commit_state',
   ])
   assert.deepEqual(remainingMigrationNames(rows, manifest), [])
 })
