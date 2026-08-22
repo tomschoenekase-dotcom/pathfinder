@@ -29,7 +29,7 @@ import { billingRouter } from './billing'
 const testRouter = router({ billing: billingRouter })
 function context(role: 'OWNER' | 'STAFF' = 'OWNER'): TRPCContext {
   return {
-    db: { tenantFeatureFlag: { findUnique: mocks.flag } } as unknown as TRPCContext['db'],
+    db: { tenantFeatureFlag: { findFirst: mocks.flag } } as unknown as TRPCContext['db'],
     headers: new Headers(),
     session: { userId: 'user-a', activeTenantId: 'tenant-a', role, isPlatformAdmin: false },
   }

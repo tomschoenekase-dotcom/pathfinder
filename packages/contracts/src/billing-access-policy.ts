@@ -128,10 +128,8 @@ export function evaluateBillingAccess(input: BillingAccessPolicyInput): BillingA
     }
   }
   if (
-    (input.arrangementStatus === 'ACTIVE' || input.arrangementStatus === 'TRIALING') &&
-    (!input.providerSubscriptionStatus ||
-      input.providerSubscriptionStatus === 'ACTIVE' ||
-      input.providerSubscriptionStatus === 'TRIALING')
+    input.arrangementStatus === 'ACTIVE' &&
+    (!input.providerSubscriptionStatus || input.providerSubscriptionStatus === 'ACTIVE')
   )
     return {
       state: 'ACTIVE',

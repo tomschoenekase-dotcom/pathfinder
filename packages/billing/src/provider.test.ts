@@ -48,7 +48,6 @@ describe('Stripe provider adapter', () => {
       {
         mode: 'subscription',
         managed_payments: { enabled: false },
-        payment_method_types: ['card'],
         integration_identifier: 'torchiko_aaoakaaa',
         customer: 'cus_test',
         line_items: [{ price: 'price_test', quantity: 2 }],
@@ -66,6 +65,10 @@ describe('Stripe provider adapter', () => {
       },
       { idempotencyKey: 'operation-a' },
     )
+    const request = createCheckout.mock.calls[0]?.[0]
+    expect(request).not.toHaveProperty('payment_method_types')
+    expect(request?.subscription_data).not.toHaveProperty('trial_period_days')
+    expect(request?.subscription_data).not.toHaveProperty('trial_end')
   })
 
   it('creates an inline recurring price for an approved negotiated total', async () => {

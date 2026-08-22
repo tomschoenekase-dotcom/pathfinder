@@ -30,6 +30,8 @@ const billingEnvironmentSchema = z
     STRIPE_RECONCILIATION_ENABLED: booleanFlag,
     BILLING_ENTITLEMENT_ENFORCEMENT_ENABLED: booleanFlag,
     STRIPE_LIVE_MODE_ALLOWED: booleanFlag,
+    TORCHIKO_LEGAL_ENTITY_VERIFIED: booleanFlag,
+    TORCHIKO_LEGAL_ENTITY_NAME: z.string().trim().min(1).max(200).optional(),
     BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   })
   .superRefine((value, ctx) => {
@@ -48,15 +50,23 @@ const billingEnvironmentSchema = z
           message: 'Stripe live mode requires an explicit production kill-switch approval',
         })
       }
+      if (!value.TORCHIKO_LEGAL_ENTITY_VERIFIED || !value.TORCHIKO_LEGAL_ENTITY_NAME) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['TORCHIKO_LEGAL_ENTITY_VERIFIED'],
+          message:
+            'Stripe live mode requires an owner-verified legal entity name and explicit verification flag',
+        })
+      }
     }
 
     if (value.STRIPE_SECRET_KEY) {
-      const expectedPrefix = value.STRIPE_MODE === 'live' ? 'sk_live_' : 'sk_test_'
-      if (!value.STRIPE_SECRET_KEY.startsWith(expectedPrefix)) {
+      const expectedSuffix = value.STRIPE_MODE === 'live' ? 'live_' : 'test_'
+      if (!new RegExp(`^[sr]k_${expectedSuffix}`, 'u').test(value.STRIPE_SECRET_KEY)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['STRIPE_SECRET_KEY'],
-          message: `Stripe ${value.STRIPE_MODE} mode requires a ${expectedPrefix} key`,
+          message: `Stripe ${value.STRIPE_MODE} mode requires a sk_${expectedSuffix} or rk_${expectedSuffix} key`,
         })
       }
     }

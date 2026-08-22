@@ -250,6 +250,15 @@ export async function createTenantCheckout(params: {
       'Only a platform administrator may approve negotiated Stripe pricing.',
     )
   }
+  if (
+    negotiatedTerms &&
+    (negotiatedTerms.interval !== 'month' || negotiatedTerms.intervalCount !== 1)
+  ) {
+    throw new BillingServiceError(
+      'CONFLICT',
+      'Launch quotes must use monthly recurring billing; contractual commitments remain separate.',
+    )
+  }
   const agreedAmountMinor =
     negotiatedTerms?.amountMinor ?? BigInt(plan.unitAmount * venueIds.length)
   if (agreedAmountMinor <= 0n || agreedAmountMinor > 999_999_999_999n) {
@@ -269,6 +278,12 @@ export async function createTenantCheckout(params: {
       where: { tenantId: params.tenantId, operationKey },
     })
     if (replay) return { replay, tenant: null, account: null, agreement: null, replacementId: null }
+    if (!negotiatedTerms) {
+      throw new BillingServiceError(
+        'CONFLICT',
+        'Every launch checkout requires a platform-admin-approved custom quote.',
+      )
+    }
     const tenant = await tx.tenant.findUnique({
       where: { id: params.tenantId },
       select: { id: true, name: true },
@@ -594,7 +609,7 @@ function projectedStatus(status: ReturnType<typeof projectStripeSubscription>['s
 
 function projectedAccountStatus(status: ReturnType<typeof projectStripeSubscription>['status']) {
   const projected = projectedStatus(status)
-  return projected === 'TRIALING' ? 'ACTIVE' : projected
+  return projected === 'TRIALING' ? 'MANUAL_REVIEW' : projected
 }
 
 async function quarantine(params: {
