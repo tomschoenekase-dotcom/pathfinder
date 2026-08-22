@@ -4,6 +4,7 @@ import { z } from 'zod'
 import {
   admitProspectStagingPackageAction,
   approveProspectSendBatchAction,
+  approveProspectStagingPackageCommitAction,
   createProspectCampaignAction,
   db,
   emergencyStopProspectDeliveryAction,
@@ -23,7 +24,7 @@ import { router } from '../../core'
 import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospect-outreach'
 import { adminProcedure } from '../../trpc'
 import { prospectActor, prospectBoundedText } from './prospect-crm-common'
-import { enqueueProspectOutreach } from '@pathfinder/jobs'
+import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
 
 const id = z.string().min(1).max(191)
 function mapError(error: unknown): never {
@@ -48,6 +49,20 @@ export const adminProspectCrmOutreachRouter = router({
           actor: prospectActor(ctx.session.userId),
         }),
       ),
+    ),
+
+  approveProspectStagingPackageCommit: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .input(z.object({ importId: id }).strict())
+    .mutation(({ ctx, input }) =>
+      withTenantIsolationBypass(async () => {
+        const approved = await approveProspectStagingPackageCommitAction({
+          importId: input.importId,
+          actor: prospectActor(ctx.session.userId),
+        })
+        await enqueueProspectImportCommit({ importId: input.importId })
+        return approved
+      }),
     ),
 
   listProspectCampaigns: adminProcedure.use(requireCrmProspectOutreach).query(() =>

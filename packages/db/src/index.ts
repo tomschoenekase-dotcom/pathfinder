@@ -991,6 +991,13 @@ export {
   ProspectPackageAdmissionError,
 } from './helpers/prospect-package-admission-actions'
 export {
+  approveProspectStagingPackageCommitAction,
+  claimProspectStagingPackageRecordsAction,
+  commitProspectStagingPackageClaimAction,
+  finalizeProspectStagingPackageAction,
+  ProspectPackageCommitError,
+} from './helpers/prospect-package-commit-actions'
+export {
   claimNextProspectResearchJobAction,
   finishProspectResearchJobAction,
   ProspectResearchJobError,

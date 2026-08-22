@@ -107,6 +107,16 @@ export async function admitProspectStagingPackageAction(
           rawPayload: json(record.raw),
           normalizedPayload: json(record.normalized),
           sourceStatus: record.status,
+          recordMetadata: json(
+            record.kind === 'DRAFT'
+              ? {
+                  draftVersion: record.draftVersion,
+                  supportingEvidenceIds: record.supportingEvidenceIds,
+                  humanReviewStatus: record.humanReviewStatus,
+                  sendAuthority: record.sendAuthority,
+                }
+              : {},
+          ),
         })),
       })
     }

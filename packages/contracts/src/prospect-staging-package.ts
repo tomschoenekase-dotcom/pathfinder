@@ -68,6 +68,11 @@ export const ProspectStagingPackageV1 = z
   .strict()
   .superRefine((value, ctx) => {
     const identities = new Set<string>()
+    const externalIdentities = new Map(
+      value.records.map((record) => [record.externalId, record.kind]),
+    )
+    const seenExternalIdentities = new Set<string>()
+    const draftVersions = new Set<string>()
     const evidenceIds = new Set(
       value.records
         .filter((record) => record.kind === 'EVIDENCE')
@@ -84,8 +89,42 @@ export const ProspectStagingPackageV1 = z
         })
       }
       identities.add(identity)
+      if (seenExternalIdentities.has(record.externalId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['records', index, 'externalId'],
+          message: `External record IDs must be package-global: ${record.externalId}`,
+        })
+      }
+      seenExternalIdentities.add(record.externalId)
       observed[record.kind] = (observed[record.kind] ?? 0) + 1
+      if (record.parentExternalId && !externalIdentities.has(record.parentExternalId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['records', index, 'parentExternalId'],
+          message: `Parent record is missing: ${record.parentExternalId}`,
+        })
+      }
+      if (
+        record.kind === 'CONTACT' &&
+        externalIdentities.get(record.parentExternalId ?? '') !== 'PROSPECT'
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['records', index, 'parentExternalId'],
+          message: 'Contact parent must be a prospect record',
+        })
+      }
       if (record.kind === 'DRAFT') {
+        const draftIdentity = `${record.parentExternalId ?? ''}:${record.draftVersion}`
+        if (!record.parentExternalId || draftVersions.has(draftIdentity)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['records', index, 'draftVersion'],
+            message: 'Draft requires a parent and a unique parent/version pair',
+          })
+        }
+        draftVersions.add(draftIdentity)
         for (const evidenceId of record.supportingEvidenceIds) {
           if (!evidenceIds.has(evidenceId)) {
             ctx.addIssue({
