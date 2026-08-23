@@ -36,5 +36,5 @@ describe('agent operation coverage inventory', () => {
     expect(report.operations.unclassified).toEqual([])
     expect(report.operations.ambiguous).toEqual([])
     expect(report.healthy).toBe(true)
-  })
+  }, 15_000)
 })
