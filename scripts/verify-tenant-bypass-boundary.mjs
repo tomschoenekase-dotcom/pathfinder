@@ -146,7 +146,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/second-layer.ts', 2],
   // Founder-only rollout reads and changes exact-tenant, allowlisted Tochi flags.
   ['packages/api/src/routers/admin/tochi-rollout.ts', 2],
-  ['packages/db/src/helpers/job-records.ts', 4],
+  // Job evidence helpers use bounded platform reads for queue/id CLI recovery and the audited
+  // admin staging preview; writers and lifecycle updates retain their existing bypasses.
+  ['packages/db/src/helpers/job-records.ts', 5],
   // Weekly-report and answer-analysis lease renewal each use one exact tenant-scoped CAS.
   ['packages/db/src/helpers/generation-execution-claims.ts', 8],
   ['packages/db/src/helpers/generation-recovery.ts', 1],
