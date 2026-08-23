@@ -66,7 +66,6 @@ describe('operations readiness projection', () => {
       checkRedis: vi.fn().mockResolvedValue('PONG'),
       readPersisted: vi.fn().mockResolvedValue(persisted),
       inspectQueue: vi.fn().mockRejectedValue(new Error('PRIVATE_REDIS_ERROR')),
-      bypass: vi.fn(async (operation) => operation()),
     })
     expect(result).toMatchObject({
       status: 'degraded',

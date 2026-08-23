@@ -44,6 +44,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/attention-event-actions.ts', 2],
   // Platform-admin-only bounded readiness projection over platform-wide operational evidence.
   ['packages/api/src/routers/admin/operations-readiness.ts', 1],
+  // Separately authenticated platform worker reads the same bounded readiness projection.
+  ['packages/api/src/platform-worker-policy/operations-readiness-http.ts', 1],
   ['packages/api/src/routers/admin/agent-operations.ts', 6],
   // Platform-admin run trace merges bounded summaries for one exact tenant+venue+run.
   ['packages/api/src/routers/admin/agent-run-trace.ts', 1],

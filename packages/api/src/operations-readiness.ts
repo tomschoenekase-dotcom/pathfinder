@@ -1,8 +1,4 @@
-import {
-  checkDatabaseConnection,
-  readOperationalHealth,
-  withTenantIsolationBypass,
-} from '@pathfinder/db'
+import { checkDatabaseConnection, readOperationalHealth } from '@pathfinder/db'
 import { checkBullMQConnection, inspectQueueOperationalSnapshot } from '@pathfinder/jobs'
 
 const PROBE_TIMEOUT_MS = 1_500
@@ -104,17 +100,13 @@ export async function readOperationsReadiness(
     checkRedis?: typeof checkBullMQConnection
     readPersisted?: typeof readOperationalHealth
     inspectQueue?: () => Promise<QueueOperationalSnapshot>
-    bypass?: typeof withTenantIsolationBypass
   } = {},
 ) {
-  const bypass = dependencies.bypass ?? withTenantIsolationBypass
-  return bypass(async () => {
-    const [database, redis, persisted, liveQueue] = await Promise.all([
-      boundedProbe(dependencies.checkDatabase ?? checkDatabaseConnection),
-      boundedProbe(dependencies.checkRedis ?? checkBullMQConnection),
-      (dependencies.readPersisted ?? readOperationalHealth)(),
-      boundedObservation(dependencies.inspectQueue ?? (() => inspectQueueOperationalSnapshot())),
-    ])
-    return projectOperationsReadiness({ database, redis, persisted, liveQueue })
-  })
+  const [database, redis, persisted, liveQueue] = await Promise.all([
+    boundedProbe(dependencies.checkDatabase ?? checkDatabaseConnection),
+    boundedProbe(dependencies.checkRedis ?? checkBullMQConnection),
+    (dependencies.readPersisted ?? readOperationalHealth)(),
+    boundedObservation(dependencies.inspectQueue ?? (() => inspectQueueOperationalSnapshot())),
+  ])
+  return projectOperationsReadiness({ database, redis, persisted, liveQueue })
 }

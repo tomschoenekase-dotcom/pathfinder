@@ -4,6 +4,7 @@ import { PlatformWorkerOperationsReadinessRequest } from '@pathfinder/contracts/
 import {
   PlatformWorkerPolicyCredentialError,
   verifyPlatformWorkerPolicyCredentialCapability,
+  withTenantIsolationBypass,
   writeAuditLogStrict,
 } from '@pathfinder/db'
 
@@ -87,7 +88,9 @@ export async function handlePlatformWorkerOperationsReadinessRequest(
     return response(400, { error: 'INVALID_REQUEST' }, requestId)
   }
   try {
-    const result = await (dependencies.resolve ?? readOperationsReadiness)()
+    const result = await withTenantIsolationBypass(() =>
+      (dependencies.resolve ?? readOperationsReadiness)(),
+    )
     await (dependencies.audit ?? writeAuditLogStrict)({
       actorId: credential.workerId,
       actorRole: 'PLATFORM_POLICY_WORKER',
