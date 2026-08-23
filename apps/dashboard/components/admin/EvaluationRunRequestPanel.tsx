@@ -16,6 +16,25 @@ export type EvaluationCaseListItem = {
   createdAt: Date
 }
 type Cursor = { createdAt: string; id: string }
+type SourceCoveragePreview = {
+  contentSnapshotHash: string
+  contentVersion: string
+  cases: {
+    caseId: string
+    caseKey: string
+    revision: number
+    coverage: {
+      supportedMarkers: number
+      totalMarkers: number
+      markers: {
+        markerId: string
+        kind: 'required-phrase' | 'required-fact'
+        supported: boolean
+        matchedPhrase: string | null
+      }[]
+    }
+  }[]
+}
 
 export function evaluationBudgetToE8Usd(value: string): string | null {
   if (!/^(?:0|1)(?:\.\d{0,8})?$/u.test(value) || Number(value) > 1) return null
@@ -45,6 +64,7 @@ export function EvaluationRunRequestPanel(props: {
   const [budget, setBudget] = useState('0.25')
   const [approvedPackageId, setApprovedPackageId] = useState(props.approvedPackages?.[0]?.id ?? '')
   const [message, setMessage] = useState<string | null>(null)
+  const [sourceCoverage, setSourceCoverage] = useState<SourceCoveragePreview | null>(null)
   const [busy, setBusy] = useState(false)
   const idempotencyKey = useRef(crypto.randomUUID())
   const submitting = useRef(false)
@@ -80,6 +100,7 @@ export function EvaluationRunRequestPanel(props: {
     setBudget('0.25')
     setApprovedPackageId(props.approvedPackages?.[0]?.id ?? '')
     setMessage(null)
+    setSourceCoverage(null)
     setBusy(false)
     submitting.current = false
     idempotencyKey.current = crypto.randomUUID()
@@ -175,6 +196,30 @@ export function EvaluationRunRequestPanel(props: {
     }
   }
 
+  async function previewSourceCoverage() {
+    if (busy || selected.size === 0 || approvedPackageId) return
+    setBusy(true)
+    setMessage(null)
+    setSourceCoverage(null)
+    const currentGeneration = generation.current
+    const requestedScope = scope
+    try {
+      const result = await client.admin.previewCurrentEvaluationSourceCoverage.query({
+        tenantId: props.tenantId,
+        venueId: props.venueId,
+        caseIds: [...selected],
+      })
+      if (currentGeneration !== generation.current || requestedScope !== scopeRef.current) return
+      setSourceCoverage(result)
+    } catch {
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current)
+        setMessage('Current source coverage could not be inspected. No evaluation was started.')
+    } finally {
+      if (currentGeneration === generation.current && requestedScope === scopeRef.current)
+        setBusy(false)
+    }
+  }
+
   return (
     <section
       className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm sm:p-6"
@@ -208,7 +253,7 @@ export function EvaluationRunRequestPanel(props: {
           No evaluation cases are ready for this venue.
         </p>
       ) : (
-        <fieldset className="mt-4 space-y-2" disabled={busy || !props.runnerEnabled}>
+        <fieldset className="mt-4 space-y-2" disabled={busy}>
           <legend className="text-sm font-semibold text-pf-deep">
             Cases ({selected.size}/{props.maximumCases})
           </legend>
@@ -238,14 +283,15 @@ export function EvaluationRunRequestPanel(props: {
                 type="checkbox"
                 className="mt-1"
                 checked={selected.has(item.id)}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setSourceCoverage(null)
                   setSelected((current) => {
                     const next = new Set(current)
                     if (event.target.checked && next.size < props.maximumCases) next.add(item.id)
                     else if (!event.target.checked) next.delete(item.id)
                     return next
                   })
-                }
+                }}
               />
               <span>
                 <span className="block text-sm font-semibold text-pf-deep">{item.caseKey}</span>
@@ -272,8 +318,11 @@ export function EvaluationRunRequestPanel(props: {
         <select
           aria-label="Evaluation target"
           value={approvedPackageId}
-          onChange={(event) => setApprovedPackageId(event.target.value)}
-          disabled={busy || !props.runnerEnabled}
+          onChange={(event) => {
+            setApprovedPackageId(event.target.value)
+            setSourceCoverage(null)
+          }}
+          disabled={busy}
           className="mt-2 block min-h-11 w-full max-w-xl rounded-xl border border-pf-light bg-white px-3"
         >
           <option value="">Current live venue content</option>
@@ -288,6 +337,46 @@ export function EvaluationRunRequestPanel(props: {
         Onboarding QA should target the exact approved package. Live content is retained for legacy
         operational evaluations.
       </p>
+      <button
+        type="button"
+        onClick={previewSourceCoverage}
+        disabled={busy || selected.size === 0 || Boolean(approvedPackageId)}
+        className="mt-3 min-h-11 rounded-xl border border-pf-light px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Check current source coverage
+      </button>
+      <p className="mt-2 text-xs text-pf-deep/55">
+        Provider-free lexical evidence for the current live content only. It does not judge semantic
+        support, set a threshold, pass a case, or approve a release.
+      </p>
+      {sourceCoverage ? (
+        <section
+          className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          aria-live="polite"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+            Live source version {sourceCoverage.contentVersion} ·{' '}
+            {sourceCoverage.contentSnapshotHash.slice(0, 12)}
+          </p>
+          <ul className="mt-2 space-y-2 text-sm text-slate-900">
+            {sourceCoverage.cases.map((item) => (
+              <li key={item.caseId}>
+                <span className="font-semibold">{item.caseKey}</span>:{' '}
+                {item.coverage.supportedMarkers}/{item.coverage.totalMarkers} lexical markers found
+                {item.coverage.markers.some((marker) => !marker.supported) ? (
+                  <span className="block text-xs text-amber-900">
+                    Not found:{' '}
+                    {item.coverage.markers
+                      .filter((marker) => !marker.supported)
+                      .map((marker) => marker.markerId)
+                      .join(', ')}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <label className="mt-5 block text-sm font-semibold text-pf-deep">
         Budget ceiling (USD, maximum $1)
         <input

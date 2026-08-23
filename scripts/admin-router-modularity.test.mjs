@@ -172,6 +172,7 @@ const expectedAdminProcedures = [
   'prepareConversationEvaluationCase',
   'prepareOnboardingEvaluationSuite',
   'prepareProspectEmailAttachmentRetention',
+  'previewCurrentEvaluationSourceCoverage',
   'previewFullVenueDeploymentManifest',
   'previewOffboardingExportManifest',
   'previewProspectImportRepair',

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   mutate: vi.fn(),
   listRuns: vi.fn(),
   listCases: vi.fn(),
+  sourceCoverage: vi.fn(),
   refresh: vi.fn(),
 }))
 vi.mock('../../lib/trpc', () => ({
@@ -15,6 +16,7 @@ vi.mock('../../lib/trpc', () => ({
       requestEvaluationRun: { mutate: mocks.mutate },
       listEvaluationRuns: { query: mocks.listRuns },
       listEvaluationCases: { query: mocks.listCases },
+      previewCurrentEvaluationSourceCoverage: { query: mocks.sourceCoverage },
     },
   }),
 }))
@@ -51,6 +53,36 @@ describe('EvaluationRunRequestPanel', () => {
     vi.clearAllMocks()
     mocks.mutate.mockResolvedValue({ enqueued: true })
     mocks.listRuns.mockResolvedValue({ items: [] })
+    mocks.sourceCoverage.mockResolvedValue({
+      target: 'CURRENT_LIVE_CONTENT',
+      contentSnapshotHash: 'a'.repeat(64),
+      contentVersion: '7',
+      cases: [
+        {
+          caseId: item.id,
+          caseKey: item.caseKey,
+          revision: item.revision,
+          coverage: {
+            supportedMarkers: 1,
+            totalMarkers: 2,
+            markers: [
+              {
+                markerId: 'subject',
+                kind: 'required-phrase',
+                supported: true,
+                matchedPhrase: 'Tide Clock',
+              },
+              {
+                markerId: 'location',
+                kind: 'required-fact',
+                supported: false,
+                matchedPhrase: null,
+              },
+            ],
+          },
+        },
+      ],
+    })
     vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValue('request-key') })
   })
   it('keeps the request disabled when the server reports the dark flag', () => {
@@ -96,6 +128,20 @@ describe('EvaluationRunRequestPanel', () => {
     })
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('modelName')
     expect(mocks.mutate.mock.calls[0]?.[0]).not.toHaveProperty('contentSnapshotHash')
+  })
+  it('shows provider-dark current-source evidence without starting a run', async () => {
+    renderPanel(false)
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Check current source coverage' }))
+
+    expect(await screen.findByText(/1\/2 lexical markers found/)).toBeTruthy()
+    expect(screen.getByText(/Not found: location/)).toBeTruthy()
+    expect(mocks.sourceCoverage).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      caseIds: [item.id],
+    })
+    expect(mocks.mutate).not.toHaveBeenCalled()
   })
   it('targets the exact approved package when onboarding evidence is supplied', async () => {
     render(

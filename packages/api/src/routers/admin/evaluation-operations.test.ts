@@ -523,6 +523,72 @@ describe('admin evaluation operations router', () => {
     })
   })
 
+  it('previews exact current-source lexical coverage without returning source content', async () => {
+    const caseId = '11111111-1111-4111-8111-111111111111'
+    mocks.caseFindMany.mockResolvedValue([
+      {
+        id: caseId,
+        caseKey: 'known-case',
+        revision: 2,
+        caseHash: 'f'.repeat(64),
+        caseSnapshot: {
+          schemaVersion: 'pathfinder-eval-v1',
+          caseId: 'known-case',
+          category: 'known-answer',
+          venue: {
+            fixtureId: 'venue',
+            guideMode: 'non_location',
+            placeNameUniverse: [],
+            allowedPlaceNames: [],
+          },
+          turns: [{ role: 'user', content: 'Where is it?' }],
+          rules: {
+            requiredPhrases: [{ ruleId: 'subject', phrase: 'Tide Clock' }],
+            requiredFacts: [
+              { ruleId: 'location', acceptablePhrases: ['east atrium', 'eastern atrium'] },
+            ],
+            forbiddenPhrases: [],
+            maxWords: 30,
+            unknownAnswer: { required: false, ruleId: 'unknown', acceptablePhrases: [] },
+          },
+        },
+      },
+    ])
+    mocks.createSnapshot.mockResolvedValue({
+      hash: 'a'.repeat(64),
+      contentVersion: 7n,
+      manifest: { places: [{ name: 'Tide Clock', description: 'In the eastern atrium.' }] },
+    })
+
+    const result = await testRouter
+      .createCaller(context())
+      .evaluations.previewCurrentEvaluationSourceCoverage({
+        tenantId: 'tenant_1',
+        venueId: 'venue_1',
+        caseIds: [caseId],
+      })
+
+    expect(result).toMatchObject({
+      target: 'CURRENT_LIVE_CONTENT',
+      contentSnapshotHash: 'a'.repeat(64),
+      contentVersion: '7',
+      cases: [
+        {
+          caseId,
+          caseKey: 'known-case',
+          revision: 2,
+          coverage: { supportedMarkers: 2, totalMarkers: 2 },
+        },
+      ],
+    })
+    expect(JSON.stringify(result)).not.toContain('In the eastern atrium')
+    expect(mocks.createSnapshot).toHaveBeenCalledWith({
+      db: expect.anything(),
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+    })
+  })
+
   it('rejects more than 50 requested cases before any scoped write work', async () => {
     const ids = Array.from(
       { length: 51 },

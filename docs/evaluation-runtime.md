@@ -51,6 +51,21 @@ Torchiko does not supply fallback percentages or infer a severity boundary. Stor
 available for explicit human comparison when automatic alerts are dark. This preserves the
 regression-detection capability without turning an unresolved product-quality judgment into policy.
 
+## Provider-dark current-source coverage
+
+Before requesting a current-live-content run, a platform administrator can inspect deterministic
+lexical source coverage for the selected cases. The server verifies each immutable case, freezes
+the exact current public venue-content snapshot, and checks whether each human-authored required
+phrase or acceptable fact marker appears in a snapshot value. The response contains the snapshot
+hash/version, marker IDs, counts, and the matched human-authored phrase; it returns no source text.
+
+Coverage is evidence, not a quality gate. Missing lexical markers can mean missing content,
+different wording, or a stale case. The preflight does not judge semantic equivalence, hallucination,
+case acceptance, or release readiness, and it neither calls a provider nor starts a run. Approved
+package and native-release snapshots remain separately frozen execution targets; this initial
+preflight is explicitly limited to current live content so it cannot imply it inspected a different
+target.
+
 ## Lifecycle and failure semantics
 
 Every queue attempt writes/upserts a `JobRecord`. The durable `EvalRun` state advances through compare-and-set transitions:

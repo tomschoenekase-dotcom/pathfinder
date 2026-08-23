@@ -96,6 +96,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/evaluation-conversation-cases.ts', 2],
   // Evaluation comparison uses one additional exact tenant-scoped read.
   ['packages/api/src/routers/admin/evaluation-operations.ts', 3],
+  // Platform-admin source-coverage preflight freezes exact scoped public venue content
+  // and verifies exact scoped immutable cases; it returns marker evidence only.
+  ['packages/api/src/routers/admin/evaluation-source-coverage.ts', 1],
   // Platform-admin onboarding evidence is bounded to the requested tenant+venue and time range.
   ['packages/api/src/routers/admin/evaluation-onboarding-reads.ts', 2],
   // Platform-admin review appends one exact tenant+venue evaluation conclusion.

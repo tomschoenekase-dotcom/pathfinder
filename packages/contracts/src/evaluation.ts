@@ -462,6 +462,68 @@ export type CanonicalJsonValue =
   | CanonicalJsonValue[]
   | { [key: string]: CanonicalJsonValue }
 
+export type EvalSourceCoverage = {
+  caseId: string
+  supportedMarkers: number
+  totalMarkers: number
+  markers: {
+    markerId: string
+    kind: 'required-phrase' | 'required-fact'
+    supported: boolean
+    matchedPhrase: string | null
+  }[]
+}
+
+function evaluationSourceStrings(value: CanonicalJsonValue): string[] {
+  if (typeof value === 'string') return [value]
+  if (value === null || typeof value === 'boolean' || typeof value === 'number') return []
+  if (Array.isArray(value)) return value.flatMap(evaluationSourceStrings)
+  return Object.values(value).flatMap(evaluationSourceStrings)
+}
+
+/**
+ * Provider-free lexical coverage evidence. This does not decide truth, semantic equivalence, case
+ * acceptance, or release readiness; it only reports whether human-authored answer markers appear
+ * in the exact frozen source values.
+ */
+export function evaluateSourceCoverage(
+  rawCase: EvalCase,
+  content: CanonicalJsonValue,
+): EvalSourceCoverage {
+  const evalCase = EvalCaseSchema.parse(rawCase)
+  const sourceValues = evaluationSourceStrings(content).map(normalized)
+  const hasPhrase = (phrase: string) => {
+    const candidate = normalized(phrase)
+    return sourceValues.some((value) => value.includes(candidate))
+  }
+  const markers: EvalSourceCoverage['markers'] = [
+    ...evalCase.rules.requiredPhrases.map((rule) => {
+      const supported = hasPhrase(rule.phrase)
+      return {
+        markerId: rule.ruleId,
+        kind: 'required-phrase' as const,
+        supported,
+        matchedPhrase: supported ? rule.phrase : null,
+      }
+    }),
+    ...evalCase.rules.requiredFacts.map((rule) => {
+      const matchedPhrase = rule.acceptablePhrases.find(hasPhrase) ?? null
+      return {
+        markerId: rule.ruleId,
+        kind: 'required-fact' as const,
+        supported: matchedPhrase !== null,
+        matchedPhrase,
+      }
+    }),
+  ]
+  return {
+    caseId: evalCase.caseId,
+    supportedMarkers: markers.filter((marker) => marker.supported).length,
+    totalMarkers: markers.length,
+    markers,
+  }
+}
+
 /** Browser-safe canonicalization. Hash adapters live in Node-owning packages. */
 export function canonicalEvaluationJson(value: CanonicalJsonValue): string {
   if (typeof value === 'string') return JSON.stringify(value.normalize('NFC'))
