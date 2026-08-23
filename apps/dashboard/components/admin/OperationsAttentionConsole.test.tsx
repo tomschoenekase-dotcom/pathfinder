@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 import React from 'react'
 import { cleanup, render, screen } from '@testing-library/react'
+import axe from 'axe-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./OperationalEventActions', () => ({
@@ -36,6 +37,22 @@ const empty: Data = {
   events: { items: [], nextCursor: null },
   platformEvents: { items: [], nextCursor: null },
   workers: [],
+  agentTrustEvidence: {
+    schemaVersion: 1,
+    state: 'NO_OUTCOME_EVIDENCE',
+    verdicts: { positive: 0, mixed: 0, negative: 0, inconclusive: 0 },
+    observations: 0,
+    distinctObservedRuns: 0,
+    completedRuns: { visible: 0, withObservation: 0, withoutObservation: 0 },
+    taskClasses: [],
+    signalKinds: [],
+    boundedSnapshot: { hasMore: false },
+    policy: {
+      approvalReductionRecommended: false,
+      explanation:
+        'Completion alone is not quality evidence. Record explicit outcomes before considering any change to approval policy.',
+    },
+  },
   briefing: {
     schemaVersion: 1,
     focus: {
@@ -94,6 +111,46 @@ describe('operations attention console', () => {
     expect(screen.getByRole('heading', { name: 'What changed' })).toBeTruthy()
     expect(screen.getByText(/first recorded review/i)).toBeTruthy()
     expect(screen.getByText('Review checkpoint control')).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: 'Has the AI workforce earned more trust?' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/Completion alone is not quality evidence/)).toBeTruthy()
+    expect(
+      screen.getByText(/No reliability score, trend claim, or permission change is inferred/),
+    ).toBeTruthy()
+  })
+
+  it('surfaces negative trust evidence without recommending broader authority and passes axe', async () => {
+    const { container } = render(
+      <OperationsAttentionConsole
+        data={{
+          ...empty,
+          agentTrustEvidence: {
+            ...empty.agentTrustEvidence,
+            state: 'NEGATIVE_EVIDENCE_PRESENT',
+            verdicts: { positive: 2, mixed: 1, negative: 1, inconclusive: 0 },
+            observations: 4,
+            distinctObservedRuns: 3,
+            completedRuns: { visible: 4, withObservation: 3, withoutObservation: 1 },
+            taskClasses: ['support'],
+            signalKinds: ['HUMAN_REVIEW', 'QUALITY_EVALUATION'],
+            boundedSnapshot: { hasMore: true },
+            policy: {
+              approvalReductionRecommended: false,
+              explanation:
+                'Negative evidence is present. Inspect the underlying runs and corrections; this snapshot does not support reducing approval.',
+            },
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByText('negative evidence present')).toBeTruthy()
+    expect(screen.getByText(/does not support reducing approval/)).toBeTruthy()
+    expect(screen.getByText('additional evidence exists', { exact: false })).toBeTruthy()
+    expect(
+      (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations,
+    ).toEqual([])
   })
 
   it('puts human questions first and links to the durable agent inbox', () => {

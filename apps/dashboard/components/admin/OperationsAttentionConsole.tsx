@@ -238,6 +238,53 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
       </section>
 
       <section
+        aria-labelledby="agent-trust-evidence-heading"
+        className="rounded-2xl border border-violet-200 bg-violet-50/40 p-5 shadow-sm"
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-violet-800">
+              Autonomy evidence
+            </p>
+            <h2
+              id="agent-trust-evidence-heading"
+              className="mt-1 text-lg font-semibold text-slate-950"
+            >
+              Has the AI workforce earned more trust?
+            </h2>
+          </div>
+          <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-bold text-violet-900 ring-1 ring-violet-200">
+            {data.agentTrustEvidence.state.replaceAll('_', ' ').toLowerCase()}
+          </span>
+        </div>
+        <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-700">
+          {data.agentTrustEvidence.policy.explanation}
+        </p>
+        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+          {[
+            ['Positive', data.agentTrustEvidence.verdicts.positive],
+            ['Mixed', data.agentTrustEvidence.verdicts.mixed],
+            ['Negative', data.agentTrustEvidence.verdicts.negative],
+            ['Inconclusive', data.agentTrustEvidence.verdicts.inconclusive],
+            ['Observed runs', data.agentTrustEvidence.distinctObservedRuns],
+            ['Completed unobserved', data.agentTrustEvidence.completedRuns.withoutObservation],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-violet-100 bg-white p-3">
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                {label}
+              </dt>
+              <dd className="mt-1 text-xl font-semibold text-slate-950">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs leading-5 text-slate-500">
+          Counts use explicit outcome observations in this bounded snapshot
+          {data.agentTrustEvidence.boundedSnapshot.hasMore ? '; additional evidence exists' : ''}.
+          No reliability score, trend claim, or permission change is inferred.
+        </p>
+      </section>
+
+      <section
         id="ai-workforce"
         className="scroll-mt-24 rounded-2xl border border-sky-200 bg-white p-5 shadow-sm"
       >

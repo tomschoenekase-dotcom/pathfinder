@@ -3,6 +3,7 @@ import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { deriveFounderBriefing } from './attention-briefing'
+import { deriveAgentTrustEvidence } from './attention-agent-evidence'
 import {
   acknowledgeAttentionEvent,
   attentionEventActionInput,
@@ -332,6 +333,10 @@ export const adminAttentionConsoleRouter = router({
       }
       return {
         ...result,
+        agentTrustEvidence: deriveAgentTrustEvidence({
+          outcomes: result.outcomes,
+          completedAgents: result.completedAgents,
+        }),
         briefing: deriveFounderBriefing({
           limit: query.limit,
           events: result.events,

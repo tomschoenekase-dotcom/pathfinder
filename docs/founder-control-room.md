@@ -76,6 +76,20 @@ Optimistic concurrency for question answers uses the question's `updatedAt` valu
 forms retain their conflict/expiry checks and force a refresh when the outcome cannot be safely
 confirmed.
 
+## Agent trust evidence
+
+The Control Room derives a versioned autonomy-evidence summary from explicit
+`AgentOutcomeObservation` rows already present in the bounded attention snapshot. It reports
+positive, mixed, negative, and inconclusive observations; distinct observed runs; and completed
+runs with or without an observation. Completion by itself is never treated as evidence of quality.
+
+The summary is deliberately descriptive rather than a reliability score. Negative evidence takes
+precedence in the displayed state; mixed or inconclusive evidence remains unresolved; and even a
+positive-only bounded sample does not prove reliability. The API therefore never recommends an
+approval reduction from this projection. Any future permission change requires a separate,
+explicit policy decision using task-specific evidence and must retain the existing capability /
+policy boundary.
+
 ## Mobile behavior
 
 The primary briefing, decision controls, and queue shortcuts use touch-sized controls. Worker
