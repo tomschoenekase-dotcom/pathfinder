@@ -92,6 +92,7 @@ const expectedAdminProcedures = [
   'getIntakeProposalReview',
   'getIntakeUploadDetail',
   'getIntakeVenuePackageCandidate',
+  'getNativeContentConvergence',
   'getNativeVenueDeployment',
   'getOffboardingExportFinalization',
   'getOffboardingPlan',

@@ -2166,7 +2166,7 @@ model NativeVenueDeploymentPublicationLineage {
 /// Exact mutable native deployment head. Legacy package application does not fabricate it.
 model NativeVenueDeploymentHead {
   tenantId     String                        @map("tenant_id")
-  venueId      String                        @unique @map("venue_id")
+  venueId      String                        @map("venue_id")
   releaseId    String                        @map("release_id") @db.Uuid
   artifactId   String                        @map("artifact_id") @db.Uuid
   manifestHash String                        @map("manifest_hash") @db.Char(64)

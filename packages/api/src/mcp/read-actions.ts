@@ -7,6 +7,7 @@ import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
 import {
   OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
   WORKER_HEARTBEAT_KEY,
+  measureNativeContentConvergenceAction,
   projectWorkerHeartbeat,
 } from '@pathfinder/db'
 
@@ -58,6 +59,9 @@ type ReadDb = Pick<
   | 'onboardingMilestoneEvent'
   | 'offboardingPlan'
 >
+type McpReadServices = {
+  measureNativeContentConvergence?: typeof measureNativeContentConvergenceAction
+}
 
 type CursorPayload = Readonly<{
   v: typeof CURSOR_VERSION
@@ -130,6 +134,7 @@ export async function readMcpResource(
   db: ReadDb,
   input: McpReadInput,
   context: VerifiedMcpInvocationContext,
+  services: McpReadServices = {},
 ): Promise<McpToolResult> {
   assertExactScope(input, context)
   const limit = Math.min(input.limit, MAX_PAGE_SIZE)
@@ -188,10 +193,10 @@ export async function readMcpResource(
       return readFeatureFlags(db, context.credential.tenantId, limit, cursor)
     case 'onboarding-summary':
       rejectCursor(cursor, input.resource)
-      return readOnboardingSummary(db, context.credential.tenantId, input.venueId!)
+      return readOnboardingSummary(db, context.credential.tenantId, input.venueId!, services)
     case 'readiness':
       rejectCursor(cursor, input.resource)
-      return readReadiness(db, context.credential.tenantId, input.venueId!)
+      return readReadiness(db, context.credential.tenantId, input.venueId!, services)
     case 'questions':
       return readQuestions(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'outcomes':
@@ -1298,8 +1303,11 @@ async function readReadiness(
   db: ReadDb,
   tenantId: string,
   venueId: string,
+  services: McpReadServices,
 ): Promise<McpToolResult> {
-  const [venue, activePlaces, enabledKnowledge, reporting] = await Promise.all([
+  const measureNativeContentConvergence =
+    services.measureNativeContentConvergence ?? measureNativeContentConvergenceAction
+  const [venue, activePlaces, enabledKnowledge, reporting, contentConvergence] = await Promise.all([
     db.venue.findFirst({
       where: { id: venueId, tenantId },
       select: { id: true, isActive: true, name: true, slug: true, updatedAt: true },
@@ -1310,6 +1318,36 @@ async function readReadiness(
       where: { tenantId, venueId },
       select: { enabled: true, updatedAt: true },
     }),
+    measureNativeContentConvergence(db as never, { tenantId, venueId })
+      .then((measurement) => ({
+        available: true as const,
+        contractVersion: measurement.contractVersion,
+        phase: measurement.phase,
+        guestReadPath: measurement.guestReadPath,
+        headValid: measurement.headValid,
+        stateMatchesHead: measurement.stateMatchesHead,
+        readyForShadowEvaluation: measurement.readyForShadowEvaluation,
+        readyForLegacyRetirement: measurement.readyForLegacyRetirement,
+        needsOperatorAttention: measurement.needsOperatorAttention,
+        blockers: measurement.blockers,
+        counts: measurement.counts,
+        head: measurement.head
+          ? {
+              releaseId: measurement.head.releaseId,
+              revision: measurement.head.revision,
+              updatedAt: measurement.head.updatedAt.toISOString(),
+              releaseStatus: measurement.head.releaseStatus,
+            }
+          : null,
+      }))
+      .catch(() => ({
+        available: false as const,
+        phase: 'UNAVAILABLE' as const,
+        readyForShadowEvaluation: false as const,
+        readyForLegacyRetirement: false as const,
+        needsOperatorAttention: true as const,
+        blockers: ['MEASUREMENT_UNAVAILABLE'] as const,
+      })),
   ])
   return result(
     'readiness',
@@ -1321,6 +1359,7 @@ async function readReadiness(
           enabledKnowledgeCount: enabledKnowledge,
           reportingEnabled: reporting?.enabled ?? false,
           readyForPreview: venue.isActive && activePlaces + enabledKnowledge > 0,
+          contentConvergence,
           updatedAt: venue.updatedAt.toISOString(),
         }
       : null,
@@ -1335,11 +1374,12 @@ async function readOnboardingSummary(
   db: ReadDb,
   tenantId: string,
   venueId: string,
+  services: McpReadServices,
 ): Promise<McpToolResult> {
   const to = new Date()
   const from = new Date(to.getTime() - ONBOARDING_SUMMARY_WINDOW_DAYS * 24 * 60 * 60 * 1000)
   const [readiness, rows] = await Promise.all([
-    readReadiness(db, tenantId, venueId),
+    readReadiness(db, tenantId, venueId, services),
     db.onboardingMilestoneEvent.findMany({
       where: { tenantId, venueId, occurredAt: { gte: from, lt: to } },
       orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],

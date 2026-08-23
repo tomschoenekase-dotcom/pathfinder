@@ -7,6 +7,8 @@ import { nativeCoreVisibleStateHash } from '@pathfinder/contracts'
 import {
   approveNativeVenueDeploymentAction,
   applyNativeVenueDeploymentAction,
+  classifyNativeContentConvergence,
+  measureNativeContentConvergenceAction,
   createNativeVenueDeploymentAction,
   NativeVenueDeploymentError,
   nativeVenueDeploymentTestHooks,
@@ -85,6 +87,95 @@ describe('native venue deployment actions', () => {
     expect(db.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({ isolationLevel: 'Serializable' }),
+    )
+  })
+
+  it('classifies exact native-head convergence without authorizing legacy retirement', async () => {
+    const { db } = client()
+    const current = await projectNativeVenueStateAction(db, {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    const head = {
+      releaseId: '11111111-1111-4111-8111-111111111111',
+      artifactId: '22222222-2222-4222-8222-222222222222',
+      manifestHash: 'a'.repeat(64),
+      stateHash: current.stateHash,
+      revision: 4,
+      updatedAt: new Date('2026-08-23T12:00:00.000Z'),
+      release: {
+        id: '11111111-1111-4111-8111-111111111111',
+        artifactId: '22222222-2222-4222-8222-222222222222',
+        manifestHash: 'a'.repeat(64),
+        desiredStateHash: current.stateHash,
+        status: 'APPLIED',
+      },
+    }
+    const result = classifyNativeContentConvergence({ current, head })
+    expect(result).toMatchObject({
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      headValid: true,
+      stateMatchesHead: true,
+      readyForShadowEvaluation: true,
+      readyForLegacyRetirement: false,
+      needsOperatorAttention: false,
+      blockers: ['LEGACY_SEMANTIC_READ_PATH'],
+    })
+  })
+
+  it('distinguishes missing heads, materialized drift, and invalid head evidence', async () => {
+    const { db } = client()
+    const current = await projectNativeVenueStateAction(db, {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(classifyNativeContentConvergence({ current, head: null })).toMatchObject({
+      phase: 'NO_NATIVE_HEAD',
+      readyForShadowEvaluation: false,
+      blockers: ['NO_NATIVE_HEAD', 'LEGACY_SEMANTIC_READ_PATH'],
+    })
+    const head = {
+      releaseId: '11111111-1111-4111-8111-111111111111',
+      artifactId: '22222222-2222-4222-8222-222222222222',
+      manifestHash: 'a'.repeat(64),
+      stateHash: 'b'.repeat(64),
+      revision: 1,
+      updatedAt: new Date(0),
+      release: {
+        id: '11111111-1111-4111-8111-111111111111',
+        artifactId: '22222222-2222-4222-8222-222222222222',
+        manifestHash: 'a'.repeat(64),
+        desiredStateHash: 'b'.repeat(64),
+        status: 'APPLIED',
+      },
+    }
+    expect(classifyNativeContentConvergence({ current, head })).toMatchObject({
+      phase: 'NATIVE_HEAD_DRIFTED',
+      needsOperatorAttention: true,
+      blockers: ['MATERIALIZED_STATE_DRIFT', 'LEGACY_SEMANTIC_READ_PATH'],
+    })
+    expect(
+      classifyNativeContentConvergence({
+        current,
+        head: { ...head, release: { ...head.release, status: 'REVERTED' } },
+      }),
+    ).toMatchObject({
+      phase: 'NATIVE_HEAD_INVALID',
+      needsOperatorAttention: true,
+      blockers: ['INVALID_NATIVE_HEAD', 'LEGACY_SEMANTIC_READ_PATH'],
+    })
+  })
+
+  it('measures convergence under the exact venue lock and scoped head read', async () => {
+    const headRead = vi.fn().mockResolvedValue(null)
+    const { db } = client({ nativeVenueDeploymentHead: { findFirst: headRead } })
+    const result = await measureNativeContentConvergenceAction(db, {
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(result.phase).toBe('NO_NATIVE_HEAD')
+    expect(headRead).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: 'tenant-1', venueId: 'venue-1' } }),
     )
   })
 

@@ -58,7 +58,9 @@ The bindings expose:
 - native deployment lifecycle metadata without plans, state snapshots, replacement universes, or
   hashes;
 - tenant feature-flag keys/state without metadata or setter identities;
-- derived readiness counts/state without configuration blobs;
+- derived readiness counts/state plus exact native-head convergence phase, blockers, and safe
+  counts without state hashes, native snapshots, configuration blobs, read switching, or legacy
+  retirement authority;
 - venue-scoped agent questions and operator responses without credential or raw execution data; and
 - explicit venue-scoped agent outcome observations without operation IDs or human actor identifiers; and
 - versioned venue-scoped agent improvement proposals with exact outcome IDs and review state, without operation IDs or reviewer identifiers.

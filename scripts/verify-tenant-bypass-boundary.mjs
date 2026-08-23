@@ -85,8 +85,8 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/digest.ts', 1],
   // Exact platform-admin tenant+venue scope: persist artifact, project FULL, and review manifest.
   ['packages/api/src/routers/admin/deployment-manifest-review.ts', 3],
-  // Platform-admin-only exact tenant+venue native projection and lifecycle adapters.
-  ['packages/api/src/routers/admin/native-venue-deployments.ts', 7],
+  // Platform-admin-only exact tenant+venue native projection, convergence read, and lifecycle adapters.
+  ['packages/api/src/routers/admin/native-venue-deployments.ts', 8],
   // Native advisory evidence resolves an exact scoped run and pages an exact scoped release.
   ['packages/api/src/routers/admin/native-deployment-evaluations.ts', 2],
   // Native advisory requests freeze one exact tenant+venue release and case set transactionally.

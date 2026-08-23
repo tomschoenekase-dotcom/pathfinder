@@ -9,6 +9,7 @@ const actions = vi.hoisted(() => ({
   approve: vi.fn(),
   apply: vi.fn(),
   revert: vi.fn(),
+  convergence: vi.fn(),
 }))
 const releaseReads = vi.hoisted(() => ({ findMany: vi.fn(), findFirst: vi.fn() }))
 const headReads = vi.hoisted(() => ({ findFirst: vi.fn() }))
@@ -26,6 +27,7 @@ vi.mock('@pathfinder/db', async (original) => ({
   approveNativeVenueDeploymentAction: actions.approve,
   applyNativeVenueDeploymentAction: actions.apply,
   revertNativeVenueDeploymentAction: actions.revert,
+  measureNativeContentConvergenceAction: actions.convergence,
 }))
 
 import { adminNativeVenueDeploymentsRouter } from './native-venue-deployments'
@@ -72,6 +74,42 @@ describe('admin native venue deployments', () => {
     )
   })
 
+  it('returns bounded convergence evidence without internal state hashes', async () => {
+    actions.convergence.mockResolvedValue({
+      contractVersion: 1,
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      guestReadPath: 'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT',
+      headValid: true,
+      stateMatchesHead: true,
+      readyForShadowEvaluation: true,
+      readyForLegacyRetirement: false,
+      needsOperatorAttention: false,
+      blockers: ['LEGACY_SEMANTIC_READ_PATH'],
+      counts: { activePlaces: 2, enabledKnowledgeEntries: 3, publishedGeneralizedModules: 1 },
+      venueActive: true,
+      currentStateHash: 'a'.repeat(64),
+      head: {
+        releaseId: '11111111-1111-4111-8111-111111111111',
+        revision: 4,
+        updatedAt: new Date(0),
+        stateHash: 'a'.repeat(64),
+        desiredStateHash: 'a'.repeat(64),
+        releaseStatus: 'APPLIED',
+      },
+    })
+    const result = await app.createCaller(context()).admin.getNativeContentConvergence({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(result).toMatchObject({
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      readyForShadowEvaluation: true,
+      readyForLegacyRetirement: false,
+      head: { revision: 4, releaseStatus: 'APPLIED' },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/stateHash|desiredStateHash/u)
+  })
+
   it('requires platform-admin authorization before every service call', async () => {
     const caller = app.createCaller(context(false))
     const scope = { tenantId: 'tenant-1', venueId: 'venue-1' }
@@ -82,6 +120,9 @@ describe('admin native venue deployments', () => {
       expectedUpdatedAt: '2026-08-12T12:00:00.000Z',
     }
     await expect(caller.admin.projectNativeVenueDeployment(scope)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(caller.admin.getNativeContentConvergence(scope)).rejects.toMatchObject({
       code: 'FORBIDDEN',
     })
     await expect(

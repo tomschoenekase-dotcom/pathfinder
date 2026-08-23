@@ -35,6 +35,33 @@ export class NativeVenueDeploymentError extends Error {
 type Scope = { tenantId: string; venueId: string }
 type BaseUniverse = NativeManifest['baseState']
 type VisibleState = ReturnType<typeof NativeCoreVisibleState.parse>
+export const NATIVE_GUEST_CONTENT_READ_PATH =
+  'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT' as const
+export type NativeContentConvergencePhase =
+  | 'NO_NATIVE_HEAD'
+  | 'NATIVE_HEAD_INVALID'
+  | 'NATIVE_HEAD_DRIFTED'
+  | 'NATIVE_HEAD_IN_SYNC'
+export type NativeContentConvergenceBlocker =
+  | 'NO_NATIVE_HEAD'
+  | 'INVALID_NATIVE_HEAD'
+  | 'MATERIALIZED_STATE_DRIFT'
+  | 'LEGACY_SEMANTIC_READ_PATH'
+type NativeContentConvergenceHead = {
+  releaseId: string
+  artifactId: string
+  manifestHash: string
+  stateHash: string
+  revision: number
+  updatedAt: Date
+  release: {
+    id: string
+    artifactId: string
+    manifestHash: string
+    desiredStateHash: string
+    status: string
+  }
+} | null
 type HeadSnapshot = {
   releaseId: string
   artifactId: string
@@ -481,6 +508,110 @@ export async function projectNativeVenueStateAction(
   return client.$transaction(async (tx: NativeVenueDeploymentClient) => {
     await lockVenueContentMutation(tx, scope)
     return projectLocked(tx, scope)
+  }, txOptions)
+}
+
+export function classifyNativeContentConvergence(input: {
+  current: Awaited<ReturnType<typeof projectNativeVenueStateAction>>
+  head: NativeContentConvergenceHead
+}) {
+  const headValid = Boolean(
+    input.head &&
+    input.head.release.id === input.head.releaseId &&
+    input.head.release.artifactId === input.head.artifactId &&
+    input.head.release.manifestHash === input.head.manifestHash &&
+    input.head.release.desiredStateHash === input.head.stateHash &&
+    input.head.release.status === 'APPLIED',
+  )
+  const stateMatchesHead = Boolean(
+    input.head && headValid && input.current.stateHash === input.head.stateHash,
+  )
+  const phase: NativeContentConvergencePhase = !input.head
+    ? 'NO_NATIVE_HEAD'
+    : !headValid
+      ? 'NATIVE_HEAD_INVALID'
+      : !stateMatchesHead
+        ? 'NATIVE_HEAD_DRIFTED'
+        : 'NATIVE_HEAD_IN_SYNC'
+  const blockers: NativeContentConvergenceBlocker[] = [
+    ...(!input.head
+      ? (['NO_NATIVE_HEAD'] as const)
+      : !headValid
+        ? (['INVALID_NATIVE_HEAD'] as const)
+        : !stateMatchesHead
+          ? (['MATERIALIZED_STATE_DRIFT'] as const)
+          : []),
+    'LEGACY_SEMANTIC_READ_PATH',
+  ]
+
+  return {
+    contractVersion: 1 as const,
+    phase,
+    guestReadPath: NATIVE_GUEST_CONTENT_READ_PATH,
+    headValid,
+    stateMatchesHead,
+    readyForShadowEvaluation: phase === 'NATIVE_HEAD_IN_SYNC',
+    readyForLegacyRetirement: false as const,
+    needsOperatorAttention: phase === 'NATIVE_HEAD_INVALID' || phase === 'NATIVE_HEAD_DRIFTED',
+    blockers,
+    counts: {
+      activePlaces: input.current.state.places.length,
+      enabledKnowledgeEntries: input.current.state.knowledgeEntries.length,
+      publishedGeneralizedModules: input.current.state.generalizedModules.length,
+    },
+    venueActive: input.current.state.venue.isActive,
+    currentStateHash: input.current.stateHash,
+    head: input.head
+      ? {
+          releaseId: input.head.releaseId,
+          revision: input.head.revision,
+          updatedAt: input.head.updatedAt,
+          stateHash: input.head.stateHash,
+          desiredStateHash: input.head.release.desiredStateHash,
+          releaseStatus: input.head.release.status,
+        }
+      : null,
+  }
+}
+
+/**
+ * Measures whether the mutable materialized guest-content state still matches the
+ * exact native deployment head. This is observation only: it neither changes the
+ * guest read path nor authorizes compatibility-table retirement.
+ */
+export async function measureNativeContentConvergenceAction(
+  client: NativeVenueDeploymentClient,
+  scope: Scope,
+) {
+  if (!scope.tenantId.trim() || !scope.venueId.trim())
+    throw new NativeVenueDeploymentError(
+      'INVALID_INPUT',
+      'Exact tenant and venue scope is required.',
+    )
+  return client.$transaction(async (tx: NativeVenueDeploymentClient) => {
+    await lockVenueContentMutation(tx, scope)
+    const current = await projectLocked(tx, scope)
+    const head = await tx.nativeVenueDeploymentHead.findFirst({
+      where: { tenantId: scope.tenantId, venueId: scope.venueId },
+      select: {
+        releaseId: true,
+        artifactId: true,
+        manifestHash: true,
+        stateHash: true,
+        revision: true,
+        updatedAt: true,
+        release: {
+          select: {
+            id: true,
+            artifactId: true,
+            manifestHash: true,
+            desiredStateHash: true,
+            status: true,
+          },
+        },
+      },
+    })
+    return classifyNativeContentConvergence({ current, head })
   }, txOptions)
 }
 

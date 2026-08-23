@@ -989,6 +989,9 @@ export {
   approveNativeVenueDeploymentAction,
   createNativeVenueDeploymentAction,
   applyNativeVenueDeploymentAction,
+  classifyNativeContentConvergence,
+  measureNativeContentConvergenceAction,
+  NATIVE_GUEST_CONTENT_READ_PATH,
   NativeVenueDeploymentError,
   projectNativeVenueStateAction,
   revertNativeVenueDeploymentAction,
@@ -1001,6 +1004,8 @@ export type { NativeDeploymentEvaluationActor } from './helpers/native-deploymen
 export type {
   NativeVenueDeploymentActor,
   NativeVenueDeploymentClient,
+  NativeContentConvergenceBlocker,
+  NativeContentConvergencePhase,
 } from './helpers/native-venue-deployment-actions'
 export {
   getVenueBotConfigurationAction,

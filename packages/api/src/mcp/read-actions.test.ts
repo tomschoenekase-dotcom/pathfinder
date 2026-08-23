@@ -669,18 +669,48 @@ describe('MCP v0 concrete read bindings', () => {
     db.place.count.mockResolvedValue(2)
     db.venueKnowledgeEntry.count.mockResolvedValue(3)
     db.venueReportConfiguration.findFirst.mockResolvedValue({ enabled: false })
+    const measureNativeContentConvergence = vi.fn().mockResolvedValue({
+      contractVersion: 1,
+      phase: 'NATIVE_HEAD_IN_SYNC',
+      guestReadPath: 'LEGACY_SEMANTIC_PLUS_NATIVE_GENERALIZED_PROMPT',
+      headValid: true,
+      stateMatchesHead: true,
+      readyForShadowEvaluation: true,
+      readyForLegacyRetirement: false,
+      needsOperatorAttention: false,
+      blockers: ['LEGACY_SEMANTIC_READ_PATH'],
+      counts: { activePlaces: 2, enabledKnowledgeEntries: 3, publishedGeneralizedModules: 1 },
+      venueActive: true,
+      currentStateHash: 'a'.repeat(64),
+      head: {
+        releaseId: 'release-1',
+        revision: 3,
+        updatedAt: new Date('2026-08-11T12:00:00.000Z'),
+        stateHash: 'a'.repeat(64),
+        desiredStateHash: 'a'.repeat(64),
+        releaseStatus: 'APPLIED',
+      },
+    })
 
     const response = await readMcpResource(
       db as never,
       { resource: 'readiness', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
       { credential },
+      { measureNativeContentConvergence: measureNativeContentConvergence as never },
     )
     expect(response.data).toMatchObject({
       venueId: 'venue-1',
       activePlaceCount: 2,
       enabledKnowledgeCount: 3,
       readyForPreview: true,
+      contentConvergence: {
+        available: true,
+        phase: 'NATIVE_HEAD_IN_SYNC',
+        readyForShadowEvaluation: true,
+        readyForLegacyRetirement: false,
+      },
     })
+    expect(JSON.stringify(response)).not.toMatch(/stateHash|desiredStateHash/u)
     expect(db.venue.findFirst.mock.calls[0]![0].select).not.toHaveProperty('config')
   })
 

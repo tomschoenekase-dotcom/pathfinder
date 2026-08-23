@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 392,
-    "sha256": "522c39ed70dad16cff753d1122f3f3a3f60bda1df0233e70c9551d3891e1915c",
+    "count": 393,
+    "sha256": "99a4826cf3e757dbbcc216a011a1345f35c2fdb526833428c25881ad45467ea8",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "522c39ed70dad16cff753d1122f3f3a3f60bda1df0233e70c9551d3891e1915c",
-      "sha256": "e91400795d4b5e24dc7ffcc038b8c739f9cd3d40192e6c885d85264e233da8e7"
+      "operationInventorySha256": "99a4826cf3e757dbbcc216a011a1345f35c2fdb526833428c25881ad45467ea8",
+      "sha256": "7b7788f12a55c9df20e70a16716f60b1ff498e6ba31627284058bb21f095daeb"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -359,9 +359,9 @@
       {
         "id": "bounded-readiness-reads",
         "kind": "bounded-alternative",
-        "operations": ["admin.getOnboardingMilestoneRollup"],
+        "operations": ["admin.getNativeContentConvergence", "admin.getOnboardingMilestoneRollup"],
         "surfaces": ["resource:pathfinder.readiness"],
-        "decision": "Agents receive a compact readiness projection; this does not authorize activation, release, or publication.",
+        "decision": "Agents receive compact onboarding and native-head convergence evidence; this does not switch guest retrieval or authorize activation, release, publication, or legacy retirement.",
         "evidence": "packages/api/src/mcp/read-actions.test.ts"
       },
       {

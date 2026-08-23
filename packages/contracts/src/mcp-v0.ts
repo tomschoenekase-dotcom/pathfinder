@@ -366,7 +366,7 @@ const resourceSeeds: readonly ResourceSeed[] = [
   [
     'readiness',
     'Venue readiness',
-    'Onboarding, preview, and launch-readiness evidence.',
+    'Onboarding, preview, launch-readiness, and native-head convergence evidence.',
     'pathfinder://clients/{clientId}/venues/{venueId}/readiness',
     'venue',
     'readiness:read',

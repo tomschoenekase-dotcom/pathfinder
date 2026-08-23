@@ -6,6 +6,7 @@ import {
   approveNativeVenueDeploymentAction,
   createNativeVenueDeploymentAction,
   db,
+  measureNativeContentConvergenceAction,
   projectNativeVenueStateAction,
   revertNativeVenueDeploymentAction,
   withTenantIsolationBypass,
@@ -37,6 +38,36 @@ function actor(userId: string) {
 }
 
 export const adminNativeVenueDeploymentsRouter = router({
+  getNativeContentConvergence: adminProcedure.input(scope).query(({ input }) =>
+    withTenantIsolationBypass(async () => {
+      try {
+        const measurement = await measureNativeContentConvergenceAction(db, input)
+        return {
+          contractVersion: measurement.contractVersion,
+          phase: measurement.phase,
+          guestReadPath: measurement.guestReadPath,
+          headValid: measurement.headValid,
+          stateMatchesHead: measurement.stateMatchesHead,
+          readyForShadowEvaluation: measurement.readyForShadowEvaluation,
+          readyForLegacyRetirement: measurement.readyForLegacyRetirement,
+          needsOperatorAttention: measurement.needsOperatorAttention,
+          blockers: measurement.blockers,
+          counts: measurement.counts,
+          venueActive: measurement.venueActive,
+          head: measurement.head
+            ? {
+                releaseId: measurement.head.releaseId,
+                revision: measurement.head.revision,
+                updatedAt: measurement.head.updatedAt,
+                releaseStatus: measurement.head.releaseStatus,
+              }
+            : null,
+        }
+      } catch (error) {
+        mapError(error)
+      }
+    }),
+  ),
   listNativeVenueDeployments: adminProcedure
     .input(
       scope

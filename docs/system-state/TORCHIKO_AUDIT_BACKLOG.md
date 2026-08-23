@@ -124,11 +124,13 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Evidence:** `semantic-search.ts`; `legacy-content-actions.ts`; native content and deployment helpers; admin “Legacy compatibility” UI.
 - **Affected system:** Knowledge, retrieval, packages, release, admin, migrations.
 - **Recommended change:** Document one authoritative read/write path per content type, add parity metrics and shadow reads, block new unneeded legacy writes, migrate a fixture cohort, then retire only after measured equivalence.
+- **Current implementation:** An exact, read-only tenant/venue convergence measurement now compares the materialized guest-visible state with the active native deployment head under the venue content lock. It distinguishes missing, invalid, drifted, and in-sync heads; exposes bounded admin/mobile and MCP readiness projections; and always reports the retained legacy semantic-read blocker. It does not switch reads, delete compatibility data, or authorize cutover.
+- **Remaining gap:** Add shadow-query relevance/equivalence evidence, define the per-venue read switch and rollback contract, migrate a fixture cohort, and retire compatibility paths only after the evidence and production gate are approved.
 - **Why it matters:** Dual systems multiply defects, training burden, and migration risk.
 - **Effort:** L
 - **Dependencies:** Golden lifecycle, production content inventory, relevance tests.
 - **Before more venue acquisition:** **Start before**, completion can be incremental.
-- **Codex autonomous:** **No** as a whole; safe instrumentation steps can be autonomous.
+- **Codex autonomous:** **Partly**; measurement and shadow evaluation are autonomous, while production cutover and compatibility retirement remain gated.
 
 ### P1.8 — Establish minimal lead-to-client continuity
 

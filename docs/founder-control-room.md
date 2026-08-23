@@ -112,6 +112,12 @@ credential model into a generic cross-tenant customer tool. Every successful rea
 audited; the endpoint fails closed when authentication, snapshot construction, or audit persistence
 is unavailable. Credential issuance and activation remain explicit platform-admin actions.
 
+The venue-native-release workspace also shows a mobile-responsive, read-only convergence card. It
+compares the current materialized venue state with the exact active native head and surfaces
+missing, invalid, drifted, or in-sync evidence plus explicit retirement blockers. This is operator
+context only: it cannot switch guest retrieval, delete compatibility content, or authorize a
+production cutover.
+
 The same separately credentialed boundary exposes
 `POST /api/platform-worker/operations-readiness` for a bounded platform-wide v2 readiness view.
 It requires `operations-readiness:read`, accepts no selectors, observes every canonical BullMQ
