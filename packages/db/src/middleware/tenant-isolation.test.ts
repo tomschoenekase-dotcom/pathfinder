@@ -256,6 +256,7 @@ describe('tenantIsolationMiddleware', () => {
       'ProspectEmailThread',
       'ProspectEmailThreadProvider',
       'ProspectEmailMessage',
+      'ProspectEmailAttachmentRetentionRequest',
       'ProspectEmailEvent',
       'ProspectFollowup',
       'ProspectEmailWebhookReceipt',

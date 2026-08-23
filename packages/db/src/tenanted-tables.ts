@@ -187,6 +187,9 @@ export const PLATFORM_TABLES = [
   'ProspectEmailThread',
   'ProspectEmailThreadProvider',
   'ProspectEmailMessage',
+  // Case-by-case attachment decisions inherit exact platform CRM message ownership. They contain
+  // provider metadata and review evidence only; no attachment bytes or customer-tenant authority.
+  'ProspectEmailAttachmentRetentionRequest',
   'ProspectEmailEvent',
   'ProspectFollowup',
   'ProspectEmailWebhookReceipt',

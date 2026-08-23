@@ -6467,12 +6467,58 @@ model ProspectEmailMessage {
   sendItem           ProspectSendItem?              @relation(fields: [sendItemId], references: [id], onDelete: Restrict)
   providerAccount    CorrespondenceProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: Restrict)
   events             ProspectEmailEvent[]
+  attachmentRetentionRequests ProspectEmailAttachmentRetentionRequest[]
 
   @@unique([providerAccountId, providerMessageId], map: "prospect_email_messages_provider_message_key")
   @@index([threadId, occurredAt])
   @@index([organizationId, occurredAt])
   @@index([bodyRetentionState, bodyExpiresAt], map: "prospect_email_messages_body_retention_idx")
   @@map("prospect_email_messages")
+}
+
+enum ProspectEmailAttachmentRetentionCategory {
+  CONTRACT_OR_ORDER_FORM
+  BROCHURE
+  FLOOR_PLAN_OR_MAP
+  VENUE_OPERATIONS
+  CUSTOMER_KNOWLEDGE
+  GUIDE_MEDIA
+  OTHER_BUSINESS_RECORD
+}
+
+enum ProspectEmailAttachmentRetentionStatus {
+  AWAITING_REVIEW
+  APPROVED_FOR_IMPORT
+  DECLINED_SOURCE_ONLY
+}
+
+/// Provider-dark case-by-case decision evidence for one Gmail attachment. The
+/// request snapshots provider metadata only; approval does not download bytes,
+/// import an asset, call Gmail, or establish a retention duration.
+model ProspectEmailAttachmentRetentionRequest {
+  id                   String                                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId          String                                     @unique @map("operation_id") @db.Uuid
+  emailMessageId       String                                     @map("email_message_id")
+  providerAttachmentId String                                     @map("provider_attachment_id") @db.VarChar(512)
+  filename             String                                     @db.VarChar(255)
+  mimeType             String                                     @map("mime_type") @db.VarChar(255)
+  sizeBytes            BigInt                                     @map("size_bytes")
+  category             ProspectEmailAttachmentRetentionCategory
+  purpose              String                                     @db.VarChar(2000)
+  sourceReference      String?                                    @map("source_reference") @db.VarChar(1000)
+  status               ProspectEmailAttachmentRetentionStatus     @default(AWAITING_REVIEW)
+  requestedById        String                                     @map("requested_by_id") @db.VarChar(191)
+  reviewOperationId    String?                                    @unique @map("review_operation_id") @db.Uuid
+  reviewedById         String?                                    @map("reviewed_by_id") @db.VarChar(191)
+  reviewReason         String?                                    @map("review_reason") @db.VarChar(2000)
+  reviewedAt           DateTime?                                  @map("reviewed_at")
+  createdAt            DateTime                                   @default(now()) @map("created_at")
+  updatedAt            DateTime                                   @updatedAt @map("updated_at")
+  emailMessage         ProspectEmailMessage                       @relation(fields: [emailMessageId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([emailMessageId, createdAt, id], map: "prospect_email_attachment_retention_message_idx")
+  @@index([status, createdAt, id], map: "prospect_email_attachment_retention_review_idx")
+  @@map("prospect_email_attachment_retention_requests")
 }
 
 model ProspectEmailEvent {

@@ -1,6 +1,48 @@
 import { ExternalLink, MessageSquareText } from 'lucide-react'
 
 import { safeGmailSourceUrl } from '../../lib/gmail-source-url'
+import { ProspectAttachmentRetentionControl } from './ProspectAttachmentRetentionControl'
+
+type Attachment = {
+  providerAttachmentId: string
+  filename: string
+  mimeType: string
+  sizeBytes: number
+  downloadPolicy: 'METADATA_ONLY'
+}
+
+type RetentionRequest = {
+  id: string
+  providerAttachmentId: string
+  status: 'AWAITING_REVIEW' | 'APPROVED_FOR_IMPORT' | 'DECLINED_SOURCE_ONLY'
+  category:
+    | 'CONTRACT_OR_ORDER_FORM'
+    | 'BROCHURE'
+    | 'FLOOR_PLAN_OR_MAP'
+    | 'VENUE_OPERATIONS'
+    | 'CUSTOMER_KNOWLEDGE'
+    | 'GUIDE_MEDIA'
+    | 'OTHER_BUSINESS_RECORD'
+  purpose: string
+  reviewReason: string | null
+}
+
+function attachments(value: unknown): Attachment[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const row = item as Record<string, unknown>
+    if (
+      typeof row.providerAttachmentId !== 'string' ||
+      typeof row.filename !== 'string' ||
+      typeof row.mimeType !== 'string' ||
+      typeof row.sizeBytes !== 'number' ||
+      row.downloadPolicy !== 'METADATA_ONLY'
+    )
+      return []
+    return [row as Attachment]
+  })
+}
 
 type ProspectCorrespondenceMessage = {
   id: string
@@ -10,6 +52,8 @@ type ProspectCorrespondenceMessage = {
   toAddresses: string[]
   bodyPreview: string | null
   sourceReference: string | null
+  attachmentMetadata?: unknown
+  attachmentRetentionRequests?: RetentionRequest[]
   occurredAt: Date | string
 }
 
@@ -21,8 +65,10 @@ type ProspectCorrespondenceThread = {
 
 export function ProspectCorrespondenceHistory({
   threads,
+  enableRetentionActions = false,
 }: {
   threads: ProspectCorrespondenceThread[]
+  enableRetentionActions?: boolean
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -51,6 +97,7 @@ export function ProspectCorrespondenceHistory({
               <ol className="divide-y divide-slate-100">
                 {thread.messages.map((message) => {
                   const sourceUrl = safeGmailSourceUrl(message.sourceReference)
+                  const messageAttachments = attachments(message.attachmentMetadata)
                   return (
                     <li key={message.id} className="p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -86,6 +133,44 @@ export function ProspectCorrespondenceHistory({
                           Original source link unavailable.
                         </p>
                       )}
+                      {messageAttachments.length ? (
+                        <div className="mt-4 border-t border-slate-100 pt-4">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                            Attachments · metadata only
+                          </p>
+                          <ul className="mt-2 space-y-3">
+                            {messageAttachments.map((attachment) => {
+                              const request =
+                                message.attachmentRetentionRequests?.find(
+                                  (item) =>
+                                    item.providerAttachmentId === attachment.providerAttachmentId,
+                                ) ?? null
+                              return (
+                                <li
+                                  key={attachment.providerAttachmentId}
+                                  className="rounded-xl border border-slate-200 p-3"
+                                >
+                                  <p className="break-words text-sm font-semibold text-slate-900">
+                                    {attachment.filename || 'Unnamed attachment'}
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {attachment.mimeType} ·{' '}
+                                    {new Intl.NumberFormat('en-US').format(attachment.sizeBytes)}{' '}
+                                    bytes · not downloaded
+                                  </p>
+                                  {enableRetentionActions ? (
+                                    <ProspectAttachmentRetentionControl
+                                      emailMessageId={message.id}
+                                      providerAttachmentId={attachment.providerAttachmentId}
+                                      request={request}
+                                    />
+                                  ) : null}
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </div>
+                      ) : null}
                     </li>
                   )
                 })}

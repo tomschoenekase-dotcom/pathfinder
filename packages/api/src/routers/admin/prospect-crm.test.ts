@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   providerAccounts: vi.fn(),
   followups: vi.fn(),
   prospect: vi.fn(),
+  prepareAttachmentRetention: vi.fn(),
+  reviewAttachmentRetention: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -22,6 +24,8 @@ vi.mock('@pathfinder/db', () => ({
   },
   withTenantIsolationBypass: mocks.bypass,
   createProspectAction: mocks.createProspect,
+  prepareProspectEmailAttachmentRetentionAction: mocks.prepareAttachmentRetention,
+  reviewProspectEmailAttachmentRetentionAction: mocks.reviewAttachmentRetention,
   beginProspectImportAction: mocks.beginImport,
   addProspectNoteAction: vi.fn(),
   approveProspectImportAction: vi.fn(),
@@ -71,8 +75,18 @@ describe('admin prospect CRM router', () => {
     await expect(
       caller.createProspect({ organization: { canonicalName: 'Blocked prospect' } }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    await expect(
+      caller.prepareProspectEmailAttachmentRetention({
+        operationId: '11111111-1111-4111-8111-111111111111',
+        emailMessageId: 'message-1',
+        providerAttachmentId: 'attachment-1',
+        category: 'CUSTOMER_KNOWLEDGE',
+        purpose: 'Blocked request.',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
     expect(mocks.bypass).not.toHaveBeenCalled()
     expect(mocks.createProspect).not.toHaveBeenCalled()
+    expect(mocks.prepareAttachmentRetention).not.toHaveBeenCalled()
   })
 
   it('derives the human platform-admin actor from the authenticated session', async () => {
@@ -167,9 +181,44 @@ describe('admin prospect CRM router', () => {
       bodyPreview: true,
       bodyRetentionState: true,
       sourceReference: true,
+      attachmentMetadata: true,
+    })
+    expect(messageSelect.attachmentRetentionRequests.select).toMatchObject({
+      providerAttachmentId: true,
+      category: true,
+      purpose: true,
+      status: true,
+      reviewReason: true,
     })
     expect(messageSelect).not.toHaveProperty('textBody')
     expect(messageSelect).not.toHaveProperty('htmlBody')
+  })
+
+  it('derives human authority for provider-dark attachment preparation and review', async () => {
+    mocks.prepareAttachmentRetention.mockResolvedValue({ request: { id: 'request-1' } })
+    mocks.reviewAttachmentRetention.mockResolvedValue({
+      request: { id: 'request-1', status: 'APPROVED_FOR_IMPORT' },
+    })
+    const caller = testRouter.createCaller(context(true)).crm
+    await caller.prepareProspectEmailAttachmentRetention({
+      operationId: '11111111-1111-4111-8111-111111111111',
+      emailMessageId: 'message-1',
+      providerAttachmentId: 'attachment-1',
+      category: 'FLOOR_PLAN_OR_MAP',
+      purpose: 'Needed for the guide.',
+    })
+    await caller.reviewProspectEmailAttachmentRetention({
+      requestId: '33333333-3333-4333-8333-333333333333',
+      reviewOperationId: '22222222-2222-4222-8222-222222222222',
+      decision: 'APPROVE_FOR_IMPORT',
+      reason: 'Useful source material.',
+    })
+
+    const actor = { type: 'HUMAN', id: 'operator_1', role: 'PLATFORM_ADMIN' }
+    expect(mocks.prepareAttachmentRetention).toHaveBeenCalledWith(
+      expect.objectContaining({ actor }),
+    )
+    expect(mocks.reviewAttachmentRetention).toHaveBeenCalledWith(expect.objectContaining({ actor }))
   })
 
   it('returns meeting transcript provenance metadata without transcript content', async () => {

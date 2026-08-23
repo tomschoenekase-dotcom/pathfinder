@@ -120,6 +120,10 @@ export {
   stageProspectImportRowsAction,
   updateProspectPipelineAction,
 } from './helpers/prospect-actions'
+export {
+  prepareProspectEmailAttachmentRetentionAction,
+  reviewProspectEmailAttachmentRetentionAction,
+} from './helpers/prospect-email-attachment-retention-actions'
 export type {
   CreateProspectInput,
   ProspectActionClient,

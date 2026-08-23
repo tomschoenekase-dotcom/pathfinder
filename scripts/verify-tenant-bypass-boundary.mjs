@@ -103,7 +103,7 @@ const approvedCallCounts = new Map([
   ['packages/api/src/routers/admin/prospect-crm-directory.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-import.ts', 12],
   ['packages/api/src/routers/admin/prospect-crm-import-repair.ts', 2],
-  ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 5],
+  ['packages/api/src/routers/admin/prospect-crm-mutations.ts', 7],
   ['packages/api/src/routers/admin/prospect-crm-saved-views.ts', 3],
   ['packages/api/src/routers/admin/prospect-crm-territories.ts', 1],
   ['packages/api/src/routers/admin/prospect-crm-duplicates.ts', 3],

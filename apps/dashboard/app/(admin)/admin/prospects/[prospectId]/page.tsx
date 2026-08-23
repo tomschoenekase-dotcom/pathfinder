@@ -375,7 +375,7 @@ export default async function ProspectDetailPage({
             )}
           </section>
 
-          <ProspectCorrespondenceHistory threads={prospect.emailThreads} />
+          <ProspectCorrespondenceHistory threads={prospect.emailThreads} enableRetentionActions />
         </div>
 
         <aside>

@@ -22,6 +22,16 @@ const threads = [
         toAddresses: ['team@torchiko.com'],
         bodyPreview: 'We updated our visitor hours for September.',
         sourceReference: 'https://mail.google.com/mail/u/team%40torchiko.com/#all/message%2Fone',
+        attachmentMetadata: [
+          {
+            providerAttachmentId: 'attachment-1',
+            filename: 'visitor-map.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: 2048,
+            downloadPolicy: 'METADATA_ONLY' as const,
+          },
+        ],
+        attachmentRetentionRequests: [],
         occurredAt: '2026-08-22T12:00:00Z',
       },
     ],
@@ -36,6 +46,10 @@ describe('ProspectCorrespondenceHistory', () => {
       screen.getByRole('link', { name: /Open source email in Gmail/u }).getAttribute('href'),
     ).toBe('https://mail.google.com/mail/u/team%40torchiko.com/#all/message%2Fone')
     expect(screen.getByText(/Gmail remains the canonical source/u)).toBeTruthy()
+    expect(screen.getByText('visitor-map.pdf')).toBeTruthy()
+    expect(screen.getByText(/metadata only/iu)).toBeTruthy()
+    expect(screen.getByText(/not downloaded/iu)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /retention review/iu })).toBeNull()
   })
 
   it('fails closed when the source URL is unsafe', () => {
