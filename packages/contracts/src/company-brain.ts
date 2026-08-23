@@ -37,14 +37,16 @@ const FounderDecisionScopeValue = z.union([
   z.null(),
 ])
 
+export const FounderDecisionKey = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+
 export const FounderDecisionPacketDecision = z
   .object({
-    key: z
-      .string()
-      .trim()
-      .min(1)
-      .max(100)
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
+    key: FounderDecisionKey,
     title: z.string().trim().min(1).max(500),
     summary: z.string().trim().min(1).max(4000),
     decision: z.string().trim().min(1).max(20_000),
@@ -84,6 +86,24 @@ export const FounderDecisionPacket = z
   })
 
 export type FounderDecisionPacket = z.input<typeof FounderDecisionPacket>
+
+export const FounderDecisionCurrentTruthRequest = z
+  .object({ keys: z.array(FounderDecisionKey).min(1).max(50) })
+  .strict()
+  .superRefine((request, context) => {
+    const seen = new Set<string>()
+    request.keys.forEach((key, index) => {
+      if (seen.has(key)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['keys', index],
+          message: 'Founder decision lookup keys must be unique',
+        })
+      }
+      seen.add(key)
+    })
+  })
+export type FounderDecisionCurrentTruthRequest = z.input<typeof FounderDecisionCurrentTruthRequest>
 
 export const AccountContextRequest = z
   .object({

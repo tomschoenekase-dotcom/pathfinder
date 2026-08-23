@@ -449,6 +449,10 @@ export {
   FounderDecisionPacketActionError,
 } from './helpers/founder-decision-packet-actions'
 export {
+  FounderDecisionRetrievalError,
+  getFounderDecisionCurrentTruth,
+} from './helpers/founder-decision-retrieval'
+export {
   CompanyMeetingActionError,
   completeCompanyMeetingProcessingAction,
   ingestCompanyMeetingAction,

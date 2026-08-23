@@ -81,6 +81,7 @@ const expectedAdminProcedures = [
   'getClientVenue',
   'getCustomerStatePreservation',
   'getExternalCredential',
+  'getFounderDecisionCurrentTruth',
   'getGlobalAiControl',
   'getGuestDesign',
   'getIntakeProposalReview',

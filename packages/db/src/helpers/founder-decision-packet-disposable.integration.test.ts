@@ -5,6 +5,7 @@ import type { FounderDecisionPacket } from '@pathfinder/contracts/company-brain'
 
 import { db } from '../client'
 import { applyFounderDecisionPacketAction } from './founder-decision-packet-actions'
+import { getFounderDecisionCurrentTruth } from './founder-decision-retrieval'
 
 const enabled =
   process.env.RUN_FOUNDER_DECISION_PACKET_DB_INTEGRATION === '1' &&
@@ -115,6 +116,20 @@ describe.skipIf(!enabled)('founder decision packet disposable lifecycle', () => 
         },
       }),
     ).toBe(2)
+    await expect(
+      getFounderDecisionCurrentTruth({ keys: ['ordinary-engineering-authority'] }),
+    ).resolves.toMatchObject({
+      complete: true,
+      decisions: [
+        {
+          key: 'ordinary-engineering-authority',
+          knowledgeItemId: superseding.results[0]!.knowledgeItemId,
+          decision: secondPacket.decisions[0]!.decision,
+          supersedesDecisionId: expect.any(String),
+        },
+      ],
+      missingKeys: [],
+    })
   })
 
   it('admits the complete checked-in August 22 packet without external effects', async () => {
@@ -149,6 +164,29 @@ describe.skipIf(!enabled)('founder decision packet disposable lifecycle', () => 
     ).toBe(22)
     await expect(applyFounderDecisionPacketAction({ packet, actor })).resolves.toMatchObject({
       results: expect.arrayContaining([expect.objectContaining({ state: 'REPLAYED_CURRENT' })]),
+    })
+    await expect(
+      getFounderDecisionCurrentTruth({
+        keys: ['production-release-boundary', 'billing-launch-policy', 'not-yet-decided'],
+      }),
+    ).resolves.toMatchObject({
+      complete: false,
+      decisions: [
+        {
+          key: 'production-release-boundary',
+          provenance: [
+            expect.objectContaining({ sourceId: packet.packetId, sourceRef: packet.sourceRef }),
+          ],
+        },
+        { key: 'billing-launch-policy' },
+      ],
+      missingKeys: ['not-yet-decided'],
+      resolution: {
+        exactStableKeys: true,
+        fuzzyMatching: false,
+        currentOnly: true,
+        ambiguityFailsClosed: true,
+      },
     })
   })
 })

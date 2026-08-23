@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   createCandidate: vi.fn(),
   applyDecisionPacket: vi.fn(),
+  getFounderDecisions: vi.fn(),
   promote: vi.fn(),
   createTask: vi.fn(),
   enqueue: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
   createCompanyKnowledgeCandidateAction: mocks.createCandidate,
   applyFounderDecisionPacketAction: mocks.applyDecisionPacket,
+  getFounderDecisionCurrentTruth: mocks.getFounderDecisions,
   promoteCompanyKnowledgeAction: mocks.promote,
   createAgentTaskAction: mocks.createTask,
   db: {
@@ -124,6 +126,24 @@ describe('Company Brain admin router', () => {
       testRouter.createCaller(context(false)).companyBrain.applyFounderDecisionPacket(packet),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
     expect(mocks.applyDecisionPacket).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolves exact current founder decisions only after platform-admin authorization', async () => {
+    mocks.getFounderDecisions.mockResolvedValue({
+      schemaVersion: 'founder-decision-current-truth.v1',
+      complete: true,
+      decisions: [{ key: 'production-release-boundary' }],
+      missingKeys: [],
+    })
+    const request = { keys: ['production-release-boundary'] }
+    await expect(
+      testRouter.createCaller(context(true)).companyBrain.getFounderDecisionCurrentTruth(request),
+    ).resolves.toMatchObject({ complete: true })
+    expect(mocks.getFounderDecisions).toHaveBeenCalledWith(request)
+    await expect(
+      testRouter.createCaller(context(false)).companyBrain.getFounderDecisionCurrentTruth(request),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' } satisfies Partial<TRPCError>)
+    expect(mocks.getFounderDecisions).toHaveBeenCalledTimes(1)
   })
 
   it('queues meeting processing through the existing durable AgentRun system', async () => {
