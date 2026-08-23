@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 381,
-    "sha256": "0a4bbd276d2ff1b1968b8fabe0a6d1e3ec9160ff42bd622513b78bbc73d837eb",
+    "count": 387,
+    "sha256": "caf1f3eae9d06268e7a2cb8ea0732f7428f27fc2b0b79f7e8882f2981cab8f9d",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "0a4bbd276d2ff1b1968b8fabe0a6d1e3ec9160ff42bd622513b78bbc73d837eb",
-      "sha256": "5695ddedec36e131528fa53793c991805114dc1485040c12966a5764a55f17e0"
+      "operationInventorySha256": "caf1f3eae9d06268e7a2cb8ea0732f7428f27fc2b0b79f7e8882f2981cab8f9d",
+      "sha256": "bd2351b668be04327aa785f7201ee22d3bc469c8f05fee71625b1e601df5fa44"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -433,7 +433,7 @@
     },
     {
       "id": "venue-content-deployment",
-      "pattern": "Venue|Place|Knowledge|Content|Package|Deployment(?!Evaluations)|SecondLayer|Tochi|GuestDesign|Engagement|LocationAuthoring",
+      "pattern": "Venue|Place|Knowledge|Content|Package|Deployment(?!Evaluations)|SecondLayer|Tochi|GuestDesign|Engagement|Location(?:.*Authoring|Availability)",
       "agentCoverage": "partial",
       "developerCoverage": "full",
       "decision": "Expose safe reads and reviewable drafts; publication, deployment application, and broad mutation remain approval-bound.",
@@ -473,7 +473,7 @@
     },
     {
       "id": "conversation-experience",
-      "pattern": "^(?!.*LocationAuthoring).*(?:Chat|Answer|Feedback|Voice|Location|Widget)",
+      "pattern": "^(?!.*Location(?:.*Authoring|Availability)).*(?:Chat|Answer|Feedback|Voice|Location|Widget)",
       "agentCoverage": "partial",
       "developerCoverage": "partial",
       "decision": "Session metadata is privacy-bounded; raw replay and simulation require a separate synthetic developer contract.",

@@ -43,6 +43,8 @@ The canonical operational schemas and security annotations are in `packages/cont
 
 `torchiko.locations.propose_draft` requires `locations:propose`, a live credential-bound worker and run, exact venue scope, and a typed location payload. It validates current floor/parent references, records bounded evidence and a medium-risk approval item, and changes no venue content. Approval executes nothing. A separate platform-admin action may apply the exact approved payload as an inactive draft; activation remains another distinct human review.
 
+Floor and connection draft/edit/availability procedures are platform-admin operations with exact tenant/venue scope, revision checks, dependency guards, venue-content locking, and strict audit evidence. They are deliberately unbound from agent tools; the current agent proposal contract covers anchors only and does not compute or publish routes.
+
 The expanded operational-intelligence resources deliberately exclude report content/errors, visitor tokens and coordinates, message bodies, credential hashes/prefixes, agent prompts/scope snapshots/artifacts, deployment plans/state hashes, and feature-flag metadata/actor IDs.
 
 `torchiko.reports.get_lifecycle` reuses the canonical administrator lifecycle query for one exact

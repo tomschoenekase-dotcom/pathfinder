@@ -4,12 +4,17 @@ const { mocks, transactionClient } = vi.hoisted(() => {
   const mocks = {
     venueFind: vi.fn(),
     floorFind: vi.fn(),
+    floorCreate: vi.fn(),
+    floorUpdateMany: vi.fn(),
     floorsFind: vi.fn(),
     locationFind: vi.fn(),
     locationsFind: vi.fn(),
     locationCreate: vi.fn(),
     locationUpdateMany: vi.fn(),
     connectionsFind: vi.fn(),
+    connectionFind: vi.fn(),
+    connectionCreate: vi.fn(),
+    connectionUpdateMany: vi.fn(),
     proposalsFind: vi.fn(),
     proposalFind: vi.fn(),
     actionCreate: vi.fn(),
@@ -22,14 +27,24 @@ const { mocks, transactionClient } = vi.hoisted(() => {
     mocks,
     transactionClient: {
       venue: { findFirst: mocks.venueFind },
-      venueFloor: { findFirst: mocks.floorFind, findMany: mocks.floorsFind },
+      venueFloor: {
+        findFirst: mocks.floorFind,
+        findMany: mocks.floorsFind,
+        create: mocks.floorCreate,
+        updateMany: mocks.floorUpdateMany,
+      },
       venueLocation: {
         findFirst: mocks.locationFind,
         findMany: mocks.locationsFind,
         create: mocks.locationCreate,
         updateMany: mocks.locationUpdateMany,
       },
-      venueLocationConnection: { findMany: mocks.connectionsFind },
+      venueLocationConnection: {
+        findMany: mocks.connectionsFind,
+        findFirst: mocks.connectionFind,
+        create: mocks.connectionCreate,
+        updateMany: mocks.connectionUpdateMany,
+      },
       approvalRequest: { findMany: mocks.proposalsFind, findFirst: mocks.proposalFind },
       agentAction: { create: mocks.actionCreate },
       agentTimelineEvent: { create: mocks.timelineCreate },
@@ -52,10 +67,19 @@ vi.mock('@pathfinder/db', () => ({
 import { mergeRouters, router } from '../../core'
 import type { TRPCContext } from '../../context'
 import { adminLocationAuthoringRouter } from './location-authoring'
+import { adminLocationAvailabilityRouter } from './location-availability'
 import { adminLocationAuthoringApplicationRouter } from './location-proposal-application'
+import { adminLocationConnectionAuthoringRouter } from './location-connection-authoring'
+import { adminLocationFloorAuthoringRouter } from './location-floor-authoring'
 
 const app = router({
-  admin: mergeRouters(adminLocationAuthoringRouter, adminLocationAuthoringApplicationRouter),
+  admin: mergeRouters(
+    adminLocationAuthoringRouter,
+    adminLocationAvailabilityRouter,
+    adminLocationAuthoringApplicationRouter,
+    adminLocationFloorAuthoringRouter,
+    adminLocationConnectionAuthoringRouter,
+  ),
 })
 const operationId = '11111111-1111-4111-8111-111111111111'
 const revision = new Date('2026-08-23T18:00:00.000Z')
@@ -76,6 +100,35 @@ const location = {
   mapY: 40,
   externalMapReference: 'https://museum.example/map',
   accessibilityMetadata: { stepFree: true },
+  verifiedAt: revision,
+  verifiedBy: 'admin-1',
+  isActive: false,
+  createdAt: revision,
+  updatedAt: revision,
+}
+const floor = {
+  id: '44444444-4444-4444-8444-444444444444',
+  tenantId: 'tenant-1',
+  venueId: 'venue-1',
+  stableKey: 'ground-floor',
+  name: 'Ground floor',
+  level: 0,
+  sortOrder: 0,
+  mapImageUrl: 'https://museum.example/ground-floor-map.png',
+  isActive: false,
+  createdAt: revision,
+  updatedAt: revision,
+}
+const connection = {
+  id: '55555555-5555-4555-8555-555555555555',
+  tenantId: 'tenant-1',
+  venueId: 'venue-1',
+  fromLocationId: operationId,
+  toLocationId: '66666666-6666-4666-8666-666666666666',
+  kind: 'WALKWAY',
+  bidirectional: true,
+  accessible: true,
+  directions: 'Follow the marked level path.',
   verifiedAt: revision,
   verifiedBy: 'admin-1',
   isActive: false,
@@ -135,16 +188,21 @@ function context(isPlatformAdmin = true): TRPCContext {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
   mocks.transaction.mockImplementation(
     async (callback: (client: typeof transactionClient) => Promise<unknown>, client) =>
       callback(client),
   )
   mocks.venueFind.mockResolvedValue({ id: 'venue-1', name: 'Museum' })
   mocks.floorFind.mockResolvedValue(null)
+  mocks.floorCreate.mockResolvedValue(floor)
+  mocks.floorUpdateMany.mockResolvedValue({ count: 1 })
   mocks.floorsFind.mockResolvedValue([])
   mocks.locationsFind.mockResolvedValue([])
   mocks.connectionsFind.mockResolvedValue([])
+  mocks.connectionFind.mockResolvedValue(null)
+  mocks.connectionCreate.mockResolvedValue(connection)
+  mocks.connectionUpdateMany.mockResolvedValue({ count: 1 })
   mocks.proposalsFind.mockResolvedValue([])
   mocks.proposalFind.mockResolvedValue(null)
   mocks.locationFind.mockResolvedValue(null)
@@ -388,5 +446,180 @@ describe('location authoring', () => {
       }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     expect(mocks.locationCreate).not.toHaveBeenCalled()
+  })
+
+  it('creates and corrects an inactive floor draft with exact replay and audit evidence', async () => {
+    const caller = app.createCaller(context())
+    const input = {
+      operationId: floor.id,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      stableKey: floor.stableKey,
+      name: floor.name,
+      level: floor.level,
+      sortOrder: floor.sortOrder,
+      mapImageUrl: floor.mapImageUrl,
+    }
+    await expect(caller.admin.createVenueFloorDraft(input)).resolves.toMatchObject({
+      floor: { id: floor.id, isActive: false },
+      replayed: false,
+    })
+    expect(mocks.floorCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ id: floor.id, isActive: false }) }),
+    )
+    mocks.floorFind.mockResolvedValueOnce(floor)
+    await expect(caller.admin.createVenueFloorDraft(input)).resolves.toMatchObject({
+      replayed: true,
+    })
+
+    mocks.floorFind.mockResolvedValueOnce(floor)
+    const floorUpdateFields = {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      stableKey: input.stableKey,
+      name: input.name,
+      level: input.level,
+      sortOrder: input.sortOrder,
+      mapImageUrl: input.mapImageUrl,
+    }
+    await expect(
+      caller.admin.updateVenueFloorDraft({
+        ...floorUpdateFields,
+        floorId: floor.id,
+        expectedUpdatedAt: revision,
+        name: 'Main level',
+        reason: 'Matched the current public floor map.',
+      }),
+    ).resolves.toEqual({ updatedAt: expect.any(Date) })
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'venue-floor.draft-updated' }),
+      transactionClient,
+    )
+  })
+
+  it('will not deactivate a floor while an active anchor still depends on it', async () => {
+    mocks.floorFind.mockResolvedValue({ ...floor, isActive: true })
+    mocks.locationFind.mockResolvedValue({ id: operationId })
+    await expect(
+      app.createCaller(context()).admin.setVenueFloorAvailability({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        floorId: floor.id,
+        expectedUpdatedAt: revision,
+        active: false,
+        reason: 'Retiring an obsolete floor.',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.floorUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('creates and corrects an inactive connection draft, then activates only active endpoints', async () => {
+    const caller = app.createCaller(context())
+    const input = {
+      operationId: connection.id,
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      fromLocationId: connection.fromLocationId,
+      toLocationId: connection.toLocationId,
+      kind: 'WALKWAY' as const,
+      bidirectional: true,
+      accessible: true,
+      directions: connection.directions,
+    }
+    mocks.locationFind.mockResolvedValue({ id: operationId })
+    await expect(caller.admin.createVenueLocationConnectionDraft(input)).resolves.toMatchObject({
+      connection: { id: connection.id, isActive: false },
+      replayed: false,
+    })
+    expect(mocks.connectionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ id: connection.id, isActive: false }),
+      }),
+    )
+
+    mocks.connectionFind.mockResolvedValueOnce(connection)
+    const connectionUpdateFields = {
+      tenantId: input.tenantId,
+      venueId: input.venueId,
+      fromLocationId: input.fromLocationId,
+      toLocationId: input.toLocationId,
+      kind: input.kind,
+      bidirectional: input.bidirectional,
+      accessible: input.accessible,
+      directions: input.directions,
+    }
+    await expect(
+      caller.admin.updateVenueLocationConnectionDraft({
+        ...connectionUpdateFields,
+        connectionId: connection.id,
+        expectedUpdatedAt: revision,
+        directions: 'Use the clearly marked level route.',
+        reason: 'Corrected against the current accessibility map.',
+      }),
+    ).resolves.toEqual({ updatedAt: expect.any(Date) })
+
+    mocks.connectionFind.mockResolvedValueOnce(connection)
+    await expect(
+      caller.admin.setVenueLocationConnectionAvailability({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        connectionId: connection.id,
+        expectedUpdatedAt: revision,
+        active: true,
+        reason: 'Both anchors and the level route were verified.',
+      }),
+    ).resolves.toMatchObject({ connection: { isActive: true }, replayed: false })
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'venue-location-connection.activated' }),
+      transactionClient,
+    )
+  })
+
+  it('rejects self-connections and inactive endpoint activation', async () => {
+    const caller = app.createCaller(context())
+    await expect(
+      caller.admin.createVenueLocationConnectionDraft({
+        operationId: connection.id,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        fromLocationId: operationId,
+        toLocationId: operationId,
+        kind: 'DOOR',
+        bidirectional: true,
+        accessible: false,
+        directions: null,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+
+    mocks.connectionFind.mockResolvedValue(connection)
+    mocks.locationFind.mockResolvedValueOnce({ id: operationId }).mockResolvedValueOnce(null)
+    await expect(
+      caller.admin.setVenueLocationConnectionAvailability({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        connectionId: connection.id,
+        expectedUpdatedAt: revision,
+        active: true,
+        reason: 'Attempt with an inactive endpoint.',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+  })
+
+  it('will not deactivate an anchor while active child or connection topology depends on it', async () => {
+    mocks.locationFind
+      .mockResolvedValueOnce({ ...location, isActive: true })
+      .mockResolvedValueOnce(null)
+    mocks.connectionFind.mockResolvedValue({ id: connection.id })
+    await expect(
+      app.createCaller(context()).admin.setVenueLocationAvailability({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        locationId: operationId,
+        expectedUpdatedAt: revision,
+        active: false,
+        reason: 'Attempting to retire an anchor.',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.locationUpdateMany).not.toHaveBeenCalled()
   })
 })

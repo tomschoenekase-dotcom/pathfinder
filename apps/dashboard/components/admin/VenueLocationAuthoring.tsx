@@ -5,6 +5,11 @@ import { useState, type FormEvent } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import {
+  VenueLocationTopologyAuthoring,
+  type TopologyConnection,
+  type TopologyFloor,
+} from './VenueLocationTopologyAuthoring'
 
 type Location = {
   id: string
@@ -24,7 +29,7 @@ type Location = {
   updatedAt: Date
 }
 
-type Floor = { id: string; name: string; stableKey: string; isActive: boolean }
+type Floor = TopologyFloor
 
 type LocationProposal = {
   id: string
@@ -52,7 +57,8 @@ type Props = {
   venueName: string
   floors: Floor[]
   initialLocations: Location[]
-  connectionCount: number
+  connectionCount?: number
+  connections?: TopologyConnection[]
   proposals?: LocationProposal[]
 }
 
@@ -477,7 +483,8 @@ export function VenueLocationAuthoring({
   venueName,
   floors,
   initialLocations,
-  connectionCount,
+  connectionCount = 0,
+  connections = [],
   proposals = [],
 }: Props) {
   const client = useTRPCClient()
@@ -543,6 +550,14 @@ export function VenueLocationAuthoring({
           turn-by-turn routing.
         </p>
       </header>
+
+      <VenueLocationTopologyAuthoring
+        tenantId={tenantId}
+        venueId={venueId}
+        floors={floors}
+        locations={initialLocations}
+        connections={connections}
+      />
 
       <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm sm:p-6">
         <h3 className="text-lg font-semibold text-pf-deep">Create an inactive draft</h3>
@@ -718,7 +733,7 @@ export function VenueLocationAuthoring({
             <h3 className="text-lg font-semibold text-pf-deep">Anchors</h3>
             <p className="mt-1 text-sm text-pf-deep/65">
               {activeLocations.length} active · {initialLocations.length - activeLocations.length}{' '}
-              inactive · {connectionCount} existing connection(s)
+              inactive · {connections.length || connectionCount} existing connection(s)
             </p>
           </div>
         </div>
