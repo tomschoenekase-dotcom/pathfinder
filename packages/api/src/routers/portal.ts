@@ -864,6 +864,46 @@ export const portalRouter = router({
         { isolationLevel: 'RepeatableRead' },
       )
     }),
+  getVenueVisitorPulse: tenantProcedure
+    .input(z.object({ venueId: z.string().min(1).max(191) }).strict())
+    .query(async ({ ctx, input }) => {
+      const tenantId = ctx.session.activeTenantId
+      const venue = await ctx.db.venue.findFirst({
+        where: { id: input.venueId, tenantId },
+        select: { id: true },
+      })
+      if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Visitor pulse not found' })
+
+      const windowDays = 30
+      const windowStart = new Date()
+      windowStart.setUTCDate(windowStart.getUTCDate() - windowDays)
+
+      const [conversationCount, feedbackRows] = await Promise.all([
+        ctx.db.visitorSession.count({
+          where: {
+            tenantId,
+            venueId: input.venueId,
+            experienceScope: 'PUBLIC',
+            startedAt: { gte: windowStart },
+          },
+        }),
+        ctx.db.messageFeedback.groupBy({
+          by: ['rating'],
+          where: { tenantId, venueId: input.venueId, createdAt: { gte: windowStart } },
+          _count: { _all: true },
+        }),
+      ])
+      const feedback = new Map(feedbackRows.map((row) => [row.rating, row._count._all]))
+
+      return {
+        windowDays,
+        conversationCount,
+        feedback: {
+          helpful: feedback.get('HELPFUL') ?? 0,
+          notHelpful: feedback.get('NOT_HELPFUL') ?? 0,
+        },
+      }
+    }),
   createPreviewFeedbackRequest: tenantProcedure
     .input(CreateClientPreviewFeedbackInput)
     .mutation(async ({ ctx, input }) => {

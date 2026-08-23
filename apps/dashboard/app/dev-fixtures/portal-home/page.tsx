@@ -51,6 +51,11 @@ export default async function PortalHomeVisualFixture({
         }}
         venues={[{ id: 'fixture-great-lakes-museum', name: 'Great Lakes Discovery Museum' }]}
         activeUpdates={state === 'live' ? 2 : 0}
+        visitorPulse={{
+          windowDays: 30,
+          conversationCount: state === 'live' ? 128 : 34,
+          feedback: { helpful: state === 'live' ? 47 : 11, notHelpful: state === 'live' ? 5 : 2 },
+        }}
         chatUrl="https://example.test/great-lakes-discovery-museum"
         impersonatedTenantName="Great Lakes Discovery Museum"
       />

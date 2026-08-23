@@ -59,6 +59,13 @@ type RequestDetail = RequestSummary & {
   nextMessageCursor: { createdAt: string; id: string } | null
 }
 type ParticipantCandidate = { userId: string; displayLabel: string; activeOnRequest: boolean }
+type SupportCategory =
+  | 'GENERAL'
+  | 'CONTENT_CORRECTION'
+  | 'OPERATIONAL_UPDATE'
+  | 'BRANDING'
+  | 'EXPERIENCE_BEHAVIOR'
+  | 'ACCESSIBILITY'
 
 type SupportWorkspaceProps = {
   venues: VenueOption[]
@@ -70,6 +77,10 @@ type SupportWorkspaceProps = {
   initialEligibleAttachmentsNextCursor: EligibleAttachmentCursor | null
   operatorSupportHref?: string | undefined
   returnHref?: string | undefined
+  initialCreateDraft?: {
+    category: SupportCategory
+    subject: string
+  }
 }
 
 const categories = [
@@ -229,17 +240,21 @@ export function SupportWorkspace({
   initialEligibleAttachmentsNextCursor,
   returnHref,
   operatorSupportHref,
+  initialCreateDraft,
 }: SupportWorkspaceProps) {
   const router = useRouter()
   const client = useTRPCClient()
+  const initialCreateCategory = initialCreateDraft?.category
+  const initialCreateSubject = initialCreateDraft?.subject
+  const shouldOpenCreateDraft = initialCreateDraft !== undefined
   const [requests, setRequests] = useState(initialRequests)
   const [nextCursor, setNextCursor] = useState(initialNextCursor)
   const [detail, setDetail] = useState(initialDetail)
   const [view, setView] = useState<'conversation' | 'create'>(
-    initialDetail ? 'conversation' : 'create',
+    shouldOpenCreateDraft ? 'create' : initialDetail ? 'conversation' : 'create',
   )
-  const [subject, setSubject] = useState('')
-  const [category, setCategory] = useState<(typeof categories)[number][0]>('GENERAL')
+  const [subject, setSubject] = useState(initialCreateSubject ?? '')
+  const [category, setCategory] = useState<SupportCategory>(initialCreateCategory ?? 'GENERAL')
   const [requestBody, setRequestBody] = useState('')
   const [replyBody, setReplyBody] = useState('')
   const [createAttachments, setCreateAttachments] = useState<string[]>([])
@@ -315,9 +330,9 @@ export function SupportWorkspace({
     setDetail(initialDetail)
     setEligibleAttachments(initialEligibleAttachments)
     setEligibleAttachmentsNextCursor(initialEligibleAttachmentsNextCursor)
-    setView(initialDetail ? 'conversation' : 'create')
-    setSubject('')
-    setCategory('GENERAL')
+    setView(shouldOpenCreateDraft ? 'create' : initialDetail ? 'conversation' : 'create')
+    setSubject(initialCreateSubject ?? '')
+    setCategory(initialCreateCategory ?? 'GENERAL')
     setRequestBody('')
     setCreateAttachments([])
     setReplyBody('')
@@ -337,8 +352,11 @@ export function SupportWorkspace({
     initialDetail,
     initialEligibleAttachments,
     initialEligibleAttachmentsNextCursor,
+    initialCreateCategory,
+    initialCreateSubject,
     initialNextCursor,
     initialRequests,
+    shouldOpenCreateDraft,
   ])
 
   function changeCreateDraft(change: () => void) {
@@ -970,9 +988,7 @@ export function SupportWorkspace({
                     value={category}
                     disabled={busy === 'create'}
                     onChange={(event) =>
-                      changeCreateDraft(() =>
-                        setCategory(event.target.value as (typeof categories)[number][0]),
-                      )
+                      changeCreateDraft(() => setCategory(event.target.value as SupportCategory))
                     }
                     className="mt-2 block min-h-12 w-full rounded-xl border border-pf-light bg-white px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pf-accent"
                   >

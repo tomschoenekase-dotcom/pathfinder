@@ -87,4 +87,17 @@ describe('SupportPage', () => {
     })
     expect(element.props.initialDetail).toBeNull()
   })
+
+  it('opens a visitor-insight correction draft instead of an unrelated existing request', async () => {
+    const element = await SupportPage({
+      searchParams: Promise.resolve({ venue: 'venue_beta', new: 'visitor-insight' }),
+    })
+
+    expect(mocks.getRequest).not.toHaveBeenCalled()
+    expect(element.props.initialDetail).toBeNull()
+    expect(element.props.initialCreateDraft).toEqual({
+      category: 'CONTENT_CORRECTION',
+      subject: 'Visitor experience review',
+    })
+  })
 })

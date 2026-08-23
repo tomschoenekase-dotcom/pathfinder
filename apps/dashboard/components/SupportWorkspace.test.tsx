@@ -253,6 +253,23 @@ describe('SupportWorkspace', () => {
     )
   })
 
+  it('starts a visitor-insight request with safe service-led defaults', () => {
+    renderWorkspace({
+      initialCreateDraft: {
+        category: 'CONTENT_CORRECTION',
+        subject: 'Visitor experience review',
+      },
+    })
+
+    expect(screen.getByLabelText<HTMLSelectElement>('What is this about?').value).toBe(
+      'CONTENT_CORRECTION',
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('Subject').value).toBe(
+      'Visitor experience review',
+    )
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Message').value).toBe('')
+  })
+
   it('sends replies with the displayed version and handles CAS conflicts without losing or falsely sending the draft', async () => {
     mocks.addMessage.mockRejectedValueOnce({ data: { code: 'CONFLICT' } })
     renderWorkspace()
