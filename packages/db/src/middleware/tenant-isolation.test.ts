@@ -222,6 +222,7 @@ describe('tenantIsolationMiddleware', () => {
       'ClientCreateIntent',
       'ClientCreateIntentEvent',
       'ProductPlanCapability',
+      'PlatformWorkerPolicyCredential',
       'StripeWebhookReceipt',
       'ProspectTerritory',
       'ProspectTag',

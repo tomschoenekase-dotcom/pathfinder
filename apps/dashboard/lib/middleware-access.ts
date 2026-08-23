@@ -5,6 +5,7 @@ const AUTH_ROUTES = ['/sign-in', '/sign-up']
 const PUBLIC_ROUTES = [
   '/api/agent-bridge',
   '/api/mcp',
+  '/api/platform-worker/founder-decisions',
   '/api/integrations/gmail/pubsub',
   '/api/webhooks/clerk',
   '/api/webhooks/stripe',

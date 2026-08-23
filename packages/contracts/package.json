@@ -33,6 +33,7 @@
     "./character-system": "./src/character-system.ts",
     "./actor": "./src/actor.ts",
     "./company-brain": "./src/company-brain.ts",
+    "./platform-worker-policy": "./src/platform-worker-policy.ts",
     "./google-workspace-source": "./src/google-workspace-source.ts",
     "./prospect-staging-package": "./src/prospect-staging-package.ts",
     "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts"

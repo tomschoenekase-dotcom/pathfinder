@@ -1,6 +1,6 @@
 import { db } from '../client'
 
-export const EXPECTED_LATEST_MIGRATION = '20260821200000_sync_mcp_credential_capabilities'
+export const EXPECTED_LATEST_MIGRATION = '20260823103000_add_platform_worker_policy_credentials'
 export const WORKER_HEARTBEAT_KEY = 'operations.worker-heartbeat.v1'
 
 export async function recordWorkerHeartbeat(input: {

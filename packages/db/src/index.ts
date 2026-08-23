@@ -71,6 +71,14 @@ export {
   verifyAgentBridgeCredential,
 } from './helpers/external-credential-verification'
 export type { ExternalCredentialVerificationClient } from './helpers/external-credential-verification'
+export {
+  activatePlatformWorkerPolicyCredentialAction,
+  issuePlatformWorkerPolicyCredentialAction,
+  PlatformWorkerPolicyCredentialError,
+  revokePlatformWorkerPolicyCredentialAction,
+  verifyPlatformWorkerPolicyCredential,
+} from './helpers/platform-worker-policy-credentials'
+export type { PlatformWorkerPolicyCredentialClient } from './helpers/platform-worker-policy-credentials'
 
 export {
   claimGuestChatTurnAction,

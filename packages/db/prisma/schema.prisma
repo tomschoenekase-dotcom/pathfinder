@@ -33,6 +33,38 @@ model ClerkWebhookReceipt {
   @@map("clerk_webhook_receipts")
 }
 
+/// Default-disabled machine credential for the platform-internal, read-only policy surface.
+/// This is deliberately unrelated to tenant/customer MCP credentials.
+model PlatformWorkerPolicyCredential {
+  id                    String   @id @default(cuid())
+  issueOperationId      String   @unique @map("issue_operation_id") @db.Uuid
+  issueOperationHash    String   @map("issue_operation_hash") @db.Char(64)
+  workerId              String   @map("worker_id") @db.VarChar(191)
+  label                 String   @db.VarChar(200)
+  capabilities          String[]
+  secretPrefix          String   @unique @map("secret_prefix") @db.VarChar(24)
+  secretHash            String   @map("secret_hash") @db.VarChar(255)
+  hashAlgorithm         ExternalCredentialHashAlgorithm @default(ARGON2ID) @map("hash_algorithm")
+  enabled               Boolean  @default(false)
+  expiresAt             DateTime? @map("expires_at")
+  revokedAt             DateTime? @map("revoked_at")
+  lastUsedAt            DateTime? @map("last_used_at")
+  createdBy             String   @map("created_by") @db.VarChar(191)
+  activatedBy           String?  @map("activated_by") @db.VarChar(191)
+  activatedAt           DateTime? @map("activated_at")
+  activationOperationId String?  @unique @map("activation_operation_id") @db.Uuid
+  activationHash        String?  @map("activation_hash") @db.Char(64)
+  revokedBy             String?  @map("revoked_by") @db.VarChar(191)
+  revokeReason          String?  @map("revoke_reason") @db.VarChar(100)
+  revocationOperationId String?  @unique @map("revocation_operation_id") @db.Uuid
+  revocationHash        String?  @map("revocation_hash") @db.Char(64)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([workerId, enabled, revokedAt], map: "platform_worker_policy_worker_state_idx")
+  @@map("platform_worker_policy_credentials")
+}
+
 enum ClientCreateIntentStatus {
   RESERVED
   PROVIDER_STARTED

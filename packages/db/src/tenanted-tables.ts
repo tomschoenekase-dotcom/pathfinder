@@ -145,6 +145,7 @@ export const PLATFORM_TABLES = [
   'ClientCreateIntent',
   'ClientCreateIntentEvent',
   'ProductPlanCapability',
+  'PlatformWorkerPolicyCredential',
   // Provider receipt exists before tenant ownership can be established so
   // unknown Stripe objects can be quarantined instead of discarded.
   'StripeWebhookReceipt',
