@@ -606,7 +606,7 @@ const approvedOperations = [
   {
     file: 'packages/api/src/routers/feedback.ts',
     method: '$queryRaw',
-    hash: '4657c2e7c6c7b9e21b8f7779c5f8590315a4efb1062480e571404334a3a24db3',
+    hash: '25b4134eb0bafbff40ded71be120dd4926af3c53a70857dd5a7698defdd35026',
     policy: 'public-venue-session-token',
   },
   {
