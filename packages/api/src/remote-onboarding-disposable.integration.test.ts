@@ -73,9 +73,15 @@ import {
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
-import { router } from './core'
+import { mergeRouters, router } from './core'
 import type { TRPCContext } from './context'
 import { reviewVenuePackageManifestService } from './lib/venue-package-manifest-service'
+import { adminOffboardingExportPreviewRouter } from './routers/admin/offboarding-export-preview'
+import { adminOffboardingPlansRouter } from './routers/admin/offboarding-plans'
+import { adminReportConfigurationRouter } from './routers/admin/report-configuration'
+import { adminWeeklyReportsRouter } from './routers/admin/weekly-reports'
+import { analyticsRouter } from './routers/analytics'
+import { operationalUpdateRouter } from './routers/operational-update'
 import { portalRouter } from './routers/portal'
 import { venuePackageRouter } from './routers/venue-package'
 
@@ -94,9 +100,20 @@ function assertDisposableDatabase(): void {
     throw new Error('Disposable lifecycle proof requires an exact-loopback disposable database')
 }
 
-const testRouter = router({ portal: portalRouter, venuePackage: venuePackageRouter })
+const testRouter = router({
+  admin: mergeRouters(
+    adminOffboardingExportPreviewRouter,
+    adminOffboardingPlansRouter,
+    adminReportConfigurationRouter,
+    adminWeeklyReportsRouter,
+  ),
+  analytics: analyticsRouter,
+  operationalUpdate: operationalUpdateRouter,
+  portal: portalRouter,
+  venuePackage: venuePackageRouter,
+})
 
-describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle', () => {
+describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle', () => {
   afterAll(async () => db.$disconnect())
 
   it('proves invitation through exact rollback in one sanitized venue run', async () => {
@@ -118,6 +135,16 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
         },
       }
       const caller = testRouter.createCaller(context)
+      const admin = testRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: {
+          userId: operatorId,
+          activeTenantId: null,
+          role: null,
+          isPlatformAdmin: true,
+        },
+      }).admin
 
       await db.tenant.create({
         data: { id: tenantId, name: 'Sanitized Remote Proof', slug: tenantId },
@@ -753,6 +780,112 @@ describe.skipIf(!enabled)('remote onboarding fifteen-step disposable lifecycle',
           { eventType: 'HUMAN_INTERVENTION' },
         ]),
       )
+
+      // 16. A routine venue update is published through the tenant action surface and
+      // remains machine-readable through the same bounded tenant API.
+      const updateStart = new Date(Date.now() - 60_000)
+      const updateEnd = new Date(Date.now() + 60 * 60 * 1_000)
+      const operationalUpdate = await caller.operationalUpdate.create({
+        venueId,
+        updateType: 'CHANGED_HOURS',
+        severity: 'INFO',
+        priority: 'NORMAL',
+        title: 'Synthetic late opening',
+        body: 'The museum opens at 10:30 AM during this disposable proof.',
+        startsAt: updateStart,
+        expiresAt: updateEnd,
+        publish: true,
+      })
+      expect(operationalUpdate).toMatchObject({
+        tenantId,
+        venueId,
+        status: 'PUBLISHED',
+        isActive: true,
+      })
+      await expect(
+        caller.operationalUpdate.getById({ id: operationalUpdate.id }),
+      ).resolves.toMatchObject({
+        id: operationalUpdate.id,
+        title: 'Synthetic late opening',
+        status: 'PUBLISHED',
+      })
+
+      // 17. Reports fail closed until explicitly enabled. A populated draft is then
+      // published by the platform-admin action and read through the client tenant API.
+      await expect(caller.analytics.listPublishedWeeklyReports({ venueId })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      })
+      await admin.updateVenueReportConfiguration({
+        tenantId,
+        venueId,
+        enabled: true,
+        expectedUpdatedAt: null,
+      })
+      const report = await db.weeklyReport.create({
+        data: {
+          tenantId,
+          venueId,
+          weekStart: new Date('2026-08-10T00:00:00.000Z'),
+          weekEnd: new Date('2026-08-16T23:59:59.999Z'),
+          status: 'DRAFT',
+          title: 'Synthetic Golden Venue report',
+          content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
+          createdBy: operatorId,
+        },
+      })
+      await expect(
+        admin.publishWeeklyReport({
+          tenantId,
+          venueId,
+          reportId: report.id,
+          expectedUpdatedAt: report.updatedAt.toISOString(),
+        }),
+      ).resolves.toEqual({ ok: true })
+      await expect(
+        caller.analytics.getPublishedWeeklyReport({ venueId, reportId: report.id }),
+      ).resolves.toMatchObject({
+        id: report.id,
+        title: 'Synthetic Golden Venue report',
+        content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
+      })
+
+      // 18. Offboarding remains planning-only: create a scoped REQUESTED draft and a
+      // metadata-reference export preview, without revocation, artifact creation, data
+      // deletion, venue deactivation, or customer cancellation.
+      const activeBeforeOffboarding = await db.venue.findFirstOrThrow({
+        where: { id: venueId, tenantId },
+        select: { isActive: true },
+      })
+      const draftPlan = await admin.createOffboardingDraft({
+        tenantId,
+        requestId: randomUUID(),
+        venueIds: [venueId],
+        revocationTargets: ['GUEST_LINKS', 'BACKGROUND_JOBS', 'CLIENT_ACCESS'],
+        exportKinds: ['APPROVED_CONTENT', 'CONTENT_HISTORY', 'VENUE_PACKAGES', 'CONFIGURATION'],
+      })
+      expect(draftPlan).toMatchObject({ status: 'REQUESTED' })
+      const exportPreview = await admin.previewOffboardingExportManifest({
+        tenantId,
+        venueIds: [venueId],
+      })
+      expect(exportPreview).toMatchObject({
+        schemaVersion: 1,
+        tenantId,
+        selectedVenueIds: [venueId],
+        privacyBoundary: 'METADATA_REFERENCES_ONLY',
+      })
+      expect(exportPreview.packages).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: approved.id, venueId })]),
+      )
+      await expect(
+        db.venue.findFirstOrThrow({ where: { id: venueId, tenantId }, select: { isActive: true } }),
+      ).resolves.toEqual(activeBeforeOffboarding)
+      await expect(
+        db.offboardingRevocationEvidence.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(0)
+      await expect(
+        db.offboardingExportArtifact.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(0)
     })
   }, 120_000)
 })

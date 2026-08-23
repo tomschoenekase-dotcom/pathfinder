@@ -646,6 +646,9 @@ export async function runDisposableGoldenVenueShakedown(options = {}) {
         'content-package-eval',
         'release-rollback',
         'support-handoff',
+        'report-publish-read',
+        'routine-update-publish-read',
+        'offboarding-draft-export-preview',
       ],
       integration: {
         packageDirectory: 'packages/api',

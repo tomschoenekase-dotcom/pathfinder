@@ -11,8 +11,10 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
    container even after failure. It refuses remote Docker endpoints and strips inherited credentials.
 3. Treat its `proofScope` output as authoritative. It proves client/venue creation, remote intake,
    authoritative upload evidence, review, a support-question handoff, immutable package/evaluation
-   evidence, explicit release, and exact rollback. It does **not** prove provider-backed guest chat,
-   visitor message feedback, report delivery, a routine operational update, or offboarding/export.
+   evidence, explicit release and exact rollback, tenant-published routine updates, admin-published
+   and client-read reports, and non-destructive offboarding draft/export-preview behavior. It does
+   **not** prove provider-backed guest chat, visitor message feedback, offboarding execution,
+   customer cancellation, revocation, deletion, or export artifact finalization.
 4. For an authorized synthetic staging seed, satisfy every host/database confirmation required by
    `assertStagingSeedTarget`, then run the fixture's `seedCommand`.
 5. Reset shared staging only through an approved, recoverable data procedure. Never broad-delete a

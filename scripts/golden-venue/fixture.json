@@ -15,16 +15,12 @@
       "upload-intake",
       "review",
       "content-package-eval",
-      "release"
-    ],
-    "partialPhases": ["support"],
-    "remainingPhases": [
-      "guest-retrieval-chat",
-      "feedback",
+      "release",
       "report",
-      "update",
-      "export-offboarding"
+      "update"
     ],
+    "partialPhases": ["support", "export-offboarding"],
+    "remainingPhases": ["guest-retrieval-chat", "feedback"],
     "providerBacked": false
   },
   "requiredPhases": [

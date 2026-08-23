@@ -61,7 +61,7 @@ describe('createOffboardingDraftAction', () => {
     expect(planCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: {
-          tenantId: 'tenant-1',
+          tenant: { connect: { id: 'tenant-1' } },
           requestId: '11111111-1111-4111-8111-111111111111',
           requestHash: offboardingDraftRequestHash(input()),
           status: 'REQUESTED',
@@ -70,8 +70,14 @@ describe('createOffboardingDraftAction', () => {
           requestedBy: 'admin-1',
           venueTargets: {
             create: [
-              { tenantId: 'tenant-1', venueId: 'venue-a' },
-              { tenantId: 'tenant-1', venueId: 'venue-b' },
+              {
+                tenant: { connect: { id: 'tenant-1' } },
+                venue: { connect: { id_tenantId: { id: 'venue-a', tenantId: 'tenant-1' } } },
+              },
+              {
+                tenant: { connect: { id: 'tenant-1' } },
+                venue: { connect: { id_tenantId: { id: 'venue-b', tenantId: 'tenant-1' } } },
+              },
             ],
           },
         },

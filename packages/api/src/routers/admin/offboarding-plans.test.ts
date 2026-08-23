@@ -103,12 +103,21 @@ describe('admin offboarding plan foundation', () => {
     expect(planCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          tenantId: 'tenant-1',
+          tenant: { connect: { id: 'tenant-1' } },
           requestId,
           requestHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
           status: 'REQUESTED',
           requestedBy: 'platform-admin',
-          venueTargets: { create: [{ tenantId: 'tenant-1', venueId: 'venue-1' }] },
+          venueTargets: {
+            create: [
+              {
+                tenant: { connect: { id: 'tenant-1' } },
+                venue: {
+                  connect: { id_tenantId: { id: 'venue-1', tenantId: 'tenant-1' } },
+                },
+              },
+            ],
+          },
         }),
       }),
     )

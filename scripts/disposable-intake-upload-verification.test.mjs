@@ -306,6 +306,9 @@ test('runs the Golden Venue core lifecycle with an exact provider-dark integrati
     /"action":"golden-venue\.core-lifecycle\.disposable-shakedown\.passed"/u,
   )
   assert.match(stdout.value, /"proofScope":\["client","venue","onboarding"/u)
+  assert.match(stdout.value, /"report-publish-read"/u)
+  assert.match(stdout.value, /"routine-update-publish-read"/u)
+  assert.match(stdout.value, /"offboarding-draft-export-preview"/u)
   assert.match(stdout.value, /"cleanup":"verified-absent"/u)
   assert.equal(runtime.running.size, 0)
 })
