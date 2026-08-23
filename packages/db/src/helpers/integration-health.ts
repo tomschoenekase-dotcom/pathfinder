@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { db } from '../client'
+import { readAiProviderHealthControl } from './ai-provider-health-control'
 
 const request = z
   .object({
@@ -15,7 +16,9 @@ type IntegrationHealthClient = Pick<
   | 'billingAccount'
   | 'agentWorker'
   | 'agentBridgeSession'
+  | 'platformConfig'
   | 'embeddingDispatch'
+  | 'embeddingWorkClaim'
   | 'nativeVenueDeploymentRelease'
   | 'aiUsageEvent'
   | 'externalAccessCredential'
@@ -51,6 +54,12 @@ function health(
   }
 }
 
+function latest(values: Array<Date | null | undefined>) {
+  return values
+    .filter((value): value is Date => Boolean(value))
+    .sort((left, right) => right.getTime() - left.getTime())[0]
+}
+
 /** Safe, secret-free projection assembled only from canonical persisted evidence. */
 export async function readUnifiedIntegrationHealth(
   rawInput: z.input<typeof request>,
@@ -60,20 +69,25 @@ export async function readUnifiedIntegrationHealth(
   const input = request.parse(rawInput)
   const venueWhere = input.venueIds.length > 0 ? { venueId: { in: input.venueIds } } : {}
   const [
-    gmail,
+    gmailAccountRows,
     billing,
     workers,
     sessions,
     embeddingBacklog,
     embeddingFailure,
+    embeddingSuccess,
     deployment,
     aiSuccess,
     aiFailure,
     credentials,
+    providerControl,
   ] = await Promise.all([
-    client.correspondenceProviderAccount.findFirst({
+    client.correspondenceProviderAccount.findMany({
+      // CRM mailboxes are platform-shared and have no tenant relation. Aggregate only bounded,
+      // secret-free health evidence; never expose account identity through this tenant projection.
       where: { provider: 'GMAIL' },
       orderBy: { updatedAt: 'desc' },
+      take: 101,
       select: {
         connectionStatus: true,
         deliveryEnabled: true,
@@ -94,18 +108,27 @@ export async function readUnifiedIntegrationHealth(
       },
     }),
     client.agentWorker.findMany({
-      where: { clientId: input.clientId, status: { not: 'REVOKED' } },
-      take: 100,
+      where: {
+        tenantId: input.clientId,
+        clientId: input.clientId,
+        status: { not: 'REVOKED' },
+      },
+      take: 101,
       select: { status: true, leaseExpiresAt: true, lastHeartbeatAt: true },
     }),
     client.agentBridgeSession.findMany({
       where: { tenantId: input.clientId, ...venueWhere, status: { not: 'REVOKED' } },
-      take: 100,
+      take: 101,
       select: { status: true, expiresAt: true, lastHeartbeatAt: true },
     }),
     client.embeddingDispatch.count({ where: { tenantId: input.clientId, ...venueWhere } }),
     client.embeddingDispatch.findFirst({
       where: { tenantId: input.clientId, ...venueWhere, lastError: { not: null } },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    }),
+    client.embeddingWorkClaim.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere, status: 'COMPLETE' },
       orderBy: { updatedAt: 'desc' },
       select: { updatedAt: true },
     }),
@@ -126,33 +149,47 @@ export async function readUnifiedIntegrationHealth(
     }),
     client.externalAccessCredential.findMany({
       where: { tenantId: input.clientId, clientId: input.clientId, ...venueWhere },
-      take: 100,
+      take: 101,
       select: { enabled: true, revokedAt: true, expiresAt: true, lastUsedAt: true },
     }),
+    readAiProviderHealthControl(client, now),
   ])
 
-  const onlineWorkers = workers.filter(
+  const gmailInventoryTruncated = gmailAccountRows.length > 100
+  const workerInventoryTruncated = workers.length > 100
+  const sessionInventoryTruncated = sessions.length > 100
+  const credentialInventoryTruncated = credentials.length > 100
+  const gmailAccounts = gmailAccountRows.slice(0, 100)
+  const boundedWorkers = workers.slice(0, 100)
+  const boundedSessions = sessions.slice(0, 100)
+  const boundedCredentials = credentials.slice(0, 100)
+  const onlineWorkers = boundedWorkers.filter(
     (worker) => worker.status === 'ONLINE' && worker.leaseExpiresAt.getTime() > now.getTime(),
   )
-  const onlineSessions = sessions.filter(
+  const onlineSessions = boundedSessions.filter(
     (session) => session.status === 'ONLINE' && session.expiresAt.getTime() > now.getTime(),
   )
-  const activeCredentials = credentials.filter(
+  const activeCredentials = boundedCredentials.filter(
     (credential) =>
       credential.enabled &&
       !credential.revokedAt &&
       (!credential.expiresAt || credential.expiresAt.getTime() > now.getTime()),
   )
-  const latestWorkerSuccess = [...onlineWorkers, ...onlineSessions]
-    .map((entry) => entry.lastHeartbeatAt)
-    .sort((left, right) => right.getTime() - left.getTime())[0]
-  const gmailState: HealthState = !gmail
-    ? 'NOT_CONFIGURED'
-    : gmail.connectionStatus === 'CONNECTED' && !gmail.healthErrorCode
-      ? 'HEALTHY'
-      : gmail.connectionStatus === 'DISCONNECTED'
-        ? 'OFFLINE'
-        : 'DEGRADED'
+  const latestWorkerSuccess = latest(
+    [...onlineWorkers, ...onlineSessions].map((entry) => entry.lastHeartbeatAt),
+  )
+  const connectedGmailAccounts = gmailAccounts.filter(
+    (account) => account.connectionStatus === 'CONNECTED',
+  )
+  const unhealthyGmailAccounts = gmailAccounts.filter((account) => account.healthErrorCode)
+  const gmailState: HealthState =
+    gmailAccounts.length === 0
+      ? 'NOT_CONFIGURED'
+      : gmailInventoryTruncated || unhealthyGmailAccounts.length > 0
+        ? 'DEGRADED'
+        : connectedGmailAccounts.length > 0
+          ? 'HEALTHY'
+          : 'OFFLINE'
   const billingState: HealthState = !billing
     ? 'NOT_CONFIGURED'
     : !billing.billingMode.startsWith('STRIPE_')
@@ -169,14 +206,21 @@ export async function readUnifiedIntegrationHealth(
     scope: { clientId: input.clientId, venueIds: input.venueIds },
     integrations: [
       health('GMAIL', gmailState, {
-        configured: Boolean(gmail),
-        enabled: Boolean(gmail?.deliveryEnabled),
-        lastSuccessAt: gmail?.lastSuccessfulSyncAt,
-        lastFailureAt: gmail?.healthErrorCode ? gmail.lastHealthCheckAt : null,
-        errorCategory: gmail?.healthErrorCode,
-        summary: gmail
-          ? `Mailbox connection is ${gmail.connectionStatus.toLowerCase()}.`
-          : 'No mailbox is configured.',
+        configured: gmailAccounts.length > 0,
+        enabled: gmailAccounts.some(
+          (account) => account.connectionStatus === 'CONNECTED' && account.deliveryEnabled,
+        ),
+        lastSuccessAt: latest(gmailAccounts.map((account) => account.lastSuccessfulSyncAt)),
+        lastFailureAt: latest(unhealthyGmailAccounts.map((account) => account.lastHealthCheckAt)),
+        errorCategory: gmailInventoryTruncated
+          ? 'INVENTORY_TRUNCATED'
+          : unhealthyGmailAccounts.length > 0
+            ? 'PROVIDER_ACCOUNT_HEALTH'
+            : null,
+        summary:
+          gmailAccounts.length > 0
+            ? `${connectedGmailAccounts.length} of ${gmailAccounts.length}${gmailInventoryTruncated ? '+' : ''} mailbox account(s) connected; ${unhealthyGmailAccounts.length} report health errors.`
+            : 'No mailbox is configured.',
       }),
       health('STRIPE', billingState, {
         configured: Boolean(billing),
@@ -190,44 +234,69 @@ export async function readUnifiedIntegrationHealth(
       }),
       health(
         'AGENT_RUNTIME',
-        onlineWorkers.length + onlineSessions.length > 0
-          ? 'HEALTHY'
-          : workers.length + sessions.length > 0
-            ? 'OFFLINE'
-            : 'NOT_CONFIGURED',
+        workerInventoryTruncated || sessionInventoryTruncated
+          ? 'DEGRADED'
+          : onlineWorkers.length + onlineSessions.length > 0
+            ? 'HEALTHY'
+            : boundedWorkers.length + boundedSessions.length > 0
+              ? 'OFFLINE'
+              : 'NOT_CONFIGURED',
         {
-          configured: workers.length + sessions.length > 0,
+          configured: boundedWorkers.length + boundedSessions.length > 0,
           enabled: onlineWorkers.length + onlineSessions.length > 0,
           lastSuccessAt: latestWorkerSuccess,
-          summary: `${onlineWorkers.length} portable worker(s) and ${onlineSessions.length} bridge session(s) online.`,
+          errorCategory:
+            workerInventoryTruncated || sessionInventoryTruncated ? 'INVENTORY_TRUNCATED' : null,
+          summary: `${onlineWorkers.length} portable worker(s) and ${onlineSessions.length} bridge session(s) online${workerInventoryTruncated || sessionInventoryTruncated ? '; inventory exceeds the bounded projection' : ''}.`,
         },
       ),
       health(
         'AI_PROVIDERS',
-        aiFailure && (!aiSuccess || aiFailure.createdAt > aiSuccess.createdAt)
+        providerControl.malformed || providerControl.activeUnhealthyProviders.length > 0
           ? 'DEGRADED'
-          : aiSuccess
+          : aiFailure && (!aiSuccess || aiFailure.createdAt > aiSuccess.createdAt)
+            ? 'DEGRADED'
+            : aiSuccess
+              ? 'HEALTHY'
+              : 'NOT_CONFIGURED',
+        {
+          configured: providerControl.configured || Boolean(aiSuccess || aiFailure),
+          enabled: !providerControl.malformed && Boolean(aiSuccess || aiFailure),
+          lastSuccessAt: aiSuccess?.createdAt,
+          lastFailureAt: aiFailure?.createdAt,
+          errorCategory: providerControl.malformed
+            ? 'HEALTH_CONTROL_MALFORMED'
+            : providerControl.activeUnhealthyProviders.length > 0
+              ? 'HEALTH_OVERRIDE_ACTIVE'
+              : aiFailure?.errorCode,
+          summary: providerControl.malformed
+            ? 'The central provider-health control is malformed; provider eligibility fails closed.'
+            : providerControl.activeUnhealthyProviders.length > 0
+              ? `${providerControl.activeUnhealthyProviders.length} provider health exclusion(s) are active.`
+              : aiSuccess || aiFailure
+                ? 'Derived from persisted AI usage outcomes and central provider-health control.'
+                : 'No provider outcome has been observed.',
+        },
+      ),
+      health(
+        'EMBEDDINGS',
+        embeddingFailure
+          ? 'DEGRADED'
+          : embeddingBacklog > 0 || embeddingSuccess
             ? 'HEALTHY'
             : 'NOT_CONFIGURED',
         {
-          configured: Boolean(aiSuccess || aiFailure),
-          enabled: Boolean(aiSuccess || aiFailure),
-          lastSuccessAt: aiSuccess?.createdAt,
-          lastFailureAt: aiFailure?.createdAt,
-          errorCategory: aiFailure?.errorCode,
+          configured: embeddingBacklog > 0 || Boolean(embeddingFailure || embeddingSuccess),
+          enabled: embeddingBacklog > 0 || Boolean(embeddingSuccess),
+          lastSuccessAt: embeddingSuccess?.updatedAt,
+          lastFailureAt: embeddingFailure?.updatedAt,
+          errorCategory: embeddingFailure ? 'DISPATCH_FAILURE' : null,
           summary:
-            aiSuccess || aiFailure
-              ? 'Derived from persisted AI usage outcomes.'
-              : 'No provider outcome has been observed.',
+            embeddingBacklog > 0 || embeddingSuccess || embeddingFailure
+              ? `${embeddingBacklog} embedding dispatch(es) pending.`
+              : 'No embedding dispatch or completed work has been observed.',
         },
       ),
-      health('EMBEDDINGS', embeddingFailure ? 'DEGRADED' : 'HEALTHY', {
-        configured: true,
-        enabled: true,
-        lastFailureAt: embeddingFailure?.updatedAt,
-        errorCategory: embeddingFailure ? 'DISPATCH_FAILURE' : null,
-        summary: `${embeddingBacklog} embedding dispatch(es) pending.`,
-      }),
       health(
         'DEPLOYMENT',
         deployment ? (deployment.status === 'APPLIED' ? 'HEALTHY' : 'DISABLED') : 'NOT_CONFIGURED',
@@ -244,19 +313,22 @@ export async function readUnifiedIntegrationHealth(
       ),
       health(
         'EXTERNAL_WORKER_ACCESS',
-        activeCredentials.length > 0
-          ? 'HEALTHY'
-          : credentials.length > 0
-            ? 'DISABLED'
-            : 'NOT_CONFIGURED',
+        credentialInventoryTruncated
+          ? 'DEGRADED'
+          : activeCredentials.length > 0
+            ? 'HEALTHY'
+            : boundedCredentials.length > 0
+              ? 'DISABLED'
+              : 'NOT_CONFIGURED',
         {
-          configured: credentials.length > 0,
+          configured: boundedCredentials.length > 0,
           enabled: activeCredentials.length > 0,
           lastSuccessAt: activeCredentials
             .map((entry) => entry.lastUsedAt)
             .filter((value): value is Date => Boolean(value))
             .sort((left, right) => right.getTime() - left.getTime())[0],
-          summary: `${activeCredentials.length} active scoped machine credential(s).`,
+          errorCategory: credentialInventoryTruncated ? 'INVENTORY_TRUNCATED' : null,
+          summary: `${activeCredentials.length} active scoped machine credential(s)${credentialInventoryTruncated ? '; inventory exceeds the bounded projection' : ''}.`,
         },
       ),
     ],

@@ -7,31 +7,32 @@ describe('unified integration health', () => {
     const now = new Date('2030-01-01T12:00:00.000Z')
     const client = {
       correspondenceProviderAccount: {
-        findFirst: vi.fn().mockResolvedValue({
-          connectionStatus: 'CONNECTED',
-          deliveryEnabled: false,
-          lastSuccessfulSyncAt: new Date('2030-01-01T11:00:00.000Z'),
-          lastHealthCheckAt: now,
-          healthErrorCode: null,
-        }),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            connectionStatus: 'CONNECTED',
+            deliveryEnabled: false,
+            lastSuccessfulSyncAt: new Date('2030-01-01T11:00:00.000Z'),
+            lastHealthCheckAt: now,
+            healthErrorCode: null,
+          },
+        ]),
       },
       billingAccount: { findUnique: vi.fn().mockResolvedValue(null) },
       agentWorker: {
-        findMany: vi
-          .fn()
-          .mockResolvedValue([
-            {
-              status: 'ONLINE',
-              leaseExpiresAt: new Date('2030-01-01T12:01:00.000Z'),
-              lastHeartbeatAt: now,
-            },
-          ]),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            status: 'ONLINE',
+            leaseExpiresAt: new Date('2030-01-01T12:01:00.000Z'),
+            lastHeartbeatAt: now,
+          },
+        ]),
       },
       agentBridgeSession: { findMany: vi.fn().mockResolvedValue([]) },
       embeddingDispatch: {
         count: vi.fn().mockResolvedValue(2),
         findFirst: vi.fn().mockResolvedValue(null),
       },
+      embeddingWorkClaim: { findFirst: vi.fn().mockResolvedValue(null) },
       nativeVenueDeploymentRelease: { findFirst: vi.fn().mockResolvedValue(null) },
       aiUsageEvent: {
         findFirst: vi.fn().mockResolvedValueOnce({ createdAt: now }).mockResolvedValueOnce(null),
@@ -43,6 +44,7 @@ describe('unified integration health', () => {
             { enabled: true, revokedAt: null, expiresAt: null, lastUsedAt: now },
           ]),
       },
+      platformConfig: { findUnique: vi.fn().mockResolvedValue(null) },
     }
 
     const result = await readUnifiedIntegrationHealth(
@@ -60,7 +62,207 @@ describe('unified integration health', () => {
     )
     expect(JSON.stringify(result)).not.toMatch(/mailboxAddress|credentialReference|secret|token/iu)
     expect(client.agentWorker.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { clientId: 'tenant-1', status: { not: 'REVOKED' } } }),
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-1',
+          clientId: 'tenant-1',
+          status: { not: 'REVOKED' },
+        },
+      }),
+    )
+    expect(client.billingAccount.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tenantId: 'tenant-1' } }),
+    )
+    expect(client.agentBridgeSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ tenantId: 'tenant-1', venueId: { in: ['venue-1'] } }),
+      }),
+    )
+    expect(client.embeddingDispatch.count).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', venueId: { in: ['venue-1'] } },
+    })
+    expect(client.embeddingWorkClaim.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1',
+          venueId: { in: ['venue-1'] },
+          status: 'COMPLETE',
+        }),
+      }),
+    )
+    expect(client.nativeVenueDeploymentRelease.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: { in: ['venue-1'] } },
+      }),
+    )
+    expect(client.aiUsageEvent.findFirst).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: { in: ['venue-1'] }, success: true },
+      }),
+    )
+    expect(client.externalAccessCredential.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1',
+          clientId: 'tenant-1',
+          venueId: { in: ['venue-1'] },
+        }),
+      }),
+    )
+  })
+
+  it('does not hide a failed shared mailbox behind a newer healthy mailbox', async () => {
+    const now = new Date('2030-01-01T12:00:00.000Z')
+    const client = healthClient({
+      correspondenceProviderAccount: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            connectionStatus: 'CONNECTED',
+            deliveryEnabled: true,
+            lastSuccessfulSyncAt: now,
+            lastHealthCheckAt: now,
+            healthErrorCode: null,
+          },
+          {
+            connectionStatus: 'CONNECTED',
+            deliveryEnabled: false,
+            lastSuccessfulSyncAt: null,
+            lastHealthCheckAt: now,
+            healthErrorCode: 'AUTH_REVOKED',
+          },
+        ]),
+      },
+    })
+
+    const result = await readUnifiedIntegrationHealth(
+      { clientId: 'tenant-1', venueIds: [] },
+      client as never,
+      now,
+    )
+
+    expect(result.integrations).toContainEqual(
+      expect.objectContaining({
+        integration: 'GMAIL',
+        state: 'DEGRADED',
+        configured: true,
+        enabled: true,
+        errorCategory: 'PROVIDER_ACCOUNT_HEALTH',
+      }),
+    )
+    expect(JSON.stringify(result)).not.toContain('AUTH_REVOKED')
+  })
+
+  it('reports absent embedding evidence as not configured and honors central provider exclusions', async () => {
+    const now = new Date('2030-01-01T12:00:00.000Z')
+    const client = healthClient({
+      aiUsageEvent: {
+        findFirst: vi.fn().mockResolvedValueOnce({ createdAt: now }).mockResolvedValueOnce(null),
+      },
+      platformConfig: {
+        findUnique: vi.fn().mockResolvedValue({
+          value: {
+            schemaVersion: 1,
+            overrides: [
+              {
+                provider: 'anthropic',
+                reason: 'Bounded outage drill',
+                expiresAt: '2030-01-01T13:00:00.000Z',
+              },
+            ],
+          },
+          updatedAt: now,
+          updatedBy: 'founder-1',
+        }),
+      },
+    })
+
+    const result = await readUnifiedIntegrationHealth(
+      { clientId: 'tenant-1', venueIds: ['venue-1'] },
+      client as never,
+      now,
+    )
+
+    expect(result.integrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          integration: 'AI_PROVIDERS',
+          state: 'DEGRADED',
+          enabled: true,
+          errorCategory: 'HEALTH_OVERRIDE_ACTIVE',
+        }),
+        expect.objectContaining({
+          integration: 'EMBEDDINGS',
+          state: 'NOT_CONFIGURED',
+          configured: false,
+          enabled: false,
+        }),
+      ]),
+    )
+  })
+
+  it('degrades bounded inventories instead of presenting truncated health as complete', async () => {
+    const now = new Date('2030-01-01T12:00:00.000Z')
+    const client = healthClient({
+      agentWorker: {
+        findMany: vi.fn().mockResolvedValue(
+          Array.from({ length: 101 }, () => ({
+            status: 'ONLINE',
+            leaseExpiresAt: new Date('2030-01-01T13:00:00.000Z'),
+            lastHeartbeatAt: now,
+          })),
+        ),
+      },
+      externalAccessCredential: {
+        findMany: vi.fn().mockResolvedValue(
+          Array.from({ length: 101 }, () => ({
+            enabled: true,
+            revokedAt: null,
+            expiresAt: null,
+            lastUsedAt: now,
+          })),
+        ),
+      },
+    })
+
+    const result = await readUnifiedIntegrationHealth(
+      { clientId: 'tenant-1', venueIds: [] },
+      client as never,
+      now,
+    )
+
+    expect(result.integrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          integration: 'AGENT_RUNTIME',
+          state: 'DEGRADED',
+          errorCategory: 'INVENTORY_TRUNCATED',
+        }),
+        expect.objectContaining({
+          integration: 'EXTERNAL_WORKER_ACCESS',
+          state: 'DEGRADED',
+          errorCategory: 'INVENTORY_TRUNCATED',
+        }),
+      ]),
     )
   })
 })
+
+function healthClient(overrides: Record<string, unknown> = {}) {
+  return {
+    correspondenceProviderAccount: { findMany: vi.fn().mockResolvedValue([]) },
+    billingAccount: { findUnique: vi.fn().mockResolvedValue(null) },
+    agentWorker: { findMany: vi.fn().mockResolvedValue([]) },
+    agentBridgeSession: { findMany: vi.fn().mockResolvedValue([]) },
+    embeddingDispatch: {
+      count: vi.fn().mockResolvedValue(0),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    embeddingWorkClaim: { findFirst: vi.fn().mockResolvedValue(null) },
+    nativeVenueDeploymentRelease: { findFirst: vi.fn().mockResolvedValue(null) },
+    aiUsageEvent: { findFirst: vi.fn().mockResolvedValue(null) },
+    externalAccessCredential: { findMany: vi.fn().mockResolvedValue([]) },
+    platformConfig: { findUnique: vi.fn().mockResolvedValue(null) },
+    ...overrides,
+  }
+}
