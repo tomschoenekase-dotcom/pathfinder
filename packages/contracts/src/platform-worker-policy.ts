@@ -5,6 +5,7 @@ const Identifier = z.string().trim().min(1).max(191)
 export const PlatformWorkerPolicyCapability = z.enum([
   'founder-decisions:read',
   'founder-operating-view:read',
+  'operations-readiness:read',
 ])
 export type PlatformWorkerPolicyCapability = z.infer<typeof PlatformWorkerPolicyCapability>
 
@@ -55,4 +56,10 @@ export const PlatformWorkerFounderOperatingViewRequest = z
   .strict()
 export type PlatformWorkerFounderOperatingViewRequest = z.infer<
   typeof PlatformWorkerFounderOperatingViewRequest
+>
+
+/** No queue selector is accepted: the response is one bounded platform inventory. */
+export const PlatformWorkerOperationsReadinessRequest = z.object({}).strict()
+export type PlatformWorkerOperationsReadinessRequest = z.infer<
+  typeof PlatformWorkerOperationsReadinessRequest
 >

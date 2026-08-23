@@ -73,6 +73,13 @@ Redis, prove queue depth, prove provider execution, establish an SLO, or grant r
 redrive, or incident-control authority. An empty persisted result is explicitly not evidence that
 the live queue or service is healthy.
 
+Separately, an explicitly activated `pf_platform_` credential with
+`operations-readiness:read` may call `POST /api/platform-worker/operations-readiness`. That
+platform-wide v2 view observes all canonical BullMQ queues directly from Redis and returns bounded
+counts, depth, retained failed pressure, pause/scheduler state, and oldest nonterminal age. It has
+no tenant/venue attribution, job identity, payload, failure detail, retry/redrive/incident control,
+provider proof, or SLO authority. This does not widen the tenant MCP `jobs` resource.
+
 ## Operation coverage evidence
 
 `pnpm torchiko tools coverage --json` is the machine-readable comparison surface between the typed

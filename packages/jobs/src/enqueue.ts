@@ -26,10 +26,8 @@ import {
   EMBED_PLACE_PROCESS_JOB,
   EMBED_PLACE_QUEUE,
   EMBED_PLACE_RETRY_BACKOFF,
-  EMBEDDING_DISPATCH_QUEUE,
   GENERATION_DISPATCH_KICK_JOB,
   GENERATION_DISPATCH_QUEUE,
-  GENERATION_RECOVERY_QUEUE,
   GMAIL_SYNC_NOTIFICATION_JOB,
   GMAIL_SYNC_QUEUE,
   GMAIL_SYNC_RECONCILIATION_JOB,
@@ -44,7 +42,7 @@ import {
   MEDIA_INGESTION_PROCESS_JOB,
   MEDIA_INGESTION_QUEUE,
   MEDIA_INGESTION_RETRY_BACKOFF,
-  OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  OPERATIONAL_QUEUE_NAMES,
   PROSPECT_IMPORT_COMMIT_JOB,
   PROSPECT_IMPORT_INSPECT_JOB,
   PROSPECT_IMPORT_STAGE_JOB,
@@ -732,50 +730,74 @@ export async function enqueueIntakeUploadVerification(
   )
 }
 
-const OPERATIONAL_QUEUE_NAMES = [
-  WEEKLY_DIGEST_QUEUE,
-  ANSWER_ANALYSIS_QUEUE,
-  WEEKLY_REPORT_QUEUE,
-  DAILY_ROLLUP_QUEUE,
-  EMBED_PLACE_QUEUE,
-  EMBED_KNOWLEDGE_ENTRY_QUEUE,
-  EMBEDDING_DISPATCH_QUEUE,
-  ANALYTICS_ENRICHMENT_QUEUE,
-  SEND_EMAIL_QUEUE,
-  MEDIA_INGESTION_QUEUE,
-  EVALUATION_RUN_QUEUE,
-  AGENT_RUN_QUEUE,
-  GENERATION_DISPATCH_QUEUE,
-  GENERATION_RECOVERY_QUEUE,
-  OPERATIONAL_EVENT_DELIVERY_QUEUE,
-  GMAIL_SYNC_QUEUE,
-  INTAKE_UPLOAD_VERIFICATION_QUEUE,
-] as const
+type OperationalSnapshotQueue = Pick<
+  Queue,
+  'getJobCounts' | 'getJobs' | 'getJobSchedulersCount' | 'isPaused'
+>
 
-export async function inspectQueueOperationalSnapshot(now = new Date()) {
+export async function inspectQueueOperationalSnapshot(
+  now = new Date(),
+  resolveQueue: (name: string) => OperationalSnapshotQueue = getQueue,
+) {
+  const observedAtMs = now.getTime()
+  if (!Number.isFinite(observedAtMs)) throw new Error('Queue snapshot time must be valid')
   const queues = await Promise.all(
     OPERATIONAL_QUEUE_NAMES.map(async (name) => {
-      const queue = getQueue(name)
-      const [counts, oldest] = await Promise.all([
-        queue.getJobCounts('wait', 'active', 'delayed', 'prioritized', 'failed'),
-        queue.getJobs(['waiting', 'delayed', 'prioritized'], 0, 0, true),
+      const queue = resolveQueue(name)
+      const [counts, oldest, paused, jobSchedulers] = await Promise.all([
+        queue.getJobCounts(
+          'wait',
+          'active',
+          'delayed',
+          'prioritized',
+          'waiting-children',
+          'failed',
+        ),
+        queue.getJobs(
+          ['waiting', 'active', 'delayed', 'prioritized', 'waiting-children'],
+          0,
+          0,
+          true,
+        ),
+        queue.isPaused(),
+        queue.getJobSchedulersCount(),
       ])
-      const oldestTimestamp = oldest[0]?.timestamp ?? null
+      const candidateTimestamp = oldest[0]?.timestamp
+      const oldestTimestamp =
+        typeof candidateTimestamp === 'number' &&
+        Number.isFinite(candidateTimestamp) &&
+        candidateTimestamp >= 0
+          ? candidateTimestamp
+          : null
+      const waiting = counts.wait ?? 0
+      const active = counts.active ?? 0
+      const delayed = counts.delayed ?? 0
+      const prioritized = counts.prioritized ?? 0
+      const waitingChildren = counts['waiting-children'] ?? 0
+      const failed = counts.failed ?? 0
       return {
         name,
-        depth:
-          (counts.wait ?? 0) +
-          (counts.active ?? 0) +
-          (counts.delayed ?? 0) +
-          (counts.prioritized ?? 0),
-        failed: counts.failed ?? 0,
+        counts: { waiting, active, delayed, prioritized, waitingChildren, failed },
+        depth: waiting + active + delayed + prioritized + waitingChildren,
+        failed,
+        paused,
+        jobSchedulers,
         oldestQueuedAt: oldestTimestamp === null ? null : new Date(oldestTimestamp),
-        oldestAgeMs: oldestTimestamp === null ? null : Math.max(0, now.getTime() - oldestTimestamp),
+        oldestAgeMs: oldestTimestamp === null ? null : Math.max(0, observedAtMs - oldestTimestamp),
       }
     }),
   )
   return {
+    observedAt: now,
+    coverage: {
+      expectedQueues: OPERATIONAL_QUEUE_NAMES.length,
+      observedQueues: queues.length,
+      complete: queues.length === OPERATIONAL_QUEUE_NAMES.length,
+    },
     totalDepth: queues.reduce((sum, queue) => sum + queue.depth, 0),
+    totalFailed: queues.reduce((sum, queue) => sum + queue.failed, 0),
+    pausedQueues: queues.reduce((sum, queue) => sum + (queue.paused ? 1 : 0), 0),
+    jobSchedulers: queues.reduce((sum, queue) => sum + queue.jobSchedulers, 0),
     oldestAgeMs: queues.reduce<number | null>(
       (oldest, queue) =>
         queue.oldestAgeMs === null

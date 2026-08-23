@@ -93,3 +93,31 @@ export const INTAKE_UPLOAD_VERIFICATION_QUEUE = queueName('intake-upload-verific
 export const INTAKE_UPLOAD_VERIFICATION_PROCESS_JOB = 'intake-upload-verification-process'
 export const INTAKE_UPLOAD_VERIFICATION_RECONCILIATION_JOB =
   'intake-upload-verification-reconciliation'
+
+/**
+ * Complete BullMQ inventory used for platform-wide operational observation.
+ * Every exported queue belongs here even when its worker is policy-disabled, so a
+ * disabled runtime cannot also disappear from queue-health evidence.
+ */
+export const OPERATIONAL_QUEUE_NAMES = Object.freeze([
+  WEEKLY_DIGEST_QUEUE,
+  ANSWER_ANALYSIS_QUEUE,
+  WEEKLY_REPORT_QUEUE,
+  GENERATION_RECOVERY_QUEUE,
+  GENERATION_DISPATCH_QUEUE,
+  DAILY_ROLLUP_QUEUE,
+  EMBED_PLACE_QUEUE,
+  EMBED_KNOWLEDGE_ENTRY_QUEUE,
+  EMBEDDING_DISPATCH_QUEUE,
+  ANALYTICS_ENRICHMENT_QUEUE,
+  SEND_EMAIL_QUEUE,
+  OPERATIONAL_EVENT_DELIVERY_QUEUE,
+  MEDIA_INGESTION_QUEUE,
+  EVALUATION_RUN_QUEUE,
+  AGENT_RUN_QUEUE,
+  PROSPECT_IMPORT_QUEUE,
+  GMAIL_SYNC_QUEUE,
+  BILLING_RECONCILIATION_QUEUE,
+  ACCOUNT_SUMMARY_REFRESH_QUEUE,
+  INTAKE_UPLOAD_VERIFICATION_QUEUE,
+] as const)

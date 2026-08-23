@@ -191,6 +191,17 @@
       ]
     },
     {
+      "source": "apps/dashboard/app/api/platform-worker/operations-readiness/route.ts",
+      "methods": ["POST"],
+      "exposure": "machine-credential-authenticated-public-ingress",
+      "controlProfile": "bounded-machine-credential-ingress",
+      "behavioralEvidence": [
+        "apps/dashboard/app/api/platform-worker/operations-readiness/route.test.ts",
+        "apps/dashboard/lib/middleware-access.test.ts",
+        "packages/api/src/platform-worker-policy/operations-readiness-http.test.ts"
+      ]
+    },
+    {
       "source": "apps/dashboard/app/api/trpc/[trpc]/route.ts",
       "methods": ["GET", "POST"],
       "exposure": "middleware-and-procedure-controlled",
@@ -258,6 +269,7 @@
     "/api/mcp",
     "/api/platform-worker/founder-decisions",
     "/api/platform-worker/founder-operating-view",
+    "/api/platform-worker/operations-readiness",
     "/api/webhooks/clerk",
     "/api/webhooks/resend",
     "/api/webhooks/stripe"

@@ -130,6 +130,7 @@ describe('dashboard middleware access policy', () => {
     '/api/mcp/tenant_1/venue_1',
     '/api/platform-worker/founder-decisions',
     '/api/platform-worker/founder-operating-view',
+    '/api/platform-worker/operations-readiness',
   ])('preserves the public boundary for %s', (pathname) => {
     expect(
       resolveDashboardAccess({

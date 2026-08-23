@@ -23,17 +23,28 @@ an SLO, incident declaration, retry decision, or customer commitment.
 The adapter grants no retry, cancellation, redrive, provider, incident-control, deployment, or
 production authority.
 
-## Target architecture and remaining gap
+## Platform-wide live queue evidence
 
-The administrator readiness route retains bounded live Redis connectivity and queue snapshot
-probes. A future separately authorized agent surface may expose a safe projection of that canonical
-live evidence, migration parity, and external service probes. Exact SLOs, alert thresholds, and
-automatic restoration policy remain unresolved and must not be inferred from diagnostic windows.
+The administrator readiness route and the separately authorized
+`POST /api/platform-worker/operations-readiness` endpoint reuse one canonical v2 projection. It
+observes all 20 declared BullMQ queues directly from Redis and returns only bounded counts, total
+depth, retained failed pressure, pause state, scheduler count, and oldest nonterminal age. A ready
+status requires a complete live observation in addition to database/Redis connectivity, migration
+parity, and a fresh worker heartbeat; a failed or timed-out queue observation degrades explicitly.
+
+The platform-worker transport requires a disabled-by-default `pf_platform_` credential with
+`operations-readiness:read`, accepts no selectors, and strictly audits successful reads. It is not
+tenant MCP: the live evidence is platform-wide, supplies no tenant/venue attribution, and includes
+no job identity, payload, or failure detail. Exact SLOs, alert thresholds, external provider proof,
+control mutation, and automatic restoration policy remain unresolved or gated.
 
 ## Verification
 
 - Unit tests cover heartbeat freshness, stale/malformed/absent fail-closed behavior, venue
-  predicates, privacy exclusions, summary semantics, and authority boundaries.
+  predicates, complete queue-inventory coverage, live aggregation, privacy exclusions, summary
+  semantics, and authority boundaries.
+- A confirmed disposable Redis proof exercises the complete canonical queue inventory, three
+  previously unobserved queue classes, a real failed worker job, privacy exclusion, and cleanup.
 - A fresh disposable PostgreSQL proof applies every migration and verifies two-venue isolation,
   indexed scope, private payload/error omission, provider-disabled runtime truth, capability denial,
   and exact cleanup.

@@ -42,9 +42,12 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    index-backed summary of persisted status/failure pressure and a shared, fail-closed worker
    heartbeat projection using the same freshness policy as administrator readiness. It explicitly
    distinguishes fresh, stale, malformed, and absent worker evidence and labels provider-disabled
-   mode without claiming provider execution. The binding ledger no longer falsely maps AI-control
-   reads to tenant feature flags. Live Redis queue depth/age, migration parity for scoped agents,
-   external service probes, broader deployment identity, incident reasons, control mutation, and
+   mode without claiming provider execution. A separately activated platform-worker capability now
+   returns a canonical, complete 20-queue BullMQ/Redis aggregate with bounded depth, failed pressure,
+   pause/scheduler state, and oldest nonterminal age; incomplete observation degrades readiness.
+   It intentionally supplies no tenant/venue attribution or job detail. The binding ledger no
+   longer falsely maps AI-control reads to tenant feature flags. Tenant-attributed live queue state,
+   external provider probes, broader deployment identity, incident reasons, control mutation, and
    automatic restoration remain partial or gated; empty persisted records are not called healthy.
 5. **Partially closed — cost-protection observability.** The exact-venue `ai-usage` resource now
    returns daily usage/cost rollups together with the configured tenant hard-budget window,

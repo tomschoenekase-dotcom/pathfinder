@@ -112,6 +112,12 @@ credential model into a generic cross-tenant customer tool. Every successful rea
 audited; the endpoint fails closed when authentication, snapshot construction, or audit persistence
 is unavailable. Credential issuance and activation remain explicit platform-admin actions.
 
+The same separately credentialed boundary exposes
+`POST /api/platform-worker/operations-readiness` for a bounded platform-wide v2 readiness view.
+It requires `operations-readiness:read`, accepts no selectors, observes every canonical BullMQ
+queue, and makes incomplete or unavailable live observation degrade readiness. It does not expose
+job identity, payload, failure detail, tenant/venue attribution, or queue-control authority.
+
 ## Mobile behavior
 
 The primary briefing, decision controls, and queue shortcuts use touch-sized controls. Worker

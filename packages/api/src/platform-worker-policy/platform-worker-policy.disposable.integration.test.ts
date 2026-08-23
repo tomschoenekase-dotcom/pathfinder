@@ -9,6 +9,7 @@ import { router } from '../core'
 import { adminPlatformWorkerPolicyCredentialsRouter } from '../routers/admin/platform-worker-policy-credentials'
 import { handlePlatformWorkerFounderDecisionRequest } from './http'
 import { handlePlatformWorkerFounderOperatingViewRequest } from './operating-view-http'
+import { handlePlatformWorkerOperationsReadinessRequest } from './operations-readiness-http'
 
 const enabled =
   process.env.RUN_PLATFORM_WORKER_POLICY_DB_INTEGRATION === '1' &&
@@ -53,7 +54,11 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
       operationId: randomUUID(),
       workerId: 'edith-primary',
       label: 'Disposable EDITH policy reader',
-      capabilities: ['founder-decisions:read', 'founder-operating-view:read'],
+      capabilities: [
+        'founder-decisions:read',
+        'founder-operating-view:read',
+        'operations-readiness:read',
+      ],
       expiresAt: null,
     })
     expect(issued.credential.enabled).toBe(false)
@@ -263,6 +268,41 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
       },
     })
 
+    const readinessResponse = await handlePlatformWorkerOperationsReadinessRequest(
+      new Request('http://localhost/api/platform-worker/operations-readiness', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${issued.plaintextSecret}` },
+        body: JSON.stringify({}),
+      }),
+      {
+        resolve: async () =>
+          ({
+            schemaVersion: 'pathfinder.operations-readiness.v2',
+            status: 'degraded',
+            queue: {
+              live: {
+                status: 'unavailable',
+                source: 'bullmq-redis',
+                reason: 'probe-failed',
+              },
+            },
+            boundaries: {
+              retryAuthorized: false,
+              cancellationAuthorized: false,
+              redriveAuthorized: false,
+              incidentControlAuthorized: false,
+            },
+          }) as never,
+      },
+    )
+    expect(readinessResponse.status).toBe(200)
+    await expect(readinessResponse.json()).resolves.toMatchObject({
+      schemaVersion: 'pathfinder.operations-readiness.v2',
+      status: 'degraded',
+      queue: { live: { status: 'unavailable', reason: 'probe-failed' } },
+      boundaries: { retryAuthorized: false, redriveAuthorized: false },
+    })
+
     const refreshed = await db.platformWorkerPolicyCredential.findUniqueOrThrow({
       where: { id: issued.credential.id },
     })
@@ -286,10 +326,15 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
         where: {
           OR: [{ actorId: founderId }, { credentialId: issued.credential.id }],
           targetType: {
-            in: ['PlatformWorkerPolicyCredential', 'FounderDecisionKeySet', 'FounderOperatingView'],
+            in: [
+              'PlatformWorkerPolicyCredential',
+              'FounderDecisionKeySet',
+              'FounderOperatingView',
+              'OperationsReadiness',
+            ],
           },
         },
       }),
-    ).toBe(5)
+    ).toBe(6)
   })
 })
