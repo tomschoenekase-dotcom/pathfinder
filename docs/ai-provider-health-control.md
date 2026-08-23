@@ -41,3 +41,12 @@ auto-disable a provider, send external notifications, alter prices or customer s
 new provider. Operators review the concrete evidence, choose a bounded expiry, and retain a direct
 recovery path. Automatic provider-health producers require a separately approved threshold and
 staging evidence.
+
+## Agent-readable operational health
+
+The capability-gated `torchiko.integrations.health` tool exposes the safe operational effect of
+these controls through `integration-health.v2`. It reports global AI admission state and active
+provider IDs with expiry timestamps, and marks unavailable or malformed control reads as
+fail-closed. It never returns the human-entered incident reason, operator identity, raw provider
+errors, or any mutation/recovery authority. This is the bounded machine interface for control
+health; tenant feature flags do not represent platform incident state.

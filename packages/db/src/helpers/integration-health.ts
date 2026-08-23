@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { db } from '../client'
 import { readAiProviderHealthControl } from './ai-provider-health-control'
+import { readGlobalAiControl } from './incident-control'
 
 const request = z
   .object({
@@ -30,6 +31,16 @@ type IntegrationHealthClient = Pick<
 >
 
 type HealthState = 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'DISABLED' | 'NOT_CONFIGURED'
+
+type BoundedControlRead<T> = { available: true; value: T } | { available: false }
+
+async function readBoundedControl<T>(operation: () => Promise<T>): Promise<BoundedControlRead<T>> {
+  try {
+    return { available: true, value: await operation() }
+  } catch {
+    return { available: false }
+  }
+}
 
 function iso(value: Date | null | undefined) {
   return value?.toISOString() ?? null
@@ -92,7 +103,8 @@ export async function readUnifiedIntegrationHealth(
     aiSuccess,
     aiFailure,
     credentials,
-    providerControl,
+    globalControlRead,
+    providerControlRead,
   ] = await Promise.all([
     client.correspondenceProviderAccount.findMany({
       // CRM mailboxes are platform-shared and have no tenant relation. Aggregate only bounded,
@@ -209,8 +221,28 @@ export async function readUnifiedIntegrationHealth(
       take: 101,
       select: { enabled: true, revokedAt: true, expiresAt: true, lastUsedAt: true },
     }),
-    readAiProviderHealthControl(client, now),
+    readBoundedControl(() => readGlobalAiControl(client)),
+    readBoundedControl(() => readAiProviderHealthControl(client, now)),
   ])
+
+  const globalControl = globalControlRead.available ? globalControlRead.value : null
+  const providerControl = providerControlRead.available ? providerControlRead.value : null
+  const globalAdmissionState = !globalControl
+    ? 'UNAVAILABLE'
+    : globalControl.malformed
+      ? 'MALFORMED'
+      : globalControl.paused
+        ? 'PAUSED'
+        : 'OPEN'
+  const providerRoutingState = !providerControl
+    ? 'UNAVAILABLE'
+    : providerControl.malformed
+      ? 'MALFORMED'
+      : providerControl.activeUnhealthyProviders.length > 0
+        ? 'DEGRADED'
+        : 'OPEN'
+  const globalAdmissionOpen = globalAdmissionState === 'OPEN'
+  const providerRoutingAvailable = !['UNAVAILABLE', 'MALFORMED'].includes(providerRoutingState)
 
   const gmailInventoryTruncated = gmailAccountRows.length > 100
   const workerInventoryTruncated = workers.length > 100
@@ -279,9 +311,37 @@ export async function readUnifiedIntegrationHealth(
   const storageConfigured = Boolean(latestUpload || storageVerification)
 
   return {
-    schemaVersion: 'integration-health.v1',
+    schemaVersion: 'integration-health.v2',
     observedAt: now.toISOString(),
     scope: { clientId: input.clientId, venueIds: input.venueIds },
+    controlPlane: {
+      globalAiAdmission: {
+        state: globalAdmissionState,
+        admissionOpen: globalAdmissionOpen,
+        configured: globalControl?.configured ?? null,
+        updatedAt: iso(globalControl?.updatedAt),
+      },
+      providerRouting: {
+        state: providerRoutingState,
+        routingAvailable: providerRoutingAvailable,
+        configured: providerControl?.configured ?? null,
+        updatedAt: iso(providerControl?.updatedAt),
+        activeExclusions:
+          providerControl?.overrides
+            .filter((override) => override.active)
+            .map((override) => ({
+              provider: override.provider,
+              expiresAt: override.expiresAt.toISOString(),
+            })) ?? [],
+      },
+      boundaries: {
+        incidentReasonIncluded: false,
+        operatorIdentityIncluded: false,
+        rawProviderErrorsIncluded: false,
+        mutationAuthorized: false,
+        automaticRecoveryAuthorized: false,
+      },
+    },
     integrations: [
       health('GMAIL', gmailState, {
         configured: gmailAccounts.length > 0,
@@ -328,32 +388,60 @@ export async function readUnifiedIntegrationHealth(
           summary: `${onlineWorkers.length} portable worker(s) and ${onlineSessions.length} bridge session(s) online${workerInventoryTruncated || sessionInventoryTruncated ? '; inventory exceeds the bounded projection' : ''}.`,
         },
       ),
+      health('GLOBAL_AI_ADMISSION', globalAdmissionState === 'OPEN' ? 'HEALTHY' : 'OFFLINE', {
+        configured: globalControl?.configured ?? false,
+        enabled: globalAdmissionOpen,
+        lastSuccessAt: globalAdmissionOpen ? globalControl?.updatedAt : null,
+        lastFailureAt: globalAdmissionOpen ? null : globalControl?.updatedAt,
+        errorCategory: globalAdmissionState === 'OPEN' ? null : `GLOBAL_AI_${globalAdmissionState}`,
+        summary:
+          globalAdmissionState === 'OPEN'
+            ? 'Global AI admission is open.'
+            : globalAdmissionState === 'PAUSED'
+              ? 'Global AI admission is paused by the incident control.'
+              : 'Global AI admission fails closed because its control is unavailable or malformed.',
+      }),
       health(
         'AI_PROVIDERS',
-        providerControl.malformed || providerControl.activeUnhealthyProviders.length > 0
-          ? 'DEGRADED'
-          : aiFailure && (!aiSuccess || aiFailure.createdAt > aiSuccess.createdAt)
+        !globalAdmissionOpen || !providerRoutingAvailable
+          ? 'OFFLINE'
+          : (providerControl?.activeUnhealthyProviders.length ?? 0) > 0
             ? 'DEGRADED'
-            : aiSuccess
-              ? 'HEALTHY'
-              : 'NOT_CONFIGURED',
+            : aiFailure && (!aiSuccess || aiFailure.createdAt > aiSuccess.createdAt)
+              ? 'DEGRADED'
+              : aiSuccess
+                ? 'HEALTHY'
+                : 'NOT_CONFIGURED',
         {
-          configured: providerControl.configured || Boolean(aiSuccess || aiFailure),
-          enabled: !providerControl.malformed && Boolean(aiSuccess || aiFailure),
+          configured: (providerControl?.configured ?? false) || Boolean(aiSuccess || aiFailure),
+          enabled:
+            globalAdmissionOpen && providerRoutingAvailable && Boolean(aiSuccess || aiFailure),
           lastSuccessAt: aiSuccess?.createdAt,
           lastFailureAt: aiFailure?.createdAt,
-          errorCategory: providerControl.malformed
-            ? 'HEALTH_CONTROL_MALFORMED'
-            : providerControl.activeUnhealthyProviders.length > 0
-              ? 'HEALTH_OVERRIDE_ACTIVE'
-              : aiFailure?.errorCode,
-          summary: providerControl.malformed
-            ? 'The central provider-health control is malformed; provider eligibility fails closed.'
-            : providerControl.activeUnhealthyProviders.length > 0
-              ? `${providerControl.activeUnhealthyProviders.length} provider health exclusion(s) are active.`
-              : aiSuccess || aiFailure
-                ? 'Derived from persisted AI usage outcomes and central provider-health control.'
-                : 'No provider outcome has been observed.',
+          errorCategory: !globalControlRead.available
+            ? 'GLOBAL_AI_CONTROL_UNAVAILABLE'
+            : globalControl?.malformed
+              ? 'GLOBAL_AI_CONTROL_MALFORMED'
+              : globalControl?.paused
+                ? 'GLOBAL_AI_PAUSED'
+                : !providerControlRead.available
+                  ? 'HEALTH_CONTROL_UNAVAILABLE'
+                  : providerControl?.malformed
+                    ? 'HEALTH_CONTROL_MALFORMED'
+                    : (providerControl?.activeUnhealthyProviders.length ?? 0) > 0
+                      ? 'HEALTH_OVERRIDE_ACTIVE'
+                      : aiFailure?.errorCode,
+          summary: !globalAdmissionOpen
+            ? 'Global AI admission is closed by the incident control.'
+            : !providerRoutingAvailable
+              ? 'Provider eligibility fails closed because the provider-health control is unavailable or malformed.'
+              : providerControl?.malformed
+                ? 'The central provider-health control is malformed; provider eligibility fails closed.'
+                : (providerControl?.activeUnhealthyProviders.length ?? 0) > 0
+                  ? `${providerControl?.activeUnhealthyProviders.length ?? 0} provider health exclusion(s) are active.`
+                  : aiSuccess || aiFailure
+                    ? 'Derived from persisted AI usage outcomes and central provider-health control.'
+                    : 'No provider outcome has been observed.',
         },
       ),
       health(

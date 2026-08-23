@@ -9,7 +9,7 @@
   "operationBindings": {
     "reviewed": {
       "operationInventorySha256": "ea85dd29a2250c70eb956f70b06327d0f3dc0f4c920726464e8e562fdf530137",
-      "sha256": "862c447248b3d00ea319f8e83493d1f2bac79f4ef0767a3f296afcf9f28e8e65"
+      "sha256": "d136cf939aff2a37414718940a23f0ab50f915abeb817b6f9bf886e32d31dda7"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -321,15 +321,18 @@
       {
         "id": "bounded-feature-flag-reads",
         "kind": "bounded-alternative",
-        "operations": [
-          "admin.getBillingRollout",
-          "admin.getTochiRollout",
-          "admin.getGlobalAiControl",
-          "admin.getAiProviderHealthControl"
-        ],
+        "operations": ["admin.getBillingRollout", "admin.getTochiRollout"],
         "surfaces": ["resource:pathfinder.feature-flags"],
-        "decision": "Agents can observe effective rollout and safety state but cannot change tenant flags, global controls, or provider overrides.",
+        "decision": "Agents can observe exact-tenant rollout state but cannot change tenant flags.",
         "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-incident-health-reads",
+        "kind": "bounded-alternative",
+        "operations": ["admin.getGlobalAiControl", "admin.getAiProviderHealthControl"],
+        "surfaces": ["tool:torchiko.integrations.health"],
+        "decision": "Agents receive explicit secret-free global-admission and provider-exclusion state through exact client/venue health scope, without reasons, operator identity, control mutation, or automatic recovery authority.",
+        "evidence": "packages/db/src/helpers/integration-health.test.ts"
       },
       {
         "id": "bounded-onboarding-reads",

@@ -11,7 +11,7 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    and `tools/call` dispatch, bounded bodies, verified credential scope, and notification handling.
    Approval-bound machine attribution and the first governed write are also implemented. Broader
    write parity remains a policy/capability gap, not a transport gap.
-2. **Agent/API parity is incomplete.** Torchiko's typed first-party API remains broader than the discoverable operational/prospect tools. Packet A added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads; the visitor-answer quality loop now adds separately gated evidence access for already-flagged public turns and review-only correction drafts. Broad conversation replay, venue lifecycle, intake, report operations, provider health, and offboarding still lack adequate agent interfaces.
+2. **Agent/API parity is incomplete.** Torchiko's typed first-party API remains broader than the discoverable operational/prospect tools. Packet A added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads; the visitor-answer quality loop now adds separately gated evidence access for already-flagged public turns and review-only correction drafts. Provider-specific and global AI control state is now explicitly visible through bounded integration health, but broad conversation replay, venue lifecycle, intake, report operations, incident mutation, and offboarding still lack adequate agent interfaces.
 3. **Tool metadata has a common core but not full schema parity.** Operational and prospect tools now expose effect, capability, review/approval, idempotency, default state, and transport through `pnpm torchiko tools list --json`. Prospect tools still need formal input/output JSON Schemas, examples, and related-tool links for complete parity with MCP definitions.
 4. **Resettable database scenarios remain incomplete.** Packet A now supplies four provider-free synthetic venue scenarios and deterministic time/location/replay contracts. Golden Venue proves a disposable support escalation/resolution loop, but standalone create/reset operations for scenarios such as degraded operations or rich reports remain incomplete.
 5. **Closed — provider integration health baseline.** Agents can query one secret-free,
@@ -20,8 +20,11 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    aggregates shared Gmail account failures, incorporates central provider-health exclusions,
    refuses to label embeddings healthy without persisted queue/completion evidence, derives storage
    health only from versioned object/verification records, and derives analytics health from scoped
-   event, rollup, and latest pipeline-job outcomes. Live provider probes and broader platform
-   observability remain separate operational concerns.
+   event, rollup, and latest pipeline-job outcomes. Version 2 also exposes explicit global AI
+   admission state and active expiring provider exclusions while omitting incident reasons,
+   operator identity, raw provider errors, and all recovery/mutation authority. Control read failure
+   or malformed state is reported as fail-closed rather than silently healthy. Live provider probes
+   and broader platform observability remain separate operational concerns.
 
 ## P1 gaps
 
@@ -33,7 +36,11 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    delivery, and actor-free audit actions. It excludes report content, raw source artifacts, and
    provider errors. Generation/regeneration, exact source-artifact inspection, explanation of
    model choices, editing, publication, and real delivery operations remain gated or incomplete.
-4. System jobs, queues, migrations, service health, integration health, feature flags, and deployment identity are only partially visible to agents.
+4. **Partially closed — operational control health.** Exact-scope agents can now distinguish open,
+   paused, malformed, and unavailable global AI admission plus active expiring provider exclusions
+   through the real integration-health tool. The binding ledger no longer falsely maps those reads
+   to tenant feature flags. System jobs, queues, migrations, broader service health, deployment
+   identity, incident reasons, control mutation, and automatic restoration remain partial or gated.
 5. The platform-admin run workspace and the capability-gated MCP read surface now present actions,
    lifecycle events, approvals, and outcome observations as one bounded reverse-chronological
    exact-run trace. Raw payloads, scope snapshots, event data, and execution leases are

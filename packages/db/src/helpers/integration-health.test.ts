@@ -62,9 +62,29 @@ describe('unified integration health', () => {
       expect.arrayContaining([
         expect.objectContaining({ integration: 'GMAIL', state: 'HEALTHY' }),
         expect.objectContaining({ integration: 'AGENT_RUNTIME', state: 'HEALTHY' }),
+        expect.objectContaining({ integration: 'GLOBAL_AI_ADMISSION', state: 'HEALTHY' }),
         expect.objectContaining({ integration: 'EXTERNAL_WORKER_ACCESS', state: 'HEALTHY' }),
       ]),
     )
+    expect(result).toMatchObject({
+      schemaVersion: 'integration-health.v2',
+      controlPlane: {
+        globalAiAdmission: { state: 'OPEN', admissionOpen: true, configured: false },
+        providerRouting: {
+          state: 'OPEN',
+          routingAvailable: true,
+          configured: false,
+          activeExclusions: [],
+        },
+        boundaries: {
+          incidentReasonIncluded: false,
+          operatorIdentityIncluded: false,
+          rawProviderErrorsIncluded: false,
+          mutationAuthorized: false,
+          automaticRecoveryAuthorized: false,
+        },
+      },
+    })
     expect(JSON.stringify(result)).not.toMatch(/mailboxAddress|credentialReference|secret|token/iu)
     expect(client.agentWorker.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -165,20 +185,24 @@ describe('unified integration health', () => {
         findFirst: vi.fn().mockResolvedValueOnce({ createdAt: now }).mockResolvedValueOnce(null),
       },
       platformConfig: {
-        findUnique: vi.fn().mockResolvedValue({
-          value: {
-            schemaVersion: 1,
-            overrides: [
-              {
-                provider: 'anthropic',
-                reason: 'Bounded outage drill',
-                expiresAt: '2030-01-01T13:00:00.000Z',
-              },
-            ],
-          },
-          updatedAt: now,
-          updatedBy: 'founder-1',
-        }),
+        findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) =>
+          where.key === 'ai-provider-health-control-v1'
+            ? Promise.resolve({
+                value: {
+                  schemaVersion: 1,
+                  overrides: [
+                    {
+                      provider: 'anthropic',
+                      reason: 'Bounded outage drill',
+                      expiresAt: '2030-01-01T13:00:00.000Z',
+                    },
+                  ],
+                },
+                updatedAt: now,
+                updatedBy: 'founder-1',
+              })
+            : Promise.resolve(null),
+        ),
       },
     })
 
@@ -203,6 +227,74 @@ describe('unified integration health', () => {
           enabled: false,
         }),
       ]),
+    )
+    expect(result.controlPlane).toMatchObject({
+      globalAiAdmission: { state: 'OPEN', admissionOpen: true },
+      providerRouting: {
+        state: 'DEGRADED',
+        routingAvailable: true,
+        activeExclusions: [{ provider: 'anthropic', expiresAt: '2030-01-01T13:00:00.000Z' }],
+      },
+    })
+    expect(JSON.stringify(result)).not.toMatch(/Bounded outage drill|founder-1/u)
+  })
+
+  it('surfaces a global pause and provider-control read failure without leaking incident material', async () => {
+    const now = new Date('2030-01-01T12:00:00.000Z')
+    const client = healthClient({
+      aiUsageEvent: {
+        findFirst: vi.fn().mockResolvedValueOnce({ createdAt: now }).mockResolvedValueOnce(null),
+      },
+      platformConfig: {
+        findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) => {
+          if (where.key === 'ai-provider-health-control-v1') {
+            throw new Error('private provider-control database failure')
+          }
+          return Promise.resolve({
+            value: { schemaVersion: 1, paused: true, reason: 'private incident reason' },
+            updatedAt: now,
+            updatedBy: 'private-operator-id',
+          })
+        }),
+      },
+    })
+
+    const result = await readUnifiedIntegrationHealth(
+      { clientId: 'tenant-1', venueIds: ['venue-1'] },
+      client as never,
+      now,
+    )
+
+    expect(result.controlPlane).toMatchObject({
+      globalAiAdmission: {
+        state: 'PAUSED',
+        admissionOpen: false,
+        configured: true,
+      },
+      providerRouting: {
+        state: 'UNAVAILABLE',
+        routingAvailable: false,
+        configured: null,
+        activeExclusions: [],
+      },
+    })
+    expect(result.integrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          integration: 'GLOBAL_AI_ADMISSION',
+          state: 'OFFLINE',
+          errorCategory: 'GLOBAL_AI_PAUSED',
+        }),
+        expect.objectContaining({
+          integration: 'AI_PROVIDERS',
+          state: 'OFFLINE',
+          enabled: false,
+          errorCategory: 'GLOBAL_AI_PAUSED',
+        }),
+      ]),
+    )
+    expect(JSON.stringify(result)).not.toMatch(
+      /private incident reason|private-operator-id|private provider-control database failure/u,
     )
   })
 

@@ -45,6 +45,58 @@ describe.skipIf(!enabled)('unified integration health (disposable PostgreSQL)', 
         { id: venueB, tenantId: tenantB, name: 'Integration health venue B', slug: venueB },
       ],
     })
+    await Promise.all([
+      db.platformConfig.upsert({
+        where: { key: 'global-ai-control-v1' },
+        create: {
+          key: 'global-ai-control-v1',
+          value: {
+            schemaVersion: 1,
+            paused: true,
+            reason: 'private disposable global incident reason',
+          },
+          updatedBy: 'private-disposable-operator',
+        },
+        update: {
+          value: {
+            schemaVersion: 1,
+            paused: true,
+            reason: 'private disposable global incident reason',
+          },
+          updatedBy: 'private-disposable-operator',
+        },
+      }),
+      db.platformConfig.upsert({
+        where: { key: 'ai-provider-health-control-v1' },
+        create: {
+          key: 'ai-provider-health-control-v1',
+          value: {
+            schemaVersion: 1,
+            overrides: [
+              {
+                provider: 'openai',
+                reason: 'private disposable provider incident reason',
+                expiresAt: '2030-01-01T13:00:00.000Z',
+              },
+            ],
+          },
+          updatedBy: 'private-disposable-operator',
+        },
+        update: {
+          value: {
+            schemaVersion: 1,
+            overrides: [
+              {
+                provider: 'openai',
+                reason: 'private disposable provider incident reason',
+                expiresAt: '2030-01-01T13:00:00.000Z',
+              },
+            ],
+          },
+          updatedBy: 'private-disposable-operator',
+        },
+      }),
+    ])
     const createdPlaceA = await db.place.create({
       data: { id: placeA, tenantId: tenantA, venueId: venueA, name: 'Place A', type: 'exhibit' },
     })
@@ -235,8 +287,33 @@ describe.skipIf(!enabled)('unified integration health (disposable PostgreSQL)', 
         }),
         expect.objectContaining({ integration: 'OBJECT_STORAGE', state: 'HEALTHY' }),
         expect.objectContaining({ integration: 'ANALYTICS_PIPELINE', state: 'HEALTHY' }),
+        expect.objectContaining({
+          integration: 'GLOBAL_AI_ADMISSION',
+          state: 'OFFLINE',
+          errorCategory: 'GLOBAL_AI_PAUSED',
+        }),
+        expect.objectContaining({
+          integration: 'AI_PROVIDERS',
+          state: 'OFFLINE',
+          errorCategory: 'GLOBAL_AI_PAUSED',
+        }),
       ]),
     )
+    expect(healthA.controlPlane).toMatchObject({
+      globalAiAdmission: { state: 'PAUSED', admissionOpen: false, configured: true },
+      providerRouting: {
+        state: 'DEGRADED',
+        routingAvailable: true,
+        configured: true,
+        activeExclusions: [{ provider: 'openai', expiresAt: '2030-01-01T13:00:00.000Z' }],
+      },
+      boundaries: {
+        incidentReasonIncluded: false,
+        operatorIdentityIncluded: false,
+        mutationAuthorized: false,
+        automaticRecoveryAuthorized: false,
+      },
+    })
     expect(healthB.integrations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ integration: 'GMAIL', state: 'DEGRADED' }),
@@ -259,7 +336,7 @@ describe.skipIf(!enabled)('unified integration health (disposable PostgreSQL)', 
       ]),
     )
     expect(JSON.stringify([healthA, healthB])).not.toMatch(
-      /@example\.invalid|SYNTHETIC_AUTH_FAILURE|Disposable failure evidence|synthetic-provider-failure|private-storage-version-a|private analytics failure detail/u,
+      /@example\.invalid|SYNTHETIC_AUTH_FAILURE|Disposable failure evidence|synthetic-provider-failure|private-storage-version-a|private analytics failure detail|private disposable global incident reason|private disposable provider incident reason|private-disposable-operator/u,
     )
   })
 })

@@ -31,7 +31,7 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `torchiko.knowledge.search`                   | Governed institutional search           | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.knowledge.get`                      | Exact governed knowledge item           | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.customer_access.prepare_invitation` | Provider-dark member invitation request | Operation UUID             | Founder review before any external effect | Live worker/run + exact owner-authored evidence |
-| `torchiko.integrations.health`                | Secret-free integration health          | Safe repeat                | No                                        | Credential capability scoped                    |
+| `torchiko.integrations.health`                | Secret-free integration/control health  | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.reports.get_lifecycle`              | Exact weekly-report lifecycle           | Safe repeat                | No                                        | Exact venue/report and `reports:read` scoped    |
 
 `pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage, jobs, evaluations, weekly reports, privacy-bounded conversation sessions, integration access health, agent runs, an exact-run unified trace, operational events, native deployments, feature flags, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets. `agent-run-trace` additionally requires `agentRunId`, uses the existing `agent-runs:read` capability, and merges only safe action, lifecycle, approval, and outcome evidence.
@@ -47,6 +47,14 @@ report, then returns a machine-readable safe projection of generation state, per
 counts, review status, publication/client visibility, explicit absence of external-delivery state,
 and actor-free audit actions. It exposes only failure-presence booleans—not raw report, dispatch, or
 job errors—and grants no generation, editing, publication, or delivery authority.
+
+`torchiko.integrations.health` schema v2 adds explicit provider-dark incident-readiness evidence to
+the existing exact client/venue integration projection. It reports global AI admission as open,
+paused, malformed, or unavailable and lists only active provider IDs with their bounded expiry. A
+control read failure or malformed record is visible as fail-closed rather than healthy. Human
+incident reasons, operator identity, raw provider errors, control mutation, and automatic recovery
+authority are excluded. Global/provider control reads are bound here, not to the tenant
+`feature-flags` resource.
 
 ## Operation coverage evidence
 

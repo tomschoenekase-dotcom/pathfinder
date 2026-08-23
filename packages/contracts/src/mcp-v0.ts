@@ -1106,7 +1106,7 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     name: 'torchiko.integrations.health',
     title: 'Get unified integration health',
     description:
-      'Return a bounded secret-free health projection for configured providers, workers, embeddings, object storage, analytics, deployment, billing, and machine access.',
+      'Return bounded secret-free integration and operational-control health, including global AI admission and active expiring provider exclusions without incident reasons or operator identity.',
     inputSchema: strictObject(scopeProperties, ['clientId']),
     outputSchema: resultSchema,
     annotations: {

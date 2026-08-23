@@ -279,6 +279,94 @@ describe('safe operational MCP composition', () => {
     })
   })
 
+  it('returns explicit bounded incident-control health without reasons, actors, or recovery authority', async () => {
+    const now = new Date('2030-01-01T12:00:00.000Z')
+    const database = {
+      correspondenceProviderAccount: { findMany: vi.fn().mockResolvedValue([]) },
+      billingAccount: { findUnique: vi.fn().mockResolvedValue(null) },
+      agentWorker: { findMany: vi.fn().mockResolvedValue([]) },
+      agentBridgeSession: { findMany: vi.fn().mockResolvedValue([]) },
+      embeddingDispatch: {
+        count: vi.fn().mockResolvedValue(0),
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      embeddingWorkClaim: { findFirst: vi.fn().mockResolvedValue(null) },
+      intakeUpload: { findFirst: vi.fn().mockResolvedValue(null) },
+      intakeUploadVerificationReceipt: { findFirst: vi.fn().mockResolvedValue(null) },
+      analyticsEvent: { findFirst: vi.fn().mockResolvedValue(null) },
+      dailyRollup: { findFirst: vi.fn().mockResolvedValue(null) },
+      jobRecord: { findFirst: vi.fn().mockResolvedValue(null) },
+      nativeVenueDeploymentRelease: { findFirst: vi.fn().mockResolvedValue(null) },
+      aiUsageEvent: {
+        findFirst: vi.fn().mockResolvedValueOnce({ createdAt: now }).mockResolvedValueOnce(null),
+      },
+      externalAccessCredential: { findMany: vi.fn().mockResolvedValue([]) },
+      platformConfig: {
+        findUnique: vi.fn().mockImplementation(({ where }: { where: { key: string } }) =>
+          where.key === 'global-ai-control-v1'
+            ? Promise.resolve({
+                value: {
+                  schemaVersion: 1,
+                  paused: true,
+                  reason: 'private global incident reason',
+                },
+                updatedAt: now,
+                updatedBy: 'private-operator-id',
+              })
+            : Promise.resolve({
+                value: {
+                  schemaVersion: 1,
+                  overrides: [
+                    {
+                      provider: 'anthropic',
+                      reason: 'private provider incident reason',
+                      expiresAt: '2030-01-01T13:00:00.000Z',
+                    },
+                  ],
+                },
+                updatedAt: now,
+                updatedBy: 'private-operator-id',
+              }),
+        ),
+      },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const result = await registry.callTool(
+      'torchiko.integrations.health',
+      { clientId: 'tenant-1', venueId: 'venue-1' },
+      { credential: { ...credential, capabilities: ['integrations:read'] } },
+    )
+
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.integration-health',
+      data: {
+        schemaVersion: 'integration-health.v2',
+        controlPlane: {
+          globalAiAdmission: { state: 'PAUSED', admissionOpen: false },
+          providerRouting: {
+            state: 'DEGRADED',
+            routingAvailable: true,
+            activeExclusions: [{ provider: 'anthropic', expiresAt: '2030-01-01T13:00:00.000Z' }],
+          },
+          boundaries: {
+            incidentReasonIncluded: false,
+            operatorIdentityIncluded: false,
+            rawProviderErrorsIncluded: false,
+            mutationAuthorized: false,
+            automaticRecoveryAuthorized: false,
+          },
+        },
+        integrations: expect.arrayContaining([
+          expect.objectContaining({ integration: 'GLOBAL_AI_ADMISSION', state: 'OFFLINE' }),
+          expect.objectContaining({ integration: 'AI_PROVIDERS', state: 'OFFLINE' }),
+        ]),
+      },
+    })
+    expect(JSON.stringify(result)).not.toMatch(
+      /private global incident reason|private provider incident reason|private-operator-id/u,
+    )
+  })
+
   it('returns a coherent report lifecycle without content, raw sources, provider errors, or publication authority', async () => {
     const database = {
       weeklyReport: {
