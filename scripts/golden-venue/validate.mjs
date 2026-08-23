@@ -53,7 +53,9 @@ if (
   new Set(declaredProofPhases).size !== required.length ||
   required.some((phase) => !declaredProofPhases.includes(phase)) ||
   !proof.coveredPhases.includes('release') ||
-  !proof.remainingPhases.includes('guest-retrieval-chat')
+  !proof.coveredPhases.includes('guest-retrieval-chat') ||
+  !proof.coveredPhases.includes('feedback') ||
+  proof.remainingPhases.length !== 0
 )
   throw new Error('Golden Venue disposable proof scope must be complete and truthful')
 console.log(

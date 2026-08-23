@@ -16,11 +16,13 @@
       "review",
       "content-package-eval",
       "release",
+      "guest-retrieval-chat",
+      "feedback",
       "report",
       "update"
     ],
     "partialPhases": ["support", "export-offboarding"],
-    "remainingPhases": ["guest-retrieval-chat", "feedback"],
+    "remainingPhases": [],
     "providerBacked": false
   },
   "requiredPhases": [

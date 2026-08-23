@@ -2,40 +2,11 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@pathfinder/ai', () => ({
-  AI_EMBEDDING_MODEL_KEYS: {
-    PLACE_CONTENT: 'place-content',
-    KNOWLEDGE_CONTENT: 'knowledge-content',
-  },
-  AiGatewayError: class AiGatewayError extends Error {
-    code = 'provider-error'
-  },
-  getAiEmbeddingProfile: (key: string) => `integration-profile:${key}`,
-  generateEmbeddings: vi.fn(async ({ texts, usageSink }) => {
-    await usageSink({
-      provider: 'integration-test',
-      model: 'deterministic-embedding',
-      pricingVersion: 'test-v1',
-      usage: {
-        inputTokens: texts.length,
-        outputTokens: 0,
-        cacheCreationInputTokens: 0,
-        cacheReadInputTokens: 0,
-      },
-      estimatedCostUsd: 0,
-      latencyMs: 1,
-      attempts: 1,
-      success: true,
-    })
-    return {
-      embeddings: texts.map((text: string, index: number) => {
-        const vector = Array(1_536).fill(0)
-        vector[(text.length + index) % vector.length] = 1
-        return vector
-      }),
-    }
-  }),
-}))
+import {
+  setOpenAiEmbeddingsClientForTesting,
+  type AnthropicMessagesClient,
+  type OpenAiEmbeddingsClient,
+} from '@pathfinder/ai'
 
 import {
   buildOnboardingEvaluationSuite,
@@ -50,6 +21,7 @@ import {
 import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interview'
 import {
   askAgentQuestionAction,
+  acquireEmbeddingWork,
   claimEvaluationRunAttempt,
   claimIntakeUploadVerificationAction,
   createClientOnboardingQuestionAction,
@@ -70,6 +42,7 @@ import {
   respondToSupportInformationAction,
   resumeOnboardingQuestionFromSupportAction,
   settleIntakeUploadAuthoritativeVerificationAction,
+  storeKnowledgeEntryEmbeddingForScope,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
 
@@ -81,6 +54,8 @@ import { adminOffboardingPlansRouter } from './routers/admin/offboarding-plans'
 import { adminReportConfigurationRouter } from './routers/admin/report-configuration'
 import { adminWeeklyReportsRouter } from './routers/admin/weekly-reports'
 import { analyticsRouter } from './routers/analytics'
+import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
+import { feedbackRouter } from './routers/feedback'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { portalRouter } from './routers/portal'
 import { venuePackageRouter } from './routers/venue-package'
@@ -108,13 +83,19 @@ const testRouter = router({
     adminWeeklyReportsRouter,
   ),
   analytics: analyticsRouter,
+  chat: chatRouter,
+  feedback: feedbackRouter,
   operationalUpdate: operationalUpdateRouter,
   portal: portalRouter,
   venuePackage: venuePackageRouter,
 })
 
-describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle', () => {
-  afterAll(async () => db.$disconnect())
+describe.skipIf(!enabled)('remote onboarding twenty-step disposable lifecycle', () => {
+  afterAll(async () => {
+    _setAnthropicClientForTesting(null)
+    setOpenAiEmbeddingsClientForTesting(null)
+    await db.$disconnect()
+  })
 
   it('proves invitation through exact rollback in one sanitized venue run', async () => {
     assertDisposableDatabase()
@@ -145,6 +126,22 @@ describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle'
           isPlatformAdmin: true,
         },
       }).admin
+      const publicCaller = testRouter.createCaller({
+        db,
+        headers: new Headers(),
+        session: { userId: null, activeTenantId: null, role: null, isPlatformAdmin: false },
+      })
+      const openAiCreate = vi.fn(async (params: { input: string[]; dimensions: number }) => ({
+        data: params.input.map((_text, index) => {
+          const embedding = Array(params.dimensions).fill(0)
+          embedding[0] = 1
+          return { index, embedding }
+        }),
+        usage: { prompt_tokens: params.input.length, total_tokens: params.input.length },
+      }))
+      setOpenAiEmbeddingsClientForTesting({
+        embeddings: { create: openAiCreate },
+      } as OpenAiEmbeddingsClient)
 
       await db.tenant.create({
         data: { id: tenantId, name: 'Sanitized Remote Proof', slug: tenantId },
@@ -734,7 +731,7 @@ describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle'
         }).readiness.find((item) => item.id === 'AUTOMATED_QA'),
       ).toMatchObject({ status: 'READY' })
 
-      // 14–15. Explicit release command creates exact content, then rollback restores the base.
+      // 14. Explicit release creates the exact public content used by the guest proof.
       const applied = await caller.venuePackage.applyPackage({
         id: approved.id,
         expectedUpdatedAt: approved.updatedAt,
@@ -744,11 +741,10 @@ describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle'
       expect(
         await db.place.findFirst({ where: { tenantId, venueId, name: 'River Gallery' } }),
       ).toMatchObject({ name: 'River Gallery' })
-      expect(
-        await db.venueKnowledgeEntry.findFirst({
-          where: { tenantId, venueId, title: 'Accessible arrival' },
-        }),
-      ).toMatchObject({
+      const publicKnowledge = await db.venueKnowledgeEntry.findFirstOrThrow({
+        where: { tenantId, venueId, title: 'Accessible arrival' },
+      })
+      expect(publicKnowledge).toMatchObject({
         title: 'Accessible arrival',
         content: 'Use the Oak Street entrance for the step-free route.',
       })
@@ -757,6 +753,148 @@ describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle'
           where: { tenantId, venueId, venuePackageId: approved.id, venuePackageAction: 'APPLY' },
         }),
       ).toBeGreaterThan(0)
+
+      const knowledgeEmbedding = Array(1_536).fill(0)
+      knowledgeEmbedding[0] = 1
+      const embeddingLeaseToken = randomUUID()
+      const embeddingClaim = await acquireEmbeddingWork({
+        tenantId,
+        venueId,
+        entityType: 'KNOWLEDGE_ENTRY',
+        entityId: publicKnowledge.id,
+        contentUpdatedAt: publicKnowledge.updatedAt,
+        sourceHash: createHash('sha256')
+          .update(
+            [publicKnowledge.title, publicKnowledge.category, publicKnowledge.content].join('. '),
+          )
+          .digest('hex'),
+        embeddingProfile: 'openai:text-embedding-3-small:1536',
+        leaseToken: embeddingLeaseToken,
+      })
+      if (embeddingClaim.state !== 'acquired') {
+        throw new Error(`Knowledge embedding claim was not acquired: ${embeddingClaim.state}`)
+      }
+      await expect(
+        storeKnowledgeEntryEmbeddingForScope({
+          entryId: publicKnowledge.id,
+          tenantId,
+          venueId,
+          contentUpdatedAt: publicKnowledge.updatedAt,
+          source: {
+            title: publicKnowledge.title,
+            category: publicKnowledge.category,
+            content: publicKnowledge.content,
+            isEnabled: publicKnowledge.isEnabled,
+          },
+          embedding: knowledgeEmbedding,
+          claimId: embeddingClaim.claimId,
+          leaseToken: embeddingLeaseToken,
+        }),
+      ).resolves.toEqual({ claimCompleted: true, stored: true })
+
+      // 15. The real public chat router retrieves the applied venue knowledge, routes through
+      // the production AI gateway, and commits a complete provider-dark guest turn. Only the
+      // Anthropic transport is replaced with an in-process deterministic test client.
+      const anthropicCreate = vi.fn().mockResolvedValue({
+        content: [
+          {
+            type: 'text',
+            text: 'Use the Oak Street entrance for the step-free route.',
+          },
+        ],
+        usage: {
+          input_tokens: 24,
+          output_tokens: 11,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      })
+      _setAnthropicClientForTesting({
+        messages: { create: anthropicCreate },
+      } as AnthropicMessagesClient)
+      const anonymousToken = randomUUID()
+      const operationId = randomUUID()
+      const guestTurn = await publicCaller.chat.send({
+        operationId,
+        venueId,
+        anonymousToken,
+        message: 'Which entrance has the step-free route?',
+      })
+      expect(guestTurn).toMatchObject({
+        response: 'Use the Oak Street entrance for the step-free route.',
+        assistantMessageId: expect.any(String),
+        sessionId: expect.any(String),
+        replayed: false,
+      })
+      if (!guestTurn.assistantMessageId)
+        throw new Error('Guest turn did not persist an assistant message')
+      const assistantMessageId = guestTurn.assistantMessageId
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+      const guestPrompt = (anthropicCreate.mock.calls[0]![0].system as Array<{ text: string }>)
+        .map((block) => block.text)
+        .join('')
+      expect(guestPrompt).toContain('Accessible arrival')
+      expect(guestPrompt).toContain('Use the Oak Street entrance for the step-free route.')
+      await expect(publicCaller.chat.history({ venueId, anonymousToken })).resolves.toEqual({
+        messages: [
+          expect.objectContaining({
+            role: 'user',
+            content: 'Which entrance has the step-free route?',
+          }),
+          expect.objectContaining({
+            id: assistantMessageId,
+            role: 'assistant',
+            content: 'Use the Oak Street entrance for the step-free route.',
+          }),
+        ],
+      })
+      await expect(
+        db.visitorSession.findFirstOrThrow({
+          where: { id: guestTurn.sessionId, tenantId, venueId, anonymousToken },
+          select: { experienceScope: true, messageCount: true },
+        }),
+      ).resolves.toEqual({ experienceScope: 'PUBLIC', messageCount: 2 })
+      await expect(
+        db.guestChatTurn.findFirstOrThrow({
+          where: { tenantId, venueId, requestId: operationId },
+          select: { status: true, assistantMessageId: true },
+        }),
+      ).resolves.toEqual({ status: 'COMPLETE', assistantMessageId })
+
+      // 16. Visitor feedback is ownership-bound to the public session and assistant message,
+      // then retained as both durable feedback and a machine-readable analytics event.
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: 'The route was specific and easy to follow.',
+        }),
+      ).resolves.toEqual({ ok: true })
+      await expect(
+        db.messageFeedback.findFirstOrThrow({
+          where: { tenantId, venueId, sessionId: guestTurn.sessionId },
+          select: { messageId: true, rating: true, reason: true },
+        }),
+      ).resolves.toEqual({
+        messageId: assistantMessageId,
+        rating: 'HELPFUL',
+        reason: 'The route was specific and easy to follow.',
+      })
+      await expect(
+        db.analyticsEvent.count({
+          where: {
+            tenantId,
+            venueId,
+            sessionId: guestTurn.sessionId,
+            eventType: 'chat.response.feedback',
+          },
+        }),
+      ).resolves.toBe(1)
+      _setAnthropicClientForTesting(null)
+
+      // 17. Exact rollback restores the content base after the public interaction evidence.
       const reverted = await caller.venuePackage.revertPackage({
         id: approved.id,
         expectedUpdatedAt: applied.updatedAt,
@@ -781,7 +919,7 @@ describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle'
         ]),
       )
 
-      // 16. A routine venue update is published through the tenant action surface and
+      // 18. A routine venue update is published through the tenant action surface and
       // remains machine-readable through the same bounded tenant API.
       const updateStart = new Date(Date.now() - 60_000)
       const updateEnd = new Date(Date.now() + 60 * 60 * 1_000)
@@ -810,7 +948,7 @@ describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle'
         status: 'PUBLISHED',
       })
 
-      // 17. Reports fail closed until explicitly enabled. A populated draft is then
+      // 19. Reports fail closed until explicitly enabled. A populated draft is then
       // published by the platform-admin action and read through the client tenant API.
       await expect(caller.analytics.listPublishedWeeklyReports({ venueId })).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
@@ -849,7 +987,7 @@ describe.skipIf(!enabled)('remote onboarding eighteen-step disposable lifecycle'
         content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
       })
 
-      // 18. Offboarding remains planning-only: create a scoped REQUESTED draft and a
+      // 20. Offboarding remains planning-only: create a scoped REQUESTED draft and a
       // metadata-reference export preview, without revocation, artifact creation, data
       // deletion, venue deactivation, or customer cancellation.
       const activeBeforeOffboarding = await db.venue.findFirstOrThrow({
