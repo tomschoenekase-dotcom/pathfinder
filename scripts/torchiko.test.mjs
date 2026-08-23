@@ -8,6 +8,7 @@ import {
   buildCompanyBrainStatus,
   buildConversationReplay,
   buildDoctorReport,
+  buildOperationBindings,
   buildRepositoryMap,
   buildToolCoverageReport,
   classifyRouter,
@@ -17,6 +18,7 @@ import {
   loadScenarioRegistry,
   loadCompanyBrainScenarioRegistry,
   operationInventoryDigest,
+  operationBindingDigest,
   simulateScenarioLocation,
   simulateScenarioTime,
 } from './lib/torchiko-developer-tools.mjs'
@@ -79,6 +81,14 @@ test('tool and fixture discovery reuse canonical sources', async () => {
       .humanReviewRequired,
     true,
   )
+  assert.equal(
+    tools.tools.find((tool) => tool.name === 'pathfinder.create_update_draft').runtimeAvailability,
+    'bound',
+  )
+  assert.equal(
+    tools.tools.find((tool) => tool.name === 'pathfinder.create_package_draft').runtimeAvailability,
+    'declared-unbound',
+  )
   const fixtures = await listFixtures(root)
   assert.ok(fixtures.visual.some((fixture) => fixture.route === '/dev-fixtures/billing'))
   assert.ok(fixtures.visual.some((fixture) => fixture.route === '/dev-fixtures'))
@@ -93,7 +103,7 @@ test('targeted test discovery is bounded and useful', async () => {
 
 test('every mounted router has exactly one explicit agent/developer coverage decision', async () => {
   const report = await buildToolCoverageReport(root)
-  assert.equal(report.schemaVersion, 2)
+  assert.equal(report.schemaVersion, 3)
   assert.equal(report.healthy, true)
   assert.equal(report.classified, report.totalRouters)
   assert.equal(report.unclassified.length, 0)
@@ -107,6 +117,31 @@ test('every mounted router has exactly one explicit agent/developer coverage dec
   assert.equal(report.operations.reviewedInventory.matches, true)
   assert.equal(report.operations.counts.byKind.query, 162)
   assert.equal(report.operations.counts.byKind.mutation, 209)
+  assert.equal(report.operations.bindings.healthy, true)
+  assert.equal(report.operations.bindings.validation.unknownOperations.length, 0)
+  assert.equal(report.operations.bindings.validation.unknownSurfaces.length, 0)
+  assert.equal(report.operations.bindings.validation.duplicateOperations.length, 0)
+  assert.equal(report.operations.bindings.validation.unavailableSurfaces.length, 0)
+  assert.equal(report.operations.bindings.validation.invalidRules.length, 0)
+  assert.equal(report.operations.bindings.validation.inventoryMatches, true)
+  assert.equal(report.operations.bindings.validation.digestMatches, true)
+  assert.ok(report.operations.bindings.counts['direct-tool'] > 0)
+  assert.ok(report.operations.bindings.counts['bounded-alternative'] > 20)
+  assert.ok(report.operations.bindings.counts.unbound > 0)
+  assert.deepEqual(
+    report.operations.bindings.entries.find(
+      (operation) => operation.path === 'admin.listAgentRunTrace',
+    ),
+    {
+      path: 'admin.listAgentRunTrace',
+      kind: 'direct-tool',
+      ruleId: 'unified-agent-run-trace',
+      surfaces: ['resource:pathfinder.agent-run-trace'],
+      evidence: 'packages/api/src/routers/admin/agent-run-trace.disposable.integration.test.ts',
+      decision:
+        'The capability-gated MCP resource exposes the same bounded run/action/approval/outcome chronology for an exact venue and run.',
+    },
+  )
   assert.deepEqual(
     report.operations.entries
       .filter((operation) => operation.path === 'admin.listAgentRunTrace')
@@ -135,6 +170,61 @@ test('operation inventory digest changes for path, kind, owner, or source drift'
   ]) {
     assert.notEqual(operationInventoryDigest(changed), digest)
   }
+})
+
+test('operation binding digest changes for binding kind, rule, surface, or evidence drift', () => {
+  const baseline = [
+    {
+      path: 'admin.example',
+      kind: 'direct-tool',
+      ruleId: 'example',
+      surfaces: ['tool:pathfinder.example'],
+      evidence: 'example.test.ts',
+    },
+  ]
+  const digest = operationBindingDigest(baseline)
+  for (const changed of [
+    [{ ...baseline[0], kind: 'bounded-alternative' }],
+    [{ ...baseline[0], ruleId: 'changed' }],
+    [{ ...baseline[0], surfaces: ['resource:pathfinder.example'] }],
+    [{ ...baseline[0], evidence: 'changed.test.ts' }],
+  ]) {
+    assert.notEqual(operationBindingDigest(changed), digest)
+  }
+})
+
+test('declared but runtime-unbound tools cannot satisfy operation bindings', () => {
+  const operations = [{ path: 'admin.example', kind: 'mutation' }]
+  const toolCatalog = {
+    resources: [],
+    tools: [
+      {
+        name: 'pathfinder.declared_only',
+        runtimeAvailability: 'declared-unbound',
+      },
+    ],
+  }
+  const policy = {
+    operationInventory: { sha256: 'inventory' },
+    operationBindings: {
+      reviewed: { operationInventorySha256: 'inventory', sha256: 'not-relevant' },
+      rules: [
+        {
+          id: 'declared-only',
+          kind: 'direct-tool',
+          operations: ['admin.example'],
+          surfaces: ['tool:pathfinder.declared_only'],
+          evidence: 'example.test.ts',
+          decision: 'Synthetic negative proof.',
+        },
+      ],
+    },
+  }
+  const report = buildOperationBindings(operations, policy, toolCatalog)
+  assert.deepEqual(report.validation.unavailableSurfaces, [
+    { ruleId: 'declared-only', surface: 'tool:pathfinder.declared_only' },
+  ])
+  assert.equal(report.healthy, false)
 })
 
 test('coverage classification fails new unreviewed router names', () => {

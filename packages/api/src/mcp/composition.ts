@@ -20,12 +20,34 @@ import {
   publishOperationalEvent,
   searchCompanyKnowledge,
 } from '@pathfinder/db'
-import type { JsonValue } from '@pathfinder/contracts/mcp-v0'
+import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
 import { createPathfinderMcpReadActions } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
+
+/** Exact tools with a real safe-runtime domain binding. Contract-only tools are deliberately
+ * omitted until their canonical action, attribution, approval, and replay behavior are bound. */
+export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
+  'pathfinder.read',
+  'torchiko.account.get_context',
+  'torchiko.account.timeline',
+  'torchiko.account.meetings',
+  'torchiko.account.meeting_get',
+  'torchiko.account.correspondence',
+  'torchiko.meeting.process',
+  'torchiko.knowledge.search',
+  'torchiko.knowledge.get',
+  'torchiko.knowledge.list_gaps',
+  'torchiko.knowledge.propose_correction',
+  'torchiko.customer_access.prepare_invitation',
+  'torchiko.integrations.health',
+  'pathfinder.ask_operator',
+  'pathfinder.delegate_specialist',
+  'pathfinder.propose_billing_action',
+  'pathfinder.create_update_draft',
+] as const satisfies readonly PathfinderMcpToolName[]
 
 export class McpActionBindingError extends Error {
   readonly code = 'MCP_ACTION_UNAVAILABLE'

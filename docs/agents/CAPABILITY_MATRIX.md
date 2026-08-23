@@ -35,3 +35,7 @@ Statuses describe code-supported interfaces, not live provider or production pro
 ## Interpretation
 
 Torchiko retains Packet A's broad typed and bounded read surface, and Company Brain adds standards-compliant MCP discovery/calls, portable worker registration and failover, compact CRM context, governed institutional-memory retrieval, unified integration health, honest machine attribution, explicit approval grants, meeting processing, one real approval-bound operational draft write, and a review-only visitor-answer correction loop. Outreach sending, billing effects, publication, credential issuance, deployment, offboarding, and destructive actions remain intentionally restricted.
+
+Exact operation evidence is separate from these domain summaries. The current release gate proves
+371 mounted operations and records 2 direct-tool bindings, 96 bounded alternatives, and 273 explicit
+unbound gaps. A declared contract without a safe-runtime binding cannot count toward those totals.

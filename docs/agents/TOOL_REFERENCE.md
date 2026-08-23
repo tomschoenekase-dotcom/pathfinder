@@ -6,7 +6,7 @@ Generate the current machine-readable inventory with:
 pnpm torchiko tools list --json
 ```
 
-The inventory normalizes core metadata across operational and prospect tools: capability, effect, approval or human-review boundary, idempotency, default state, transport, and canonical source.
+The inventory normalizes core metadata across operational and prospect tools: capability, effect, approval or human-review boundary, idempotency, default state, runtime availability, transport, and canonical source. `bound` means the safe runtime has a concrete domain binding; `declared-unbound` means only the reviewed contract exists and calls still fail closed.
 
 The canonical operational schemas and security annotations are in `packages/contracts/src/mcp-v0.ts`. Server enforcement is in `packages/api/src/mcp/registry.ts`; concrete bounded reads are in `packages/api/src/mcp/read-actions.ts`. Prospect tools are defined and enforced in `packages/api/src/prospect-agent/registry.ts` and mounted through the authenticated agent bridge.
 
@@ -18,10 +18,10 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `pathfinder.ask_operator`                     | Durable operator question               | Operation UUID             | No; never grants approval                 | Enabled after verified credential composition   |
 | `pathfinder.delegate_specialist`              | Same-scope child agent run              | Operation UUID             | No domain mutation authority              | Enabled after verified credential composition   |
 | `pathfinder.propose_billing_action`           | Billing proposal only                   | Operation UUID             | Downstream human approval                 | Enabled after verified credential composition   |
-| `pathfinder.create_package_draft`             | Reviewable package draft                | Canonical action policy    | Verified approval grant                   | Write tools default off                         |
-| `pathfinder.create_update_draft`              | Reviewable operational-update draft     | Canonical action policy    | Verified approval grant                   | Write tools default off                         |
-| `pathfinder.create_support_draft`             | Reviewable support draft                | Canonical action policy    | Verified approval grant                   | Write tools default off                         |
-| `pathfinder.request_evaluation`               | Bounded evaluation request              | Canonical request identity | Verified approval grant                   | Write tools and runner default off              |
+| `pathfinder.create_package_draft`             | Reviewable package draft                | Canonical action policy    | Verified approval grant                   | Declared; no safe-runtime binding               |
+| `pathfinder.create_update_draft`              | Reviewable operational-update draft     | Canonical action policy    | Verified approval grant                   | Bound; exact grant still required               |
+| `pathfinder.create_support_draft`             | Reviewable support draft                | Canonical action policy    | Verified approval grant                   | Declared; no safe-runtime binding               |
+| `pathfinder.request_evaluation`               | Bounded evaluation request              | Canonical request identity | Verified approval grant                   | Declared; no safe-runtime binding               |
 | `torchiko.account.get_context`                | Compact CRM/account context             | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.account.timeline`                   | Paginated relationship timeline         | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.account.meetings`                   | Bounded meeting summaries               | Safe repeat                | No                                        | Credential capability scoped                    |
@@ -45,10 +45,13 @@ The expanded operational-intelligence resources deliberately exclude report cont
 
 `pnpm torchiko tools coverage --json` is the machine-readable comparison surface between the typed
 first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
-names, and fails when its reviewed operation digest drifts. Each entry includes the operation path,
-kind, defining router, source file, policy category, and inherited agent/developer coverage. The
-inherited `partial` label describes the domain policy only; it does not claim an exact MCP binding.
-Use the MCP resource/tool catalog above to verify actual callable agent interfaces.
+names, and fails when either its reviewed operation digest or reviewed binding digest drifts. Each
+entry includes the operation path, kind, defining router, source file, policy category, inherited
+agent/developer coverage, and exact binding state. The current 371-operation inventory contains 2
+direct-tool bindings, 96 bounded alternatives, and 273 explicit unbound gaps. A binding is rejected
+if its operation is missing/duplicated, its surface is unknown, or its tool is declared but not
+bound in `createSafeOperationalMcpRegistry`. The inherited `partial` label remains domain policy,
+not callable proof.
 
 ## Prospect agent tools
 

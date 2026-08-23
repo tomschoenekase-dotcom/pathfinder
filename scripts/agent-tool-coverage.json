@@ -6,6 +6,364 @@
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
+  "operationBindings": {
+    "reviewed": {
+      "operationInventorySha256": "ea85dd29a2250c70eb956f70b06327d0f3dc0f4c920726464e8e562fdf530137",
+      "sha256": "8182db9a63f561ee803c9354c51404ae33b9971683f0eee294e89c304bb347f3"
+    },
+    "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
+    "rules": [
+      {
+        "id": "unified-agent-run-trace",
+        "kind": "direct-tool",
+        "operations": ["admin.listAgentRunTrace"],
+        "surfaces": ["resource:pathfinder.agent-run-trace"],
+        "decision": "The capability-gated MCP resource exposes the same bounded run/action/approval/outcome chronology for an exact venue and run.",
+        "evidence": "packages/api/src/routers/admin/agent-run-trace.disposable.integration.test.ts"
+      },
+      {
+        "id": "prospect-draft-domain-action",
+        "kind": "direct-tool",
+        "operations": ["admin.saveProspectOutreachDraft"],
+        "surfaces": ["tool:torchiko.prospects.save_outreach_draft"],
+        "decision": "The agent tool and administrator route bind the same durable saveProspectOutreachDraftAction; the agent contract remains review-only and cannot send.",
+        "evidence": "packages/api/src/prospect-agent/registry.test.ts"
+      },
+      {
+        "id": "bounded-prospect-intelligence",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getProspect",
+          "admin.getProspectIntelligence",
+          "admin.listProspects",
+          "admin.listProspectCampaigns",
+          "admin.getProspectCampaign"
+        ],
+        "surfaces": [
+          "tool:torchiko.prospects.search",
+          "tool:torchiko.prospects.get_intelligence",
+          "tool:torchiko.prospects.list_campaign_members"
+        ],
+        "decision": "Prospect agents receive frozen-scope search, intelligence, and campaign-member reads instead of unrestricted platform-admin CRM projections.",
+        "evidence": "packages/api/src/prospect-agent/registry.test.ts"
+      },
+      {
+        "id": "bounded-account-context",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getClient",
+          "admin.getClientVenue",
+          "admin.listClients",
+          "admin.searchClients"
+        ],
+        "surfaces": ["tool:torchiko.account.get_context", "resource:pathfinder.clients"],
+        "decision": "Agents receive tenant-scoped relationship context and client identity without the unrestricted platform directory or management surface.",
+        "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-account-correspondence",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.listProspectThreads",
+          "admin.listProspectThreadMessages",
+          "admin.listProspectActivities"
+        ],
+        "surfaces": ["tool:torchiko.account.timeline", "tool:torchiko.account.correspondence"],
+        "decision": "The account tools expose bounded relationship chronology and canonical-source pointers without granting broad CRM mutation or duplicating raw Gmail bodies.",
+        "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-company-knowledge",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.listCompanyBrain",
+          "analytics.getContentGaps",
+          "admin.createKnowledgeProposal"
+        ],
+        "surfaces": [
+          "tool:torchiko.knowledge.search",
+          "tool:torchiko.knowledge.get",
+          "tool:torchiko.knowledge.list_gaps",
+          "tool:torchiko.knowledge.propose_correction"
+        ],
+        "decision": "Agents can retrieve permission-aware current/history knowledge and prepare evidence-linked corrections, but cannot promote or supersede canonical truth.",
+        "evidence": "packages/api/src/mcp/company-brain-shakedown.disposable.integration.test.ts"
+      },
+      {
+        "id": "bounded-customer-access-preparation",
+        "kind": "bounded-alternative",
+        "operations": ["tenant.inviteMember"],
+        "surfaces": ["tool:torchiko.customer_access.prepare_invitation"],
+        "decision": "The agent can prepare an approval item from owner-authored support evidence but cannot invoke Clerk, send an invitation, or create membership.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "bounded-integration-health",
+        "kind": "bounded-alternative",
+        "operations": ["admin.operationsReadiness"],
+        "surfaces": ["tool:torchiko.integrations.health"],
+        "decision": "The agent receives a secret-free, tenant-scoped integration projection rather than unrestricted platform readiness data.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "bounded-specialist-delegation",
+        "kind": "bounded-alternative",
+        "operations": ["admin.createAgentTask"],
+        "surfaces": ["tool:pathfinder.delegate_specialist"],
+        "decision": "A running scoped agent may create an auditable child task under its parent run; it cannot create arbitrary platform tasks or identities.",
+        "evidence": "packages/api/src/mcp/registry.test.ts"
+      },
+      {
+        "id": "bounded-billing-proposal",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.createClientCheckout",
+          "admin.createManualArrangement",
+          "admin.executeApprovedBillingCommand",
+          "billing.createCheckout",
+          "billing.requestCancellation"
+        ],
+        "surfaces": ["tool:pathfinder.propose_billing_action"],
+        "decision": "Agents may create idempotent human-review proposals for enumerated billing actions; the tool performs no Stripe call, cancellation, or access change.",
+        "evidence": "packages/api/src/mcp/agent-actions.ts"
+      },
+      {
+        "id": "bounded-operational-update-draft",
+        "kind": "bounded-alternative",
+        "operations": ["operationalUpdate.create"],
+        "surfaces": ["tool:pathfinder.create_update_draft"],
+        "decision": "The agent can create only an approval-grant-bound GENERAL_NOTICE draft with fixed safe fields; publication and broad update types remain unavailable.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "bounded-venue-reads",
+        "kind": "bounded-alternative",
+        "operations": ["venue.getById", "venue.list", "admin.getVenueAvailability"],
+        "surfaces": ["resource:pathfinder.venues"],
+        "decision": "The resource exposes exact-scope venue identity and availability without platform-wide discovery or mutation.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-configuration-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "venue.getAiConfig",
+          "venue.getBotConfiguration",
+          "venue.getSecondLayer",
+          "admin.getGuestDesign",
+          "admin.getSecondLayerEntitlement",
+          "admin.getVenueAiWorkloadConfiguration"
+        ],
+        "surfaces": ["resource:pathfinder.configuration"],
+        "decision": "Agents receive a bounded configuration projection but cannot alter rollout, design, entitlement, or model policy.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-content-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "knowledge.list",
+          "place.getById",
+          "place.list",
+          "admin.listLegacyContent",
+          "admin.listUniversalContent"
+        ],
+        "surfaces": ["resource:pathfinder.content"],
+        "decision": "The resource exposes approved venue content only; drafts, retired material, broad administrative fields, and writes remain excluded.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-content-history",
+        "kind": "bounded-alternative",
+        "operations": [
+          "contentHistory.list",
+          "contentHistory.listForVenue",
+          "contentHistory.listDeletedVenues"
+        ],
+        "surfaces": ["resource:pathfinder.history"],
+        "decision": "Agents can inspect bounded version history while reversion and deletion restoration remain human-controlled.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-package-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "venuePackage.getById",
+          "venuePackage.list",
+          "venuePackage.preview",
+          "admin.getVenuePackageForReview",
+          "admin.listVenuePackagesForReview"
+        ],
+        "surfaces": ["resource:pathfinder.packages"],
+        "decision": "Agents can inspect package and review state without approval, application, reversion, or deployment authority.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-support-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "support.getRequest",
+          "support.listRequests",
+          "support.listEligibleAttachments",
+          "admin.getSupportRequest",
+          "admin.listSupportRequests",
+          "admin.listSupportMessages",
+          "admin.listSupportDraftPackages",
+          "admin.listSupportPackageHandoffs",
+          "admin.listEligibleSupportAttachments"
+        ],
+        "surfaces": ["resource:pathfinder.support"],
+        "decision": "Agents receive exact-venue support summaries and safe attachment eligibility without participant, message, resolution, or package mutation.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-update-reads",
+        "kind": "bounded-alternative",
+        "operations": ["operationalUpdate.list", "operationalUpdate.getById"],
+        "surfaces": ["resource:pathfinder.updates"],
+        "decision": "Agents can inspect bounded operational-update state; scheduling, publication, editing, and deactivation remain gated.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-ai-usage-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getClientAiCosts",
+          "admin.getAiCostBudget",
+          "admin.getClientAnalytics"
+        ],
+        "surfaces": ["resource:pathfinder.ai-usage"],
+        "decision": "Agents receive bounded usage and cost observations without budget mutation or unrestricted portfolio analytics.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-evaluation-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.compareEvaluationRuns",
+          "admin.listEvaluationCases",
+          "admin.listEvaluationRuns",
+          "admin.listOnboardingEvaluationPackages",
+          "admin.listNativeVenueDeploymentEvaluationEvidence"
+        ],
+        "surfaces": ["resource:pathfinder.evaluations"],
+        "decision": "Agents can inspect bounded evaluation evidence; the declared request tool remains unavailable in the safe runtime and is not counted as a binding.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-report-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getWeeklyReportLifecycle",
+          "admin.getWeeklyReport",
+          "admin.listWeeklyReports",
+          "analytics.getPublishedWeeklyReport",
+          "analytics.getWeeklyReportAvailability",
+          "analytics.listPublishedWeeklyReports"
+        ],
+        "surfaces": ["resource:pathfinder.reports"],
+        "decision": "Agents can inspect bounded report state and published output without draft generation, editing, or publication authority.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-conversation-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getSessionChatlog",
+          "admin.listVenueSessions",
+          "chat.history",
+          "chat.session"
+        ],
+        "surfaces": ["resource:pathfinder.conversations"],
+        "decision": "Agents receive privacy-bounded conversation metadata and review signals, not unrestricted raw replay or visitor interaction authority.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-agent-run-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getAgentRun",
+          "admin.listAgentRuns",
+          "admin.listAgentRunActions",
+          "admin.listAgentRunTimeline"
+        ],
+        "surfaces": ["resource:pathfinder.agent-runs"],
+        "decision": "Agents can inspect exact-venue run summaries and lifecycle evidence without cancellation, identity, lease, or unrestricted input/output access.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-operational-events",
+        "kind": "bounded-alternative",
+        "operations": ["admin.attentionConsole", "admin.founderOperatingView"],
+        "surfaces": ["resource:pathfinder.events"],
+        "decision": "Agents can inspect scoped operational events; founder briefing aggregation, acknowledgement, resolution, and policy mutation remain separate.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-deployment-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getNativeVenueDeployment",
+          "admin.listNativeVenueDeployments",
+          "admin.previewFullVenueDeploymentManifest"
+        ],
+        "surfaces": ["resource:pathfinder.deployments"],
+        "decision": "Agents receive bounded deployment history and state without approval, application, rollback execution, or manifest review authority.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-feature-flag-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.getBillingRollout",
+          "admin.getTochiRollout",
+          "admin.getGlobalAiControl",
+          "admin.getAiProviderHealthControl"
+        ],
+        "surfaces": ["resource:pathfinder.feature-flags"],
+        "decision": "Agents can observe effective rollout and safety state but cannot change tenant flags, global controls, or provider overrides.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-onboarding-reads",
+        "kind": "bounded-alternative",
+        "operations": [
+          "admin.listOnboardingBootstrapDetails",
+          "intake.getOnboardingBootstrap",
+          "portal.getOnboardingJourney",
+          "portal.getVenueLifecycles",
+          "portal.getVenueTaskEvidence"
+        ],
+        "surfaces": ["resource:pathfinder.onboarding-summary"],
+        "decision": "Agents receive an exact-venue onboarding summary rather than unrestricted bootstrap inputs, client portal state, or intake mutation.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-readiness-reads",
+        "kind": "bounded-alternative",
+        "operations": ["admin.getOnboardingMilestoneRollup"],
+        "surfaces": ["resource:pathfinder.readiness"],
+        "decision": "Agents receive a compact readiness projection; this does not authorize activation, release, or publication.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "bounded-question-reads",
+        "kind": "bounded-alternative",
+        "operations": ["admin.listAgentQuestions"],
+        "surfaces": ["resource:pathfinder.questions", "tool:pathfinder.ask_operator"],
+        "decision": "Agents can create idempotent scoped questions and inspect exact-venue question state, but cannot answer or promote policy.",
+        "evidence": "packages/api/src/mcp/registry.test.ts"
+      },
+      {
+        "id": "bounded-outcome-reads",
+        "kind": "bounded-alternative",
+        "operations": ["admin.listAgentOutcomeObservations"],
+        "surfaces": ["resource:pathfinder.outcomes"],
+        "decision": "Agents can inspect bounded outcome evidence without recording their own reliability verdict as authoritative evidence.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      }
+    ]
+  },
   "categories": [
     {
       "id": "application-health",

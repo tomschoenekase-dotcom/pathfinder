@@ -75,7 +75,18 @@ function mcpResourceNames(source) {
   )
 }
 
-function mcpToolMetadata(source) {
+function safeOperationalToolBindings(source) {
+  const start = source.indexOf('export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS')
+  const end = source.indexOf('] as const', start)
+  if (start < 0 || end < 0) return new Set()
+  return new Set(
+    [...source.slice(start, end).matchAll(/'((?:pathfinder|torchiko)\.[a-z0-9_.]+)'/gu)].map(
+      (match) => match[1],
+    ),
+  )
+}
+
+function mcpToolMetadata(source, runtimeBindings) {
   const start = source.indexOf('export const PATHFINDER_MCP_TOOLS')
   if (start < 0) return []
   const catalog = source.slice(start)
@@ -95,6 +106,7 @@ function mcpToolMetadata(source) {
         approvalRequired: ['draft', 'bounded-evaluation-request'].includes(security?.[3]),
         idempotent: /idempotentHint:\s*true/u.test(block),
         defaultEnabled: !['draft', 'bounded-evaluation-request'].includes(security?.[3]),
+        runtimeAvailability: runtimeBindings.has(match[1]) ? 'bound' : 'declared-unbound',
         transport: 'authenticated-agent-bridge',
         source: 'packages/contracts/src/mcp-v0.ts',
       }
@@ -119,6 +131,7 @@ function prospectToolMetadata(source) {
       humanReviewRequired: /humanReviewRequired:\s*true/u.test(block),
       idempotent: /idempotent:\s*true/u.test(block),
       defaultEnabled: true,
+      runtimeAvailability: 'bound',
       transport: 'authenticated-agent-bridge',
       source: 'packages/api/src/prospect-agent/registry.ts',
     }))
@@ -276,10 +289,12 @@ export async function buildDoctorReport(root, environment = process.env) {
 }
 
 export async function listAgentTools(root) {
-  const [mcp, prospect] = await Promise.all([
+  const [mcp, prospect, composition] = await Promise.all([
     readFile(path.join(root, 'packages/contracts/src/mcp-v0.ts'), 'utf8'),
     readFile(path.join(root, 'packages/api/src/prospect-agent/registry.ts'), 'utf8'),
+    readFile(path.join(root, 'packages/api/src/mcp/composition.ts'), 'utf8'),
   ])
+  const runtimeBindings = safeOperationalToolBindings(composition)
   return {
     schemaVersion: 1,
     resources: mcpResourceNames(mcp).map((name) => ({
@@ -287,8 +302,8 @@ export async function listAgentTools(root) {
       family: 'operational-mcp-resource',
       source: 'packages/contracts/src/mcp-v0.ts',
     })),
-    tools: [...mcpToolMetadata(mcp), ...prospectToolMetadata(prospect)].sort((a, b) =>
-      a.name.localeCompare(b.name),
+    tools: [...mcpToolMetadata(mcp, runtimeBindings), ...prospectToolMetadata(prospect)].sort(
+      (a, b) => a.name.localeCompare(b.name),
     ),
   }
 }
@@ -511,11 +526,132 @@ export function operationInventoryDigest(operations) {
     .digest('hex')
 }
 
+export function operationBindingDigest(bindings) {
+  return createHash('sha256')
+    .update(
+      bindings
+        .map((binding) =>
+          [
+            binding.path,
+            binding.kind,
+            binding.ruleId,
+            binding.surfaces.join(','),
+            binding.evidence,
+          ].join('|'),
+        )
+        .join('\n'),
+    )
+    .digest('hex')
+}
+
+export function buildOperationBindings(operations, policy, toolCatalog) {
+  const bindingPolicy = policy.operationBindings ?? {}
+  const rules = bindingPolicy.rules ?? []
+  const operationPaths = new Set(operations.map((operation) => operation.path))
+  const knownSurfaces = new Set([
+    ...toolCatalog.tools.map((tool) => `tool:${tool.name}`),
+    ...toolCatalog.resources.map((resource) => `resource:${resource.name}`),
+  ])
+  const unavailableToolSurfaces = new Set(
+    toolCatalog.tools
+      .filter((tool) => tool.runtimeAvailability !== 'bound')
+      .map((tool) => `tool:${tool.name}`),
+  )
+  const unknownOperations = []
+  const unknownSurfaces = []
+  const unavailableSurfaces = []
+  const duplicateOperations = []
+  const ruleByOperation = new Map()
+  for (const rule of rules) {
+    for (const surface of rule.surfaces ?? []) {
+      if (!knownSurfaces.has(surface)) unknownSurfaces.push({ ruleId: rule.id, surface })
+      else if (unavailableToolSurfaces.has(surface)) {
+        unavailableSurfaces.push({ ruleId: rule.id, surface })
+      }
+    }
+    for (const operation of rule.operations ?? []) {
+      if (!operationPaths.has(operation)) {
+        unknownOperations.push({ ruleId: rule.id, operation })
+        continue
+      }
+      if (ruleByOperation.has(operation)) {
+        duplicateOperations.push({
+          operation,
+          ruleIds: [ruleByOperation.get(operation).id, rule.id],
+        })
+        continue
+      }
+      ruleByOperation.set(operation, rule)
+    }
+  }
+  const entries = operations.map((operation) => {
+    const rule = ruleByOperation.get(operation.path)
+    return {
+      path: operation.path,
+      kind: rule?.kind ?? 'unbound',
+      ruleId: rule?.id ?? null,
+      surfaces: [...(rule?.surfaces ?? [])].sort(),
+      evidence: rule?.evidence ?? '',
+      decision: rule?.decision ?? 'No concrete agent surface has been reviewed for this operation.',
+    }
+  })
+  const digest = operationBindingDigest(entries)
+  const reviewed = bindingPolicy.reviewed ?? {}
+  const counts = entries.reduce((result, entry) => {
+    result[entry.kind] = (result[entry.kind] ?? 0) + 1
+    return result
+  }, {})
+  const validKinds = new Set(['direct-tool', 'bounded-alternative'])
+  const invalidRules = rules
+    .filter(
+      (rule) =>
+        !rule.id ||
+        !validKinds.has(rule.kind) ||
+        !Array.isArray(rule.operations) ||
+        rule.operations.length === 0 ||
+        !Array.isArray(rule.surfaces) ||
+        rule.surfaces.length === 0 ||
+        !rule.evidence ||
+        !rule.decision,
+    )
+    .map((rule) => rule.id ?? null)
+  const inventoryMatches = reviewed.operationInventorySha256 === policy.operationInventory?.sha256
+  const digestMatches = reviewed.sha256 === digest
+  return {
+    counts,
+    bound: entries.filter((entry) => entry.kind !== 'unbound').length,
+    unbound: entries.filter((entry) => entry.kind === 'unbound').map((entry) => entry.path),
+    entries,
+    validation: {
+      unknownOperations,
+      unknownSurfaces,
+      unavailableSurfaces,
+      duplicateOperations,
+      invalidRules,
+      reviewedInventorySha256: reviewed.operationInventorySha256 ?? null,
+      actualInventorySha256: policy.operationInventory?.sha256 ?? null,
+      inventoryMatches,
+      expectedSha256: reviewed.sha256 ?? null,
+      actualSha256: digest,
+      digestMatches,
+    },
+    healthy:
+      unknownOperations.length === 0 &&
+      unknownSurfaces.length === 0 &&
+      unavailableSurfaces.length === 0 &&
+      duplicateOperations.length === 0 &&
+      invalidRules.length === 0 &&
+      inventoryMatches &&
+      digestMatches,
+  }
+}
+
 export async function buildToolCoverageReport(root) {
-  const [repository, policy, operationInventory] = await Promise.all([
+  const [repository, policy, operationInventory, toolCatalog] = await Promise.all([
     buildRepositoryMap(root),
     readJson(path.join(root, 'scripts/agent-tool-coverage.json')),
     buildStaticOperationInventory(root),
+    listAgentTools(root),
   ])
   const routers = [
     ...repository.entryPoints.applicationRouters,
@@ -542,6 +678,11 @@ export async function buildToolCoverageReport(root) {
     }
   })
   const digest = operationInventoryDigest(operationInventory.operations)
+  const operationBindings = buildOperationBindings(
+    operationInventory.operations,
+    policy,
+    toolCatalog,
+  )
   const reviewedInventory = policy.operationInventory ?? {}
   const inventoryMatches =
     reviewedInventory.count === operationEntries.length && reviewedInventory.sha256 === digest
@@ -560,7 +701,7 @@ export async function buildToolCoverageReport(root) {
     operationEntries.every((entry) => entry.status === 'classified') &&
     inventoryMatches
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     totalRouters: entries.length,
     classified: entries.filter((entry) => entry.status === 'classified').length,
     unclassified: entries
@@ -584,9 +725,10 @@ export async function buildToolCoverageReport(root) {
       },
       counts: operationCounts,
       entries: operationEntries,
+      bindings: operationBindings,
       healthy: operationsHealthy,
     },
-    healthy: routerHealthy && operationsHealthy,
+    healthy: routerHealthy && operationsHealthy && operationBindings.healthy,
   }
 }
 

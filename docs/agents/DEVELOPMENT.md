@@ -42,7 +42,7 @@ Canonical sources remain:
 
 ## Tool discovery
 
-Run `pnpm torchiko tools list --json`. The command discovers the operational MCP and prospect-agent tools from their canonical registries. It does not imply that a transport, credential, write gate, or provider is enabled.
+Run `pnpm torchiko tools list --json`. The command discovers the operational MCP and prospect-agent tools from their canonical registries and labels each tool `bound` or `declared-unbound` according to the safe runtime composition. A bound tool still requires its transport, credential, capability, scope, approval, and rollout gates; a declared contract is not callable evidence.
 
 Run `pnpm verify:agent-tools` before handoff. The coverage gate requires every mounted application/admin router to match exactly one explicit agent/developer coverage decision. Restricted and human-controlled decisions are valid; silent omission is not.
 
@@ -51,9 +51,11 @@ The first-party tRPC application surface is broader than the external agent surf
 operation inventory. The operation section records each path, query/mutation kind, defining router,
 source file, policy category, and inherited coverage decision. Its reviewed count and SHA-256 digest
 make additions, removals, kind changes, owner changes, and source moves fail the release gate until
-the inventory is reviewed. Category coverage is not proof that an exact operation has a direct MCP
-binding; see `docs/agents/CAPABILITY_MATRIX.md` and `docs/agents/GAP_REPORT.md` before assuming
-UI/API parity.
+the inventory is reviewed. Schema v3 also gives every operation an exact binding state:
+`direct-tool`, `bounded-alternative`, or `unbound`. Binding rules name real runtime-bound tools or
+resources and carry their own reviewed digest. Unknown operations, duplicate mappings, unknown
+surfaces, and declared-but-runtime-unbound tools fail the release gate. `unbound` remains a truthful
+gap, not a gate failure or an excuse to loosen consequential authority.
 
 ## Targeted tests
 
