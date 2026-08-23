@@ -43,26 +43,26 @@ Use this file to answer “does Torchiko already have this?” Status refers to 
 
 ## Client experience
 
-| Capability                  | Status                       | Usable now?             | Owner / implementation                                        | What remains                                                 |
-| --------------------------- | ---------------------------- | ----------------------- | ------------------------------------------------------------- | ------------------------------------------------------------ |
-| Clerk sign-in/sign-up       | PRODUCTION-READY             | Yes                     | `packages/auth`; dashboard auth routes/middleware             | Verify production Clerk configuration.                       |
-| Tenant/org provisioning     | IMPLEMENTED BUT NEEDS POLISH | Yes                     | Clerk webhook; tenant/membership actions                      | Operational webhook/delivery monitoring.                     |
-| Simple client home          | PRODUCTION-READY             | Yes                     | `DashboardOverview.tsx`; portal router                        | Populate with live value/insights.                           |
-| Multi-venue selection       | PRODUCTION-READY             | Yes                     | client home query and venue selector                          | Real multi-venue customer QA.                                |
-| Remote onboarding           | IMPLEMENTED BUT NEEDS POLISH | Yes                     | `RemoteOnboardingJourney.tsx`; portal onboarding router       | Golden full lifecycle proof.                                 |
-| Resumable file uploads      | PRODUCTION-READY             | Yes locally             | `IntakeFileUpload.tsx`; intake-upload router; storage helpers | Cloud object-store/large-file smoke.                         |
-| Website/staff-note intake   | IMPLEMENTED BUT NEEDS POLISH | Yes                     | portal onboarding/intake flows                                | Provider-backed extraction validation.                       |
-| Client content publishing   | Not exposed by design        | No                      | client inputs create review work; admin release path          | Keep human review; add bounded proposals/corrections.        |
-| Client content editing      | PARTIALLY IMPLEMENTED        | Narrow                  | onboarding/support; legacy client routes redirect             | Safe correction proposal UI.                                 |
-| Client analytics            | PARTIALLY IMPLEMENTED        | No dedicated view       | analytics route redirects; internal analytics exists          | Read-only high-value insight summary.                        |
-| Client chat logs            | PARTIALLY IMPLEMENTED        | Not directly            | internal admin chat logs                                      | Privacy-aware client summary if product requires it.         |
-| Weekly reports              | IMPLEMENTED BUT NEEDS POLISH | Published reports yes   | `(app)/weekly-reports`; report worker/DB lifecycle            | Prove generation/publication with real data.                 |
-| Support cases               | PRODUCTION-READY             | Yes                     | `SupportWorkspace.tsx`; `routers/support.ts`                  | Email/SLA channel integration.                               |
-| Operational updates         | IMPLEMENTED BUT NEEDS POLISH | Yes                     | dashboard operational-update routes/router                    | External delivery/notification.                              |
-| Roles                       | IMPLEMENTED BUT NEEDS POLISH | Yes                     | owner/admin/member membership model; Clerk org                | More granular product permissions if demanded.               |
-| Entitlements/plans          | PARTIALLY IMPLEMENTED        | Internal/code-supported | product-entitlement router/models/current migrations          | Stabilize migration and connect commercial billing.          |
-| Billing collection/invoices | SCAFFOLDED                   | No                      | plan/billing visibility fields only                           | Select hosted provider; checkout, invoicing, reconciliation. |
-| Data export/offboarding     | IMPLEMENTED BUT NEEDS POLISH | Operator-led            | offboarding admin/router/helpers                              | Customer-visible request flow and deletion completion.       |
+| Capability                  | Status                       | Usable now?             | Owner / implementation                                        | What remains                                                   |
+| --------------------------- | ---------------------------- | ----------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
+| Clerk sign-in/sign-up       | PRODUCTION-READY             | Yes                     | `packages/auth`; dashboard auth routes/middleware             | Verify production Clerk configuration.                         |
+| Tenant/org provisioning     | IMPLEMENTED BUT NEEDS POLISH | Yes                     | Clerk webhook; tenant/membership actions                      | Operational webhook/delivery monitoring.                       |
+| Simple client home          | PRODUCTION-READY             | Yes                     | `DashboardOverview.tsx`; portal router                        | Populate with live value/insights.                             |
+| Multi-venue selection       | PRODUCTION-READY             | Yes                     | client home query and venue selector                          | Real multi-venue customer QA.                                  |
+| Remote onboarding           | IMPLEMENTED BUT NEEDS POLISH | Yes                     | `RemoteOnboardingJourney.tsx`; portal onboarding router       | Golden full lifecycle proof.                                   |
+| Resumable file uploads      | PRODUCTION-READY             | Yes locally             | `IntakeFileUpload.tsx`; intake-upload router; storage helpers | Cloud object-store/large-file smoke.                           |
+| Website/staff-note intake   | IMPLEMENTED BUT NEEDS POLISH | Yes                     | portal onboarding/intake flows                                | Provider-backed extraction validation.                         |
+| Client content publishing   | Not exposed by design        | No                      | client inputs create review work; admin release path          | Keep human review; add bounded proposals/corrections.          |
+| Client content editing      | PARTIALLY IMPLEMENTED        | Narrow                  | onboarding/support; legacy client routes redirect             | Safe correction proposal UI.                                   |
+| Client analytics            | IMPLEMENTED BUT NEEDS POLISH | Privacy-bounded pulse   | `portal.getVenueVisitorPulse`; client dashboard visitor pulse | Deeper calibrated insights without exposing raw conversations. |
+| Client chat logs            | PARTIALLY IMPLEMENTED        | Not directly            | internal admin chat logs                                      | Privacy-aware client summary if product requires it.           |
+| Weekly reports              | IMPLEMENTED BUT NEEDS POLISH | Published reports yes   | `(app)/weekly-reports`; report worker/DB lifecycle            | Prove generation/publication with real data.                   |
+| Support cases               | PRODUCTION-READY             | Yes                     | `SupportWorkspace.tsx`; `routers/support.ts`                  | Email/SLA channel integration.                                 |
+| Operational updates         | IMPLEMENTED BUT NEEDS POLISH | Yes                     | dashboard operational-update routes/router                    | External delivery/notification.                                |
+| Roles                       | IMPLEMENTED BUT NEEDS POLISH | Yes                     | owner/admin/member membership model; Clerk org                | More granular product permissions if demanded.                 |
+| Entitlements/plans          | PARTIALLY IMPLEMENTED        | Internal/code-supported | product-entitlement router/models/current migrations          | Stabilize migration and connect commercial billing.            |
+| Billing collection/invoices | SCAFFOLDED                   | No                      | plan/billing visibility fields only                           | Select hosted provider; checkout, invoicing, reconciliation.   |
+| Data export/offboarding     | IMPLEMENTED BUT NEEDS POLISH | Operator-led            | offboarding admin/router/helpers                              | Customer-visible request flow and deletion completion.         |
 
 ## Admin and operations
 

@@ -106,12 +106,12 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes**.
 - **Codex autonomous:** **Yes** for code/tests; deployment alerts need configuration.
 
-### P1.6 — Give clients a bounded insight and correction loop
+### P1.6 — Give clients a bounded insight and correction loop — IMPLEMENTED 2026-08-22
 
-- **Problem:** Client analytics and authoring routes intentionally redirect home. Clients cannot see top questions/content gaps/feedback or propose precise corrections outside broad onboarding/support.
-- **Evidence:** `(app)/legacy-route-boundary.test.ts`; redirects for analytics and old venue authoring; full analytics/content tools exist only under admin.
+- **Outcome:** The client dashboard now shows a venue-scoped, privacy-bounded visitor pulse with aggregate activity, helpfulness, and content-review signals. Its correction action opens a prefilled service-led content-correction request; clients never receive raw conversation access or direct publication authority.
+- **Evidence:** `portal.getVenueVisitorPulse`; `DashboardOverview.tsx`; `SupportWorkspace.tsx`; `(app)/support/page.tsx`; API, component, and route tests.
 - **Affected system:** Client portal, analytics, content operations, support load.
-- **Recommended change:** Add a read-only weekly insight summary and “suggest a correction” flow that creates a reviewable knowledge proposal; never direct-publish.
+- **Remaining work:** Calibrate useful trend depth and connect reviewed service requests into the existing operator/knowledge-proposal workflow where evidence warrants it; never direct-publish.
 - **Why it matters:** Customers receive more visible value and can improve accuracy without weakening editorial safety.
 - **Effort:** M
 - **Dependencies:** Stable proposal workflow and client permissions.
