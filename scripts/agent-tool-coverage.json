@@ -9,7 +9,7 @@
   "operationBindings": {
     "reviewed": {
       "operationInventorySha256": "ea85dd29a2250c70eb956f70b06327d0f3dc0f4c920726464e8e562fdf530137",
-      "sha256": "8182db9a63f561ee803c9354c51404ae33b9971683f0eee294e89c304bb347f3"
+      "sha256": "862c447248b3d00ea319f8e83493d1f2bac79f4ef0767a3f296afcf9f28e8e65"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -28,6 +28,14 @@
         "surfaces": ["tool:torchiko.prospects.save_outreach_draft"],
         "decision": "The agent tool and administrator route bind the same durable saveProspectOutreachDraftAction; the agent contract remains review-only and cannot send.",
         "evidence": "packages/api/src/prospect-agent/registry.test.ts"
+      },
+      {
+        "id": "weekly-report-lifecycle",
+        "kind": "direct-tool",
+        "operations": ["admin.getWeeklyReportLifecycle"],
+        "surfaces": ["tool:torchiko.reports.get_lifecycle"],
+        "decision": "The MCP tool reuses the canonical lifecycle query and exposes a privacy-bounded generation, source-count, review, publication, and delivery-state projection without mutation authority.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {
         "id": "bounded-prospect-intelligence",
@@ -254,7 +262,6 @@
         "id": "bounded-report-reads",
         "kind": "bounded-alternative",
         "operations": [
-          "admin.getWeeklyReportLifecycle",
           "admin.getWeeklyReport",
           "admin.listWeeklyReports",
           "analytics.getPublishedWeeklyReport",

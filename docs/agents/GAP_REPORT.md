@@ -27,7 +27,12 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
 
 1. Synthetic conversation replay preparation is available through the developer interface; provider-backed execution, expected/actual comparison, grounding explanation, and “why did the AI do that?” remain incomplete.
 2. Deterministic location and time simulation are reusable across four scenario shapes; scheduled-update and client-configuration simulation remain incomplete.
-3. Report generation/regeneration, source inspection, explanation, and delivery status lack a coherent agent namespace.
+3. **Partially closed — coherent report lifecycle read.** An exact `reports:read` tool now reuses
+   the canonical report lifecycle query and returns generation/attempt state, persisted source
+   counts, review state, publication/client visibility, explicit absence of modeled external
+   delivery, and actor-free audit actions. It excludes report content, raw source artifacts, and
+   provider errors. Generation/regeneration, exact source-artifact inspection, explanation of
+   model choices, editing, publication, and real delivery operations remain gated or incomplete.
 4. System jobs, queues, migrations, service health, integration health, feature flags, and deployment identity are only partially visible to agents.
 5. The platform-admin run workspace and the capability-gated MCP read surface now present actions,
    lifecycle events, approvals, and outcome observations as one bounded reverse-chronological
@@ -38,7 +43,7 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    defining router, source file, policy category, and inherited coverage decision. A reviewed
    count+SHA-256 inventory makes additions, removals, kind changes, ownership changes, and source
    moves fail closed, and a runtime test proves the static graph matches the authoritative mounted
-   router. A second reviewed digest now maps 2 operations to direct tools, 96 to deliberately
+   router. A second reviewed digest now maps 3 operations to direct tools, 95 to deliberately
    narrower alternatives, and leaves 273 explicitly unbound. Rules fail on duplicate/unknown
    operations, unknown surfaces, or tools that are merely declared but not bound in the safe
    runtime. This closes operation-level visibility and concrete binding measurement; it does not
@@ -60,7 +65,7 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
 - Unified core discovery metadata across operational MCP and prospect-agent tools.
 - Added `pnpm verify:agent-tools`, which fails when a mounted application/admin router has no explicit or has an ambiguous agent/developer coverage decision.
 - Expanded the same gate to 371 exact mounted operations with authoritative runtime equivalence,
-  then added a reviewed exact binding ledger: 2 direct, 96 bounded alternatives, and 273 unbound.
+  then added a reviewed exact binding ledger: 3 direct, 95 bounded alternatives, and 273 unbound.
   Declared-but-runtime-unbound tools cannot satisfy the ledger.
 - Added four synthetic scenario fixtures with provider-free time/location simulation and conversation replay preparation.
 - Added the initial capability matrix, developer guide, tool reference, and this gap ledger.

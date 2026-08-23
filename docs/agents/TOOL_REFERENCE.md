@@ -32,6 +32,7 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `torchiko.knowledge.get`                      | Exact governed knowledge item           | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.customer_access.prepare_invitation` | Provider-dark member invitation request | Operation UUID             | Founder review before any external effect | Live worker/run + exact owner-authored evidence |
 | `torchiko.integrations.health`                | Secret-free integration health          | Safe repeat                | No                                        | Credential capability scoped                    |
+| `torchiko.reports.get_lifecycle`              | Exact weekly-report lifecycle           | Safe repeat                | No                                        | Exact venue/report and `reports:read` scoped    |
 
 `pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage, jobs, evaluations, weekly reports, privacy-bounded conversation sessions, integration access health, agent runs, an exact-run unified trace, operational events, native deployments, feature flags, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets. `agent-run-trace` additionally requires `agentRunId`, uses the existing `agent-runs:read` capability, and merges only safe action, lifecycle, approval, and outcome evidence.
 
@@ -41,14 +42,20 @@ The canonical operational schemas and security annotations are in `packages/cont
 
 The expanded operational-intelligence resources deliberately exclude report content/errors, visitor tokens and coordinates, message bodies, credential hashes/prefixes, agent prompts/scope snapshots/artifacts, deployment plans/state hashes, and feature-flag metadata/actor IDs.
 
+`torchiko.reports.get_lifecycle` reuses the canonical administrator lifecycle query for one exact
+report, then returns a machine-readable safe projection of generation state, persisted source
+counts, review status, publication/client visibility, explicit absence of external-delivery state,
+and actor-free audit actions. It exposes only failure-presence booleans—not raw report, dispatch, or
+job errors—and grants no generation, editing, publication, or delivery authority.
+
 ## Operation coverage evidence
 
 `pnpm torchiko tools coverage --json` is the machine-readable comparison surface between the typed
 first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
 names, and fails when either its reviewed operation digest or reviewed binding digest drifts. Each
 entry includes the operation path, kind, defining router, source file, policy category, inherited
-agent/developer coverage, and exact binding state. The current 371-operation inventory contains 2
-direct-tool bindings, 96 bounded alternatives, and 273 explicit unbound gaps. A binding is rejected
+agent/developer coverage, and exact binding state. The current 371-operation inventory contains 3
+direct-tool bindings, 95 bounded alternatives, and 273 explicit unbound gaps. A binding is rejected
 if its operation is missing/duplicated, its surface is unknown, or its tool is declared but not
 bound in `createSafeOperationalMcpRegistry`. The inherited `partial` label remains domain policy,
 not callable proof.

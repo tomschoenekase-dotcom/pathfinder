@@ -46,6 +46,7 @@ function actions(): PathfinderMcpDomainActions {
     proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
     prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),
     integrationHealth: vi.fn().mockResolvedValue(result),
+    reportLifecycle: vi.fn().mockResolvedValue(result),
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),
     createPackageDraft: vi.fn().mockResolvedValue(result),
@@ -72,6 +73,7 @@ describe('PathFinder MCP server-side adapter registry', () => {
         'torchiko.knowledge.get',
         'torchiko.customer_access.prepare_invitation',
         'torchiko.integrations.health',
+        'torchiko.reports.get_lifecycle',
       ]),
     )
     await registry.callTool(
@@ -171,6 +173,30 @@ describe('PathFinder MCP server-side adapter registry', () => {
       ),
     ).rejects.toThrow('Client scope denied')
     expect(domain.knowledgeSearch).not.toHaveBeenCalled()
+  })
+
+  it('requires reports:read and exact venue scope for the report lifecycle tool', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    const input = { clientId: 'client-1', venueId: 'venue-1', reportId: 'report-1' }
+
+    await registry.callTool('torchiko.reports.get_lifecycle', input, {
+      credential: { ...credential, capabilities: ['reports:read'] },
+    })
+    expect(domain.reportLifecycle).toHaveBeenCalledWith(input, expect.anything())
+
+    await expect(
+      registry.callTool(
+        'torchiko.reports.get_lifecycle',
+        { ...input, venueId: 'venue-2' },
+        { credential: { ...credential, capabilities: ['reports:read'] } },
+      ),
+    ).rejects.toThrow('Venue scope denied')
+    await expect(
+      registry.callTool('torchiko.reports.get_lifecycle', input, {
+        credential: { ...credential, capabilities: [] },
+      }),
+    ).rejects.toThrow('Capability denied')
   })
 
   it('denies cross-client and cross-venue reads before a canonical action is called', async () => {

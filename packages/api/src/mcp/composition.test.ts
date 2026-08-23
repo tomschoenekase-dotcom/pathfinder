@@ -279,6 +279,119 @@ describe('safe operational MCP composition', () => {
     })
   })
 
+  it('returns a coherent report lifecycle without content, raw sources, provider errors, or publication authority', async () => {
+    const database = {
+      weeklyReport: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'report-1',
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          weekStart: new Date('2026-08-01T00:00:00.000Z'),
+          weekEnd: new Date('2026-08-07T23:59:59.000Z'),
+          title: 'Weekly evidence',
+          status: 'DRAFT',
+          updatedAt: new Date('2026-08-08T10:00:00.000Z'),
+          generatedAt: new Date('2026-08-08T09:00:00.000Z'),
+          publishedAt: null,
+          answerCount: 7,
+          sessionCount: 11,
+          error: 'raw report error must stay private',
+          createdAt: new Date('2026-08-08T08:00:00.000Z'),
+        }),
+      },
+      venueReportConfiguration: {
+        findFirst: vi.fn().mockResolvedValue({
+          enabled: true,
+          updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+          updatedBy: 'private-operator-id',
+        }),
+      },
+      generationRequestDispatch: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'dispatch-1',
+          requestId: '11111111-1111-4111-8111-111111111111',
+          status: 'CONSUMED',
+          attempts: 2,
+          nextAttemptAt: new Date('2026-08-08T08:30:00.000Z'),
+          lastError: 'raw dispatch error must stay private',
+          consumedAt: new Date('2026-08-08T08:45:00.000Z'),
+          createdAt: new Date('2026-08-08T08:00:00.000Z'),
+          updatedAt: new Date('2026-08-08T08:45:00.000Z'),
+        }),
+      },
+      jobRecord: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'job-1',
+            jobName: 'weekly-report.process',
+            status: 'COMPLETE',
+            error: 'raw job error must stay private',
+            attemptNumber: 2,
+            maxAttempts: 3,
+            failureDisposition: null,
+            startedAt: new Date('2026-08-08T08:45:00.000Z'),
+            completedAt: new Date('2026-08-08T09:00:00.000Z'),
+            terminalAt: null,
+            createdAt: new Date('2026-08-08T08:45:00.000Z'),
+          },
+        ]),
+      },
+      auditLog: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'audit-1',
+            actorId: 'private-operator-id',
+            actorRole: 'PLATFORM_ADMIN',
+            action: 'admin.report.requested',
+            createdAt: new Date('2026-08-08T08:00:00.000Z'),
+          },
+        ]),
+      },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const result = await registry.callTool(
+      'torchiko.reports.get_lifecycle',
+      { clientId: 'tenant-1', venueId: 'venue-1', reportId: 'report-1' },
+      { credential: { ...credential, capabilities: ['reports:read'] } },
+    )
+
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.weekly-report-lifecycle',
+      data: {
+        status: 'REVIEW',
+        report: {
+          sourceEvidence: {
+            capturedAnswerCount: 7,
+            publicSessionCount: 11,
+            exactSourceArtifactsAvailable: false,
+          },
+          failurePresent: true,
+        },
+        generation: {
+          dispatch: { state: 'CONSUMED', attempts: 2, failurePresent: true },
+          jobs: { count: 1, latest: { status: 'COMPLETE', failurePresent: true } },
+        },
+        publication: {
+          state: 'NOT_PUBLISHED',
+          clientVisible: false,
+          externalDelivery: 'NOT_MODELED',
+        },
+        boundaries: {
+          reportContentIncluded: false,
+          rawSourceArtifactsIncluded: false,
+          rawProviderErrorsIncluded: false,
+          generationAuthorized: false,
+          publicationAuthorized: false,
+        },
+      },
+    })
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain('raw report error')
+    expect(serialized).not.toContain('raw dispatch error')
+    expect(serialized).not.toContain('raw job error')
+    expect(serialized).not.toContain('private-operator-id')
+  })
+
   it('lets a verified knowledge worker prepare review evidence without changing canonical content', async () => {
     proposeCorrection.mockResolvedValue({
       proposal: { id: '11111111-1111-4111-8111-111111111111', status: 'PENDING_REVIEW' },

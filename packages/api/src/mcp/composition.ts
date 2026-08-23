@@ -19,12 +19,14 @@ import {
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
+  withTenantIsolationBypass,
 } from '@pathfinder/db'
 import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
-import { createPathfinderMcpReadActions } from './read-actions'
+import { readWeeklyReportLifecycle } from '../lib/weekly-report-lifecycle'
+import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
 
 /** Exact tools with a real safe-runtime domain binding. Contract-only tools are deliberately
@@ -43,6 +45,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.propose_correction',
   'torchiko.customer_access.prepare_invitation',
   'torchiko.integrations.health',
+  'torchiko.reports.get_lifecycle',
   'pathfinder.ask_operator',
   'pathfinder.delegate_specialist',
   'pathfinder.propose_billing_action',
@@ -84,6 +87,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'proposeKnowledgeCorrection'
     | 'prepareCustomerAccessInvitation'
     | 'integrationHealth'
+    | 'reportLifecycle'
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
   > = {
@@ -561,6 +565,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'knowledgeGet'
     | 'listKnowledgeGaps'
     | 'integrationHealth'
+    | 'reportLifecycle'
   > = {
     async accountContext(input, context) {
       const data = await getCompactAccountContext(
@@ -737,6 +742,102 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
         kind: 'torchiko.integration-health',
         summary: `${data.integrations.length} integration health record(s).`,
         data: jsonData(data),
+      }
+    },
+    async reportLifecycle(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpReadBindingError('SCOPE_INVARIANT', 'Venue scope is required.')
+      const lifecycle = await withTenantIsolationBypass(() =>
+        readWeeklyReportLifecycle(
+          {
+            tenantId: context.credential.tenantId,
+            venueId,
+            reportId: input.reportId,
+          },
+          database,
+        ),
+      )
+      if (!lifecycle) {
+        throw new McpReadBindingError(
+          'RESOURCE_UNAVAILABLE',
+          'The requested weekly report is unavailable.',
+        )
+      }
+      const latestJob = lifecycle.jobs[0] ?? null
+      return {
+        kind: 'torchiko.weekly-report-lifecycle',
+        summary: `Weekly report is ${lifecycle.status.toLowerCase()}.`,
+        data: jsonData({
+          schemaVersion: 'weekly-report-lifecycle.v1',
+          scope: { venueId, reportId: lifecycle.scope.reportId },
+          version: lifecycle.version,
+          status: lifecycle.status,
+          legacyStatus: lifecycle.legacyStatus,
+          executionEnabled: lifecycle.executionEnabled,
+          report: {
+            title: lifecycle.report.title,
+            weekStart: lifecycle.report.weekStart,
+            weekEnd: lifecycle.report.weekEnd,
+            createdAt: lifecycle.report.createdAt,
+            generatedAt: lifecycle.report.generatedAt,
+            sourceEvidence: {
+              capturedAnswerCount: lifecycle.report.answerCount,
+              publicSessionCount: lifecycle.report.sessionCount,
+              lineage: 'PERSISTED_GENERATION_COUNTS',
+              exactSourceArtifactsAvailable: false,
+            },
+            failurePresent: lifecycle.report.error !== null,
+          },
+          generation: {
+            dispatch: lifecycle.dispatch
+              ? {
+                  state: lifecycle.dispatch.status,
+                  attempts: lifecycle.dispatch.attempts,
+                  nextAttemptAt: lifecycle.dispatch.nextAttemptAt,
+                  consumedAt: lifecycle.dispatch.consumedAt,
+                  createdAt: lifecycle.dispatch.createdAt,
+                  updatedAt: lifecycle.dispatch.updatedAt,
+                  failurePresent: lifecycle.dispatch.lastError !== null,
+                }
+              : null,
+            jobs: {
+              count: lifecycle.jobs.length,
+              latest: latestJob
+                ? {
+                    name: latestJob.jobName,
+                    status: latestJob.status,
+                    attemptNumber: latestJob.attemptNumber,
+                    maxAttempts: latestJob.maxAttempts,
+                    failureDisposition: latestJob.failureDisposition,
+                    startedAt: latestJob.startedAt,
+                    completedAt: latestJob.completedAt,
+                    terminalAt: latestJob.terminalAt,
+                    failurePresent: latestJob.error !== null,
+                  }
+                : null,
+            },
+          },
+          publication: {
+            state: lifecycle.report.publishedAt ? 'PUBLISHED' : 'NOT_PUBLISHED',
+            publishedAt: lifecycle.report.publishedAt,
+            clientVisible: lifecycle.legacyStatus === 'PUBLISHED',
+            externalDelivery: 'NOT_MODELED',
+          },
+          audit: {
+            count: lifecycle.audits.length,
+            recent: lifecycle.audits.map((event) => ({
+              action: event.action,
+              createdAt: event.createdAt,
+            })),
+          },
+          boundaries: {
+            reportContentIncluded: false,
+            rawSourceArtifactsIncluded: false,
+            rawProviderErrorsIncluded: false,
+            generationAuthorized: false,
+            publicationAuthorized: false,
+          },
+        }),
       }
     },
   }

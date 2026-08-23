@@ -472,6 +472,11 @@ export type McpAccountMeetingGetInput = z.infer<typeof McpAccountMeetingGetInput
 export const McpIntegrationHealthInput = McpRequestedScope
 export type McpIntegrationHealthInput = z.infer<typeof McpIntegrationHealthInput>
 
+export const McpReportLifecycleInput = McpRequestedScope.extend({
+  reportId: Identifier,
+}).strict()
+export type McpReportLifecycleInput = z.infer<typeof McpReportLifecycleInput>
+
 const McpKnowledgeType = z.enum([
   'DECISION',
   'STRATEGY',
@@ -743,6 +748,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
+  | 'torchiko.reports.get_lifecycle'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
   | 'pathfinder.propose_billing_action'
@@ -1077,6 +1083,24 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.reports.get_lifecycle',
+    title: 'Get weekly report lifecycle',
+    description:
+      'Return one privacy-bounded report generation, source-count, review, publication, and delivery-state projection without raw report content or provider errors.',
+    inputSchema: strictObject(
+      { ...scopeProperties, reportId: { type: 'string', minLength: 1, maxLength: 120 } },
+      [...scopeRequired, 'reportId'],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'reports:read', 'read') },
   },
   {
     name: 'torchiko.integrations.health',

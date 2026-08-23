@@ -16,6 +16,7 @@ import {
   McpKnowledgeSearchInput,
   McpIntegrationHealthInput,
   McpMeetingProcessInput,
+  McpReportLifecycleInput,
   McpReadInput,
   McpSupportDraftInput,
   McpToolResult,
@@ -59,6 +60,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.knowledge.propose_correction'
         | 'torchiko.customer_access.prepare_invitation'
         | 'torchiko.integrations.health'
+        | 'torchiko.reports.get_lifecycle'
         | 'pathfinder.ask_operator'
         | 'pathfinder.delegate_specialist'
         | 'pathfinder.propose_billing_action'
@@ -116,6 +118,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   integrationHealth: (
     input: McpIntegrationHealthInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  reportLifecycle: (
+    input: McpReportLifecycleInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   askOperator: (
@@ -292,6 +298,12 @@ export function createPathfinderMcpRegistry(
           result = await actions.integrationHealth(input, context)
           break
         }
+        case 'torchiko.reports.get_lifecycle': {
+          const input = McpReportLifecycleInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.reportLifecycle(input, context)
+          break
+        }
         case 'pathfinder.ask_operator': {
           const input = McpAskOperatorInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -386,6 +398,7 @@ async function verifyApproval(
     | 'torchiko.knowledge.propose_correction'
     | 'torchiko.customer_access.prepare_invitation'
     | 'torchiko.integrations.health'
+    | 'torchiko.reports.get_lifecycle'
     | 'pathfinder.ask_operator'
     | 'pathfinder.delegate_specialist'
     | 'pathfinder.propose_billing_action'
