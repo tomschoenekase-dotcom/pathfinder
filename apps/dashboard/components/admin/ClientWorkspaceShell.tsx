@@ -141,6 +141,11 @@ export function ClientWorkspaceShell({
           description: 'Internal Place and Knowledge upkeep',
         },
         {
+          href: `${venueRoot}/locations`,
+          label: 'Location anchors',
+          description: 'Verified guest map and place references',
+        },
+        {
           href: `${venueRoot}/intake`,
           label: 'Guided intake',
           description: 'Website and staff draft proposals',

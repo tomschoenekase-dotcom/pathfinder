@@ -107,6 +107,9 @@ const approvedCallCounts = new Map([
   // Guest design exposes two platform-admin-only, exact tenant+venue scoped operations.
   ['packages/api/src/routers/admin/guest-design.ts', 2],
   ['packages/api/src/routers/admin/legacy-content.ts', 7],
+  // Platform-admin location authoring reads and mutates only one exact tenant+venue workspace;
+  // draft edits and availability transitions are CAS-bound, strictly audited, and content-locked.
+  ['packages/api/src/routers/admin/location-authoring.ts', 4],
   // Platform-admin proposal review is always constrained to the requested tenant and venue.
   ['packages/api/src/routers/admin/knowledge-proposals.ts', 3],
   // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.

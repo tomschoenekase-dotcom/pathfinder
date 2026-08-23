@@ -50,6 +50,7 @@ import { adminTochiRolloutRouter } from './tochi-rollout'
 import { adminTerminalRedrivePreviewRouter } from './terminal-redrive-preview'
 import { adminOperationalEvidenceRouter } from './guest-chat-incident-evidence'
 import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
+import { adminLocationAuthoringRouter } from './location-authoring'
 import { adminProductEntitlementsRouter } from './product-entitlements'
 import { adminProspectCrmRouter } from './prospect-crm'
 import { adminOperationsReadinessRouter } from './operations-readiness'
@@ -63,6 +64,7 @@ export const adminRouter = mergeRouters(
   adminOverviewRouter,
   adminAttentionConsoleRouter,
   adminKnowledgeProposalsRouter,
+  adminLocationAuthoringRouter,
   adminProductEntitlementsRouter,
   adminProspectCrmRouter,
   adminOperationsReadinessRouter,

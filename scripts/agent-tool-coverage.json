@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 376,
-    "sha256": "028610a8ce956d6ca072c6b4c1f4fdd733e7e54600ee910b8e40008e0b7eb0e6",
+    "count": 380,
+    "sha256": "036f349d0bc6ae65479009607cd39442f761dde9a5c924ef81010ce5270b1493",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "028610a8ce956d6ca072c6b4c1f4fdd733e7e54600ee910b8e40008e0b7eb0e6",
-      "sha256": "fc974dc030cd08715602b9e0de5fd5f8b4ead4e1c0c8358a6bd4b128d4ef3870"
+      "operationInventorySha256": "036f349d0bc6ae65479009607cd39442f761dde9a5c924ef81010ce5270b1493",
+      "sha256": "0545fdeee4e2cc58ea110228d9afa7c7ff4fafcd0f97554f3fd7757b42fcf0ed"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -425,7 +425,7 @@
     },
     {
       "id": "venue-content-deployment",
-      "pattern": "Venue|Place|Knowledge|Content|Package|Deployment(?!Evaluations)|SecondLayer|Tochi|GuestDesign|Engagement",
+      "pattern": "Venue|Place|Knowledge|Content|Package|Deployment(?!Evaluations)|SecondLayer|Tochi|GuestDesign|Engagement|LocationAuthoring",
       "agentCoverage": "partial",
       "developerCoverage": "full",
       "decision": "Expose safe reads and reviewable drafts; publication, deployment application, and broad mutation remain approval-bound.",
@@ -465,7 +465,7 @@
     },
     {
       "id": "conversation-experience",
-      "pattern": "Chat|Answer|Feedback|Voice|Location|Widget",
+      "pattern": "^(?!.*LocationAuthoring).*(?:Chat|Answer|Feedback|Voice|Location|Widget)",
       "agentCoverage": "partial",
       "developerCoverage": "partial",
       "decision": "Session metadata is privacy-bounded; raw replay and simulation require a separate synthetic developer contract.",
