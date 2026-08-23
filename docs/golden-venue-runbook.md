@@ -10,14 +10,18 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
    complete migration lineage, executes exactly one non-skipped integration, and removes every exact
    container even after failure. It refuses remote Docker endpoints and strips inherited credentials.
 3. Treat its `proofScope` output as authoritative. It proves client/venue creation, remote intake,
-   authoritative upload evidence, review, a support-question handoff, immutable package/evaluation
-   evidence, explicit release and exact rollback, grounded provider-dark public chat through the
+   authoritative upload evidence, review, a support-question handoff, and a complete service-led
+   support resolution with private operator context and immutable terminal AI-run lineage. It also
+   proves immutable package/evaluation evidence, explicit release and exact rollback, grounded
+   provider-dark public chat through the
    production gateway, visitor-owned feedback, tenant-published routine updates, admin-published
    and client-read reports, plus a human-reviewed non-deleting export matrix finalized into
    versioned disposable storage with exact replay recovery. The chat proof uses deterministic
    in-process OpenAI/Anthropic client seams with outbound credentials and provider workers disabled;
    it proves routing, retrieval, persistence, ownership, and analytics, **not** live-provider answer
-   quality. `EXPORT_READY` proves bounded artifact evidence only; it does not prove customer
+   quality. The support proof performs no external send, package mutation, or approval creation;
+   its AI lineage is evidence rather than execution authority. `EXPORT_READY` proves bounded
+   artifact evidence only; it does not prove customer
    cancellation, revocation, deletion, delivery, or retention policy.
 4. Treat its `failureScope` output as the retained seven-class matrix. It proves founder-governed
    provider exclusion before generation dispatch, a shared-Redis rate limit, infected upload

@@ -5,9 +5,9 @@ Fixture: `golden-venue-riverside-aquarium-v1` (synthetic)
 | Evidence                               | Status                       | Notes                                                                                                                                                                  |
 | -------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Fixture contract                       | VERIFIED                     | Validator covers all 13 declared phases, seven failure classes, and the explicit disposable-proof scope.                                                               |
-| Disposable core lifecycle              | VERIFIED                     | `pnpm golden-venue:disposable` passed on 2026-08-22 with one executed/non-skipped 20-step integration.                                                                 |
+| Disposable core lifecycle              | VERIFIED                     | `pnpm golden-venue:disposable` passed on 2026-08-22 with one executed/non-skipped 21-step integration.                                                                 |
 | Disposable isolation and cleanup       | VERIFIED                     | Fresh digest-pinned PostgreSQL/Redis/MinIO/ClamAV used exact loopback; all exact containers were removed.                                                              |
-| Client → release/rollback              | VERIFIED                     | Client/venue, intake, upload evidence, review, support handoff, package, QA, release, and rollback passed.                                                             |
+| Client → release/rollback              | VERIFIED                     | Client/venue, intake, upload evidence, review, onboarding handoff, service-led support resolution, package, QA, release, and rollback passed.                          |
 | Grounded guest chat and feedback       | VERIFIED_PROVIDER_DARK       | Real public routers, retrieval, gateway routing, complete turn/history, ownership-bound feedback, and analytics passed with deterministic in-process provider clients. |
 | Report and routine update              | VERIFIED                     | Opt-in report publication/client read and tenant-published time-bounded update passed.                                                                                 |
 | Offboarding/export                     | PARTIAL                      | Human review, four versioned bounded artifacts, exact replay, and `EXPORT_READY` passed; no revocation, deletion, cancellation, delivery, or retention policy.         |
@@ -34,6 +34,7 @@ Machine-readable terminal evidence:
     "guest-chat-grounded-provider-dark",
     "visitor-feedback-persisted",
     "support-handoff",
+    "support-service-led-resolution",
     "report-publish-read",
     "routine-update-publish-read",
     "offboarding-reviewed-export-ready"

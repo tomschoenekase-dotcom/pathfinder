@@ -649,6 +649,7 @@ export async function runDisposableGoldenVenueShakedown(options = {}) {
         'guest-chat-grounded-provider-dark',
         'visitor-feedback-persisted',
         'support-handoff',
+        'support-service-led-resolution',
         'report-publish-read',
         'routine-update-publish-read',
         'offboarding-reviewed-export-ready',

@@ -60,6 +60,9 @@ import {
 import { mergeRouters, router } from './core'
 import type { TRPCContext } from './context'
 import { reviewVenuePackageManifestService } from './lib/venue-package-manifest-service'
+import { adminSupportAgentRunLineageRouter } from './routers/admin/support-agent-run-lineage'
+import { adminSupportManualLoopRouter } from './routers/admin/support-manual-loop'
+import { adminSupportOperationsRouter } from './routers/admin/support-operations'
 import { adminOffboardingExportFinalizationRouter } from './routers/admin/offboarding-export-finalization'
 import { adminOffboardingExportPreviewRouter } from './routers/admin/offboarding-export-preview'
 import { adminOffboardingPlansRouter } from './routers/admin/offboarding-plans'
@@ -70,6 +73,7 @@ import { _setAnthropicClientForTesting, chatRouter } from './routers/chat'
 import { feedbackRouter } from './routers/feedback'
 import { operationalUpdateRouter } from './routers/operational-update'
 import { portalRouter } from './routers/portal'
+import { supportRouter } from './routers/support'
 import { venuePackageRouter } from './routers/venue-package'
 
 const enabled = process.env.RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION === '1'
@@ -94,6 +98,9 @@ const testRouter = router({
     adminOffboardingExportFinalizationRouter,
     adminOffboardingPlansRouter,
     adminReportConfigurationRouter,
+    adminSupportAgentRunLineageRouter,
+    adminSupportManualLoopRouter,
+    adminSupportOperationsRouter,
     adminWeeklyReportsRouter,
   ),
   analytics: analyticsRouter,
@@ -101,6 +108,7 @@ const testRouter = router({
   feedback: feedbackRouter,
   operationalUpdate: operationalUpdateRouter,
   portal: portalRouter,
+  support: supportRouter,
   venuePackage: venuePackageRouter,
 })
 
@@ -473,7 +481,179 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       expect(resumeReplay).toMatchObject({ replayed: true, agentRunId: agentRun.id })
       expect(await db.approvalRequest.count({ where: { tenantId, venueId } })).toBe(0)
 
-      // 9. Generate an immutable manifest artifact, materialize its exact linked package,
+      // 9. Service-led support requests preserve private operational context while giving
+      // the client a concise, replay-safe resolution. Terminal AI work is evidence only:
+      // it does not grant execution authority or create a package/approval side effect.
+      const supportCreated = await caller.support.createRequest({
+        operationId: randomUUID(),
+        venueId,
+        category: 'GENERAL',
+        subject: 'Confirm the visitor welcome-desk handoff',
+        body: 'Please confirm how visitors should ask staff for the accessibility map.',
+        attachments: [],
+      })
+      const supportRequestId = supportCreated.request.id
+      const informationRequested = await admin.requestSupportInformation({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: 1,
+        body: 'We are taking care of this. Which desk keeps the current accessibility map?',
+        missingInformation: ['Name the desk that keeps the current accessibility map.'],
+      })
+      expect(informationRequested).toMatchObject({
+        status: 'WAITING_FOR_CLIENT',
+        requestVersion: 2,
+        clientVersion: 2,
+        replayed: false,
+      })
+      const waitingForClient = await caller.support.getRequest({
+        venueId,
+        requestId: supportRequestId,
+        messageLimit: 20,
+      })
+      expect(waitingForClient).toMatchObject({
+        status: 'WAITING_FOR_CLIENT',
+        clientVersion: informationRequested.clientVersion,
+        missingInformation: ['Name the desk that keeps the current accessibility map.'],
+        canReply: true,
+      })
+      expect(waitingForClient.messages.map((message) => message.body)).toContain(
+        'We are taking care of this. Which desk keeps the current accessibility map?',
+      )
+
+      const informationResponse = await caller.support.respondToInformation({
+        operationId: randomUUID(),
+        venueId,
+        requestId: supportRequestId,
+        expectedClientVersion: waitingForClient.clientVersion,
+        body: 'The welcome desk beside the Oak Street entrance keeps the current map.',
+        attachments: [],
+      })
+      expect(informationResponse).toMatchObject({
+        status: 'IN_REVIEW',
+        missingInformation: [],
+        requestVersion: 3,
+        clientVersion: 3,
+        replayed: false,
+      })
+
+      const supportAgentIdentity = await db.agentIdentity.create({
+        data: {
+          tenantId,
+          venueId,
+          identityKey: `proof.support.${suffix}`,
+          name: 'Synthetic support analyst',
+          agentType: 'SUPPORT',
+          accessScope: 'VENUE',
+          accessCapabilities: ['support.read'],
+          autonomyLevel: 'DRAFT',
+          enabled: true,
+          createdBy: operatorId,
+        },
+      })
+      const supportAgentCompletedAt = new Date()
+      const supportAgentRun = await db.agentRun.create({
+        data: {
+          operationId: randomUUID(),
+          tenantId,
+          venueId,
+          agentIdentityId: supportAgentIdentity.id,
+          runType: 'SUPPORT',
+          requestedOperation: 'review_accessibility_map_handoff',
+          requestPrompt: 'Review the synthetic client response without changing venue state.',
+          scopeSnapshot: { accessCapabilities: ['support.read'], executionAuthority: false },
+          status: 'COMPLETED',
+          modelProvider: 'fixture',
+          modelName: 'deterministic',
+          artifacts: [{ kind: 'NOTE', summary: 'Welcome desk response is internally consistent.' }],
+          initiatedByType: 'HUMAN',
+          initiatedById: operatorId,
+          startedAt: supportAgentCompletedAt,
+          completedAt: supportAgentCompletedAt,
+        },
+      })
+      const lineage = await admin.linkSupportAgentRun({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        agentRunId: supportAgentRun.id,
+        expectedVersion: informationResponse.requestVersion,
+      })
+      expect(lineage).toMatchObject({
+        requestVersion: informationResponse.requestVersion,
+        replayed: false,
+        lineage: {
+          agentRunId: supportAgentRun.id,
+          linkedRunStatus: 'COMPLETED',
+        },
+      })
+
+      const internalMessageBody =
+        'Internal fixture note: AI review is evidence only; an operator owns the response.'
+      const internalMessage = await admin.addSupportMessage({
+        operationId: randomUUID(),
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: informationResponse.requestVersion,
+        visibility: 'INTERNAL_ONLY',
+        body: internalMessageBody,
+        attachments: [],
+      })
+      expect(internalMessage).toMatchObject({ requestVersion: 4, replayed: false })
+
+      const completionOperationId = randomUUID()
+      const completionInput = {
+        operationId: completionOperationId,
+        tenantId,
+        venueId,
+        requestId: supportRequestId,
+        expectedVersion: internalMessage.requestVersion,
+        body: 'Confirmed: visitors can request the current accessibility map at the welcome desk beside the Oak Street entrance.',
+      }
+      const completedSupport = await admin.completeSupportRequest(completionInput)
+      const completedSupportReplay = await admin.completeSupportRequest(completionInput)
+      expect(completedSupport).toMatchObject({
+        status: 'COMPLETED',
+        requestVersion: 5,
+        clientVersion: 4,
+        replayed: false,
+      })
+      expect(completedSupportReplay).toMatchObject({
+        status: 'COMPLETED',
+        requestVersion: completedSupport.requestVersion,
+        clientVersion: completedSupport.clientVersion,
+        replayed: true,
+      })
+
+      const clientResolution = await caller.support.getRequest({
+        venueId,
+        requestId: supportRequestId,
+        messageLimit: 20,
+      })
+      expect(clientResolution).toMatchObject({
+        status: 'COMPLETED',
+        canReply: false,
+        missingInformation: [],
+      })
+      expect(clientResolution.messages.map((message) => message.body)).not.toContain(
+        internalMessageBody,
+      )
+      expect(clientResolution.messages.map((message) => message.body)).toContain(
+        completionInput.body,
+      )
+      expect(
+        await db.supportRequestAuditEvent.count({
+          where: { tenantId, venueId, supportRequestId },
+        }),
+      ).toBeGreaterThanOrEqual(4)
+      expect(await db.supportAgentRunLineage.count({ where: { tenantId, venueId } })).toBe(1)
+      expect(await db.approvalRequest.count({ where: { tenantId, venueId } })).toBe(0)
+
+      // 10. Generate an immutable manifest artifact, materialize its exact linked package,
       // and explicitly approve the candidate. A FULL artifact establishes the scoped base;
       // the materializable PATCH retains the client-reviewable content delta.
       const artifactCreatedAt = new Date().toISOString()
@@ -602,7 +782,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       const preview = await caller.portal.getClientPreview({ venueId, packageId: approved.id })
       expect(preview).toMatchObject({ package: { id: approved.id, status: 'APPROVED' } })
 
-      // 10. Durable, exact-package preview feedback creates work but cannot publish.
+      // 11. Durable, exact-package preview feedback creates work but cannot publish.
       const feedback = await caller.portal.createPreviewFeedbackRequest({
         operationId: randomUUID(),
         venueId,
@@ -618,7 +798,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       })
       expect(feedback).toMatchObject({ replayed: false })
 
-      // 11. Freeze the exact seven-dimension suite, score it, and close the run.
+      // 12. Freeze the exact seven-dimension suite, score it, and close the run.
       const suite = buildOnboardingEvaluationSuite(preview)
       expect(suite.map((item) => item.dimension)).toEqual([
         'fact',
@@ -752,7 +932,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       ).toBe(true)
       await recordApprovedPackageEvaluationMilestones(runScope)
 
-      // 12–13. Multidimensional readiness is exact-package based; publication stays separate.
+      // 13–14. Multidimensional readiness is exact-package based; publication stays separate.
       const journey = await caller.portal.getOnboardingJourney({ venueId })
       expect(journey.qa).toMatchObject({
         state: 'COMPLETED',
@@ -779,7 +959,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         }).readiness.find((item) => item.id === 'AUTOMATED_QA'),
       ).toMatchObject({ status: 'READY' })
 
-      // 14. Explicit release creates the exact public content used by the guest proof.
+      // 15. Explicit release creates the exact public content used by the guest proof.
       const applied = await caller.venuePackage.applyPackage({
         id: approved.id,
         expectedUpdatedAt: approved.updatedAt,
@@ -840,7 +1020,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         }),
       ).resolves.toEqual({ claimCompleted: true, stored: true })
 
-      // 15. The real public chat router retrieves the applied venue knowledge, routes through
+      // 16. The real public chat router retrieves the applied venue knowledge, routes through
       // the production AI gateway, and commits a complete provider-dark guest turn. Only the
       // Anthropic transport is replaced with an in-process deterministic test client.
       const anthropicCreate = vi.fn().mockResolvedValue({
@@ -909,7 +1089,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         }),
       ).resolves.toEqual({ status: 'COMPLETE', assistantMessageId })
 
-      // 16. Visitor feedback is ownership-bound to the public session and assistant message,
+      // 17. Visitor feedback is ownership-bound to the public session and assistant message,
       // then retained as both durable feedback and a machine-readable analytics event.
       await expect(
         publicCaller.feedback.submit({
@@ -942,7 +1122,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
       ).resolves.toBe(1)
       _setAnthropicClientForTesting(null)
 
-      // 17. Exact rollback restores the content base after the public interaction evidence.
+      // 18. Exact rollback restores the content base after the public interaction evidence.
       const reverted = await caller.venuePackage.revertPackage({
         id: approved.id,
         expectedUpdatedAt: applied.updatedAt,
@@ -967,7 +1147,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         ]),
       )
 
-      // 18. A routine venue update is published through the tenant action surface and
+      // 19. A routine venue update is published through the tenant action surface and
       // remains machine-readable through the same bounded tenant API.
       const updateStart = new Date(Date.now() - 60_000)
       const updateEnd = new Date(Date.now() + 60 * 60 * 1_000)
@@ -996,7 +1176,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         status: 'PUBLISHED',
       })
 
-      // 19. Reports fail closed until explicitly enabled. A populated draft is then
+      // 20. Reports fail closed until explicitly enabled. A populated draft is then
       // published by the platform-admin action and read through the client tenant API.
       await expect(caller.analytics.listPublishedWeeklyReports({ venueId })).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
@@ -1035,7 +1215,7 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
         content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
       })
 
-      // 20. Offboarding remains non-destructive and human-gated: create a scoped REQUESTED
+      // 21. Offboarding remains non-destructive and human-gated: create a scoped REQUESTED
       // draft and metadata-reference preview, explicitly review its export matrix, finalize every
       // bounded reference-only artifact into versioned disposable storage, and reconcile an exact
       // retry without revocation, deletion, venue deactivation, or customer cancellation.
