@@ -97,6 +97,131 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
     })
     expect(current.lastUsedAt).not.toBeNull()
 
+    const suffix = randomUUID().slice(0, 8)
+    const tenantId = `worker-evidence-${suffix}`
+    const venueId = `worker-evidence-venue-${suffix}`
+    const tenant = await db.tenant.create({
+      data: { id: tenantId, name: 'Worker evidence proof', slug: tenantId },
+    })
+    const venue = await db.venue.create({
+      data: {
+        id: venueId,
+        tenantId: tenant.id,
+        name: 'Worker evidence venue',
+        slug: venueId,
+      },
+    })
+    const identity = await db.agentIdentity.create({
+      data: {
+        tenantId: tenant.id,
+        venueId: venue.id,
+        identityKey: `support-worker-${suffix}`,
+        name: `Support worker ${suffix}`,
+        agentType: 'OPERATIONS',
+        accessScope: 'VENUE',
+        enabled: true,
+        createdBy: founderId,
+      },
+    })
+    const run = await db.agentRun.create({
+      data: {
+        operationId: randomUUID(),
+        tenantId: tenant.id,
+        venueId: venue.id,
+        agentIdentityId: identity.id,
+        runType: 'SUPPORT',
+        requestedOperation: 'resolve-visitor-content-gap',
+        scopeSnapshot: { tenantId: tenant.id, venueId: venue.id },
+        status: 'COMPLETED',
+        initiatedByType: 'AGENT',
+        initiatedById: identity.id,
+        startedAt: new Date(),
+        completedAt: new Date(),
+      },
+    })
+    const approvalRequest = await db.approvalRequest.create({
+      data: {
+        tenantId: tenant.id,
+        venueId: venue.id,
+        agentIdentityId: identity.id,
+        agentRunId: run.id,
+        requestedByType: 'AGENT',
+        requestedById: identity.id,
+        proposedAction: 'support.publish-correction',
+        scopeSnapshot: { tenantId: tenant.id, venueId: venue.id },
+        reason: 'Publish a bounded visitor-content correction.',
+        riskCategory: 'LOW',
+      },
+    })
+    const approvalDecision = await db.approvalDecision.create({
+      data: {
+        tenantId: tenant.id,
+        venueId: venue.id,
+        approvalRequestId: approvalRequest.id,
+        decision: 'APPROVED',
+        decidedByType: 'HUMAN',
+        decidedById: founderId,
+      },
+    })
+    await db.agentAction.createMany({
+      data: [
+        {
+          tenantId: tenant.id,
+          venueId: venue.id,
+          agentRunId: run.id,
+          agentIdentityId: identity.id,
+          approvalDecisionId: approvalDecision.id,
+          actorType: 'AGENT',
+          actorId: identity.id,
+          requestedOperation: 'resolve-visitor-content-gap',
+          actionName: 'support.publish-correction',
+          status: 'SUCCEEDED',
+        },
+        {
+          tenantId: tenant.id,
+          venueId: venue.id,
+          agentRunId: run.id,
+          agentIdentityId: identity.id,
+          actorType: 'AGENT',
+          actorId: identity.id,
+          requestedOperation: 'resolve-visitor-content-gap',
+          actionName: 'support.refresh-source',
+          status: 'FAILED',
+          errorCode: 'FIXTURE_PROVIDER_ERROR',
+        },
+      ],
+    })
+    await db.agentOutcomeObservation.createMany({
+      data: [
+        {
+          operationId: randomUUID(),
+          tenantId: tenant.id,
+          venueId: venue.id,
+          agentRunId: run.id,
+          agentIdentityId: identity.id,
+          signalKind: 'QUALITY_EVALUATION',
+          verdict: 'NEGATIVE',
+          summary: 'The first retrieval attempt used a stale source.',
+          taskClass: 'SUPPORT',
+          actorType: 'SYSTEM',
+          actorId: 'disposable-evidence-proof',
+        },
+        {
+          operationId: randomUUID(),
+          tenantId: tenant.id,
+          venueId: venue.id,
+          agentRunId: run.id,
+          agentIdentityId: identity.id,
+          signalKind: 'CUSTOMER_SIGNAL',
+          verdict: 'MIXED',
+          summary: 'The correction helped, but required follow-up.',
+          taskClass: 'SUPPORT',
+          actorType: 'SYSTEM',
+          actorId: 'disposable-evidence-proof',
+        },
+      ],
+    })
+
     const operatingResponse = await handlePlatformWorkerFounderOperatingViewRequest(
       new Request('http://localhost/api/platform-worker/founder-operating-view', {
         method: 'POST',
@@ -118,6 +243,22 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
         canMutatePolicy: false,
       },
       autonomyEvidence: {
+        schemaVersion: 2,
+        state: 'NEGATIVE_EVIDENCE_PRESENT',
+        evidenceCoverage: {
+          deniedActions: 'AVAILABLE_NOT_POLICY_VIOLATION',
+          rollbackRate: 'UNAVAILABLE_NO_CANONICAL_LINK',
+          policyViolations: 'UNAVAILABLE_NO_CANONICAL_SIGNAL',
+          confidenceCalibration: 'UNAVAILABLE_NO_PREDICTION_OUTCOME_PAIR',
+        },
+        byAgent: expect.arrayContaining([
+          expect.objectContaining({
+            agentIdentityId: identity.id,
+            actions: expect.objectContaining({ succeeded: 1, failed: 1 }),
+            approvals: expect.objectContaining({ decided: 1, approved: 1 }),
+            taskClasses: ['SUPPORT'],
+          }),
+        ]),
         policy: { approvalReductionRecommended: false },
       },
     })

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   agents: vi.fn(),
   questions: vi.fn(),
   outcomes: vi.fn(),
+  actions: vi.fn(),
+  approvalDecisions: vi.fn(),
   events: vi.fn(),
   updateEvent: vi.fn(),
   platformEvents: vi.fn(),
@@ -27,6 +29,8 @@ vi.mock('@pathfinder/db', () => ({
     agentRun: { findMany: mocks.agents },
     agentQuestion: { findMany: mocks.questions },
     agentOutcomeObservation: { findMany: mocks.outcomes },
+    agentAction: { findMany: mocks.actions },
+    approvalDecision: { findMany: mocks.approvalDecisions },
     operationalEvent: { findMany: mocks.events, updateMany: mocks.updateEvent },
     platformOperationalEvent: {
       findMany: mocks.platformEvents,
@@ -66,6 +70,8 @@ describe('admin attention console', () => {
     mocks.agents.mockResolvedValue([])
     mocks.questions.mockResolvedValue([])
     mocks.outcomes.mockResolvedValue([])
+    mocks.actions.mockResolvedValue([])
+    mocks.approvalDecisions.mockResolvedValue([])
     mocks.events.mockResolvedValue([])
     mocks.updateEvent.mockResolvedValue({ count: 1 })
     mocks.platformEvents.mockResolvedValue([])
@@ -96,6 +102,8 @@ describe('admin attention console', () => {
       mocks.agents,
       mocks.questions,
       mocks.outcomes,
+      mocks.actions,
+      mocks.approvalDecisions,
       mocks.events,
       mocks.platformEvents,
     ]) {
@@ -119,6 +127,8 @@ describe('admin attention console', () => {
       mocks.agents.mock.calls[0]![0],
       mocks.questions.mock.calls[0]![0],
       mocks.outcomes.mock.calls[0]![0],
+      mocks.actions.mock.calls[0]![0],
+      mocks.approvalDecisions.mock.calls[0]![0],
       mocks.events.mock.calls[0]![0],
       mocks.platformEvents.mock.calls[0]![0],
     ])
@@ -129,6 +139,10 @@ describe('admin attention console', () => {
       'scopeSnapshot',
       'artifacts',
       'messages',
+      'output',
+      'errorMessage',
+      'inputSummary',
+      'inputReference',
     ]) {
       expect(calls).not.toContain(forbidden)
     }

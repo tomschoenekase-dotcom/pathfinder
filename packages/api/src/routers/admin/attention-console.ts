@@ -4,6 +4,7 @@ import { router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { deriveFounderBriefing } from './attention-briefing'
 import { deriveAgentTrustEvidence } from './attention-agent-evidence'
+import { readAgentEvidenceRows } from './attention-agent-evidence-query'
 import { deriveFounderOperatingView } from './attention-operating-view'
 import {
   acknowledgeAttentionEvent,
@@ -25,7 +26,6 @@ import {
 } from './attention-pagination'
 import { listAttentionWorkers } from './attention-worker-health'
 
-// Bounded metadata-only platform triage; no payloads, artifacts, messages, or raw provider errors.
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
@@ -41,6 +41,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       blockedAgents,
       completedAgents,
       outcomes,
+      agentEvidenceRows,
       events,
       platformEvents,
       workers,
@@ -148,6 +149,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
         take,
         select: {
           id: true,
+          agentIdentityId: true,
           tenantId: true,
           venueId: true,
           runType: true,
@@ -156,7 +158,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           startedAt: true,
           completedAt: true,
           createdAt: true,
-          agentIdentity: { select: { name: true } },
+          agentIdentity: { select: { id: true, name: true } },
         },
       }),
       db.agentQuestion.findMany({
@@ -228,6 +230,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
         take,
         select: {
           id: true,
+          agentIdentityId: true,
           tenantId: true,
           venueId: true,
           runType: true,
@@ -235,7 +238,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           status: true,
           completedAt: true,
           createdAt: true,
-          agentIdentity: { select: { name: true } },
+          agentIdentity: { select: { id: true, name: true } },
           _count: { select: { outcomeObservations: true } },
         },
       }),
@@ -248,6 +251,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           tenantId: true,
           venueId: true,
           agentRunId: true,
+          agentIdentityId: true,
           signalKind: true,
           verdict: true,
           summary: true,
@@ -255,9 +259,10 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           modelProvider: true,
           modelName: true,
           createdAt: true,
-          agentIdentity: { select: { name: true } },
+          agentIdentity: { select: { id: true, name: true } },
         },
       }),
+      readAgentEvidenceRows(db, take),
       db.operationalEvent.findMany({
         where: {
           state: { in: ['OPEN', 'ACKNOWLEDGED'] },
@@ -347,7 +352,10 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
       ...result,
       agentTrustEvidence: deriveAgentTrustEvidence({
         outcomes: result.outcomes,
+        runs: result.agents,
         completedAgents: result.completedAgents,
+        actions: page(agentEvidenceRows.actions, query.limit),
+        approvalDecisions: page(agentEvidenceRows.approvalDecisions, query.limit),
       }),
       briefing: deriveFounderBriefing({
         limit: query.limit,

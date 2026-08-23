@@ -24,9 +24,11 @@ activated by migrations, fixtures, or startup. Connecting a worker and storing i
 remain explicit owner-controlled operations.
 
 The operating view accepts only a bounded row limit. It reuses the same canonical attention,
-briefing, and `AgentOutcomeObservation` evidence as the Founder Control Room. It reports completion
-and explicit positive/mixed/negative/inconclusive observations without manufacturing a reliability
-score, claiming exhaustive history, recommending approval reduction, or changing permissions.
+briefing, run, action, approval-decision, and outcome evidence as the Founder Control Room. Its
+autonomy-evidence schema v2 reports per-agent-identity execution outcomes, approval acceptance,
+quality evaluations, and customer signals. It explicitly labels rollback rate, policy violations,
+and confidence calibration unavailable until canonical evidence exists; it does not manufacture a
+reliability score, claim exhaustive history, recommend approval reduction, or change permissions.
 
 These endpoints cannot create questions, approve or acknowledge actions, change policy, contact
 customers, deploy, or perform billing operations. No credential is activated automatically.

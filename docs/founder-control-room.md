@@ -78,10 +78,12 @@ confirmed.
 
 ## Agent trust evidence
 
-The Control Room derives a versioned autonomy-evidence summary from explicit
-`AgentOutcomeObservation` rows already present in the bounded attention snapshot. It reports
-positive, mixed, negative, and inconclusive observations; distinct observed runs; and completed
-runs with or without an observation. Completion by itself is never treated as evidence of quality.
+The Control Room derives a versioned autonomy-evidence summary from bounded canonical
+`AgentRun`, `AgentAction`, `ApprovalDecision`, and `AgentOutcomeObservation` records. Schema v2
+reports run completion/failure, action success/failure/denial/cancellation, denominator-backed
+approval acceptance, quality evaluations, customer signals, and a per-agent-identity breakdown.
+Completion by itself is never treated as evidence of quality, and a denied action proves policy
+enforcement rather than a policy violation.
 
 The summary is deliberately descriptive rather than a reliability score. Negative evidence takes
 precedence in the displayed state; mixed or inconclusive evidence remains unresolved; and even a
@@ -89,6 +91,12 @@ positive-only bounded sample does not prove reliability. The API therefore never
 approval reduction from this projection. Any future permission change requires a separate,
 explicit policy decision using task-specific evidence and must retain the existing capability /
 policy boundary.
+
+The evidence contract also names what it cannot yet measure honestly. Rollback rate is unavailable
+until rollback records have a canonical link to the responsible run/action; policy-violation rate
+is unavailable until there is an explicit canonical violation signal; and confidence calibration
+is unavailable until stored predictions can be paired with outcomes. These unavailable states are
+returned as machine-readable coverage labels rather than fabricated zeros.
 
 ## Machine-readable operating view
 

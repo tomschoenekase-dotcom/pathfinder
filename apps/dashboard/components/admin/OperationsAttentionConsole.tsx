@@ -278,8 +278,60 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
             </div>
           ))}
         </dl>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <div className="rounded-xl border border-violet-100 bg-white p-4">
+            <h3 className="text-sm font-semibold text-slate-900">Observed execution evidence</h3>
+            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+              {[
+                ['Actions succeeded', data.agentTrustEvidence.actions.succeeded],
+                ['Tool/action failures', data.agentTrustEvidence.actions.failed],
+                ['Actions denied', data.agentTrustEvidence.actions.denied],
+                [
+                  'Approvals accepted',
+                  `${data.agentTrustEvidence.approvalDecisions.acceptance.numerator}/${data.agentTrustEvidence.approvalDecisions.acceptance.denominator}`,
+                ],
+                ['Quality negatives', data.agentTrustEvidence.qualityEvaluations.negative],
+                ['Customer negatives', data.agentTrustEvidence.customerSignals.negative],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs font-semibold text-slate-500">{label}</dt>
+                  <dd className="mt-1 font-semibold text-slate-900">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-5 text-amber-950">
+            <h3 className="font-semibold">Evidence not yet canonical</h3>
+            <p className="mt-1">
+              Rollback rate, policy violations, and confidence calibration stay unavailable until
+              Torchiko has explicit linked signals. A denied action proves enforcement, not a policy
+              violation.
+            </p>
+          </div>
+        </div>
+        {data.agentTrustEvidence.byAgent.length ? (
+          <div className="mt-4">
+            <h3 className="text-sm font-semibold text-slate-900">Evidence by agent identity</h3>
+            <ul className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {data.agentTrustEvidence.byAgent.map((agent) => (
+                <li
+                  key={agent.agentIdentityId}
+                  className="rounded-xl border border-violet-100 bg-white p-3 text-sm"
+                >
+                  <p className="font-semibold text-slate-950">{agent.name}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Runs: {agent.runs.completed} completed / {agent.runs.failed} failed · Actions:{' '}
+                    {agent.actions.succeeded} succeeded / {agent.actions.failed} failed /{' '}
+                    {agent.actions.denied} denied · Outcomes: {agent.outcomes.positive} positive /{' '}
+                    {agent.outcomes.negative} negative
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <p className="mt-3 text-xs leading-5 text-slate-500">
-          Counts use explicit outcome observations in this bounded snapshot
+          Counts use canonical bounded run, action, approval, and explicit outcome evidence
           {data.agentTrustEvidence.boundedSnapshot.hasMore ? '; additional evidence exists' : ''}.
           No reliability score, trend claim, or permission change is inferred.
         </p>
