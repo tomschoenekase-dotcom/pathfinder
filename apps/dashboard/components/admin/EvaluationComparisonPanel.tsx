@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
 
@@ -69,7 +69,7 @@ function HumanConclusionForm({
   const scopeRef = useRef(scope)
   scopeRef.current = scope
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     generation.current += 1
     setDecision('NEEDS_FOLLOW_UP')
     setConclusion('')

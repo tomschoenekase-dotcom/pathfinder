@@ -610,9 +610,9 @@ const approvedOperations = [
     policy: 'public-venue-session-token',
   },
   {
-    file: 'packages/api/src/routers/location.ts',
+    file: 'packages/api/src/routers/location-public-scope.ts',
     method: '$queryRaw',
-    hash: '852d4a3607edeed3a0c82e091c86aa619f54c046c39a05b52181c56a0b9ce7ca',
+    hash: '0b6d3752a65471da430efad03bc0c607efbca8e5717da33575f662f71472d0b3',
     policy: 'public-venue-session-token',
   },
   {

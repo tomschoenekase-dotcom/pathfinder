@@ -52,6 +52,13 @@
       "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
     },
     {
+      "path": "location.route",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
+    },
+    {
       "path": "venue.getBySlug",
       "kind": "query",
       "exposure": "public",

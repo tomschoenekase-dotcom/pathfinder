@@ -1,6 +1,6 @@
 # Location anchor authoring
 
-Torchiko's platform-admin venue workspace can maintain floors, verified anchors, and reviewed connections. The bounded guest `location.resolve` capability currently resolves anchors only; this is not turn-by-turn navigation.
+Torchiko's platform-admin venue workspace can maintain floors, verified anchors, and reviewed connections. The bounded guest `location.resolve` capability resolves anchors, and `location.route` returns a deterministic reviewed path between two public anchors. This remains bounded venue guidance rather than live turn-by-turn navigation.
 
 ## Review lifecycle
 
@@ -20,8 +20,12 @@ External map references accept only public HTTPS URLs without embedded credentia
 
 ## Deliberate limits
 
-- This surface does not compute routes, walking instructions, or accessibility paths.
-- It does not expose a direct operational-agent mutation tool. The proposal tool is a bounded alternative for anchor draft creation only; floor/connection creation, all edits, activation/deactivation, and approved-proposal application remain administrator-only operations.
+- Route resolution uses unweighted shortest-path traversal over active reviewed connections. It
+  does not use live position, distance, travel time, turn geometry, crowd conditions, or an
+  external navigation provider.
+- `accessibleOnly` excludes every connection not explicitly marked accessible. This is a strict
+  filter, not a claim that a resulting route has received a formal accessibility certification.
+- It does not expose a direct operational-agent mutation tool. The proposal tool is a bounded alternative for anchor draft creation only; floor/connection creation, all edits, activation/deactivation, and approved-proposal application remain administrator-only operations. The public route query is also not currently bound to an operational-agent tool.
 - Production activation and real-venue content remain subject to the production and customer-data boundaries.
 
 Focused regression coverage lives in `packages/db/src/helpers/location-draft-proposal-actions.test.ts`, `packages/api/src/mcp/composition.test.ts`, `packages/api/src/routers/admin/location-authoring.test.ts`, `apps/dashboard/components/admin/VenueLocationAuthoring.test.tsx`, and `apps/dashboard/components/admin/VenueLocationTopologyAuthoring.test.tsx`.
