@@ -168,7 +168,9 @@ describe('negotiated Checkout boundary', () => {
       }),
     ).rejects.toBe(providerError)
     const nestedCreate = commercialAgreementCreate.mock.calls[0]?.[0]?.data?.coveredVenues?.create
-    expect(nestedCreate).toEqual([{ venueId: 'venue-a', createdBy: 'admin-a' }])
+    expect(nestedCreate).toEqual([
+      { venueId: 'venue-a', agreedAmountMinor: 2500n, createdBy: 'admin-a' },
+    ])
   })
 
   it('rejects a new catalog-priced checkout without a human-approved custom quote', async () => {
@@ -237,13 +239,16 @@ describe('negotiated Checkout boundary', () => {
           coveredVenueCount: 1,
           quantity: 1,
           agreedAmountMinor: 2500n,
+          venuePriceBreakdownComplete: true,
           currency: 'usd',
           billingInterval: 'MONTH',
           billingIntervalCount: 1,
           stripePriceId: null,
         }),
       },
-      commercialAgreementVenue: { count: vi.fn().mockResolvedValue(1) },
+      commercialAgreementVenue: {
+        findMany: vi.fn().mockResolvedValue([{ venueId: 'venue-a', agreedAmountMinor: 2500n }]),
+      },
       billingAccount: { findUnique: vi.fn().mockResolvedValue({ id: 'account-a' }) },
     }
     const client = {

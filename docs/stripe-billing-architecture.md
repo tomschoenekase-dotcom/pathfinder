@@ -210,6 +210,27 @@ Platform-admin-only commands can create a manual invoice arrangement, a complime
 
 The client and admin UI label the source (`Manual invoice`, `Complimentary`, `Pilot`, or `Stripe`) rather than collapsing it into a generic paid badge. Internal notes and provider diagnostics are visible only to platform admins.
 
+### Multi-venue negotiated-price history
+
+`CommercialAgreement.agreedAmountMinor` remains the organization-level amount. A new explicit
+`venuePriceBreakdownComplete` assertion distinguishes a verified venue breakdown from a legacy or
+otherwise aggregate-only arrangement. When that assertion is true, every
+`CommercialAgreementVenue` stores one positive `agreedAmountMinor` component. Deferred database
+guards require the component set to cover the agreement's exact venue count and sum to the
+organization total at transaction commit. When the assertion is false, component amounts must be
+absent, so a partial breakdown can never masquerade as current truth.
+
+New single-venue negotiated arrangements derive their one component from the approved total. New
+multi-venue negotiated Checkout and manual arrangements require an exact component for every covered
+venue before any record or provider request is created. The platform-admin UI reconciles components
+before enabling submission; admin and client projections show verified components while labeling
+legacy aggregates as breakdown unavailable. Components are historical snapshots on the commercial
+agreement, so replacing an arrangement does not rewrite prior customer history.
+
+This representation creates no price and grants no commercial authority. Amounts still require the
+existing founder/platform-admin pricing decision, reason, and reference. The migration performs no
+backfill guess, Stripe operation, invoice, payment, message, or live-mode activation.
+
 ## Operational events and audit
 
 Billing uses the existing tenant/platform operational-event center with stable deduplication keys. Routine renewals should not create high-priority noise. Actionable signals include Checkout awaiting completion, activation, payment failure, past due, grace or override expiry, cancellation, webhook verification/processing failure, unknown object, reconciliation drift, dispute, refund attention, and incomplete production configuration.

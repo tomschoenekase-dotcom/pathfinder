@@ -51,6 +51,8 @@ export function AdminBillingControls({
   const [amount, setAmount] = useState('')
   const [negotiatedCheckout, setNegotiatedCheckout] = useState(false)
   const [checkoutAmountMinor, setCheckoutAmountMinor] = useState('')
+  const [checkoutVenueAmounts, setCheckoutVenueAmounts] = useState<Record<string, string>>({})
+  const [manualVenueAmounts, setManualVenueAmounts] = useState<Record<string, string>>({})
   const [checkoutInterval, setCheckoutInterval] = useState<'month' | 'year'>('month')
   const [checkoutReason, setCheckoutReason] = useState('')
   const [checkoutReference, setCheckoutReference] = useState('')
@@ -63,6 +65,12 @@ export function AdminBillingControls({
     setVenueIds((current) =>
       checked ? [...new Set([...current, id])] : current.filter((value) => value !== id),
     )
+  }
+  function completeVenueBreakdown(values: Record<string, string>, total: string) {
+    if (!/^[1-9]\d{0,11}$/u.test(total) || !venueIds.length) return false
+    const components = venueIds.map((id) => values[id] ?? '')
+    if (components.some((value) => !/^[1-9]\d{0,11}$/u.test(value))) return false
+    return components.reduce((sum, value) => sum + BigInt(value), 0n) === BigInt(total)
   }
   async function run(operation: () => Promise<string>) {
     setBusy(true)
@@ -259,6 +267,10 @@ export function AdminBillingControls({
                     ? {
                         negotiatedTerms: {
                           amountMinor: checkoutAmountMinor,
+                          venueAmounts: venueIds.map((venueId) => ({
+                            venueId,
+                            amountMinor: checkoutVenueAmounts[venueId]!,
+                          })),
                           currency: 'usd',
                           interval: checkoutInterval,
                           intervalCount: 1,
@@ -318,13 +330,54 @@ export function AdminBillingControls({
                     pattern="[1-9][0-9]{0,11}"
                     value={checkoutAmountMinor}
                     onChange={(event) => setCheckoutAmountMinor(event.target.value)}
-                    placeholder="3750"
                     className="mt-1 min-h-11 w-full rounded-xl border border-sky-200 px-3 text-sm font-normal tracking-normal"
                   />
                   <span className="mt-1 block normal-case font-normal tracking-normal">
-                    Example: 3750 means $37.50.
+                    Enter the exact founder-approved monthly total in whole cents.
                   </span>
                 </label>
+                <fieldset className="rounded-xl border border-sky-200 p-3">
+                  <legend className="px-1 text-xs font-bold uppercase tracking-wider text-sky-900">
+                    Approved venue breakdown
+                  </legend>
+                  <p className="text-xs leading-5 text-sky-900">
+                    Every covered venue needs a positive component, and the components must equal
+                    the approved total.
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    {venues
+                      .filter((venue) => venueIds.includes(venue.id))
+                      .map((venue) => (
+                        <label key={venue.id} className="block text-xs font-semibold text-sky-950">
+                          {venue.name} in USD cents
+                          <input
+                            required
+                            aria-label={`${venue.name} negotiated amount in USD cents`}
+                            inputMode="numeric"
+                            pattern="[1-9][0-9]{0,11}"
+                            value={checkoutVenueAmounts[venue.id] ?? ''}
+                            onChange={(event) =>
+                              setCheckoutVenueAmounts((current) => ({
+                                ...current,
+                                [venue.id]: event.target.value,
+                              }))
+                            }
+                            className="mt-1 min-h-11 w-full rounded-xl border border-sky-200 px-3 text-sm font-normal"
+                          />
+                        </label>
+                      ))}
+                  </div>
+                  {checkoutAmountMinor &&
+                  completeVenueBreakdown(checkoutVenueAmounts, checkoutAmountMinor) ? (
+                    <p role="status" className="mt-3 text-xs font-semibold text-emerald-800">
+                      Venue components match the approved total.
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-xs font-semibold text-amber-800">
+                      Complete and reconcile the venue components before creating Checkout.
+                    </p>
+                  )}
+                </fieldset>
                 <label className="block text-xs font-bold uppercase tracking-wider text-sky-900">
                   Billing interval
                   <select
@@ -372,7 +425,10 @@ export function AdminBillingControls({
                 !venueIds.length ||
                 busy ||
                 (negotiatedCheckout &&
-                  (!checkoutAmountMinor || !checkoutReference.trim() || !checkoutReason.trim()))
+                  (!checkoutAmountMinor ||
+                    !completeVenueBreakdown(checkoutVenueAmounts, checkoutAmountMinor) ||
+                    !checkoutReference.trim() ||
+                    !checkoutReason.trim()))
               }
               className="mt-4 min-h-11 rounded-full bg-sky-900 px-4 text-sm font-semibold text-white disabled:opacity-50"
             >
@@ -390,6 +446,14 @@ export function AdminBillingControls({
                   mode,
                   planKey: planKey || 'negotiated',
                   amountMinor: amount || null,
+                  ...(amount
+                    ? {
+                        venueAmounts: venueIds.map((venueId) => ({
+                          venueId,
+                          amountMinor: manualVenueAmounts[venueId]!,
+                        })),
+                      }
+                    : {}),
                   accessEndsAt: expiry ? new Date(`${expiry}T23:59:59.000Z`).toISOString() : null,
                   venueIds,
                   reason,
@@ -431,6 +495,41 @@ export function AdminBillingControls({
               onChange={(event) => setAmount(event.target.value)}
               className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 px-3 text-sm"
             />
+            {amount ? (
+              <fieldset className="mt-3 rounded-xl border border-violet-200 bg-white p-3">
+                <legend className="px-1 text-xs font-bold uppercase tracking-wider text-violet-900">
+                  Venue breakdown
+                </legend>
+                <div className="space-y-3">
+                  {venues
+                    .filter((venue) => venueIds.includes(venue.id))
+                    .map((venue) => (
+                      <label key={venue.id} className="block text-xs font-semibold text-violet-950">
+                        {venue.name} in minor units
+                        <input
+                          required
+                          aria-label={`${venue.name} manual amount in minor units`}
+                          inputMode="numeric"
+                          pattern="[1-9][0-9]{0,11}"
+                          value={manualVenueAmounts[venue.id] ?? ''}
+                          onChange={(event) =>
+                            setManualVenueAmounts((current) => ({
+                              ...current,
+                              [venue.id]: event.target.value,
+                            }))
+                          }
+                          className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 px-3 text-sm font-normal"
+                        />
+                      </label>
+                    ))}
+                </div>
+                <p className="mt-3 text-xs font-semibold text-violet-900">
+                  {completeVenueBreakdown(manualVenueAmounts, amount)
+                    ? 'Venue components match the arrangement total.'
+                    : 'Venue components must equal the arrangement total.'}
+                </p>
+              </fieldset>
+            ) : null}
             <label
               className="mt-3 block text-xs font-bold uppercase tracking-wider text-violet-900"
               htmlFor="manual-expiry"
@@ -476,6 +575,7 @@ export function AdminBillingControls({
               disabled={
                 !venueIds.length ||
                 !reason.trim() ||
+                (Boolean(amount) && !completeVenueBreakdown(manualVenueAmounts, amount)) ||
                 ((mode === 'COMPLIMENTARY' || mode === 'PILOT') && !expiry) ||
                 busy
               }

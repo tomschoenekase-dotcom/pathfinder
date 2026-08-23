@@ -28,7 +28,7 @@ export type ClientBillingViewModel = {
   statusDetail: string
   nextBillingLabel: string | null
   paidThroughLabel: string | null
-  coveredVenues: ReadonlyArray<{ id: string; name: string }>
+  coveredVenues: ReadonlyArray<{ id: string; name: string; amountLabel: string | null }>
   invoices: ReadonlyArray<ClientBillingInvoice>
   canStartCheckout: boolean
   canRetryCheckout: boolean
@@ -241,9 +241,20 @@ export function ClientBillingView({
           {billing.coveredVenues.length > 0 ? (
             <ul className="mt-3 space-y-2">
               {billing.coveredVenues.map((venue) => (
-                <li key={venue.id} className="flex items-center gap-2 text-sm text-pf-deep/75">
-                  <span className="h-2 w-2 rounded-full bg-pf-accent" aria-hidden="true" />
-                  {venue.name}
+                <li
+                  key={venue.id}
+                  className="flex items-center justify-between gap-3 text-sm text-pf-deep/75"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full bg-pf-accent"
+                      aria-hidden="true"
+                    />
+                    <span className="truncate">{venue.name}</span>
+                  </span>
+                  {venue.amountLabel ? (
+                    <span className="shrink-0 font-semibold text-pf-deep">{venue.amountLabel}</span>
+                  ) : null}
                 </li>
               ))}
             </ul>

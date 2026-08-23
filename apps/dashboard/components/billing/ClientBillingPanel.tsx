@@ -76,7 +76,13 @@ function presentation(overview: Overview): {
       paidThroughLabel: dateLabel(
         account.paidThroughAt ?? agreement.currentPeriodEndsAt ?? agreement.accessEndsAt,
       ),
-      coveredVenues: agreement.coveredVenues.map((coverage) => coverage.venue),
+      coveredVenues: agreement.coveredVenues.map((coverage) => ({
+        ...coverage.venue,
+        amountLabel:
+          agreement.venuePriceBreakdownComplete && coverage.agreedAmountMinor !== null
+            ? moneyLabel(coverage.agreedAmountMinor, agreement.currency)
+            : null,
+      })),
       invoices: account.invoiceProjections.map((invoice) => ({
         id: invoice.id,
         number: invoice.invoiceNumber,

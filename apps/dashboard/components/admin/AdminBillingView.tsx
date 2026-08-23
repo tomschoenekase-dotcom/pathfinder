@@ -23,7 +23,12 @@ export type AdminBillingViewModel = {
   currentPeriodLabel: string | null
   renewalOrCancellationLabel: string | null
   minimumCommitmentLabel: string | null
-  coveredVenues: ReadonlyArray<{ id: string; name: string; coverageLabel: string }>
+  coveredVenues: ReadonlyArray<{
+    id: string
+    name: string
+    coverageLabel: string
+    amountLabel: string | null
+  }>
   provider: {
     customerId: string | null
     customerDashboardUrl: string | null
@@ -242,7 +247,8 @@ export function AdminBillingView({ state, billing, onAction }: AdminBillingViewP
                   className="flex items-center justify-between gap-4 py-3 first:pt-0"
                 >
                   <span className="text-sm font-medium text-pf-deep">{venue.name}</span>
-                  <span className="text-xs font-semibold text-pf-deep/75">
+                  <span className="text-right text-xs font-semibold text-pf-deep/75">
+                    {venue.amountLabel ? `${venue.amountLabel} · ` : ''}
                     {venue.coverageLabel}
                   </span>
                 </li>

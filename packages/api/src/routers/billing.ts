@@ -92,12 +92,14 @@ export const billingRouter = router({
           billingMode: agreement.billingMode,
           billingInterval: agreement.billingInterval,
           agreedAmountMinor: agreement.agreedAmountMinor,
+          venuePriceBreakdownComplete: agreement.venuePriceBreakdownComplete,
           currency: agreement.currency,
           cancelAtPeriodEnd: agreement.cancelAtPeriodEnd,
           currentPeriodEndsAt: agreement.currentPeriodEndsAt,
           accessEndsAt: agreement.accessEndsAt,
           coveredVenues: agreement.coveredVenues.map((coverage) => ({
             venue: coverage.venue,
+            agreedAmountMinor: coverage.agreedAmountMinor,
           })),
         })),
         invoiceProjections: account.invoiceProjections.map((invoice) => ({

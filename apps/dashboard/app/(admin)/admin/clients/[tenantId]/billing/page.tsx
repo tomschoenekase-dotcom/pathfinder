@@ -118,7 +118,13 @@ export default async function AdminClientBillingPage({ params }: Props) {
     coveredVenues: agreement.coveredVenues.map((coverage) => ({
       id: coverage.venue.id,
       name: coverage.venue.name,
-      coverageLabel: 'Base arrangement',
+      coverageLabel: agreement.venuePriceBreakdownComplete
+        ? 'Verified component'
+        : 'Breakdown unavailable',
+      amountLabel:
+        agreement.venuePriceBreakdownComplete && coverage.agreedAmountMinor !== null
+          ? money(coverage.agreedAmountMinor, agreement.currency)
+          : null,
     })),
     provider: {
       customerId: account.stripeCustomerId,

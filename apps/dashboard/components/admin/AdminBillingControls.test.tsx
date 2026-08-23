@@ -46,6 +46,9 @@ describe('AdminBillingControls negotiated Checkout', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Use an approved negotiated total' }))
     fireEvent.change(screen.getByLabelText(/Total in USD cents/i), { target: { value: '3750' } })
+    fireEvent.change(screen.getByLabelText('Museum A negotiated amount in USD cents'), {
+      target: { value: '3750' },
+    })
     fireEvent.change(screen.getByLabelText('Agreement or quote reference'), {
       target: { value: 'QUOTE-2026-0042' },
     })
@@ -62,6 +65,7 @@ describe('AdminBillingControls negotiated Checkout', () => {
         venueIds: ['venue-a'],
         negotiatedTerms: {
           amountMinor: '3750',
+          venueAmounts: [{ venueId: 'venue-a', amountMinor: '3750' }],
           currency: 'usd',
           interval: 'month',
           intervalCount: 1,
@@ -87,6 +91,48 @@ describe('AdminBillingControls negotiated Checkout', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Create Checkout link' }).closest('form')!)
     await waitFor(() => expect(mocks.checkout).toHaveBeenCalledTimes(1))
     expect(mocks.checkout.mock.calls[0]?.[0]).not.toHaveProperty('negotiatedTerms')
+  })
+
+  it('keeps a multi-venue quote disabled until every component reconciles to the total', () => {
+    render(
+      <AdminBillingControls
+        tenantId="tenant-a"
+        venues={[
+          { id: 'venue-a', name: 'Museum A' },
+          { id: 'venue-b', name: 'Museum B' },
+        ]}
+        catalog={[{ key: 'torchiko_pilot_test', version: 1, displayName: 'Pilot test' }]}
+        agreementId={null}
+        hasManualBase={false}
+        rolloutFlags={[]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Use an approved negotiated total' }))
+    fireEvent.change(screen.getByLabelText(/Total in USD cents/i), { target: { value: '5000' } })
+    fireEvent.change(screen.getByLabelText('Museum A negotiated amount in USD cents'), {
+      target: { value: '3000' },
+    })
+    fireEvent.change(screen.getByLabelText('Museum B negotiated amount in USD cents'), {
+      target: { value: '1999' },
+    })
+    fireEvent.change(screen.getByLabelText('Agreement or quote reference'), {
+      target: { value: 'QUOTE-MULTI' },
+    })
+    fireEvent.change(screen.getByLabelText('Pricing reason'), {
+      target: { value: 'Founder-approved multi-venue quote' },
+    })
+    expect(
+      (screen.getByRole('button', { name: 'Create Checkout link' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Museum B negotiated amount in USD cents'), {
+      target: { value: '2000' },
+    })
+    expect(screen.getByText('Venue components match the approved total.')).toBeTruthy()
+    expect(
+      (screen.getByRole('button', { name: 'Create Checkout link' }) as HTMLButtonElement).disabled,
+    ).toBe(false)
   })
 
   it('changes only an allowlisted client rollout capability through the audited admin mutation', async () => {
