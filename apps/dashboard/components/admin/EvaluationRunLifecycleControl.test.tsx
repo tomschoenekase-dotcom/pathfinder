@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ cancel: vi.fn(), refresh: vi.fn() }))
@@ -28,14 +28,11 @@ it('moves focus into confirmation and restores it when confirmation closes', asy
     />,
   )
   fireEvent.click(screen.getByRole('button', { name: 'Cancel remaining cases' }))
-  expect(document.activeElement).toBe(
-    await screen.findByRole('button', { name: 'Confirm cancellation' }),
-  )
+  const confirm = await screen.findByRole('button', { name: 'Confirm cancellation' })
+  await waitFor(() => expect(document.activeElement).toBe(confirm))
   fireEvent.click(screen.getByRole('button', { name: 'Keep running' }))
-  await Promise.resolve()
-  expect(document.activeElement).toBe(
-    screen.getByRole('button', { name: 'Cancel remaining cases' }),
-  )
+  const open = screen.getByRole('button', { name: 'Cancel remaining cases' })
+  await waitFor(() => expect(document.activeElement).toBe(open))
 })
 
 it('resets confirmation and ignores a late mutation after the run identity changes', async () => {
@@ -82,8 +79,7 @@ it('restores focus to the cancellation trigger after a successful request', asyn
   fireEvent.click(screen.getByRole('button', { name: 'Cancel remaining cases' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Confirm cancellation' }))
   const open = await screen.findByRole('button', { name: 'Cancel remaining cases' })
-  await Promise.resolve()
-  expect(document.activeElement).toBe(open)
+  await waitFor(() => expect(document.activeElement).toBe(open))
 })
 
 it('fences same-tick duplicate cancellation activation', async () => {
