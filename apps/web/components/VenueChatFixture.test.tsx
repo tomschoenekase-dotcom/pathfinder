@@ -1,7 +1,7 @@
 import React from 'react'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/link', () => ({
@@ -131,5 +131,26 @@ describe('VenueChatFixture', () => {
     expect(
       (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
     ).toBe(false)
+  })
+
+  it('exercises the production route planner with deterministic reviewed locations', async () => {
+    render(
+      <VenueChatFixture
+        mode="character"
+        state="idle"
+        conversation="long"
+        asset="ok"
+        motion="reduced"
+        route="ready"
+      />,
+    )
+
+    const plannerToggle = await screen.findByRole('button', { name: 'Plan a route' })
+    fireEvent.click(plannerToggle)
+    fireEvent.click(screen.getByLabelText('Use only connections marked accessible'))
+    fireEvent.click(screen.getByRole('button', { name: 'Find route' }))
+
+    expect(await screen.findByText('Main entrance to Lake gallery')).toBeTruthy()
+    expect(screen.getByText('Take the lift to the upper floor and turn left.')).toBeTruthy()
   })
 })

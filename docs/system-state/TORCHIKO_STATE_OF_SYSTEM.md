@@ -240,18 +240,19 @@ Privacy is not complete. Guest messages and identifiers are persisted, but polic
 
 ### Commands executed in this audit
 
-| Check                                                          | Result                                                                                                                 |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `pnpm test`                                                    | Passed: 3,926 package tests plus 164 script tests; 147 package tests and one script test skipped by environment/gating |
-| `pnpm typecheck`                                               | Passed: 23/23 tasks                                                                                                    |
-| `pnpm lint`                                                    | Passed with one warning: raw `<img>` in `apps/web/components/PlaceCard.tsx:70`                                         |
-| `pnpm build`                                                   | Passed: 13/13 workspaces; Sentry/OpenTelemetry dynamic-require warnings and Windows standalone-link warnings           |
-| `pnpm verify:client-bundles`                                   | Passed: 11 server-only canaries/credential patterns checked across 408 browser-deliverable files                       |
-| `pnpm test:accessibility`                                      | Passed: seven focused axe contracts                                                                                    |
-| `pnpm test:browser-foundation`                                 | Passed: 186 DOM/browser-foundation tests                                                                               |
-| AI/tenant/raw-SQL/public/staging/docker/character static gates | All passed                                                                                                             |
-| Local health                                                   | HTTP 200; DB and queue up                                                                                              |
-| Browser inspection                                             | Marketing, client home, admin OS, venue workspace, onboarding, and guest chat inspected at 1280×720                    |
+| Check                                                          | Result                                                                                                                  |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test`                                                    | Passed: 3,926 package tests plus 164 script tests; 147 package tests and one script test skipped by environment/gating  |
+| `pnpm typecheck`                                               | Passed: 23/23 tasks                                                                                                     |
+| `pnpm lint`                                                    | Passed with one warning: raw `<img>` in `apps/web/components/PlaceCard.tsx:70`                                          |
+| `pnpm build`                                                   | Passed: 13/13 workspaces; Sentry/OpenTelemetry dynamic-require warnings and Windows standalone-link warnings            |
+| `pnpm verify:client-bundles`                                   | Passed: 11 server-only canaries/credential patterns checked across 408 browser-deliverable files                        |
+| `pnpm test:accessibility`                                      | Passed: seven focused axe contracts                                                                                     |
+| `pnpm test:browser-foundation`                                 | Passed: 186 DOM/browser-foundation tests                                                                                |
+| `pnpm test:visual-browser`                                     | Added after the audit snapshot: nine real-Chromium phone/tablet/desktop smokes for Guest routing, portal and onboarding |
+| AI/tenant/raw-SQL/public/staging/docker/character static gates | All passed                                                                                                              |
+| Local health                                                   | HTTP 200; DB and queue up                                                                                               |
+| Browser inspection                                             | Marketing, client home, admin OS, venue workspace, onboarding, and guest chat inspected at 1280×720                     |
 
 The default unit suite skips integrations needing disposable DB/Redis/storage/ClamAV in the current invocation; CI has explicit jobs for many of them. The suite is strongest at state transitions, authorization, tenant predicates, validation, idempotency, worker retry/lease logic, and rendered component contracts. It is weaker at true browser automation across authenticated journeys, provider-backed AI quality, voice WebRTC, deliverability, cloud deployments, restoration, high-volume concurrency, and real mixed-media extraction.
 
@@ -268,7 +269,7 @@ The weakest visible areas are not generic styling problems:
 - the client portal is so intentionally narrow that analytics/content ownership may feel absent;
 - internal pages expose both legacy compatibility and native concepts, increasing decision load;
 - brand vocabulary is mixed: Torchiko externally, PathFinder OS internally, PathFinder in the welcome email, Tochi as character/assistant;
-- only desktop interactive inspection was completed. Responsive DOM tests passed, but the browser viewport override did not take effect, so mobile visuals were not independently confirmed.
+- the original audit completed only desktop interactive inspection. A later deterministic Chromium gate now confirms three synthetic phone/tablet/desktop journeys, but real-device, authenticated, deployed and assistive-technology evidence remains absent.
 
 Development fixture routes appear in production build manifests but their page/middleware guards return not-found or require auth outside development. This is acceptable, though route-level exclusion would reduce noise.
 
@@ -359,7 +360,7 @@ The best news is that the core is strong enough for controlled customers. The ca
 
 ## Audit limitations
 
-No credentials, production data, provider dashboards, browser profiles, or external services were accessed. The current remote CI/deployment state, production/staging database migration parity, current Supabase backup/PITR configuration, actual email delivery, real AI output quality, live voice/WebRTC, external agent bridges, and mobile visual rendering remain unverified. Browser viewport emulation did not change the active tab, so responsive conclusions rely on code and passing DOM/accessibility tests rather than a separate mobile screenshot review.
+No credentials, production data, provider dashboards, browser profiles, or external services were accessed. The current remote CI/deployment state, production/staging database migration parity, current Supabase backup/PITR configuration, actual email delivery, real AI output quality, live voice/WebRTC, external agent bridges, and real-device/deployed mobile rendering remain unverified. After this audit snapshot, deterministic local Chromium screenshots added bounded phone/tablet/desktop evidence for Guest routing, the single-venue portal and remote onboarding only.
 
 ## CRM/outreach branch delta (2026-08-20)
 

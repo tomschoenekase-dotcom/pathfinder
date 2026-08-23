@@ -5,7 +5,7 @@ import {
   type ClientPortalLifecycleEvidence,
 } from '@pathfinder/contracts/client-portal-lifecycle'
 
-import { DashboardOverview } from '../../../components/DashboardOverview'
+import { DashboardOverviewView } from '../../../components/DashboardOverview'
 
 const FIXTURE_STATES = ['live', 'paused'] as const
 type FixtureState = (typeof FIXTURE_STATES)[number]
@@ -42,8 +42,8 @@ export default async function PortalHomeVisualFixture({
   const lifecycle = resolveClientPortalLifecycle(lifecycleEvidence(state))
 
   return (
-    <div data-fixture="portal-home" data-fixture-state={state}>
-      <DashboardOverview
+    <main data-fixture="portal-home" data-fixture-state={state}>
+      <DashboardOverviewView
         venue={{
           id: 'fixture-great-lakes-museum',
           name: 'Great Lakes Discovery Museum',
@@ -59,6 +59,6 @@ export default async function PortalHomeVisualFixture({
         chatUrl="https://example.test/great-lakes-discovery-museum"
         impersonatedTenantName="Great Lakes Discovery Museum"
       />
-    </div>
+    </main>
   )
 }

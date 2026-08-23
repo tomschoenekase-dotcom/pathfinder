@@ -19,14 +19,13 @@ access, or staging access. CI runs the same command before the full monorepo tes
 
 ## Evidence boundary
 
-This is a DOM integration and route-adapter foundation, not a real-browser end-to-end suite. The
-repository does not currently include Playwright or a pinned browser binary, and this implementation
-does not download either during an offline/local test run. Therefore it does **not** prove browser
-engine layout, visual regression, real Clerk redirects, a deployed origin, or a live database flow.
+This remains the fast DOM integration and route-adapter inner loop. A complementary real-Chromium
+gate now exists at `pnpm test:visual-browser`; see `docs/mobile-visual-browser-smoke.md`. That gate
+adds representative phone/tablet/desktop rendering, keyboard interaction, browser-computed axe
+checks, and screenshots for Guest PathFinder, the single-venue portal, and remote onboarding.
 
-When a browser dependency and runtime are deliberately approved, this gate should remain the fast
-inner loop. A later Playwright layer can then exercise the same four surfaces against an explicitly
-authorized disposable environment with synthetic identities and seeded tenant data.
+Neither gate proves pixel-baseline visual regression, real Clerk redirects, a deployed origin,
+provider behavior, a live database flow, real devices, or assistive-technology behavior.
 
 ## Automated accessibility inner loop
 
@@ -37,5 +36,6 @@ DOM and includes rule IDs plus affected-node counts in its assertion output.
 
 The local scan deliberately disables only axe's `color-contrast` rule because jsdom has no layout or
 computed pixel colors. It does not replace keyboard contracts in the browser-foundation suite, a
-real browser-engine scan, zoom/reflow and high-contrast review, screen-reader testing, or a visual
-contrast audit. Those remain required before a production accessibility claim.
+zoom/reflow and high-contrast review or screen-reader testing. The complementary Chromium gate now
+adds browser-engine axe scans including computed color contrast for its three synthetic journeys,
+but those remaining checks are still required before a production accessibility claim.

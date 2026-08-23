@@ -11,6 +11,7 @@ node_modules/
 .corepack-bin/
 coverage/
 playwright-report/
+playwright-visual-report/
 test-results/
 artifacts/release-verification/
 apps/dashboard/public/characters/

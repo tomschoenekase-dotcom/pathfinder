@@ -1,0 +1,150 @@
+import AxeBuilder from '@axe-core/playwright'
+import { expect, test, type Page, type TestInfo } from '@playwright/test'
+
+const dashboardBaseUrl = process.env.PLAYWRIGHT_DASHBOARD_BASE_URL ?? 'http://127.0.0.1:3001'
+const visitorBaseUrl = process.env.PLAYWRIGHT_VISITOR_BASE_URL ?? 'http://127.0.0.1:3000'
+
+test.beforeEach(async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+})
+
+function captureRuntimeErrors(page: Page): string[] {
+  const errors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`)
+  })
+  page.on('pageerror', (error) => errors.push(`page: ${error.message}`))
+  return errors
+}
+
+async function expectViewportIntegrity(page: Page) {
+  await expect
+    .poll(() => page.locator('body').evaluate((body) => body.scrollWidth <= window.innerWidth + 1))
+    .toBe(true)
+}
+
+async function expectFixedViewportShell(page: Page) {
+  const dimensions = await page.evaluate(() => ({
+    bodyHeight: document.body.scrollHeight,
+    htmlHeight: document.documentElement.scrollHeight,
+    scrollY: window.scrollY,
+    viewportHeight: window.innerHeight,
+  }))
+  // Next.js development tooling may extend the document element outside the product body.
+  // The guest shell itself must remain viewport-bound and the page must not be scrolled.
+  expect(dimensions.bodyHeight, JSON.stringify(dimensions)).toBeLessThanOrEqual(
+    dimensions.viewportHeight + 1,
+  )
+  expect(dimensions.scrollY, JSON.stringify(dimensions)).toBe(0)
+}
+
+async function hideFrameworkDevChrome(page: Page, options: { clerk?: boolean } = {}) {
+  await page.locator('nextjs-portal').evaluateAll((nodes) => nodes.forEach((node) => node.remove()))
+  if (!options.clerk) return
+
+  const keylessPrompt = page.getByRole('button', { name: 'Keyless prompt' })
+  await keylessPrompt
+    .first()
+    .waitFor({ state: 'attached', timeout: 2_000 })
+    .catch(() => undefined)
+  await keylessPrompt.evaluateAll((buttons) => {
+    for (const button of buttons) {
+      let current: Element | null = button
+      while (current?.parentElement && current.parentElement !== document.body) {
+        if (window.getComputedStyle(current).position === 'fixed') {
+          current.remove()
+          current = null
+          break
+        }
+        current = current.parentElement
+      }
+      current?.remove()
+    }
+  })
+}
+
+async function expectAccessiblePage(page: Page) {
+  const result = await new AxeBuilder({ page }).include('body').analyze()
+  expect(
+    result.violations.map(({ id, nodes }) => ({
+      id,
+      nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+    })),
+  ).toEqual([])
+}
+
+async function saveViewportEvidence(page: Page, testInfo: TestInfo, name: string) {
+  const screenshot = await page.screenshot({
+    animations: 'disabled',
+    caret: 'hide',
+    path: testInfo.outputPath(`${name}.png`),
+  })
+  expect(screenshot.byteLength).toBeGreaterThan(10_000)
+}
+
+test('Guest PathFinder route planning is usable in a real browser', async ({ page }, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(
+    `${visitorBaseUrl}/dev-fixtures/visitor-chat?mode=character&state=idle&conversation=long&motion=reduced&voice=idle&route=ready`,
+  )
+  await hideFrameworkDevChrome(page)
+
+  await expect(page.getByRole('heading', { name: 'Museum Guide' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Museum Tochi character status' })).toBeVisible()
+  const plannerToggle = page.getByRole('button', { name: 'Plan a route' })
+  await plannerToggle.focus()
+  await expect(plannerToggle).toBeFocused()
+  await plannerToggle.press('Enter')
+  await page.getByLabel('Use only connections marked accessible').check()
+  await page.getByRole('button', { name: 'Find route' }).click()
+  await expect(page.getByText('Main entrance to Lake gallery')).toBeVisible()
+  await expect(page.getByText('Take the lift to the upper floor and turn left.')).toBeVisible()
+
+  await expectViewportIntegrity(page)
+  await expectFixedViewportShell(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'guest-route-planner')
+  expect(runtimeErrors).toEqual([])
+})
+
+test('single-venue client home remains simple and responsive', async ({ page }, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/portal-home?state=live`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator('[data-fixture="portal-home"][data-fixture-state="live"]'),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Great Lakes Discovery Museum' })).toBeVisible()
+  await expect(page.getByLabel('Viewing venue')).toHaveCount(0)
+  const firstAction = page.getByRole('link').first()
+  await firstAction.focus()
+  await expect(firstAction).toBeFocused()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'client-portal-live')
+  expect(runtimeErrors).toEqual([])
+})
+
+test('remote onboarding questions remain clear and keyboard reachable', async ({
+  page,
+}, testInfo) => {
+  const runtimeErrors = captureRuntimeErrors(page)
+  await page.goto(`${dashboardBaseUrl}/dev-fixtures/remote-onboarding?state=questions`)
+  await hideFrameworkDevChrome(page, { clerk: true })
+
+  await expect(
+    page.locator('[data-fixture="remote-onboarding"][data-fixture-state="questions"]'),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Focused questions' })).toBeVisible()
+  await expect(page.getByText('Accessible entrance details')).toBeVisible()
+  const helpLink = page.getByRole('link', { name: 'Ask Torchiko for help' }).first()
+  await helpLink.focus()
+  await expect(helpLink).toBeFocused()
+
+  await expectViewportIntegrity(page)
+  await expectAccessiblePage(page)
+  await saveViewportEvidence(page, testInfo, 'remote-onboarding-questions')
+  expect(runtimeErrors).toEqual([])
+})

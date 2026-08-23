@@ -5,6 +5,7 @@ import {
   type VisitorFixtureAsset,
   type VisitorFixtureConversation,
   type VisitorFixtureMode,
+  type VisitorFixtureRoute,
   type VisitorFixtureVoice,
 } from '../../../components/VenueChatFixture'
 
@@ -42,6 +43,7 @@ export default async function VisitorChatVisualFixture({
     motion?: string | string[]
     voice?: string | string[]
     network?: string | string[]
+    route?: string | string[]
   }>
 }) {
   if (process.env.NODE_ENV !== 'development') notFound()
@@ -54,6 +56,7 @@ export default async function VisitorChatVisualFixture({
   const motion = oneOf(params.motion, ['system', 'reduced', 'full'] as const, 'system')
   const voice = oneOf(params.voice, ['none', 'idle', 'listening', 'error'] as const, 'none')
   const network = oneOf(params.network, ['online', 'offline', 'reconnected'] as const, 'online')
+  const route = oneOf(params.route, ['none', 'ready'] as const, 'none')
 
   return (
     <VenueChatFixture
@@ -64,6 +67,7 @@ export default async function VisitorChatVisualFixture({
       motion={motion}
       voice={voice satisfies VisitorFixtureVoice}
       network={network}
+      route={route satisfies VisitorFixtureRoute}
     />
   )
 }

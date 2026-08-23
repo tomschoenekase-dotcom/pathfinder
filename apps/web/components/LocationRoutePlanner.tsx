@@ -1,6 +1,6 @@
 'use client'
 
-import React, { type FormEvent, useEffect, useRef, useState } from 'react'
+import React, { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 
@@ -10,6 +10,19 @@ type RouterOutputs = inferRouterOutputs<AppRouter>
 type LocationCatalog = RouterOutputs['location']['catalog']['locations']
 type LocationRoute = RouterOutputs['location']['route']
 
+export type LocationRoutePlannerDataSource = {
+  catalog: (input: { venueId: string; anonymousToken: string }) => Promise<{
+    locations: LocationCatalog
+  }>
+  route: (input: {
+    venueId: string
+    anonymousToken: string
+    fromLocationId: string
+    toLocationId: string
+    accessibleOnly: boolean
+  }) => Promise<LocationRoute>
+}
+
 function connectionLabel(kind: string) {
   return kind.toLowerCase().replaceAll('_', ' ')
 }
@@ -18,12 +31,22 @@ export function LocationRoutePlanner({
   venueId,
   anonymousToken,
   disabled = false,
+  dataSource,
 }: {
   venueId: string
   anonymousToken: string | null
   disabled?: boolean
+  dataSource?: LocationRoutePlannerDataSource
 }) {
   const client = useTRPCClient()
+  const source = useMemo<LocationRoutePlannerDataSource>(
+    () =>
+      dataSource ?? {
+        catalog: (input) => client.location.catalog.query(input),
+        route: (input) => client.location.route.query(input),
+      },
+    [client, dataSource],
+  )
   const requestGeneration = useRef(0)
   const [locations, setLocations] = useState<LocationCatalog | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -42,8 +65,8 @@ export function LocationRoutePlanner({
     setError(null)
     if (!anonymousToken) return
 
-    void client.location.catalog
-      .query({ venueId, anonymousToken })
+    void source
+      .catalog({ venueId, anonymousToken })
       .then((result) => {
         if (generation !== requestGeneration.current) return
         setLocations(result.locations)
@@ -58,7 +81,7 @@ export function LocationRoutePlanner({
     return () => {
       requestGeneration.current += 1
     }
-  }, [anonymousToken, client, venueId])
+  }, [anonymousToken, source, venueId])
 
   if (!anonymousToken || !locations || locations.length < 2) return null
 
@@ -71,7 +94,7 @@ export function LocationRoutePlanner({
     setRoute(null)
     setError(null)
     try {
-      const result = await client.location.route.query({
+      const result = await source.route({
         venueId,
         anonymousToken,
         fromLocationId,
@@ -105,7 +128,7 @@ export function LocationRoutePlanner({
       </button>
       {expanded ? (
         <form
-          className="border-t border-[var(--chat-border)] px-4 pb-4 pt-3"
+          className="max-h-[min(24rem,45svh)] overflow-y-auto border-t border-[var(--chat-border)] px-4 pb-4 pt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)]"
           onSubmit={handleSubmit}
         >
           <div className="grid gap-3 sm:grid-cols-2">

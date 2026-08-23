@@ -182,10 +182,10 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.2 — Add a real mobile visual smoke suite
 
-- **Problem:** Responsive DOM/accessibility tests pass, but independent mobile visual inspection could not be completed in this audit.
-- **Evidence:** browser viewport remained 1280×720; `test:browser-foundation` and responsive classes provide indirect evidence.
+- **Status (2026-08-23):** **Locally closed for the named synthetic journeys.** `pnpm test:visual-browser` now runs nine real-Chromium smokes at phone/tablet/desktop widths.
+- **Evidence:** Guest route planning, the single-venue client portal and remote onboarding now receive interaction, keyboard-focus, horizontal-overflow, console/page-error, browser axe (including contrast), and screenshot checks.
 - **Affected system:** Public chat, onboarding, client/admin UI.
-- **Recommended change:** Add Playwright screenshots/interaction at representative phone/tablet/desktop widths for core journeys, with reduced-motion and keyboard cases.
+- **Recommended next change:** Extend the same gate to authenticated Admin OS/Internal Workspace journeys and retain separately authorized deployed/real-device evidence.
 - **Why it matters:** The guest experience will often be mobile and embedded.
 - **Effort:** M
 - **Dependencies:** Stable fixture data and CI browser runtime.

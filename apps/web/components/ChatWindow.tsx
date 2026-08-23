@@ -147,10 +147,11 @@ export function ChatWindow({
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-[var(--chat-border)] bg-[var(--chat-card)] shadow-sm">
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--chat-accent)] sm:px-5"
         role="log"
         aria-label="Conversation"
         aria-live="off"
+        tabIndex={0}
       >
         {messages.length === 0 && emptyState ? emptyState : null}
 

@@ -7,6 +7,7 @@ import type {
 
 import { TRPCProvider } from '../lib/trpc'
 import type { NetworkConnectionState } from '../hooks/useNetworkStatus'
+import { LocationRoutePlanner, type LocationRoutePlannerDataSource } from './LocationRoutePlanner'
 import { VenueChatShell } from './VenueChatShell'
 import { VoiceControlPanel } from './VoiceControl'
 import type { ChatMessage, VenueSummary } from './venue-chat-types'
@@ -25,6 +26,88 @@ export type VisitorFixtureMode = 'classic' | 'character'
 export type VisitorFixtureConversation = 'empty' | 'long'
 export type VisitorFixtureAsset = 'ok' | 'missing'
 export type VisitorFixtureVoice = 'none' | 'idle' | 'listening' | 'error'
+export type VisitorFixtureRoute = 'none' | 'ready'
+
+const FIXTURE_ROUTE_SOURCE = {
+  catalog: async () => ({
+    locations: [
+      {
+        id: 'fixture-main-entrance',
+        stableKey: 'main-entrance',
+        kind: 'ENTRANCE' as const,
+        displayName: 'Main entrance',
+        floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+      },
+      {
+        id: 'fixture-lake-gallery',
+        stableKey: 'lake-gallery',
+        kind: 'EXHIBIT' as const,
+        displayName: 'Lake gallery',
+        floor: { stableKey: 'upper', name: 'Upper floor', level: 1 },
+      },
+    ],
+  }),
+  route: async (input) => ({
+    from: {
+      id: 'fixture-main-entrance',
+      stableKey: 'main-entrance',
+      kind: 'ENTRANCE' as const,
+      displayName: 'Main entrance',
+      floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+    },
+    to: {
+      id: 'fixture-lake-gallery',
+      stableKey: 'lake-gallery',
+      kind: 'EXHIBIT' as const,
+      displayName: 'Lake gallery',
+      floor: { stableKey: 'upper', name: 'Upper floor', level: 1 },
+    },
+    accessibleOnly: input.accessibleOnly,
+    segmentCount: 2,
+    segments: [
+      {
+        connectionId: 'fixture-lobby-walkway',
+        kind: 'WALKWAY' as const,
+        accessible: true,
+        directions: 'Follow the lobby signs to the central lift.',
+        from: {
+          id: 'fixture-main-entrance',
+          stableKey: 'main-entrance',
+          kind: 'ENTRANCE' as const,
+          displayName: 'Main entrance',
+          floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+        },
+        to: {
+          id: 'fixture-central-lift',
+          stableKey: 'central-lift',
+          kind: 'SERVICE_DESK' as const,
+          displayName: 'Central lift',
+          floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+        },
+      },
+      {
+        connectionId: 'fixture-upper-lift',
+        kind: 'ELEVATOR' as const,
+        accessible: true,
+        directions: 'Take the lift to the upper floor and turn left.',
+        from: {
+          id: 'fixture-central-lift',
+          stableKey: 'central-lift',
+          kind: 'SERVICE_DESK' as const,
+          displayName: 'Central lift',
+          floor: { stableKey: 'ground', name: 'Ground floor', level: 0 },
+        },
+        to: {
+          id: 'fixture-lake-gallery',
+          stableKey: 'lake-gallery',
+          kind: 'EXHIBIT' as const,
+          displayName: 'Lake gallery',
+          floor: { stableKey: 'upper', name: 'Upper floor', level: 1 },
+        },
+      },
+    ],
+  }),
+} satisfies LocationRoutePlannerDataSource
 
 export const VISITOR_FIXTURE_PROJECTION: PublicCharacterProjection = {
   characterId: 'tochi',
@@ -118,6 +201,7 @@ export function VenueChatFixture({
   motion,
   voice = 'none',
   network = 'online',
+  route = 'none',
 }: {
   mode: VisitorFixtureMode
   state: (typeof VISITOR_FIXTURE_STATES)[number]
@@ -126,6 +210,7 @@ export function VenueChatFixture({
   motion: 'system' | 'reduced' | 'full'
   voice?: VisitorFixtureVoice
   network?: NetworkConnectionState
+  route?: VisitorFixtureRoute
 }) {
   return (
     <TRPCProvider scopeKey="visitor-chat-visual-fixture">
@@ -137,6 +222,7 @@ export function VenueChatFixture({
         data-fixture-asset={asset}
         data-fixture-voice={voice}
         data-fixture-network={network}
+        data-fixture-route={route}
       >
         <VenueChatShell
           venue={fixtureVenue(mode, asset)}
@@ -178,6 +264,15 @@ export function VenueChatFixture({
                 onEnd={() => undefined}
               />
             )
+          }
+          routePlanner={
+            route === 'ready' ? (
+              <LocationRoutePlanner
+                venueId="fixture-great-lakes-museum"
+                anonymousToken="123e4567-e89b-42d3-a456-426614174000"
+                dataSource={FIXTURE_ROUTE_SOURCE}
+              />
+            ) : null
           }
         />
       </div>

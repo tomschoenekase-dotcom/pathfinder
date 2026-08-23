@@ -216,6 +216,7 @@ pnpm characters:verify
 ```powershell
 pnpm test:accessibility
 pnpm test:browser-foundation
+pnpm test:visual-browser
 ```
 
 ### Local staging
@@ -250,6 +251,10 @@ On 2026-08-19 the current dirty tree produced:
 - `pnpm lint`: passed with one raw-`<img>` warning in `apps/web/components/PlaceCard.tsx:70`.
 - `pnpm build`: 13/13 workspaces passed; known Sentry/OpenTelemetry dynamic-require and Windows standalone-link warnings.
 - all listed static gates, accessibility contracts (7 tests) and browser-foundation contracts (186 tests) passed.
+
+After that audit baseline, `pnpm test:visual-browser` added nine deterministic real-Chromium checks
+for Guest route planning, the single-venue portal and remote onboarding at phone/tablet/desktop
+viewports. It remains synthetic local evidence, not authenticated, deployed or real-device proof.
 
 The default suite is not equivalent to CI’s disposable service integrations. Before changing tenancy, migrations, Redis job behavior, storage/uploads, or public surfaces, run the corresponding integration/static gate. Before declaring a provider feature complete, execute a spend-bounded provider-enabled staging smoke.
 

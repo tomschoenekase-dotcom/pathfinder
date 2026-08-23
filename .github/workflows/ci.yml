@@ -202,6 +202,10 @@ jobs:
           RUN_CLERK_WEBHOOK_DB_INTEGRATION: '1'
       - name: Synchronize reviewed character assets
         run: pnpm characters:sync
+      - name: Install the pinned Chromium runtime for visual smoke tests
+        run: pnpm --dir apps/dashboard exec playwright install --with-deps chromium
+      - name: Verify phone, tablet, and desktop core-product rendering
+        run: pnpm test:visual-browser
       - name: Build and verify browser bundles contain no server secrets
         run: pnpm verify:client-bundles
       - name: Verify Packet 2 browser-surface DOM contracts

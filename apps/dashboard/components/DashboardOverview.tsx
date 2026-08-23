@@ -80,7 +80,12 @@ function coreStateFor(lifecycle: ClientPortalLifecycleView): TorchikoCoreState {
   return 'welcome'
 }
 
-export function DashboardOverview({
+export function DashboardOverview(props: DashboardOverviewProps) {
+  const { organization } = useOrganization()
+  return <DashboardOverviewView {...props} organizationName={organization?.name} />
+}
+
+export function DashboardOverviewView({
   venue,
   venues,
   activeUpdates,
@@ -89,9 +94,9 @@ export function DashboardOverview({
   tasks,
   visitorPulse,
   secondLayer,
-}: DashboardOverviewProps) {
-  const { organization } = useOrganization()
-  const orgName = impersonatedTenantName ?? organization?.name ?? venue.name
+  organizationName,
+}: DashboardOverviewProps & { organizationName?: string | undefined }) {
+  const orgName = impersonatedTenantName ?? organizationName ?? venue.name
   const lifecycle = venue.lifecycle
   const clientPreview = venue.clientPreview ?? { state: 'UNAVAILABLE' as const, id: null }
   const showLiveTools = lifecycle.state === 'LIVE' || lifecycle.state === 'PAUSED'
@@ -355,7 +360,7 @@ export function DashboardOverview({
                     rate answers.
                   </p>
                 )}
-                <p className="mt-4 max-w-2xl text-xs leading-5 text-pf-deep/55">
+                <p className="mt-4 max-w-2xl text-xs leading-5 text-pf-deep/70">
                   Last {visitorPulse?.windowDays ?? 30} days. This summary does not expose visitor
                   identities, locations, or conversation transcripts.
                 </p>
