@@ -79,7 +79,24 @@ export const adminProspectCrmCoreRouter = router({
             emailThreads: {
               orderBy: { lastMessageAt: 'desc' },
               take: 50,
-              include: { messages: { orderBy: { occurredAt: 'desc' }, take: 100 } },
+              include: {
+                messages: {
+                  orderBy: { occurredAt: 'desc' },
+                  take: 100,
+                  select: {
+                    id: true,
+                    direction: true,
+                    status: true,
+                    fromAddress: true,
+                    toAddresses: true,
+                    subject: true,
+                    bodyPreview: true,
+                    bodyRetentionState: true,
+                    sourceReference: true,
+                    occurredAt: true,
+                  },
+                },
+              },
             },
             followups: { orderBy: { dueAt: 'asc' }, take: 100 },
             campaignMembers: {

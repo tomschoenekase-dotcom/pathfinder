@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   deliveryControl: vi.fn(),
   providerAccounts: vi.fn(),
   followups: vi.fn(),
+  prospect: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -36,6 +37,7 @@ vi.mock('@pathfinder/db', () => ({
     prospectDeliveryControl: { findUnique: mocks.deliveryControl },
     correspondenceProviderAccount: { findMany: mocks.providerAccounts },
     prospectFollowup: { findMany: mocks.followups },
+    prospectOrganization: { findUnique: mocks.prospect },
   },
 }))
 
@@ -149,5 +151,24 @@ describe('admin prospect CRM router', () => {
       }),
     )
     vi.unstubAllEnvs()
+  })
+
+  it('returns only compact correspondence previews and source references in prospect detail', async () => {
+    mocks.prospect.mockResolvedValue({ customerRelationships: [], conversion: null })
+
+    const result = await testRouter.createCaller(context(true)).crm.getProspect({
+      organizationId: 'org-1',
+    })
+
+    expect(result).toEqual({ customerRelationships: [], conversion: null })
+    const query = mocks.prospect.mock.calls[0]?.[0]
+    const messageSelect = query?.include?.emailThreads?.include?.messages?.select
+    expect(messageSelect).toMatchObject({
+      bodyPreview: true,
+      bodyRetentionState: true,
+      sourceReference: true,
+    })
+    expect(messageSelect).not.toHaveProperty('textBody')
+    expect(messageSelect).not.toHaveProperty('htmlBody')
   })
 })
