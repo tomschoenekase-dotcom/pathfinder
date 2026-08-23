@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@pathfinder/db', () => ({
   withTenantIsolationBypass: mocks.bypass,
+  writeAuditLogStrict: vi.fn(),
   db: {
     jobRecord: { findMany: mocks.jobs },
     evalRun: { findMany: mocks.evaluations },

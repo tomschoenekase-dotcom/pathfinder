@@ -19,6 +19,9 @@ vi.mock('./FounderBriefingReviewForm', () => ({
 vi.mock('./TerminalRedrivePreview', () => ({
   TerminalRedrivePreview: () => <span>Recovery preview control</span>,
 }))
+vi.mock('./GuestChatIncidentEvidence', () => ({
+  GuestChatIncidentEvidence: () => <span>Guest chat incident evidence control</span>,
+}))
 
 import { OperationsAttentionConsole } from './OperationsAttentionConsole'
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React

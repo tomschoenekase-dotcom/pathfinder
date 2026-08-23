@@ -41,6 +41,9 @@ const approvedCallCounts = new Map([
   ['apps/workers/src/processors/operational-event-delivery.ts', 4],
   ['packages/api/src/routers/admin/answer-analysis.ts', 3],
   ['packages/api/src/routers/admin/attention-console.ts', 1],
+  // Platform-admin-only exact incident correlation reads one event, its latest scoped guest turn,
+  // and explicitly referenced sanitized usage rows; successful access is strictly audited.
+  ['packages/api/src/routers/admin/guest-chat-incident-evidence.ts', 3],
   ['packages/api/src/routers/admin/attention-event-actions.ts', 2],
   // Platform-admin-only bounded readiness projection over platform-wide operational evidence.
   ['packages/api/src/routers/admin/operations-readiness.ts', 1],

@@ -26,6 +26,10 @@ import {
   type AttentionConsoleInput,
 } from './attention-pagination'
 import { listAttentionWorkers } from './attention-worker-health'
+import {
+  guestChatIncidentEvidenceInput,
+  readGuestChatIncidentEvidence,
+} from './guest-chat-incident-evidence'
 
 export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
@@ -380,6 +384,9 @@ export const adminAttentionConsoleRouter = router({
   attentionConsole: adminProcedure
     .input(attentionConsoleInput)
     .query(({ ctx, input }) => readAttentionConsole(ctx.session.userId, input)),
+  guestChatIncidentEvidence: adminProcedure
+    .input(guestChatIncidentEvidenceInput)
+    .query(({ ctx, input }) => readGuestChatIncidentEvidence(input, ctx.session.userId)),
   founderOperatingView: adminProcedure
     .input(attentionConsoleInput)
     .query(async ({ ctx, input }) => {

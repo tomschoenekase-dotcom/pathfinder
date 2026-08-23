@@ -7,6 +7,7 @@ import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
 import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
+import { GuestChatIncidentEvidence } from './GuestChatIncidentEvidence'
 import { OperationalEventActions } from './OperationalEventActions'
 import { TerminalRedrivePreview } from './TerminalRedrivePreview'
 
@@ -559,6 +560,10 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   >
                     Open related workspace
                   </Link>
+                  {event.eventType === 'guest-chat.route-degraded' &&
+                  event.linkedObjectType === 'guest-chat-turn' ? (
+                    <GuestChatIncidentEvidence eventId={event.id} />
+                  ) : null}
                   <OperationalEventActions eventId={event.id} state={event.state} />
                 </li>
               )

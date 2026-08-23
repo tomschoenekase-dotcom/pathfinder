@@ -17,6 +17,12 @@ When every configured generation candidate is exhausted and the safe response is
 committed, guest chat also publishes `guest-chat.route-degraded` to the tenant's operational
 event stream. The event is grouped by venue and routing-configuration version, links to the venue
 chat review surface, and contains no prompt, response, guest token, or provider exception text.
+A grouped event now retains an exact pointer to its latest affected durable turn. A platform
+administrator can inspect that turn's provider-operation states and their linked sanitized usage
+rows from the Founder Control Room. The read is strictly audited and excludes transcript text,
+prompts, responses, invocation identifiers, and provider exception detail. It grants no retry,
+provider-control, acknowledgement, or incident-mutation authority. Older grouped alerts that only
+pointed at a venue are explicitly reported as lacking exact turn evidence rather than guessed.
 A configured fallback candidate that succeeds does not create an incident. Unexpected
 post-dispatch failures retain separate per-turn evidence rather than being mislabeled as route
 exhaustion. Operational-event publication is best-effort and cannot prevent the safe response.

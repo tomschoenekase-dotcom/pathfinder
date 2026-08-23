@@ -575,8 +575,8 @@ export const chatRouter = router({
             ? 'Every configured guest-chat route candidate failed for this venue; the guest received the safe fallback response.'
             : 'A guest chat turn encountered a sanitized AI service failure.',
           actionRequired: routeExhausted || category === 'provider-failure',
-          linkedObjectType: routeExhausted ? 'venue' : 'guest-chat-turn',
-          linkedObjectId: routeExhausted ? input.venueId : reservation.turnId,
+          linkedObjectType: 'guest-chat-turn',
+          linkedObjectId: reservation.turnId,
           recommendedAction: routeExhausted
             ? 'Review sanitized usage failures and recent chat reliability evidence before changing routing or incident controls.'
             : 'Inspect the turn and recent provider outcomes in PathFinder OS.',

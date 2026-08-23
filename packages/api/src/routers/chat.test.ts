@@ -1639,8 +1639,8 @@ describe('chat router', () => {
             eventType: 'guest-chat.route-degraded',
             severity: 'ERROR',
             actionRequired: true,
-            linkedObjectType: 'venue',
-            linkedObjectId: VENUE_ID,
+            linkedObjectType: 'guest-chat-turn',
+            linkedObjectId: expect.any(String),
             deduplicationKey: expect.stringMatching(
               new RegExp(`^guest-chat-route-degraded:${VENUE_ID}:`),
             ),

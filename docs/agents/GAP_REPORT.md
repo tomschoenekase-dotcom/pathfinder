@@ -66,10 +66,10 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    count+SHA-256 inventory makes additions, removals, kind changes, ownership changes, and source
    moves fail closed, and a runtime test proves the static graph matches the authoritative mounted
    router. A second reviewed digest now maps 3 operations to direct tools, 95 to deliberately
-   narrower alternatives, and leaves 273 explicitly unbound. Rules fail on duplicate/unknown
+   narrower alternatives, and leaves 275 explicitly unbound. Rules fail on duplicate/unknown
    operations, unknown surfaces, or tools that are merely declared but not bound in the safe
    runtime. This closes operation-level visibility and concrete binding measurement; it does not
-   close the 273 measured parity gaps or convert a bounded alternative into exact UI/API parity.
+   close the 275 measured parity gaps or convert a bounded alternative into exact UI/API parity.
 
 ## Intentionally restricted or deferred
 
@@ -87,7 +87,7 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
 - Unified core discovery metadata across operational MCP and prospect-agent tools.
 - Added `pnpm verify:agent-tools`, which fails when a mounted application/admin router has no explicit or has an ambiguous agent/developer coverage decision.
 - Expanded the same gate to 371 exact mounted operations with authoritative runtime equivalence,
-  then added a reviewed exact binding ledger: 3 direct, 95 bounded alternatives, and 273 unbound.
+  then added a reviewed exact binding ledger: 3 direct, 95 bounded alternatives, and 275 unbound.
   Declared-but-runtime-unbound tools cannot satisfy the ledger.
 - Added four synthetic scenario fixtures with provider-free time/location simulation and conversation replay preparation.
 - Added the initial capability matrix, developer guide, tool reference, and this gap ledger.

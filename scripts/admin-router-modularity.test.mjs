@@ -109,6 +109,7 @@ const expectedAdminProcedures = [
   'getVenueReportConfiguration',
   'getWeeklyReport',
   'getWeeklyReportLifecycle',
+  'guestChatIncidentEvidence',
   'issueExternalCredential',
   'issuePlatformWorkerPolicyCredential',
   'linkProspectConversion',

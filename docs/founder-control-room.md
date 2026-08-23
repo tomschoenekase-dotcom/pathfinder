@@ -127,6 +127,13 @@ global actions.
 
 ## Production chat incident reconciliation
 
+Grouped `guest-chat.route-degraded` alerts expose an on-demand, read-only evidence inspection for
+the latest affected turn. It correlates the exact durable turn, provider-operation outcome, and
+linked sanitized usage record without loading conversation text. Successful reads are strictly
+audited. The control does not retry a turn, alter provider health, acknowledge the alert, or change
+incident policy; those remain separate authority surfaces. Legacy venue-only alert pointers fail
+explicitly because the system cannot prove an exact turn correlation for them.
+
 The August 22 production chat repair established that durable guest messages require both
 `venueId` and `sessionSequence`. The current branch already supersedes the minimal hotfix with
 the stronger `reserveGuestChatTurnAction` / `finalizeGuestChatTurnAction` lifecycle, including
