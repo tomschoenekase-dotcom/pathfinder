@@ -1047,6 +1047,7 @@ export {
   ProspectFollowupError,
   scheduleProspectFollowupAction,
 } from './helpers/prospect-followup-actions'
+export { recordProspectInboundReplyAction } from './helpers/prospect-inbound-reply-actions'
 export {
   ProspectContactabilityError,
   recordProspectSuppressionAction,

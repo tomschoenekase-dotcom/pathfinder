@@ -10,9 +10,11 @@ import {
   db,
   linkProspectConversionAction,
   previewProspectImportRepairAction,
+  recordProspectInboundReplyAction,
   repairProspectImportAction,
   resolveProspectImportRowAction,
   stageProspectImportRowsAction,
+  updateProspectPipelineAction,
   withTenantIsolationBypass,
 } from '../index'
 
@@ -48,6 +50,52 @@ describe.skipIf(!enabled)('prospect CRM disposable lifecycle', () => {
           actor,
         }),
       ).rejects.toMatchObject({ code: 'CONFLICT' })
+
+      await updateProspectPipelineAction({
+        organizationId: existing.organization.id,
+        stage: 'CONTACTED',
+        reason: 'Disposable inbound-reply continuity setup',
+        actor,
+      })
+      const replyAt = new Date('2026-08-22T16:00:00.000Z')
+      const reply = await recordProspectInboundReplyAction({
+        prospectOrganizationId: existing.organization.id,
+        contactId: null,
+        campaignMemberId: null,
+        canonicalMessageId: `message-${suffix}`,
+        canonicalThreadId: `thread-${suffix}`,
+        matchingEvidence: ['PROVIDER_THREAD', 'RFC_REFERENCE'],
+        occurredAt: replyAt,
+      })
+      expect(reply).toMatchObject({
+        fromStage: 'CONTACTED',
+        toStage: 'REPLIED',
+        stageChanged: true,
+      })
+      expect(
+        await db.prospectOpportunity.findUniqueOrThrow({
+          where: { organizationId: existing.organization.id },
+          select: { stage: true, lastActivityAt: true },
+        }),
+      ).toEqual({ stage: 'REPLIED', lastActivityAt: replyAt })
+      expect(
+        await db.prospectStageHistory.count({
+          where: {
+            opportunity: { organizationId: existing.organization.id },
+            fromStage: 'CONTACTED',
+            toStage: 'REPLIED',
+            actorId: 'gmail-sync',
+          },
+        }),
+      ).toBe(1)
+      expect(
+        await db.auditLog.count({
+          where: {
+            action: 'system.prospect.inbound_reply_recorded',
+            targetId: reply.opportunityId!,
+          },
+        }),
+      ).toBe(1)
 
       const fileHash = hash(`file-${suffix}`)
       const mappingHash = hash(`mapping-${suffix}`)

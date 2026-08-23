@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 
-import { db, publishCrmOperationalSignal, withTenantIsolationBypass } from '@pathfinder/db'
+import {
+  db,
+  publishCrmOperationalSignal,
+  recordProspectInboundReplyAction,
+  withTenantIsolationBypass,
+} from '@pathfinder/db'
 import { ProspectCampaignMemberStatus } from '@prisma/client'
 
 import type { InboundCorrespondenceStore, ReceiptState, ThreadMatchCandidate } from './inbound-sync'
@@ -268,31 +273,7 @@ export function createPrismaInboundCorrespondenceStore(
       })
     },
     async appendRelationshipReply(input) {
-      await withTenantIsolationBypass(() =>
-        db.$transaction(async (tx) => {
-          await tx.prospectActivity.create({
-            data: {
-              organizationId: input.prospectOrganizationId,
-              contactId: input.contactId,
-              type: 'REPLY_RECEIVED',
-              summary: 'Inbound correspondence received',
-              evidence: {
-                messageId: input.canonicalMessageId,
-                threadId: input.canonicalThreadId,
-                matchingEvidence: [...input.matchingEvidence],
-              },
-              actorId: 'gmail-sync',
-              occurredAt: input.occurredAt,
-            },
-          })
-          if (input.campaignMemberId) {
-            await tx.prospectCampaignMember.updateMany({
-              where: { id: input.campaignMemberId, status: { in: ['QUEUED', 'SENT'] } },
-              data: { status: 'REPLIED' },
-            })
-          }
-        }),
-      )
+      await withTenantIsolationBypass(() => recordProspectInboundReplyAction(input))
       await publishCrmOperationalSignal({
         input: {
           signal: 'reply_received',
