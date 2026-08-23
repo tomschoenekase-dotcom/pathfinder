@@ -13,6 +13,7 @@ import {
   tenantScopeInput,
 } from './agent-operations-shared'
 import { adminAgentIdentityReadsRouter } from './agent-identity-reads'
+import { customerAccessApprovalSelect } from './customer-access-approval-select'
 
 /**
  * Read-only operator surfaces for the agent control plane. Raw JSON inputs,
@@ -308,15 +309,7 @@ const adminAgentRunOperationsRouter = router({
             agentIdentity: { select: { id: true, name: true } },
             venue: { select: { id: true, name: true } },
             customerAccessRequest: {
-              select: {
-                id: true,
-                targetEmail: true,
-                requestedRole: true,
-                status: true,
-                supportRequestId: true,
-                sourceSupportMessageId: true,
-                providerInvitationId: true,
-              },
+              select: customerAccessApprovalSelect,
             },
             decision: {
               select: {
@@ -368,15 +361,7 @@ const adminAgentRunOperationsRouter = router({
             agentIdentity: { select: { id: true, name: true } },
             venue: { select: { id: true, name: true } },
             customerAccessRequest: {
-              select: {
-                id: true,
-                targetEmail: true,
-                requestedRole: true,
-                status: true,
-                supportRequestId: true,
-                sourceSupportMessageId: true,
-                providerInvitationId: true,
-              },
+              select: customerAccessApprovalSelect,
             },
             decision: {
               select: {
