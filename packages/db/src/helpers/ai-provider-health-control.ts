@@ -1,13 +1,20 @@
 import { z } from 'zod'
 
-import { AI_PROVIDER_REGISTRY, type AiProviderId } from '@pathfinder/ai'
+import type { AiProviderId } from '@pathfinder/ai'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
 
 export const AI_PROVIDER_HEALTH_CONTROL_KEY = 'ai-provider-health-control-v1' as const
 
-const providerIds = Object.keys(AI_PROVIDER_REGISTRY) as [AiProviderId, ...AiProviderId[]]
+// Keep runtime validation independent of @pathfinder/ai module initialization: several consumers
+// deliberately replace that package with narrow provider mocks. The exhaustive record makes an
+// addition to the provider-id union an explicit compile-time reconciliation point here.
+const providerRegistryCoverage = {
+  anthropic: true,
+  openai: true,
+} as const satisfies Record<AiProviderId, true>
+const providerIds = Object.keys(providerRegistryCoverage) as [AiProviderId, ...AiProviderId[]]
 const providerSchema = z.enum(providerIds)
 const storedOverrideSchema = z
   .object({
