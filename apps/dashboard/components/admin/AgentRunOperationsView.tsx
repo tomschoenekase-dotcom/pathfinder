@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunCancellationControl } from './AgentRunCancellationControl'
 import { AgentOutcomeObservationForm } from './AgentOutcomeObservationForm'
+import { AgentRunUnifiedTrace } from './AgentRunUnifiedTrace'
 import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 
 type Cursor = { createdAt: string; id: string } | null
@@ -122,6 +123,7 @@ type Props = {
   timeline: { items: Timeline[]; nextCursor: Cursor }
   approvals: { items: Approval[]; nextCursor: Cursor }
   outcomes?: { items: OutcomeObservation[]; nextCursor: Cursor }
+  trace?: React.ComponentProps<typeof AgentRunUnifiedTrace>['trace']
 }
 
 function nextHref(base: string, prefix: string, cursor: Exclude<Cursor, null>) {
@@ -154,6 +156,7 @@ export function AgentRunOperationsView({
   timeline,
   approvals,
   outcomes = { items: [], nextCursor: null },
+  trace = { items: [], nextCursor: null, bounded: true, excludes: [] },
 }: Props) {
   const overview = `/admin/clients/${tenantId}/venues/${venueId}/agents`
   const base = `${overview}/runs/${run.id}`
@@ -228,6 +231,8 @@ export function AgentRunOperationsView({
           ) : null}
         </dl>
       </section>
+
+      <AgentRunUnifiedTrace base={base} trace={trace} />
 
       {run.requestPrompt ? (
         <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm">

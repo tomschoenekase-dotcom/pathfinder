@@ -120,6 +120,7 @@ const expectedAdminProcedures = [
   'listAgentQuestions',
   'listAgentRunActions',
   'listAgentRunTimeline',
+  'listAgentRunTrace',
   'listAgentRuns',
   'listAnswerAnalyses',
   'listApprovalRequests',

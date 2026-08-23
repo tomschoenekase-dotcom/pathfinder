@@ -12,13 +12,21 @@ function cursor(query: Record<string, string | undefined>, prefix: string) {
   const id = query[`${prefix}Id`]
   return createdAt && id ? { createdAt, id } : undefined
 }
+function traceCursor(query: Record<string, string | undefined>) {
+  const createdAt = query.traceCursorCreatedAt
+  const kind = query.traceCursorKind
+  const id = query.traceCursorId
+  return createdAt && id && ['ACTION', 'EVENT', 'APPROVAL', 'OUTCOME'].includes(kind ?? '')
+    ? { createdAt, kind: kind as 'ACTION' | 'EVENT' | 'APPROVAL' | 'OUTCOME', id }
+    : undefined
+}
 
 export default async function AgentRunPage({ params, searchParams }: Props) {
   const { tenantId, venueId, runId } = await params
   const query = await searchParams
   const caller = await createAdminCaller()
   try {
-    const [run, actions, timeline, approvals, outcomes] = await Promise.all([
+    const [run, actions, timeline, approvals, outcomes, trace] = await Promise.all([
       caller.admin.getAgentRun({ tenantId, venueId, agentRunId: runId }),
       caller.admin.listAgentRunActions({
         tenantId,
@@ -49,6 +57,13 @@ export default async function AgentRunPage({ params, searchParams }: Props) {
         limit: 25,
         ...(cursor(query, 'outcomeCursor') ? { cursor: cursor(query, 'outcomeCursor') } : {}),
       }),
+      caller.admin.listAgentRunTrace({
+        tenantId,
+        venueId,
+        agentRunId: runId,
+        limit: 50,
+        ...(traceCursor(query) ? { cursor: traceCursor(query) } : {}),
+      }),
     ])
     return (
       <AgentRunOperationsView
@@ -59,6 +74,7 @@ export default async function AgentRunPage({ params, searchParams }: Props) {
         timeline={timeline}
         approvals={approvals}
         outcomes={outcomes}
+        trace={trace}
       />
     )
   } catch {

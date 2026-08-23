@@ -178,9 +178,28 @@ describe('agent operations views', () => {
           ],
           nextCursor: null,
         }}
+        trace={{
+          items: [
+            {
+              id: 'trace_event_1',
+              kind: 'EVENT',
+              actorType: 'SYSTEM',
+              actorId: 'scheduler',
+              eventType: 'RUN_COMPLETED',
+              message: 'Unified evidence recorded.',
+              agentActionId: null,
+              createdAt: new Date('2026-08-11T12:02:00Z'),
+            },
+          ],
+          nextCursor: null,
+          bounded: true,
+          excludes: ['RAW_ACTION_OUTPUT'],
+        }}
       />,
     )
     expect(screen.getByText('Lifecycle')).toBeTruthy()
+    expect(screen.getByText('Unified run trace')).toBeTruthy()
+    expect(screen.getByText('Unified evidence recorded.')).toBeTruthy()
     expect(within(screen.getByLabelText('Run summary')).getByText('$0.25')).toBeTruthy()
     expect(screen.getByText('Prepared a bounded draft.')).toBeTruthy()
     expect(screen.getByText('Approval requested.')).toBeTruthy()

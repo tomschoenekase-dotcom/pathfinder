@@ -40,6 +40,8 @@ authority. Approval grants one reviewed action; it never supplies broad autonomy
 - Primary-agent to specialist child runs with parent/child lineage and timelines on both runs.
 - Operator-visible prompts, text result artifacts, retry/heartbeat state, and specialist lineage on
   run detail. Raw action payloads, scope snapshots, and lease tokens remain hidden.
+- One mobile-friendly, read-only run trace merges bounded action summaries, lifecycle events,
+  approval history, and outcome evidence in exact reverse chronology with a heterogeneous cursor.
 - An append-only run conversation combining operator prompts, agent questions, operator answers,
   and agent results. Answering a blocking question dispatches a new resume job when the runtime is
   enabled.
