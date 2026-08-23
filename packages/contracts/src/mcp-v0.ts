@@ -264,7 +264,7 @@ const resourceSeeds: readonly ResourceSeed[] = [
   [
     'ai-usage',
     'AI usage',
-    'Bounded venue AI cost, token, and latency summaries.',
+    'Bounded venue AI cost, token, latency, and configured tenant hard-budget state without operator policy material or mutation authority.',
     'pathfinder://clients/{clientId}/venues/{venueId}/ai-usage',
     'venue',
     'ai-usage:read',

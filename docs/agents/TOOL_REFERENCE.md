@@ -34,7 +34,7 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `torchiko.integrations.health`                | Secret-free integration/control health  | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.reports.get_lifecycle`              | Exact weekly-report lifecycle           | Safe repeat                | No                                        | Exact venue/report and `reports:read` scoped    |
 
-`pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage, jobs, evaluations, weekly reports, privacy-bounded conversation sessions, integration access health, agent runs, an exact-run unified trace, operational events, native deployments, feature flags, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets. `agent-run-trace` additionally requires `agentRunId`, uses the existing `agent-runs:read` capability, and merges only safe action, lifecycle, approval, and outcome evidence.
+`pathfinder.read` supports clients, billing, venues, configuration, content, history, packages, support, updates, AI usage and cost protection, jobs, evaluations, weekly reports, privacy-bounded conversation sessions, integration access health, agent runs, an exact-run unified trace, operational events, native deployments, feature flags, onboarding summary, readiness, questions, and outcomes. Every query reapplies verified tenant/client/venue scope and returns bounded projections rather than raw payloads or secrets. `agent-run-trace` additionally requires `agentRunId`, uses the existing `agent-runs:read` capability, and merges only safe action, lifecycle, approval, and outcome evidence.
 
 `torchiko.knowledge.list_gaps` is a separately gated `conversations:review` projection. It exposes only bounded question/answer evidence from already-flagged public turns; it does not expose visitor identity, retained location, or broad conversation replay. `torchiko.knowledge.propose_correction` requires `knowledge:draft`, a live credential-bound worker, and a live scoped run. It can create one evidence-linked `PENDING_REVIEW` proposal, but cannot edit, retire, publish, or re-embed canonical knowledge.
 
@@ -55,6 +55,13 @@ control read failure or malformed record is visible as fail-closed rather than h
 incident reasons, operator identity, raw provider errors, control mutation, and automatic recovery
 authority are excluded. Global/provider control reads are bound here, not to the tenant
 `feature-flags` resource.
+
+The `ai-usage` resource returns exact-venue daily token, request, failure, and estimated-cost
+rollups plus the configured tenant `gateway-v1` hard-budget state. Budget values use exact fixed
+eight-decimal USD strings and distinguish not configured, disabled, scheduled, active, exhausted,
+expired, and breached state without inventing an anomaly threshold. Operator reason and identity
+are excluded. The resource cannot reset, enable, increase, or otherwise mutate the budget; it does
+not authorize service suspension, change customer pricing, or turn estimated cost into an invoice.
 
 ## Operation coverage evidence
 

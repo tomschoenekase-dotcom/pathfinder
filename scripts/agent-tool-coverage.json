@@ -241,7 +241,7 @@
           "admin.getClientAnalytics"
         ],
         "surfaces": ["resource:pathfinder.ai-usage"],
-        "decision": "Agents receive bounded usage and cost observations without budget mutation or unrestricted portfolio analytics.",
+        "decision": "Agents receive exact-venue usage plus configured tenant hard-budget state without operator policy material, budget mutation, service suspension, pricing effects, or unrestricted portfolio analytics.",
         "evidence": "packages/api/src/mcp/read-actions.test.ts"
       },
       {

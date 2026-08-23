@@ -41,11 +41,18 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    through the real integration-health tool. The binding ledger no longer falsely maps those reads
    to tenant feature flags. System jobs, queues, migrations, broader service health, deployment
    identity, incident reasons, control mutation, and automatic restoration remain partial or gated.
-5. The platform-admin run workspace and the capability-gated MCP read surface now present actions,
+5. **Partially closed — cost-protection observability.** The exact-venue `ai-usage` resource now
+   returns daily usage/cost rollups together with the configured tenant hard-budget window,
+   remaining/reserved/committed capacity, revision, and breach state. This makes the reviewed
+   `admin.getAiCostBudget` bounded-alternative binding real instead of relying on usage rows alone.
+   No anomaly threshold, automatic service suspension, budget mutation, customer pricing effect,
+   operator reason, or operator identity is exposed or authorized. Pre-breach anomaly policy,
+   infrastructure-wide cost aggregation, and external alert delivery remain unresolved or gated.
+6. The platform-admin run workspace and the capability-gated MCP read surface now present actions,
    lifecycle events, approvals, and outcome observations as one bounded reverse-chronological
    exact-run trace. Raw payloads, scope snapshots, event data, and execution leases are
    intentionally excluded rather than treated as trace data.
-6. **Partially closed — exact operation inventory and binding measurement.** The tool-coverage gate now
+7. **Partially closed — exact operation inventory and binding measurement.** The tool-coverage gate now
    statically walks the mounted router graph and records every exact tRPC path, query/mutation kind,
    defining router, source file, policy category, and inherited coverage decision. A reviewed
    count+SHA-256 inventory makes additions, removals, kind changes, ownership changes, and source

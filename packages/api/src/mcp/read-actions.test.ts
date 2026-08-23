@@ -56,6 +56,7 @@ function database() {
     supportRequest: { findMany: vi.fn() },
     operationalUpdate: { findMany: vi.fn() },
     aiUsageDailyRollup: { findMany: vi.fn() },
+    aiCostBudget: { findFirst: vi.fn() },
     jobRecord: { findMany: vi.fn() },
     evalRun: { findMany: vi.fn() },
     weeklyReport: { findMany: vi.fn() },
@@ -455,6 +456,104 @@ describe('MCP v0 concrete read bindings', () => {
     })
     expect(query.select).not.toHaveProperty('payload')
     expect(query.select).not.toHaveProperty('error')
+  })
+
+  it('returns exact configured cost protection with usage while excluding policy and operator material', async () => {
+    const db = database()
+    db.aiUsageDailyRollup.findMany.mockResolvedValue([
+      {
+        id: 'rollup-1',
+        date: new Date('2026-08-23T00:00:00.000Z'),
+        feature: 'guest-chat',
+        requestCount: 4,
+        successfulRequestCount: 3,
+        failedRequestCount: 1,
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        audioInputTokens: 0,
+        audioOutputTokens: 0,
+        cachedAudioInputTokens: 0,
+        totalTokens: 150,
+        estimatedCostUsd: '0.12500000',
+      },
+    ])
+    db.aiCostBudget.findFirst.mockResolvedValue({
+      coverageVersion: 'gateway-v1',
+      enabled: true,
+      startsAt: new Date('2026-01-01T00:00:00.000Z'),
+      endsAt: new Date('2030-01-01T00:00:00.000Z'),
+      limitUnits: 1_000_000_000n,
+      remainingUnits: 400_000_000n,
+      reservedUnits: 100_000_000n,
+      committedUnits: 500_000_000n,
+      epoch: 3,
+      revision: 7,
+      breachedAt: new Date('2026-08-23T12:00:00.000Z'),
+      updatedAt: new Date('2026-08-23T12:01:00.000Z'),
+      reason: 'private cost-control reason',
+      updatedBy: 'private-operator-id',
+    })
+
+    const response = await readMcpResource(
+      db as never,
+      { resource: 'ai-usage', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+      { credential },
+    )
+
+    expect(response.data).toMatchObject({
+      schemaVersion: 'pathfinder.ai-usage.v2',
+      scope: { clientId: 'tenant-1', venueId: 'venue-1' },
+      costProtection: {
+        configured: true,
+        state: 'BREACHED',
+        hardLimitUsd: '10.00000000',
+        remainingUsd: '4.00000000',
+        reservedUsd: '1.00000000',
+        committedUsd: '5.00000000',
+        breachedAt: '2026-08-23T12:00:00.000Z',
+      },
+      boundaries: {
+        anomalyThresholdPolicy: 'UNRESOLVED',
+        automaticBudgetMutationAuthorized: false,
+        automaticServiceSuspensionAuthorized: false,
+        customerPricingImpact: 'NONE',
+      },
+      items: [{ id: 'rollup-1', estimatedCostUsd: '0.12500000' }],
+    })
+    expect(db.aiCostBudget.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', coverageVersion: 'gateway-v1' },
+      }),
+    )
+    const budgetSelect = db.aiCostBudget.findFirst.mock.calls[0]![0].select
+    expect(budgetSelect).not.toHaveProperty('reason')
+    expect(budgetSelect).not.toHaveProperty('updatedBy')
+    expect(JSON.stringify(response)).not.toMatch(/private cost-control reason|private-operator-id/u)
+  })
+
+  it('makes an absent hard budget explicit without inventing a threshold', async () => {
+    const db = database()
+    db.aiUsageDailyRollup.findMany.mockResolvedValue([])
+    db.aiCostBudget.findFirst.mockResolvedValue(null)
+
+    const response = await readMcpResource(
+      db as never,
+      { resource: 'ai-usage', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+      { credential },
+    )
+
+    expect(response.data).toMatchObject({
+      costProtection: {
+        configured: false,
+        coverageVersion: 'gateway-v1',
+        state: 'NOT_CONFIGURED',
+      },
+      boundaries: { anomalyThresholdPolicy: 'UNRESOLVED' },
+      items: [],
+      nextCursor: null,
+    })
   })
 
   it('returns only derived readiness evidence and never configuration blobs', async () => {

@@ -29,6 +29,18 @@ so repeated denials do not flood the Control Room. The Founder briefing treats t
 customer/system risk and links directly to that tenant's AI cost budget controls. Acknowledging or
 resolving the alert does not reset, increase, disable, or otherwise mutate the budget.
 
+## Agent-readable cost protection
+
+An exact client/venue worker with `resources:read` and `ai-usage:read` can retrieve the current
+configured `gateway-v1` hard-budget state alongside venue daily usage rollups. The projection
+includes only the configured window, exact limit/remaining/reserved/committed values, epoch,
+revision, breach time, and descriptive lifecycle state. It omits the operator-entered reason and
+operator identity and exposes no write path.
+
+The response explicitly records that anomaly thresholds remain unresolved, estimated costs are not
+invoices, automatic budget mutation and service suspension are unauthorized, and customer pricing
+is unaffected. An absent budget is returned as `NOT_CONFIGURED`; the system does not invent one.
+
 ## Retained gates
 
 - No pre-breach anomaly threshold is invented. Warning thresholds and automatic emergency policy
@@ -45,3 +57,5 @@ The disposable PostgreSQL integration applies the full migration chain and prove
 capacity enforcement, one grouped request-denial event, over-ceiling breach persistence, a breach
 event, and future-request blocking. API and dashboard contracts prove that cost events become a
 Founder briefing risk and route to the correct tenant controls rather than unrelated chat logs.
+The agent-observability disposable proof separately verifies exact-venue usage isolation, current
+tenant budget state, private policy omission, capability enforcement, and zero persistent residue.

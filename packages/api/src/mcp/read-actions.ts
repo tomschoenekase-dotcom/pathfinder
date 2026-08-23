@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 
+import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { buildPaymentRecoveryContext } from '@pathfinder/billing'
 import type { McpReadInput, McpToolResult } from '@pathfinder/contracts/mcp-v0'
 import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
@@ -31,6 +32,7 @@ type ReadDb = Pick<
   | 'supportRequest'
   | 'operationalUpdate'
   | 'aiUsageDailyRollup'
+  | 'aiCostBudget'
   | 'jobRecord'
   | 'evalRun'
   | 'weeklyReport'
@@ -680,35 +682,101 @@ async function readAiUsage(
   limit: number,
   cursor?: CursorPayload,
 ): Promise<McpToolResult> {
-  const rows = await db.aiUsageDailyRollup.findMany({
-    where: { tenantId, venueId, ...cursorWhere(cursor, 'date') },
-    orderBy: [{ date: 'desc' }, { id: 'desc' }],
-    take: limit + 1,
-    select: {
-      id: true,
-      date: true,
-      feature: true,
-      requestCount: true,
-      successfulRequestCount: true,
-      failedRequestCount: true,
-      inputTokens: true,
-      outputTokens: true,
-      cacheCreationInputTokens: true,
-      cacheReadInputTokens: true,
-      audioInputTokens: true,
-      audioOutputTokens: true,
-      cachedAudioInputTokens: true,
-      totalTokens: true,
-      estimatedCostUsd: true,
-    },
-  })
+  const [rows, budget] = await Promise.all([
+    db.aiUsageDailyRollup.findMany({
+      where: { tenantId, venueId, ...cursorWhere(cursor, 'date') },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: {
+        id: true,
+        date: true,
+        feature: true,
+        requestCount: true,
+        successfulRequestCount: true,
+        failedRequestCount: true,
+        inputTokens: true,
+        outputTokens: true,
+        cacheCreationInputTokens: true,
+        cacheReadInputTokens: true,
+        audioInputTokens: true,
+        audioOutputTokens: true,
+        cachedAudioInputTokens: true,
+        totalTokens: true,
+        estimatedCostUsd: true,
+      },
+    }),
+    db.aiCostBudget.findFirst({
+      where: { tenantId, coverageVersion: 'gateway-v1' },
+      select: {
+        coverageVersion: true,
+        enabled: true,
+        startsAt: true,
+        endsAt: true,
+        limitUnits: true,
+        remainingUnits: true,
+        reservedUnits: true,
+        committedUnits: true,
+        epoch: true,
+        revision: true,
+        breachedAt: true,
+        updatedAt: true,
+      },
+    }),
+  ])
   const paged = page('ai-usage', rows, limit, (row) => row.date)
+  const now = new Date()
+  const budgetState = !budget
+    ? 'NOT_CONFIGURED'
+    : !budget.enabled
+      ? 'DISABLED'
+      : budget.breachedAt
+        ? 'BREACHED'
+        : now < budget.startsAt
+          ? 'SCHEDULED'
+          : now >= budget.endsAt
+            ? 'EXPIRED'
+            : budget.remainingUnits === 0n
+              ? 'EXHAUSTED'
+              : 'ACTIVE'
   return result('ai-usage', {
+    schemaVersion: 'pathfinder.ai-usage.v2',
+    scope: { clientId: tenantId, venueId },
+    costProtection: budget
+      ? {
+          configured: true,
+          coverageVersion: budget.coverageVersion,
+          state: budgetState,
+          enabled: budget.enabled,
+          startsAt: budget.startsAt.toISOString(),
+          endsAt: budget.endsAt.toISOString(),
+          hardLimitUsd: aiCostUnitsToDecimal(budget.limitUnits),
+          remainingUsd: aiCostUnitsToDecimal(budget.remainingUnits),
+          reservedUsd: aiCostUnitsToDecimal(budget.reservedUnits),
+          committedUsd: aiCostUnitsToDecimal(budget.committedUnits),
+          epoch: budget.epoch,
+          revision: budget.revision,
+          breachedAt: budget.breachedAt?.toISOString() ?? null,
+          updatedAt: budget.updatedAt.toISOString(),
+        }
+      : {
+          configured: false,
+          coverageVersion: 'gateway-v1',
+          state: budgetState,
+        },
+    boundaries: {
+      estimatedCostsAreInvoices: false,
+      anomalyThresholdPolicy: 'UNRESOLVED',
+      automaticBudgetMutationAuthorized: false,
+      automaticServiceSuspensionAuthorized: false,
+      customerPricingImpact: 'NONE',
+      operatorReasonIncluded: false,
+      operatorIdentityIncluded: false,
+    },
     ...paged,
     items: paged.items.map((row) => ({
       ...row,
       date: row.date.toISOString(),
-      estimatedCostUsd: row.estimatedCostUsd.toString(),
+      estimatedCostUsd: aiCostUnitsToDecimal(aiCostDecimalToUnits(row.estimatedCostUsd)),
     })),
   })
 }
