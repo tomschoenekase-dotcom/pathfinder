@@ -272,7 +272,7 @@ const resourceSeeds: readonly ResourceSeed[] = [
   [
     'jobs',
     'Jobs',
-    'Venue-scoped background job status and failures.',
+    'Venue-scoped persisted background-job status, failure pressure, and shared worker-heartbeat evidence with explicit live-queue and execution-proof boundaries.',
     'pathfinder://clients/{clientId}/venues/{venueId}/jobs',
     'venue',
     'jobs:read',

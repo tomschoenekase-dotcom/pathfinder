@@ -4,6 +4,11 @@ import { aiCostDecimalToUnits, aiCostUnitsToDecimal } from '@pathfinder/ai'
 import { buildPaymentRecoveryContext } from '@pathfinder/billing'
 import type { McpReadInput, McpToolResult } from '@pathfinder/contracts/mcp-v0'
 import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
+import {
+  OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
+  WORKER_HEARTBEAT_KEY,
+  projectWorkerHeartbeat,
+} from '@pathfinder/db'
 
 import type { PathfinderMcpDomainActions, VerifiedMcpInvocationContext } from './registry'
 import { loadCustomerStatePreservation } from '../lib/customer-state-preservation'
@@ -34,6 +39,7 @@ type ReadDb = Pick<
   | 'aiUsageDailyRollup'
   | 'aiCostBudget'
   | 'jobRecord'
+  | 'platformConfig'
   | 'evalRun'
   | 'weeklyReport'
   | 'visitorSession'
@@ -788,29 +794,92 @@ async function readJobs(
   limit: number,
   cursor?: CursorPayload,
 ): Promise<McpToolResult> {
-  const rows = await db.jobRecord.findMany({
-    where: {
-      tenantId,
-      payload: { path: ['venueId'], equals: venueId },
-      ...cursorWhere(cursor, 'createdAt'),
+  const now = new Date()
+  const exactScope = {
+    tenantId,
+    venueId,
+  } as const
+  const [rows, byStatus, byFailureDisposition, longRunningCount, heartbeat] = await Promise.all([
+    db.jobRecord.findMany({
+      where: { ...exactScope, ...cursorWhere(cursor, 'createdAt') },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      select: {
+        id: true,
+        queue: true,
+        jobName: true,
+        status: true,
+        attemptNumber: true,
+        maxAttempts: true,
+        failureDisposition: true,
+        terminalAt: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+      },
+    }),
+    db.jobRecord.groupBy({
+      by: ['status'],
+      where: exactScope,
+      _count: { _all: true },
+      _min: { startedAt: true },
+      _max: { completedAt: true },
+    }),
+    db.jobRecord.groupBy({
+      by: ['failureDisposition'],
+      where: { ...exactScope, status: 'FAILED' },
+      _count: { _all: true },
+    }),
+    db.jobRecord.count({
+      where: {
+        ...exactScope,
+        status: 'RUNNING',
+        startedAt: { lt: new Date(now.getTime() - OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS) },
+      },
+    }),
+    db.platformConfig.findUnique({
+      where: { key: WORKER_HEARTBEAT_KEY },
+      select: { value: true, updatedAt: true },
+    }),
+  ])
+  const paged = mapPage(page('jobs', rows, limit, (row) => row.createdAt))
+  return result('jobs', {
+    schemaVersion: 'pathfinder.jobs.v2',
+    observedAt: now.toISOString(),
+    scope: { clientId: tenantId, venueId },
+    persisted: {
+      source: 'job-records',
+      byStatus: byStatus.map((entry) => ({
+        status: entry.status,
+        count: entry._count._all,
+        oldestStartedAt: entry._min.startedAt?.toISOString() ?? null,
+        latestCompletedAt: entry._max.completedAt?.toISOString() ?? null,
+      })),
+      failedByDisposition: byFailureDisposition.map((entry) => ({
+        disposition: entry.failureDisposition ?? 'UNCLASSIFIED',
+        count: entry._count._all,
+      })),
+      longRunning: {
+        count: longRunningCount,
+        observedAfterMs: OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
+        classification: 'DIAGNOSTIC_ONLY',
+      },
     },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: limit + 1,
-    select: {
-      id: true,
-      queue: true,
-      jobName: true,
-      status: true,
-      attemptNumber: true,
-      maxAttempts: true,
-      failureDisposition: true,
-      terminalAt: true,
-      startedAt: true,
-      completedAt: true,
-      createdAt: true,
+    workerRuntime: normalizeRecord(projectWorkerHeartbeat(heartbeat, now)),
+    boundaries: {
+      persistedRecordsAreLiveQueue: false,
+      liveRedisQueueInspected: false,
+      liveQueueDepthKnown: false,
+      absenceOfRecordsMeansHealthy: false,
+      automaticRetryAuthorized: false,
+      cancellationAuthorized: false,
+      redriveAuthorized: false,
+      incidentControlAuthorized: false,
+      providerExecutionProven: false,
+      serviceLevelObjectivePolicy: 'UNRESOLVED',
     },
+    ...paged,
   })
-  return result('jobs', mapPage(page('jobs', rows, limit, (row) => row.createdAt)))
 }
 
 async function readEvaluations(

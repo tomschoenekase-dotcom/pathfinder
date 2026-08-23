@@ -1,7 +1,78 @@
 import { db } from '../client'
 
-export const EXPECTED_LATEST_MIGRATION = '20260823103000_add_platform_worker_policy_credentials'
+export const EXPECTED_LATEST_MIGRATION = '20260823120000_add_job_record_venue_scope'
 export const WORKER_HEARTBEAT_KEY = 'operations.worker-heartbeat.v1'
+export const WORKER_HEARTBEAT_FRESHNESS_MS = 90_000
+export const OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS = 15 * 60 * 1000
+
+type WorkerHeartbeatRecord = { value: unknown; updatedAt: Date } | null
+
+/**
+ * Secret-free, fail-closed projection shared by the administrator readiness route and bounded
+ * agent reads. PlatformConfig is schemaless, so malformed or stale evidence must never be
+ * interpreted as a live worker.
+ */
+export function projectWorkerHeartbeat(record: WorkerHeartbeatRecord, now = new Date()) {
+  const value = record?.value
+  if (!record) {
+    return {
+      source: 'persisted-platform-config' as const,
+      state: 'NOT_OBSERVED' as const,
+      fresh: false,
+      staleAfterMs: WORKER_HEARTBEAT_FRESHNESS_MS,
+      observedAt: null,
+      ageMs: null,
+      mode: null,
+      revision: null,
+      schedulersEnabled: null,
+      updatedAt: null,
+    }
+  }
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('schemaVersion' in value) ||
+    value.schemaVersion !== 1 ||
+    !('observedAt' in value) ||
+    typeof value.observedAt !== 'string' ||
+    !Number.isFinite(Date.parse(value.observedAt)) ||
+    !('mode' in value) ||
+    (value.mode !== 'provider-enabled' && value.mode !== 'provider-disabled') ||
+    !('revision' in value) ||
+    typeof value.revision !== 'string' ||
+    value.revision.trim().length === 0 ||
+    !('schedulersEnabled' in value) ||
+    typeof value.schedulersEnabled !== 'boolean'
+  ) {
+    return {
+      source: 'persisted-platform-config' as const,
+      state: 'MALFORMED' as const,
+      fresh: false,
+      staleAfterMs: WORKER_HEARTBEAT_FRESHNESS_MS,
+      observedAt: null,
+      ageMs: null,
+      mode: null,
+      revision: null,
+      schedulersEnabled: null,
+      updatedAt: record.updatedAt,
+    }
+  }
+  const observedAt = new Date(value.observedAt)
+  const ageMs = Math.max(0, now.getTime() - observedAt.getTime())
+  const fresh = ageMs <= WORKER_HEARTBEAT_FRESHNESS_MS
+  return {
+    source: 'persisted-platform-config' as const,
+    state: fresh ? ('FRESH' as const) : ('STALE' as const),
+    fresh,
+    staleAfterMs: WORKER_HEARTBEAT_FRESHNESS_MS,
+    observedAt,
+    ageMs,
+    mode: value.mode,
+    revision: value.revision,
+    schedulersEnabled: value.schedulersEnabled,
+    updatedAt: record.updatedAt,
+  }
+}
 
 export async function recordWorkerHeartbeat(input: {
   mode: 'provider-enabled' | 'provider-disabled'
@@ -56,7 +127,7 @@ export async function readAppliedMigrationStatus(client = db) {
 
 export async function readOperationalHealth(now = new Date()) {
   const recentWindow = new Date(now.getTime() - 60 * 60 * 1000)
-  const staleJobCutoff = new Date(now.getTime() - 15 * 60 * 1000)
+  const staleJobCutoff = new Date(now.getTime() - OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS)
   const [migration, worker, jobs, ai, embedding, email, malware] = await Promise.all([
     readAppliedMigrationStatus(),
     db.platformConfig.findUnique({ where: { key: WORKER_HEARTBEAT_KEY } }),
@@ -95,7 +166,7 @@ export async function readOperationalHealth(now = new Date()) {
   return {
     observedAt: now,
     migration,
-    worker: worker ? { value: worker.value, updatedAt: worker.updatedAt } : null,
+    worker: projectWorkerHeartbeat(worker, now),
     queue: { source: 'persisted-job-records', recentWindow, byStatus: jobs },
     scheduler: { status: 'reported-with-worker-heartbeat' },
     objectStorage: malware

@@ -63,6 +63,16 @@ expired, and breached state without inventing an anomaly threshold. Operator rea
 are excluded. The resource cannot reset, enable, increase, or otherwise mutate the budget; it does
 not authorize service suspension, change customer pricing, or turn estimated cost into an invoice.
 
+The `jobs` resource schema v2 keeps execution payloads and errors private while returning an
+index-backed exact-venue summary of persisted running, completed, and failed records, terminal
+failure dispositions, and a diagnostic count of runs older than the canonical 15-minute
+operational observation boundary. It also reuses the administrator readiness projection for the
+persisted worker heartbeat, including fresh, stale, malformed, and not-observed states plus
+provider-enabled/provider-disabled mode, scheduler declaration, and revision. This does not query
+Redis, prove queue depth, prove provider execution, establish an SLO, or grant retry, cancellation,
+redrive, or incident-control authority. An empty persisted result is explicitly not evidence that
+the live queue or service is healthy.
+
 ## Operation coverage evidence
 
 `pnpm torchiko tools coverage --json` is the machine-readable comparison surface between the typed

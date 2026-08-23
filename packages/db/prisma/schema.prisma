@@ -3696,6 +3696,7 @@ model JobRecord {
   jobName            String                 @map("job_name")
   bullJobId          String?                @unique @map("bull_job_id")
   tenantId           String?                @map("tenant_id")
+  venueId            String?                @map("venue_id")
   status             JobStatus
   payload            Json                   @default("{}")
   error              String?
@@ -3711,6 +3712,7 @@ model JobRecord {
   @@index([queue, status])
   @@index([status, failureDisposition, terminalAt])
   @@index([tenantId, createdAt])
+  @@index([tenantId, venueId, createdAt])
   @@index([createdAt])
   @@map("job_records")
 }

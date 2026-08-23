@@ -43,26 +43,17 @@ export const adminOperationsReadinessRouter = router({
         readOperationalHealth(),
         boundedValue(inspectQueueOperationalSnapshot(), PROBE_TIMEOUT_MS),
       ])
-      const workerObservedAt =
-        persisted.worker &&
-        typeof persisted.worker.value === 'object' &&
-        persisted.worker.value !== null &&
-        'observedAt' in persisted.worker.value &&
-        typeof persisted.worker.value.observedAt === 'string'
-          ? persisted.worker.value.observedAt
-          : null
-      const workerFresh = workerObservedAt
-        ? Date.now() - Date.parse(workerObservedAt) <= 90_000
-        : false
       return {
         status:
-          database === 'up' && redis === 'up' && persisted.migration.parity && workerFresh
+          database === 'up' &&
+          redis === 'up' &&
+          persisted.migration.parity &&
+          persisted.worker.fresh
             ? ('ready' as const)
             : ('degraded' as const),
         probes: { database, redis },
         ...persisted,
         queue: queues ?? { status: 'probe-timeout', persisted: persisted.queue },
-        worker: { ...persisted.worker, observedAt: workerObservedAt, fresh: workerFresh },
       }
     }),
   ),

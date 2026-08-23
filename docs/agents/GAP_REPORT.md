@@ -36,11 +36,16 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    delivery, and actor-free audit actions. It excludes report content, raw source artifacts, and
    provider errors. Generation/regeneration, exact source-artifact inspection, explanation of
    model choices, editing, publication, and real delivery operations remain gated or incomplete.
-4. **Partially closed — operational control health.** Exact-scope agents can now distinguish open,
-   paused, malformed, and unavailable global AI admission plus active expiring provider exclusions
-   through the real integration-health tool. The binding ledger no longer falsely maps those reads
-   to tenant feature flags. System jobs, queues, migrations, broader service health, deployment
-   identity, incident reasons, control mutation, and automatic restoration remain partial or gated.
+4. **Partially closed — operational control and job health.** Exact-scope agents can distinguish
+   open, paused, malformed, and unavailable global AI admission plus active expiring provider
+   exclusions through the real integration-health tool. The exact-venue jobs resource now adds an
+   index-backed summary of persisted status/failure pressure and a shared, fail-closed worker
+   heartbeat projection using the same freshness policy as administrator readiness. It explicitly
+   distinguishes fresh, stale, malformed, and absent worker evidence and labels provider-disabled
+   mode without claiming provider execution. The binding ledger no longer falsely maps AI-control
+   reads to tenant feature flags. Live Redis queue depth/age, migration parity for scoped agents,
+   external service probes, broader deployment identity, incident reasons, control mutation, and
+   automatic restoration remain partial or gated; empty persisted records are not called healthy.
 5. **Partially closed — cost-protection observability.** The exact-venue `ai-usage` resource now
    returns daily usage/cost rollups together with the configured tenant hard-budget window,
    remaining/reserved/committed capacity, revision, and breach state. This makes the reviewed

@@ -89,6 +89,30 @@ describe('writeJobRecord', () => {
       }),
     )
   })
+
+  it('persists exact venue scope separately from the opaque execution payload', async () => {
+    createMock.mockResolvedValueOnce({ id: 'record_venue' })
+    const { writeJobRecord } = await import('./job-records')
+
+    await writeJobRecord({
+      queue: 'evaluation-run',
+      jobName: 'evaluation-run-process',
+      tenantId: 'tenant_1',
+      status: 'RUNNING',
+      payload: { venueId: 'venue_1', privatePrompt: 'must remain opaque' },
+      startedAt: new Date('2026-08-23T12:00:00.000Z'),
+    })
+
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 'tenant_1',
+          venueId: 'venue_1',
+          payload: { venueId: 'venue_1', privatePrompt: 'must remain opaque' },
+        }),
+      }),
+    )
+  })
 })
 
 describe('findTerminalJobRecordEvidence', () => {

@@ -37,7 +37,10 @@ export {
 } from './helpers/operational-event-deliveries'
 export {
   EXPECTED_LATEST_MIGRATION,
+  OPERATIONAL_JOB_LONG_RUNNING_AFTER_MS,
+  WORKER_HEARTBEAT_FRESHNESS_MS,
   WORKER_HEARTBEAT_KEY,
+  projectWorkerHeartbeat,
   readAppliedMigrationStatus,
   readOperationalHealth,
   recordWorkerHeartbeat,

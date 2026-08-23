@@ -57,7 +57,12 @@ function database() {
     operationalUpdate: { findMany: vi.fn() },
     aiUsageDailyRollup: { findMany: vi.fn() },
     aiCostBudget: { findFirst: vi.fn() },
-    jobRecord: { findMany: vi.fn() },
+    jobRecord: {
+      findMany: vi.fn(),
+      groupBy: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    },
+    platformConfig: { findUnique: vi.fn().mockResolvedValue(null) },
     evalRun: { findMany: vi.fn() },
     weeklyReport: { findMany: vi.fn() },
     visitorSession: { findMany: vi.fn() },
@@ -452,10 +457,101 @@ describe('MCP v0 concrete read bindings', () => {
     const query = db.jobRecord.findMany.mock.calls[0]![0]
     expect(query.where).toMatchObject({
       tenantId: 'tenant-1',
-      payload: { path: ['venueId'], equals: 'venue-1' },
+      venueId: 'venue-1',
     })
     expect(query.select).not.toHaveProperty('payload')
     expect(query.select).not.toHaveProperty('error')
+    expect(db.jobRecord.groupBy).toHaveBeenCalledTimes(2)
+    expect(db.jobRecord.groupBy.mock.calls[0]![0].where).toEqual({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+    })
+    expect(db.jobRecord.count.mock.calls[0]![0].where).toMatchObject({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      status: 'RUNNING',
+    })
+  })
+
+  it('separates persisted venue job pressure from live queue and execution claims', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-23T12:00:00.000Z'))
+    try {
+      const db = database()
+      db.jobRecord.findMany.mockResolvedValue([
+        {
+          id: 'job-1',
+          queue: 'weekly-report',
+          jobName: 'weekly-report-process',
+          status: 'FAILED',
+          attemptNumber: 3,
+          maxAttempts: 3,
+          failureDisposition: 'ATTEMPTS_EXHAUSTED',
+          terminalAt: new Date('2026-08-23T11:50:00.000Z'),
+          startedAt: new Date('2026-08-23T11:45:00.000Z'),
+          completedAt: new Date('2026-08-23T11:50:00.000Z'),
+          createdAt: new Date('2026-08-23T11:44:00.000Z'),
+        },
+      ])
+      db.jobRecord.groupBy
+        .mockResolvedValueOnce([
+          {
+            status: 'FAILED',
+            _count: { _all: 2 },
+            _min: { startedAt: new Date('2026-08-23T11:00:00.000Z') },
+            _max: { completedAt: new Date('2026-08-23T11:50:00.000Z') },
+          },
+        ])
+        .mockResolvedValueOnce([{ failureDisposition: 'ATTEMPTS_EXHAUSTED', _count: { _all: 2 } }])
+      db.jobRecord.count.mockResolvedValue(1)
+      db.platformConfig.findUnique.mockResolvedValue({
+        value: {
+          schemaVersion: 1,
+          observedAt: '2026-08-23T11:59:30.000Z',
+          mode: 'provider-disabled',
+          revision: 'revision-1',
+          schedulersEnabled: false,
+        },
+        updatedAt: new Date('2026-08-23T11:59:31.000Z'),
+      })
+
+      const response = await readMcpResource(
+        db as never,
+        { resource: 'jobs', clientId: 'tenant-1', venueId: 'venue-1', limit: 25 },
+        { credential },
+      )
+      const payload = response.data
+      expect(payload).toMatchObject({
+        schemaVersion: 'pathfinder.jobs.v2',
+        scope: { clientId: 'tenant-1', venueId: 'venue-1' },
+        persisted: {
+          byStatus: [{ status: 'FAILED', count: 2 }],
+          failedByDisposition: [{ disposition: 'ATTEMPTS_EXHAUSTED', count: 2 }],
+          longRunning: { count: 1, observedAfterMs: 900000, classification: 'DIAGNOSTIC_ONLY' },
+        },
+        workerRuntime: {
+          state: 'FRESH',
+          fresh: true,
+          mode: 'provider-disabled',
+          revision: 'revision-1',
+          schedulersEnabled: false,
+        },
+        boundaries: {
+          persistedRecordsAreLiveQueue: false,
+          liveRedisQueueInspected: false,
+          liveQueueDepthKnown: false,
+          absenceOfRecordsMeansHealthy: false,
+          automaticRetryAuthorized: false,
+          providerExecutionProven: false,
+          serviceLevelObjectivePolicy: 'UNRESOLVED',
+        },
+      })
+      const serialized = JSON.stringify(payload)
+      expect(serialized).not.toContain('private job error')
+      expect(serialized).not.toContain('redis://')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('returns exact configured cost protection with usage while excluding policy and operator material', async () => {
