@@ -26,6 +26,18 @@ An admin request persists one immutable `EvalRun` identity containing:
 
 The queue payload contains only tenant, venue, run ID, and run identity hash. Before any provider dispatch, the worker verifies the stored run identity, content scope/hash, current prompt identity, model snapshot, each case snapshot/hash, and the configured prompt byte ceiling. It refuses to substitute a newer content snapshot or a changed model.
 
+## Sanitized conversation-derived cases
+
+The platform-admin evaluation console can prepare an immutable regression case from an unresolved public guest-conversation insight. This is a governed evidence-preparation action, not automated training or evaluation execution:
+
+- the server revalidates the exact tenant, venue, public session, guest turn, reviewable insight category, and—when applicable—the currently active negative visitor rating;
+- the operator must write a sanitized question, choose known-answer versus honest-unknown behavior, provide the lexical truth markers, and explicitly attest that personal and customer-identifying data was removed;
+- the failed assistant answer is shown as source evidence but is never copied into the evaluation snapshot;
+- each case retains exact insight and guest-turn provenance, uses append-only revisions, and replays only an identical hash and source identity;
+- preparing the case acknowledges an unreviewed insight and writes a strict audit record without publishing content or changing current venue truth.
+
+This workflow deliberately does not call an AI provider, spend an evaluation budget, define aggregate pass thresholds, or approve a release. Human-defined phrases are per-case truth assertions; release calibration remains a separate founder/product-quality decision.
+
 ## Lifecycle and failure semantics
 
 Every queue attempt writes/upserts a `JobRecord`. The durable `EvalRun` state advances through compare-and-set transitions:
@@ -54,6 +66,6 @@ Cancellation cannot guarantee recall of a provider request already dispatched. N
 
 `20260811235000_add_evaluation_run_lifecycle` is additive and transactional. It adds lifecycle fields, database checks, and a transition trigger that prevents terminal regression, decreasing attempts, changed max-attempt identity, or rewritten cancellation/completion evidence.
 
-This work did not apply that migration, inspect or change a database, connect to Redis, enable either feature gate, or call a provider. Tests use injected evaluation adapters; worker tests assert that no provider facade was invoked.
+The conversation-case preparation path requires no schema migration and does not connect to Redis, enable either feature gate, or call a provider. Tests use injected persistence and evaluation adapters; worker tests assert that no provider facade was invoked.
 
 Before any authorized staging rollout, an owner must separately approve the exact environment, migration rehearsal/application, server gate, tenant flags, cost ceiling, and synthetic evaluation corpus. Staging proof for two venues and an intentional regression remains outstanding under the active database-incident boundary.

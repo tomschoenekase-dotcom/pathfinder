@@ -146,6 +146,7 @@ export async function listConversationKnowledgeGaps(
     take: parsed.limit,
     select: {
       id: true,
+      sessionId: true,
       category: true,
       confidence: true,
       severity: true,
@@ -167,6 +168,7 @@ export async function listConversationKnowledgeGaps(
     return [
       {
         id: row.id,
+        sessionId: row.sessionId,
         category: row.category,
         confidence: Number(row.confidence),
         severity: row.severity,

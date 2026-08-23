@@ -4,6 +4,10 @@ import { EvaluationRunLifecycleControl } from './EvaluationRunLifecycleControl'
 import { EvaluationComparisonPanel } from './EvaluationComparisonPanel'
 import { OnboardingEvaluationSuitePanel } from './OnboardingEvaluationSuitePanel'
 import { OnboardingMilestoneMetricsPanel } from './OnboardingMilestoneMetricsPanel'
+import {
+  ConversationEvaluationCasePanel,
+  type EvaluationSourceInsight,
+} from './ConversationEvaluationCasePanel'
 import type { OnboardingMilestoneRollup } from '@pathfinder/contracts'
 
 type EvaluationSummary = {
@@ -86,6 +90,7 @@ type EvaluationOperationsViewProps = {
   approvedPackages?: { id: string; payloadHash: string; approvedAt: Date | null }[]
   failedCases?: FailedCase[]
   onboardingMetrics?: OnboardingMilestoneRollup
+  sourceInsights?: EvaluationSourceInsight[]
 }
 
 function shortHash(value: string | null) {
@@ -166,6 +171,7 @@ export function EvaluationOperationsView({
   approvedPackages = [],
   failedCases = [],
   onboardingMetrics,
+  sourceInsights = [],
 }: EvaluationOperationsViewProps) {
   return (
     <div className="space-y-8">
@@ -194,6 +200,11 @@ export function EvaluationOperationsView({
             tenantId={tenantId}
             venueId={venueId}
             approvedPackages={approvedPackages}
+          />
+          <ConversationEvaluationCasePanel
+            tenantId={tenantId}
+            venueId={venueId}
+            insights={sourceInsights}
           />
           <EvaluationRunRequestPanel
             tenantId={tenantId}

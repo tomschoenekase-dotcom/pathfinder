@@ -12,6 +12,7 @@ import { TRPCError } from '@trpc/server'
 import { mergeRouters, router } from '../../core'
 import { adminProcedure } from '../../trpc'
 import { adminEvaluationOperationActionsRouter } from './evaluation-operation-actions'
+import { adminEvaluationConversationCasesRouter } from './evaluation-conversation-cases'
 import { adminEvaluationOnboardingReadsRouter } from './evaluation-onboarding-reads'
 import { adminEvaluationReviewActionsRouter } from './evaluation-review-actions'
 
@@ -347,5 +348,6 @@ export const adminEvaluationOperationsRouter = mergeRouters(
   adminEvaluationOnboardingReadsRouter,
   adminEvaluationOperationReadsRouter,
   adminEvaluationOperationActionsRouter,
+  adminEvaluationConversationCasesRouter,
   adminEvaluationReviewActionsRouter,
 )

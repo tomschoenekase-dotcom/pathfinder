@@ -64,6 +64,7 @@ import { reviewVenuePackageManifestService } from './lib/venue-package-manifest-
 import { adminSupportAgentRunLineageRouter } from './routers/admin/support-agent-run-lineage'
 import { adminSupportManualLoopRouter } from './routers/admin/support-manual-loop'
 import { adminSupportOperationsRouter } from './routers/admin/support-operations'
+import { adminEvaluationConversationCasesRouter } from './routers/admin/evaluation-conversation-cases'
 import { adminOffboardingExportFinalizationRouter } from './routers/admin/offboarding-export-finalization'
 import { adminOffboardingExportPreviewRouter } from './routers/admin/offboarding-export-preview'
 import { adminOffboardingPlansRouter } from './routers/admin/offboarding-plans'
@@ -103,6 +104,7 @@ const testRouter = router({
     adminSupportManualLoopRouter,
     adminSupportOperationsRouter,
     adminWeeklyReportsRouter,
+    adminEvaluationConversationCasesRouter,
   ),
   analytics: analyticsRouter,
   chat: chatRouter,
@@ -1134,9 +1136,12 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           reason: 'The visitor corrected the rating for review.',
         }),
       ).resolves.toEqual({ ok: true })
-      await expect(
-        listConversationKnowledgeGaps({ tenantId, venueId, limit: 25 }),
-      ).resolves.toEqual(
+      const negativeFeedbackGaps = await listConversationKnowledgeGaps({
+        tenantId,
+        venueId,
+        limit: 25,
+      })
+      expect(negativeFeedbackGaps).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             category: 'VISITOR_NEGATIVE_FEEDBACK',
@@ -1147,6 +1152,55 @@ describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure 
           }),
         ]),
       )
+      const negativeFeedbackInsight = negativeFeedbackGaps.find(
+        (insight) => insight.category === 'VISITOR_NEGATIVE_FEEDBACK',
+      )!
+      const preparedConversationCase = await admin.prepareConversationEvaluationCase({
+        tenantId,
+        venueId,
+        insightId: negativeFeedbackInsight.id,
+        sanitizedQuestion: 'Which entrance has the step-free route?',
+        expectation: 'KNOWN_ANSWER',
+        acceptablePhrases: ['Oak Street entrance'],
+        forbiddenPhrases: ['staff-only entrance'],
+        maxWords: 80,
+        sanitizationConfirmed: true,
+      })
+      expect(preparedConversationCase).toMatchObject({
+        revision: 1,
+        category: 'known-answer',
+        sourceInsightId: negativeFeedbackInsight.id,
+        replayed: false,
+      })
+      const storedConversationCase = await db.evalCase.findUniqueOrThrow({
+        where: { id: preparedConversationCase.id },
+        select: { caseSnapshot: true, sourceType: true, sourceRef: true },
+      })
+      expect(storedConversationCase).toMatchObject({
+        sourceType: 'REVIEWED_CONVERSATION_INSIGHT',
+        sourceRef: expect.stringContaining(`conversation-insight:${negativeFeedbackInsight.id}`),
+        caseSnapshot: expect.objectContaining({
+          turns: [{ role: 'user', content: 'Which entrance has the step-free route?' }],
+        }),
+      })
+      expect(JSON.stringify(storedConversationCase.caseSnapshot)).not.toContain(
+        'Use the Oak Street entrance for the step-free route.',
+      )
+      await expect(
+        db.conversationInsight.findUniqueOrThrow({
+          where: { id: negativeFeedbackInsight.id },
+          select: { reviewStatus: true, reviewedBy: true },
+        }),
+      ).resolves.toEqual({ reviewStatus: 'ACKNOWLEDGED', reviewedBy: operatorId })
+      await expect(
+        db.auditLog.count({
+          where: {
+            tenantId,
+            action: 'evaluation-case.prepared-from-conversation',
+            targetId: preparedConversationCase.id,
+          },
+        }),
+      ).resolves.toBe(1)
       await expect(
         publicCaller.feedback.submit({
           venueId,
