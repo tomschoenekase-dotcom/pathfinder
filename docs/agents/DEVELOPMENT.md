@@ -46,7 +46,14 @@ Run `pnpm torchiko tools list --json`. The command discovers the operational MCP
 
 Run `pnpm verify:agent-tools` before handoff. The coverage gate requires every mounted application/admin router to match exactly one explicit agent/developer coverage decision. Restricted and human-controlled decisions are valid; silent omission is not.
 
-The first-party tRPC application surface is broader than the external agent surface. See `docs/agents/CAPABILITY_MATRIX.md` and `docs/agents/GAP_REPORT.md` before assuming UI/API parity.
+The first-party tRPC application surface is broader than the external agent surface. Run
+`pnpm torchiko tools coverage --json` to inspect both the mounted-router policy and the exact
+operation inventory. The operation section records each path, query/mutation kind, defining router,
+source file, policy category, and inherited coverage decision. Its reviewed count and SHA-256 digest
+make additions, removals, kind changes, owner changes, and source moves fail the release gate until
+the inventory is reviewed. Category coverage is not proof that an exact operation has a direct MCP
+binding; see `docs/agents/CAPABILITY_MATRIX.md` and `docs/agents/GAP_REPORT.md` before assuming
+UI/API parity.
 
 ## Targeted tests
 

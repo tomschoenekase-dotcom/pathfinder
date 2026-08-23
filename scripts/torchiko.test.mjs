@@ -16,6 +16,7 @@ import {
   listFixtures,
   loadScenarioRegistry,
   loadCompanyBrainScenarioRegistry,
+  operationInventoryDigest,
   simulateScenarioLocation,
   simulateScenarioTime,
 } from './lib/torchiko-developer-tools.mjs'
@@ -92,11 +93,48 @@ test('targeted test discovery is bounded and useful', async () => {
 
 test('every mounted router has exactly one explicit agent/developer coverage decision', async () => {
   const report = await buildToolCoverageReport(root)
+  assert.equal(report.schemaVersion, 2)
   assert.equal(report.healthy, true)
   assert.equal(report.classified, report.totalRouters)
   assert.equal(report.unclassified.length, 0)
   assert.equal(report.ambiguous.length, 0)
   assert.ok(report.totalRouters > 60)
+  assert.equal(report.operations.total, 371)
+  assert.equal(report.operations.classified, report.operations.total)
+  assert.equal(report.operations.unclassified.length, 0)
+  assert.equal(report.operations.ambiguous.length, 0)
+  assert.equal(report.operations.unresolved.length, 0)
+  assert.equal(report.operations.reviewedInventory.matches, true)
+  assert.equal(report.operations.counts.byKind.query, 162)
+  assert.equal(report.operations.counts.byKind.mutation, 209)
+  assert.deepEqual(
+    report.operations.entries
+      .filter((operation) => operation.path === 'admin.listAgentRunTrace')
+      .map(({ kind, router, source, categories }) => ({ kind, router, source, categories })),
+    [
+      {
+        kind: 'query',
+        router: 'adminAgentRunTraceRouter',
+        source: 'packages/api/src/routers/admin/agent-run-trace.ts',
+        categories: ['agent-evaluation'],
+      },
+    ],
+  )
+})
+
+test('operation inventory digest changes for path, kind, owner, or source drift', () => {
+  const baseline = [
+    { path: 'admin.example', kind: 'query', router: 'exampleRouter', source: 'example.ts' },
+  ]
+  const digest = operationInventoryDigest(baseline)
+  for (const changed of [
+    [{ ...baseline[0], path: 'admin.changed' }],
+    [{ ...baseline[0], kind: 'mutation' }],
+    [{ ...baseline[0], router: 'changedRouter' }],
+    [{ ...baseline[0], source: 'changed.ts' }],
+  ]) {
+    assert.notEqual(operationInventoryDigest(changed), digest)
+  }
 })
 
 test('coverage classification fails new unreviewed router names', () => {

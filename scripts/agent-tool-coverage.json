@@ -1,6 +1,20 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "operationInventory": {
+    "count": 371,
+    "sha256": "ea85dd29a2250c70eb956f70b06327d0f3dc0f4c920726464e8e562fdf530137",
+    "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
+    "evidence": "pnpm torchiko tools coverage --json"
+  },
   "categories": [
+    {
+      "id": "application-health",
+      "pattern": "^appRouter$",
+      "agentCoverage": "restricted",
+      "developerCoverage": "full",
+      "decision": "The fixed public process-health query is transport liveness, not an authenticated operational agent capability.",
+      "evidence": "packages/api/src/testing/public-surface-manifest.json"
+    },
     {
       "id": "platform-admin",
       "pattern": "^admin(?:Overview)?Router$",
@@ -67,7 +81,7 @@
     },
     {
       "id": "client-tenant-portal",
-      "pattern": "Client(?!Analytics)|Tenant|Portal",
+      "pattern": "^(?!.*Agent)(?:.*Client(?!Analytics)|.*Tenant|.*Portal)",
       "agentCoverage": "partial",
       "developerCoverage": "full",
       "decision": "Client identity and venue state are readable; account lifecycle mutations remain privileged and auditable.",

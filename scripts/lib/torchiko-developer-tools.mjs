@@ -1,5 +1,7 @@
 import { readdir, readFile, access, realpath } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
+import ts from 'typescript'
 
 const TEST_PATTERN = /\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/u
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'])
@@ -77,25 +79,27 @@ function mcpToolMetadata(source) {
   const start = source.indexOf('export const PATHFINDER_MCP_TOOLS')
   if (start < 0) return []
   const catalog = source.slice(start)
-  return [...catalog.matchAll(/name:\s*'((?:pathfinder|torchiko)\.[a-z0-9_.]+)'/gu)].map((match) => {
-    const next = catalog.indexOf('\n  {', match.index + 1)
-    const block = catalog.slice(match.index, next < 0 ? undefined : next)
-    const security = block.match(
-      /security\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,?\s*\)/u,
-    )
-    return {
-      name: match[1],
-      family: 'operational-mcp',
-      capability: security?.[2] ?? 'unknown',
-      scope: security?.[1] ?? 'unknown',
-      effect: security?.[3] ?? 'unknown',
-      approvalRequired: ['draft', 'bounded-evaluation-request'].includes(security?.[3]),
-      idempotent: /idempotentHint:\s*true/u.test(block),
-      defaultEnabled: !['draft', 'bounded-evaluation-request'].includes(security?.[3]),
-      transport: 'authenticated-agent-bridge',
-      source: 'packages/contracts/src/mcp-v0.ts',
-    }
-  })
+  return [...catalog.matchAll(/name:\s*'((?:pathfinder|torchiko)\.[a-z0-9_.]+)'/gu)].map(
+    (match) => {
+      const next = catalog.indexOf('\n  {', match.index + 1)
+      const block = catalog.slice(match.index, next < 0 ? undefined : next)
+      const security = block.match(
+        /security\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'([^']+)'\s*,?\s*\)/u,
+      )
+      return {
+        name: match[1],
+        family: 'operational-mcp',
+        capability: security?.[2] ?? 'unknown',
+        scope: security?.[1] ?? 'unknown',
+        effect: security?.[3] ?? 'unknown',
+        approvalRequired: ['draft', 'bounded-evaluation-request'].includes(security?.[3]),
+        idempotent: /idempotentHint:\s*true/u.test(block),
+        defaultEnabled: !['draft', 'bounded-evaluation-request'].includes(security?.[3]),
+        transport: 'authenticated-agent-bridge',
+        source: 'packages/contracts/src/mcp-v0.ts',
+      }
+    },
+  )
 }
 
 function prospectToolMetadata(source) {
@@ -140,9 +144,9 @@ export async function buildRepositoryMap(root) {
   const migrations = await readdir(path.join(root, 'packages/db/prisma/migrations'), {
     withFileTypes: true,
   })
-  const mcpTools = [...mcpContract.matchAll(/name:\s*'((?:pathfinder|torchiko)\.[a-z0-9_.]+)'/gu)].map(
-    (match) => match[1],
-  )
+  const mcpTools = [
+    ...mcpContract.matchAll(/name:\s*'((?:pathfinder|torchiko)\.[a-z0-9_.]+)'/gu),
+  ].map((match) => match[1])
   return {
     schemaVersion: 1,
     repository: path.resolve(root),
@@ -293,10 +297,225 @@ export function classifyRouter(routerName, policy) {
   return policy.categories.filter((category) => new RegExp(category.pattern, 'iu').test(routerName))
 }
 
+function moduleCandidates(fromFile, specifier) {
+  const base = path.resolve(path.dirname(fromFile), specifier)
+  return [`${base}.ts`, `${base}.tsx`, path.join(base, 'index.ts'), path.join(base, 'index.tsx')]
+}
+
+async function resolveLocalModule(fromFile, specifier) {
+  if (!specifier.startsWith('.')) return null
+  for (const candidate of moduleCandidates(fromFile, specifier)) {
+    if (await exists(candidate)) return candidate
+  }
+  return null
+}
+
+function propertyName(node) {
+  if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
+    return node.text
+  }
+  return null
+}
+
+function procedureKind(node) {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return null
+  const terminal = node.expression.name.text
+  return ['query', 'mutation', 'subscription'].includes(terminal) ? terminal : null
+}
+
+function exportedConst(sourceFile, symbol) {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === symbol) {
+        return declaration.initializer ?? null
+      }
+    }
+  }
+  return null
+}
+
+function importBindings(sourceFile) {
+  const bindings = new Map()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+      continue
+    const clause = statement.importClause
+    if (!clause) continue
+    if (clause.name) {
+      bindings.set(clause.name.text, {
+        imported: 'default',
+        specifier: statement.moduleSpecifier.text,
+      })
+    }
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        bindings.set(element.name.text, {
+          imported: element.propertyName?.text ?? element.name.text,
+          specifier: statement.moduleSpecifier.text,
+        })
+      }
+    }
+  }
+  return bindings
+}
+
+async function buildStaticOperationInventory(root) {
+  const sourceCache = new Map()
+  const operations = []
+  const unresolved = []
+  const active = new Set()
+
+  async function sourceFor(file) {
+    if (!sourceCache.has(file)) {
+      const source = await readFile(file, 'utf8')
+      sourceCache.set(
+        file,
+        ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS),
+      )
+    }
+    return sourceCache.get(file)
+  }
+
+  async function visitSymbol(file, symbol, prefix, inheritedOwner = null) {
+    const key = `${file}:${symbol}:${prefix}`
+    if (active.has(key)) {
+      unresolved.push({
+        file: path.relative(root, file).replaceAll(path.sep, '/'),
+        symbol,
+        reason: 'cycle',
+      })
+      return
+    }
+    active.add(key)
+    try {
+      const sourceFile = await sourceFor(file)
+      const initializer = exportedConst(sourceFile, symbol)
+      if (!initializer) {
+        unresolved.push({
+          file: path.relative(root, file).replaceAll(path.sep, '/'),
+          symbol,
+          reason: 'missing-exported-const',
+        })
+        return
+      }
+      await visitExpression(file, sourceFile, initializer, prefix, inheritedOwner ?? symbol)
+    } finally {
+      active.delete(key)
+    }
+  }
+
+  async function visitIdentifier(file, sourceFile, identifier, prefix, owner) {
+    const binding = importBindings(sourceFile).get(identifier.text)
+    if (binding) {
+      const target = await resolveLocalModule(file, binding.specifier)
+      if (!target) {
+        unresolved.push({
+          file: path.relative(root, file).replaceAll(path.sep, '/'),
+          symbol: identifier.text,
+          reason: 'unresolved-import',
+        })
+        return
+      }
+      await visitSymbol(target, binding.imported, prefix, null)
+      return
+    }
+    await visitSymbol(file, identifier.text, prefix, owner)
+  }
+
+  async function visitExpression(file, sourceFile, expression, prefix, owner) {
+    if (ts.isIdentifier(expression)) {
+      await visitIdentifier(file, sourceFile, expression, prefix, owner)
+      return
+    }
+    if (!ts.isCallExpression(expression) || !ts.isIdentifier(expression.expression)) {
+      unresolved.push({
+        file: path.relative(root, file).replaceAll(path.sep, '/'),
+        symbol: owner,
+        reason: 'unsupported-router-expression',
+      })
+      return
+    }
+    const factory = expression.expression.text
+    if (factory === 'mergeRouters') {
+      for (const argument of expression.arguments) {
+        if (ts.isIdentifier(argument)) {
+          await visitIdentifier(file, sourceFile, argument, prefix, owner)
+        } else {
+          unresolved.push({
+            file: path.relative(root, file).replaceAll(path.sep, '/'),
+            symbol: owner,
+            reason: 'unsupported-merge-argument',
+          })
+        }
+      }
+      return
+    }
+    if (factory !== 'router' || !ts.isObjectLiteralExpression(expression.arguments[0])) {
+      unresolved.push({
+        file: path.relative(root, file).replaceAll(path.sep, '/'),
+        symbol: owner,
+        reason: 'unsupported-router-factory',
+      })
+      return
+    }
+    for (const property of expression.arguments[0].properties) {
+      if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
+        unresolved.push({
+          file: path.relative(root, file).replaceAll(path.sep, '/'),
+          symbol: owner,
+          reason: 'unsupported-router-property',
+        })
+        continue
+      }
+      const name = propertyName(property.name)
+      if (!name) {
+        unresolved.push({
+          file: path.relative(root, file).replaceAll(path.sep, '/'),
+          symbol: owner,
+          reason: 'unsupported-router-key',
+        })
+        continue
+      }
+      const value = ts.isShorthandPropertyAssignment(property)
+        ? property.name
+        : property.initializer
+      const kind = procedureKind(value)
+      if (kind) {
+        operations.push({
+          path: `${prefix}${name}`,
+          kind,
+          router: owner,
+          source: path.relative(root, file).replaceAll(path.sep, '/'),
+        })
+      } else {
+        await visitExpression(file, sourceFile, value, `${prefix}${name}.`, owner)
+      }
+    }
+  }
+
+  await visitSymbol(path.join(root, 'packages/api/src/root.ts'), 'appRouter', '', 'appRouter')
+  operations.sort((left, right) => left.path.localeCompare(right.path))
+  return { operations, unresolved }
+}
+
+export function operationInventoryDigest(operations) {
+  return createHash('sha256')
+    .update(
+      operations
+        .map((operation) =>
+          [operation.path, operation.kind, operation.router, operation.source].join('|'),
+        )
+        .join('\n'),
+    )
+    .digest('hex')
+}
+
 export async function buildToolCoverageReport(root) {
-  const [repository, policy] = await Promise.all([
+  const [repository, policy, operationInventory] = await Promise.all([
     buildRepositoryMap(root),
     readJson(path.join(root, 'scripts/agent-tool-coverage.json')),
+    buildStaticOperationInventory(root),
   ])
   const routers = [
     ...repository.entryPoints.applicationRouters,
@@ -311,8 +530,37 @@ export async function buildToolCoverageReport(root) {
         matches.length === 1 ? 'classified' : matches.length === 0 ? 'unclassified' : 'ambiguous',
     }
   })
+  const operationEntries = operationInventory.operations.map((operation) => {
+    const matches = classifyRouter(operation.router, policy)
+    return {
+      ...operation,
+      categories: matches.map((category) => category.id),
+      agentCoverage: matches.length === 1 ? matches[0].agentCoverage : 'unreviewed',
+      developerCoverage: matches.length === 1 ? matches[0].developerCoverage : 'unreviewed',
+      status:
+        matches.length === 1 ? 'classified' : matches.length === 0 ? 'unclassified' : 'ambiguous',
+    }
+  })
+  const digest = operationInventoryDigest(operationInventory.operations)
+  const reviewedInventory = policy.operationInventory ?? {}
+  const inventoryMatches =
+    reviewedInventory.count === operationEntries.length && reviewedInventory.sha256 === digest
+  const operationCounts = operationEntries.reduce(
+    (counts, operation) => {
+      counts.byKind[operation.kind] = (counts.byKind[operation.kind] ?? 0) + 1
+      counts.byAgentCoverage[operation.agentCoverage] =
+        (counts.byAgentCoverage[operation.agentCoverage] ?? 0) + 1
+      return counts
+    },
+    { byKind: {}, byAgentCoverage: {} },
+  )
+  const routerHealthy = entries.every((entry) => entry.status === 'classified')
+  const operationsHealthy =
+    operationInventory.unresolved.length === 0 &&
+    operationEntries.every((entry) => entry.status === 'classified') &&
+    inventoryMatches
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     totalRouters: entries.length,
     classified: entries.filter((entry) => entry.status === 'classified').length,
     unclassified: entries
@@ -321,7 +569,24 @@ export async function buildToolCoverageReport(root) {
     ambiguous: entries.filter((entry) => entry.status === 'ambiguous'),
     categories: policy.categories,
     entries,
-    healthy: entries.every((entry) => entry.status === 'classified'),
+    operations: {
+      total: operationEntries.length,
+      classified: operationEntries.filter((entry) => entry.status === 'classified').length,
+      unclassified: operationEntries.filter((entry) => entry.status === 'unclassified'),
+      ambiguous: operationEntries.filter((entry) => entry.status === 'ambiguous'),
+      unresolved: operationInventory.unresolved,
+      reviewedInventory: {
+        expectedCount: reviewedInventory.count ?? null,
+        actualCount: operationEntries.length,
+        expectedSha256: reviewedInventory.sha256 ?? null,
+        actualSha256: digest,
+        matches: inventoryMatches,
+      },
+      counts: operationCounts,
+      entries: operationEntries,
+      healthy: operationsHealthy,
+    },
+    healthy: routerHealthy && operationsHealthy,
   }
 }
 
@@ -385,9 +650,7 @@ export async function loadScenarioRegistry(root) {
 }
 
 export async function loadCompanyBrainScenarioRegistry(root) {
-  const registry = await readJson(
-    path.join(root, 'scripts/fixtures/company-brain-scenarios.json'),
-  )
+  const registry = await readJson(path.join(root, 'scripts/fixtures/company-brain-scenarios.json'))
   const errors = []
   if (registry.schemaVersion !== 1) errors.push('schemaVersion must be 1')
   if (registry.synthetic !== true) errors.push('registry must be explicitly synthetic')
@@ -431,7 +694,10 @@ export async function buildCompanyBrainStatus(root) {
     'apps/dashboard/app/(admin)/admin/company-brain/page.tsx',
   ]
   const checks = await Promise.all(
-    required.map(async (file) => ({ file, status: (await exists(path.join(root, file))) ? 'pass' : 'fail' })),
+    required.map(async (file) => ({
+      file,
+      status: (await exists(path.join(root, file))) ? 'pass' : 'fail',
+    })),
   )
   const tools = await listAgentTools(root)
   const requiredTools = [

@@ -33,7 +33,14 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
    lifecycle events, approvals, and outcome observations as one bounded reverse-chronological
    exact-run trace. Raw payloads, scope snapshots, event data, and execution leases are
    intentionally excluded rather than treated as trace data.
-6. The new tool-coverage CI gate classifies mounted routers, but it does not yet measure operation-level parity within each router.
+6. **Partially closed — exact operation inventory and drift gate.** The tool-coverage gate now
+   statically walks the mounted router graph and records every exact tRPC path, query/mutation kind,
+   defining router, source file, policy category, and inherited coverage decision. A reviewed
+   count+SHA-256 inventory makes additions, removals, kind changes, ownership changes, and source
+   moves fail closed, and a runtime test proves the static graph matches the authoritative mounted
+   router. This closes operation-level visibility and unreviewed-surface drift. Exact direct-tool or
+   bounded-alternative binding measurement per operation remains incomplete; category `partial`
+   must not be read as proof that every operation is callable by an agent.
 
 ## Intentionally restricted or deferred
 
@@ -50,6 +57,9 @@ truth. See `company-brain-architecture.md` and the capability matrix for the imp
 - Composed the safe operational catalog through the existing agent bridge with credential-derived scope; approval-bound writes remain default-dark.
 - Unified core discovery metadata across operational MCP and prospect-agent tools.
 - Added `pnpm verify:agent-tools`, which fails when a mounted application/admin router has no explicit or has an ambiguous agent/developer coverage decision.
+- Expanded the same gate to 371 exact mounted operations with a reviewed inventory digest and an
+  authoritative runtime-equivalence test; exact per-operation agent binding coverage remains an
+  explicit next layer rather than an inferred claim.
 - Added four synthetic scenario fixtures with provider-free time/location simulation and conversation replay preparation.
 - Added the initial capability matrix, developer guide, tool reference, and this gap ledger.
 - Preserved all existing credential, outreach, billing, tenant, approval, publication, and production gates.

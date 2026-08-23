@@ -41,6 +41,15 @@ The canonical operational schemas and security annotations are in `packages/cont
 
 The expanded operational-intelligence resources deliberately exclude report content/errors, visitor tokens and coordinates, message bodies, credential hashes/prefixes, agent prompts/scope snapshots/artifacts, deployment plans/state hashes, and feature-flag metadata/actor IDs.
 
+## Operation coverage evidence
+
+`pnpm torchiko tools coverage --json` is the machine-readable comparison surface between the typed
+first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
+names, and fails when its reviewed operation digest drifts. Each entry includes the operation path,
+kind, defining router, source file, policy category, and inherited agent/developer coverage. The
+inherited `partial` label describes the domain policy only; it does not claim an exact MCP binding.
+Use the MCP resource/tool catalog above to verify actual callable agent interfaces.
+
 ## Prospect agent tools
 
 | Tool                                       | Capability           | Effect                                 | Safety boundary                                     |
