@@ -405,6 +405,15 @@
     }
   },
   {
+    "path": "portal.getVenueVisitorPulse",
+    "kind": "query",
+    "minimumRole": "STAFF",
+    "firstTouch": "venue.findFirst",
+    "input": {
+      "venueId": "cvenueabc123456789012"
+    }
+  },
+  {
     "path": "portal.createPreviewFeedbackRequest",
     "kind": "mutation",
     "minimumRole": "STAFF",
