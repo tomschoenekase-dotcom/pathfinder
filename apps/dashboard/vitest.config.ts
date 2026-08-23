@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     passWithNoTests: true,
-    exclude: ['tests/browser/**', 'node_modules/**', '.next/**'],
+    exclude: ['tests/browser/**', 'tests/visual/**', 'node_modules/**', '.next/**'],
   },
 })
