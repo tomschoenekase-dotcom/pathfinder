@@ -448,8 +448,10 @@ version; the server creates a bounded reference-only manifest and records durabl
 evidence. The UI deliberately hides object locators, hashes, storage versions, manifest content, and
 actors. `EXPORT_READY` means every declared target and kind has recorded artifact evidence only. It
 does not deliver an export, revoke access, complete offboarding, delete data, or decide retention.
-Migration `20260812001700_add_offboarding_export_finalization` remains unapplied, so local injected-
-storage tests are not live storage or delivery evidence.
+The fresh disposable Golden Venue applies migration
+`20260812001700_add_offboarding_export_finalization`, writes every declared artifact to versioned
+MinIO, reconciles an exact replay, and verifies immutable object metadata. Hosted storage and
+delivery remain unverified.
 
 ## External credentials
 

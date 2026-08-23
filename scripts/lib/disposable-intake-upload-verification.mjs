@@ -651,7 +651,7 @@ export async function runDisposableGoldenVenueShakedown(options = {}) {
         'support-handoff',
         'report-publish-read',
         'routine-update-publish-read',
-        'offboarding-draft-export-preview',
+        'offboarding-reviewed-export-ready',
       ],
       failureScope: [
         'provider-outage',

@@ -13,11 +13,12 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
    authoritative upload evidence, review, a support-question handoff, immutable package/evaluation
    evidence, explicit release and exact rollback, grounded provider-dark public chat through the
    production gateway, visitor-owned feedback, tenant-published routine updates, admin-published
-   and client-read reports, and non-destructive offboarding draft/export-preview behavior. The chat
-   proof uses deterministic in-process OpenAI/Anthropic client seams with outbound credentials and
-   provider workers disabled; it proves routing, retrieval, persistence, ownership, and analytics,
-   **not** live-provider answer quality. It also does not prove offboarding execution, customer
-   cancellation, revocation, deletion, or export artifact finalization.
+   and client-read reports, plus a human-reviewed non-deleting export matrix finalized into
+   versioned disposable storage with exact replay recovery. The chat proof uses deterministic
+   in-process OpenAI/Anthropic client seams with outbound credentials and provider workers disabled;
+   it proves routing, retrieval, persistence, ownership, and analytics, **not** live-provider answer
+   quality. `EXPORT_READY` proves bounded artifact evidence only; it does not prove customer
+   cancellation, revocation, deletion, delivery, or retention policy.
 4. Treat its `failureScope` output as the retained seven-class matrix. It proves founder-governed
    provider exclusion before generation dispatch, a shared-Redis rate limit, infected upload
    rejection, exact duplicate replay, fenced expired-worker takeover, durable report-worker failure,

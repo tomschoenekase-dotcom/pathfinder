@@ -539,8 +539,9 @@ Section-level evidence and blockers are indexed in
   Universal Item migration `20260812001600_add_universal_item_content` is likewise unapplied and
   unrehearsed, performs no backfill, and is not live publication or guest evidence.
   Offboarding export-finalization migration `20260812001700_add_offboarding_export_finalization` is
-  likewise unapplied and unrehearsed, performs no backfill, and is not live database, storage or
-  delivery evidence.
+  now applied in the fresh disposable Golden Venue proof. All declared artifacts reach immutable
+  versioned MinIO evidence and exact replay convergence; hosted storage and delivery remain
+  unverified.
 
 ## Required program work not yet proven complete
 

@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import {
+  CreateBucketCommand,
+  HeadObjectCommand,
+  PutBucketVersioningCommand,
+  S3Client,
+} from '@aws-sdk/client-s3'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -54,6 +60,7 @@ import {
 import { mergeRouters, router } from './core'
 import type { TRPCContext } from './context'
 import { reviewVenuePackageManifestService } from './lib/venue-package-manifest-service'
+import { adminOffboardingExportFinalizationRouter } from './routers/admin/offboarding-export-finalization'
 import { adminOffboardingExportPreviewRouter } from './routers/admin/offboarding-export-preview'
 import { adminOffboardingPlansRouter } from './routers/admin/offboarding-plans'
 import { adminReportConfigurationRouter } from './routers/admin/report-configuration'
@@ -66,6 +73,7 @@ import { portalRouter } from './routers/portal'
 import { venuePackageRouter } from './routers/venue-package'
 
 const enabled = process.env.RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION === '1'
+let disposableStorage: S3Client | null = null
 
 function assertDisposableDatabase(): void {
   const raw = process.env.DATABASE_URL
@@ -83,6 +91,7 @@ function assertDisposableDatabase(): void {
 const testRouter = router({
   admin: mergeRouters(
     adminOffboardingExportPreviewRouter,
+    adminOffboardingExportFinalizationRouter,
     adminOffboardingPlansRouter,
     adminReportConfigurationRouter,
     adminWeeklyReportsRouter,
@@ -95,8 +104,9 @@ const testRouter = router({
   venuePackage: venuePackageRouter,
 })
 
-describe.skipIf(!enabled)('Golden Venue lifecycle and seven-class failure matrix', () => {
+describe.skipIf(!enabled)('Golden Venue lifecycle, export recovery, and failure matrix', () => {
   afterAll(async () => {
+    disposableStorage?.destroy()
     _setAnthropicClientForTesting(null)
     setOpenAiEmbeddingsClientForTesting(null)
     await db.$disconnect()
@@ -105,6 +115,39 @@ describe.skipIf(!enabled)('Golden Venue lifecycle and seven-class failure matrix
   it('proves invitation through exact rollback in one sanitized venue run', async () => {
     assertDisposableDatabase()
     await withTenantIsolationBypass(async () => {
+      const storageEndpoint = new URL(process.env.STORAGE_ENDPOINT ?? '')
+      const storageBucket = process.env.STORAGE_BUCKET ?? ''
+      const storageRegion = process.env.STORAGE_REGION ?? ''
+      const storageAccessKeyId = process.env.STORAGE_ACCESS_KEY_ID ?? ''
+      const storageSecretAccessKey = process.env.STORAGE_SECRET_ACCESS_KEY ?? ''
+      if (
+        storageEndpoint.protocol !== 'http:' ||
+        !['127.0.0.1', 'localhost', '::1'].includes(storageEndpoint.hostname) ||
+        !/^pathfinder-disposable-intake-[a-f0-9]{12}$/u.test(storageBucket) ||
+        !storageRegion ||
+        !storageAccessKeyId ||
+        !storageSecretAccessKey
+      ) {
+        throw new Error('Golden Venue proof requires exact-loopback disposable object storage')
+      }
+      const storageClient = new S3Client({
+        endpoint: storageEndpoint.toString(),
+        region: storageRegion,
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: storageAccessKeyId,
+          secretAccessKey: storageSecretAccessKey,
+        },
+      })
+      disposableStorage = storageClient
+      await storageClient.send(new CreateBucketCommand({ Bucket: storageBucket }))
+      await storageClient.send(
+        new PutBucketVersioningCommand({
+          Bucket: storageBucket,
+          VersioningConfiguration: { Status: 'Enabled' },
+        }),
+      )
+
       const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
       const tenantId = `remote-proof-tenant-${suffix}`
       const ownerId = `remote-proof-owner-${suffix}`
@@ -992,9 +1035,10 @@ describe.skipIf(!enabled)('Golden Venue lifecycle and seven-class failure matrix
         content: 'A sanitized weekly summary for the disposable Golden Venue proof.',
       })
 
-      // 20. Offboarding remains planning-only: create a scoped REQUESTED draft and a
-      // metadata-reference export preview, without revocation, artifact creation, data
-      // deletion, venue deactivation, or customer cancellation.
+      // 20. Offboarding remains non-destructive and human-gated: create a scoped REQUESTED
+      // draft and metadata-reference preview, explicitly review its export matrix, finalize every
+      // bounded reference-only artifact into versioned disposable storage, and reconcile an exact
+      // retry without revocation, deletion, venue deactivation, or customer cancellation.
       const activeBeforeOffboarding = await db.venue.findFirstOrThrow({
         where: { id: venueId, tenantId },
         select: { isActive: true },
@@ -1032,6 +1076,101 @@ describe.skipIf(!enabled)('Golden Venue lifecycle and seven-class failure matrix
       await expect(
         db.offboardingExportArtifact.count({ where: { tenantId, planId: draftPlan.id } }),
       ).resolves.toBe(0)
+      const exportControl = await admin.getOffboardingExportFinalization({
+        tenantId,
+        planId: draftPlan.id,
+      })
+      expect(exportControl).toMatchObject({
+        status: 'REQUESTED',
+        remainingArtifacts: 4,
+        exportActions: { review: { allowed: true }, finalize: { allowed: false } },
+      })
+      const reviewed = await admin.reviewOffboardingPlanExports({
+        tenantId,
+        planId: draftPlan.id,
+        operationId: randomUUID(),
+        expectedUpdatedAt: exportControl.expectedUpdatedAt,
+      })
+      expect(reviewed).toMatchObject({ status: 'REVIEWED', replayed: false })
+      const exportKinds = [
+        'APPROVED_CONTENT',
+        'CONTENT_HISTORY',
+        'VENUE_PACKAGES',
+        'CONFIGURATION',
+      ] as const
+      let lastExportOperationId = ''
+      for (const [index, kind] of exportKinds.entries()) {
+        const exportOperationId = randomUUID()
+        lastExportOperationId = exportOperationId
+        await expect(
+          admin.finalizeOffboardingExportArtifact({
+            tenantId,
+            planId: draftPlan.id,
+            venueId,
+            kind,
+            operationId: exportOperationId,
+            expectedPlanUpdatedAt: reviewed.expectedUpdatedAt,
+          }),
+        ).resolves.toMatchObject({
+          status: 'SETTLED',
+          artifactRecorded: true,
+          replayed: false,
+          planStatus: index === exportKinds.length - 1 ? 'EXPORT_READY' : 'REVIEWED',
+          remainingArtifacts: exportKinds.length - index - 1,
+        })
+      }
+      const replayedFinalExport = await admin.finalizeOffboardingExportArtifact({
+        tenantId,
+        planId: draftPlan.id,
+        venueId,
+        kind: 'CONFIGURATION',
+        operationId: lastExportOperationId,
+        expectedPlanUpdatedAt: reviewed.expectedUpdatedAt,
+      })
+      expect(replayedFinalExport).toMatchObject({
+        status: 'SETTLED',
+        artifactRecorded: true,
+        replayed: true,
+        planStatus: 'EXPORT_READY',
+        remainingArtifacts: 0,
+      })
+      const storedExports = await db.offboardingExportOperation.findMany({
+        where: { tenantId, planId: draftPlan.id },
+        orderBy: { kind: 'asc' },
+        select: {
+          kind: true,
+          status: true,
+          objectKey: true,
+          storedVersionId: true,
+          contentHash: true,
+          byteLength: true,
+        },
+      })
+      expect(storedExports).toHaveLength(exportKinds.length)
+      for (const storedExport of storedExports) {
+        expect(storedExport).toMatchObject({ status: 'SETTLED' })
+        expect(storedExport.storedVersionId).toEqual(expect.any(String))
+        const object = await storageClient.send(
+          new HeadObjectCommand({ Bucket: storageBucket, Key: storedExport.objectKey }),
+        )
+        expect(object).toMatchObject({
+          VersionId: storedExport.storedVersionId,
+          ContentLength: storedExport.byteLength,
+          Metadata: { 'pathfinder-sha256': storedExport.contentHash },
+        })
+      }
+      await expect(
+        db.offboardingExportArtifact.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(exportKinds.length)
+      await expect(
+        db.offboardingRevocationEvidence.count({ where: { tenantId, planId: draftPlan.id } }),
+      ).resolves.toBe(0)
+      await expect(
+        db.venue.findFirstOrThrow({
+          where: { id: venueId, tenantId },
+          select: { isActive: true },
+        }),
+      ).resolves.toEqual(activeBeforeOffboarding)
 
       // Failure matrix A — duplicate request: the exact committed operation replays from
       // durable evidence without another embedding or generation dispatch.
