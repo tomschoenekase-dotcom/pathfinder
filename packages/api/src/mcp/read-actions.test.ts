@@ -168,6 +168,18 @@ describe('MCP v0 concrete read bindings', () => {
       gracePeriodEndsAt: null,
       reconciliationHealth: 'CURRENT',
       lastReconciledAt: new Date('2026-08-20T12:00:00.000Z'),
+      tenant: {
+        prospectCustomerRelationships: [
+          {
+            startedAt: new Date('2026-01-01T00:00:00.000Z'),
+            organization: {
+              id: 'organization-1',
+              canonicalName: 'Harbor Museum Foundation',
+              relationshipTier: 'HIGH_TOUCH',
+            },
+          },
+        ],
+      },
       commercialAgreements: [
         {
           id: 'agreement-1',
@@ -214,9 +226,26 @@ describe('MCP v0 concrete read bindings', () => {
     expect(db.billingAccount.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenantId: 'tenant-1' } }),
     )
+    expect(
+      db.billingAccount.findFirst.mock.calls[0]![0].select.invoiceProjections,
+    ).not.toHaveProperty('take')
     expect(response.data).toMatchObject({
       status: 'ACTIVE',
       paidThroughAt: '2026-09-20T00:00:00.000Z',
+      paymentRecovery: {
+        schemaVersion: 'torchiko-payment-recovery-context-v1',
+        state: 'NOT_REQUIRED',
+        reviewRequired: false,
+        policy: {
+          automaticRestrictionAuthorized: false,
+          automaticCustomerContactAuthorized: false,
+          graceAndCutoffPolicy: 'UNRESOLVED',
+        },
+        relationship: {
+          organizationId: 'organization-1',
+          relationshipTier: 'HIGH_TOUCH',
+        },
+      },
     })
     const serialized = JSON.stringify(response)
     expect(serialized).not.toContain('cus_secret')

@@ -68,9 +68,15 @@ export default function VisualFixtureIndex() {
         </h2>
         <Link
           href="/dev-fixtures/billing?surface=client&state=grace"
-          className="mt-4 flex min-h-12 items-center justify-between border-y border-pf-light py-3 font-medium text-pf-primary"
+          className="mt-4 flex min-h-12 items-center justify-between border-t border-pf-light py-3 font-medium text-pf-primary"
         >
           Client and operator lifecycle states <span aria-hidden="true">→</span>
+        </Link>
+        <Link
+          href="/dev-fixtures/billing-recovery"
+          className="flex min-h-12 items-center justify-between border-y border-pf-light py-3 font-medium text-pf-primary"
+        >
+          Founder payment-recovery context <span aria-hidden="true">→</span>
         </Link>
       </section>
 

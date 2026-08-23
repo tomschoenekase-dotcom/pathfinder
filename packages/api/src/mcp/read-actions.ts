@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 
+import { buildPaymentRecoveryContext } from '@pathfinder/billing'
 import type { McpReadInput, McpToolResult } from '@pathfinder/contracts/mcp-v0'
 import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
 
@@ -207,6 +208,21 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
       gracePeriodEndsAt: true,
       reconciliationHealth: true,
       lastReconciledAt: true,
+      tenant: {
+        select: {
+          prospectCustomerRelationships: {
+            where: { status: 'ACTIVE' },
+            orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+            take: 1,
+            select: {
+              startedAt: true,
+              organization: {
+                select: { id: true, canonicalName: true, relationshipTier: true },
+              },
+            },
+          },
+        },
+      },
       commercialAgreements: {
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         select: {
@@ -227,8 +243,9 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
         },
       },
       invoiceProjections: {
+        // Use the complete durable invoice set for recovery evidence, then bound
+        // the historical invoice payload returned to the agent below.
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: 25,
         select: {
           id: true,
           invoiceNumber: true,
@@ -247,6 +264,32 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
     },
   })
   if (!account) return result('billing', null)
+  const agreement =
+    account.commercialAgreements.find((candidate) => candidate.isBase) ??
+    account.commercialAgreements[0] ??
+    null
+  const relationship = account.tenant.prospectCustomerRelationships[0] ?? null
+  const paymentRecovery = buildPaymentRecoveryContext({
+    accountStatus: account.status,
+    gracePeriodEndsAt: account.gracePeriodEndsAt,
+    agreement: agreement
+      ? {
+          agreedAmountMinor: agreement.agreedAmountMinor,
+          currency: agreement.currency,
+          billingInterval: agreement.billingInterval,
+          billingIntervalCount: agreement.billingIntervalCount,
+        }
+      : null,
+    invoices: account.invoiceProjections,
+    relationship: relationship
+      ? {
+          organizationId: relationship.organization.id,
+          organizationName: relationship.organization.canonicalName,
+          relationshipTier: relationship.organization.relationshipTier,
+          relationshipStartedAt: relationship.startedAt,
+        }
+      : null,
+  })
   return result('billing', {
     billingMode: account.billingMode,
     currency: account.currency,
@@ -255,6 +298,51 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
     gracePeriodEndsAt: account.gracePeriodEndsAt?.toISOString() ?? null,
     reconciliationHealth: account.reconciliationHealth,
     lastReconciledAt: account.lastReconciledAt?.toISOString() ?? null,
+    paymentRecovery: {
+      ...paymentRecovery,
+      generatedAt: paymentRecovery.generatedAt.toISOString(),
+      timing: {
+        ...paymentRecovery.timing,
+        delinquentSince: paymentRecovery.timing.delinquentSince?.toISOString() ?? null,
+        nextRetryAt: paymentRecovery.timing.nextRetryAt?.toISOString() ?? null,
+        gracePeriodEndsAt: paymentRecovery.timing.gracePeriodEndsAt?.toISOString() ?? null,
+      },
+      accountValue: paymentRecovery.accountValue
+        ? {
+            ...paymentRecovery.accountValue,
+            amountMinor: paymentRecovery.accountValue.amountMinor?.toString() ?? null,
+          }
+        : null,
+      financialExposure: {
+        ...paymentRecovery.financialExposure,
+        receivableAtRiskByCurrency:
+          paymentRecovery.financialExposure.receivableAtRiskByCurrency.map((entry) => ({
+            ...entry,
+            amountMinor: entry.amountMinor.toString(),
+          })),
+        ongoingVariableCost: paymentRecovery.financialExposure.ongoingVariableCost
+          ? {
+              ...paymentRecovery.financialExposure.ongoingVariableCost,
+              amountMinor:
+                paymentRecovery.financialExposure.ongoingVariableCost.amountMinor.toString(),
+              asOf:
+                paymentRecovery.financialExposure.ongoingVariableCost.asOf?.toISOString() ?? null,
+            }
+          : null,
+      },
+      relationship: paymentRecovery.relationship
+        ? {
+            ...paymentRecovery.relationship,
+            relationshipStartedAt: paymentRecovery.relationship.relationshipStartedAt.toISOString(),
+          }
+        : null,
+      priorCommunication: paymentRecovery.priorCommunication
+        ? {
+            ...paymentRecovery.priorCommunication,
+            occurredAt: paymentRecovery.priorCommunication.occurredAt.toISOString(),
+          }
+        : null,
+    },
     agreements: account.commercialAgreements.map((agreement) => ({
       ...agreement,
       agreedAmountMinor: agreement.agreedAmountMinor?.toString() ?? null,
@@ -262,7 +350,7 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
       cancellationEffectiveAt: agreement.cancellationEffectiveAt?.toISOString() ?? null,
       accessEndsAt: agreement.accessEndsAt?.toISOString() ?? null,
     })),
-    invoices: account.invoiceProjections.map((invoice) => ({
+    invoices: account.invoiceProjections.slice(0, 25).map((invoice) => ({
       ...invoice,
       amountDueMinor: invoice.amountDueMinor.toString(),
       amountPaidMinor: invoice.amountPaidMinor.toString(),
