@@ -32,6 +32,8 @@ export const attentionConsoleInput = z
   })
   .default({ limit: 10 })
 
+export type AttentionConsoleInput = z.infer<typeof attentionConsoleInput>
+
 export function after(value?: AttentionCursor) {
   if (!value) return {}
   const createdAt = new Date(value.createdAt)

@@ -90,6 +90,18 @@ approval reduction from this projection. Any future permission change requires a
 explicit policy decision using task-specific evidence and must retain the existing capability /
 policy boundary.
 
+## Machine-readable operating view
+
+`admin.founderOperatingView` returns a compact, versioned projection of the same canonical
+briefing, change digest, bounded metrics, and autonomy evidence used by the Control Room. It is
+read-only and explicitly reports that it cannot execute, approve, acknowledge, or mutate policy.
+The current transport requires an authenticated platform-admin session and is not compatible with
+tenant/customer MCP credentials.
+
+This provides an AI-friendly application contract without widening the customer credential model
+or creating a generic cross-tenant super-admin tool. A future platform-worker transport can bind to
+this projection only after receiving its own explicit authentication and authorization design.
+
 ## Mobile behavior
 
 The primary briefing, decision controls, and queue shortcuts use touch-sized controls. Worker

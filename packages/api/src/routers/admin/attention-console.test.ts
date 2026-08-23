@@ -75,9 +75,13 @@ describe('admin attention console', () => {
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
-    await expect(
-      testRouter.createCaller(context(false)).admin.attentionConsole({ limit: 10 }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    const caller = testRouter.createCaller(context(false)).admin
+    await expect(caller.attentionConsole({ limit: 10 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(caller.founderOperatingView({ limit: 10 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
     expect(mocks.bypass).not.toHaveBeenCalled()
   })
 
@@ -245,6 +249,34 @@ describe('admin attention console', () => {
         },
       },
     })
+  })
+
+  it('returns a compact read-only platform view without exposing the source queues', async () => {
+    const result = await testRouter.createCaller(context()).admin.founderOperatingView({
+      limit: 10,
+    })
+
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      scope: 'PLATFORM',
+      effect: 'READ_ONLY',
+      focus: { kind: 'CLEAR' },
+      autonomyEvidence: {
+        state: 'NO_OUTCOME_EVIDENCE',
+        policy: { approvalReductionRecommended: false },
+      },
+      authority: {
+        transport: 'PLATFORM_ADMIN_SESSION_ONLY',
+        customerCredentialCompatible: false,
+        canExecute: false,
+        canApprove: false,
+        canAcknowledge: false,
+        canMutatePolicy: false,
+      },
+    })
+    expect(result).not.toHaveProperty('jobs')
+    expect(result).not.toHaveProperty('approvals')
+    expect(result).not.toHaveProperty('events')
   })
 
   it('acknowledges and resolves only active event states with the operator identity', async () => {
