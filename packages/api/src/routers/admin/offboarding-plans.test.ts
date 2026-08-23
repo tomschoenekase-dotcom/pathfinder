@@ -10,10 +10,14 @@ const planFindMany = vi.fn()
 const planFindFirst = vi.fn()
 const planCreate = vi.fn()
 const auditCreate = vi.fn()
+const tenantFindFirst = vi.fn()
+const packageGroupBy = vi.fn()
 const mockDb = {
   $executeRaw: vi.fn().mockResolvedValue(0),
   $transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
   venue: { findMany: venueFindMany },
+  tenant: { findFirst: tenantFindFirst },
+  venuePackage: { groupBy: packageGroupBy },
   offboardingPlan: { findMany: planFindMany, findFirst: planFindFirst, create: planCreate },
   auditLog: { create: auditCreate },
 } as unknown as TRPCContext['db']
@@ -41,6 +45,12 @@ describe('admin offboarding plan foundation', () => {
     planFindMany.mockResolvedValue([])
     planFindFirst.mockResolvedValue(null)
     venueFindMany.mockResolvedValue([{ id: 'venue-1' }])
+    tenantFindFirst.mockResolvedValue({
+      id: 'tenant-1',
+      status: 'ACTIVE',
+      billingAccount: { status: 'ACTIVE' },
+    })
+    packageGroupBy.mockResolvedValue([])
     planCreate.mockResolvedValue({
       id: 'plan-1',
       tenantId: 'tenant-1',
@@ -125,6 +135,85 @@ describe('admin offboarding plan foundation', () => {
     expect(auditCreate).toHaveBeenCalledTimes(1)
   })
 
+  it('returns preserved venue state for human reactivation review without execution policy', async () => {
+    tenantFindFirst.mockResolvedValue({
+      id: 'tenant-1',
+      status: 'ACTIVE',
+      billingAccount: { status: 'ENDED' },
+    })
+    venueFindMany.mockResolvedValue([
+      {
+        id: 'venue-1',
+        name: 'Harbor Museum',
+        isActive: false,
+        venueBotConfiguration: { id: 'bot-config-1' },
+        _count: { places: 8, knowledgeEntries: 3, venuePackageManifestArtifacts: 1 },
+      },
+    ])
+    packageGroupBy.mockResolvedValue([
+      { venueId: 'venue-1', status: 'APPLIED', _count: { _all: 2 } },
+    ])
+    planFindMany.mockResolvedValue([
+      {
+        id: 'plan-1',
+        status: 'COMPLETED',
+        updatedAt: new Date('2026-08-22T00:00:00.000Z'),
+        venueTargets: [
+          {
+            venueId: 'venue-1',
+            revocationEvidence: [{ outcome: 'COMPLETE' }, { outcome: 'SKIPPED' }],
+            exportArtifacts: [{ id: 'artifact-1' }],
+          },
+        ],
+      },
+    ])
+
+    const result = await testRouter
+      .createCaller(context())
+      .offboarding.getCustomerStatePreservation({ tenantId: 'tenant-1' })
+
+    expect(result).toMatchObject({
+      schemaVersion: 'torchiko-customer-state-preservation-v1',
+      evidenceBounded: false,
+      policy: {
+        automaticReactivationAuthorized: false,
+        automaticCustomerContactAuthorized: false,
+        retentionPolicy: 'UNRESOLVED',
+        pauseFeePolicy: 'UNRESOLVED',
+        reactivationFeePolicy: 'UNRESOLVED',
+      },
+      venues: [
+        {
+          reviewState: 'RESTORATION_REVIEW',
+          operationalMaterialPreserved: true,
+          material: {
+            placeRecordCount: 8,
+            knowledgeRecordCount: 3,
+            packageRecordCount: 2,
+            manifestRecordCount: 1,
+            botConfigurationRecordPreserved: true,
+            exportArtifactCount: 1,
+          },
+        },
+      ],
+    })
+    expect(packageGroupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: { in: ['venue-1'] } },
+      }),
+    )
+    expect(planFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-1',
+          status: { not: 'CANCELLED' },
+          venueTargets: { some: { venueId: { in: ['venue-1'] } } },
+        },
+        take: 101,
+      }),
+    )
+  })
+
   it('does not create a plan when any requested venue is outside the tenant', async () => {
     venueFindMany.mockResolvedValue([])
     await expect(
@@ -188,6 +277,7 @@ describe('admin offboarding plan foundation', () => {
     expect(planCreate).not.toHaveBeenCalled()
     expect(Object.keys(adminOffboardingPlansRouter._def.procedures).sort()).toEqual([
       'createOffboardingDraft',
+      'getCustomerStatePreservation',
       'getOffboardingPlan',
       'listOffboardingPlans',
     ])

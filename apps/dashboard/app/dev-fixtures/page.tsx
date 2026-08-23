@@ -74,9 +74,15 @@ export default function VisualFixtureIndex() {
         </Link>
         <Link
           href="/dev-fixtures/billing-recovery"
-          className="flex min-h-12 items-center justify-between border-y border-pf-light py-3 font-medium text-pf-primary"
+          className="flex min-h-12 items-center justify-between border-t border-pf-light py-3 font-medium text-pf-primary"
         >
           Founder payment-recovery context <span aria-hidden="true">→</span>
+        </Link>
+        <Link
+          href="/dev-fixtures/customer-state-preservation"
+          className="flex min-h-12 items-center justify-between border-y border-pf-light py-3 font-medium text-pf-primary"
+        >
+          Customer return-path evidence <span aria-hidden="true">→</span>
         </Link>
       </section>
 

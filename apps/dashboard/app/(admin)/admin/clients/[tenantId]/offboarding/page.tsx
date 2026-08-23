@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { OffboardingDraftForm } from '../../../../../../components/admin/OffboardingDraftForm'
 import { OffboardingExportFinalizer } from '../../../../../../components/admin/OffboardingExportFinalizer'
 import { OffboardingExportManifestPreview } from '../../../../../../components/admin/OffboardingExportManifestPreview'
+import { CustomerStatePreservationPanel } from '../../../../../../components/admin/CustomerStatePreservationPanel'
 import { createAdminCaller } from '../../../../../../lib/admin-caller'
 
 type OffboardingPageProps = { params: Promise<{ tenantId: string }> }
@@ -35,9 +36,10 @@ function dateTime(value: Date): string {
 export default async function OffboardingPage({ params }: OffboardingPageProps) {
   const { tenantId } = await params
   const caller = await createAdminCaller()
-  const [client, summaries] = await Promise.all([
+  const [client, summaries, preservation] = await Promise.all([
     caller.admin.getClient({ tenantId }),
     caller.admin.listOffboardingPlans({ tenantId, limit: 25 }),
+    caller.admin.getCustomerStatePreservation({ tenantId }),
   ])
   const plans = await Promise.all(
     summaries.items.map(async (plan) => {
@@ -83,6 +85,8 @@ export default async function OffboardingPage({ params }: OffboardingPageProps) 
           delete, revoke, execute, cancel, or complete action.
         </p>
       </section>
+
+      <CustomerStatePreservationPanel context={preservation} />
 
       <OffboardingExportManifestPreview
         tenantId={tenantId}

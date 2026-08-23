@@ -5,6 +5,7 @@ import type { McpReadInput, McpToolResult } from '@pathfinder/contracts/mcp-v0'
 import { buildOnboardingMilestoneRollup } from '@pathfinder/contracts'
 
 import type { PathfinderMcpDomainActions, VerifiedMcpInvocationContext } from './registry'
+import { loadCustomerStatePreservation } from '../lib/customer-state-preservation'
 
 const CURSOR_VERSION = 1 as const
 const MAX_PAGE_SIZE = 100
@@ -43,6 +44,7 @@ type ReadDb = Pick<
   | 'agentQuestion'
   | 'agentOutcomeObservation'
   | 'onboardingMilestoneEvent'
+  | 'offboardingPlan'
 >
 
 type CursorPayload = Readonly<{
@@ -127,7 +129,7 @@ export async function readMcpResource(
       return readClient(db, context.credential.tenantId)
     case 'billing':
       rejectCursor(cursor, input.resource)
-      return readBilling(db, context.credential.tenantId)
+      return readBilling(db, context.credential.tenantId, context.credential.venueIds)
     case 'venues':
       return readVenues(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'configuration':
@@ -197,72 +199,79 @@ function assertExactScope(input: McpReadInput, context: VerifiedMcpInvocationCon
   }
 }
 
-async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult> {
-  const account = await db.billingAccount.findFirst({
-    where: { tenantId },
-    select: {
-      billingMode: true,
-      currency: true,
-      status: true,
-      paidThroughAt: true,
-      gracePeriodEndsAt: true,
-      reconciliationHealth: true,
-      lastReconciledAt: true,
-      tenant: {
-        select: {
-          prospectCustomerRelationships: {
-            where: { status: 'ACTIVE' },
-            orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
-            take: 1,
-            select: {
-              startedAt: true,
-              organization: {
-                select: { id: true, canonicalName: true, relationshipTier: true },
+async function readBilling(
+  db: ReadDb,
+  tenantId: string,
+  venueIds: readonly string[],
+): Promise<McpToolResult> {
+  const [account, customerStatePreservation] = await Promise.all([
+    db.billingAccount.findFirst({
+      where: { tenantId },
+      select: {
+        billingMode: true,
+        currency: true,
+        status: true,
+        paidThroughAt: true,
+        gracePeriodEndsAt: true,
+        reconciliationHealth: true,
+        lastReconciledAt: true,
+        tenant: {
+          select: {
+            prospectCustomerRelationships: {
+              where: { status: 'ACTIVE' },
+              orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+              take: 1,
+              select: {
+                startedAt: true,
+                organization: {
+                  select: { id: true, canonicalName: true, relationshipTier: true },
+                },
               },
             },
           },
         },
-      },
-      commercialAgreements: {
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-        select: {
-          id: true,
-          isBase: true,
-          internalPlanKey: true,
-          status: true,
-          billingMode: true,
-          billingInterval: true,
-          billingIntervalCount: true,
-          agreedAmountMinor: true,
-          currency: true,
-          coveredVenueCount: true,
-          currentPeriodEndsAt: true,
-          cancelAtPeriodEnd: true,
-          cancellationEffectiveAt: true,
-          accessEndsAt: true,
+        commercialAgreements: {
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            isBase: true,
+            internalPlanKey: true,
+            status: true,
+            billingMode: true,
+            billingInterval: true,
+            billingIntervalCount: true,
+            agreedAmountMinor: true,
+            currency: true,
+            coveredVenueCount: true,
+            currentPeriodEndsAt: true,
+            cancelAtPeriodEnd: true,
+            cancellationEffectiveAt: true,
+            accessEndsAt: true,
+          },
+        },
+        invoiceProjections: {
+          // Use the complete durable invoice set for recovery evidence, then bound
+          // the historical invoice payload returned to the agent below.
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+            amountDueMinor: true,
+            amountPaidMinor: true,
+            amountRemainingMinor: true,
+            currency: true,
+            dueAt: true,
+            paidAt: true,
+            failedAt: true,
+            nextRetryAt: true,
+            failureSummary: true,
+          },
         },
       },
-      invoiceProjections: {
-        // Use the complete durable invoice set for recovery evidence, then bound
-        // the historical invoice payload returned to the agent below.
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: {
-          id: true,
-          invoiceNumber: true,
-          status: true,
-          amountDueMinor: true,
-          amountPaidMinor: true,
-          amountRemainingMinor: true,
-          currency: true,
-          dueAt: true,
-          paidAt: true,
-          failedAt: true,
-          nextRetryAt: true,
-          failureSummary: true,
-        },
-      },
-    },
-  })
+    }),
+    loadCustomerStatePreservation(db, tenantId, venueIds),
+  ])
   if (!account) return result('billing', null)
   const agreement =
     account.commercialAgreements.find((candidate) => candidate.isBase) ??
@@ -343,6 +352,21 @@ async function readBilling(db: ReadDb, tenantId: string): Promise<McpToolResult>
           }
         : null,
     },
+    customerStatePreservation: customerStatePreservation
+      ? {
+          ...customerStatePreservation,
+          generatedAt: customerStatePreservation.generatedAt.toISOString(),
+          venues: customerStatePreservation.venues.map((venue) => ({
+            ...venue,
+            latestOffboardingPlan: venue.latestOffboardingPlan
+              ? {
+                  ...venue.latestOffboardingPlan,
+                  updatedAt: venue.latestOffboardingPlan.updatedAt.toISOString(),
+                }
+              : null,
+          })),
+        }
+      : null,
     agreements: account.commercialAgreements.map((agreement) => ({
       ...agreement,
       agreedAmountMinor: agreement.agreedAmountMinor?.toString() ?? null,

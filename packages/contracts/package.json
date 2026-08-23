@@ -24,6 +24,7 @@
     "./product-entitlements": "./src/product-entitlements.ts",
     "./retention-policy": "./src/retention-policy.ts",
     "./client-portal-lifecycle": "./src/client-portal-lifecycle.ts",
+    "./customer-state-preservation": "./src/customer-state-preservation.ts",
     "./remote-onboarding": "./src/remote-onboarding.ts",
     "./client-package-preview": "./src/client-package-preview.ts",
     "./billing-access-policy": "./src/billing-access-policy.ts",

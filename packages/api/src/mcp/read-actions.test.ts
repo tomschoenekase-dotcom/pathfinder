@@ -51,7 +51,8 @@ function database() {
     place: { findMany: vi.fn(), count: vi.fn() },
     venueKnowledgeEntry: { findMany: vi.fn(), count: vi.fn() },
     contentVersion: { findMany: vi.fn() },
-    venuePackage: { findMany: vi.fn() },
+    venuePackage: { findMany: vi.fn(), groupBy: vi.fn() },
+    offboardingPlan: { findMany: vi.fn() },
     supportRequest: { findMany: vi.fn() },
     operationalUpdate: { findMany: vi.fn() },
     aiUsageDailyRollup: { findMany: vi.fn() },
@@ -160,6 +161,24 @@ describe('MCP v0 concrete read bindings', () => {
 
   it('returns a tenant-scoped billing projection without provider IDs, internal notes, or payment links', async () => {
     const db = database()
+    db.tenant.findFirst.mockResolvedValue({
+      id: 'tenant-1',
+      status: 'ACTIVE',
+      billingAccount: { status: 'ACTIVE' },
+    })
+    db.venue.findMany.mockResolvedValue([
+      {
+        id: 'venue-1',
+        name: 'Harbor Museum',
+        isActive: true,
+        venueBotConfiguration: { id: 'bot-config-1' },
+        _count: { places: 8, knowledgeEntries: 3, venuePackageManifestArtifacts: 1 },
+      },
+    ])
+    db.venuePackage.groupBy.mockResolvedValue([
+      { venueId: 'venue-1', status: 'APPLIED', _count: { _all: 2 } },
+    ])
+    db.offboardingPlan.findMany.mockResolvedValue([])
     db.billingAccount.findFirst.mockResolvedValue({
       billingMode: 'STRIPE_SUBSCRIPTION',
       currency: 'usd',
@@ -246,7 +265,29 @@ describe('MCP v0 concrete read bindings', () => {
           relationshipTier: 'HIGH_TOUCH',
         },
       },
+      customerStatePreservation: {
+        schemaVersion: 'torchiko-customer-state-preservation-v1',
+        policy: {
+          automaticReactivationAuthorized: false,
+          automaticCustomerContactAuthorized: false,
+          retentionPolicy: 'UNRESOLVED',
+          pauseFeePolicy: 'UNRESOLVED',
+          reactivationFeePolicy: 'UNRESOLVED',
+        },
+        venues: [
+          {
+            venueId: 'venue-1',
+            reviewState: 'ACTIVE_SERVICE',
+            material: { packageRecordCount: 2, botConfigurationRecordPreserved: true },
+          },
+        ],
+      },
     })
+    expect(db.venue.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', id: { in: ['venue-1'] } },
+      }),
+    )
     const serialized = JSON.stringify(response)
     expect(serialized).not.toContain('cus_secret')
     expect(serialized).not.toContain('never expose')
