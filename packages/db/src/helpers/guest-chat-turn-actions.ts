@@ -826,6 +826,59 @@ export async function markGuestChatProviderDispatchedAction(args: {
   })
 }
 
+export async function skipGuestChatProviderOperationAction(args: {
+  client?: GuestChatTurnActionClient
+  operation: GuestChatProviderOperationClaim
+  now?: Date
+}) {
+  const operation = parse(providerOperationSchema, args?.operation)
+  const client = args.client ?? db
+  const now = args.now ?? new Date()
+  return client.$transaction(async (tx) => {
+    const turn = await tx.guestChatTurn.findFirst({
+      where: {
+        id: operation.turnId,
+        tenantId: operation.tenantId,
+        venueId: operation.venueId,
+        requestId: operation.requestId,
+        leaseToken: operation.claimId,
+        status: 'GENERATING',
+        session: { anonymousToken: operation.anonymousToken },
+      },
+      select: { sessionId: true, leaseExpiresAt: true },
+    })
+    if (!turn) throw new GuestChatTurnActionError('CONFLICT', 'Chat turn claim is no longer valid.')
+    if (!turn.leaseExpiresAt || turn.leaseExpiresAt.getTime() <= now.getTime()) {
+      throw new GuestChatTurnActionError('IN_PROGRESS', 'Chat turn claim expired before skip.')
+    }
+    const updated = await tx.guestChatProviderOperation.updateMany({
+      where: {
+        tenantId: operation.tenantId,
+        venueId: operation.venueId,
+        sessionId: turn.sessionId,
+        turnId: operation.turnId,
+        kind: operation.kind,
+        status: 'RESERVED',
+        dispatchedAt: null,
+        leaseToken: operation.claimId,
+        leaseExpiresAt: { gt: now },
+      },
+      data: {
+        status: 'OBSERVED',
+        observedAt: now,
+        outcomeCode: 'PROVIDER_EXCLUDED',
+        usageReference: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+      },
+    })
+    if (updated.count !== 1) {
+      throw new GuestChatTurnActionError('CONFLICT', 'Provider skip did not match reservation.')
+    }
+    return { skipped: true as const }
+  })
+}
+
 export async function observeGuestChatProviderOperationAction(args: {
   client?: GuestChatTurnActionClient
   operation: GuestChatProviderOperationClaim & {

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 
 import { GlobalAiIncidentControl } from '../../../components/admin/GlobalAiIncidentControl'
+import { AiProviderHealthControl } from '../../../components/admin/AiProviderHealthControl'
 import { createAdminCaller } from '../../../lib/admin-caller'
 import { getJobStatusClasses, getStatusClasses } from '../../../lib/admin-status'
 
@@ -32,9 +33,10 @@ const attentionTone = {
 
 export default async function AdminOverviewPage() {
   const caller = await createAdminCaller()
-  const [overview, globalAiControl, operations] = await Promise.all([
+  const [overview, globalAiControl, providerHealthControl, operations] = await Promise.all([
     caller.admin.overview(),
     caller.admin.getGlobalAiControl(),
+    caller.admin.getAiProviderHealthControl(),
     caller.admin.attentionConsole({ limit: 6 }),
   ])
 
@@ -47,6 +49,22 @@ export default async function AdminOverviewPage() {
         : 'AI operations paused',
       detail: globalAiControl.reason || 'Review the global incident state before resuming AI work.',
       href: '#incident-control',
+      tone: 'critical',
+    })
+  }
+  if (
+    providerHealthControl.malformed ||
+    providerHealthControl.activeUnhealthyProviders.length > 0
+  ) {
+    attention.push({
+      id: 'ai-provider-health',
+      label: providerHealthControl.malformed
+        ? 'AI provider routing control needs review'
+        : `${providerHealthControl.activeUnhealthyProviders.length} AI provider ${providerHealthControl.activeUnhealthyProviders.length === 1 ? 'exclusion' : 'exclusions'} active`,
+      detail: providerHealthControl.malformed
+        ? 'Provider-backed routing is fail-closed until the stored control is repaired.'
+        : 'Review the expiring provider-health evidence before changing route availability.',
+      href: '#provider-health-control',
       tone: 'critical',
     })
   }
@@ -308,6 +326,22 @@ export default async function AdminOverviewPage() {
             malformed: globalAiControl.malformed,
             updatedAt: globalAiControl.updatedAt?.toISOString() ?? null,
             updatedBy: globalAiControl.updatedBy,
+          }}
+        />
+      </section>
+
+      <section id="provider-health-control" className="scroll-mt-24">
+        <AiProviderHealthControl
+          initialState={{
+            overrides: providerHealthControl.overrides.map((override) => ({
+              ...override,
+              expiresAt: override.expiresAt.toISOString(),
+            })),
+            activeUnhealthyProviders: providerHealthControl.activeUnhealthyProviders,
+            configured: providerHealthControl.configured,
+            malformed: providerHealthControl.malformed,
+            updatedAt: providerHealthControl.updatedAt?.toISOString() ?? null,
+            updatedBy: providerHealthControl.updatedBy,
           }}
         />
       </section>

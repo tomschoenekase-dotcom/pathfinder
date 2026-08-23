@@ -19,6 +19,12 @@ the Founder Control Room. A successful fallback candidate creates usage evidence
 This does not automatically disable a provider, change route health, or establish an outage-rate or
 external-notification threshold.
 
+Human platform administrators can separately record audited, expiring provider-health exclusions.
+Guest chat applies one control snapshot before both embedding and response generation across all
+venues. Expired exclusions restore eligibility automatically; malformed or unreadable control
+fails closed. The control does not infer health or activate an unavailable provider. See
+[`ai-provider-health-control.md`](ai-provider-health-control.md).
+
 `AiUsageEvent` records tenant, venue, capability, request type, provider, model, route key, fallback use, latency, success, token/audio units, pricing version, and estimated cost. Daily rollups retain text and audio units. Do not log prompt or transcript bodies as route telemetry.
 
 The explicitly configured tenant hard budget remains the authoritative pre-dispatch spend fence.

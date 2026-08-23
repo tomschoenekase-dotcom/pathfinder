@@ -57,5 +57,8 @@ The dashboard presents the latest day with completed responses in the requested 
 - These metrics contain IDs, counts, sanitized error codes, and durations only. They do not add guest questions, model responses, prompts, or provider error messages.
 - The current text adapter registry is Anthropic-only. Central model fallback is active; cross-provider text failover still requires another governed text adapter and staging proof.
 - `routeAiCapability` accepts provider-health exclusions, but no canonical health-state producer or
-  automatic provider-disable threshold is established yet. The incident evidence added here does
-  not mark providers unhealthy or mutate routing.
+  automatic provider-disable threshold is established yet. A human platform administrator can now
+  record an audited, expiring provider exclusion in the Founder Control Room. Guest chat reads one
+  fail-closed snapshot before embedding or generation: excluded OpenAI embeddings degrade to the
+  existing non-semantic retrieval path, while excluded text providers are removed from the central
+  route. See [`ai-provider-health-control.md`](ai-provider-health-control.md).

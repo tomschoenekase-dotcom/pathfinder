@@ -23,9 +23,11 @@ import {
   resolveEffectivePublishedUniversalContent,
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
+  skipGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
   recordConversationInsightSignals,
   publishOperationalEvent,
+  readActiveUnhealthyAiProviders,
   resolveRuntimeAiWorkloadConfiguration,
 } from '@pathfinder/db'
 
@@ -581,87 +583,110 @@ export const chatRouter = router({
         },
       }).catch(() => undefined)
     }
+    let unhealthyProviders: Awaited<ReturnType<typeof readActiveUnhealthyAiProviders>>
+    try {
+      unhealthyProviders = await readActiveUnhealthyAiProviders(ctx.db)
+    } catch {
+      await failGuestChatTurnAction({
+        client: ctx.db,
+        claim: { ...turnOperationBase, failureCode: 'PRE_DISPATCH_FAILURE' },
+      })
+      await recordGuestAiFailure('pre-dispatch-failure')
+      throw publicTRPCError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The guide could not start this message. Please send it again in a moment.',
+        publicCode: 'TRANSIENT_FAILURE',
+      })
+    }
     let embeddingDispatched = false
-    const queryEmbeddingPromise = generateGuestQueryEmbedding(
-      trimmedInput,
-      embeddingAccounting.sink,
-      () =>
-        assertVenueAiAvailable(ctx.db, {
-          tenantId: venue.tenantId,
-          venueId: input.venueId,
-        }),
-      embeddingAccounting.budgetGate,
-      embeddingInvocationId,
-      async () => {
-        try {
-          await markGuestChatProviderDispatchedAction({
-            client: ctx.db,
-            operation: { ...turnOperationBase, kind: 'QUERY_EMBEDDING' },
-          })
-          embeddingDispatched = true
-        } catch (error) {
-          guestChatTurnError(error)
-        }
-      },
-    )
-      .then(async (embedding) => {
-        await observeGuestChatProviderOperationAction({
+    const queryEmbeddingPromise = unhealthyProviders.includes('openai')
+      ? skipGuestChatProviderOperationAction({
           client: ctx.db,
-          operation: {
-            ...turnOperationBase,
-            kind: 'QUERY_EMBEDDING',
-            outcomeCode: 'SUCCEEDED',
-            usageReference: embeddingAccounting.usageEventIds().at(-1) ?? null,
-          },
+          operation: { ...turnOperationBase, kind: 'QUERY_EMBEDDING' },
         })
-        return embedding
-      })
-      .catch(async (error: unknown) => {
-        if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
-        if (!embeddingDispatched) {
-          await failGuestChatTurnAction({
-            client: ctx.db,
-            claim: {
-              ...turnOperationBase,
-              failureCode: isAiAdmissionControlError(error)
-                ? 'AI_UNAVAILABLE'
-                : 'PRE_DISPATCH_FAILURE',
-            },
-          })
-          if (isAiAdmissionControlError(error)) {
-            await recordGuestAiFailure('provider-unavailable')
-            throw aiUnavailable()
-          }
-          await recordGuestAiFailure('pre-dispatch-failure')
-          throw publicTRPCError({
-            code: 'SERVICE_UNAVAILABLE',
-            message: 'The guide could not start this message. Please send it again in a moment.',
-            publicCode: 'TRANSIENT_FAILURE',
-          })
-        }
-        await observeGuestChatProviderOperationAction({
-          client: ctx.db,
-          operation: {
-            ...turnOperationBase,
-            kind: 'QUERY_EMBEDDING',
-            outcomeCode: isAiAdmissionControlError(error)
-              ? 'ADMISSION_REJECTED'
-              : 'FAILED_FALLBACK',
+          .then(() => null)
+          .catch((error: unknown) => guestChatTurnError(error))
+      : generateGuestQueryEmbedding(
+          trimmedInput,
+          embeddingAccounting.sink,
+          () =>
+            assertVenueAiAvailable(ctx.db, {
+              tenantId: venue.tenantId,
+              venueId: input.venueId,
+            }),
+          embeddingAccounting.budgetGate,
+          embeddingInvocationId,
+          async () => {
+            try {
+              await markGuestChatProviderDispatchedAction({
+                client: ctx.db,
+                operation: { ...turnOperationBase, kind: 'QUERY_EMBEDDING' },
+              })
+              embeddingDispatched = true
+            } catch (error) {
+              guestChatTurnError(error)
+            }
           },
-        })
-        if (isAiAdmissionControlError(error)) {
-          await failGuestChatTurnAction({
-            client: ctx.db,
-            claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
+        )
+          .then(async (embedding) => {
+            await observeGuestChatProviderOperationAction({
+              client: ctx.db,
+              operation: {
+                ...turnOperationBase,
+                kind: 'QUERY_EMBEDDING',
+                outcomeCode: 'SUCCEEDED',
+                usageReference: embeddingAccounting.usageEventIds().at(-1) ?? null,
+              },
+            })
+            return embedding
           })
-          await recordGuestAiFailure('provider-unavailable')
-          throw aiUnavailable()
-        }
-        return null
-      })
-      .finally(() => {
-        embeddingMs = elapsedMilliseconds(embeddingStartedAt)
-      })
+          .catch(async (error: unknown) => {
+            if (error instanceof GuestChatTurnActionError) guestChatTurnError(error)
+            if (!embeddingDispatched) {
+              await failGuestChatTurnAction({
+                client: ctx.db,
+                claim: {
+                  ...turnOperationBase,
+                  failureCode: isAiAdmissionControlError(error)
+                    ? 'AI_UNAVAILABLE'
+                    : 'PRE_DISPATCH_FAILURE',
+                },
+              })
+              if (isAiAdmissionControlError(error)) {
+                await recordGuestAiFailure('provider-unavailable')
+                throw aiUnavailable()
+              }
+              await recordGuestAiFailure('pre-dispatch-failure')
+              throw publicTRPCError({
+                code: 'SERVICE_UNAVAILABLE',
+                message:
+                  'The guide could not start this message. Please send it again in a moment.',
+                publicCode: 'TRANSIENT_FAILURE',
+              })
+            }
+            await observeGuestChatProviderOperationAction({
+              client: ctx.db,
+              operation: {
+                ...turnOperationBase,
+                kind: 'QUERY_EMBEDDING',
+                outcomeCode: isAiAdmissionControlError(error)
+                  ? 'ADMISSION_REJECTED'
+                  : 'FAILED_FALLBACK',
+              },
+            })
+            if (isAiAdmissionControlError(error)) {
+              await failGuestChatTurnAction({
+                client: ctx.db,
+                claim: { ...turnOperationBase, failureCode: 'AI_UNAVAILABLE' },
+              })
+              await recordGuestAiFailure('provider-unavailable')
+              throw aiUnavailable()
+            }
+            return null
+          })
+          .finally(() => {
+            embeddingMs = elapsedMilliseconds(embeddingStartedAt)
+          })
 
     const operationalNow = new Date()
     const [queryEmbedding, historyDesc, activeUpdates, tenantEngagement, engagementQuestions] =
@@ -971,6 +996,7 @@ export const chatRouter = router({
         capability: 'STANDARD',
         workloadId: 'guest-chat',
         configuration,
+        unhealthyProviders,
       })
       generationRouteConfigurationVersion = route.configurationVersion
       const result = await generateTextForCapability({

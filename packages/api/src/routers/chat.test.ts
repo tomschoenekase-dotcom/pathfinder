@@ -40,11 +40,13 @@ const guestTurnActions = vi.hoisted(() => ({
   reserve: vi.fn(),
   claim: vi.fn(),
   dispatch: vi.fn(),
+  skip: vi.fn(),
   observe: vi.fn(),
   fail: vi.fn(),
   finalize: vi.fn(),
 }))
 const resolvePublishedUniversalContent = vi.hoisted(() => vi.fn())
+const readActiveUnhealthyAiProviders = vi.hoisted(() => vi.fn())
 const resolveSystemCharacterProjection = vi.hoisted(() => vi.fn())
 vi.mock('../lib/character-registry', () => ({ resolveSystemCharacterProjection }))
 vi.mock('@pathfinder/db', async (importOriginal) => ({
@@ -54,10 +56,12 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   reserveGuestChatTurnAction: guestTurnActions.reserve,
   claimGuestChatTurnAction: guestTurnActions.claim,
   markGuestChatProviderDispatchedAction: guestTurnActions.dispatch,
+  skipGuestChatProviderOperationAction: guestTurnActions.skip,
   observeGuestChatProviderOperationAction: guestTurnActions.observe,
   failGuestChatTurnAction: guestTurnActions.fail,
   finalizeGuestChatTurnAction: guestTurnActions.finalize,
   resolveEffectivePublishedUniversalContent: resolvePublishedUniversalContent,
+  readActiveUnhealthyAiProviders,
 }))
 
 import { router } from '../core'
@@ -208,6 +212,7 @@ describe('chat router', () => {
     semanticSearch.knowledge.mockResolvedValue([])
     operationalUpdateFindMany.mockResolvedValue([])
     resolvePublishedUniversalContent.mockResolvedValue([])
+    readActiveUnhealthyAiProviders.mockResolvedValue([])
     tenantFindUnique.mockResolvedValue({ engagementMode: 'STOIC' })
     engagementQuestionFindMany.mockResolvedValue([])
     sessionUpdateMany.mockResolvedValue({ count: 1 })
@@ -251,6 +256,7 @@ describe('chat router', () => {
       replayed: false,
     })
     guestTurnActions.dispatch.mockResolvedValue({ dispatched: true })
+    guestTurnActions.skip.mockResolvedValue({ skipped: true })
     guestTurnActions.observe.mockResolvedValue({ observed: true })
     guestTurnActions.fail.mockResolvedValue({ failed: true })
     guestTurnActions.finalize.mockImplementation(async ({ input }) => {
@@ -1350,6 +1356,75 @@ describe('chat router', () => {
       })
       expect(anthropicCreate).not.toHaveBeenCalled()
       expect(messageCreate).not.toHaveBeenCalled()
+    })
+
+    it('fails before dispatch when the founder-governed provider exclusion removes every route', async () => {
+      setupHappyPath()
+      readActiveUnhealthyAiProviders.mockResolvedValueOnce(['anthropic'])
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The guide could not start this message. Please send it again in a moment.',
+      })
+      expect(readActiveUnhealthyAiProviders).toHaveBeenCalledWith(mockDb)
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(
+        guestTurnActions.dispatch.mock.calls.filter(
+          ([call]) => call.operation.kind === 'RESPONSE_GENERATION',
+        ),
+      ).toHaveLength(0)
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+        }),
+      )
+      expect(messageCreate).not.toHaveBeenCalled()
+    })
+
+    it('skips excluded OpenAI embeddings and preserves text chat through safe fallback retrieval', async () => {
+      setupHappyPath('The elephants are near the entrance.')
+      readActiveUnhealthyAiProviders.mockResolvedValueOnce(['openai'])
+
+      await expect(caller.chat.send(sendInput)).resolves.toMatchObject({
+        response: 'The elephants are near the entrance.',
+      })
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(guestTurnActions.skip).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'QUERY_EMBEDDING' }),
+        }),
+      )
+      expect(guestTurnActions.dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'QUERY_EMBEDDING' }),
+        }),
+      )
+      expect(anthropicCreate).toHaveBeenCalledOnce()
+      expect(placeFindMany).toHaveBeenCalled()
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'message.received',
+          metadata: expect.objectContaining({ retrievalMode: 'geo' }),
+        }),
+      )
+    })
+
+    it('fails closed before any provider dispatch when provider-health state cannot be read', async () => {
+      setupHappyPath()
+      readActiveUnhealthyAiProviders.mockRejectedValueOnce(new Error('control unavailable'))
+
+      await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The guide could not start this message. Please send it again in a moment.',
+      })
+      expect(embeddingCreate).not.toHaveBeenCalled()
+      expect(anthropicCreate).not.toHaveBeenCalled()
+      expect(guestTurnActions.dispatch).not.toHaveBeenCalled()
+      expect(guestTurnActions.fail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+        }),
+      )
     })
 
     it('returns a generic 503 without provider or message writes when the venue pauses mid-request', async () => {

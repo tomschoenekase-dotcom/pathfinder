@@ -29,7 +29,7 @@ export default async function AdminOperationsPage({
 }) {
   const caller = await createAdminCaller()
   const query = await searchParams
-  const [data, incident] = await Promise.all([
+  const [data, incident, providerHealth] = await Promise.all([
     caller.admin.attentionConsole({
       limit: 10,
       ...(cursor(query.jobsCursor) ? { jobsCursor: cursor(query.jobsCursor) } : {}),
@@ -56,6 +56,7 @@ export default async function AdminOperationsPage({
         : {}),
     }),
     caller.admin.getGlobalAiControl(),
+    caller.admin.getAiProviderHealthControl(),
   ])
 
   return (
@@ -92,6 +93,27 @@ export default async function AdminOperationsPage({
           </Link>
         </p>
       </section>
+
+      {providerHealth.malformed || providerHealth.activeUnhealthyProviders.length > 0 ? (
+        <section
+          aria-label="AI provider routing health"
+          className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
+        >
+          <p className="font-semibold">
+            {providerHealth.malformed
+              ? 'AI provider routing is fail-closed'
+              : `${providerHealth.activeUnhealthyProviders.length} AI provider ${providerHealth.activeUnhealthyProviders.length === 1 ? 'exclusion is' : 'exclusions are'} active`}
+          </p>
+          <p className="mt-1 opacity-80">
+            {providerHealth.malformed
+              ? 'Repair the malformed provider-health control before provider-backed routing resumes.'
+              : `Excluded: ${providerHealth.activeUnhealthyProviders.join(', ')}. Expiry restores eligibility automatically.`}{' '}
+            <Link className="font-semibold underline" href="/admin#provider-health-control">
+              Review provider controls
+            </Link>
+          </p>
+        </section>
+      ) : null}
 
       <OperationsAttentionConsole data={data} />
     </div>

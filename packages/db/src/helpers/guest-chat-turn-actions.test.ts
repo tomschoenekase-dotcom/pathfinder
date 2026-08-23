@@ -8,6 +8,7 @@ import {
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
+  skipGuestChatProviderOperationAction,
 } from './guest-chat-turn-actions'
 
 const request = {
@@ -96,6 +97,51 @@ describe('guest chat turn actions', () => {
         data: expect.objectContaining({ outcomeCode: 'SUCCEEDED', usageReference: null }),
       }),
     )
+  })
+
+  it('settles an excluded provider reservation without recording a dispatch', async () => {
+    const now = new Date('2026-01-01T00:01:00Z')
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const tx = {
+      guestChatTurn: {
+        findFirst: vi.fn().mockResolvedValue({
+          sessionId: 'session-1',
+          leaseExpiresAt: new Date('2026-01-01T00:02:00Z'),
+        }),
+      },
+      guestChatProviderOperation: { updateMany },
+    }
+
+    await expect(
+      skipGuestChatProviderOperationAction({
+        client: transactionClient(tx),
+        operation: {
+          tenantId: request.tenantId,
+          venueId: request.venueId,
+          anonymousToken: request.anonymousToken,
+          requestId: request.requestId,
+          turnId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          claimId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          kind: 'QUERY_EMBEDDING',
+        },
+        now,
+      }),
+    ).resolves.toEqual({ skipped: true })
+    expect(updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        status: 'RESERVED',
+        dispatchedAt: null,
+        leaseToken: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      }),
+      data: {
+        status: 'OBSERVED',
+        observedAt: now,
+        outcomeCode: 'PROVIDER_EXCLUDED',
+        usageReference: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+      },
+    })
   })
 
   it('hashes only the reserved request fields while validating finalization', async () => {

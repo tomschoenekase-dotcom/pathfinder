@@ -84,6 +84,7 @@ export {
   markGuestChatProviderDispatchedAction,
   observeGuestChatProviderOperationAction,
   reserveGuestChatTurnAction,
+  skipGuestChatProviderOperationAction,
 } from './helpers/guest-chat-turn-actions'
 export type {
   GuestChatClaim,
@@ -292,6 +293,21 @@ export type {
   GlobalAiControlActor,
   GlobalAiControlState,
 } from './helpers/incident-control'
+export {
+  AI_PROVIDER_HEALTH_CONTROL_KEY,
+  AiProviderHealthControlActionError,
+  AiProviderHealthControlReadError,
+  readActiveUnhealthyAiProviders,
+  readAiProviderHealthControl,
+  setAiProviderHealthOverrideAction,
+} from './helpers/ai-provider-health-control'
+export type {
+  AiProviderHealthControlActionClient,
+  AiProviderHealthControlActionErrorCode,
+  AiProviderHealthControlActor,
+  AiProviderHealthControlState,
+  AiProviderHealthOverrideState,
+} from './helpers/ai-provider-health-control'
 export {
   assertVenueAiAvailable,
   assertVenueAvailable,
