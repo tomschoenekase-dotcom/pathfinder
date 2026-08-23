@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   updatePlatformEvent: vi.fn(),
   workers: vi.fn(),
   founderReview: vi.fn(),
+  redriveSupported: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -39,6 +40,14 @@ vi.mock('@pathfinder/db', () => ({
     agentWorker: { findMany: mocks.workers },
     founderControlRoomReview: { findFirst: mocks.founderReview },
   },
+}))
+
+vi.mock('@pathfinder/jobs', () => ({
+  isTerminalRedriveJobSupported: mocks.redriveSupported,
+}))
+
+vi.mock('@pathfinder/config', () => ({
+  env: { RAILWAY_ENVIRONMENT: 'staging' },
 }))
 
 import type { TRPCContext } from '../../context'
@@ -78,6 +87,7 @@ describe('admin attention console', () => {
     mocks.updatePlatformEvent.mockResolvedValue({ count: 1 })
     mocks.workers.mockResolvedValue([])
     mocks.founderReview.mockResolvedValue(null)
+    mocks.redriveSupported.mockReturnValue(false)
   })
 
   it('rejects non-admin callers before entering the global bypass', async () => {
@@ -209,6 +219,35 @@ describe('admin attention console', () => {
     expect(result.evaluations.items[0]).toMatchObject({ id: 'eval_2', expiredLease: true })
     expect(result.evaluations.nextCursor).toEqual({ createdAt: old.toISOString(), id: 'eval_2' })
     expect(result.approvals.items[0]).toMatchObject({ id: 'approval_1', expired: true })
+  })
+
+  it('advertises recovery preview only for allowlisted attempts-exhausted terminal jobs', async () => {
+    const terminalAt = new Date('2026-08-23T12:00:00.000Z')
+    mocks.jobs.mockResolvedValue([
+      {
+        id: 'job_record_1',
+        tenantId: 'tenant_1',
+        queue: 'staging--weekly-report',
+        jobName: 'weekly-report-process',
+        bullJobId: 'weekly-report-report_1',
+        status: 'FAILED',
+        attemptNumber: 6,
+        maxAttempts: 6,
+        failureDisposition: 'ATTEMPTS_EXHAUSTED',
+        terminalAt,
+        createdAt: terminalAt,
+      },
+    ])
+    mocks.redriveSupported.mockReturnValue(true)
+
+    const result = await testRouter.createCaller(context()).admin.attentionConsole({ limit: 10 })
+
+    expect(result.jobs.items[0]).toMatchObject({ terminalRedrivePreviewAvailable: true })
+    expect(result.jobs.items[0]).not.toHaveProperty('bullJobId')
+    expect(mocks.redriveSupported).toHaveBeenCalledWith(
+      'staging--weekly-report',
+      'weekly-report-process',
+    )
   })
 
   it('returns the same machine-readable founder priority used by the dashboard', async () => {

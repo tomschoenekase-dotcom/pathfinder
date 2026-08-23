@@ -6,6 +6,7 @@ import { deriveFounderBriefing } from './attention-briefing'
 import { deriveAgentTrustEvidence } from './attention-agent-evidence'
 import { readAgentEvidenceRows } from './attention-agent-evidence-query'
 import { deriveFounderOperatingView } from './attention-operating-view'
+import { projectAttentionJobs } from './attention-job-recovery'
 import {
   acknowledgeAttentionEvent,
   attentionEventActionInput,
@@ -56,6 +57,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
           tenantId: true,
           queue: true,
           jobName: true,
+          bullJobId: true,
           status: true,
           attemptNumber: true,
           maxAttempts: true,
@@ -319,7 +321,7 @@ export async function readAttentionConsole(operatorUserId: string, query: Attent
 
     const result = {
       generatedAt: now,
-      jobs: page(jobs, query.limit),
+      jobs: projectAttentionJobs(jobs, query.limit),
       evaluations: {
         ...page(evaluations, query.limit),
         items: page(evaluations, query.limit).items.map((item) => ({
@@ -378,22 +380,18 @@ export const adminAttentionConsoleRouter = router({
   attentionConsole: adminProcedure
     .input(attentionConsoleInput)
     .query(({ ctx, input }) => readAttentionConsole(ctx.session.userId, input)),
-
   founderOperatingView: adminProcedure
     .input(attentionConsoleInput)
     .query(async ({ ctx, input }) => {
       const result = await readAttentionConsole(ctx.session.userId, input)
       return deriveFounderOperatingView(result)
     }),
-
   markFounderBriefingReviewed: adminProcedure
     .input(markFounderBriefingReviewedInput)
     .mutation(({ ctx, input }) => markFounderBriefingReviewed(ctx.session.userId, input)),
-
   acknowledgeOperationalEvent: adminProcedure
     .input(attentionEventActionInput)
     .mutation(({ ctx, input }) => acknowledgeAttentionEvent(ctx.session.userId, input)),
-
   resolveOperationalEvent: adminProcedure
     .input(attentionEventActionInput)
     .mutation(({ ctx, input }) => resolveAttentionEvent(ctx.session.userId, input)),

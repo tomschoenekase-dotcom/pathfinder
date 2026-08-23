@@ -8,6 +8,7 @@ import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
 import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
 import { OperationalEventActions } from './OperationalEventActions'
+import { TerminalRedrivePreview } from './TerminalRedrivePreview'
 
 type Data = inferRouterOutputs<AppRouter>['admin']['attentionConsole']
 type Cursor = { createdAt: string; id: string }
@@ -830,6 +831,9 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                   ) : (
                     <span className="text-slate-500">Platform scoped</span>
                   )}
+                  {job.terminalRedrivePreviewAvailable ? (
+                    <TerminalRedrivePreview jobRecordId={job.id} />
+                  ) : null}
                 </div>
               </li>
             ))}

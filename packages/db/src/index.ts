@@ -217,6 +217,7 @@ export {
 } from './helpers/venue-content-lock'
 export {
   findTerminalJobRecordEvidence,
+  findTerminalJobRecordEvidenceById,
   writeJobRecord,
   updateJobRecord,
 } from './helpers/job-records'

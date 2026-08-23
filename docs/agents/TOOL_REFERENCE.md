@@ -86,7 +86,7 @@ provider proof, or SLO authority. This does not widen the tenant MCP `jobs` reso
 first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
 names, and fails when either its reviewed operation digest or reviewed binding digest drifts. Each
 entry includes the operation path, kind, defining router, source file, policy category, inherited
-agent/developer coverage, and exact binding state. The current 371-operation inventory contains 3
+agent/developer coverage, and exact binding state. The current 372-operation inventory contains 3
 direct-tool bindings, 95 bounded alternatives, and 273 explicit unbound gaps. A binding is rejected
 if its operation is missing/duplicated, its surface is unknown, or its tool is declared but not
 bound in `createSafeOperationalMcpRegistry`. The inherited `partial` label remains domain policy,

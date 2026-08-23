@@ -159,6 +159,29 @@ describe('findTerminalJobRecordEvidence', () => {
       },
     })
   })
+
+  it('loads the same bounded evidence by record ID for an operator preview', async () => {
+    findUniqueMock.mockResolvedValueOnce(null)
+    const { findTerminalJobRecordEvidenceById } = await import('./job-records')
+
+    await expect(findTerminalJobRecordEvidenceById('record_1')).resolves.toBeNull()
+    expect(findUniqueMock).toHaveBeenCalledWith({
+      where: { id: 'record_1' },
+      select: {
+        id: true,
+        queue: true,
+        jobName: true,
+        bullJobId: true,
+        tenantId: true,
+        payload: true,
+        status: true,
+        attemptNumber: true,
+        maxAttempts: true,
+        failureDisposition: true,
+        terminalAt: true,
+      },
+    })
+  })
 })
 
 describe('updateJobRecord', () => {

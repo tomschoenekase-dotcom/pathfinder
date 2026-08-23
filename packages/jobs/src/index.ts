@@ -73,6 +73,8 @@ export {
 export { CONTENT_EMBEDDING_MAX_ATTEMPTS } from './embedding-policy'
 export {
   inspectTerminalJobRedrive,
+  inspectTerminalJobRedriveRuntime,
+  isTerminalRedriveJobSupported,
   redriveTerminalJob,
   supportedTerminalRedriveQueues,
   TerminalRedriveRefusal,

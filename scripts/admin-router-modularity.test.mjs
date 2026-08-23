@@ -172,6 +172,7 @@ const expectedAdminProcedures = [
   'previewFullVenueDeploymentManifest',
   'previewOffboardingExportManifest',
   'previewProspectImportRepair',
+  'previewTerminalJobRedrive',
   'previewUniversalContent',
   'projectNativeVenueDeployment',
   'promoteAgentAnswer',

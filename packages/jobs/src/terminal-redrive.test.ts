@@ -7,6 +7,7 @@ vi.mock('@pathfinder/config', () => ({
 import { WEEKLY_REPORT_PROCESS_JOB, WEEKLY_REPORT_QUEUE } from './queues'
 import {
   inspectTerminalJobRedrive,
+  isTerminalRedriveJobSupported,
   redriveTerminalJob,
   supportedTerminalRedriveQueues,
   TerminalRedriveRefusal,
@@ -82,6 +83,8 @@ describe('inspectTerminalJobRedrive', () => {
     expect(supportedTerminalRedriveQueues()).toContain(WEEKLY_REPORT_QUEUE)
     expect(supportedTerminalRedriveQueues()).not.toContain('staging--generation-dispatch')
     expect(supportedTerminalRedriveQueues()).not.toContain('staging--generation-recovery')
+    expect(isTerminalRedriveJobSupported(WEEKLY_REPORT_QUEUE, WEEKLY_REPORT_PROCESS_JOB)).toBe(true)
+    expect(isTerminalRedriveJobSupported(WEEKLY_REPORT_QUEUE, 'weekly-report-recovery')).toBe(false)
   })
 
   it.each([

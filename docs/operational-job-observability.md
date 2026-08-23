@@ -23,6 +23,21 @@ an SLO, incident declaration, retry decision, or customer commitment.
 The adapter grants no retry, cancellation, redrive, provider, incident-control, deployment, or
 production authority.
 
+## Bounded staging recovery correlation
+
+The platform-admin attention console identifies only persisted attempts-exhausted leaf jobs that
+meet the static staging redrive prerequisites. An on-demand preview then checks the exact
+`JobRecord` against the current BullMQ failed set using a dedicated bounded Redis connection. It
+verifies queue/job identity, tenant identity, canonical payload digest, terminal attempt counts,
+and failed state before returning bounded evidence. Successful previews are strictly audited.
+
+The ordinary failed-job list still omits BullMQ identity, payload, errors, digests, and confirmation
+tokens. The on-demand preview returns the exact BullMQ identity, digest, attempt evidence, and a
+current confirmation token to a platform-admin session only; it returns neither payload nor error
+detail. The web surface is read-only, staging-only, and has no retry, cancellation, redrive,
+incident-control, production, or semantic side-effect authority. Execution remains the separately
+opted-in audited staging CLI documented in `terminal-job-redrive.md`.
+
 ## Platform-wide live queue evidence
 
 The administrator readiness route and the separately authorized
