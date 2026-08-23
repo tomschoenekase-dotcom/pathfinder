@@ -2,7 +2,6 @@ import type {
   ProspectEmailAttachmentRetentionCategory,
   ProspectEmailAttachmentRetentionStatus,
 } from '@prisma/client'
-import { Prisma } from '@prisma/client'
 
 import { db } from '../client'
 import { writeAuditLogStrict } from './audit'
@@ -72,6 +71,15 @@ function attachmentMetadata(value: unknown): AttachmentMetadata[] {
       },
     ]
   })
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002',
+  )
 }
 
 const requestSelect = {
@@ -217,7 +225,7 @@ export async function prepareProspectEmailAttachmentRetentionAction(
     })
   } catch (error) {
     if (error instanceof ProspectActionError) throw error
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    if (isUniqueConstraintError(error)) {
       throw new ProspectActionError(
         'CONFLICT',
         'Attachment retention request conflicts with an existing active review or operation',
@@ -310,7 +318,7 @@ export async function reviewProspectEmailAttachmentRetentionAction(
     })
   } catch (error) {
     if (error instanceof ProspectActionError) throw error
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    if (isUniqueConstraintError(error)) {
       throw new ProspectActionError('CONFLICT', 'Review operation identity is already in use')
     }
     throw error
