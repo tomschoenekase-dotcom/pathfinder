@@ -19,6 +19,11 @@ type IntegrationHealthClient = Pick<
   | 'platformConfig'
   | 'embeddingDispatch'
   | 'embeddingWorkClaim'
+  | 'intakeUpload'
+  | 'intakeUploadVerificationReceipt'
+  | 'analyticsEvent'
+  | 'dailyRollup'
+  | 'jobRecord'
   | 'nativeVenueDeploymentRelease'
   | 'aiUsageEvent'
   | 'externalAccessCredential'
@@ -76,6 +81,13 @@ export async function readUnifiedIntegrationHealth(
     embeddingBacklog,
     embeddingFailure,
     embeddingSuccess,
+    latestUpload,
+    latestVersionedUpload,
+    storageVerification,
+    latestAnalyticsEvent,
+    latestRollup,
+    latestDailyRollupJob,
+    latestEnrichmentJob,
     deployment,
     aiSuccess,
     aiFailure,
@@ -131,6 +143,51 @@ export async function readUnifiedIntegrationHealth(
       where: { tenantId: input.clientId, ...venueWhere, status: 'COMPLETE' },
       orderBy: { updatedAt: 'desc' },
       select: { updatedAt: true },
+    }),
+    client.intakeUpload.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    }),
+    client.intakeUpload.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere, storageVersionId: { not: null } },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    }),
+    client.intakeUploadVerificationReceipt.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { recordedAt: 'desc' },
+      select: { recordedAt: true },
+    }),
+    client.analyticsEvent.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { receivedAt: 'desc' },
+      select: { receivedAt: true },
+    }),
+    client.dailyRollup.findFirst({
+      where: { tenantId: input.clientId, ...venueWhere },
+      orderBy: { date: 'desc' },
+      select: { date: true },
+    }),
+    client.jobRecord.findFirst({
+      where: { tenantId: input.clientId, jobName: 'daily-rollup-process' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        failureDisposition: true,
+      },
+    }),
+    client.jobRecord.findFirst({
+      where: { tenantId: input.clientId, jobName: 'analytics-enrichment-process' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        failureDisposition: true,
+      },
     }),
     client.nativeVenueDeploymentRelease.findFirst({
       where: { tenantId: input.clientId, ...venueWhere },
@@ -199,6 +256,27 @@ export async function readUnifiedIntegrationHealth(
         : billing.reconciliationHealth === 'ERROR' || billing.reconciliationHealth === 'DRIFT'
           ? 'DEGRADED'
           : 'DEGRADED'
+  const analyticsJobs = [latestDailyRollupJob, latestEnrichmentJob].filter(
+    (job): job is NonNullable<typeof job> => Boolean(job),
+  )
+  const staleAnalyticsJob = analyticsJobs.find(
+    (job) => job.status === 'RUNNING' && now.getTime() - job.startedAt.getTime() > 15 * 60 * 1000,
+  )
+  const failedAnalyticsJob = analyticsJobs.find((job) => job.status === 'FAILED')
+  const analyticsConfigured = Boolean(
+    latestAnalyticsEvent || latestRollup || latestDailyRollupJob || latestEnrichmentJob,
+  )
+  const analyticsState: HealthState =
+    staleAnalyticsJob || failedAnalyticsJob
+      ? 'DEGRADED'
+      : analyticsConfigured
+        ? 'HEALTHY'
+        : 'NOT_CONFIGURED'
+  const storageSuccessAt = latest([
+    storageVerification?.recordedAt,
+    latestVersionedUpload?.updatedAt,
+  ])
+  const storageConfigured = Boolean(latestUpload || storageVerification)
 
   return {
     schemaVersion: 'integration-health.v1',
@@ -297,6 +375,39 @@ export async function readUnifiedIntegrationHealth(
               : 'No embedding dispatch or completed work has been observed.',
         },
       ),
+      health(
+        'OBJECT_STORAGE',
+        storageSuccessAt ? 'HEALTHY' : storageConfigured ? 'DEGRADED' : 'NOT_CONFIGURED',
+        {
+          configured: storageConfigured,
+          enabled: Boolean(storageSuccessAt),
+          lastSuccessAt: storageSuccessAt,
+          errorCategory: storageConfigured && !storageSuccessAt ? 'NO_VERIFIED_OBJECT' : null,
+          summary: storageSuccessAt
+            ? 'A versioned object or immutable storage verification receipt has been observed in scope.'
+            : storageConfigured
+              ? 'An upload workflow exists in scope, but no versioned object has been verified.'
+              : 'No object-storage workflow has been observed in scope.',
+        },
+      ),
+      health('ANALYTICS_PIPELINE', analyticsState, {
+        configured: analyticsConfigured,
+        enabled: analyticsConfigured && !staleAnalyticsJob,
+        lastSuccessAt: latest([
+          latestAnalyticsEvent?.receivedAt,
+          latestRollup?.date,
+          ...analyticsJobs.map((job) => (job.status === 'COMPLETE' ? job.completedAt : null)),
+        ]),
+        lastFailureAt: latest(
+          analyticsJobs.map((job) => (job.status === 'FAILED' ? job.completedAt : null)),
+        ),
+        errorCategory: staleAnalyticsJob
+          ? 'STALE_JOB'
+          : (failedAnalyticsJob?.failureDisposition ?? (failedAnalyticsJob ? 'JOB_FAILURE' : null)),
+        summary: analyticsConfigured
+          ? 'Derived from persisted event intake, rollups, and the latest tenant pipeline jobs.'
+          : 'No analytics event, rollup, or pipeline job has been observed.',
+      }),
       health(
         'DEPLOYMENT',
         deployment ? (deployment.status === 'APPLIED' ? 'HEALTHY' : 'DISABLED') : 'NOT_CONFIGURED',

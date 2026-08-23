@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '../client'
+import {
+  claimIntakeUploadVerificationAction,
+  recordIntakeUploadPrecheckAction,
+} from './intake-upload-actions'
 import { readUnifiedIntegrationHealth } from './integration-health'
 
 const enabled = process.env.RUN_PLATFORM_INTEGRATION_HEALTH_DB_INTEGRATION === '1'
@@ -92,17 +96,124 @@ describe.skipIf(!enabled)('unified integration health (disposable PostgreSQL)', 
         },
       ],
     })
+    const objectGenerationA = randomUUID()
+    await db.intakeUpload.createMany({
+      data: [
+        {
+          tenantId: tenantA,
+          venueId: venueA,
+          requestId: randomUUID(),
+          requestHash: 'b'.repeat(64),
+          displayName: 'Verified storage proof',
+          fileName: 'proof-a.txt',
+          mimeType: 'image/png',
+          byteSize: 1,
+          sha256: 'c'.repeat(64),
+          objectKey: `private/${tenantA}/proof-a.txt`,
+          objectGeneration: objectGenerationA,
+          requestedBy: 'disposable-proof',
+          requestedByRole: 'PLATFORM_ADMIN',
+        },
+        {
+          tenantId: tenantB,
+          venueId: venueB,
+          requestId: randomUUID(),
+          requestHash: 'd'.repeat(64),
+          displayName: 'Unverified storage proof',
+          fileName: 'proof-b.txt',
+          mimeType: 'image/png',
+          byteSize: 1,
+          sha256: 'e'.repeat(64),
+          objectKey: `private/${tenantB}/proof-b.txt`,
+          objectGeneration: randomUUID(),
+          requestedBy: 'disposable-proof',
+          requestedByRole: 'PLATFORM_ADMIN',
+        },
+      ],
+    })
+    const uploadA = await db.intakeUpload.findFirstOrThrow({
+      where: { tenantId: tenantA, venueId: venueA },
+      select: { id: true },
+    })
+    const verificationClaimId = randomUUID()
+    const actor = {
+      type: 'HUMAN' as const,
+      id: 'disposable-proof',
+      role: 'PLATFORM_ADMIN' as const,
+    }
+    await claimIntakeUploadVerificationAction({
+      tenantId: tenantA,
+      venueId: venueA,
+      uploadId: uploadA.id,
+      actor,
+      claimId: verificationClaimId,
+    })
+    await recordIntakeUploadPrecheckAction({
+      tenantId: tenantA,
+      venueId: venueA,
+      uploadId: uploadA.id,
+      actor,
+      claimId: verificationClaimId,
+      verified: {
+        objectGeneration: objectGenerationA,
+        storageVersionId: 'private-storage-version-a',
+        mimeType: 'image/png',
+        byteSize: 1,
+        sha256: 'c'.repeat(64),
+      },
+      evidence: {
+        engine: 'disposable-storage-proof',
+        engineVersion: '1',
+        verdictHash: 'f'.repeat(64),
+        computedByteSize: 1,
+        computedSha256: 'c'.repeat(64),
+      },
+    })
+    await db.analyticsEvent.createMany({
+      data: [
+        {
+          tenantId: tenantA,
+          venueId: venueA,
+          eventType: 'session.started',
+          occurredAt: new Date('2030-01-01T10:00:00.000Z'),
+        },
+        {
+          tenantId: tenantB,
+          venueId: venueB,
+          eventType: 'session.started',
+          occurredAt: new Date('2030-01-01T10:00:00.000Z'),
+        },
+      ],
+    })
+    await db.jobRecord.createMany({
+      data: [
+        {
+          queue: 'disposable-daily-rollup',
+          jobName: 'daily-rollup-process',
+          tenantId: tenantA,
+          status: 'COMPLETE',
+          startedAt: new Date('2030-01-01T10:30:00.000Z'),
+          completedAt: new Date('2030-01-01T10:31:00.000Z'),
+        },
+        {
+          queue: 'disposable-daily-rollup',
+          jobName: 'daily-rollup-process',
+          tenantId: tenantB,
+          status: 'FAILED',
+          error: 'private analytics failure detail',
+          failureDisposition: 'ATTEMPTS_EXHAUSTED',
+          terminalAt: new Date('2030-01-01T10:31:00.000Z'),
+          startedAt: new Date('2030-01-01T10:30:00.000Z'),
+          completedAt: new Date('2030-01-01T10:31:00.000Z'),
+        },
+      ],
+    })
   })
 
   afterAll(async () => {
     if (!safeTarget) return
-    await db.correspondenceProviderAccount.deleteMany({
-      where: { id: { in: [healthyMailboxId, failedMailboxId] } },
-    })
-    await db.embeddingDispatch.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
-    await db.embeddingWorkClaim.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
-    await db.place.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
-    await db.venue.deleteMany({ where: { tenantId: { in: [tenantA, tenantB] } } })
+    // Intake and content evidence is append-only by design. The outer proof removes the exact
+    // disposable database container instead of weakening lifecycle guards for fixture cleanup.
     await db.$disconnect()
   })
 
@@ -122,6 +233,8 @@ describe.skipIf(!enabled)('unified integration health (disposable PostgreSQL)', 
           lastSuccessAt: expect.any(String),
           lastFailureAt: null,
         }),
+        expect.objectContaining({ integration: 'OBJECT_STORAGE', state: 'HEALTHY' }),
+        expect.objectContaining({ integration: 'ANALYTICS_PIPELINE', state: 'HEALTHY' }),
       ]),
     )
     expect(healthB.integrations).toEqual(
@@ -133,10 +246,20 @@ describe.skipIf(!enabled)('unified integration health (disposable PostgreSQL)', 
           lastSuccessAt: null,
           lastFailureAt: expect.any(String),
         }),
+        expect.objectContaining({
+          integration: 'OBJECT_STORAGE',
+          state: 'DEGRADED',
+          errorCategory: 'NO_VERIFIED_OBJECT',
+        }),
+        expect.objectContaining({
+          integration: 'ANALYTICS_PIPELINE',
+          state: 'DEGRADED',
+          errorCategory: 'ATTEMPTS_EXHAUSTED',
+        }),
       ]),
     )
     expect(JSON.stringify([healthA, healthB])).not.toMatch(
-      /@example\.invalid|SYNTHETIC_AUTH_FAILURE|Disposable failure evidence|synthetic-provider-failure/u,
+      /@example\.invalid|SYNTHETIC_AUTH_FAILURE|Disposable failure evidence|synthetic-provider-failure|private-storage-version-a|private analytics failure detail/u,
     )
   })
 })

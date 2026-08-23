@@ -33,6 +33,11 @@ describe('unified integration health', () => {
         findFirst: vi.fn().mockResolvedValue(null),
       },
       embeddingWorkClaim: { findFirst: vi.fn().mockResolvedValue(null) },
+      intakeUpload: { findFirst: vi.fn().mockResolvedValue(null) },
+      intakeUploadVerificationReceipt: { findFirst: vi.fn().mockResolvedValue(null) },
+      analyticsEvent: { findFirst: vi.fn().mockResolvedValue(null) },
+      dailyRollup: { findFirst: vi.fn().mockResolvedValue(null) },
+      jobRecord: { findFirst: vi.fn().mockResolvedValue(null) },
       nativeVenueDeploymentRelease: { findFirst: vi.fn().mockResolvedValue(null) },
       aiUsageEvent: {
         findFirst: vi.fn().mockResolvedValueOnce({ createdAt: now }).mockResolvedValueOnce(null),
@@ -246,6 +251,117 @@ describe('unified integration health', () => {
       ]),
     )
   })
+
+  it('reports scoped storage proof and degrades the latest failed analytics pipeline', async () => {
+    const now = new Date('2030-01-01T12:00:00.000Z')
+    const client = healthClient({
+      intakeUpload: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({ updatedAt: new Date('2030-01-01T10:00:00.000Z') })
+          .mockResolvedValueOnce({ updatedAt: new Date('2030-01-01T10:00:00.000Z') }),
+      },
+      intakeUploadVerificationReceipt: {
+        findFirst: vi.fn().mockResolvedValue({
+          recordedAt: new Date('2030-01-01T11:00:00.000Z'),
+        }),
+      },
+      analyticsEvent: {
+        findFirst: vi.fn().mockResolvedValue({ receivedAt: now }),
+      },
+      jobRecord: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'FAILED',
+            startedAt: new Date('2030-01-01T11:50:00.000Z'),
+            completedAt: new Date('2030-01-01T11:55:00.000Z'),
+            failureDisposition: 'ATTEMPTS_EXHAUSTED',
+          })
+          .mockResolvedValueOnce({
+            status: 'COMPLETE',
+            startedAt: new Date('2030-01-01T11:40:00.000Z'),
+            completedAt: new Date('2030-01-01T11:45:00.000Z'),
+            failureDisposition: null,
+          }),
+      },
+    })
+
+    const result = await readUnifiedIntegrationHealth(
+      { clientId: 'tenant-1', venueIds: ['venue-1'] },
+      client as never,
+      now,
+    )
+
+    expect(result.integrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          integration: 'OBJECT_STORAGE',
+          state: 'HEALTHY',
+          lastSuccessAt: '2030-01-01T11:00:00.000Z',
+        }),
+        expect.objectContaining({
+          integration: 'ANALYTICS_PIPELINE',
+          state: 'DEGRADED',
+          errorCategory: 'ATTEMPTS_EXHAUSTED',
+        }),
+      ]),
+    )
+    expect(JSON.stringify(result)).not.toContain('private-version-id')
+    expect(client.intakeUpload.findFirst).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: {
+          tenantId: 'tenant-1',
+          venueId: { in: ['venue-1'] },
+          storageVersionId: { not: null },
+        },
+        select: { updatedAt: true },
+      }),
+    )
+    expect(client.intakeUploadVerificationReceipt.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: { in: ['venue-1'] } },
+      }),
+    )
+    expect(client.analyticsEvent.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: 'tenant-1', venueId: { in: ['venue-1'] } },
+      }),
+    )
+  })
+
+  it('degrades a stale analytics job without exposing its payload or error', async () => {
+    const now = new Date('2030-01-01T12:00:00.000Z')
+    const client = healthClient({
+      jobRecord: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'RUNNING',
+            startedAt: new Date('2030-01-01T11:00:00.000Z'),
+            completedAt: null,
+            failureDisposition: null,
+          })
+          .mockResolvedValueOnce(null),
+      },
+    })
+
+    const result = await readUnifiedIntegrationHealth(
+      { clientId: 'tenant-1', venueIds: [] },
+      client as never,
+      now,
+    )
+
+    expect(result.integrations).toContainEqual(
+      expect.objectContaining({
+        integration: 'ANALYTICS_PIPELINE',
+        state: 'DEGRADED',
+        enabled: false,
+        errorCategory: 'STALE_JOB',
+      }),
+    )
+  })
 })
 
 function healthClient(overrides: Record<string, unknown> = {}) {
@@ -259,6 +375,11 @@ function healthClient(overrides: Record<string, unknown> = {}) {
       findFirst: vi.fn().mockResolvedValue(null),
     },
     embeddingWorkClaim: { findFirst: vi.fn().mockResolvedValue(null) },
+    intakeUpload: { findFirst: vi.fn().mockResolvedValue(null) },
+    intakeUploadVerificationReceipt: { findFirst: vi.fn().mockResolvedValue(null) },
+    analyticsEvent: { findFirst: vi.fn().mockResolvedValue(null) },
+    dailyRollup: { findFirst: vi.fn().mockResolvedValue(null) },
+    jobRecord: { findFirst: vi.fn().mockResolvedValue(null) },
     nativeVenueDeploymentRelease: { findFirst: vi.fn().mockResolvedValue(null) },
     aiUsageEvent: { findFirst: vi.fn().mockResolvedValue(null) },
     externalAccessCredential: { findMany: vi.fn().mockResolvedValue([]) },

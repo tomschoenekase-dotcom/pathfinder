@@ -8,12 +8,14 @@ Baseline date: 2026-08-21. The numbered gaps below preserve Packet A's final bas
 2. **Agent/API parity is incomplete.** Torchiko's typed first-party API remains broader than the discoverable operational/prospect tools. Packet A added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads; the visitor-answer quality loop now adds separately gated evidence access for already-flagged public turns and review-only correction drafts. Broad conversation replay, venue lifecycle, intake, report operations, provider health, and offboarding still lack adequate agent interfaces.
 3. **Tool metadata has a common core but not full schema parity.** Operational and prospect tools now expose effect, capability, review/approval, idempotency, default state, and transport through `pnpm torchiko tools list --json`. Prospect tools still need formal input/output JSON Schemas, examples, and related-tool links for complete parity with MCP definitions.
 4. **Resettable database scenarios remain incomplete.** Packet A now supplies four provider-free synthetic venue scenarios and deterministic time/location/replay contracts. Golden Venue proves a disposable support escalation/resolution loop, but standalone create/reset operations for scenarios such as degraded operations or rich reports remain incomplete.
-5. **Provider integration health baseline is implemented; coverage remains incomplete.** Agents can
-   query one secret-free, tenant/venue-scoped projection across Gmail, billing, worker runtime, AI
-   providers, embeddings, native deployment, and external worker access. The projection aggregates
-   shared Gmail account failures, incorporates central provider-health exclusions, and refuses to
-   label embeddings healthy without persisted queue/completion evidence. Storage and analytics
-   still need equivalent canonical health evidence before they can join this projection.
+5. **Provider integration health baseline is implemented.** Agents can query one secret-free,
+   tenant/venue-scoped projection across Gmail, billing, worker runtime, AI providers, embeddings,
+   object storage, analytics, native deployment, and external worker access. The projection
+   aggregates shared Gmail account failures, incorporates central provider-health exclusions,
+   refuses to label embeddings healthy without persisted queue/completion evidence, derives storage
+   health only from versioned object/verification records, and derives analytics health from scoped
+   event, rollup, and latest pipeline-job outcomes. Live provider probes and broader platform
+   observability remain separate operational concerns.
 
 ## P1 gaps
 
