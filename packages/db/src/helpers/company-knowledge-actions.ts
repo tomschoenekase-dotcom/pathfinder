@@ -94,6 +94,7 @@ export async function createCompanyKnowledgeCandidateAction(
     tenantId?: string
     venueId?: string
     organizationId?: string
+    applicableVenueIds?: string[]
     type: CompanyKnowledgeType
     title: string
     summary: string
@@ -155,21 +156,99 @@ export async function createCompanyKnowledgeCandidateAction(
   if (input.priority && !input.priority.rationale.trim()) {
     throw new CompanyKnowledgeActionError('CONFLICT', 'Priority rationale must be non-empty')
   }
+  const rawApplicableVenueIds = (input.applicableVenueIds ?? []).map((venueId) => venueId.trim())
+  const applicableVenueIds = Array.from(new Set(rawApplicableVenueIds)).sort()
+  if (input.applicableVenueIds && applicableVenueIds.some((venueId) => !venueId)) {
+    throw new CompanyKnowledgeActionError('INVALID_SCOPE', 'Applicable venue IDs must be non-empty')
+  }
+  if (input.applicableVenueIds && applicableVenueIds.length === 0) {
+    throw new CompanyKnowledgeActionError(
+      'INVALID_SCOPE',
+      'An explicit venue set must contain at least one venue',
+    )
+  }
+  if (rawApplicableVenueIds.length !== applicableVenueIds.length) {
+    throw new CompanyKnowledgeActionError('INVALID_SCOPE', 'Applicable venue IDs must be unique')
+  }
+  if (applicableVenueIds.length > 100) {
+    throw new CompanyKnowledgeActionError(
+      'INVALID_SCOPE',
+      'At most 100 applicable venues are allowed',
+    )
+  }
+  if (
+    applicableVenueIds.length > 0 &&
+    (!input.tenantId || !['TENANT', 'ORGANIZATION'].includes(input.accessScope))
+  ) {
+    throw new CompanyKnowledgeActionError(
+      'INVALID_SCOPE',
+      'Explicit venue applicability requires tenant or organization knowledge in tenant scope',
+    )
+  }
+  if (
+    input.venueId &&
+    applicableVenueIds.length > 0 &&
+    !applicableVenueIds.includes(input.venueId)
+  ) {
+    throw new CompanyKnowledgeActionError(
+      'INVALID_SCOPE',
+      'The primary venue must be included in the explicit applicable venue set',
+    )
+  }
   const contentHash = digest(input.title.trim(), input.summary.trim(), input.body.trim())
   const sourceDigest = digest(input.body.trim(), input.structuredData ?? {})
   return client.$transaction(async (rawTx) => {
     const tx = rawTx as unknown as typeof db
     const existing = await tx.companyKnowledgeItem.findUnique({
       where: { idempotencyKey: input.idempotencyKey },
-      select: { id: true, contentHash: true, promotionStatus: true },
+      select: {
+        id: true,
+        tenantId: true,
+        venueId: true,
+        organizationId: true,
+        accessScope: true,
+        contentHash: true,
+        promotionStatus: true,
+        entityLinks: {
+          where: { entityType: 'VENUE', relationship: 'APPLIES_TO' },
+          select: { entityId: true },
+        },
+      },
     })
     if (existing) {
-      if (existing.contentHash !== contentHash) {
-        throw new CompanyKnowledgeActionError('CONFLICT', 'Idempotency key reused with new content')
+      const existingApplicableVenueIds = existing.entityLinks.map((link) => link.entityId).sort()
+      const scopeMatches =
+        existing.tenantId === (input.tenantId ?? null) &&
+        existing.venueId === (input.venueId ?? null) &&
+        existing.organizationId === (input.organizationId ?? null) &&
+        existing.accessScope === input.accessScope &&
+        JSON.stringify(existingApplicableVenueIds) === JSON.stringify(applicableVenueIds)
+      if (existing.contentHash !== contentHash || !scopeMatches) {
+        throw new CompanyKnowledgeActionError(
+          'CONFLICT',
+          'Idempotency key reused with different content or scope',
+        )
       }
-      return { ...existing, replayed: true }
+      return {
+        id: existing.id,
+        contentHash: existing.contentHash,
+        promotionStatus: existing.promotionStatus,
+        replayed: true,
+      }
     }
     await verifyScope(tx, input)
+    if (applicableVenueIds.length > 0) {
+      const venues = await tx.venue.findMany({
+        where: { tenantId: input.tenantId!, id: { in: applicableVenueIds } },
+        select: { id: true },
+      })
+      if (venues.length !== applicableVenueIds.length) {
+        throw new CompanyKnowledgeActionError(
+          'NOT_FOUND',
+          'One or more applicable venues were not found in tenant scope',
+        )
+      }
+    }
     const item = await tx.companyKnowledgeItem.create({
       data: {
         ...(input.tenantId ? { tenantId: input.tenantId } : {}),
@@ -213,6 +292,18 @@ export async function createCompanyKnowledgeCandidateAction(
             ...(input.effectiveAt ? { occurredAt: input.effectiveAt } : {}),
           },
         },
+        ...(applicableVenueIds.length > 0
+          ? {
+              entityLinks: {
+                create: applicableVenueIds.map((entityId) => ({
+                  tenantId: input.tenantId!,
+                  entityType: 'VENUE',
+                  entityId,
+                  relationship: 'APPLIES_TO',
+                })),
+              },
+            }
+          : {}),
         ...(input.decision
           ? {
               decision: {
@@ -263,9 +354,23 @@ export async function createCompanyKnowledgeCandidateAction(
         targetType: 'CompanyKnowledgeItem',
         targetId: item.id,
         idempotencyKey: input.idempotencyKey,
-        structuredReason: { type: input.type, authority: input.authority },
+        structuredReason: {
+          type: input.type,
+          authority: input.authority,
+          venueApplicability:
+            applicableVenueIds.length > 0
+              ? 'VENUE_SET'
+              : input.venueId
+                ? 'EXACT_VENUE'
+                : 'ALL_VENUES',
+          applicableVenueCount: applicableVenueIds.length,
+        },
         sourceReferences: [{ type: input.sourceType, id: input.sourceId, ref: input.sourceRef }],
-        afterState: { promotionStatus: item.promotionStatus, contentHash },
+        afterState: {
+          promotionStatus: item.promotionStatus,
+          contentHash,
+          applicableVenueIds,
+        },
       },
       tx,
     )

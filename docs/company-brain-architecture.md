@@ -26,6 +26,19 @@ Company Knowledge records carry access scope, authority, promotion state, revisi
 
 Search combines exact scope/type/authority/date filters with lexical relevance, optional embeddings, recency, and current authority. `knowledge.search` returns snippets and provenance; `knowledge.get` returns one exact governed item. Superseded items are excluded by default but remain queryable for historical work.
 
+### Multi-venue applicability
+
+Venue-context retrieval inherits governed Company Knowledge without duplicating its content:
+
+- a tenant- or organization-scoped item with neither a primary `venueId` nor `VENUE` / `APPLIES_TO` entity links applies to every verified venue in that customer tenant;
+- one or more `VENUE` / `APPLIES_TO` links define an explicit venue subset, and every linked venue is verified against the tenant before the candidate is created;
+- an existing shared-scope item with a primary `venueId` and no applicability links remains exact to that venue, preserving the narrower behavior of legacy records;
+- venue-scoped items remain exact to their venue.
+
+Both search and exact-detail reads verify that a requested venue belongs to the client tenant before selecting knowledge. The organization branch also requires an active customer relationship. Idempotency binds content, access scope, tenant, organization, primary venue, and the sorted applicability set, so a retry cannot silently change where knowledge applies. Audit evidence records whether the candidate targets all venues, an exact venue, or an explicit venue set.
+
+This inheritance belongs to operational Company Knowledge. Visitor-facing `VenueKnowledgeEntry` content remains venue-scoped; this change does not publish shared internal knowledge to visitor retrieval or create a parallel content authority.
+
 ## CRM continuity
 
 `ProspectOrganization` remains the canonical organizational identity. `ProspectCustomerRelationship` links the same prospect relationship to a customer tenant without erasing prospect history. Contacts, outreach, meetings, milestones, opportunities, support, venues, relationship notes, open loops, commitments, and summaries all link back to the organization.

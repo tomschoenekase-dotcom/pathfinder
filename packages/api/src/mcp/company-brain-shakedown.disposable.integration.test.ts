@@ -12,6 +12,7 @@ import {
   promoteCompanyKnowledgeAction,
   registerAgentWorkerAction,
   recordApprovalDecisionAction,
+  searchCompanyKnowledge,
   supersedeCompanyKnowledgeAction,
   verifyAgentBridgeCredential,
   withTenantIsolationBypass,
@@ -33,6 +34,8 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       const suffix = randomUUID().slice(0, 8)
       const tenantId = `tenant-brain-${suffix}`
       const venueId = `venue-brain-${suffix}`
+      const secondVenueId = `venue-brain-second-${suffix}`
+      const thirdVenueId = `venue-brain-third-${suffix}`
       const organizationId = `org-brain-${suffix}`
       const identityId = `identity-brain-${suffix}`
       const primaryKey = `tom-hermes-${suffix}`
@@ -60,8 +63,33 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
       await db.tenantMembership.create({
         data: { tenantId, userId: human.actorId, role: 'OWNER', joinedAt: now },
       })
-      await db.venue.create({
-        data: { id: venueId, tenantId, name: 'Museum Y Main', slug: venueId },
+      const secondUserId = `secondary-contact-${suffix}`
+      await db.user.create({
+        data: {
+          id: secondUserId,
+          email: `${secondUserId}@example.test`,
+          fullName: 'Secondary Venue Contact',
+        },
+      })
+      await db.tenantMembership.create({
+        data: { tenantId, userId: secondUserId, role: 'STAFF', joinedAt: now },
+      })
+      await db.venue.createMany({
+        data: [
+          { id: venueId, tenantId, name: 'Museum Y Main', slug: venueId },
+          {
+            id: secondVenueId,
+            tenantId,
+            name: 'Museum Y Sculpture Garden',
+            slug: secondVenueId,
+          },
+          {
+            id: thirdVenueId,
+            tenantId,
+            name: 'Museum Y Archive',
+            slug: thirdVenueId,
+          },
+        ],
       })
       await db.prospectOrganization.create({
         data: {
@@ -124,6 +152,9 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
           toAddresses: ['support@torchiko.test'],
           subject: 'Museum Y map update',
           textBody: 'Please keep the reply concise. The lobby map needs the promised exception.',
+          bodyPreview: 'Please keep the reply concise. The lobby map needs the promised exception.',
+          bodyRetentionState: 'TEMPORARY',
+          bodyExpiresAt: new Date('2030-09-20T12:00:00.000Z'),
           occurredAt: new Date('2030-08-20T12:00:00.000Z'),
         },
       })
@@ -300,6 +331,99 @@ describe.skipIf(!enabled)('Company Brain disposable friend-takeover shakedown', 
         reason: 'Renewal decision replaced prior pricing treatment.',
         actor: human,
       })
+
+      const allVenueKnowledge = await createCompanyKnowledgeCandidateAction({
+        tenantId,
+        organizationId,
+        type: 'OPERATIONAL_LESSON',
+        title: 'Museum Y shared operating guidance',
+        summary: 'Use concise customer updates across every Museum Y venue.',
+        body: 'All Museum Y venues inherit the concise-update operating guidance.',
+        accessScope: 'ORGANIZATION',
+        authority: 'DURABLE_CONTEXT',
+        sourceType: 'MEETING',
+        sourceId: meeting.id,
+        idempotencyKey: `knowledge-all-venues-${suffix}`,
+        actor: human,
+      })
+      const subsetKnowledge = await createCompanyKnowledgeCandidateAction({
+        tenantId,
+        organizationId,
+        applicableVenueIds: [venueId, secondVenueId],
+        type: 'OPERATIONAL_LESSON',
+        title: 'Museum Y seasonal sculpture guidance',
+        summary: 'Main and sculpture venues share seasonal sculpture guidance.',
+        body: 'Apply this guidance only to the main museum and sculpture garden.',
+        accessScope: 'ORGANIZATION',
+        authority: 'DURABLE_CONTEXT',
+        sourceType: 'MEETING',
+        sourceId: meeting.id,
+        idempotencyKey: `knowledge-venue-subset-${suffix}`,
+        actor: human,
+      })
+      const exactVenueKnowledge = await createCompanyKnowledgeCandidateAction({
+        tenantId,
+        venueId,
+        organizationId,
+        type: 'OPERATIONAL_LESSON',
+        title: 'Museum Y main-lobby guidance',
+        summary: 'The main-lobby guidance is specific to the main museum.',
+        body: 'Do not inherit this main-lobby guidance into another venue.',
+        accessScope: 'ORGANIZATION',
+        authority: 'DURABLE_CONTEXT',
+        sourceType: 'MEETING',
+        sourceId: meeting.id,
+        idempotencyKey: `knowledge-exact-venue-${suffix}`,
+        actor: human,
+      })
+      for (const knowledgeItemId of [
+        allVenueKnowledge.id,
+        subsetKnowledge.id,
+        exactVenueKnowledge.id,
+      ]) {
+        await promoteCompanyKnowledgeAction({
+          knowledgeItemId,
+          tenantId,
+          promotionReason: 'Disposable scoped-knowledge proof',
+          actor: human,
+        })
+      }
+
+      const searchForVenue = async (requestedVenueId: string) =>
+        searchCompanyKnowledge(
+          {
+            query: 'Museum guidance',
+            clientId: tenantId,
+            venueId: requestedVenueId,
+            organizationId,
+            limit: 20,
+          },
+          { kind: 'CLIENT', clientId: tenantId, roles: ['CLIENT_ADMIN'] },
+        )
+      const [mainKnowledge, secondKnowledge, thirdKnowledge] = await Promise.all([
+        searchForVenue(venueId),
+        searchForVenue(secondVenueId),
+        searchForVenue(thirdVenueId),
+      ])
+      const ids = (result: Awaited<ReturnType<typeof searchForVenue>>) =>
+        new Set(result.results.map((item) => item.id))
+      const mainIds = ids(mainKnowledge)
+      const secondIds = ids(secondKnowledge)
+      const thirdIds = ids(thirdKnowledge)
+      expect(mainIds.has(allVenueKnowledge.id)).toBe(true)
+      expect(mainIds.has(subsetKnowledge.id)).toBe(true)
+      expect(mainIds.has(exactVenueKnowledge.id)).toBe(true)
+      expect(secondIds.has(allVenueKnowledge.id)).toBe(true)
+      expect(secondIds.has(subsetKnowledge.id)).toBe(true)
+      expect(secondIds.has(exactVenueKnowledge.id)).toBe(false)
+      expect(thirdIds.has(allVenueKnowledge.id)).toBe(true)
+      expect(thirdIds.has(subsetKnowledge.id)).toBe(false)
+      expect(thirdIds.has(exactVenueKnowledge.id)).toBe(false)
+      await expect(searchForVenue(`foreign-venue-${suffix}`)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      })
+      expect(await db.tenantMembership.count({ where: { tenantId } })).toBe(2)
+      expect(await db.venue.count({ where: { tenantId } })).toBe(3)
 
       await db.agentIdentity.create({
         data: {

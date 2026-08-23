@@ -12,7 +12,7 @@ export type KnowledgeAccessContext =
   | { kind: 'PLATFORM'; roles: string[] }
   | { kind: 'CLIENT'; clientId: string; roles: string[] }
 
-export type CompanyKnowledgeClient = Pick<typeof db, 'companyKnowledgeItem'>
+export type CompanyKnowledgeClient = Pick<typeof db, 'companyKnowledgeItem' | 'venue'>
 
 export class CompanyKnowledgeError extends Error {
   constructor(
@@ -53,6 +53,65 @@ function accessWhere(
       },
     ],
   }
+}
+
+const appliesToVenueWhere = (venueId: string): Prisma.CompanyKnowledgeItemWhereInput => ({
+  OR: [
+    { venueId },
+    {
+      venueId: null,
+      entityLinks: { none: { entityType: 'VENUE', relationship: 'APPLIES_TO' } },
+    },
+    {
+      entityLinks: {
+        some: { entityType: 'VENUE', entityId: venueId, relationship: 'APPLIES_TO' },
+      },
+    },
+  ],
+})
+
+function venueContextWhere(
+  access: KnowledgeAccessContext,
+  venueId: string,
+  requestedClientId?: string,
+  organizationId?: string,
+): Prisma.CompanyKnowledgeItemWhereInput {
+  const clientId = access.kind === 'CLIENT' ? access.clientId : requestedClientId
+  if (!clientId) return { venueId }
+  return {
+    OR: [
+      { accessScope: 'VENUE', tenantId: clientId, venueId },
+      {
+        accessScope: 'TENANT',
+        tenantId: clientId,
+        AND: [appliesToVenueWhere(venueId)],
+      },
+      {
+        accessScope: 'ORGANIZATION',
+        ...(organizationId ? { organizationId } : {}),
+        organization: {
+          customerRelationships: { some: { tenantId: clientId, status: 'ACTIVE' } },
+        },
+        AND: [appliesToVenueWhere(venueId)],
+      },
+    ],
+  }
+}
+
+async function verifyRequestedVenue(
+  access: KnowledgeAccessContext,
+  venueId: string | undefined,
+  requestedClientId: string | undefined,
+  client: CompanyKnowledgeClient,
+) {
+  if (!venueId) return
+  const clientId = access.kind === 'CLIENT' ? access.clientId : requestedClientId
+  if (!clientId) return
+  const venue = await client.venue.findFirst({
+    where: { id: venueId, tenantId: clientId },
+    select: { id: true },
+  })
+  if (!venue) throw new CompanyKnowledgeError('NOT_FOUND', 'Venue not found in verified scope')
 }
 
 function lexicalTerms(query: string) {
@@ -230,6 +289,7 @@ export async function searchCompanyKnowledge(
   } = {},
 ) {
   const input = CompanyKnowledgeSearchRequest.parse(rawInput)
+  await verifyRequestedVenue(access, input.venueId, input.clientId, client)
   const authorityFilter = input.includeHistorical
     ? input.authorities
     : input.authorities.filter((authority) => !['HISTORICAL', 'SUPERSEDED'].includes(authority))
@@ -241,8 +301,11 @@ export async function searchCompanyKnowledge(
         { promotionStatus: 'PROMOTED', archivedAt: null },
         ...(authorityFilter.length > 0 ? [{ authority: { in: authorityFilter } }] : []),
         ...(input.types.length > 0 ? [{ type: { in: input.types } }] : []),
-        ...(input.organizationId ? [{ organizationId: input.organizationId }] : []),
-        ...(input.venueId ? [{ venueId: input.venueId }] : []),
+        ...(input.venueId
+          ? [venueContextWhere(access, input.venueId, input.clientId, input.organizationId)]
+          : input.organizationId
+            ? [{ organizationId: input.organizationId }]
+            : []),
         ...(input.from || input.to
           ? [
               {
@@ -336,12 +399,13 @@ export async function getCompanyKnowledgeItem(
   client: CompanyKnowledgeClient = db,
 ) {
   const input = CompanyKnowledgeGetRequest.parse(rawInput)
+  await verifyRequestedVenue(access, input.venueId, input.clientId, client)
   const item = await client.companyKnowledgeItem.findFirst({
     where: {
       AND: [
         { id: input.knowledgeItemId, archivedAt: null },
         accessWhere(access, input.clientId),
-        ...(input.venueId ? [{ venueId: input.venueId }] : []),
+        ...(input.venueId ? [venueContextWhere(access, input.venueId, input.clientId)] : []),
       ],
     },
     select: detailSelect,

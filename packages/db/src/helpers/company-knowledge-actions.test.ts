@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -21,7 +23,10 @@ const machineActor = {
 
 function harness() {
   const tx = {
-    venue: { findFirst: vi.fn().mockResolvedValue({ id: 'venue_1' }) },
+    venue: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'venue_1' }),
+      findMany: vi.fn().mockResolvedValue([{ id: 'venue_1' }, { id: 'venue_2' }]),
+    },
     prospectOrganization: { findFirst: vi.fn().mockResolvedValue({ id: 'org_1' }) },
     companyKnowledgeItem: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -61,6 +66,18 @@ function candidateInput(overrides: Record<string, unknown> = {}) {
   } as const
 }
 
+function candidateContentHash() {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        'Communication preference',
+        'Primary contact prefers concise email.',
+        'Jane asked Torchiko to keep operational email concise.',
+      ]),
+    )
+    .digest('hex')
+}
+
 describe('company knowledge canonical actions', () => {
   it('creates an idempotent candidate through verified scope with machine lineage', async () => {
     const { tx, client } = harness()
@@ -91,6 +108,101 @@ describe('company knowledge canonical actions', () => {
         }),
       }),
     )
+  })
+
+  it('creates a verified explicit venue subset as durable applicability links', async () => {
+    const { tx, client } = harness()
+    await createCompanyKnowledgeCandidateAction(
+      candidateInput({ applicableVenueIds: ['venue_2', 'venue_1'] }),
+      client,
+    )
+    expect(tx.venue.findMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant_1', id: { in: ['venue_1', 'venue_2'] } },
+      select: { id: true },
+    })
+    expect(tx.companyKnowledgeItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          entityLinks: {
+            create: [
+              {
+                tenantId: 'tenant_1',
+                entityType: 'VENUE',
+                entityId: 'venue_1',
+                relationship: 'APPLIES_TO',
+              },
+              {
+                tenantId: 'tenant_1',
+                entityType: 'VENUE',
+                entityId: 'venue_2',
+                relationship: 'APPLIES_TO',
+              },
+            ],
+          },
+        }),
+      }),
+    )
+  })
+
+  it('fails closed when an explicit venue subset contains an unverified venue', async () => {
+    const { tx, client } = harness()
+    tx.venue.findMany.mockResolvedValue([{ id: 'venue_1' }])
+    await expect(
+      createCompanyKnowledgeCandidateAction(
+        candidateInput({ applicableVenueIds: ['venue_1', 'venue_other'] }),
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(tx.companyKnowledgeItem.create).not.toHaveBeenCalled()
+  })
+
+  it('binds idempotency replay to the exact knowledge scope and applicability', async () => {
+    const { tx, client } = harness()
+    tx.companyKnowledgeItem.findUnique.mockResolvedValue({
+      id: 'knowledge_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      organizationId: 'org_1',
+      accessScope: 'ORGANIZATION',
+      contentHash: candidateContentHash(),
+      promotionStatus: 'CANDIDATE',
+      entityLinks: [{ entityId: 'venue_1' }],
+    })
+    await expect(
+      createCompanyKnowledgeCandidateAction(
+        candidateInput({ applicableVenueIds: ['venue_1', 'venue_2'] }),
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('replays only an exact content, scope, and venue-applicability match', async () => {
+    const { tx, client } = harness()
+    tx.companyKnowledgeItem.findUnique.mockResolvedValue({
+      id: 'knowledge_1',
+      tenantId: 'tenant_1',
+      venueId: 'venue_1',
+      organizationId: 'org_1',
+      accessScope: 'ORGANIZATION',
+      contentHash: candidateContentHash(),
+      promotionStatus: 'CANDIDATE',
+      entityLinks: [{ entityId: 'venue_1' }],
+    })
+    const result = await createCompanyKnowledgeCandidateAction(
+      candidateInput({ applicableVenueIds: ['venue_1'] }),
+      client,
+    )
+    expect(result).toMatchObject({ id: 'knowledge_1', replayed: true })
+    expect(tx.companyKnowledgeItem.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects duplicate venue IDs instead of silently changing requested scope', async () => {
+    await expect(
+      createCompanyKnowledgeCandidateAction(
+        candidateInput({ applicableVenueIds: ['venue_1', 'venue_1'] }),
+        harness().client,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_SCOPE' })
   })
 
   it('prevents a machine proposal from declaring itself authoritative', async () => {
