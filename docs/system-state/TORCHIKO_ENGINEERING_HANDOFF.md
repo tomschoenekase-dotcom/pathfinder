@@ -270,7 +270,7 @@ Do not assume these services are currently deployed or correctly secreted becaus
 
 1. **Dirty tree:** launch-capability work predates this audit. Preserve it and distinguish HEAD from working-tree behavior in every report/PR.
 2. **Legacy/native content:** semantic search still reads legacy tables. New native schema does not mean legacy can be deleted.
-3. **Schema implies too much:** citations, event delivery, agent outcomes, billing visibility and location records are not proof of end-to-end behavior.
+3. **Schema implies too much:** event delivery, agent outcomes, billing visibility and location records are not proof of end-to-end behavior. Citations have a bounded retrieved-record runtime as of `f142ef6`, but do not prove claim-level semantic support.
 4. **Tenant bypasses:** approved bypass helpers are not permission to omit explicit scope. The static budgets are safety controls.
 5. **Raw SQL:** PostgreSQL-specific lifecycle and vector operations are intentional, but every query must be tenant-bounded and included in verification.
 6. **Provider calls:** route through `packages/ai`, reserve budget, persist sanitized usage, and never expose raw provider errors/prompts to guests/logs.
@@ -295,7 +295,7 @@ Do not assume these services are currently deployed or correctly secreted becaus
 - “Billing” fields mean payments/invoicing exists.
 - Multilingual UI means translations have been quality-assured.
 - Location V1 means maps or routing exists.
-- Structured citation blocks mean answers include verified citations.
+- Structured citation blocks alone mean verified citations; require persisted retrieved-record provenance, and do not describe it as claim-level support without separate evidence.
 - Existing backup scripts mean current provider backups/PITR are enabled.
 - UI route hiding is authorization; verify the API procedure.
 

@@ -154,15 +154,15 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 - **Before more venue acquisition:** **Yes if sold**, otherwise keep disabled.
 - **Codex autonomous:** **No** for credentials/external execution; yes for test harnesses.
 
-### P1.10 — Add citations or remove the implied capability
+### P1.10 — Strengthen bounded citations into claim-level evidence — PARTIALLY RESOLVED 2026-08-23
 
-- **Problem:** Citation response blocks and UI exist, but the chat path does not construct source citations from retrieved records.
-- **Evidence:** `packages/contracts/src/guest-response.ts`; `ResponseRenderer.tsx`; no citation generation in `packages/api/src/routers/chat.ts` or `venue-context.ts`.
+- **Problem:** Guest chat now exposes deterministic provenance for explicitly named retrieved records, but that does not prove sentence-level semantic support.
+- **Evidence:** `packages/api/src/lib/guest-citations.ts`; `packages/api/src/routers/chat.ts`; `packages/db/src/helpers/guest-chat-turn-actions.ts`; `ResponseRenderer.tsx`; exact candidate evidence at `f142ef6e2a08a082ef46e8c00b9a582950c45870`.
 - **Affected system:** Guest trust, knowledge provenance, quality evaluation.
-- **Recommended change:** Attach stable source/provenance IDs to retrieval results, constrain the model to referenced claims, validate citations server-side, and test missing/stale sources; until then do not advertise citations.
+- **Recommended change:** Add claim-level semantic attribution and evaluation metrics, then calibrate with provider-enabled staging evidence. Continue describing the current feature narrowly as retrieved-record provenance.
 - **Why it matters:** Grounding is more valuable when visitors/operators can understand the source, especially for changing venue facts.
 - **Effort:** M
-- **Dependencies:** Native/legacy provenance strategy.
+- **Dependencies:** Provider-enabled staging, truth-set calibration, and a claim-attribution contract.
 - **Before more venue acquisition:** **No**, unless citations are promised contractually.
 - **Codex autonomous:** **Partly**; UX/product policy should be approved.
 
