@@ -24,6 +24,7 @@ import { router } from '../../core'
 import { requireCrmProspectOutreach } from '../../middleware/require-crm-prospect-outreach'
 import { adminProcedure } from '../../trpc'
 import { prospectActor, prospectBoundedText } from './prospect-crm-common'
+import { getProspectOutreachReadinessProjection } from './prospect-crm-followup-review'
 import { enqueueProspectImportCommit, enqueueProspectOutreach } from '@pathfinder/jobs'
 
 const id = z.string().min(1).max(191)
@@ -293,42 +294,9 @@ export const adminProspectCrmOutreachRouter = router({
       }),
     ),
 
-  getProspectOutreachReadiness: adminProcedure.use(requireCrmProspectOutreach).query(() =>
-    withTenantIsolationBypass(async () => {
-      const [control, accounts] = await Promise.all([
-        db.prospectDeliveryControl.findUnique({ where: { id: 'global' } }),
-        db.correspondenceProviderAccount.findMany({
-          where: { provider: 'GMAIL' },
-          select: {
-            id: true,
-            mailboxAddress: true,
-            connectionStatus: true,
-            deliveryEnabled: true,
-            pausedAt: true,
-            lastSuccessfulSyncAt: true,
-            lastReconciliationAt: true,
-            watchExpiration: true,
-            healthErrorCode: true,
-            healthErrorSummary: true,
-          },
-          orderBy: { mailboxAddress: 'asc' },
-        }),
-      ])
-      return {
-        deliveryEnabled:
-          process.env.PROSPECT_OUTREACH_DELIVERY_ENABLED === 'true' &&
-          Boolean(control?.deliveryEnabled),
-        internalOnly: control?.internalOnly ?? true,
-        providerConfigured: accounts.some(
-          (account) => account.connectionStatus === 'CONNECTED' && account.deliveryEnabled,
-        ),
-        provider: 'GMAIL' as const,
-        accounts,
-        limits: { cohort: 5000, batch: 500 },
-        policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
-      }
-    }),
-  ),
+  getProspectOutreachReadiness: adminProcedure
+    .use(requireCrmProspectOutreach)
+    .query(() => withTenantIsolationBypass(() => getProspectOutreachReadinessProjection())),
 
   emergencyStopProspectDelivery: adminProcedure
     .use(requireCrmProspectOutreach)

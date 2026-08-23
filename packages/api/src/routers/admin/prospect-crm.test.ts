@@ -5,6 +5,9 @@ const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
   createProspect: vi.fn(),
   beginImport: vi.fn(),
+  deliveryControl: vi.fn(),
+  providerAccounts: vi.fn(),
+  followups: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -29,7 +32,11 @@ vi.mock('@pathfinder/db', () => ({
   scanProspectDuplicatesAction: vi.fn(),
   stageProspectImportRowsAction: vi.fn(),
   updateProspectPipelineAction: vi.fn(),
-  db: {},
+  db: {
+    prospectDeliveryControl: { findUnique: mocks.deliveryControl },
+    correspondenceProviderAccount: { findMany: mocks.providerAccounts },
+    prospectFollowup: { findMany: mocks.followups },
+  },
 }))
 
 import { router } from '../../core'
@@ -95,5 +102,52 @@ describe('admin prospect CRM router', () => {
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' } satisfies Partial<TRPCError>)
     expect(mocks.beginImport).not.toHaveBeenCalled()
+  })
+
+  it('returns bounded follow-up review evidence without granting scheduling or send authority', async () => {
+    vi.stubEnv('CRM_PROSPECT_OUTREACH_ENABLED', 'true')
+    mocks.deliveryControl.mockResolvedValue({ deliveryEnabled: false, internalOnly: true })
+    mocks.providerAccounts.mockResolvedValue([])
+    mocks.followups.mockResolvedValue([
+      {
+        id: 'followup-1',
+        organizationId: 'org-1',
+        dueAt: new Date('2020-01-01T00:00:00Z'),
+        sequenceNumber: 1,
+        status: 'PENDING',
+        reason: 'Human-approved schedule',
+        policyApprovedAt: new Date('2019-12-01T00:00:00Z'),
+        readinessCheckedAt: null,
+        organization: { canonicalName: 'Museum One', relationshipTier: 'HIGH_VALUE' },
+        opportunity: { stage: 'CONTACTED', priority: 'HIGH', lastActivityAt: null },
+        campaignMember: { status: 'CONTACTED' },
+        triggerSendItem: { sentAt: new Date('2019-11-01T00:00:00Z') },
+      },
+    ])
+
+    const result = await testRouter.createCaller(context(true)).crm.getProspectOutreachReadiness()
+
+    expect(result.followupReview).toMatchObject({
+      evidenceBounded: false,
+      counts: { due: 1, scheduled: 0, readyForDraft: 0, held: 0 },
+      policy: {
+        automaticSchedulingAuthorized: false,
+        automaticSendingAuthorized: false,
+        alternateContactAuthorized: false,
+        cadencePolicy: 'UNRESOLVED',
+      },
+    })
+    expect(result.followupReview.items[0]).toMatchObject({
+      id: 'followup-1',
+      due: true,
+      policyApproved: true,
+    })
+    expect(mocks.followups).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 101,
+        where: { status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+      }),
+    )
+    vi.unstubAllEnvs()
   })
 })

@@ -151,6 +151,81 @@ export function ProspectOutreachCenter({
           </ul>
         </section>
       ) : null}
+      {readiness?.followupReview ? (
+        <section
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          aria-labelledby="followup-review-heading"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="followup-review-heading" className="font-semibold text-slate-950">
+                Follow-up review
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                Active schedules, approval evidence, and current correspondence state. Due does not
+                mean send.
+              </p>
+            </div>
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
+              {readiness.followupReview.counts.due} due
+            </span>
+          </div>
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+            No automatic scheduling, sending, or alternate-contact outreach is authorized. Exact
+            follow-up cadence remains unresolved.
+          </p>
+          {readiness.followupReview.evidenceBounded ? (
+            <p className="mt-3 text-sm font-semibold text-rose-700">
+              More than 100 active follow-ups exist; review the complete CRM before acting.
+            </p>
+          ) : null}
+          {readiness.followupReview.items.length ? (
+            <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+              {readiness.followupReview.items.map((item) => (
+                <li key={item.id} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <Link
+                        href={`/admin/prospects/${item.organizationId}`}
+                        className="font-semibold text-sky-800 underline-offset-2 hover:underline"
+                      >
+                        {item.organization.canonicalName}
+                      </Link>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Sequence {item.sequenceNumber} ·{' '}
+                        {item.opportunity.stage.toLowerCase().replaceAll('_', ' ')}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-700">
+                      {item.status.replaceAll('_', ' ')}
+                    </span>
+                  </div>
+                  <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <dt className="font-bold text-slate-700">Due</dt>
+                      <dd className="mt-1 text-slate-600">
+                        {new Date(item.dueAt).toLocaleString()}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="font-bold text-slate-700">Policy evidence</dt>
+                      <dd className="mt-1 text-slate-600">
+                        {item.policyApproved
+                          ? 'Human-approved schedule'
+                          : 'Incomplete — do not act'}
+                      </dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-600">
+              No active follow-up schedules require review.
+            </p>
+          )}
+        </section>
+      ) : null}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
           <Mail className="h-4 w-4 text-sky-700" />

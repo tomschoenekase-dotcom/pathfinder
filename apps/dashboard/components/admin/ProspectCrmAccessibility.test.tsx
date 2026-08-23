@@ -84,6 +84,18 @@ describe('prospect CRM accessibility foundation', () => {
             accounts: [],
             limits: { cohort: 5000, batch: 500 },
             policy: { agentsMayDraft: true, agentsMayApprove: false, agentsMaySend: false },
+            followupReview: {
+              generatedAt: new Date('2026-08-22T12:00:00Z'),
+              evidenceBounded: false,
+              policy: {
+                automaticSchedulingAuthorized: false,
+                automaticSendingAuthorized: false,
+                alternateContactAuthorized: false,
+                cadencePolicy: 'UNRESOLVED',
+              },
+              counts: { due: 0, scheduled: 0, readyForDraft: 0, held: 0 },
+              items: [],
+            },
           } as never,
         }}
       />,
