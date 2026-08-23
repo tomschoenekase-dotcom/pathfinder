@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   getBySlug: vi.fn(),
   anonymousToken: null as string | null,
+  sessionId: null as string | null,
   identityUnavailable: false,
   sessionTokens: {} as Record<string, string>,
   startNewConversation: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock('../hooks/useNetworkStatus', () => ({
 vi.mock('../hooks/useSession', () => ({
   useSession: (venueId: string) => ({
     anonymousToken: mocks.sessionTokens[venueId] ?? mocks.anonymousToken,
+    sessionId: mocks.sessionId,
     identityUnavailable: mocks.identityUnavailable,
     setSessionId: mocks.setSessionId,
     startNewConversation: mocks.startNewConversation,
@@ -138,6 +140,19 @@ vi.mock('./LanguagePicker', () => ({
   ],
 }))
 vi.mock('./LocationBanner', () => ({ LocationBanner: () => null }))
+vi.mock('./LocationRoutePlanner', () => ({
+  LocationRoutePlanner: ({
+    venueId,
+    anonymousToken,
+  }: {
+    venueId: string
+    anonymousToken: string | null
+  }) => (
+    <div>
+      Route planner for {venueId}: {anonymousToken ?? 'waiting for session'}
+    </div>
+  ),
+}))
 vi.mock('./QuickPromptChips', () => ({ QuickPromptChips: () => null }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
@@ -205,6 +220,7 @@ describe('VenueChatExperience presentation boundary', () => {
     vi.clearAllMocks()
     window.sessionStorage.clear()
     mocks.anonymousToken = null
+    mocks.sessionId = null
     mocks.identityUnavailable = false
     mocks.sessionTokens = {}
     mocks.startNewConversation.mockReturnValue(true)
@@ -236,6 +252,19 @@ describe('VenueChatExperience presentation boundary', () => {
     expect(screen.queryByText('Back')).toBeNull()
     expect(screen.queryByText('Back to home')).toBeNull()
     expect(screen.getByText('Torchiko').closest('a')).toBeNull()
+  })
+
+  it('does not admit route catalog reads until the public session is confirmed', async () => {
+    mocks.anonymousToken = '123e4567-e89b-42d3-a456-426614174099'
+    mocks.getBySlug.mockResolvedValue(activeVenue)
+    const view = render(<VenueChatExperience venueSlug="museum" />)
+
+    await screen.findByRole('heading', { name: 'Museum Guide' })
+    expect(screen.getByText(/Route planner for venue-1: waiting for session/)).toBeTruthy()
+
+    mocks.sessionId = 'session-1'
+    view.rerender(<VenueChatExperience venueSlug="museum" />)
+    expect(screen.getByText(`Route planner for venue-1: ${mocks.anonymousToken}`)).toBeTruthy()
   })
 
   it('blocks network mutations offline and prepares the session after reconnection', async () => {

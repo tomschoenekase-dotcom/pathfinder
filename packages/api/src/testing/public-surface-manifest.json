@@ -45,6 +45,13 @@
       "exceptionReason": "Returns a fixed process-local object and performs no input, database, queue, provider, or tenant work."
     },
     {
+      "path": "location.catalog",
+      "kind": "query",
+      "exposure": "public",
+      "controlProfile": "bounded-sensitive-read",
+      "behavioralEvidence": ["packages/api/src/routers/location.test.ts"]
+    },
+    {
       "path": "location.resolve",
       "kind": "query",
       "exposure": "public",

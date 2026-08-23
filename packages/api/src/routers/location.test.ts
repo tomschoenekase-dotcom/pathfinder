@@ -174,6 +174,30 @@ describe('public structured location resolver', () => {
     })
   })
 
+  it('lists only the reviewed public route catalog projection', async () => {
+    findMany.mockResolvedValue(locations)
+
+    const result = await caller.location.catalog({
+      venueId: routeInput.venueId,
+      anonymousToken: routeInput.anonymousToken,
+    })
+
+    expect(result.locations).toEqual([
+      {
+        id: 'location-entrance',
+        stableKey: 'entrance',
+        kind: 'ENTRANCE',
+        displayName: 'Entrance',
+        floor: { stableKey: 'ground', name: 'Ground', level: 0 },
+      },
+      expect.any(Object),
+      expect.any(Object),
+      expect.any(Object),
+    ])
+    expect(result.locations[0]).not.toHaveProperty('tenantId')
+    expect(result.locations[0]?.floor).not.toHaveProperty('id')
+  })
+
   it('filters the graph to explicitly accessible connections when requested', async () => {
     findMany.mockResolvedValue(locations)
     connectionFindMany.mockResolvedValue([

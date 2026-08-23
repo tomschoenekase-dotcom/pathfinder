@@ -70,6 +70,7 @@ export function VenueChatShell(props: {
   onVisitorAction?: (action: GuestVisitorAction) => void
   onMessageFeedback?: (messageId: string, rating: 'HELPFUL' | 'NOT_HELPFUL') => Promise<void>
   voiceControl?: ReactNode
+  routePlanner?: ReactNode
   connectionState?: NetworkConnectionState
 }) {
   const {
@@ -98,6 +99,7 @@ export function VenueChatShell(props: {
     onVisitorAction,
     onMessageFeedback,
     voiceControl,
+    routePlanner,
     connectionState = 'online',
   } = props
   const isOnline = connectionState !== 'offline'
@@ -201,6 +203,7 @@ export function VenueChatShell(props: {
           />
         </div>
         <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 sm:px-6">
+          {routePlanner}
           {voiceControl === undefined ? (
             isOnline ? (
               <VoiceControl

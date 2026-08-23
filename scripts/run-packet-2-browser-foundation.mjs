@@ -47,6 +47,7 @@ const suites = [
       'app/[venueSlug]/chat/layout.test.tsx',
       'app/embed/[venueSlug]/page.test.tsx',
       'components/VenueChatExperience.test.tsx',
+      'components/LocationRoutePlanner.test.tsx',
       'components/ResponseRenderer.test.tsx',
     ],
   },

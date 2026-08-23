@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { resolveProductEntitlement } from '@pathfinder/db'
 
 import { router } from '../core'
+import type { TRPCContext } from '../context'
 import { publicProcedure } from '../trpc'
 import { findDeterministicRoute, projectRouteLocation } from './location-route'
 import { loadPublicLocationScope } from './location-public-scope'
@@ -19,6 +20,53 @@ const safeExternalMap = z
       /token|key|secret|signature|credential|auth|password/iu.test(key),
     )
   })
+
+async function loadPublicRouteLocations(
+  db: TRPCContext['db'],
+  scope: { tenantId: string; venueId: string },
+  now: Date,
+) {
+  const locations = await db.venueLocation.findMany({
+    where: {
+      tenantId: scope.tenantId,
+      venueId: scope.venueId,
+      visibility: 'PUBLIC',
+      isActive: true,
+      verifiedAt: { lte: now },
+      OR: [{ floorId: null }, { floor: { isActive: true } }],
+    },
+    orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
+    take: 501,
+    select: {
+      id: true,
+      stableKey: true,
+      kind: true,
+      displayName: true,
+      floor: { select: { id: true, stableKey: true, name: true, level: true } },
+    },
+  })
+  if (locations.length > 500)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'This venue topology exceeds the supported route size.',
+    })
+  return locations
+}
+
+async function requirePublicLocationEntitlement(
+  db: TRPCContext['db'],
+  scope: { tenantId: string; venueId: string },
+  notFoundMessage: string,
+) {
+  const entitlement = await resolveProductEntitlement({
+    client: db,
+    tenantId: scope.tenantId,
+    venueId: scope.venueId,
+    capability: 'location-plus',
+    featureAvailable: true,
+  })
+  if (!entitlement.enabled) throw new TRPCError({ code: 'NOT_FOUND', message: notFoundMessage })
+}
 
 export const locationRouter = router({
   resolve: publicProcedure
@@ -93,6 +141,23 @@ export const locationRouter = router({
       }
     }),
 
+  catalog: publicProcedure
+    .input(
+      z
+        .object({
+          venueId: z.string().min(1).max(191),
+          anonymousToken: z.string().uuid(),
+        })
+        .strict(),
+    )
+    .query(async ({ ctx, input }) => {
+      const scope = await loadPublicLocationScope(ctx.db, input)
+      if (!scope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location catalog not found.' })
+      await requirePublicLocationEntitlement(ctx.db, scope, 'Location catalog not found.')
+      const locations = await loadPublicRouteLocations(ctx.db, scope, new Date())
+      return { locations: locations.map(projectRouteLocation) }
+    }),
+
   route: publicProcedure
     .input(
       z
@@ -108,41 +173,10 @@ export const locationRouter = router({
     .query(async ({ ctx, input }) => {
       const scope = await loadPublicLocationScope(ctx.db, input)
       if (!scope) throw new TRPCError({ code: 'NOT_FOUND', message: 'Location route not found.' })
-      const entitlement = await resolveProductEntitlement({
-        client: ctx.db,
-        tenantId: scope.tenantId,
-        venueId: scope.venueId,
-        capability: 'location-plus',
-        featureAvailable: true,
-      })
-      if (!entitlement.enabled)
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Location route not found.' })
+      await requirePublicLocationEntitlement(ctx.db, scope, 'Location route not found.')
 
       const now = new Date()
-      const locations = await ctx.db.venueLocation.findMany({
-        where: {
-          tenantId: scope.tenantId,
-          venueId: scope.venueId,
-          visibility: 'PUBLIC',
-          isActive: true,
-          verifiedAt: { lte: now },
-          OR: [{ floorId: null }, { floor: { isActive: true } }],
-        },
-        orderBy: [{ stableKey: 'asc' }, { id: 'asc' }],
-        take: 501,
-        select: {
-          id: true,
-          stableKey: true,
-          kind: true,
-          displayName: true,
-          floor: { select: { id: true, stableKey: true, name: true, level: true } },
-        },
-      })
-      if (locations.length > 500)
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This venue topology exceeds the supported route size.',
-        })
+      const locations = await loadPublicRouteLocations(ctx.db, scope, now)
       const resolveLocationId = (value: string) =>
         locations.find((location) => location.id === value || location.stableKey === value)?.id
       const fromLocationId = resolveLocationId(input.fromLocationId)

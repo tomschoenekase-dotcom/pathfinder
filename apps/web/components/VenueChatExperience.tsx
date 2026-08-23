@@ -22,6 +22,7 @@ import { getStoredLanguage, SUPPORTED_LANGUAGES } from './LanguagePicker'
 import { VenueChatError, VenueChatSkeleton } from './VenueChatStates'
 import { VenueChatShell } from './VenueChatShell'
 import { VenueTemporarilyUnavailable } from './VenueTemporarilyUnavailable'
+import { LocationRoutePlanner } from './LocationRoutePlanner'
 import type { ChatMessage, VenueChatPresentation, VenueSummary } from './venue-chat-types'
 
 type VenueChatExperienceProps = {
@@ -94,10 +95,8 @@ export function VenueChatExperience({
     Boolean(venue && venue.guideMode !== 'non_location'),
   )
   const experienceStorageScope = secondLayerKey ? `second-layer:${secondLayerKey}` : 'public'
-  const { anonymousToken, identityUnavailable, setSessionId, startNewConversation } = useSession(
-    venue?.id ?? '',
-    experienceStorageScope,
-  )
+  const { anonymousToken, sessionId, identityUnavailable, setSessionId, startNewConversation } =
+    useSession(venue?.id ?? '', experienceStorageScope)
   const visitorId = useVisitorId()
   currentVenueIdRef.current = venue?.id ?? null
   currentAnonymousTokenRef.current = anonymousToken
@@ -550,6 +549,16 @@ export function VenueChatExperience({
       connectionState={connectionState}
       characterState={characterState}
       location={{ lat, lng, permission, refresh }}
+      routePlanner={
+        !secondLayerKey ? (
+          <LocationRoutePlanner
+            key={`${venue.id}:${anonymousToken ?? 'pending'}:${sessionId ?? 'unconfirmed'}`}
+            venueId={venue.id}
+            anonymousToken={sessionId ? anonymousToken : null}
+            disabled={!isOnline || isSending}
+          />
+        ) : null
+      }
       onSend={(message) => {
         handleSend(message)
       }}
