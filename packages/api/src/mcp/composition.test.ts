@@ -8,6 +8,7 @@ const {
   proposeCorrection,
   prepareCustomerAccess,
   prepareLocationDraft,
+  prepareAgentImprovement,
   publishEvent,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
@@ -17,6 +18,7 @@ const {
   proposeCorrection: vi.fn(),
   prepareCustomerAccess: vi.fn(),
   prepareLocationDraft: vi.fn(),
+  prepareAgentImprovement: vi.fn(),
   publishEvent: vi.fn(),
 }))
 
@@ -29,6 +31,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   proposeKnowledgeCorrectionAction: proposeCorrection,
   prepareCustomerAccessRequestAction: prepareCustomerAccess,
   prepareLocationDraftProposalAction: prepareLocationDraft,
+  prepareAgentImprovementProposalAction: prepareAgentImprovement,
   publishOperationalEvent: publishEvent,
 }))
 
@@ -221,6 +224,83 @@ describe('safe operational MCP composition', () => {
         canonicalVenueContentChanged: false,
       },
     })
+  })
+
+  it('prepares an outcome-backed improvement proposal without changing behavior or authority', async () => {
+    prepareAgentImprovement.mockResolvedValue({
+      id: 'proposal-1',
+      approvalRequestId: 'approval-1',
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({ id: 'event-1' })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const improvementCredential = {
+      ...credential,
+      capabilities: ['agent-improvements:propose'],
+    } satisfies VerifiedMcpCredentialScope
+
+    const result = await registry.callTool(
+      'torchiko.agent_improvements.propose',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '44444444-4444-4444-8444-444444444444',
+        agentIdentityId: 'review-agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        targetAgentIdentityId: 'target-agent-1',
+        outcomeObservationIds: ['outcome-1', 'outcome-2'],
+        proposalKey: 'research-source-grounding',
+        revision: 1,
+        targetKind: 'RETRIEVAL',
+        title: 'Ground research answers in current sources',
+        hypothesis: 'Retrieval misses are causing unsupported recommendations.',
+        proposedChange: 'Require current-source retrieval before each recommendation.',
+        validationPlan: 'Replay affected cases and compare outcomes before any rollout.',
+      },
+      { credential: improvementCredential },
+    )
+
+    expect(prepareAgentImprovement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'target-agent-1',
+        actor: expect.objectContaining({
+          agentIdentityId: 'review-agent-1',
+          capability: 'agent-improvements:propose',
+          credentialId: 'credential-1',
+        }),
+      }),
+      database,
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.agent-improvement-proposal',
+      data: {
+        approvalRequired: true,
+        implementationRequiredAfterApproval: true,
+        agentBehaviorChanged: false,
+        agentAuthorityChanged: false,
+      },
+    })
+    expect(publishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          eventType: 'agent-improvement.proposal-created',
+          linkedObjectId: 'proposal-1',
+        }),
+      }),
+    )
   })
 
   it('consumes an exact one-shot grant and uses the canonical machine-attributed draft action', async () => {

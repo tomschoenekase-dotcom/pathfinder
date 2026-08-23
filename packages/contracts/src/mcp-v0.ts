@@ -54,6 +54,8 @@ export const McpCapability = z.enum([
   'readiness:read',
   'questions:read',
   'outcomes:read',
+  'agent-improvements:read',
+  'agent-improvements:propose',
   'accounts:read',
   'knowledge:read',
   'knowledge:draft',
@@ -384,6 +386,14 @@ const resourceSeeds: readonly ResourceSeed[] = [
     'venue',
     'outcomes:read',
   ],
+  [
+    'agent-improvements',
+    'Agent improvement proposals',
+    'Versioned, evidence-backed agent improvement proposals and human review state.',
+    'pathfinder://clients/{clientId}/venues/{venueId}/agent-improvements',
+    'venue',
+    'agent-improvements:read',
+  ],
 ]
 
 export const McpResourceKind = z.enum(resourceSeeds.map(([name]) => name) as [string, ...string[]])
@@ -566,6 +576,37 @@ export const McpLocationDraftProposalInput = McpRequestedScope.extend({
   draft: VenueLocationDraftFieldsSchema,
 }).strict()
 export type McpLocationDraftProposalInput = z.infer<typeof McpLocationDraftProposalInput>
+
+export const McpAgentImprovementProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  targetAgentIdentityId: Identifier,
+  outcomeObservationIds: z.array(Identifier).min(1).max(50),
+  proposalKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(191)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  revision: z.number().int().min(1).max(10_000),
+  supersedesProposalId: Identifier.optional(),
+  targetKind: z.enum([
+    'INSTRUCTIONS',
+    'ROUTING',
+    'RETRIEVAL',
+    'SKILL',
+    'WORKFLOW',
+    'TOOLING',
+    'MODEL_SELECTION',
+  ]),
+  title: z.string().trim().min(3).max(191),
+  hypothesis: z.string().trim().min(10).max(2000),
+  proposedChange: z.string().trim().min(10).max(10000),
+  validationPlan: z.string().trim().min(10).max(5000),
+}).strict()
+export type McpAgentImprovementProposalInput = z.infer<typeof McpAgentImprovementProposalInput>
 
 export const McpCustomerAccessPreparationInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
@@ -764,6 +805,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.list_gaps'
   | 'torchiko.knowledge.propose_correction'
   | 'torchiko.locations.propose_draft'
+  | 'torchiko.agent_improvements.propose'
   | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
   | 'torchiko.reports.get_lifecycle'
@@ -1191,6 +1233,74 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'locations:propose', 'interaction') },
+  },
+  {
+    name: 'torchiko.agent_improvements.propose',
+    title: 'Propose an evidence-backed agent improvement',
+    description:
+      'Prepare one versioned improvement hypothesis from exact outcome observations for human review. Approval never applies the change or expands agent authority.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        targetAgentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        outcomeObservationIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 120 },
+        },
+        proposalKey: { type: 'string', minLength: 1, maxLength: 191 },
+        revision: { type: 'integer', minimum: 1, maximum: 10000 },
+        supersedesProposalId: { type: 'string', minLength: 1, maxLength: 120 },
+        targetKind: {
+          type: 'string',
+          enum: [
+            'INSTRUCTIONS',
+            'ROUTING',
+            'RETRIEVAL',
+            'SKILL',
+            'WORKFLOW',
+            'TOOLING',
+            'MODEL_SELECTION',
+          ],
+        },
+        title: { type: 'string', minLength: 3, maxLength: 191 },
+        hypothesis: { type: 'string', minLength: 10, maxLength: 2000 },
+        proposedChange: { type: 'string', minLength: 10, maxLength: 10000 },
+        validationPlan: { type: 'string', minLength: 10, maxLength: 5000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'targetAgentIdentityId',
+        'outcomeObservationIds',
+        'proposalKey',
+        'revision',
+        'targetKind',
+        'title',
+        'hypothesis',
+        'proposedChange',
+        'validationPlan',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': security('venue', 'agent-improvements:propose', 'interaction'),
+    },
   },
   {
     name: 'torchiko.reports.get_lifecycle',

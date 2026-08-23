@@ -166,6 +166,8 @@ describe('tenantIsolationMiddleware', () => {
       'AgentTimelineEvent',
       'AgentMessage',
       'AgentOutcomeObservation',
+      'AgentImprovementProposal',
+      'AgentImprovementProposalEvidence',
       'AgentQuestion',
       'OnboardingQuestionLink',
       'ApprovalRequest',

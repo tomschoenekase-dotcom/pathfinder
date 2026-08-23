@@ -14,6 +14,7 @@
     "test:visual-browser": "pnpm --dir apps/dashboard test:visual-browser",
     "golden-venue:validate": "node scripts/golden-venue/validate.mjs",
     "golden-venue:disposable": "node scripts/run-disposable-golden-venue.mjs",
+    "test:agent-improvement:disposable": "node scripts/run-disposable-agent-improvement.mjs",
     "torchiko": "node scripts/torchiko.mjs",
     "doctor": "node scripts/torchiko.mjs doctor",
     "test:scripts": "node scripts/run-script-tests.mjs",

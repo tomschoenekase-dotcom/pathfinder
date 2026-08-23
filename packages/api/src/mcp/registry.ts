@@ -2,6 +2,7 @@ import {
   assertMcpScope,
   MCP_RESOURCE_SECURITY_BY_KIND,
   McpAskOperatorInput,
+  McpAgentImprovementProposalInput,
   McpAccountContextInput,
   McpAccountHistoryInput,
   McpAccountMeetingGetInput,
@@ -60,6 +61,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.knowledge.list_gaps'
         | 'torchiko.knowledge.propose_correction'
         | 'torchiko.locations.propose_draft'
+        | 'torchiko.agent_improvements.propose'
         | 'torchiko.customer_access.prepare_invitation'
         | 'torchiko.integrations.health'
         | 'torchiko.reports.get_lifecycle'
@@ -116,6 +118,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   proposeLocationDraft: (
     input: McpLocationDraftProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  proposeAgentImprovement: (
+    input: McpAgentImprovementProposalInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   prepareCustomerAccessInvitation: (
@@ -298,6 +304,12 @@ export function createPathfinderMcpRegistry(
           result = await actions.proposeLocationDraft(input, context)
           break
         }
+        case 'torchiko.agent_improvements.propose': {
+          const input = McpAgentImprovementProposalInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.proposeAgentImprovement(input, context)
+          break
+        }
         case 'torchiko.customer_access.prepare_invitation': {
           const input = McpCustomerAccessPreparationInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'venue')
@@ -409,6 +421,7 @@ async function verifyApproval(
     | 'torchiko.knowledge.list_gaps'
     | 'torchiko.knowledge.propose_correction'
     | 'torchiko.locations.propose_draft'
+    | 'torchiko.agent_improvements.propose'
     | 'torchiko.customer_access.prepare_invitation'
     | 'torchiko.integrations.health'
     | 'torchiko.reports.get_lifecycle'

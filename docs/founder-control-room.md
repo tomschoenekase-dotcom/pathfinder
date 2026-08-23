@@ -118,6 +118,19 @@ It requires `operations-readiness:read`, accepts no selectors, observes every ca
 queue, and makes incomplete or unavailable live observation degrade readiness. It does not expose
 job identity, payload, failure detail, tenant/venue attribution, or queue-control authority.
 
+## Reviewed agent improvement loop
+
+Explicit outcome observations can now be assembled into an immutable, versioned improvement
+proposal for one exact tenant, venue, target identity, and task class. The proposal freezes the
+evidence membership, a descriptive baseline, hypothesis, proposed change, and validation plan.
+It appears through the normal approval system and can be read or prepared through the bounded MCP
+catalog by a specifically authorized quality worker.
+
+This is intentionally not automatic self-modification. A proposal decision does not edit prompts,
+change routing or models, enable tools, loosen permissions, or execute production work. Approval
+means the hypothesis may proceed to a separate Codex/admin implementation and validation step.
+Before/after evaluation attachment and any eventual authority-promotion policy remain future work.
+
 ## Mobile behavior
 
 The primary briefing, decision controls, and queue shortcuts use touch-sized controls. Worker

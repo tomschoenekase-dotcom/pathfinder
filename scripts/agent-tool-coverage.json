@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 389,
-    "sha256": "a95c247e358e9675ce391f4695977b6488f859ef5a4e21492d8b9b752df2c438",
+    "count": 391,
+    "sha256": "918c860e060b7491e9d1612f08e45b484fc3ab1b980adba2dd3bcce9fc661e00",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "a95c247e358e9675ce391f4695977b6488f859ef5a4e21492d8b9b752df2c438",
-      "sha256": "54f242807a447c6ff7f2115a624164cf3555354072b7915fa714720218085ed2"
+      "operationInventorySha256": "918c860e060b7491e9d1612f08e45b484fc3ab1b980adba2dd3bcce9fc661e00",
+      "sha256": "ed35acde3980995190ae14a159185b1c2621bc56371bcb01168ef236ea852cbf"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -378,6 +378,22 @@
         "operations": ["admin.listAgentOutcomeObservations"],
         "surfaces": ["resource:pathfinder.outcomes"],
         "decision": "Agents can inspect bounded outcome evidence without recording their own reliability verdict as authoritative evidence.",
+        "evidence": "packages/api/src/mcp/read-actions.test.ts"
+      },
+      {
+        "id": "agent-improvement-proposal-action",
+        "kind": "direct-tool",
+        "operations": ["admin.prepareAgentImprovementProposal"],
+        "surfaces": ["tool:torchiko.agent_improvements.propose"],
+        "decision": "The administrator and agent tool use the same immutable proposal action. Both create review evidence only; neither applies behavior or authority changes.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "bounded-agent-improvement-reads",
+        "kind": "bounded-alternative",
+        "operations": ["admin.listAgentImprovementProposals"],
+        "surfaces": ["resource:pathfinder.agent-improvements"],
+        "decision": "Agents receive exact-venue versioned proposal evidence and review state without operation IDs or reviewer identities.",
         "evidence": "packages/api/src/mcp/read-actions.test.ts"
       }
     ]

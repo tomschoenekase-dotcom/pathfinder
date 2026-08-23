@@ -218,10 +218,11 @@ No active cross-tenant leak, destructive migration, secret exposure, or failing 
 
 ### P2.5 — Turn agent outcomes into a reviewed improvement loop
 
-- **Problem:** Outcome observations are stored but do not influence future behavior.
-- **Evidence:** `AgentOutcomeObservation` and admin form/read surfaces; no runtime consumers that update routing/prompts/reputation.
+- **Status (2026-08-23):** **FOUNDATION IMPLEMENTED.** Exact venue/identity/task-class outcome sets can now become immutable, versioned `AgentImprovementProposal` hypotheses with descriptive baselines, explicit validation plans, normal human approval, admin reads, and MCP read/propose bindings. The disposable database shakedown proves operator- and agent-authored proposals, replay, append-only evidence, and that approval changes neither agent behavior nor authority.
+- **Retained gap:** Applying an approved change and attaching before/after evaluation evidence remain separate Codex/admin work. No runtime consumer rewrites prompts, changes routing/models, or promotes permissions automatically.
+- **Evidence:** `AgentOutcomeObservation`; `AgentImprovementProposal`; `AgentImprovementProposalEvidence`; `prepareAgentImprovementProposalAction`; `torchiko.agent_improvements.propose`; `pathfinder.agent-improvements`; `pnpm test:agent-improvement:disposable`.
 - **Affected system:** Agents, evaluations, model routing.
-- **Recommended change:** Aggregate outcomes by identity/task type, expose acceptance/failure trends, propose versioned instruction/routing changes, require human approval, and compare pre/post evals.
+- **Recommended next change:** Attach separately implemented version references and before/after eval comparisons to approved proposals; define promotion policy only with founder review.
 - **Why it matters:** This makes “improvement” measurable without unsafe self-modification.
 - **Effort:** M
 - **Dependencies:** Enough real runs and outcome labels.

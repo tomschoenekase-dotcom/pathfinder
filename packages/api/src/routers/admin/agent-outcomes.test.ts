@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   bypass: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
   findMany: vi.fn(),
+  findManyProposals: vi.fn(),
   record: vi.fn(),
+  prepareProposal: vi.fn(),
 }))
 
 vi.mock('@pathfinder/db', () => ({
@@ -15,9 +17,21 @@ vi.mock('@pathfinder/db', () => ({
       super(message)
     }
   },
+  AgentImprovementProposalActionError: class AgentImprovementProposalActionError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message)
+    }
+  },
+  prepareAgentImprovementProposalAction: mocks.prepareProposal,
   recordAgentOutcomeAction: mocks.record,
   withTenantIsolationBypass: mocks.bypass,
-  db: { agentOutcomeObservation: { findMany: mocks.findMany } },
+  db: {
+    agentOutcomeObservation: { findMany: mocks.findMany },
+    agentImprovementProposal: { findMany: mocks.findManyProposals },
+  },
 }))
 
 import { router } from '../../core'
@@ -105,6 +119,79 @@ describe('admin agent outcomes router', () => {
           agentRunId: 'run-1',
           agentIdentityId: 'agent-1',
           signalKind: 'HUMAN_REVIEW',
+        }),
+        take: 26,
+      }),
+    )
+  })
+
+  it('prepares a versioned review proposal with session-derived authority', async () => {
+    mocks.prepareProposal.mockResolvedValue({ id: 'proposal-1', replayed: false })
+    const result = await testRouter.createCaller(context()).admin.prepareAgentImprovementProposal({
+      operationId: 'ba99cd03-9310-4aa2-84d7-4fe808b3f0df',
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      outcomeObservationIds: ['outcome-1'],
+      proposalKey: 'research-source-grounding',
+      revision: 1,
+      targetKind: 'RETRIEVAL',
+      title: 'Ground research answers in current sources',
+      hypothesis: 'Retrieval misses are causing unsupported recommendations.',
+      proposedChange: 'Require current-source retrieval before each recommendation.',
+      validationPlan: 'Replay affected cases and compare outcomes before any rollout.',
+    })
+
+    expect(result).toEqual({ id: 'proposal-1', replayed: false })
+    expect(mocks.prepareProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalKey: 'research-source-grounding',
+        actor: { type: 'HUMAN', id: 'operator-1', role: 'PLATFORM_ADMIN' },
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('rejects non-admin improvement proposals before bypassing tenant isolation', async () => {
+    await expect(
+      testRouter.createCaller(context(false)).admin.prepareAgentImprovementProposal({
+        operationId: 'ba99cd03-9310-4aa2-84d7-4fe808b3f0df',
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        agentIdentityId: 'agent-1',
+        outcomeObservationIds: ['outcome-1'],
+        proposalKey: 'research-source-grounding',
+        revision: 1,
+        targetKind: 'RETRIEVAL',
+        title: 'Ground research answers in current sources',
+        hypothesis: 'Retrieval misses are causing unsupported recommendations.',
+        proposedChange: 'Require current-source retrieval before each recommendation.',
+        validationPlan: 'Replay affected cases and compare outcomes before any rollout.',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(mocks.prepareProposal).not.toHaveBeenCalled()
+  })
+
+  it('lists proposals through exact tenant and target filters', async () => {
+    mocks.findManyProposals.mockResolvedValue([])
+    const result = await testRouter.createCaller(context()).admin.listAgentImprovementProposals({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      agentIdentityId: 'agent-1',
+      taskClass: 'research',
+      targetKind: 'RETRIEVAL',
+      limit: 25,
+    })
+
+    expect(result).toEqual({ items: [], nextCursor: null })
+    expect(mocks.findManyProposals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 'tenant-1',
+          venueId: 'venue-1',
+          agentIdentityId: 'agent-1',
+          taskClass: 'research',
+          targetKind: 'RETRIEVAL',
         }),
         take: 26,
       }),

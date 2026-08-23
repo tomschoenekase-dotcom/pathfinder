@@ -16,6 +16,7 @@ import {
   listAccountMeetings,
   listConversationKnowledgeGaps,
   prepareCustomerAccessRequestAction,
+  prepareAgentImprovementProposalAction,
   prepareLocationDraftProposalAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
@@ -44,6 +45,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.list_gaps',
   'torchiko.knowledge.propose_correction',
   'torchiko.locations.propose_draft',
+  'torchiko.agent_improvements.propose',
   'torchiko.customer_access.prepare_invitation',
   'torchiko.integrations.health',
   'torchiko.reports.get_lifecycle',
@@ -87,6 +89,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'listKnowledgeGaps'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
+    | 'proposeAgentImprovement'
     | 'prepareCustomerAccessInvitation'
     | 'integrationHealth'
     | 'reportLifecycle'
@@ -107,6 +110,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
     | 'proposeLocationDraft'
+    | 'proposeAgentImprovement'
     | 'prepareCustomerAccessInvitation'
   > = {
     async verifyApprovalGrant(request, context) {
@@ -440,6 +444,113 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           approvalRequired: true,
           applicationRequiredAfterApproval: true,
           canonicalVenueContentChanged: false,
+        }),
+      }
+    },
+    async proposeAgentImprovement(input, context) {
+      const venueId = input.venueId
+      if (!venueId)
+        throw new McpActionBindingError('Agent improvement proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'agent-improvements:propose' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) {
+        throw new McpActionBindingError('Verified agent improvement worker is unavailable')
+      }
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) {
+        throw new McpActionBindingError('Verified agent improvement worker run is unavailable')
+      }
+
+      const result = await prepareAgentImprovementProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.targetAgentIdentityId,
+          outcomeObservationIds: input.outcomeObservationIds,
+          proposalKey: input.proposalKey,
+          revision: input.revision,
+          ...(input.supersedesProposalId
+            ? { supersedesProposalId: input.supersedesProposalId }
+            : {}),
+          targetKind: input.targetKind,
+          title: input.title,
+          hypothesis: input.hypothesis,
+          proposedChange: input.proposedChange,
+          validationPlan: input.validationPlan,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.id,
+            credentialId: context.credential.credentialId,
+            capability: 'agent-improvements:propose',
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'agent-improvement.proposal-created',
+            sourceSubsystem: 'agent-operations',
+            severity: 'WARNING',
+            title: 'Agent improvement proposal needs review',
+            summary:
+              'An AI worker prepared a versioned, outcome-backed hypothesis. No prompt, model, policy, tool, or authority changed.',
+            actionRequired: true,
+            linkedObjectType: 'agent-improvement-proposal',
+            linkedObjectId: result.id,
+            recommendedAction:
+              'Review the evidence and validation plan. Approval accepts the proposal for separate implementation; it does not apply the change.',
+            deduplicationKey: `agent-improvement-proposal:${result.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.agent-improvement-proposal',
+        summary: result.replayed
+          ? 'Existing improvement proposal returned; agent behavior is unchanged.'
+          : 'Improvement proposal prepared for human review; agent behavior is unchanged.',
+        data: jsonData({
+          proposalId: result.id,
+          approvalRequestId: result.approvalRequestId,
+          replayed: result.replayed,
+          approvalRequired: true,
+          implementationRequiredAfterApproval: true,
+          agentBehaviorChanged: false,
+          agentAuthorityChanged: false,
         }),
       }
     },

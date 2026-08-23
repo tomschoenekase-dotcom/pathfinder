@@ -60,7 +60,8 @@ The bindings expose:
 - tenant feature-flag keys/state without metadata or setter identities;
 - derived readiness counts/state without configuration blobs;
 - venue-scoped agent questions and operator responses without credential or raw execution data; and
-- explicit venue-scoped agent outcome observations without operation IDs or human actor identifiers.
+- explicit venue-scoped agent outcome observations without operation IDs or human actor identifiers; and
+- versioned venue-scoped agent improvement proposals with exact outcome IDs and review state, without operation IDs or reviewer identifiers.
 
 ## Agent-to-operator interaction
 
@@ -78,6 +79,11 @@ paused.
 
 The adapter is exported by `@pathfinder/api/mcp`, but nothing instantiates it in a listener. Write
 actions remain injected separately and default-off at the registry boundary.
+
+`torchiko.agent_improvements.propose` is a review-only interaction. An exactly scoped worker may
+prepare an outcome-backed hypothesis for human review. The tool pauses the proposing run and records
+evidence, but cannot alter prompts, routing, models, tools, permissions, or production behavior.
+Approval accepts the proposal for separately validated implementation; it is not an execution grant.
 
 ## Deliberate limitations
 

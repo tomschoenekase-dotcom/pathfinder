@@ -185,6 +185,8 @@ model Tenant {
   onboardingQuestionLinks        OnboardingQuestionLink[]
   agentMessages                  AgentMessage[]
   agentOutcomeObservations       AgentOutcomeObservation[]
+  agentImprovementProposals      AgentImprovementProposal[]
+  agentImprovementEvidence       AgentImprovementProposalEvidence[]
   approvalDecisions              ApprovalDecision[]
   approvalGrants                 ApprovalGrant[]
   approvalGrantConsumptions      ApprovalGrantConsumption[]
@@ -1299,6 +1301,7 @@ model Venue {
   onboardingQuestionLinks             OnboardingQuestionLink[]
   agentMessages                       AgentMessage[]
   agentOutcomeObservations            AgentOutcomeObservation[]
+  agentImprovementProposals           AgentImprovementProposal[]
   approvalDecisions                   ApprovalDecision[]
   approvalGrants                      ApprovalGrant[]
   approvalGrantConsumptions           ApprovalGrantConsumption[]
@@ -4106,6 +4109,7 @@ model AgentIdentity {
   questions              AgentQuestion[]
   messages               AgentMessage[]
   outcomeObservations    AgentOutcomeObservation[]
+  improvementProposals   AgentImprovementProposal[]
   approvalGrants         ApprovalGrant[]
   grantConsumptions      ApprovalGrantConsumption[]
 
@@ -4265,6 +4269,7 @@ model ApprovalRequest {
   decision              ApprovalDecision?
   billingAgentCommand   BillingAgentCommand?
   customerAccessRequest CustomerAccessRequest?
+  agentImprovementProposal AgentImprovementProposal?
 
   @@unique([id, tenantId])
   @@index([tenantId, createdAt])
@@ -4391,6 +4396,7 @@ model AgentOutcomeObservation {
   venue           Venue                  @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
   agentRun        AgentRun               @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
   agentIdentity   AgentIdentity          @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  improvementEvidence AgentImprovementProposalEvidence[]
 
   @@unique([id, tenantId])
   @@unique([tenantId, operationId], map: "agent_outcome_observations_tenant_operation_key")
@@ -4399,6 +4405,71 @@ model AgentOutcomeObservation {
   @@index([tenantId, agentRunId, createdAt], map: "agent_outcome_observations_run_created_idx")
   @@index([createdAt], map: "agent_outcome_observations_created_idx")
   @@map("agent_outcome_observations")
+}
+
+enum AgentImprovementTargetKind {
+  INSTRUCTIONS
+  ROUTING
+  RETRIEVAL
+  SKILL
+  WORKFLOW
+  TOOLING
+  MODEL_SELECTION
+}
+
+/// Immutable, evidence-backed hypothesis for improving one exact agent/task scope.
+/// Its linked approval reviews the proposal only; it never applies the change.
+model AgentImprovementProposal {
+  id                    String                     @id @default(cuid())
+  operationId           String                     @map("operation_id") @db.Uuid
+  tenantId              String                     @map("tenant_id")
+  venueId               String                     @map("venue_id")
+  agentIdentityId       String                     @map("agent_identity_id")
+  approvalRequestId     String                     @unique @map("approval_request_id")
+  proposalKey           String                     @map("proposal_key") @db.VarChar(191)
+  revision              Int
+  supersedesProposalId  String?                    @map("supersedes_proposal_id")
+  taskClass             String                     @map("task_class") @db.VarChar(100)
+  targetKind            AgentImprovementTargetKind @map("target_kind")
+  title                 String                     @db.VarChar(191)
+  hypothesis            String                     @db.VarChar(2000)
+  proposedChange        String                     @map("proposed_change") @db.VarChar(10000)
+  validationPlan        String                     @map("validation_plan") @db.VarChar(5000)
+  baselineSnapshot      Json                       @map("baseline_snapshot")
+  createdByType         ActorType                  @map("created_by_type")
+  createdById           String                     @map("created_by_id") @db.VarChar(191)
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  tenant                Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue                      @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity         AgentIdentity              @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  approvalRequest       ApprovalRequest            @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersedesProposal    AgentImprovementProposal?  @relation("AgentImprovementProposalRevisions", fields: [supersedesProposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  supersededByProposals AgentImprovementProposal[] @relation("AgentImprovementProposalRevisions")
+  evidence              AgentImprovementProposalEvidence[]
+
+  @@unique([id, tenantId])
+  @@unique([approvalRequestId, tenantId], map: "agent_improvement_proposals_approval_scope_key")
+  @@unique([tenantId, operationId], map: "agent_improvement_proposals_tenant_operation_key")
+  @@unique([tenantId, proposalKey, revision], map: "agent_improvement_proposals_key_revision_key")
+  @@index([tenantId, venueId, createdAt, id], map: "agent_improvement_proposals_scope_created_idx")
+  @@index([tenantId, agentIdentityId, taskClass, createdAt], map: "agent_improvement_proposals_target_created_idx")
+  @@map("agent_improvement_proposals")
+}
+
+/// Exact outcome membership for a proposal. This prevents review summaries from
+/// becoming detached from the immutable observations that justified them.
+model AgentImprovementProposalEvidence {
+  tenantId             String                      @map("tenant_id")
+  proposalId           String                      @map("proposal_id")
+  outcomeObservationId String                      @map("outcome_observation_id")
+  createdAt            DateTime                    @default(now()) @map("created_at")
+  tenant               Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  proposal             AgentImprovementProposal    @relation(fields: [proposalId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  outcomeObservation   AgentOutcomeObservation     @relation(fields: [outcomeObservationId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([proposalId, outcomeObservationId])
+  @@index([tenantId, outcomeObservationId], map: "agent_improvement_evidence_outcome_idx")
+  @@map("agent_improvement_proposal_evidence")
 }
 
 /// A single append-only terminal decision for an ApprovalRequest. Any action

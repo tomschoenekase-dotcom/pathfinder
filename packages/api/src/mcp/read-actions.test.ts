@@ -40,6 +40,7 @@ const credential: VerifiedMcpCredentialScope = {
     'readiness:read',
     'questions:read',
     'outcomes:read',
+    'agent-improvements:read',
   ],
 }
 
@@ -77,6 +78,7 @@ function database() {
     venueReportConfiguration: { findFirst: vi.fn() },
     agentQuestion: { findMany: vi.fn() },
     agentOutcomeObservation: { findMany: vi.fn() },
+    agentImprovementProposal: { findMany: vi.fn() },
     onboardingMilestoneEvent: { findMany: vi.fn() },
   }
 }
@@ -93,6 +95,7 @@ const unavailableWrites: Omit<PathfinderMcpDomainActions, 'read'> = {
   listKnowledgeGaps: vi.fn(),
   proposeKnowledgeCorrection: vi.fn(),
   proposeLocationDraft: vi.fn(),
+  proposeAgentImprovement: vi.fn(),
   prepareCustomerAccessInvitation: vi.fn(),
   integrationHealth: vi.fn(),
   reportLifecycle: vi.fn(),
@@ -765,6 +768,27 @@ describe('MCP v0 concrete read bindings', () => {
     expect(query.where).toMatchObject({ tenantId: 'tenant-1', venueId: 'venue-1' })
     expect(query.select).not.toHaveProperty('operationId')
     expect(query.select).not.toHaveProperty('actorId')
+    expect(query.select).not.toHaveProperty('tenantId')
+    expect(query.select).not.toHaveProperty('venueId')
+  })
+
+  it('returns scoped improvement proposals without operation or reviewer identifiers', async () => {
+    const db = database()
+    db.agentImprovementProposal.findMany.mockResolvedValue([])
+    await readMcpResource(
+      db as never,
+      {
+        resource: 'agent-improvements',
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        limit: 25,
+      },
+      { credential },
+    )
+    const query = db.agentImprovementProposal.findMany.mock.calls[0]![0]
+    expect(query.where).toMatchObject({ tenantId: 'tenant-1', venueId: 'venue-1' })
+    expect(query.select).not.toHaveProperty('operationId')
+    expect(query.select).not.toHaveProperty('createdById')
     expect(query.select).not.toHaveProperty('tenantId')
     expect(query.select).not.toHaveProperty('venueId')
   })

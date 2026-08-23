@@ -49,6 +49,7 @@ describe('Torchiko MCP v0 contracts', () => {
       'pathfinder.readiness',
       'pathfinder.questions',
       'pathfinder.outcomes',
+      'pathfinder.agent-improvements',
     ])
     for (const definition of [...PATHFINDER_MCP_RESOURCES, ...PATHFINDER_MCP_TOOLS]) {
       const security = definition._meta['com.pathfinder/security']

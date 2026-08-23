@@ -1021,6 +1021,14 @@ export type {
 } from './helpers/intake-upload-actions'
 export { AgentOutcomeActionError, recordAgentOutcomeAction } from './helpers/agent-outcome-actions'
 export {
+  AgentImprovementProposalActionError,
+  prepareAgentImprovementProposalAction,
+} from './helpers/agent-improvement-proposal-actions'
+export type {
+  AgentImprovementProposalActionClient,
+  PrepareAgentImprovementProposalInput,
+} from './helpers/agent-improvement-proposal-actions'
+export {
   ProductEntitlementError,
   requireProductEntitlement,
   resolveProductEntitlement,

@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const CONFIRMATION = 'pathfinder_disposable_intake_upload_verification'
 const CONTAINER_PATTERN =
-  /^pathfinder-disposable-(?:intake|golden)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
-const DATABASE_PATTERN = /^pathfinder_disposable_(?:intake_worker|golden_venue)_[a-f0-9]{12}$/u
+  /^pathfinder-disposable-(?:intake|golden|improvement)-(?:postgres|redis|minio|clamav)-[a-f0-9]{12}$/u
+const DATABASE_PATTERN =
+  /^pathfinder_disposable_(?:intake_worker|golden_venue|agent_improvement)_[a-f0-9]{12}$/u
 export const DISPOSABLE_INTAKE_IMAGES = Object.freeze({
   postgres:
     'pgvector/pgvector@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b',
@@ -669,6 +670,42 @@ export async function runDisposableGoldenVenueShakedown(options = {}) {
         expectedPassed: 1,
         environment: {
           RUN_REMOTE_ONBOARDING_E2E_DB_INTEGRATION: '1',
+          OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
+          CRM_BACKGROUND_WORKERS_ENABLED: 'false',
+          INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',
+          WORKER_SCHEDULERS_ENABLED: 'false',
+          PROSPECT_OUTREACH_DELIVERY_ENABLED: 'false',
+          OPERATIONAL_ALERT_DELIVERY_ENABLED: 'false',
+          STRIPE_MODE: 'test',
+          STRIPE_LIVE_MODE_ALLOWED: 'false',
+        },
+      },
+    },
+  })
+}
+
+export async function runDisposableAgentImprovementShakedown(options = {}) {
+  return runDisposableServiceShakedown({
+    ...options,
+    configuration: {
+      resourceFamily: 'improvement',
+      databasePrefix: 'pathfinder_disposable_agent_improvement_',
+      optInEnvironmentKey: 'PATHFINDER_ALLOW_DISPOSABLE_AGENT_IMPROVEMENT_SHAKEDOWN',
+      lifecycleEvent: 'test:agent-improvement:disposable',
+      successAction: 'agent-improvement.review-loop.disposable-shakedown.passed',
+      proofScope: [
+        'exact-outcome-evidence',
+        'versioned-improvement-hypothesis',
+        'human-review-only-approval',
+        'no-agent-authority-mutation',
+        'append-only-proposal-evidence',
+      ],
+      integration: {
+        packageDirectory: 'packages/db',
+        testFile: 'src/helpers/agent-improvement-proposal-disposable.integration.test.ts',
+        expectedPassed: 1,
+        environment: {
+          RUN_AGENT_IMPROVEMENT_DB_INTEGRATION: '1',
           OUTBOUND_PROVIDER_WORKERS_ENABLED: 'false',
           CRM_BACKGROUND_WORKERS_ENABLED: 'false',
           INTAKE_UPLOAD_VERIFICATION_WORKERS_ENABLED: 'false',

@@ -54,6 +54,7 @@ type ReadDb = Pick<
   | 'venueReportConfiguration'
   | 'agentQuestion'
   | 'agentOutcomeObservation'
+  | 'agentImprovementProposal'
   | 'onboardingMilestoneEvent'
   | 'offboardingPlan'
 >
@@ -195,6 +196,8 @@ export async function readMcpResource(
       return readQuestions(db, context.credential.tenantId, input.venueId!, limit, cursor)
     case 'outcomes':
       return readOutcomes(db, context.credential.tenantId, input.venueId!, limit, cursor)
+    case 'agent-improvements':
+      return readAgentImprovements(db, context.credential.tenantId, input.venueId!, limit, cursor)
     default:
       throw new McpReadBindingError(
         'RESOURCE_UNAVAILABLE',
@@ -1436,6 +1439,52 @@ async function readOutcomes(
     },
   })
   return result('outcomes', mapPage(page('outcomes', rows, limit, (row) => row.createdAt)))
+}
+
+async function readAgentImprovements(
+  db: ReadDb,
+  tenantId: string,
+  venueId: string,
+  limit: number,
+  cursor?: CursorPayload,
+): Promise<McpToolResult> {
+  const rows = await db.agentImprovementProposal.findMany({
+    where: { tenantId, venueId, ...cursorWhere(cursor, 'createdAt') },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    select: {
+      id: true,
+      agentIdentityId: true,
+      approvalRequestId: true,
+      proposalKey: true,
+      revision: true,
+      supersedesProposalId: true,
+      taskClass: true,
+      targetKind: true,
+      title: true,
+      hypothesis: true,
+      proposedChange: true,
+      validationPlan: true,
+      baselineSnapshot: true,
+      createdByType: true,
+      createdAt: true,
+      agentIdentity: { select: { id: true, name: true } },
+      approvalRequest: {
+        select: {
+          riskCategory: true,
+          decision: { select: { decision: true, createdAt: true } },
+        },
+      },
+      evidence: {
+        orderBy: { outcomeObservationId: 'asc' },
+        select: { outcomeObservationId: true },
+      },
+    },
+  })
+  return result(
+    'agent-improvements',
+    mapPage(page('agent-improvements', rows, limit, (row) => row.createdAt)),
+  )
 }
 
 function mapPage<T extends Record<string, unknown>>(value: {
