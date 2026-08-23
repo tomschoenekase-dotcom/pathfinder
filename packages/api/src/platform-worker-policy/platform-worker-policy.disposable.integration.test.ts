@@ -8,6 +8,7 @@ import type { TRPCContext } from '../context'
 import { router } from '../core'
 import { adminPlatformWorkerPolicyCredentialsRouter } from '../routers/admin/platform-worker-policy-credentials'
 import { handlePlatformWorkerFounderDecisionRequest } from './http'
+import { handlePlatformWorkerFounderOperatingViewRequest } from './operating-view-http'
 
 const enabled =
   process.env.RUN_PLATFORM_WORKER_POLICY_DB_INTEGRATION === '1' &&
@@ -18,6 +19,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
 
   it('issues dark, activates, reads exact founder truth, audits, and revokes', async () => {
     const founderId = `founder-${randomUUID().slice(0, 8)}`
+    const decisionKey = `ordinary-engineering-authority-${randomUUID().slice(0, 8)}`
     await applyFounderDecisionPacketAction({
       actor: { type: 'HUMAN', actorId: founderId, role: 'PLATFORM_ADMIN' },
       packet: {
@@ -28,7 +30,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
         sourceRef: 'disposable://platform-policy-proof',
         decisions: [
           {
-            key: 'ordinary-engineering-authority',
+            key: decisionKey,
             title: 'Ordinary engineering authority',
             summary: 'Codex may make reversible internal engineering choices.',
             decision: 'Make the best reasonable technical decision, test it, and keep moving.',
@@ -51,7 +53,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
       operationId: randomUUID(),
       workerId: 'edith-primary',
       label: 'Disposable EDITH policy reader',
-      capabilities: ['founder-decisions:read'],
+      capabilities: ['founder-decisions:read', 'founder-operating-view:read'],
       expiresAt: null,
     })
     expect(issued.credential.enabled).toBe(false)
@@ -61,7 +63,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
         new Request('http://localhost/api/platform-worker/founder-decisions', {
           method: 'POST',
           headers: { authorization: `Bearer ${issued.plaintextSecret}` },
-          body: JSON.stringify({ keys: ['ordinary-engineering-authority'] }),
+          body: JSON.stringify({ keys: [decisionKey] }),
         }),
       ),
     ).resolves.toMatchObject({ status: 401 })
@@ -76,7 +78,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
       new Request('http://localhost/api/platform-worker/founder-decisions', {
         method: 'POST',
         headers: { authorization: `Bearer ${issued.plaintextSecret}` },
-        body: JSON.stringify({ keys: ['ordinary-engineering-authority'] }),
+        body: JSON.stringify({ keys: [decisionKey] }),
       }),
     )
     expect(policyResponse.status).toBe(200)
@@ -84,7 +86,7 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
       complete: true,
       decisions: [
         {
-          key: 'ordinary-engineering-authority',
+          key: decisionKey,
           decision: 'Make the best reasonable technical decision, test it, and keep moving.',
         },
       ],
@@ -95,10 +97,38 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
     })
     expect(current.lastUsedAt).not.toBeNull()
 
+    const operatingResponse = await handlePlatformWorkerFounderOperatingViewRequest(
+      new Request('http://localhost/api/platform-worker/founder-operating-view', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${issued.plaintextSecret}` },
+        body: JSON.stringify({ limit: 10 }),
+      }),
+    )
+    expect(operatingResponse.status).toBe(200)
+    await expect(operatingResponse.json()).resolves.toMatchObject({
+      schemaVersion: 1,
+      scope: 'PLATFORM',
+      effect: 'READ_ONLY',
+      authority: {
+        transport: 'PLATFORM_WORKER_CREDENTIAL',
+        customerCredentialCompatible: false,
+        canExecute: false,
+        canApprove: false,
+        canAcknowledge: false,
+        canMutatePolicy: false,
+      },
+      autonomyEvidence: {
+        policy: { approvalReductionRecommended: false },
+      },
+    })
+
+    const refreshed = await db.platformWorkerPolicyCredential.findUniqueOrThrow({
+      where: { id: issued.credential.id },
+    })
     const revoked = await caller.credentials.revokePlatformWorkerPolicyCredential({
       operationId: randomUUID(),
-      credentialId: current.id,
-      expectedUpdatedAt: current.updatedAt.toISOString(),
+      credentialId: refreshed.id,
+      expectedUpdatedAt: refreshed.updatedAt.toISOString(),
       reason: 'PROOF_COMPLETE',
     })
     expect(revoked.credential).toMatchObject({ enabled: false, revokedAt: expect.any(Date) })
@@ -106,16 +136,19 @@ describe.skipIf(!enabled)('platform worker policy disposable lifecycle', () => {
       new Request('http://localhost/api/platform-worker/founder-decisions', {
         method: 'POST',
         headers: { authorization: `Bearer ${issued.plaintextSecret}` },
-        body: JSON.stringify({ keys: ['ordinary-engineering-authority'] }),
+        body: JSON.stringify({ keys: [decisionKey] }),
       }),
     )
     expect(denied.status).toBe(401)
     expect(
       await db.auditLog.count({
         where: {
-          targetType: { in: ['PlatformWorkerPolicyCredential', 'FounderDecisionKeySet'] },
+          OR: [{ actorId: founderId }, { credentialId: issued.credential.id }],
+          targetType: {
+            in: ['PlatformWorkerPolicyCredential', 'FounderDecisionKeySet', 'FounderOperatingView'],
+          },
         },
       }),
-    ).toBe(4)
+    ).toBe(5)
   })
 })

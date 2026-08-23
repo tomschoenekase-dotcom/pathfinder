@@ -26,7 +26,7 @@ import {
 import { listAttentionWorkers } from './attention-worker-health'
 
 // Bounded metadata-only platform triage; no payloads, artifacts, messages, or raw provider errors.
-async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
+export async function readAttentionConsole(operatorUserId: string, query: AttentionConsoleInput) {
   return withTenantIsolationBypass(async () => {
     const now = new Date()
     const take = query.limit + 1

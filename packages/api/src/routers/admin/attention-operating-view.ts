@@ -4,11 +4,16 @@ import type { deriveFounderBriefing } from './attention-briefing'
 type FounderBriefing = ReturnType<typeof deriveFounderBriefing>
 type AgentTrustEvidence = ReturnType<typeof deriveAgentTrustEvidence>
 
-export function deriveFounderOperatingView(input: {
-  generatedAt: Date
-  briefing: FounderBriefing
-  agentTrustEvidence: AgentTrustEvidence
-}) {
+export function deriveFounderOperatingView(
+  input: {
+    generatedAt: Date
+    briefing: FounderBriefing
+    agentTrustEvidence: AgentTrustEvidence
+  },
+  transport:
+    | 'PLATFORM_ADMIN_SESSION_ONLY'
+    | 'PLATFORM_WORKER_CREDENTIAL' = 'PLATFORM_ADMIN_SESSION_ONLY',
+) {
   return {
     schemaVersion: 1 as const,
     generatedAt: input.generatedAt,
@@ -21,7 +26,7 @@ export function deriveFounderOperatingView(input: {
     boundedSnapshot: input.briefing.boundedSnapshot,
     autonomyEvidence: input.agentTrustEvidence,
     authority: {
-      transport: 'PLATFORM_ADMIN_SESSION_ONLY' as const,
+      transport,
       customerCredentialCompatible: false as const,
       canExecute: false as const,
       canApprove: false as const,

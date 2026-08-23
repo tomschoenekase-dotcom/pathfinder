@@ -73,7 +73,10 @@ export async function issuePlatformWorkerPolicyCredentialAction(
       operationId: z.string().uuid(),
       workerId: z.string().trim().min(1).max(191),
       label: z.string().trim().min(1).max(200),
-      capabilities: z.array(PlatformWorkerPolicyCapability).min(1).max(1),
+      capabilities: z
+        .array(PlatformWorkerPolicyCapability)
+        .min(1)
+        .max(PlatformWorkerPolicyCapability.options.length),
       expiresAt: z.date().nullable(),
       actor,
     })
@@ -357,6 +360,14 @@ export async function verifyPlatformWorkerPolicyCredential(
   plaintext: string,
   client: PlatformWorkerPolicyCredentialClient = db,
 ) {
+  return verifyPlatformWorkerPolicyCredentialCapability(plaintext, 'founder-decisions:read', client)
+}
+
+export async function verifyPlatformWorkerPolicyCredentialCapability(
+  plaintext: string,
+  capability: z.infer<typeof PlatformWorkerPolicyCapability>,
+  client: PlatformWorkerPolicyCredentialClient = db,
+) {
   if (!/^pf_platform_[A-Za-z0-9_-]{43}$/u.test(plaintext))
     throw new PlatformWorkerPolicyCredentialError('INACTIVE')
   const credential = await client.platformWorkerPolicyCredential.findFirst({
@@ -365,7 +376,7 @@ export async function verifyPlatformWorkerPolicyCredential(
       enabled: true,
       revokedAt: null,
       OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-      capabilities: { has: 'founder-decisions:read' },
+      capabilities: { has: capability },
     },
     select: { id: true, workerId: true, capabilities: true, secretHash: true },
   })

@@ -40,7 +40,10 @@ export const adminPlatformWorkerPolicyCredentialsRouter = router({
         operationId: z.string().uuid(),
         workerId: z.string().trim().min(1).max(191),
         label: z.string().trim().min(1).max(200),
-        capabilities: z.array(PlatformWorkerPolicyCapability).min(1).max(1),
+        capabilities: z
+          .array(PlatformWorkerPolicyCapability)
+          .min(1)
+          .max(PlatformWorkerPolicyCapability.options.length),
         expiresAt: z.string().datetime({ offset: true }).nullable(),
       }),
     )

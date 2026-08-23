@@ -6,6 +6,7 @@ const PUBLIC_ROUTES = [
   '/api/agent-bridge',
   '/api/mcp',
   '/api/platform-worker/founder-decisions',
+  '/api/platform-worker/founder-operating-view',
   '/api/integrations/gmail/pubsub',
   '/api/webhooks/clerk',
   '/api/webhooks/stripe',

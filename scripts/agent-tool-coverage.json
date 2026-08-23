@@ -38,7 +38,7 @@
       "pattern": "PlatformWorkerPolicy",
       "agentCoverage": "partial",
       "developerCoverage": "full",
-      "decision": "A separately authenticated platform worker may read exact current founder decisions only; credential lifecycle and every mutation remain human platform-admin controlled.",
+      "decision": "A separately authenticated platform worker may read exact current founder decisions and the bounded read-only Founder operating view; credential lifecycle and every mutation remain human platform-admin controlled.",
       "evidence": "docs/platform-worker-founder-policy.md"
     },
     {

@@ -93,14 +93,16 @@ policy boundary.
 ## Machine-readable operating view
 
 `admin.founderOperatingView` returns a compact, versioned projection of the same canonical
-briefing, change digest, bounded metrics, and autonomy evidence used by the Control Room. It is
-read-only and explicitly reports that it cannot execute, approve, acknowledge, or mutate policy.
-The current transport requires an authenticated platform-admin session and is not compatible with
-tenant/customer MCP credentials.
+briefing, change digest, bounded metrics, and autonomy evidence used by the Control Room. The
+platform-worker boundary exposes that projection at
+`POST /api/platform-worker/founder-operating-view` behind a separately activated
+`pf_platform_` credential with `founder-operating-view:read`. Both transports explicitly report
+that they cannot execute, approve, acknowledge, or mutate policy.
 
-This provides an AI-friendly application contract without widening the customer credential model
-or creating a generic cross-tenant super-admin tool. A future platform-worker transport can bind to
-this projection only after receiving its own explicit authentication and authorization design.
+The worker transport is deliberately separate from tenant/customer MCP and does not widen that
+credential model into a generic cross-tenant customer tool. Every successful read is strictly
+audited; the endpoint fails closed when authentication, snapshot construction, or audit persistence
+is unavailable. Credential issuance and activation remain explicit platform-admin actions.
 
 ## Mobile behavior
 
