@@ -12,5 +12,8 @@ test('keeps the Golden Venue lifecycle and disposable-proof scope machine valida
   })
 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-  assert.match(result.stdout, /13 phases; 7 failure injections; 11 disposable phases/u)
+  assert.match(
+    result.stdout,
+    /13 phases; 7 disposable failure injections verified by contract; 11 disposable phases/u,
+  )
 })

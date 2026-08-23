@@ -18,9 +18,13 @@ Use only disposable local infrastructure or an explicitly authorized synthetic s
    provider workers disabled; it proves routing, retrieval, persistence, ownership, and analytics,
    **not** live-provider answer quality. It also does not prove offboarding execution, customer
    cancellation, revocation, deletion, or export artifact finalization.
-4. For an authorized synthetic staging seed, satisfy every host/database confirmation required by
+4. Treat its `failureScope` output as the retained seven-class matrix. It proves founder-governed
+   provider exclusion before generation dispatch, a shared-Redis rate limit, infected upload
+   rejection, exact duplicate replay, fenced expired-worker takeover, durable report-worker failure,
+   and terminal ambiguity with no provider redispatch.
+5. For an authorized synthetic staging seed, satisfy every host/database confirmation required by
    `assertStagingSeedTarget`, then run the fixture's `seedCommand`.
-5. Reset shared staging only through an approved, recoverable data procedure. Never broad-delete a
+6. Reset shared staging only through an approved, recoverable data procedure. Never broad-delete a
    shared staging or production database.
 
 ## Lifecycle evidence checklist
@@ -29,7 +33,7 @@ For each required phase, record timestamp, actor/surface, stable record ID, URL 
 
 Ask every expected fixture question. Record the assistant answer and source records. A text match alone is not grounding evidence.
 
-## Failure injection
+## Failure injection contract
 
 - Provider outage: disable provider access before dispatch; expect `PROVIDER_UNAVAILABLE` and no ambiguous retry.
 - Rate limit: exhaust a disposable rate bucket; expect `RATE_LIMITED` and a bounded retry.
@@ -39,4 +43,6 @@ Ask every expected fixture question. Record the assistant answer and source reco
 - Report failure: inject a deterministic provider failure and verify failed/stuck visibility.
 - Ambiguous provider outcome: fail persistence after dispatch; expect history reconciliation and no automatic provider retry.
 
-Provider-backed phases must be marked `UNVERIFIED_PROVIDER_DISABLED` unless a spend-bounded authorized provider smoke actually succeeds. Never fake success.
+These seven failure classes run provider-dark inside the retained disposable flow. Provider-backed
+quality must still be marked `UNVERIFIED_PROVIDER_DISABLED` unless a spend-bounded authorized
+provider smoke actually succeeds. Never fake success.

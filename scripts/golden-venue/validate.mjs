@@ -55,9 +55,11 @@ if (
   !proof.coveredPhases.includes('release') ||
   !proof.coveredPhases.includes('guest-retrieval-chat') ||
   !proof.coveredPhases.includes('feedback') ||
-  proof.remainingPhases.length !== 0
+  proof.remainingPhases.length !== 0 ||
+  new Set(proof.verifiedFailureInjections ?? []).size !== failures.length ||
+  failures.some((failure) => !proof.verifiedFailureInjections.includes(failure))
 )
   throw new Error('Golden Venue disposable proof scope must be complete and truthful')
 console.log(
-  `Golden Venue fixture validated: ${fixture.fixtureId}; ${required.length} phases; ${failures.length} failure injections; ${proof.coveredPhases.length} disposable phases verified by contract.`,
+  `Golden Venue fixture validated: ${fixture.fixtureId}; ${required.length} phases; ${failures.length} disposable failure injections verified by contract; ${proof.coveredPhases.length} disposable phases verified by contract.`,
 )

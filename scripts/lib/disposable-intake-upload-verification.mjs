@@ -603,6 +603,7 @@ export async function runDisposableServiceShakedown({
       services: ['postgresql', 'redis', 'minio', 'clamav'],
       outboundProviderWorkersEnabled: false,
       ...(configuration.proofScope ? { proofScope: configuration.proofScope } : {}),
+      ...(configuration.failureScope ? { failureScope: configuration.failureScope } : {}),
       cleanup: 'verified-absent',
     })}\n`,
   )
@@ -651,6 +652,15 @@ export async function runDisposableGoldenVenueShakedown(options = {}) {
         'report-publish-read',
         'routine-update-publish-read',
         'offboarding-draft-export-preview',
+      ],
+      failureScope: [
+        'provider-outage',
+        'rate-limit',
+        'bad-upload',
+        'duplicate-request',
+        'failed-worker',
+        'report-failure',
+        'ambiguous-provider-outcome',
       ],
       integration: {
         packageDirectory: 'packages/api',

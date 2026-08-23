@@ -4,6 +4,7 @@ import { TRPCError } from '@trpc/server'
 
 import {
   AiGatewayError,
+  AiRoutingError,
   generateTextForCapability,
   routeAiCapability,
   setAnthropicClientForTesting,
@@ -479,6 +480,7 @@ export const chatRouter = router({
     if (reservation.state === 'COMPLETE') {
       return {
         response: reservation.response,
+        assistantMessageId: reservation.assistantMessageId,
         sessionId: reservation.sessionId,
         places: reservation.places,
         replayed: true,
@@ -512,6 +514,7 @@ export const chatRouter = router({
     if (claimed.state === 'COMPLETE') {
       return {
         response: claimed.response,
+        assistantMessageId: claimed.assistantMessageId,
         sessionId: claimed.sessionId,
         places: claimed.places,
         replayed: true,
@@ -1058,10 +1061,13 @@ export const chatRouter = router({
           client: ctx.db,
           claim: {
             ...turnOperationBase,
-            failureCode: isAiAdmissionControlError(err) ? 'AI_UNAVAILABLE' : 'PRE_DISPATCH_FAILURE',
+            failureCode:
+              isAiAdmissionControlError(err) || err instanceof AiRoutingError
+                ? 'AI_UNAVAILABLE'
+                : 'PRE_DISPATCH_FAILURE',
           },
         })
-        if (isAiAdmissionControlError(err)) {
+        if (isAiAdmissionControlError(err) || err instanceof AiRoutingError) {
           await recordGuestAiFailure('provider-unavailable')
           throw aiUnavailable()
         }

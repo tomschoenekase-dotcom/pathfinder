@@ -582,6 +582,7 @@ describe('chat router', () => {
         state: 'COMPLETE',
         turnId: '11111111-1111-4111-8111-111111111111',
         sessionId: SESSION_ID,
+        assistantMessageId: 'assistant-message-1',
         response: 'Previously committed response.',
         places: [],
         replayed: true,
@@ -594,6 +595,7 @@ describe('chat router', () => {
 
       expect(result).toEqual({
         response: 'Previously committed response.',
+        assistantMessageId: 'assistant-message-1',
         sessionId: SESSION_ID,
         places: [],
         replayed: true,
@@ -1364,7 +1366,7 @@ describe('chat router', () => {
 
       await expect(caller.chat.send(sendInput)).rejects.toMatchObject({
         code: 'SERVICE_UNAVAILABLE',
-        message: 'The guide could not start this message. Please send it again in a moment.',
+        message: 'The AI service is temporarily unavailable. Please try again later.',
       })
       expect(readActiveUnhealthyAiProviders).toHaveBeenCalledWith(mockDb)
       expect(anthropicCreate).not.toHaveBeenCalled()
@@ -1375,7 +1377,7 @@ describe('chat router', () => {
       ).toHaveLength(0)
       expect(guestTurnActions.fail).toHaveBeenCalledWith(
         expect.objectContaining({
-          claim: expect.objectContaining({ failureCode: 'PRE_DISPATCH_FAILURE' }),
+          claim: expect.objectContaining({ failureCode: 'AI_UNAVAILABLE' }),
         }),
       )
       expect(messageCreate).not.toHaveBeenCalled()

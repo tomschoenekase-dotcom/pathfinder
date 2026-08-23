@@ -23,6 +23,15 @@
     ],
     "partialPhases": ["support", "export-offboarding"],
     "remainingPhases": [],
+    "verifiedFailureInjections": [
+      "provider-outage",
+      "rate-limit",
+      "bad-upload",
+      "duplicate-request",
+      "failed-worker",
+      "report-failure",
+      "ambiguous-provider-outcome"
+    ],
     "providerBacked": false
   },
   "requiredPhases": [

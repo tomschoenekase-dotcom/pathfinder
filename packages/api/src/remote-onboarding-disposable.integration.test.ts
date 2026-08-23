@@ -22,6 +22,7 @@ import { STAFF_INTERVIEW_CONSENT_TEXT } from '@pathfinder/contracts/staff-interv
 import {
   askAgentQuestionAction,
   acquireEmbeddingWork,
+  claimGuestChatTurnAction,
   claimEvaluationRunAttempt,
   claimIntakeUploadVerificationAction,
   createClientOnboardingQuestionAction,
@@ -32,16 +33,20 @@ import {
   db,
   evaluationSnapshotHash,
   finishEvaluationRunAttempt,
+  GUEST_CHAT_TURN_LEASE_MS,
   getIntakeProposalReview,
   hashEvalObservation,
   markEvaluationRunQueued,
+  markGuestChatProviderDispatchedAction,
   recordApprovedPackageEvaluationMilestones,
   recordIntakeUploadPrecheckAction,
   recordOrReplayOnboardingMilestoneEvent,
+  reserveGuestChatTurnAction,
   reserveIntakeUploadAction,
   respondToSupportInformationAction,
   resumeOnboardingQuestionFromSupportAction,
   settleIntakeUploadAuthoritativeVerificationAction,
+  setAiProviderHealthOverrideAction,
   storeKnowledgeEntryEmbeddingForScope,
   withTenantIsolationBypass,
 } from '@pathfinder/db'
@@ -90,7 +95,7 @@ const testRouter = router({
   venuePackage: venuePackageRouter,
 })
 
-describe.skipIf(!enabled)('remote onboarding twenty-step disposable lifecycle', () => {
+describe.skipIf(!enabled)('Golden Venue lifecycle and seven-class failure matrix', () => {
   afterAll(async () => {
     _setAnthropicClientForTesting(null)
     setOpenAiEmbeddingsClientForTesting(null)
@@ -1016,7 +1021,10 @@ describe.skipIf(!enabled)('remote onboarding twenty-step disposable lifecycle', 
         expect.arrayContaining([expect.objectContaining({ id: approved.id, venueId })]),
       )
       await expect(
-        db.venue.findFirstOrThrow({ where: { id: venueId, tenantId }, select: { isActive: true } }),
+        db.venue.findFirstOrThrow({
+          where: { id: venueId, tenantId },
+          select: { isActive: true },
+        }),
       ).resolves.toEqual(activeBeforeOffboarding)
       await expect(
         db.offboardingRevocationEvidence.count({ where: { tenantId, planId: draftPlan.id } }),
@@ -1024,6 +1032,375 @@ describe.skipIf(!enabled)('remote onboarding twenty-step disposable lifecycle', 
       await expect(
         db.offboardingExportArtifact.count({ where: { tenantId, planId: draftPlan.id } }),
       ).resolves.toBe(0)
+
+      // Failure matrix A — duplicate request: the exact committed operation replays from
+      // durable evidence without another embedding or generation dispatch.
+      const embeddingCallsBeforeReplay = openAiCreate.mock.calls.length
+      await expect(
+        publicCaller.chat.send({
+          operationId,
+          venueId,
+          anonymousToken,
+          message: 'Which entrance has the step-free route?',
+        }),
+      ).resolves.toMatchObject({
+        response: 'Use the Oak Street entrance for the step-free route.',
+        assistantMessageId,
+        sessionId: guestTurn.sessionId,
+        replayed: true,
+      })
+      expect(openAiCreate).toHaveBeenCalledTimes(embeddingCallsBeforeReplay)
+      expect(anthropicCreate).toHaveBeenCalledTimes(1)
+
+      // Failure matrix B — rate limit: the shared Redis boundary admits exactly 30 feedback
+      // requests in the fixed window and rejects the next request without another write.
+      for (let attempt = 1; attempt < 30; attempt += 1) {
+        await publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: `Synthetic bounded replay ${attempt}`,
+        })
+      }
+      await expect(
+        publicCaller.feedback.submit({
+          venueId,
+          anonymousToken,
+          messageId: assistantMessageId,
+          rating: 'HELPFUL',
+          reason: 'This request must be rate limited.',
+        }),
+      ).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+      await expect(
+        db.analyticsEvent.count({
+          where: {
+            tenantId,
+            venueId,
+            sessionId: guestTurn.sessionId,
+            eventType: 'chat.response.feedback',
+          },
+        }),
+      ).resolves.toBe(30)
+
+      // Failure matrix C — bad upload: an infected disposable object remains rejected and
+      // produces no reviewable intake run.
+      const rejectedBytes = Buffer.from('synthetic infected upload evidence', 'utf8')
+      const rejectedSha256 = createHash('sha256').update(rejectedBytes).digest('hex')
+      const rejectedGeneration = randomUUID()
+      const rejectedReservation = await reserveIntakeUploadAction({
+        tenantId,
+        venueId,
+        actor,
+        request: {
+          requestId: randomUUID(),
+          displayName: 'Synthetic rejected upload',
+          fileName: 'synthetic-rejected.png',
+          mimeType: 'image/png',
+          category: 'OTHER',
+          byteSize: rejectedBytes.byteLength,
+          sha256: rejectedSha256,
+        },
+        trustedObjectIdentity: {
+          objectKey: `intake-quarantine/${randomUUID()}`,
+          objectGeneration: rejectedGeneration,
+        },
+      })
+      const rejectedPrecheckClaim = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: rejectedReservation.upload.id,
+        actor,
+        claimId: rejectedPrecheckClaim,
+      })
+      await recordIntakeUploadPrecheckAction({
+        tenantId,
+        venueId,
+        uploadId: rejectedReservation.upload.id,
+        actor,
+        claimId: rejectedPrecheckClaim,
+        verified: {
+          objectGeneration: rejectedGeneration,
+          storageVersionId: `rejected-version-${suffix}`,
+          mimeType: 'image/png',
+          byteSize: rejectedBytes.byteLength,
+          sha256: rejectedSha256,
+        },
+        evidence: {
+          engine: 'synthetic-magic-bytes',
+          engineVersion: '1',
+          verdictHash: createHash('sha256').update('rejected-precheck').digest('hex'),
+          computedByteSize: rejectedBytes.byteLength,
+          computedSha256: rejectedSha256,
+        },
+      })
+      const rejectedAuthoritativeClaim = randomUUID()
+      await claimIntakeUploadVerificationAction({
+        tenantId,
+        venueId,
+        uploadId: rejectedReservation.upload.id,
+        actor,
+        claimId: rejectedAuthoritativeClaim,
+      })
+      await expect(
+        settleIntakeUploadAuthoritativeVerificationAction({
+          tenantId,
+          venueId,
+          uploadId: rejectedReservation.upload.id,
+          actor,
+          claimId: rejectedAuthoritativeClaim,
+          malware: {
+            verdict: 'INFECTED',
+            engine: 'synthetic-clamav',
+            engineVersion: '1',
+            verdictHash: createHash('sha256').update('synthetic-infected').digest('hex'),
+            computedByteSize: rejectedBytes.byteLength,
+            computedSha256: rejectedSha256,
+          },
+        }),
+      ).resolves.toMatchObject({ nextAction: 'RESELECT_FILE', replayed: false })
+      await expect(
+        db.intakeUpload.findFirstOrThrow({
+          where: { id: rejectedReservation.upload.id, tenantId, venueId },
+          select: { status: true, intakeRunId: true },
+        }),
+      ).resolves.toEqual({ status: 'REJECTED', intakeRunId: null })
+
+      // Failure matrix D — provider outage: a founder-governed unhealthy Anthropic route
+      // fails as provider unavailable before generation dispatch and is then explicitly restored.
+      const providerControl = await setAiProviderHealthOverrideAction({
+        provider: 'anthropic',
+        unhealthy: true,
+        reason: 'Synthetic Golden Venue provider outage',
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+        expectedUpdatedAt: null,
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+      const outageToken = randomUUID()
+      const outageOperationId = randomUUID()
+      const generationCallsBeforeOutage = anthropicCreate.mock.calls.length
+      await expect(
+        publicCaller.chat.send({
+          operationId: outageOperationId,
+          venueId,
+          anonymousToken: outageToken,
+          message: 'Is the guide available?',
+        }),
+      ).rejects.toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'The AI service is temporarily unavailable. Please try again later.',
+      })
+      expect(anthropicCreate).toHaveBeenCalledTimes(generationCallsBeforeOutage)
+      await expect(
+        db.guestChatTurn.findFirstOrThrow({
+          where: { tenantId, venueId, requestId: outageOperationId },
+          select: { status: true, failureCode: true },
+        }),
+      ).resolves.toEqual({ status: 'FAILED', failureCode: 'AI_UNAVAILABLE' })
+      await setAiProviderHealthOverrideAction({
+        provider: 'anthropic',
+        unhealthy: false,
+        reason: 'Synthetic Golden Venue provider restored',
+        expiresAt: null,
+        expectedUpdatedAt: providerControl.updatedAt,
+        actor: { type: 'HUMAN', id: operatorId, role: 'PLATFORM_ADMIN' },
+      })
+
+      const reserveFailureTurn = async (label: string) => {
+        const token = randomUUID()
+        const requestId = randomUUID()
+        await publicCaller.chat.session({ venueId, anonymousToken: token })
+        const request = {
+          tenantId,
+          venueId,
+          anonymousToken: token,
+          requestId,
+          visitorId: null,
+          message: label,
+          language: null,
+          lat: null,
+          lng: null,
+          retainLocation: false,
+          experienceScope: 'PUBLIC' as const,
+        }
+        const reservation = await reserveGuestChatTurnAction({ client: db, request })
+        if (reservation.state !== 'RESERVED') {
+          throw new Error(`Failure turn was not reserved: ${reservation.state}`)
+        }
+        const claimId = randomUUID()
+        const claimed = await claimGuestChatTurnAction({
+          client: db,
+          claim: {
+            tenantId,
+            venueId,
+            anonymousToken: token,
+            requestId,
+            turnId: reservation.turnId,
+            claimId,
+          },
+        })
+        if (claimed.state !== 'GENERATING') {
+          throw new Error(`Failure turn was not claimed: ${claimed.state}`)
+        }
+        return { token, requestId, request, reservation, claimId, claimed }
+      }
+
+      // Failure matrix E — failed worker: an undispatched expired owner is fenced out and a new
+      // worker takes over the exact turn without creating a duplicate operation.
+      const failedWorker = await reserveFailureTurn('Synthetic failed worker turn')
+      const recoveredClaimId = randomUUID()
+      const recoveredAt = new Date(Date.now() + GUEST_CHAT_TURN_LEASE_MS + 1_000)
+      await expect(
+        claimGuestChatTurnAction({
+          client: db,
+          claim: {
+            tenantId,
+            venueId,
+            anonymousToken: failedWorker.token,
+            requestId: failedWorker.requestId,
+            turnId: failedWorker.reservation.turnId,
+            claimId: recoveredClaimId,
+          },
+          now: recoveredAt,
+        }),
+      ).resolves.toMatchObject({
+        state: 'GENERATING',
+        turnId: failedWorker.reservation.turnId,
+        claimId: recoveredClaimId,
+        replayed: false,
+      })
+      await expect(
+        db.guestChatTurn.count({
+          where: { tenantId, venueId, requestId: failedWorker.requestId },
+        }),
+      ).resolves.toBe(1)
+
+      // Failure matrix F — ambiguous provider outcome: an expired unobserved generation dispatch
+      // becomes terminal ambiguity and cannot be claimed or dispatched again.
+      const ambiguous = await reserveFailureTurn('Synthetic ambiguous provider turn')
+      const generationOperation = ambiguous.claimed.providerOperations.find(
+        (operation) => operation.kind === 'RESPONSE_GENERATION',
+      )
+      if (!generationOperation) throw new Error('Ambiguous turn lacks generation reservation')
+      await markGuestChatProviderDispatchedAction({
+        client: db,
+        operation: {
+          tenantId,
+          venueId,
+          anonymousToken: ambiguous.token,
+          requestId: ambiguous.requestId,
+          turnId: ambiguous.reservation.turnId,
+          claimId: ambiguous.claimId,
+          kind: 'RESPONSE_GENERATION',
+        },
+      })
+      const ambiguousAt = new Date(Date.now() + GUEST_CHAT_TURN_LEASE_MS + 1_000)
+      await expect(
+        reserveGuestChatTurnAction({ client: db, request: ambiguous.request, now: ambiguousAt }),
+      ).resolves.toMatchObject({
+        state: 'AMBIGUOUS',
+        turnId: ambiguous.reservation.turnId,
+        replayed: true,
+      })
+      await expect(
+        claimGuestChatTurnAction({
+          client: db,
+          claim: {
+            tenantId,
+            venueId,
+            anonymousToken: ambiguous.token,
+            requestId: ambiguous.requestId,
+            turnId: ambiguous.reservation.turnId,
+            claimId: randomUUID(),
+          },
+          now: ambiguousAt,
+        }),
+      ).rejects.toMatchObject({ code: 'UNKNOWN_PROVIDER_OUTCOME' })
+      await expect(
+        db.guestChatProviderOperation.findFirstOrThrow({
+          where: {
+            tenantId,
+            venueId,
+            turnId: ambiguous.reservation.turnId,
+            kind: 'RESPONSE_GENERATION',
+          },
+          select: { status: true, outcomeCode: true },
+        }),
+      ).resolves.toEqual({
+        status: 'TERMINAL_AMBIGUOUS',
+        outcomeCode: 'LEASE_EXPIRED_AFTER_DISPATCH',
+      })
+
+      // Failure matrix G — report failure: the real worker consumes a durable request, records
+      // a failed job, and leaves the report visibly FAILED when deterministic generation rejects.
+      const failedReportRequest = await admin.generateWeeklyReportDraft({
+        tenantId,
+        venueId,
+        weekStart: '2026-08-17T00:00:00.000Z',
+        weekEnd: '2026-08-22T23:59:59.999Z',
+        title: 'Synthetic failing Golden Venue report',
+        requestId: randomUUID(),
+      })
+      // Keep the worker package outside the API TypeScript root while exercising its runtime
+      // module in this repository-level disposable proof.
+      const weeklyReportWorkerPath = '../../../apps/workers/src/processors/weekly-report'
+      const weeklyReportWorker = (await import(/* @vite-ignore */ weeklyReportWorkerPath)) as {
+        _setAnthropicClientForTesting(client: AnthropicMessagesClient | null): void
+        processWeeklyReportJob(
+          payload: {
+            reportId: string
+            tenantId: string
+            venueId: string
+            weekStart: string
+            weekEnd: string
+          },
+          execution: { bullJobId: string; attemptNumber: number; maxAttempts: number },
+        ): Promise<void>
+      }
+      weeklyReportWorker._setAnthropicClientForTesting({
+        messages: {
+          create: vi.fn().mockRejectedValue(new Error('Synthetic report provider failure')),
+        },
+      } as AnthropicMessagesClient)
+      try {
+        await expect(
+          weeklyReportWorker.processWeeklyReportJob(
+            {
+              reportId: failedReportRequest.reportId,
+              tenantId,
+              venueId,
+              weekStart: '2026-08-17T00:00:00.000Z',
+              weekEnd: '2026-08-22T23:59:59.999Z',
+            },
+            {
+              bullJobId: `golden-venue-report-failure-${suffix}`,
+              attemptNumber: 1,
+              maxAttempts: 1,
+            },
+          ),
+        ).rejects.toThrow('Synthetic report provider failure')
+      } finally {
+        weeklyReportWorker._setAnthropicClientForTesting(null)
+      }
+      await expect(
+        db.weeklyReport.findFirstOrThrow({
+          where: { id: failedReportRequest.reportId, tenantId, venueId },
+          select: { status: true, error: true },
+        }),
+      ).resolves.toMatchObject({
+        status: 'FAILED',
+        error: expect.stringContaining('Synthetic report provider failure'),
+      })
+      await expect(
+        db.jobRecord.count({
+          where: {
+            tenantId,
+            status: 'FAILED',
+            bullJobId: `golden-venue-report-failure-${suffix}`,
+          },
+        }),
+      ).resolves.toBe(1)
     })
   }, 120_000)
 })

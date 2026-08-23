@@ -13,7 +13,7 @@ Fixture: `golden-venue-riverside-aquarium-v1` (synthetic)
 | Offboarding/export                     | PARTIAL                      | Requested draft and metadata-only preview passed; no revocation, deletion, cancellation, or finalization.                                                              |
 | Full 13-phase lifecycle                | PARTIAL                      | All required phases have disposable evidence; offboarding/support remain deliberately partial and live-provider quality is unproved.                                   |
 | Provider-backed chat/evaluation/report | UNVERIFIED_PROVIDER_DISABLED | Credential-bearing providers were stripped and outbound/provider workers remained disabled.                                                                            |
-| Failure injection                      | PARTIAL                      | Exact rollback/replay/cleanup passed; the seven-class failure matrix has not yet run as one retained flow.                                                             |
+| Failure injection                      | VERIFIED                     | All seven declared classes passed in the same retained disposable flow with exact cleanup.                                                                             |
 
 Machine-readable terminal evidence:
 
@@ -38,11 +38,20 @@ Machine-readable terminal evidence:
     "routine-update-publish-read",
     "offboarding-draft-export-preview"
   ],
+  "failureScope": [
+    "provider-outage",
+    "rate-limit",
+    "bad-upload",
+    "duplicate-request",
+    "failed-worker",
+    "report-failure",
+    "ambiguous-provider-outcome"
+  ],
   "cleanup": "verified-absent"
 }
 ```
 
 This report is intentionally truthful: the provider-dark core now includes the public guest-chat and
 visitor-feedback boundaries. Deterministic provider clients prove routing, retrieval, persistence,
-ownership, and analytics—not live-provider answer quality. Consequential offboarding execution and
-the complete seven-class failure matrix remain unproved.
+ownership, and analytics—not live-provider answer quality. The seven-class provider-dark failure
+matrix is retained and green. Consequential offboarding execution remains unproved.
