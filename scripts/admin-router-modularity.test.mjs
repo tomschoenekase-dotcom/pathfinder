@@ -63,6 +63,7 @@ const expectedAdminProcedures = [
   'enableAgentIdentity',
   'executeApprovedBillingCommand',
   'finalizeOffboardingExportArtifact',
+  'founderOperatingView',
   'generateAnswerAnalysis',
   'generateWeeklyReportDraft',
   'getAgentIdentity',
