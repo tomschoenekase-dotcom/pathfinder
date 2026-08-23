@@ -60,6 +60,16 @@ export const adminProspectCrmCoreRouter = router({
                   take: 30,
                   select: { id: true, type: true, content: true, promotionStatus: true },
                 },
+                transcriptArtifacts: {
+                  orderBy: { acquiredAt: 'desc' },
+                  take: 1,
+                  select: {
+                    id: true,
+                    sourceReference: true,
+                    acquiredAt: true,
+                    expiresAt: true,
+                  },
+                },
               },
             },
             companyKnowledgeItems: {

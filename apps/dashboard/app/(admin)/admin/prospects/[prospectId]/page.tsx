@@ -12,6 +12,7 @@ import {
 
 import { ProspectActionsPanel } from '../../../../../components/admin/ProspectActionsPanel'
 import { ProspectCorrespondenceHistory } from '../../../../../components/admin/ProspectCorrespondenceHistory'
+import { ProspectMeetingHistory } from '../../../../../components/admin/ProspectMeetingHistory'
 import { createAdminCaller } from '../../../../../lib/admin-caller'
 
 export const dynamic = 'force-dynamic'
@@ -201,39 +202,7 @@ export default async function ProspectDetailPage({
             </section>
           ) : null}
 
-          {prospect.companyMeetings.length ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="font-semibold text-slate-950">Meetings</h2>
-              <div className="mt-4 space-y-3">
-                {prospect.companyMeetings.map((meeting) => (
-                  <article key={meeting.id} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <h3 className="font-semibold text-slate-900">{meeting.title}</h3>
-                      <time className="text-xs text-slate-400">
-                        {new Date(meeting.startedAt).toLocaleString()}
-                      </time>
-                    </div>
-                    <p className="mt-1 text-xs font-semibold uppercase text-slate-500">
-                      {label(meeting.meetingType)} · {label(meeting.processingStatus)}
-                    </p>
-                    {meeting.summary ? (
-                      <p className="mt-3 text-sm leading-6 text-slate-700">{meeting.summary}</p>
-                    ) : null}
-                    {meeting.extractions.length ? (
-                      <ul className="mt-3 space-y-1 text-xs text-slate-600">
-                        {meeting.extractions.slice(0, 5).map((extraction) => (
-                          <li key={extraction.id}>
-                            <span className="font-semibold">{label(extraction.type)}:</span>{' '}
-                            {extraction.content}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
+          <ProspectMeetingHistory meetings={prospect.companyMeetings} />
 
           {prospect.companyKnowledgeItems.length ? (
             <section className="rounded-2xl border border-violet-200 bg-violet-50 p-5 shadow-sm">

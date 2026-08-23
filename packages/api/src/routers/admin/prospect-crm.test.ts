@@ -171,4 +171,21 @@ describe('admin prospect CRM router', () => {
     expect(messageSelect).not.toHaveProperty('textBody')
     expect(messageSelect).not.toHaveProperty('htmlBody')
   })
+
+  it('returns meeting transcript provenance metadata without transcript content', async () => {
+    mocks.prospect.mockResolvedValue({ customerRelationships: [], conversion: null })
+
+    await testRouter.createCaller(context(true)).crm.getProspect({ organizationId: 'org-1' })
+
+    const query = mocks.prospect.mock.calls[0]?.[0]
+    const artifactSelect = query?.include?.companyMeetings?.include?.transcriptArtifacts?.select
+    expect(artifactSelect).toEqual({
+      id: true,
+      sourceReference: true,
+      acquiredAt: true,
+      expiresAt: true,
+    })
+    expect(artifactSelect).not.toHaveProperty('transcriptText')
+    expect(artifactSelect).not.toHaveProperty('structuredEntries')
+  })
 })
