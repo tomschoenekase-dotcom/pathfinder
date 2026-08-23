@@ -1,14 +1,20 @@
-# Torchiko agent-operability gap report (Packet A historical baseline)
+# Torchiko agent-operability gap report
 
-Baseline date: 2026-08-21. The numbered gaps below preserve Packet A's final baseline. Packet C / Company Brain subsequently closed standard MCP transport, verified approval-bound machine attribution and the first canonical write, disposable database scenarios, unified integration health, provider-routed grounding evaluation infrastructure, and durable explanation evidence. See `company-brain-architecture.md` and the current capability matrix for implemented state.
+Baseline date: 2026-08-21. Current-state reconciliation: 2026-08-23. This ledger preserves the
+Packet A gaps but labels later closures instead of presenting the historical baseline as current
+truth. See `company-brain-architecture.md` and the capability matrix for the implemented surface.
 
 ## P0 gaps
 
-1. **Standard MCP protocol transport remains incomplete.** Packet A now provides a safe production composition root and mounts operational discovery/calls on the authenticated, rate-limited, default-dark agent bridge. A standards-compliant MCP JSON-RPC dispatcher and approval-bound machine-write bindings remain deferred.
+1. **Closed — standard MCP protocol transport.** Packet C added the authenticated, rate-limited,
+   default-dark Streamable-HTTP-compatible route, MCP JSON-RPC `initialize`, `ping`, `tools/list`,
+   and `tools/call` dispatch, bounded bodies, verified credential scope, and notification handling.
+   Approval-bound machine attribution and the first governed write are also implemented. Broader
+   write parity remains a policy/capability gap, not a transport gap.
 2. **Agent/API parity is incomplete.** Torchiko's typed first-party API remains broader than the discoverable operational/prospect tools. Packet A added bounded report, conversation-session, integration-access, agent-run, event, deployment, and feature-flag reads; the visitor-answer quality loop now adds separately gated evidence access for already-flagged public turns and review-only correction drafts. Broad conversation replay, venue lifecycle, intake, report operations, provider health, and offboarding still lack adequate agent interfaces.
 3. **Tool metadata has a common core but not full schema parity.** Operational and prospect tools now expose effect, capability, review/approval, idempotency, default state, and transport through `pnpm torchiko tools list --json`. Prospect tools still need formal input/output JSON Schemas, examples, and related-tool links for complete parity with MCP definitions.
 4. **Resettable database scenarios remain incomplete.** Packet A now supplies four provider-free synthetic venue scenarios and deterministic time/location/replay contracts. Golden Venue proves a disposable support escalation/resolution loop, but standalone create/reset operations for scenarios such as degraded operations or rich reports remain incomplete.
-5. **Provider integration health baseline is implemented.** Agents can query one secret-free,
+5. **Closed — provider integration health baseline.** Agents can query one secret-free,
    tenant/venue-scoped projection across Gmail, billing, worker runtime, AI providers, embeddings,
    object storage, analytics, native deployment, and external worker access. The projection
    aggregates shared Gmail account failures, incorporates central provider-health exclusions,
@@ -44,3 +50,12 @@ Baseline date: 2026-08-21. The numbered gaps below preserve Packet A's final bas
 - Added four synthetic scenario fixtures with provider-free time/location simulation and conversation replay preparation.
 - Added the initial capability matrix, developer guide, tool reference, and this gap ledger.
 - Preserved all existing credential, outreach, billing, tenant, approval, publication, and production gates.
+
+## Post-Packet-A closures
+
+- Added the standards-shaped MCP JSON-RPC dispatcher and authenticated HTTP route at
+  `/api/mcp/[tenantId]/[venueId]`, still default-dark behind `AGENT_BRIDGE_HTTP_ENABLED`.
+- Added first-class machine actor, scoped approval-grant, and governed operational-update draft
+  execution without granting broad autonomous mutation.
+- Added canonical worker-evidence schema v2 across runs, actions, approval decisions, quality
+  evaluations, and customer signals. A unified raw action trace remains a separate gap.
