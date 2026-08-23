@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
   "operationInventory": {
-    "count": 380,
-    "sha256": "036f349d0bc6ae65479009607cd39442f761dde9a5c924ef81010ce5270b1493",
+    "count": 381,
+    "sha256": "0a4bbd276d2ff1b1968b8fabe0a6d1e3ec9160ff42bd622513b78bbc73d837eb",
     "decision": "This digest pins every mounted tRPC operation path, kind, defining router, and source file. Any operation-level drift requires an explicit policy review before release.",
     "evidence": "pnpm torchiko tools coverage --json"
   },
   "operationBindings": {
     "reviewed": {
-      "operationInventorySha256": "036f349d0bc6ae65479009607cd39442f761dde9a5c924ef81010ce5270b1493",
-      "sha256": "0545fdeee4e2cc58ea110228d9afa7c7ff4fafcd0f97554f3fd7757b42fcf0ed"
+      "operationInventorySha256": "0a4bbd276d2ff1b1968b8fabe0a6d1e3ec9160ff42bd622513b78bbc73d837eb",
+      "sha256": "5695ddedec36e131528fa53793c991805114dc1485040c12966a5764a55f17e0"
     },
     "decision": "A router classification is not evidence of agent operability. Only an exact operation named by one reviewed rule counts as a direct tool or bounded alternative; every other operation remains explicitly unbound.",
     "rules": [
@@ -103,6 +103,14 @@
         "operations": ["tenant.inviteMember"],
         "surfaces": ["tool:torchiko.customer_access.prepare_invitation"],
         "decision": "The agent can prepare an approval item from owner-authored support evidence but cannot invoke Clerk, send an invitation, or create membership.",
+        "evidence": "packages/api/src/mcp/composition.test.ts"
+      },
+      {
+        "id": "bounded-location-draft-proposal",
+        "kind": "bounded-alternative",
+        "operations": ["admin.createVenueLocationDraft"],
+        "surfaces": ["tool:torchiko.locations.propose_draft"],
+        "decision": "The agent can prepare a typed exact-venue location proposal and approval item, but cannot create, edit, activate, or publish venue content. Human approval and a separate administrator application create only an inactive draft.",
         "evidence": "packages/api/src/mcp/composition.test.ts"
       },
       {

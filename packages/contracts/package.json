@@ -36,6 +36,7 @@
     "./platform-worker-policy": "./src/platform-worker-policy.ts",
     "./google-workspace-source": "./src/google-workspace-source.ts",
     "./prospect-staging-package": "./src/prospect-staging-package.ts",
+    "./location-authoring": "./src/location-authoring.ts",
     "./prospect-staging-package-node": "./src/prospect-staging-package-node.ts"
   },
   "types": "./src/index.ts",

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState, type FormEvent } from 'react'
 
 import { useTRPCClient } from '../../lib/trpc'
+import { ApprovalDecisionForm } from './ApprovalDecisionForm'
 
 type Location = {
   id: string
@@ -25,6 +26,26 @@ type Location = {
 
 type Floor = { id: string; name: string; stableKey: string; isActive: boolean }
 
+type LocationProposal = {
+  id: string
+  reason: string
+  createdAt: Date
+  proposedBy: string
+  draft: {
+    stableKey: string
+    kind: string
+    displayName: string
+    visibility: string
+  } | null
+  decision: {
+    id: string
+    outcome: 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED'
+    decidedByType: string
+    createdAt: Date
+    applied: boolean
+  } | null
+}
+
 type Props = {
   tenantId: string
   venueId: string
@@ -32,6 +53,7 @@ type Props = {
   floors: Floor[]
   initialLocations: Location[]
   connectionCount: number
+  proposals?: LocationProposal[]
 }
 
 const kinds = [
@@ -61,6 +83,77 @@ const scalarMetadata = (value: unknown): Record<string, string | number | boolea
     Object.entries(value).filter((entry): entry is [string, string | number | boolean] =>
       ['string', 'number', 'boolean'].includes(typeof entry[1]),
     ),
+  )
+}
+
+function ApprovedProposalApplication({
+  tenantId,
+  venueId,
+  proposal,
+}: {
+  tenantId: string
+  venueId: string
+  proposal: LocationProposal
+}) {
+  const client = useTRPCClient()
+  const router = useRouter()
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+
+  async function apply() {
+    if (!proposal.decision || !reason.trim()) return
+    setBusy(true)
+    setMessage(null)
+    try {
+      await client.admin.applyApprovedVenueLocationDraft.mutate({
+        tenantId,
+        venueId,
+        approvalRequestId: proposal.id,
+        expectedDecisionAt: proposal.decision.createdAt,
+        reason: reason.trim(),
+      })
+      setMessage('Approved proposal applied as an inactive draft. Activation remains separate.')
+      setReason('')
+      router.refresh()
+    } catch {
+      setMessage('The proposal was not applied. Refresh its approval and location state.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (proposal.decision?.applied) {
+    return (
+      <p className="mt-3 text-sm font-semibold text-emerald-800">Applied as an inactive draft.</p>
+    )
+  }
+  return (
+    <div className="mt-4 border-t border-emerald-200 pt-4">
+      <label className="block text-xs font-semibold text-pf-deep/75">
+        Application reason
+        <input
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          maxLength={500}
+          placeholder="Why is this approved proposal ready to become a draft?"
+          className="mt-1 min-h-11 w-full rounded-xl border border-emerald-200 px-3 text-sm"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() => void apply()}
+        disabled={busy || !reason.trim()}
+        className="mt-2 min-h-11 rounded-xl bg-pf-primary px-4 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {busy ? 'Applying…' : 'Create inactive draft'}
+      </button>
+      {message ? (
+        <p className="mt-2 text-sm text-pf-deep/75" role="status">
+          {message}
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -385,6 +478,7 @@ export function VenueLocationAuthoring({
   floors,
   initialLocations,
   connectionCount,
+  proposals = [],
 }: Props) {
   const client = useTRPCClient()
   const router = useRouter()
@@ -705,6 +799,66 @@ export function VenueLocationAuthoring({
             <h4 className="font-semibold text-pf-deep">No location anchors yet</h4>
             <p className="mt-2 text-sm text-pf-deep/65">
               Create a review-only draft above. Nothing is exposed to guests automatically.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-pf-light bg-white p-5 shadow-sm sm:p-6">
+        <h3 className="text-lg font-semibold text-pf-deep">AI location proposals</h3>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-pf-deep/75">
+          Agents can prepare typed anchors, but cannot change venue content. A human decision and a
+          separate application are both required; application creates an inactive draft only.
+        </p>
+        {proposals.length ? (
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            {proposals.map((proposal) => (
+              <article key={proposal.id} className="rounded-2xl border border-pf-light p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="font-semibold text-pf-deep">
+                      {proposal.draft?.displayName ?? 'Unsupported proposal payload'}
+                    </h4>
+                    <p className="mt-1 text-xs uppercase tracking-wide text-pf-deep/60">
+                      {proposal.draft
+                        ? `${proposal.draft.kind.replaceAll('_', ' ')} · ${proposal.draft.stableKey}`
+                        : 'Cannot apply'}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-950">
+                    {proposal.decision?.outcome ?? 'PENDING REVIEW'}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-pf-deep/75">{proposal.reason}</p>
+                <p className="mt-2 text-xs text-pf-deep/60">
+                  Proposed by {proposal.proposedBy} ·{' '}
+                  {new Date(proposal.createdAt).toLocaleDateString()}
+                </p>
+                {!proposal.decision && proposal.draft ? (
+                  <ApprovalDecisionForm
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    approvalRequestId={proposal.id}
+                    proposedAction="torchiko.locations.create_draft"
+                  />
+                ) : null}
+                {proposal.decision?.outcome === 'APPROVED' &&
+                proposal.decision.decidedByType === 'HUMAN' &&
+                proposal.draft ? (
+                  <ApprovedProposalApplication
+                    tenantId={tenantId}
+                    venueId={venueId}
+                    proposal={proposal}
+                  />
+                ) : null}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-dashed border-pf-light bg-pf-surface p-6 text-center">
+            <p className="font-semibold text-pf-deep">No AI location proposals</p>
+            <p className="mt-1 text-sm text-pf-deep/65">
+              The empty state is healthy. Direct agent mutation remains unavailable.
             </p>
           </div>
         )}

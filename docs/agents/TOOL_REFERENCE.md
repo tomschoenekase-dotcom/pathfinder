@@ -30,6 +30,7 @@ The canonical operational schemas and security annotations are in `packages/cont
 | `torchiko.account.correspondence`             | Bounded correspondence snippets         | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.knowledge.search`                   | Governed institutional search           | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.knowledge.get`                      | Exact governed knowledge item           | Safe repeat                | No                                        | Credential capability scoped                    |
+| `torchiko.locations.propose_draft`            | Typed location proposal only            | Operation UUID             | Human review, then separate application   | Live worker/run + exact venue scope             |
 | `torchiko.customer_access.prepare_invitation` | Provider-dark member invitation request | Operation UUID             | Founder review before any external effect | Live worker/run + exact owner-authored evidence |
 | `torchiko.integrations.health`                | Secret-free integration/control health  | Safe repeat                | No                                        | Credential capability scoped                    |
 | `torchiko.reports.get_lifecycle`              | Exact weekly-report lifecycle           | Safe repeat                | No                                        | Exact venue/report and `reports:read` scoped    |
@@ -39,6 +40,8 @@ The canonical operational schemas and security annotations are in `packages/cont
 `torchiko.knowledge.list_gaps` is a separately gated `conversations:review` projection. It exposes only bounded question/answer evidence from already-flagged public turns; it does not expose visitor identity, retained location, or broad conversation replay. `torchiko.knowledge.propose_correction` requires `knowledge:draft`, a live credential-bound worker, and a live scoped run. It can create one evidence-linked `PENDING_REVIEW` proposal, but cannot edit, retire, publish, or re-embed canonical knowledge.
 
 `torchiko.customer_access.prepare_invitation` requires `customer-access:prepare`, a live credential-bound worker and run, and one exact client-visible support message authored by an active organization owner. It normalizes and de-duplicates a member email, records a high-risk approval request plus full agent lineage, and moves the run to `AWAITING_APPROVAL`. It does not call Clerk, send email, create a user, or change membership; provider execution remains a separate unimplemented and gated action.
+
+`torchiko.locations.propose_draft` requires `locations:propose`, a live credential-bound worker and run, exact venue scope, and a typed location payload. It validates current floor/parent references, records bounded evidence and a medium-risk approval item, and changes no venue content. Approval executes nothing. A separate platform-admin action may apply the exact approved payload as an inactive draft; activation remains another distinct human review.
 
 The expanded operational-intelligence resources deliberately exclude report content/errors, visitor tokens and coordinates, message bodies, credential hashes/prefixes, agent prompts/scope snapshots/artifacts, deployment plans/state hashes, and feature-flag metadata/actor IDs.
 
@@ -86,8 +89,8 @@ provider proof, or SLO authority. This does not widen the tenant MCP `jobs` reso
 first-party API and agent policy. It inventories exact mounted tRPC operations, not just router
 names, and fails when either its reviewed operation digest or reviewed binding digest drifts. Each
 entry includes the operation path, kind, defining router, source file, policy category, inherited
-agent/developer coverage, and exact binding state. The current 373-operation inventory contains 3
-direct-tool bindings, 95 bounded alternatives, and 275 explicit unbound gaps. A binding is rejected
+agent/developer coverage, and exact binding state. The current 381-operation inventory contains 3
+direct-tool bindings, 96 bounded alternatives, and 282 explicit unbound gaps. A binding is rejected
 if its operation is missing/duplicated, its surface is unknown, or its tool is declared but not
 bound in `createSafeOperationalMcpRegistry`. The inherited `partial` label remains domain policy,
 not callable proof.

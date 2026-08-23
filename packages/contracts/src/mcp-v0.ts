@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { VenueLocationDraftFieldsSchema } from './location-authoring'
+
 /** Contract-only MCP catalog. It does not provide a transport, authentication, or data access. */
 export const PATHFINDER_MCP_PROTOCOL_VERSION = '2026-07-28' as const
 export const PATHFINDER_MCP_CATALOG_VERSION = 'pathfinder-mcp-v0' as const
@@ -55,6 +57,7 @@ export const McpCapability = z.enum([
   'accounts:read',
   'knowledge:read',
   'knowledge:draft',
+  'locations:propose',
   'meetings:read',
   'meetings:process',
   'workers:read',
@@ -550,6 +553,20 @@ export type McpKnowledgeCorrectionProposalInput = z.infer<
   typeof McpKnowledgeCorrectionProposalInput
 >
 
+export const McpLocationDraftProposalInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  reason: z.string().trim().min(3).max(2000),
+  evidence: z
+    .array(z.object({ type: z.string().trim().min(1).max(100), id: Identifier }).strict())
+    .max(10)
+    .default([]),
+  draft: VenueLocationDraftFieldsSchema,
+}).strict()
+export type McpLocationDraftProposalInput = z.infer<typeof McpLocationDraftProposalInput>
+
 export const McpCustomerAccessPreparationInput = McpRequestedScope.extend({
   operationId: z.string().uuid(),
   agentIdentityId: Identifier,
@@ -746,6 +763,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.get'
   | 'torchiko.knowledge.list_gaps'
   | 'torchiko.knowledge.propose_correction'
+  | 'torchiko.locations.propose_draft'
   | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
   | 'torchiko.reports.get_lifecycle'
@@ -1083,6 +1101,96 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
       openWorldHint: false,
     },
     _meta: { 'com.pathfinder/security': security('venue', 'knowledge:draft', 'interaction') },
+  },
+  {
+    name: 'torchiko.locations.propose_draft',
+    title: 'Propose an inactive venue location draft',
+    description:
+      'Prepare one typed venue location anchor for human review. Approval and application remain separate, and this tool never creates, edits, activates, or publishes venue content.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+        evidence: {
+          type: 'array',
+          maxItems: 10,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'id'],
+            properties: {
+              type: { type: 'string', minLength: 1, maxLength: 100 },
+              id: { type: 'string', minLength: 1, maxLength: 120 },
+            },
+          },
+        },
+        draft: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['stableKey', 'kind', 'displayName'],
+          properties: {
+            stableKey: { type: 'string', pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 },
+            kind: { type: 'string', enum: VenueLocationDraftFieldsSchema.shape.kind.options },
+            displayName: { type: 'string', minLength: 1, maxLength: 191 },
+            description: { type: ['string', 'null'], maxLength: 2000, default: null },
+            visibility: { type: 'string', enum: ['PUBLIC', 'SECOND_LAYER'], default: 'PUBLIC' },
+            floorId: { type: ['string', 'null'], format: 'uuid', default: null },
+            parentLocationId: { type: ['string', 'null'], format: 'uuid', default: null },
+            coordinates: {
+              type: ['object', 'null'],
+              default: null,
+              additionalProperties: false,
+              required: ['latitude', 'longitude'],
+              properties: {
+                latitude: { type: 'number', minimum: -90, maximum: 90 },
+                longitude: { type: 'number', minimum: -180, maximum: 180 },
+              },
+            },
+            mapAnchor: {
+              type: ['object', 'null'],
+              default: null,
+              additionalProperties: false,
+              required: ['x', 'y'],
+              properties: { x: { type: 'number' }, y: { type: 'number' } },
+            },
+            externalMapReference: {
+              type: ['string', 'null'],
+              format: 'uri',
+              maxLength: 2000,
+              default: null,
+            },
+            accessibilityMetadata: {
+              type: 'object',
+              maxProperties: 20,
+              additionalProperties: { type: ['string', 'number', 'boolean'] },
+              default: {},
+            },
+          },
+        },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'reason',
+        'draft',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: { 'com.pathfinder/security': security('venue', 'locations:propose', 'interaction') },
   },
   {
     name: 'torchiko.reports.get_lifecycle',

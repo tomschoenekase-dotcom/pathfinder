@@ -110,6 +110,7 @@ const approvedCallCounts = new Map([
   // Platform-admin location authoring reads and mutates only one exact tenant+venue workspace;
   // draft edits and availability transitions are CAS-bound, strictly audited, and content-locked.
   ['packages/api/src/routers/admin/location-authoring.ts', 4],
+  ['packages/api/src/routers/admin/location-proposal-application.ts', 1],
   // Platform-admin proposal review is always constrained to the requested tenant and venue.
   ['packages/api/src/routers/admin/knowledge-proposals.ts', 3],
   // Platform-admin entitlement reads and append-only overrides retain explicit tenant scope.

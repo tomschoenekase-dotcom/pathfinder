@@ -10,6 +10,8 @@ Torchiko's platform-admin venue workspace can maintain the verified anchors used
 4. Activation is a separate exact-revision transition with a human source/review reason. Deactivation uses the same guarded path.
 5. Active content must be deactivated before it can be changed, preventing an operator from silently changing already-reviewed guest guidance.
 
+An authorized operational agent may call `torchiko.locations.propose_draft` with one typed anchor and bounded evidence. That action creates a medium-risk approval request plus run/action/timeline/audit evidence and moves the run to `AWAITING_APPROVAL`; it does not change venue content. A human approval still executes nothing. The location workspace exposes a second, exact-decision application control that converts an approved payload into an inactive draft. Guest availability continues to require the existing separate activation review.
+
 All reads and mutations acquire explicit tenant/venue scope. Mutations also use the venue-content lock so anchor review cannot race another venue-content operation. Stable keys are unique within a venue. Floors and parent anchors must be active and belong to the same tenant and venue; self-parenting is rejected.
 
 External map references accept only public HTTPS URLs without embedded credentials or secret-like query/fragment keys. Coordinate pairs must be complete and range-valid. Accessibility metadata is bounded to scalar facts.
@@ -18,7 +20,7 @@ External map references accept only public HTTPS URLs without embedded credentia
 
 - Floor and connection records are visible for context but cannot yet be authored here.
 - This surface does not compute routes, walking instructions, or accessibility paths.
-- It does not expose a direct operational-agent mutation tool. The four administrator operations remain explicitly unbound in the agent-operation inventory pending a reviewed proposal/approval contract.
+- It does not expose a direct operational-agent mutation tool. The proposal tool is a bounded alternative to human draft creation; edit, activation/deactivation, and approved-proposal application remain administrator-only operations.
 - Production activation and real-venue content remain subject to the production and customer-data boundaries.
 
-Focused regression coverage lives in `packages/api/src/routers/admin/location-authoring.test.ts` and `apps/dashboard/components/admin/VenueLocationAuthoring.test.tsx`.
+Focused regression coverage lives in `packages/db/src/helpers/location-draft-proposal-actions.test.ts`, `packages/api/src/mcp/composition.test.ts`, `packages/api/src/routers/admin/location-authoring.test.ts`, and `apps/dashboard/components/admin/VenueLocationAuthoring.test.tsx`.

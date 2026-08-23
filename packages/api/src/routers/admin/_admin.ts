@@ -51,6 +51,7 @@ import { adminTerminalRedrivePreviewRouter } from './terminal-redrive-preview'
 import { adminOperationalEvidenceRouter } from './guest-chat-incident-evidence'
 import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
 import { adminLocationAuthoringRouter } from './location-authoring'
+import { adminLocationAuthoringApplicationRouter } from './location-proposal-application'
 import { adminProductEntitlementsRouter } from './product-entitlements'
 import { adminProspectCrmRouter } from './prospect-crm'
 import { adminOperationsReadinessRouter } from './operations-readiness'
@@ -65,6 +66,7 @@ export const adminRouter = mergeRouters(
   adminAttentionConsoleRouter,
   adminKnowledgeProposalsRouter,
   adminLocationAuthoringRouter,
+  adminLocationAuthoringApplicationRouter,
   adminProductEntitlementsRouter,
   adminProspectCrmRouter,
   adminOperationsReadinessRouter,

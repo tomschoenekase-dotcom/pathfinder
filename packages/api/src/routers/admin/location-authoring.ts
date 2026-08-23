@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 
+import { LocationDraftProposalSnapshotSchema } from '@pathfinder/contracts/location-authoring'
 import {
   db,
   lockVenueContentMutation,
@@ -30,7 +31,7 @@ export const adminLocationAuthoringRouter = router({
           select: { id: true, name: true },
         })
         if (!venue) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venue not found.' })
-        const [floors, locations, connections] = await Promise.all([
+        const [floors, locations, connections, proposals] = await Promise.all([
           db.venueFloor.findMany({
             where: { tenantId: input.tenantId, venueId: input.venueId },
             orderBy: [{ sortOrder: 'asc' }, { stableKey: 'asc' }],
@@ -46,8 +47,38 @@ export const adminLocationAuthoringRouter = router({
             orderBy: [{ isActive: 'desc' }, { id: 'asc' }],
             take: 501,
           }),
+          db.approvalRequest.findMany({
+            where: {
+              tenantId: input.tenantId,
+              venueId: input.venueId,
+              proposedAction: 'torchiko.locations.create_draft',
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 101,
+            select: {
+              id: true,
+              reason: true,
+              scopeSnapshot: true,
+              createdAt: true,
+              agentIdentity: { select: { name: true } },
+              decision: {
+                select: {
+                  id: true,
+                  decision: true,
+                  decidedByType: true,
+                  createdAt: true,
+                  resultingAction: { select: { id: true, status: true, afterVersionRef: true } },
+                },
+              },
+            },
+          }),
         ])
-        if (floors.length > 500 || locations.length > 500 || connections.length > 500)
+        if (
+          floors.length > 500 ||
+          locations.length > 500 ||
+          connections.length > 500 ||
+          proposals.length > 100
+        )
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
             message: 'Location authoring exceeds the bounded workspace size.',
@@ -77,6 +108,25 @@ export const adminLocationAuthoringRouter = router({
             verifiedAt: connection.verifiedAt,
             updatedAt: connection.updatedAt,
           })),
+          proposals: proposals.map((proposal) => {
+            const snapshot = LocationDraftProposalSnapshotSchema.safeParse(proposal.scopeSnapshot)
+            return {
+              id: proposal.id,
+              reason: proposal.reason,
+              createdAt: proposal.createdAt,
+              proposedBy: proposal.agentIdentity.name,
+              draft: snapshot.success ? snapshot.data.draft : null,
+              decision: proposal.decision
+                ? {
+                    id: proposal.decision.id,
+                    outcome: proposal.decision.decision,
+                    decidedByType: proposal.decision.decidedByType,
+                    createdAt: proposal.decision.createdAt,
+                    applied: proposal.decision.resultingAction?.status === 'SUCCEEDED',
+                  }
+                : null,
+            }
+          }),
         }
       }),
     ),

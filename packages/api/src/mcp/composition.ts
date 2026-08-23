@@ -16,6 +16,7 @@ import {
   listAccountMeetings,
   listConversationKnowledgeGaps,
   prepareCustomerAccessRequestAction,
+  prepareLocationDraftProposalAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
@@ -42,6 +43,7 @@ export const SAFE_OPERATIONAL_MCP_TOOL_BINDINGS = [
   'torchiko.knowledge.get',
   'torchiko.knowledge.list_gaps',
   'torchiko.knowledge.propose_correction',
+  'torchiko.locations.propose_draft',
   'torchiko.customer_access.prepare_invitation',
   'torchiko.integrations.health',
   'torchiko.reports.get_lifecycle',
@@ -84,6 +86,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'knowledgeGet'
     | 'listKnowledgeGaps'
     | 'proposeKnowledgeCorrection'
+    | 'proposeLocationDraft'
     | 'prepareCustomerAccessInvitation'
     | 'integrationHealth'
     | 'reportLifecycle'
@@ -103,6 +106,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'createUpdateDraft'
     | 'processMeeting'
     | 'proposeKnowledgeCorrection'
+    | 'proposeLocationDraft'
     | 'prepareCustomerAccessInvitation'
   > = {
     async verifyApprovalGrant(request, context) {
@@ -345,6 +349,97 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           status: result.proposal.status,
           replayed: result.replayed,
           canonicalKnowledgeChanged: false,
+        }),
+      }
+    },
+    async proposeLocationDraft(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Location proposals require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'locations:propose' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified location worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: { in: ['RUNNING', 'AWAITING_APPROVAL'] },
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified location worker run is unavailable')
+
+      const result = await prepareLocationDraftProposalAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          reason: input.reason,
+          evidence: input.evidence,
+          draft: input.draft,
+          actor: {
+            type: 'AGENT',
+            actorId: input.agentIdentityId,
+            role: 'AGENT',
+            agentIdentityId: input.agentIdentityId,
+            agentRunId: input.agentRunId,
+            workerId: worker.id,
+            credentialId: context.credential.credentialId,
+            capability: 'locations:propose',
+            ...(worker.modelProvider && worker.modelName
+              ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+              : {}),
+            idempotencyKey: input.operationId,
+          },
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'venue-location.proposal-created',
+            sourceSubsystem: 'venue-locations',
+            severity: 'WARNING',
+            title: 'Location draft needs review',
+            summary:
+              'An AI worker prepared a typed location anchor. Venue content is unchanged until a human approves and separately applies the inactive draft.',
+            actionRequired: true,
+            linkedObjectType: 'approval-request',
+            linkedObjectId: result.approvalRequest.id,
+            recommendedAction:
+              'Review the proposed anchor and evidence, record a decision, then separately apply the approved inactive draft.',
+            deduplicationKey: `location-proposal:${result.approvalRequest.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.location-draft-proposal',
+        summary: result.replayed
+          ? 'Existing location draft proposal returned; venue content is unchanged.'
+          : 'Location draft prepared for human review; venue content is unchanged.',
+        data: jsonData({
+          approvalRequestId: result.approvalRequest.id,
+          replayed: result.replayed,
+          approvalRequired: true,
+          applicationRequiredAfterApproval: true,
+          canonicalVenueContentChanged: false,
         }),
       }
     },

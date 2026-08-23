@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   availability: vi.fn(),
+  applyProposal: vi.fn(),
+  recordApproval: vi.fn(),
+  getApproval: vi.fn(),
   refresh: vi.fn(),
 }))
 
@@ -18,6 +21,9 @@ vi.mock('../../lib/trpc', () => ({
       createVenueLocationDraft: { mutate: mocks.create },
       updateVenueLocationDraft: { mutate: mocks.update },
       setVenueLocationAvailability: { mutate: mocks.availability },
+      applyApprovedVenueLocationDraft: { mutate: mocks.applyProposal },
+      recordApprovalDecision: { mutate: mocks.recordApproval },
+      getApprovalRequest: { query: mocks.getApproval },
     },
   }),
 }))
@@ -169,5 +175,60 @@ describe('VenueLocationAuthoring', () => {
       ),
     )
     expect(screen.getByText(/still requires separate activation review/)).toBeTruthy()
+  })
+
+  it('shows agent proposals as review-only and separately applies human approval', async () => {
+    mocks.applyProposal.mockResolvedValue({ replayed: false })
+    const decidedAt = new Date('2026-08-23T20:00:00.000Z')
+    render(
+      <VenueLocationAuthoring
+        tenantId="tenant-1"
+        venueId="venue-1"
+        venueName="Museum"
+        floors={[]}
+        initialLocations={[]}
+        connectionCount={0}
+        proposals={[
+          {
+            id: '33333333-3333-4333-8333-333333333333',
+            reason: 'Verified against the current public visitor map.',
+            createdAt: revision,
+            proposedBy: 'Venue mapper',
+            draft: {
+              stableKey: 'west-entrance',
+              kind: 'ENTRANCE',
+              displayName: 'West entrance',
+              visibility: 'PUBLIC',
+            },
+            decision: {
+              id: 'decision-1',
+              outcome: 'APPROVED',
+              decidedByType: 'HUMAN',
+              createdAt: decidedAt,
+              applied: false,
+            },
+          },
+        ]}
+      />,
+    )
+    expect(
+      screen.getByText(/A human decision and a separate application are both required/),
+    ).toBeTruthy()
+    const button = screen.getByRole('button', { name: 'Create inactive draft' })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Application reason'), {
+      target: { value: 'Reviewed the exact approved payload.' },
+    })
+    fireEvent.click(button)
+    await waitFor(() =>
+      expect(mocks.applyProposal).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        approvalRequestId: '33333333-3333-4333-8333-333333333333',
+        expectedDecisionAt: decidedAt,
+        reason: 'Reviewed the exact approved payload.',
+      }),
+    )
+    expect(screen.getByText(/Activation remains separate/)).toBeTruthy()
   })
 })

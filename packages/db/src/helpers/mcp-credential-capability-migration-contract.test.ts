@@ -28,6 +28,12 @@ const capabilitySql = `${sql}\n${readFileSync(
     import.meta.url,
   ),
   'utf8',
+)}\n${readFileSync(
+  new URL(
+    '../../prisma/migrations/20260823210000_add_location_proposal_capability/migration.sql',
+    import.meta.url,
+  ),
+  'utf8',
 )}`
 
 describe('MCP credential database capability parity', () => {

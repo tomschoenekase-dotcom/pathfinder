@@ -10,6 +10,10 @@ const { mocks, transactionClient } = vi.hoisted(() => {
     locationCreate: vi.fn(),
     locationUpdateMany: vi.fn(),
     connectionsFind: vi.fn(),
+    proposalsFind: vi.fn(),
+    proposalFind: vi.fn(),
+    actionCreate: vi.fn(),
+    timelineCreate: vi.fn(),
     transaction: vi.fn(),
     lock: vi.fn(),
     audit: vi.fn(),
@@ -26,6 +30,9 @@ const { mocks, transactionClient } = vi.hoisted(() => {
         updateMany: mocks.locationUpdateMany,
       },
       venueLocationConnection: { findMany: mocks.connectionsFind },
+      approvalRequest: { findMany: mocks.proposalsFind, findFirst: mocks.proposalFind },
+      agentAction: { create: mocks.actionCreate },
+      agentTimelineEvent: { create: mocks.timelineCreate },
       auditLog: { create: vi.fn() },
     },
   }
@@ -42,11 +49,14 @@ vi.mock('@pathfinder/db', () => ({
   writeAuditLogStrict: mocks.audit,
 }))
 
-import { router } from '../../core'
+import { mergeRouters, router } from '../../core'
 import type { TRPCContext } from '../../context'
 import { adminLocationAuthoringRouter } from './location-authoring'
+import { adminLocationAuthoringApplicationRouter } from './location-proposal-application'
 
-const app = router({ admin: adminLocationAuthoringRouter })
+const app = router({
+  admin: mergeRouters(adminLocationAuthoringRouter, adminLocationAuthoringApplicationRouter),
+})
 const operationId = '11111111-1111-4111-8111-111111111111'
 const revision = new Date('2026-08-23T18:00:00.000Z')
 const location = {
@@ -95,6 +105,22 @@ function draftFields() {
   return fields as Omit<typeof createInput, 'operationId'>
 }
 
+function proposalDraftFields() {
+  return {
+    stableKey: createInput.stableKey,
+    kind: createInput.kind,
+    displayName: createInput.displayName,
+    description: createInput.description,
+    visibility: createInput.visibility,
+    floorId: createInput.floorId,
+    parentLocationId: createInput.parentLocationId,
+    coordinates: createInput.coordinates,
+    mapAnchor: createInput.mapAnchor,
+    externalMapReference: createInput.externalMapReference,
+    accessibilityMetadata: createInput.accessibilityMetadata,
+  }
+}
+
 function context(isPlatformAdmin = true): TRPCContext {
   return {
     db: {} as TRPCContext['db'],
@@ -119,9 +145,13 @@ beforeEach(() => {
   mocks.floorsFind.mockResolvedValue([])
   mocks.locationsFind.mockResolvedValue([])
   mocks.connectionsFind.mockResolvedValue([])
+  mocks.proposalsFind.mockResolvedValue([])
+  mocks.proposalFind.mockResolvedValue(null)
   mocks.locationFind.mockResolvedValue(null)
   mocks.locationCreate.mockResolvedValue(location)
   mocks.locationUpdateMany.mockResolvedValue({ count: 1 })
+  mocks.actionCreate.mockResolvedValue({ id: 'action-1' })
+  mocks.timelineCreate.mockResolvedValue({ id: 'timeline-1' })
   mocks.lock.mockResolvedValue(undefined)
   mocks.audit.mockResolvedValue(undefined)
 })
@@ -142,6 +172,7 @@ describe('location authoring', () => {
       floors: [],
       locations: [],
       connections: [],
+      proposals: [],
     })
   })
 
@@ -252,5 +283,110 @@ describe('location authoring', () => {
         reason: 'Stale attempt.',
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('applies an exact human-approved proposal as an inactive draft without activation', async () => {
+    mocks.proposalFind.mockResolvedValue({
+      id: operationId,
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        draft: proposalDraftFields(),
+        canonicalVenueContentChanged: false,
+      },
+      agentRun: { requestedOperation: 'prepare location anchor' },
+      decision: {
+        id: 'decision-1',
+        decision: 'APPROVED',
+        decidedByType: 'HUMAN',
+        createdAt: revision,
+        resultingAction: null,
+      },
+    })
+    const result = await app.createCaller(context()).admin.applyApprovedVenueLocationDraft({
+      tenantId: 'tenant-1',
+      venueId: 'venue-1',
+      approvalRequestId: operationId,
+      expectedDecisionAt: revision,
+      reason: 'Approval and source evidence reviewed.',
+    })
+    expect(result).toMatchObject({
+      location: { id: operationId, isActive: false },
+      replayed: false,
+    })
+    expect(mocks.locationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ id: operationId, isActive: false }),
+      }),
+    )
+    expect(mocks.actionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          approvalDecisionId: 'decision-1',
+          actionName: 'torchiko.locations.apply_approved_draft',
+        }),
+      }),
+    )
+    expect(mocks.audit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'venue-location.approved-draft-applied' }),
+      transactionClient,
+    )
+  })
+
+  it('never applies a proposal without current human approval', async () => {
+    mocks.proposalFind.mockResolvedValue({
+      id: operationId,
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      scopeSnapshot: {},
+      agentRun: { requestedOperation: 'prepare location anchor' },
+      decision: null,
+    })
+    await expect(
+      app.createCaller(context()).admin.applyApprovedVenueLocationDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        approvalRequestId: operationId,
+        expectedDecisionAt: revision,
+        reason: 'Should not apply.',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.locationCreate).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when an approved payload does not match the request tenant and venue', async () => {
+    mocks.proposalFind.mockResolvedValue({
+      id: operationId,
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      scopeSnapshot: {
+        contractVersion: 1,
+        tenantId: 'tenant-other',
+        venueId: 'venue-other',
+        draft: proposalDraftFields(),
+        canonicalVenueContentChanged: false,
+      },
+      agentRun: { requestedOperation: 'prepare location anchor' },
+      decision: {
+        id: 'decision-1',
+        decision: 'APPROVED',
+        decidedByType: 'HUMAN',
+        createdAt: revision,
+        resultingAction: null,
+      },
+    })
+    await expect(
+      app.createCaller(context()).admin.applyApprovedVenueLocationDraft({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        approvalRequestId: operationId,
+        expectedDecisionAt: revision,
+        reason: 'Should not apply cross-scope evidence.',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(mocks.locationCreate).not.toHaveBeenCalled()
   })
 })

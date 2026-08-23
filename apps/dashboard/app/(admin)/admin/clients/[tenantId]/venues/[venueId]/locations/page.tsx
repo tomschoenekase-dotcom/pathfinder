@@ -18,6 +18,7 @@ export default async function VenueLocationsPage({ params }: Props) {
         floors={workspace.floors}
         initialLocations={workspace.locations}
         connectionCount={workspace.connections.length}
+        proposals={workspace.proposals}
       />
     )
   } catch {

@@ -7,6 +7,7 @@ const {
   listGaps,
   proposeCorrection,
   prepareCustomerAccess,
+  prepareLocationDraft,
   publishEvent,
 } = vi.hoisted(() => ({
   consumeApproval: vi.fn(),
@@ -15,6 +16,7 @@ const {
   listGaps: vi.fn(),
   proposeCorrection: vi.fn(),
   prepareCustomerAccess: vi.fn(),
+  prepareLocationDraft: vi.fn(),
   publishEvent: vi.fn(),
 }))
 
@@ -26,6 +28,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   listConversationKnowledgeGaps: listGaps,
   proposeKnowledgeCorrectionAction: proposeCorrection,
   prepareCustomerAccessRequestAction: prepareCustomerAccess,
+  prepareLocationDraftProposalAction: prepareLocationDraft,
   publishOperationalEvent: publishEvent,
 }))
 
@@ -144,6 +147,80 @@ describe('safe operational MCP composition', () => {
         }),
       }),
     )
+  })
+
+  it('prepares a typed location proposal without creating or activating venue content', async () => {
+    prepareLocationDraft.mockResolvedValue({
+      approvalRequest: { id: '33333333-3333-4333-8333-333333333333' },
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({ id: 'event-1' })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const locationCredential = {
+      ...credential,
+      capabilities: ['locations:propose'],
+    } satisfies VerifiedMcpCredentialScope
+    const result = await registry.callTool(
+      'torchiko.locations.propose_draft',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '33333333-3333-4333-8333-333333333333',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        reason: 'The current public visitor map supports this anchor.',
+        evidence: [{ type: 'PublicMap', id: 'map-1' }],
+        draft: {
+          stableKey: 'east-entrance',
+          kind: 'ENTRANCE',
+          displayName: 'East entrance',
+          description: null,
+          visibility: 'PUBLIC',
+          floorId: null,
+          parentLocationId: null,
+          coordinates: null,
+          mapAnchor: null,
+          externalMapReference: null,
+          accessibilityMetadata: {},
+        },
+      },
+      { credential: locationCredential },
+    )
+    expect(prepareLocationDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        actor: expect.objectContaining({
+          capability: 'locations:propose',
+          credentialId: 'credential-1',
+        }),
+      }),
+      database,
+    )
+    expect(database.agentRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { in: ['RUNNING', 'AWAITING_APPROVAL'] } }),
+      }),
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.location-draft-proposal',
+      data: {
+        approvalRequired: true,
+        applicationRequiredAfterApproval: true,
+        canonicalVenueContentChanged: false,
+      },
+    })
   })
 
   it('consumes an exact one-shot grant and uses the canonical machine-attributed draft action', async () => {

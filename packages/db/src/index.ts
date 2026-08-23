@@ -878,6 +878,14 @@ export type {
   PrepareCustomerAccessRequestInput,
 } from './helpers/customer-access-request-actions'
 export {
+  LocationDraftProposalActionError,
+  prepareLocationDraftProposalAction,
+} from './helpers/location-draft-proposal-actions'
+export type {
+  LocationDraftProposalActionErrorCode,
+  PrepareLocationDraftProposalInput,
+} from './helpers/location-draft-proposal-actions'
+export {
   addChatlogNoteAction,
   ChatlogReviewActionError,
   setChatlogNotableAction,

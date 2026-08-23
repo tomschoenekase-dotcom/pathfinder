@@ -7,12 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { assertStagingMigrationAdmission } from './lib/staging-migration-admission.mjs'
 
 const EXPECTED = Object.freeze({
-  approval: 'torchiko-staging-lineage-to-156-20260823',
+  approval: 'torchiko-staging-lineage-to-157-20260823',
   environmentId: 'a7a394fc-aa4e-4a45-bd3c-904419a67818',
   serviceId: '9fec9bdb-1915-4bee-8213-f6c3d434baa1',
   databaseResourceId: '7bd81064-588f-48a5-b138-1fc86691a09b',
   databaseName: 'pathfinder_staging',
-  migrationCount: 156,
+  migrationCount: 157,
   baselineCount: 52,
   baselinePublicTableCount: 43,
   priorCompleteCount: 93,
@@ -40,8 +40,8 @@ const EXPECTED = Object.freeze({
   billingFoundationFinalMigration: '20260820210000_add_stripe_billing_foundation',
   previousReleaseFinalMigration: '20260821032000_allow_pending_stripe_customer_link',
   b5CompleteFinalMigration: '20260821201000_add_meeting_processing_capability',
-  finalMigration: '20260823150000_add_visitor_negative_feedback_insight',
-  manifestHash: 'daaa4b04dde66b5ceb36167e3e2e46bb95a2145dad72befd755b6b1498e98a04',
+  finalMigration: '20260823210000_add_location_proposal_capability',
+  manifestHash: 'cc23bfa476465efd6b3c6123f457c1d682e58e11dd440f822237bc649b45efec',
   finalPublicTableCount: 202,
 })
 
