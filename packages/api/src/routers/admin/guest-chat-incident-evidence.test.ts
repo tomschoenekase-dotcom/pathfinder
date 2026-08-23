@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { TRPCContext } from '../../context'
 import { readGuestChatIncidentEvidence } from './guest-chat-incident-evidence'
-import { adminAttentionConsoleRouter } from './attention-console'
+import { adminOperationalEvidenceRouter } from './guest-chat-incident-evidence'
 import { router } from '../../core'
 
 const event = {
@@ -118,7 +118,7 @@ describe('guest chat incident evidence', () => {
   })
 
   it('rejects non-platform administrators before reading evidence', async () => {
-    const testRouter = router({ admin: adminAttentionConsoleRouter })
+    const testRouter = router({ admin: adminOperationalEvidenceRouter })
     const context: TRPCContext = {
       db: {} as TRPCContext['db'],
       headers: new Headers(),

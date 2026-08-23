@@ -3,6 +3,9 @@ import { z } from 'zod'
 
 import { db, withTenantIsolationBypass, writeAuditLogStrict } from '@pathfinder/db'
 
+import { router } from '../../core'
+import { adminProcedure } from '../../trpc'
+
 export const guestChatIncidentEvidenceInput = z.object({ eventId: z.string().uuid() }).strict()
 
 type Dependencies = {
@@ -225,3 +228,9 @@ export async function readGuestChatIncidentEvidence(
     },
   }
 }
+
+export const adminOperationalEvidenceRouter = router({
+  guestChatIncidentEvidence: adminProcedure
+    .input(guestChatIncidentEvidenceInput)
+    .query(({ ctx, input }) => readGuestChatIncidentEvidence(input, ctx.session.userId)),
+})

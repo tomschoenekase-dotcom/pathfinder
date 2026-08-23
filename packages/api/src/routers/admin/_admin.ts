@@ -48,6 +48,7 @@ import { adminVenuePackageOperationsRouter } from './venue-package-operations'
 import { adminSecondLayerRouter } from './second-layer'
 import { adminTochiRolloutRouter } from './tochi-rollout'
 import { adminTerminalRedrivePreviewRouter } from './terminal-redrive-preview'
+import { adminOperationalEvidenceRouter } from './guest-chat-incident-evidence'
 import { adminKnowledgeProposalsRouter } from './knowledge-proposals'
 import { adminProductEntitlementsRouter } from './product-entitlements'
 import { adminProspectCrmRouter } from './prospect-crm'
@@ -116,4 +117,5 @@ export const adminRouter = mergeRouters(
   adminDeploymentManifestReviewRouter,
   adminTochiRolloutRouter,
   adminTerminalRedrivePreviewRouter,
+  adminOperationalEvidenceRouter,
 )
