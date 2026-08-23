@@ -15,6 +15,7 @@ import {
   listAccountCorrespondence,
   listAccountMeetings,
   listConversationKnowledgeGaps,
+  prepareCustomerAccessRequestAction,
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
@@ -59,6 +60,7 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     | 'knowledgeGet'
     | 'listKnowledgeGaps'
     | 'proposeKnowledgeCorrection'
+    | 'prepareCustomerAccessInvitation'
     | 'integrationHealth'
     | 'verifyApprovalGrant'
     | 'createUpdateDraft'
@@ -72,7 +74,11 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
   }
   const approvedWrites: Pick<
     PathfinderMcpDomainActions,
-    'verifyApprovalGrant' | 'createUpdateDraft' | 'processMeeting' | 'proposeKnowledgeCorrection'
+    | 'verifyApprovalGrant'
+    | 'createUpdateDraft'
+    | 'processMeeting'
+    | 'proposeKnowledgeCorrection'
+    | 'prepareCustomerAccessInvitation'
   > = {
     async verifyApprovalGrant(request, context) {
       const now = new Date()
@@ -314,6 +320,103 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
           status: result.proposal.status,
           replayed: result.replayed,
           canonicalKnowledgeChanged: false,
+        }),
+      }
+    },
+    async prepareCustomerAccessInvitation(input, context) {
+      const venueId = input.venueId
+      if (!venueId) throw new McpActionBindingError('Customer access requests require venue scope')
+      const now = new Date()
+      const worker = await database.agentWorker.findFirst({
+        where: {
+          workerKey: input.workerKey,
+          tenantId: context.credential.tenantId,
+          clientId: context.credential.clientId,
+          credentialId: context.credential.credentialId,
+          status: 'ONLINE',
+          leaseExpiresAt: { gt: now },
+          capabilities: { has: 'customer-access:prepare' },
+        },
+        select: { id: true, modelProvider: true, modelName: true },
+      })
+      if (!worker) throw new McpActionBindingError('Verified customer-access worker is unavailable')
+      const run = await database.agentRun.findFirst({
+        where: {
+          id: input.agentRunId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          agentIdentityId: input.agentIdentityId,
+          executionWorkerId: worker.id,
+          status: 'RUNNING',
+          executionLeaseExpiresAt: { gt: now },
+        },
+        select: { id: true },
+      })
+      if (!run) throw new McpActionBindingError('Verified customer-access run is unavailable')
+
+      const actor = {
+        type: 'AGENT' as const,
+        actorId: input.agentIdentityId,
+        role: 'AGENT' as const,
+        agentIdentityId: input.agentIdentityId,
+        agentRunId: input.agentRunId,
+        workerId: worker.id,
+        credentialId: context.credential.credentialId,
+        capability: 'customer-access:prepare',
+        ...(worker.modelProvider && worker.modelName
+          ? { modelProvider: worker.modelProvider, modelName: worker.modelName }
+          : {}),
+        idempotencyKey: input.operationId,
+      }
+      const result = await prepareCustomerAccessRequestAction(
+        {
+          operationId: input.operationId,
+          tenantId: context.credential.tenantId,
+          venueId,
+          supportRequestId: input.supportRequestId,
+          sourceSupportMessageId: input.sourceSupportMessageId,
+          emailAddress: input.emailAddress,
+          requestedRole: input.requestedRole,
+          reason: input.reason,
+          actor,
+        },
+        database,
+      )
+      if (!result.replayed) {
+        await publishOperationalEvent({
+          client: database,
+          event: {
+            tenantId: context.credential.tenantId,
+            venueId,
+            eventType: 'customer-access.approval-required',
+            sourceSubsystem: 'customer-access',
+            severity: 'WARNING',
+            title: 'Customer team invitation needs approval',
+            summary:
+              'An AI worker prepared a member invitation from verified owner-authored support evidence. No invitation has been sent.',
+            actionRequired: true,
+            linkedObjectType: 'customer-access-request',
+            linkedObjectId: result.request.id,
+            recommendedAction:
+              'Review the requested email, source support message, and requested role before authorizing any external invitation.',
+            deduplicationKey: `customer-access-request:${result.request.id}`,
+          },
+        }).catch(() => undefined)
+      }
+      return {
+        kind: 'torchiko.customer-access-request',
+        summary: result.replayed
+          ? 'Existing customer invitation request returned; no invitation was sent.'
+          : 'Customer invitation prepared for founder approval; no invitation was sent.',
+        data: jsonData({
+          id: result.request.id,
+          approvalRequestId: result.request.approvalRequestId,
+          status: result.request.status,
+          requestedRole: result.request.requestedRole,
+          replayed: result.replayed,
+          externalEffectsExecuted: false,
+          membershipChanged: false,
+          invitationSent: false,
         }),
       }
     },

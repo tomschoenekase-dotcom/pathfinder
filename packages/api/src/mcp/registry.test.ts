@@ -20,6 +20,7 @@ const credential: VerifiedMcpCredentialScope = {
     'knowledge:read',
     'meetings:read',
     'meetings:process',
+    'customer-access:prepare',
   ],
 }
 
@@ -43,6 +44,7 @@ function actions(): PathfinderMcpDomainActions {
     knowledgeGet: vi.fn().mockResolvedValue(result),
     listKnowledgeGaps: vi.fn().mockResolvedValue(result),
     proposeKnowledgeCorrection: vi.fn().mockResolvedValue(result),
+    prepareCustomerAccessInvitation: vi.fn().mockResolvedValue(result),
     integrationHealth: vi.fn().mockResolvedValue(result),
     askOperator: vi.fn().mockResolvedValue(result),
     delegateSpecialist: vi.fn().mockResolvedValue(result),
@@ -68,6 +70,7 @@ describe('PathFinder MCP server-side adapter registry', () => {
         'torchiko.account.correspondence',
         'torchiko.knowledge.search',
         'torchiko.knowledge.get',
+        'torchiko.customer_access.prepare_invitation',
         'torchiko.integrations.health',
       ]),
     )
@@ -123,6 +126,39 @@ describe('PathFinder MCP server-side adapter registry', () => {
     expect(domain.accountCorrespondence).toHaveBeenCalled()
     expect(domain.processMeeting).toHaveBeenCalled()
     expect(domain.knowledgeSearch).toHaveBeenCalled()
+  })
+
+  it('admits provider-dark invitation preparation only with exact venue capability', async () => {
+    const domain = actions()
+    const registry = createPathfinderMcpRegistry(domain)
+    const arguments_ = {
+      clientId: 'client-1',
+      venueId: 'venue-1',
+      operationId: '22222222-2222-4222-8222-222222222222',
+      agentIdentityId: 'agent-1',
+      agentRunId: 'run-1',
+      workerKey: 'worker-1',
+      supportRequestId: 'support-1',
+      sourceSupportMessageId: 'message-1',
+      emailAddress: 'new.member@example.com',
+      requestedRole: 'MEMBER',
+      reason: 'The active organization owner requested this teammate invitation.',
+    }
+
+    await registry.callTool('torchiko.customer_access.prepare_invitation', arguments_, {
+      credential,
+    })
+    expect(domain.prepareCustomerAccessInvitation).toHaveBeenCalledWith(
+      expect.objectContaining({ emailAddress: 'new.member@example.com', requestedRole: 'MEMBER' }),
+      expect.objectContaining({ credential }),
+    )
+    expect(domain.verifyApprovalGrant).not.toHaveBeenCalled()
+
+    await expect(
+      registry.callTool('torchiko.customer_access.prepare_invitation', arguments_, {
+        credential: { ...credential, capabilities: [] },
+      }),
+    ).rejects.toThrow('Capability denied')
   })
 
   it('denies company-brain reads for a different client before the action runs', async () => {

@@ -107,6 +107,17 @@ async function readAttentionConsole(operatorUserId: string, query: AttentionCons
           expiresAt: true,
           createdAt: true,
           agentIdentity: { select: { name: true } },
+          customerAccessRequest: {
+            select: {
+              id: true,
+              targetEmail: true,
+              requestedRole: true,
+              status: true,
+              supportRequestId: true,
+              sourceSupportMessageId: true,
+              providerInvitationId: true,
+            },
+          },
         },
       }),
       db.supportRequest.findMany({

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { AgentIdentityConfigurationFields } from '@pathfinder/contracts'
 
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { AgentIdentityCreateEditor, AgentIdentityEditEditor } from './AgentIdentityEditor'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
 import { AgentTaskComposer } from './AgentTaskComposer'
@@ -51,6 +52,15 @@ type Approval = {
   state: string
   createdAt: Date
   agentIdentity: { id: string; name: string }
+  customerAccessRequest?: {
+    id: string
+    targetEmail: string
+    requestedRole: string
+    status: string
+    supportRequestId: string
+    sourceSupportMessageId: string
+    providerInvitationId: string | null
+  } | null
 }
 
 type Question = {
@@ -598,6 +608,11 @@ export function AgentOperationsOverview({
                 </div>
                 <p className="mt-2 text-sm font-semibold text-pf-deep">{approval.proposedAction}</p>
                 <p className="mt-1 text-sm text-pf-deep/65">{approval.reason}</p>
+                <CustomerAccessApprovalContext
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  request={approval.customerAccessRequest}
+                />
                 {approval.state === 'PENDING' ? (
                   <ApprovalDecisionForm
                     tenantId={tenantId}

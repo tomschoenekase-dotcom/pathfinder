@@ -307,6 +307,17 @@ const adminAgentRunOperationsRouter = router({
             createdAt: true,
             agentIdentity: { select: { id: true, name: true } },
             venue: { select: { id: true, name: true } },
+            customerAccessRequest: {
+              select: {
+                id: true,
+                targetEmail: true,
+                requestedRole: true,
+                status: true,
+                supportRequestId: true,
+                sourceSupportMessageId: true,
+                providerInvitationId: true,
+              },
+            },
             decision: {
               select: {
                 id: true,
@@ -356,6 +367,17 @@ const adminAgentRunOperationsRouter = router({
             createdAt: true,
             agentIdentity: { select: { id: true, name: true } },
             venue: { select: { id: true, name: true } },
+            customerAccessRequest: {
+              select: {
+                id: true,
+                targetEmail: true,
+                requestedRole: true,
+                status: true,
+                supportRequestId: true,
+                sourceSupportMessageId: true,
+                providerInvitationId: true,
+              },
+            },
             decision: {
               select: {
                 id: true,

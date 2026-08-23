@@ -4,6 +4,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 import type { AppRouter } from '@pathfinder/api'
 import { AgentQuestionAnswerForm } from './AgentQuestionAnswerForm'
 import { ApprovalDecisionForm } from './ApprovalDecisionForm'
+import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 import { FounderBriefingChangeDigest } from './FounderBriefingChangeDigest'
 import { FounderBriefingReviewForm } from './FounderBriefingReviewForm'
 import { OperationalEventActions } from './OperationalEventActions'
@@ -870,6 +871,13 @@ export function OperationsAttentionConsole({ data }: { data: Data }) {
                     {approval.agentIdentity.name} · {approval.riskCategory} risk ·{' '}
                     {date(approval.createdAt)}
                   </p>
+                  {approval.venueId ? (
+                    <CustomerAccessApprovalContext
+                      tenantId={approval.tenantId}
+                      venueId={approval.venueId}
+                      request={approval.customerAccessRequest}
+                    />
+                  ) : null}
                   {approval.venueId ? (
                     <>
                       {!approval.expired ? (

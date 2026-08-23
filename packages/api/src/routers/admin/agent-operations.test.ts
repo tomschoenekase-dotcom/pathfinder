@@ -329,6 +329,16 @@ describe('admin agent operations router', () => {
           OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
         }),
         take: 51,
+        select: expect.objectContaining({
+          customerAccessRequest: {
+            select: expect.objectContaining({
+              targetEmail: true,
+              requestedRole: true,
+              status: true,
+              sourceSupportMessageId: true,
+            }),
+          },
+        }),
       }),
     )
   })

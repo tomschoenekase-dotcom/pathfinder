@@ -1,14 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { consumeApproval, createUpdate, buildPreview, listGaps, proposeCorrection, publishEvent } =
-  vi.hoisted(() => ({
-    consumeApproval: vi.fn(),
-    createUpdate: vi.fn(),
-    buildPreview: vi.fn(),
-    listGaps: vi.fn(),
-    proposeCorrection: vi.fn(),
-    publishEvent: vi.fn(),
-  }))
+const {
+  consumeApproval,
+  createUpdate,
+  buildPreview,
+  listGaps,
+  proposeCorrection,
+  prepareCustomerAccess,
+  publishEvent,
+} = vi.hoisted(() => ({
+  consumeApproval: vi.fn(),
+  createUpdate: vi.fn(),
+  buildPreview: vi.fn(),
+  listGaps: vi.fn(),
+  proposeCorrection: vi.fn(),
+  prepareCustomerAccess: vi.fn(),
+  publishEvent: vi.fn(),
+}))
 
 vi.mock('@pathfinder/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pathfinder/db')>()),
@@ -17,6 +25,7 @@ vi.mock('@pathfinder/db', async (importOriginal) => ({
   buildOperationalUpdatePreview: buildPreview,
   listConversationKnowledgeGaps: listGaps,
   proposeKnowledgeCorrectionAction: proposeCorrection,
+  prepareCustomerAccessRequestAction: prepareCustomerAccess,
   publishOperationalEvent: publishEvent,
 }))
 
@@ -59,6 +68,82 @@ describe('safe operational MCP composition', () => {
     ).rejects.toMatchObject({
       code: 'MCP_ACTION_UNAVAILABLE',
     })
+  })
+
+  it('prepares an invitation approval item through canonical machine attribution without provider effects', async () => {
+    prepareCustomerAccess.mockResolvedValue({
+      request: {
+        id: 'access-1',
+        approvalRequestId: 'approval-1',
+        status: 'AWAITING_APPROVAL',
+        requestedRole: 'MEMBER',
+      },
+      replayed: false,
+    })
+    publishEvent.mockResolvedValue({ id: 'event-1' })
+    const database = {
+      agentWorker: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'worker-id-1',
+          modelProvider: 'openai',
+          modelName: 'gpt-test',
+        }),
+      },
+      agentRun: { findFirst: vi.fn().mockResolvedValue({ id: 'run-1' }) },
+    }
+    const registry = createSafeOperationalMcpRegistry(database as never)
+    const accessCredential = {
+      ...credential,
+      capabilities: ['customer-access:prepare'],
+    } satisfies VerifiedMcpCredentialScope
+
+    const result = await registry.callTool(
+      'torchiko.customer_access.prepare_invitation',
+      {
+        clientId: 'tenant-1',
+        venueId: 'venue-1',
+        operationId: '22222222-2222-4222-8222-222222222222',
+        agentIdentityId: 'agent-1',
+        agentRunId: 'run-1',
+        workerKey: 'worker-1',
+        supportRequestId: 'support-1',
+        sourceSupportMessageId: 'message-1',
+        emailAddress: 'new.member@example.com',
+        requestedRole: 'MEMBER',
+        reason: 'The active organization owner requested this teammate invitation.',
+      },
+      { credential: accessCredential },
+    )
+
+    expect(prepareCustomerAccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        venueId: 'venue-1',
+        emailAddress: 'new.member@example.com',
+        actor: expect.objectContaining({
+          capability: 'customer-access:prepare',
+          workerId: 'worker-id-1',
+          credentialId: 'credential-1',
+        }),
+      }),
+      database,
+    )
+    expect(result.structuredContent).toMatchObject({
+      kind: 'torchiko.customer-access-request',
+      data: {
+        status: 'AWAITING_APPROVAL',
+        externalEffectsExecuted: false,
+        invitationSent: false,
+      },
+    })
+    expect(publishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          eventType: 'customer-access.approval-required',
+          linkedObjectId: 'access-1',
+        }),
+      }),
+    )
   })
 
   it('consumes an exact one-shot grant and uses the canonical machine-attributed draft action', async () => {

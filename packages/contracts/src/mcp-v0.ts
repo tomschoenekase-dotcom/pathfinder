@@ -43,6 +43,7 @@ export const McpCapability = z.enum([
   'reports:read',
   'conversations:read',
   'conversations:review',
+  'customer-access:prepare',
   'integrations:read',
   'agent-runs:read',
   'events:read',
@@ -518,6 +519,19 @@ export type McpKnowledgeCorrectionProposalInput = z.infer<
   typeof McpKnowledgeCorrectionProposalInput
 >
 
+export const McpCustomerAccessPreparationInput = McpRequestedScope.extend({
+  operationId: z.string().uuid(),
+  agentIdentityId: Identifier,
+  agentRunId: Identifier,
+  workerKey: Identifier,
+  supportRequestId: Identifier,
+  sourceSupportMessageId: Identifier,
+  emailAddress: z.string().trim().email().max(320),
+  requestedRole: z.literal('MEMBER'),
+  reason: z.string().trim().min(3).max(2000),
+}).strict()
+export type McpCustomerAccessPreparationInput = z.infer<typeof McpCustomerAccessPreparationInput>
+
 const McpMeetingExtractionType = z.enum([
   'SUMMARY',
   'DECISION',
@@ -701,6 +715,7 @@ export type PathfinderMcpToolName =
   | 'torchiko.knowledge.get'
   | 'torchiko.knowledge.list_gaps'
   | 'torchiko.knowledge.propose_correction'
+  | 'torchiko.customer_access.prepare_invitation'
   | 'torchiko.integrations.health'
   | 'pathfinder.ask_operator'
   | 'pathfinder.delegate_specialist'
@@ -873,6 +888,51 @@ export const PATHFINDER_MCP_TOOLS: readonly PathfinderMcpToolDefinition[] = [
     },
     _meta: {
       'com.pathfinder/security': security('venue', 'meetings:process', 'interaction'),
+    },
+  },
+  {
+    name: 'torchiko.customer_access.prepare_invitation',
+    title: 'Prepare a customer team invitation',
+    description:
+      'Prepare one idempotent tenant-wide member invitation from an exact active owner-authored support message. It creates a high-risk founder approval item and never contacts Clerk, sends email, or changes membership.',
+    inputSchema: strictObject(
+      {
+        ...scopeProperties,
+        operationId: { type: 'string', format: 'uuid' },
+        agentIdentityId: { type: 'string', minLength: 1, maxLength: 120 },
+        agentRunId: { type: 'string', minLength: 1, maxLength: 120 },
+        workerKey: { type: 'string', minLength: 1, maxLength: 120 },
+        supportRequestId: { type: 'string', minLength: 1, maxLength: 120 },
+        sourceSupportMessageId: { type: 'string', minLength: 1, maxLength: 120 },
+        emailAddress: { type: 'string', format: 'email', maxLength: 320 },
+        requestedRole: { type: 'string', enum: ['MEMBER'] },
+        reason: { type: 'string', minLength: 3, maxLength: 2000 },
+      },
+      [
+        ...scopeRequired,
+        'operationId',
+        'agentIdentityId',
+        'agentRunId',
+        'workerKey',
+        'supportRequestId',
+        'sourceSupportMessageId',
+        'emailAddress',
+        'requestedRole',
+        'reason',
+      ],
+    ),
+    outputSchema: resultSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    _meta: {
+      'com.pathfinder/security': {
+        ...security('venue', 'customer-access:prepare', 'interaction'),
+        risk: 'moderate',
+      },
     },
   },
   {

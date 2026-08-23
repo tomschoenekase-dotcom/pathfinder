@@ -6,6 +6,7 @@ import {
   McpAccountHistoryInput,
   McpAccountMeetingGetInput,
   McpBillingProposalInput,
+  McpCustomerAccessPreparationInput,
   McpDelegateSpecialistInput,
   McpEvaluationRequestInput,
   McpPackageDraftInput,
@@ -56,6 +57,7 @@ export type PathfinderMcpDomainActions = Readonly<{
         | 'torchiko.knowledge.get'
         | 'torchiko.knowledge.list_gaps'
         | 'torchiko.knowledge.propose_correction'
+        | 'torchiko.customer_access.prepare_invitation'
         | 'torchiko.integrations.health'
         | 'pathfinder.ask_operator'
         | 'pathfinder.delegate_specialist'
@@ -106,6 +108,10 @@ export type PathfinderMcpDomainActions = Readonly<{
   ) => Promise<McpToolResult>
   proposeKnowledgeCorrection: (
     input: McpKnowledgeCorrectionProposalInput,
+    context: VerifiedMcpInvocationContext,
+  ) => Promise<McpToolResult>
+  prepareCustomerAccessInvitation: (
+    input: McpCustomerAccessPreparationInput,
     context: VerifiedMcpInvocationContext,
   ) => Promise<McpToolResult>
   integrationHealth: (
@@ -274,6 +280,12 @@ export function createPathfinderMcpRegistry(
           result = await actions.proposeKnowledgeCorrection(input, context)
           break
         }
+        case 'torchiko.customer_access.prepare_invitation': {
+          const input = McpCustomerAccessPreparationInput.parse(arguments_)
+          assertMcpScope(context.credential, input, metadata.capability, 'venue')
+          result = await actions.prepareCustomerAccessInvitation(input, context)
+          break
+        }
         case 'torchiko.integrations.health': {
           const input = McpIntegrationHealthInput.parse(arguments_)
           assertMcpScope(context.credential, input, metadata.capability, 'client-or-venue')
@@ -372,6 +384,7 @@ async function verifyApproval(
     | 'torchiko.knowledge.get'
     | 'torchiko.knowledge.list_gaps'
     | 'torchiko.knowledge.propose_correction'
+    | 'torchiko.customer_access.prepare_invitation'
     | 'torchiko.integrations.health'
     | 'pathfinder.ask_operator'
     | 'pathfinder.delegate_specialist'

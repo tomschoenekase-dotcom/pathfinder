@@ -315,6 +315,7 @@ describe('operations attention console', () => {
                 expiresAt: new Date('2099-01-01T00:00:00.000Z'),
                 createdAt: new Date(),
                 agentIdentity: { name: 'Support operator' },
+                customerAccessRequest: null,
                 expired: false,
               },
             ],

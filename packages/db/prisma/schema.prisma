@@ -205,6 +205,7 @@ model Tenant {
   accountOpenLoops               AccountOpenLoop[]
   accountCommitments             AccountCommitment[]
   accountSummaries               AccountSummary[]
+  customerAccessRequests         CustomerAccessRequest[]
 
   @@map("tenants")
 }
@@ -1259,6 +1260,7 @@ model Venue {
   agentActions                        AgentAction[]
   agentTimelineEvents                 AgentTimelineEvent[]
   approvalRequests                    ApprovalRequest[]
+  customerAccessRequests              CustomerAccessRequest[]
   agentQuestions                      AgentQuestion[]
   onboardingQuestionLinks             OnboardingQuestionLink[]
   agentMessages                       AgentMessage[]
@@ -2630,17 +2632,68 @@ model PlatformOperationalEvent {
   @@map("platform_operational_events")
 }
 
+enum CustomerAccessRequestStatus {
+  AWAITING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+  PROVIDER_STARTED
+  INVITED
+  RECONCILIATION_REQUIRED
+}
+
+enum CustomerAccessRequestedRole {
+  MEMBER
+}
+
+/// Reviewable, provider-dark request to invite one customer user. AI workers may
+/// prepare this record from an exact client-authored support message, but the
+/// request cannot contact Clerk or send email until a separate approved executor
+/// is implemented and invoked. The venue is evidence scope; membership is tenant-wide.
+model CustomerAccessRequest {
+  id                     String                      @id @default(cuid())
+  operationId            String                      @map("operation_id") @db.Uuid
+  tenantId               String                      @map("tenant_id")
+  venueId                String                      @map("venue_id")
+  agentIdentityId        String                      @map("agent_identity_id")
+  agentRunId             String                      @map("agent_run_id")
+  supportRequestId       String                      @map("support_request_id")
+  sourceSupportMessageId String                      @map("source_support_message_id")
+  approvalRequestId      String                      @map("approval_request_id")
+  targetEmail            String                      @map("target_email") @db.VarChar(320)
+  requestedRole          CustomerAccessRequestedRole @default(MEMBER) @map("requested_role")
+  reason                 String                      @db.VarChar(2000)
+  status                 CustomerAccessRequestStatus @default(AWAITING_APPROVAL)
+  providerInvitationId   String?                     @unique @map("provider_invitation_id") @db.VarChar(191)
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  updatedAt              DateTime                    @updatedAt @map("updated_at")
+  tenant                 Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue                       @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity          AgentIdentity               @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun               AgentRun                    @relation(fields: [agentRunId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  supportRequest         SupportRequest              @relation(fields: [supportRequestId, tenantId, venueId], references: [id, tenantId, venueId], onDelete: Restrict, onUpdate: Restrict)
+  sourceSupportMessage   SupportMessage              @relation(fields: [sourceSupportMessageId, tenantId, venueId, supportRequestId], references: [id, tenantId, venueId, supportRequestId], onDelete: Restrict, onUpdate: Restrict)
+  approvalRequest        ApprovalRequest             @relation(fields: [approvalRequestId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, operationId], map: "customer_access_requests_tenant_operation_key")
+  @@unique([approvalRequestId, tenantId], map: "customer_access_requests_approval_scope_key")
+  @@unique([id, tenantId, venueId], map: "customer_access_requests_id_scope_key")
+  @@index([tenantId, venueId, status, createdAt, id], map: "customer_access_requests_scope_status_created_idx")
+  @@index([tenantId, targetEmail, status, createdAt, id], map: "customer_access_requests_email_status_created_idx")
+  @@map("customer_access_requests")
+}
+
 /// Append-only evidence that one platform operator reviewed the bounded
 /// Founder Control Room snapshot through an exact server-generated timestamp.
 /// This cursor never resolves, acknowledges, approves, or executes queue work.
 model FounderControlRoomReview {
-  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  operationId              String    @unique @map("operation_id") @db.Uuid
-  operatorUserId           String    @map("operator_user_id") @db.VarChar(191)
-  reviewedThrough          DateTime  @map("reviewed_through")
-  previousReviewedThrough  DateTime? @map("previous_reviewed_through")
-  briefingSchemaVersion    Int       @map("briefing_schema_version")
-  createdAt                DateTime  @default(now()) @map("created_at")
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operationId             String    @unique @map("operation_id") @db.Uuid
+  operatorUserId          String    @map("operator_user_id") @db.VarChar(191)
+  reviewedThrough         DateTime  @map("reviewed_through")
+  previousReviewedThrough DateTime? @map("previous_reviewed_through")
+  briefingSchemaVersion   Int       @map("briefing_schema_version")
+  createdAt               DateTime  @default(now()) @map("created_at")
 
   @@index([operatorUserId, reviewedThrough, createdAt], map: "founder_control_room_reviews_operator_cursor_idx")
   @@map("founder_control_room_reviews")
@@ -3990,33 +4043,34 @@ enum WeeklyDigestStatus {
 /// A tenant-owned machine principal. Access and autonomy are intentionally
 /// independent: visibility never implies permission to mutate.
 model AgentIdentity {
-  id                  String                     @id @default(cuid())
-  tenantId            String                     @map("tenant_id")
-  venueId             String?                    @map("venue_id")
-  identityKey         String                     @map("identity_key") @db.VarChar(100)
-  name                String                     @db.VarChar(191)
-  description         String?
-  agentType           String                     @map("agent_type") @db.VarChar(100)
-  accessScope         AgentAccessScope           @map("access_scope")
-  accessCapabilities  String[]                   @default([]) @map("access_capabilities")
-  autonomyLevel       AgentAutonomyLevel         @default(READ_ONLY) @map("autonomy_level")
-  autonomousActions   String[]                   @default([]) @map("autonomous_actions")
-  defaultProvider     String?                    @map("default_provider") @db.VarChar(100)
-  defaultModel        String?                    @map("default_model") @db.VarChar(191)
-  enabled             Boolean                    @default(false)
-  createdBy           String                     @map("created_by") @db.VarChar(191)
-  createdAt           DateTime                   @default(now()) @map("created_at")
-  updatedAt           DateTime                   @updatedAt @map("updated_at")
-  tenant              Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue               Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  runs                AgentRun[]
-  actions             AgentAction[]
-  approvalRequests    ApprovalRequest[]
-  questions           AgentQuestion[]
-  messages            AgentMessage[]
-  outcomeObservations AgentOutcomeObservation[]
-  approvalGrants      ApprovalGrant[]
-  grantConsumptions   ApprovalGrantConsumption[]
+  id                     String                     @id @default(cuid())
+  tenantId               String                     @map("tenant_id")
+  venueId                String?                    @map("venue_id")
+  identityKey            String                     @map("identity_key") @db.VarChar(100)
+  name                   String                     @db.VarChar(191)
+  description            String?
+  agentType              String                     @map("agent_type") @db.VarChar(100)
+  accessScope            AgentAccessScope           @map("access_scope")
+  accessCapabilities     String[]                   @default([]) @map("access_capabilities")
+  autonomyLevel          AgentAutonomyLevel         @default(READ_ONLY) @map("autonomy_level")
+  autonomousActions      String[]                   @default([]) @map("autonomous_actions")
+  defaultProvider        String?                    @map("default_provider") @db.VarChar(100)
+  defaultModel           String?                    @map("default_model") @db.VarChar(191)
+  enabled                Boolean                    @default(false)
+  createdBy              String                     @map("created_by") @db.VarChar(191)
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
+  tenant                 Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                  Venue?                     @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  runs                   AgentRun[]
+  actions                AgentAction[]
+  approvalRequests       ApprovalRequest[]
+  customerAccessRequests CustomerAccessRequest[]
+  questions              AgentQuestion[]
+  messages               AgentMessage[]
+  outcomeObservations    AgentOutcomeObservation[]
+  approvalGrants         ApprovalGrant[]
+  grantConsumptions      ApprovalGrantConsumption[]
 
   @@unique([tenantId, identityKey])
   @@unique([id, tenantId])
@@ -4064,6 +4118,7 @@ model AgentRun {
   actions                   AgentAction[]
   timelineEvents            AgentTimelineEvent[]
   approvalRequests          ApprovalRequest[]
+  customerAccessRequests    CustomerAccessRequest[]
   questions                 AgentQuestion[]
   messages                  AgentMessage[]
   outcomeObservations       AgentOutcomeObservation[]
@@ -4152,26 +4207,27 @@ model AgentTimelineEvent {
 
 /// Immutable proposal. Pending is represented by the absence of a decision.
 model ApprovalRequest {
-  id                  String               @id @default(cuid())
-  tenantId            String               @map("tenant_id")
-  venueId             String?              @map("venue_id")
-  agentIdentityId     String               @map("agent_identity_id")
-  agentRunId          String?              @map("agent_run_id")
-  requestedByType     ActorType            @map("requested_by_type")
-  requestedById       String               @map("requested_by_id") @db.VarChar(191)
-  proposedAction      String               @map("proposed_action") @db.VarChar(191)
-  scopeSnapshot       Json                 @map("scope_snapshot")
-  reason              String               @db.VarChar(2000)
-  riskCategory        ApprovalRiskCategory @map("risk_category")
-  artifacts           Json                 @default("[]")
-  expiresAt           DateTime?            @map("expires_at")
-  createdAt           DateTime             @default(now()) @map("created_at")
-  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  venue               Venue?               @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentIdentity       AgentIdentity        @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  agentRun            AgentRun?            @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
-  decision            ApprovalDecision?
-  billingAgentCommand BillingAgentCommand?
+  id                    String                 @id @default(cuid())
+  tenantId              String                 @map("tenant_id")
+  venueId               String?                @map("venue_id")
+  agentIdentityId       String                 @map("agent_identity_id")
+  agentRunId            String?                @map("agent_run_id")
+  requestedByType       ActorType              @map("requested_by_type")
+  requestedById         String                 @map("requested_by_id") @db.VarChar(191)
+  proposedAction        String                 @map("proposed_action") @db.VarChar(191)
+  scopeSnapshot         Json                   @map("scope_snapshot")
+  reason                String                 @db.VarChar(2000)
+  riskCategory          ApprovalRiskCategory   @map("risk_category")
+  artifacts             Json                   @default("[]")
+  expiresAt             DateTime?              @map("expires_at")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  venue                 Venue?                 @relation(fields: [venueId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentIdentity         AgentIdentity          @relation(fields: [agentIdentityId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  agentRun              AgentRun?              @relation(fields: [agentRunId, tenantId], references: [id, tenantId], onDelete: Restrict, onUpdate: Restrict)
+  decision              ApprovalDecision?
+  billingAgentCommand   BillingAgentCommand?
+  customerAccessRequest CustomerAccessRequest?
 
   @@unique([id, tenantId])
   @@index([tenantId, createdAt])
@@ -4519,6 +4575,7 @@ model SupportRequest {
   agentRunLineages       SupportAgentRunLineage[]
   onboardingQuestionLink OnboardingQuestionLink?
   clientAssistantHandoff ClientAssistantSupportHandoff?
+  customerAccessRequests CustomerAccessRequest[]
 
   @@unique([id, tenantId, venueId])
   @@index([tenantId, venueId, updatedAt, id])
@@ -4585,6 +4642,7 @@ model SupportMessage {
   attachments               SupportMessageAttachment[]
   previewFeedback           SupportPreviewFeedback?
   onboardingQuestionAnswers OnboardingQuestionLink[]
+  customerAccessRequests    CustomerAccessRequest[]
 
   @@unique([id, tenantId, venueId, supportRequestId])
   @@unique([tenantId, submissionRequestId], map: "support_messages_tenant_submission_request_key")

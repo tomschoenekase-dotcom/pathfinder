@@ -70,6 +70,18 @@ describe('Torchiko MCP v0 contracts', () => {
       defaultEnabled: true,
       approvalRequired: false,
     })
+    const customerAccess = PATHFINDER_MCP_TOOLS.find(
+      ({ name }) => name === 'torchiko.customer_access.prepare_invitation',
+    )!
+    expect(customerAccess._meta['com.pathfinder/security']).toMatchObject({
+      scope: 'venue',
+      capability: 'customer-access:prepare',
+      effect: 'interaction',
+      risk: 'moderate',
+      defaultEnabled: true,
+      approvalRequired: false,
+    })
+    expect(customerAccess.description).toContain('never contacts Clerk')
   })
 
   it('rejects cross-client, cross-venue, and missing-capability scope attempts', () => {

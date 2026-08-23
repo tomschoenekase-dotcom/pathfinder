@@ -1,5 +1,6 @@
 export const TENANTED_TABLES = [
   'TenantMembership',
+  'CustomerAccessRequest',
   'TenantFeatureFlag',
   'ProductEntitlementOverride',
   'BillingAccount',

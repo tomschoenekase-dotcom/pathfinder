@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { formatE8Usd } from './AgentOperationsOverview'
 import { AgentRunCancellationControl } from './AgentRunCancellationControl'
 import { AgentOutcomeObservationForm } from './AgentOutcomeObservationForm'
+import { CustomerAccessApprovalContext } from './CustomerAccessApprovalContext'
 
 type Cursor = { createdAt: string; id: string } | null
 type Run = {
@@ -89,6 +90,15 @@ type Approval = {
   expiresAt: Date | null
   createdAt: Date
   decision: { decision: string; reason: string | null; createdAt: Date } | null
+  customerAccessRequest?: {
+    id: string
+    targetEmail: string
+    requestedRole: string
+    status: string
+    supportRequestId: string
+    sourceSupportMessageId: string
+    providerInvitationId: string | null
+  } | null
 }
 type OutcomeObservation = {
   id: string
@@ -498,6 +508,11 @@ export function AgentRunOperationsView({
                 </div>
                 <p className="mt-2 font-semibold text-pf-deep">{approval.proposedAction}</p>
                 <p className="mt-1 text-sm text-pf-deep/65">{approval.reason}</p>
+                <CustomerAccessApprovalContext
+                  tenantId={tenantId}
+                  venueId={venueId}
+                  request={approval.customerAccessRequest}
+                />
                 {approval.decision ? (
                   <p className="mt-3 text-sm text-pf-deep">
                     {approval.decision.decision.replace(/_/g, ' ')}

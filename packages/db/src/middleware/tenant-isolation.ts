@@ -90,6 +90,7 @@ const APPEND_ONLY_MODELS = [
 const AUDIT_LIFECYCLE_MODELS = [
   'AgentBridgeSession',
   'AgentRun',
+  'CustomerAccessRequest',
   'EvalRun',
   'EvalRunCostReservation',
   'SupportRequest',

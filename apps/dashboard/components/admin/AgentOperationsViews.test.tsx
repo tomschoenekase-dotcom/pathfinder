@@ -165,6 +165,15 @@ describe('agent operations views', () => {
               expiresAt: null,
               createdAt: new Date('2026-08-11T12:01:00Z'),
               decision: null,
+              customerAccessRequest: {
+                id: 'access_1',
+                targetEmail: 'new.member@example.com',
+                requestedRole: 'MEMBER',
+                status: 'AWAITING_APPROVAL',
+                supportRequestId: 'support_1',
+                sourceSupportMessageId: 'message_1',
+                providerInvitationId: null,
+              },
             },
           ],
           nextCursor: null,
@@ -176,6 +185,8 @@ describe('agent operations views', () => {
     expect(screen.getByText('Prepared a bounded draft.')).toBeTruthy()
     expect(screen.getByText('Approval requested.')).toBeTruthy()
     expect(screen.getByText('PENDING')).toBeTruthy()
+    expect(screen.getByText('new.member@example.com')).toBeTruthy()
+    expect(screen.getByText('No invitation sent')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Request cancellation' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable|run agent|retry|approve/i })).toBeNull()
   })

@@ -840,6 +840,14 @@ export type {
   TenantSettingsHumanActor,
 } from './helpers/tenant-settings-actions'
 export {
+  CustomerAccessRequestActionError,
+  prepareCustomerAccessRequestAction,
+} from './helpers/customer-access-request-actions'
+export type {
+  CustomerAccessRequestActionErrorCode,
+  PrepareCustomerAccessRequestInput,
+} from './helpers/customer-access-request-actions'
+export {
   addChatlogNoteAction,
   ChatlogReviewActionError,
   setChatlogNotableAction,
