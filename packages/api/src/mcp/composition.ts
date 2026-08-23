@@ -19,13 +19,12 @@ import {
   proposeKnowledgeCorrectionAction,
   publishOperationalEvent,
   searchCompanyKnowledge,
-  withTenantIsolationBypass,
 } from '@pathfinder/db'
 import type { JsonValue, PathfinderMcpToolName } from '@pathfinder/contracts/mcp-v0'
 
 import { createPathfinderMcpAgentActions } from './agent-actions'
 import { createApiAiUsageRecorder } from '../lib/api-ai-usage'
-import { readWeeklyReportLifecycle } from '../lib/weekly-report-lifecycle'
+import { readWeeklyReportLifecycleForMachine } from '../lib/weekly-report-lifecycle'
 import { createPathfinderMcpReadActions, McpReadBindingError } from './read-actions'
 import { createPathfinderMcpRegistry, type PathfinderMcpDomainActions } from './registry'
 
@@ -747,15 +746,13 @@ export function createSafeOperationalMcpRegistry(database: typeof db = db) {
     async reportLifecycle(input, context) {
       const venueId = input.venueId
       if (!venueId) throw new McpReadBindingError('SCOPE_INVARIANT', 'Venue scope is required.')
-      const lifecycle = await withTenantIsolationBypass(() =>
-        readWeeklyReportLifecycle(
-          {
-            tenantId: context.credential.tenantId,
-            venueId,
-            reportId: input.reportId,
-          },
-          database,
-        ),
+      const lifecycle = await readWeeklyReportLifecycleForMachine(
+        {
+          tenantId: context.credential.tenantId,
+          venueId,
+          reportId: input.reportId,
+        },
+        database,
       )
       if (!lifecycle) {
         throw new McpReadBindingError(

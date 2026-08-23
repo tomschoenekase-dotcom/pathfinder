@@ -1,4 +1,4 @@
-import { db } from '@pathfinder/db'
+import { db, withTenantIsolationBypass } from '@pathfinder/db'
 import { WEEKLY_REPORT_QUEUE } from '@pathfinder/jobs'
 
 export type SimpleWeeklyReportStatus = 'QUEUED' | 'RUNNING' | 'REVIEW' | 'PUBLISHED' | 'FAILED'
@@ -115,4 +115,16 @@ export async function readWeeklyReportLifecycle(
     jobs,
     audits,
   }
+}
+
+/**
+ * Machine-authenticated callers carry exact tenant and venue scope but do not enter through a
+ * tenant session. Keep their privileged read at this narrow data-access boundary so the bypass
+ * cannot expand to unrelated MCP composition work.
+ */
+export function readWeeklyReportLifecycleForMachine(
+  input: Readonly<{ tenantId: string; venueId: string; reportId: string }>,
+  database: typeof db = db,
+) {
+  return withTenantIsolationBypass(() => readWeeklyReportLifecycle(input, database))
 }

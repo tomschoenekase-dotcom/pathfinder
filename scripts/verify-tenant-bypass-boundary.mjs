@@ -123,6 +123,9 @@ const approvedCallCounts = new Map([
   ['packages/api/src/prospect-agent/registry.ts', 1],
   ['packages/api/src/routers/admin/venue-package-operations.ts', 2],
   ['packages/api/src/routers/admin/weekly-report-lifecycle.ts', 1],
+  // Exact tenant+venue+report read for a capability-checked machine credential. Raw report
+  // content, provider errors, source artifacts, and actor identity remain excluded upstream.
+  ['packages/api/src/lib/weekly-report-lifecycle.ts', 1],
   ['packages/db/src/helpers/evaluation-run-lifecycle.ts', 7],
   ['packages/api/src/routers/admin/media-ingestion-begin-upload.ts', 6],
   ['packages/api/src/routers/admin/media-ingestion-abort.ts', 1],
